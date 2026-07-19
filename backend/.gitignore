@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+db.sqlite3
+media/
+test_media/
+staticfiles/
+.env
+*.log
+.DS_Store

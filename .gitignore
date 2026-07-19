@@ -1,0 +1,29 @@
+# Python
+.venv/
+backend/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+backend/db.sqlite3
+backend/media/
+backend/test_media/
+backend/staticfiles/
+
+# Node
+web/node_modules/
+web/dist/
+web/coverage/
+
+# Environment and editor
+.env
+.idea/
+.vscode/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local artifacts
+web_build_out.txt
