@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.permissions import HasCompany, get_company_user
+from core.permissions import CanCancelDocuments, CanViewFinancialReports, HasCompany, get_company_user
 from masters.models import Customer, Supplier
 
 from .services import LedgerService
@@ -18,7 +18,7 @@ def _parse_date(value):
 class CustomerLedgerListView(APIView):
     """Outstanding summary for all customers (E5.6)."""
 
-    permission_classes = [IsAuthenticated, HasCompany]
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
 
     def get(self, request):
         company = get_company_user(request).company
@@ -35,7 +35,7 @@ class CustomerLedgerListView(APIView):
 
 
 class CustomerLedgerDetailView(APIView):
-    permission_classes = [IsAuthenticated, HasCompany]
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
 
     def get(self, request, customer_id):
         company = get_company_user(request).company
@@ -56,7 +56,7 @@ class CustomerLedgerDetailView(APIView):
 class SupplierLedgerListView(APIView):
     """Outstanding summary for all suppliers (E5.7)."""
 
-    permission_classes = [IsAuthenticated, HasCompany]
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
 
     def get(self, request):
         company = get_company_user(request).company
@@ -72,7 +72,7 @@ class SupplierLedgerListView(APIView):
 
 
 class SupplierLedgerDetailView(APIView):
-    permission_classes = [IsAuthenticated, HasCompany]
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
 
     def get(self, request, supplier_id):
         company = get_company_user(request).company

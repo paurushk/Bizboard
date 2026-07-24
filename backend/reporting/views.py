@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.exceptions import BusinessRuleError
-from core.permissions import HasCompany, get_company_user
+from core.permissions import CanExport, CanViewFinancialReports, HasCompany, get_company_user
 
 from .services import ReportService
 
@@ -18,7 +18,7 @@ def _parse_date(value):
 
 
 class BaseReportView(APIView):
-    permission_classes = [IsAuthenticated, HasCompany]
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
 
     @property
     def company(self):
@@ -92,6 +92,8 @@ EXPORTS = {
 
 class ExportView(BaseReportView):
     """CSV export of registers via Report Service (E5.8)."""
+
+    permission_classes = [IsAuthenticated, HasCompany, CanExport]
 
     def get(self, request, report):
         if report not in EXPORTS:

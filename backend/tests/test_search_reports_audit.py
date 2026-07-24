@@ -89,5 +89,12 @@ def test_audit_log_records_and_is_owner_only(tenant_a):
 
 
 def test_openapi_schema_available(tenant_a):
+    from django.conf import settings
+
+    if not settings.ENABLE_API_DOCS:
+        # Docs may be disabled in locked-down deploys.
+        resp = tenant_a.client.get("/api/v1/schema/")
+        assert resp.status_code == 404
+        return
     resp = tenant_a.client.get("/api/v1/schema/")
     assert resp.status_code == 200

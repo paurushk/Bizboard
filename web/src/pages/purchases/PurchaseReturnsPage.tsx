@@ -33,7 +33,7 @@ import { documentStatusTone, statusLabelKey } from '@/utils/status';
 export function PurchaseReturnsPage() {
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['purchase-returns'], queryFn: listPurchaseReturns });
-  const purchases = useQuery({ queryKey: ['purchases'], queryFn: listPurchases });
+  const purchases = useQuery({ queryKey: ['purchases'], queryFn: () => listPurchases() });
 
   const [open, setOpen] = useState(false);
   const [purchase, setPurchase] = useState<PurchaseInvoice | null>(null);

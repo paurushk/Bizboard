@@ -10,6 +10,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -18,6 +19,15 @@ SECRET_KEY = os.environ.get(
     "dev-insecure-bizboard-secret-key-change-me-32b",
 )
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
+DJANGO_ENV = (os.environ.get("DJANGO_ENV") or ("production" if not DEBUG else "development")).strip().lower()
+_DEFAULT_SECRET = "dev-insecure-bizboard-secret-key-change-me-32b"
+if DJANGO_ENV == "production" or os.environ.get("DJANGO_FAIL_FAST_SECRETS") == "1":
+    if DEBUG:
+        raise ImproperlyConfigured("DJANGO_DEBUG must be 0 in production.")
+    if not os.environ.get("DJANGO_SECRET_KEY") or SECRET_KEY == _DEFAULT_SECRET or len(SECRET_KEY) < 32:
+        raise ImproperlyConfigured("Set a strong DJANGO_SECRET_KEY for production.")
+    if os.environ.get("REQUIRE_SMTP") == "1" and not os.environ.get("EMAIL_HOST"):
+        raise ImproperlyConfigured("EMAIL_HOST is required when REQUIRE_SMTP=1.")
 ALLOWED_HOSTS = [
     h.strip()
     for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
@@ -126,6 +136,18 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "core.pagination.DefaultPagination",
     "PAGE_SIZE": 50,
     "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.ScopedRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "120/min",
+        "user": "600/min",
+        "login": "10/min",
+        "otp": "5/min",
+        "register": "5/min",
+    },
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "JSON_UNDERSCOREIZE": {
         "no_underscore_before_number": True,
@@ -157,7 +179,7 @@ CORS_ALLOWED_ORIGINS = [
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
-CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_TASK_ALWAYS_EAGER", "1") == "1"
+CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_TASK_ALWAYS_EAGER", "0") == "1"
 CELERY_TASK_EAGER_PROPAGATES = True
 
 # Email — console backend unless SMTP configured
@@ -175,5 +197,41 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "billing@bizboard.loca
 # OTP
 OTP_EXPIRY_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5
-# Echo the OTP in the API response (dev only — SMS provider lands in pilot).
-OTP_DEBUG_ECHO = DEBUG
+# Echo OTP only when explicitly enabled AND DEBUG (never in production).
+OTP_DEBUG_ECHO = DEBUG and os.environ.get("OTP_DEBUG_ECHO", "0") == "1"
+# Default console stub; set SMS_PROVIDER=off to disable OTP in locked-down deploys.
+SMS_PROVIDER = (os.environ.get("SMS_PROVIDER") or "console").strip().lower()
+ENABLE_API_DOCS = os.environ.get("ENABLE_API_DOCS", "1") == "1"
+
+# TLS / secure cookies when behind HTTPS terminator
+if os.environ.get("USE_TLS", "0") == "1":
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_SSL_REDIRECT = False  # terminate at nginx/load balancer
+
+REFRESH_TOKEN_DAYS = int(os.environ.get("JWT_REFRESH_DAYS", "7"))
+SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"] = timedelta(days=REFRESH_TOKEN_DAYS)
+
+def _env_value(key: str, default: str = "") -> str:
+    """Read env var; strip whitespace and ignore values that are leftover inline comments."""
+    raw = os.environ.get(key, default)
+    if raw is None:
+        return default
+    value = str(raw).strip()
+    if not value or value.startswith("#"):
+        return default
+    # Drop accidental "value # comment" if a host passed the whole line through
+    if " #" in value:
+        value = value.split(" #", 1)[0].strip()
+    return value or default
+
+
+# LLM — purchase bill / rate-list vision extraction
+LLM_PROVIDER = _env_value("LLM_PROVIDER", "openai").lower()
+OPENAI_API_KEY = _env_value("OPENAI_API_KEY")
+DEEPSEEK_API_KEY = _env_value("DEEPSEEK_API_KEY")
+DEEPSEEK_BASE_URL = _env_value("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+ANTHROPIC_API_KEY = _env_value("ANTHROPIC_API_KEY")
+LLM_MODEL = _env_value("LLM_MODEL")
+LLM_BILL_MAX_PAGES = int(_env_value("LLM_BILL_MAX_PAGES", "5") or "5")

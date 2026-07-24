@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { formatMoney, formatNumber, roundMoney } from '@/utils/money';
 
 describe('money utils', () => {
-  it('rounds to two decimal places', () => {
+  it('rounds half-up to two decimal places', () => {
     expect(roundMoney(12.345)).toBe(12.35);
     expect(roundMoney(12.344)).toBe(12.34);
+    expect(roundMoney(0.905)).toBe(0.91);
+    expect(roundMoney(1.809 / 2)).toBe(0.9);
   });
 
   it('formats INR currency', () => {

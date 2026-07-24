@@ -3,8 +3,19 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from rest_framework.permissions import IsAuthenticated
 
+from core.permissions import IsOwner
 from core.views import HealthView
+
+
+class GatedSchemaView(SpectacularAPIView):
+    permission_classes = [IsAuthenticated, IsOwner]
+
+
+class GatedSwaggerView(SpectacularSwaggerView):
+    permission_classes = [IsAuthenticated, IsOwner]
+
 
 api_v1_patterns = [
     path("health/", HealthView.as_view(), name="health"),
@@ -20,9 +31,13 @@ api_v1_patterns = [
     path("search/", include("search.urls")),
     path("imports/", include("imports.urls")),
     path("", include("core.urls")),
-    path("schema/", SpectacularAPIView.as_view(), name="schema"),
-    path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
 ]
+
+if settings.ENABLE_API_DOCS:
+    api_v1_patterns += [
+        path("schema/", GatedSchemaView.as_view(), name="schema"),
+        path("docs/", GatedSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    ]
 
 urlpatterns = [
     path("admin/", admin.site.urls),

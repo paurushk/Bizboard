@@ -20,8 +20,18 @@ export type MovementType =
   | 'SALES_RETURN'
   | 'ADJUSTMENT';
 
-export type ImportJobStatus = 'UPLOADED' | 'PREVIEWED' | 'COMMITTED' | 'FAILED';
-export type ImportKind = 'CUSTOMERS' | 'SUPPLIERS' | 'PRODUCTS' | 'OPENING_STOCK';
+export type ImportJobStatus =
+  | 'UPLOADED'
+  | 'EXTRACTING'
+  | 'PREVIEWED'
+  | 'COMMITTED'
+  | 'FAILED';
+export type ImportKind =
+  | 'CUSTOMERS'
+  | 'SUPPLIERS'
+  | 'PRODUCTS'
+  | 'OPENING_STOCK'
+  | 'PURCHASE_BILL';
 
 export type RegistrationType = 'REGULAR' | 'COMPOSITION' | 'UNREGISTERED';
 export type NegativeStockPolicy = 'BLOCK' | 'WARN';
@@ -34,6 +44,9 @@ export interface User {
   role: Role;
   canManageInventory: boolean;
   canImport: boolean;
+  canCancelDocuments?: boolean;
+  canViewFinancialReports?: boolean;
+  canExport?: boolean;
   companyId: number;
   company?: Company;
 }
@@ -57,7 +70,10 @@ export interface Company {
   fyStartMonth?: number;
   negativeStockPolicy: NegativeStockPolicy;
   invoiceTerms?: string;
+  assumeLocalStateForBlankParty?: boolean;
   isGstRegistered?: boolean;
+  logo?: number | null;
+  signature?: number | null;
 }
 
 export interface Customer {
@@ -122,6 +138,12 @@ export interface LineItem {
   unitPrice: string | number;
   discountPercent?: string | number;
   gstRate?: string | number;
+  hsnCode?: string;
+  mrp?: string | number;
+  unitName?: string;
+  batchNo?: string;
+  expDate?: string | null;
+  mfgDate?: string | null;
   taxableAmount?: string | number;
   cgst?: string | number;
   sgst?: string | number;
@@ -148,10 +170,23 @@ export interface SalesInvoice extends DocumentTotals {
   customer: number;
   customerName?: string;
   invoiceDate: string;
+  dueDate?: string | null;
+  paymentTermsDays?: number;
+  additionalCharges?: string | number;
+  invoiceDiscount?: string | number;
+  invoiceDiscountMode?: 'AFTER_TAX' | 'BEFORE_TAX';
+  autoRoundOff?: boolean;
   notes?: string;
+  termsText?: string;
+  includeBankDetails?: boolean;
+  includePaymentQr?: boolean;
+  includeTerms?: boolean;
+  signature?: number | null;
   items: LineItem[];
   pdfStatus?: PdfStatus;
   pdfFile?: number | null;
+  received?: string | number;
+  balance?: string | number;
   completedAt?: string | null;
   cancelledAt?: string | null;
   warnings?: string[];
@@ -191,10 +226,26 @@ export interface PurchaseInvoice extends DocumentTotals {
   supplier: number;
   supplierName?: string;
   invoiceDate: string;
+  dueDate?: string | null;
+  paymentTermsDays?: number;
+  additionalCharges?: string | number;
+  invoiceDiscount?: string | number;
+  invoiceDiscountMode?: 'AFTER_TAX' | 'BEFORE_TAX';
+  autoRoundOff?: boolean;
   supplierBillNumber?: string;
   notes?: string;
+  termsText?: string;
+  includeBankDetails?: boolean;
+  includePaymentQr?: boolean;
+  includeTerms?: boolean;
+  signature?: number | null;
+  attachment?: number | null;
   items: LineItem[];
+  paid?: string | number;
+  balance?: string | number;
   outstanding?: string | number;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
 }
 
 export interface PurchaseReturn extends DocumentTotals {
@@ -290,6 +341,20 @@ export interface DashboardKpis {
   receivables: string | number;
   payables: string | number;
   lowStockCount: number;
+  receivablesAging?: {
+    current: string | number;
+    days130?: string | number;
+    days1_30?: string | number;
+    days_1_30?: string | number;
+    days3160?: string | number;
+    days31_60?: string | number;
+    days_31_60?: string | number;
+    days6190?: string | number;
+    days61_90?: string | number;
+    days_61_90?: string | number;
+    days90Plus?: string | number;
+    days_90_plus?: string | number;
+  };
   recentInvoices?: Array<{
     id: number;
     number?: string;
@@ -316,6 +381,25 @@ export interface ImportPreviewRow {
   [key: string]: unknown;
 }
 
+export interface PurchaseBillLinePreview {
+  name: string;
+  sku?: string;
+  hsnCode?: string;
+  quantity: string;
+  unitPrice: string;
+  gstRate: string;
+  mrp?: string;
+  include?: boolean;
+}
+
+export interface PurchaseBillPreview {
+  supplierName?: string;
+  supplierGstin?: string;
+  billNumber?: string;
+  billDate?: string;
+  lines: PurchaseBillLinePreview[];
+}
+
 export interface ImportJob {
   id: number;
   kind: ImportKind;
@@ -324,10 +408,21 @@ export interface ImportJob {
   totalRows: number;
   validRows: number;
   errorRows: number;
-  preview: ImportPreviewRow[] | Record<string, unknown>[];
+  preview: ImportPreviewRow[] | PurchaseBillPreview | Record<string, unknown>[];
   errors?: unknown[];
   committedAt?: string | null;
   createdAt?: string;
+  supplier?: number | null;
+  purchaseInvoice?: number | null;
+  failureReason?: string;
+}
+
+export interface PurchaseBillCommitResult {
+  created: number;
+  productsCreated: number;
+  purchaseInvoiceId: number;
+  status: ImportJobStatus;
+  errorRows: number;
 }
 
 export interface CompanyUser {
@@ -339,6 +434,9 @@ export interface CompanyUser {
   role: Role;
   canManageInventory: boolean;
   canImport: boolean;
+  canCancelDocuments?: boolean;
+  canViewFinancialReports?: boolean;
+  canExport?: boolean;
   isActive: boolean;
 }
 

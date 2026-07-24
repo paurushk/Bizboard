@@ -9,8 +9,10 @@ class ImportJobSerializer(serializers.ModelSerializer):
         fields = [
             "id", "kind", "file", "status", "total_rows", "valid_rows",
             "error_rows", "preview", "errors", "committed_at", "created_at",
+            "supplier", "purchase_invoice", "failure_reason",
         ]
         read_only_fields = [
             "file", "status", "total_rows", "valid_rows", "error_rows",
-            "preview", "errors", "committed_at",
+            "preview", "errors", "committed_at", "purchase_invoice",
+            "failure_reason",
         ]

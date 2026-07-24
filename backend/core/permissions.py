@@ -53,3 +53,33 @@ class CanImport(BasePermission):
     def has_permission(self, request, view):
         cu = get_company_user(request)
         return cu is not None and (cu.role == "OWNER" or cu.can_import)
+
+
+class CanCancelDocuments(BasePermission):
+    """Cancel / reverse completed documents."""
+
+    message = "Cancel permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        return cu is not None and (cu.role == "OWNER" or cu.can_cancel_documents)
+
+
+class CanViewFinancialReports(BasePermission):
+    """Dashboard financial KPIs, ledgers, and registers."""
+
+    message = "Financial reports permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        return cu is not None and (cu.role == "OWNER" or cu.can_view_financial_reports)
+
+
+class CanExport(BasePermission):
+    """CSV / backup exports."""
+
+    message = "Export permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        return cu is not None and (cu.role == "OWNER" or cu.can_export)

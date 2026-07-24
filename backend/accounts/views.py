@@ -5,6 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.generics import RetrieveUpdateAPIView
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,6 +15,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from core.permissions import HasCompany, IsOwner, get_company_user
 from core.services.audit import AuditService
+from core.services.sms import SmsProvider
 
 from .models import Company, CompanyUser, OtpChallenge, User
 from .serializers import (
@@ -34,6 +36,7 @@ class RegisterView(APIView):
     """Create owner user + company + owner membership in one shot (M0)."""
 
     permission_classes = [AllowAny]
+    throttle_scope = "register"
 
     @transaction.atomic
     def post(self, request):
@@ -48,6 +51,7 @@ class RegisterView(APIView):
         CompanyUser.objects.create(
             company=company, user=user, role=CompanyUser.Role.OWNER,
             can_manage_inventory=True, can_import=True,
+            can_cancel_documents=True, can_view_financial_reports=True, can_export=True,
         )
         AuditService.log(company=company, user=user, action="CREATE",
                          entity_type="Company", entity_id=company.id,
@@ -60,6 +64,8 @@ class RegisterView(APIView):
 
 class LoginView(TokenObtainPairView):
     """Email + password JWT login with LOGIN audit event. Returns user + tokens."""
+
+    throttle_scope = "login"
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
@@ -99,24 +105,29 @@ class LogoutView(APIView):
 
 
 class RequestOtpView(APIView):
-    """Mobile + OTP step 1 (E0.6). SMS provider integration is stubbed;
-    in DEBUG the code is returned in the response for development."""
+    """Mobile + OTP step 1. SMS via SmsProvider; debug echo only when explicitly enabled."""
 
     permission_classes = [AllowAny]
+    throttle_scope = "otp"
 
     def post(self, request):
         phone = (request.data.get("phone") or "").strip()
         if not phone:
-            return Response({"detail": "phone is required"}, status=400)
+            raise ValidationError({"phone": "phone is required"})
         if not User.objects.filter(phone=phone, is_active=True).exists():
-            return Response({"detail": "No user with this phone number."}, status=404)
+            raise ValidationError({"phone": "No user with this phone number."})
+        if settings.SMS_PROVIDER in ("", "off", "disabled"):
+            raise ValidationError(
+                {"detail": "OTP login is not configured. Use email/password or contact support."}
+            )
         code = f"{random.randint(0, 999999):06d}"
         OtpChallenge.objects.create(
             phone=phone, code=code,
             expires_at=timezone.now() + timezone.timedelta(minutes=settings.OTP_EXPIRY_MINUTES),
         )
+        SmsProvider.send_otp(phone, code)
         payload = {"detail": "OTP sent."}
-        if settings.OTP_DEBUG_ECHO:
+        if settings.OTP_DEBUG_ECHO and settings.DEBUG:
             payload["debug_code"] = code
         return Response(payload)
 
@@ -210,7 +221,11 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
             )
         membership = CompanyUser.objects.create(
             company=company, user=user, role=data["role"],
-            can_manage_inventory=data["can_manage_inventory"], can_import=data["can_import"],
+            can_manage_inventory=data["can_manage_inventory"],
+            can_import=data["can_import"],
+            can_cancel_documents=data.get("can_cancel_documents", False),
+            can_view_financial_reports=data.get("can_view_financial_reports", True),
+            can_export=data.get("can_export", False),
         )
         AuditService.log(company=company, user=request.user, action="CREATE",
                          entity_type="CompanyUser", entity_id=membership.id)

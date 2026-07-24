@@ -18,12 +18,12 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Navigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { inviteCompanyUser, listCompanyUsers, updateCompanyUser } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { t } from '@/i18n';
 import { canManageUsers } from '@/utils/permissions';
 
@@ -39,6 +39,9 @@ export function UsersSettingsPage() {
     role: 'SALES_STAFF',
     canManageInventory: false,
     canImport: false,
+    canCancelDocuments: false,
+    canViewFinancialReports: true,
+    canExport: false,
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -59,13 +62,16 @@ export function UsersSettingsPage() {
       id: number;
       canManageInventory?: boolean;
       canImport?: boolean;
+      canCancelDocuments?: boolean;
+      canViewFinancialReports?: boolean;
+      canExport?: boolean;
       isActive?: boolean;
     }) => updateCompanyUser(id, payload),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['company-users'] }),
     onError: (err) => setError(getErrorMessage(err)),
   });
 
-  if (!canManageUsers(user)) return <Navigate to="/" replace />;
+  if (!canManageUsers(user)) return <ForbiddenPage />;
 
   return (
     <Stack spacing={2}>
@@ -91,6 +97,9 @@ export function UsersSettingsPage() {
                 <TableCell>Role</TableCell>
                 <TableCell>Inventory</TableCell>
                 <TableCell>Import</TableCell>
+                <TableCell>Cancel</TableCell>
+                <TableCell>Reports</TableCell>
+                <TableCell>Export</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
               </TableRow>
             </TableHead>
@@ -120,6 +129,36 @@ export function UsersSettingsPage() {
                       disabled={u.role === 'OWNER'}
                       onChange={(e) =>
                         patchMutation.mutate({ id: u.id, canImport: e.target.checked })
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox
+                      checked={!!u.canCancelDocuments}
+                      disabled={u.role === 'OWNER'}
+                      onChange={(e) =>
+                        patchMutation.mutate({ id: u.id, canCancelDocuments: e.target.checked })
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox
+                      checked={u.canViewFinancialReports !== false}
+                      disabled={u.role === 'OWNER'}
+                      onChange={(e) =>
+                        patchMutation.mutate({
+                          id: u.id,
+                          canViewFinancialReports: e.target.checked,
+                        })
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox
+                      checked={!!u.canExport}
+                      disabled={u.role === 'OWNER'}
+                      onChange={(e) =>
+                        patchMutation.mutate({ id: u.id, canExport: e.target.checked })
                       }
                     />
                   </TableCell>
@@ -183,6 +222,37 @@ export function UsersSettingsPage() {
                 />
               }
               label="Can import"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={form.canCancelDocuments}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, canCancelDocuments: e.target.checked }))
+                  }
+                />
+              }
+              label="Can cancel documents"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={form.canViewFinancialReports}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, canViewFinancialReports: e.target.checked }))
+                  }
+                />
+              }
+              label="Can view financial reports"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={form.canExport}
+                  onChange={(e) => setForm((f) => ({ ...f, canExport: e.target.checked }))}
+                />
+              }
+              label="Can export"
             />
           </Stack>
         </DialogContent>

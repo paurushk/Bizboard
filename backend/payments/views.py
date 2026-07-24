@@ -89,6 +89,10 @@ class PaymentAllocationViewSet(
             qs = qs.filter(receipt_id=self.request.query_params["receipt"])
         if self.request.query_params.get("supplier_payment"):
             qs = qs.filter(supplier_payment_id=self.request.query_params["supplier_payment"])
+        if self.request.query_params.get("sales_invoice"):
+            qs = qs.filter(sales_invoice_id=self.request.query_params["sales_invoice"])
+        if self.request.query_params.get("purchase_invoice"):
+            qs = qs.filter(purchase_invoice_id=self.request.query_params["purchase_invoice"])
         return qs
 
     def create(self, request, *args, **kwargs):

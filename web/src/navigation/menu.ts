@@ -35,6 +35,12 @@ export const navigation: NavItem[] = [
     children: [
       { id: 'new-purchase', labelKey: 'nav.newPurchase', path: '/purchases/new' },
       { id: 'purchase-history', labelKey: 'nav.purchaseHistory', path: '/purchases/history' },
+      {
+        id: 'bill-upload',
+        labelKey: 'nav.uploadBill',
+        path: '/purchases/bill-upload',
+        visible: canImport,
+      },
       { id: 'supplier-payments', labelKey: 'nav.supplierPayments', path: '/purchases/payments' },
       { id: 'purchase-returns', labelKey: 'nav.purchaseReturns', path: '/purchases/returns' },
       { id: 'suppliers', labelKey: 'nav.suppliers', path: '/purchases/suppliers' },

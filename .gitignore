@@ -27,3 +27,9 @@ Thumbs.db
 
 # Local artifacts
 web_build_out.txt
+.tmp_*/
+.tmp_*
+web/test-results/
+web/playwright-report/
+~$*.docx
+*.png.tmp

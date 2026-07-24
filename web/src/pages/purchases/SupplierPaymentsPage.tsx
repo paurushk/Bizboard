@@ -34,7 +34,7 @@ export function SupplierPaymentsPage() {
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['supplier-payments'], queryFn: listSupplierPayments });
   const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
-  const purchases = useQuery({ queryKey: ['purchases'], queryFn: listPurchases });
+  const purchases = useQuery({ queryKey: ['purchases'], queryFn: () => listPurchases() });
 
   const [open, setOpen] = useState(false);
   const [supplier, setSupplier] = useState<Supplier | null>(null);

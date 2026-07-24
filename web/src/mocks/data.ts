@@ -23,6 +23,9 @@ export const mockUser: User = {
   companyId: 1,
   canManageInventory: true,
   canImport: true,
+  canCancelDocuments: true,
+  canViewFinancialReports: true,
+  canExport: true,
 };
 
 export const mockSalesUser: User = {
@@ -33,6 +36,9 @@ export const mockSalesUser: User = {
   companyId: 1,
   canManageInventory: false,
   canImport: false,
+  canCancelDocuments: false,
+  canViewFinancialReports: true,
+  canExport: false,
 };
 
 export const mockUsers: CompanyUser[] = [

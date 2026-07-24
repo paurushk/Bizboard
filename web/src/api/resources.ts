@@ -27,6 +27,7 @@ import type {
   Paginated,
   PaymentAllocation,
   Product,
+  PurchaseBillCommitResult,
   PurchaseInvoice,
   PurchaseReturn,
   Quotation,
@@ -52,8 +53,39 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function asList<T>(data: Paginated<T> | T[]): T[] {
-  return Array.isArray(data) ? data : data.results;
+function asList<T>(data: Paginated<T> | T[] | null | undefined): T[] {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.results)) return data.results;
+  return [];
+}
+
+function getNextUrl(data: Paginated<unknown> | unknown[] | null | undefined): string | null {
+  if (!data || Array.isArray(data)) return null;
+  return data.next ?? null;
+}
+
+/** Fetch first page + optional cursor for load-more UIs. */
+export async function listPage<T>(
+  path: string,
+  params?: Record<string, string>,
+): Promise<{ results: T[]; next: string | null }> {
+  const { data } = await apiClient.get(path, { params });
+  const body = unwrapData<Paginated<T> | T[]>(data);
+  return { results: asList(body), next: getNextUrl(body) };
+}
+
+export async function fetchNextPage<T>(nextUrl: string): Promise<{ results: T[]; next: string | null }> {
+  // DRF may return an absolute URL; strip origin + /api/v1 prefix for apiClient.
+  let path = nextUrl;
+  try {
+    const u = new URL(nextUrl, window.location.origin);
+    path = u.pathname.replace(/^\/api\/v1/, '') + u.search;
+  } catch {
+    path = nextUrl.replace(/^\/api\/v1/, '');
+  }
+  const { data } = await apiClient.get(path);
+  const body = unwrapData<Paginated<T> | T[]>(data);
+  return { results: asList(body), next: getNextUrl(body) };
 }
 
 export async function getDashboard(): Promise<DashboardKpis> {
@@ -167,9 +199,18 @@ export async function updateProduct(id: number, payload: Partial<Product>): Prom
 
 export async function listSalesInvoices(params?: Record<string, string>): Promise<SalesInvoice[]> {
   return withMocks(async () => {
-    const { data } = await apiClient.get('/sales/invoices/', { params });
-    return asList(unwrapData<Paginated<SalesInvoice> | SalesInvoice[]>(data));
+    const page = await listPage<SalesInvoice>('/sales/invoices/', params);
+    return page.results;
   }, mockInvoices);
+}
+
+export async function listSalesInvoicesPage(
+  params?: Record<string, string>,
+): Promise<{ results: SalesInvoice[]; next: string | null }> {
+  return withMocks(async () => listPage<SalesInvoice>('/sales/invoices/', params), {
+    results: mockInvoices,
+    next: null,
+  });
 }
 
 export async function getSalesInvoice(id: number | string): Promise<SalesInvoice> {
@@ -183,7 +224,17 @@ export async function createSalesInvoice(payload: {
   customer: number;
   invoiceType?: string;
   invoiceDate?: string;
+  dueDate?: string | null;
+  paymentTermsDays?: number;
+  additionalCharges?: number | string;
+  invoiceDiscount?: number | string;
+  autoRoundOff?: boolean;
   notes?: string;
+  termsText?: string;
+  includeBankDetails?: boolean;
+  includePaymentQr?: boolean;
+  includeTerms?: boolean;
+  signature?: number | null;
   items: Array<Partial<LineItem>>;
 }): Promise<SalesInvoice> {
   return withMocks(async () => {
@@ -200,7 +251,23 @@ export async function createSalesInvoice(payload: {
 
 export async function updateSalesInvoice(
   id: number,
-  payload: { items?: Array<Partial<LineItem>>; notes?: string; invoiceType?: string },
+  payload: {
+    customer?: number;
+    items?: Array<Partial<LineItem>>;
+    notes?: string;
+    invoiceType?: string;
+    invoiceDate?: string;
+    dueDate?: string | null;
+    paymentTermsDays?: number;
+    additionalCharges?: number | string;
+    invoiceDiscount?: number | string;
+    autoRoundOff?: boolean;
+    termsText?: string;
+    includeBankDetails?: boolean;
+    includePaymentQr?: boolean;
+    includeTerms?: boolean;
+    signature?: number | null;
+  },
 ): Promise<SalesInvoice> {
   return withMocks(async () => {
     const { data } = await apiClient.patch(`/sales/invoices/${id}/`, payload);
@@ -215,11 +282,68 @@ export async function completeSalesInvoice(id: number): Promise<SalesInvoice> {
   }, { ...mockInvoices[0], id, status: 'COMPLETED', number: `INV-${id}`, pdfStatus: 'QUEUED' });
 }
 
+export interface InvoiceNumberSeries {
+  docType: string;
+  prefix: string;
+  nextNumber: number;
+  padding: number;
+  preview: string;
+}
+
+export async function getSalesInvoiceNumberSeries(): Promise<InvoiceNumberSeries> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/sales/invoices/number-series/');
+    return unwrapData<InvoiceNumberSeries>(data);
+  }, {
+    docType: 'SALES_INVOICE',
+    prefix: 'INV',
+    nextNumber: 1,
+    padding: 5,
+    preview: 'INV-00001',
+  });
+}
+
+export async function updateSalesInvoiceNumberSeries(payload: {
+  prefix?: string;
+  nextNumber?: number;
+  padding?: number;
+}): Promise<InvoiceNumberSeries> {
+  return withMocks(async () => {
+    const { data } = await apiClient.patch('/sales/invoices/number-series/', payload);
+    return unwrapData<InvoiceNumberSeries>(data);
+  }, {
+    docType: 'SALES_INVOICE',
+    prefix: payload.prefix ?? 'INV',
+    nextNumber: payload.nextNumber ?? 1,
+    padding: payload.padding ?? 5,
+    preview: `${payload.prefix ?? 'INV'}-${String(payload.nextNumber ?? 1).padStart(payload.padding ?? 5, '0')}`,
+  });
+}
+
+export async function uploadFile(file: File, kind = 'ATTACHMENT'): Promise<{ id: number; url?: string }> {
+  return withMocks(async () => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('kind', kind);
+    // Let the browser set multipart boundary — do not force Content-Type.
+    const { data } = await apiClient.post('/files/', form, {
+      headers: { 'Content-Type': undefined as unknown as string },
+    });
+    return unwrapData<{ id: number; url?: string }>(data);
+  }, { id: Date.now(), url: URL.createObjectURL(file) });
+}
+
 export async function cancelSalesInvoice(id: number): Promise<SalesInvoice> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/invoices/${id}/cancel/`);
     return unwrapData<SalesInvoice>(data);
   }, { ...mockInvoices[0], id, status: 'CANCELLED' });
+}
+
+export async function deleteSalesInvoice(id: number): Promise<void> {
+  return withMocks(async () => {
+    await apiClient.delete(`/sales/invoices/${id}/`);
+  }, undefined);
 }
 
 export async function getInvoicePdfStatus(
@@ -235,11 +359,27 @@ export async function getInvoicePdfStatus(
   }, { pdfStatus: 'READY', pdfFile: 1, pdfUrl: `#pdf-${id}` });
 }
 
-export async function downloadInvoicePdf(id: number | string): Promise<Blob> {
+export async function regenerateInvoicePdf(
+  id: number | string,
+): Promise<{ pdfStatus: SalesInvoice['pdfStatus']; pdfFile?: number | null }> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/sales/invoices/${id}/regenerate-pdf/`);
+    return unwrapData(data);
+  }, { pdfStatus: 'QUEUED', pdfFile: null });
+}
+
+export async function downloadInvoicePdf(
+  id: number | string,
+  options?: { copy?: 'ORIGINAL' | 'DUPLICATE' },
+): Promise<Blob> {
   if (shouldUseMocks()) {
     return new Blob(['mock-pdf'], { type: 'application/pdf' });
   }
-  const { data } = await apiClient.get(`/sales/invoices/${id}/pdf/`, { responseType: 'blob' });
+  const copy = options?.copy ?? 'ORIGINAL';
+  const { data } = await apiClient.get(`/sales/invoices/${id}/pdf/`, {
+    responseType: 'blob',
+    params: { copy },
+  });
   return data as Blob;
 }
 
@@ -365,19 +505,45 @@ export async function createReceipt(payload: {
   });
 }
 
-export async function listPurchases(): Promise<PurchaseInvoice[]> {
+export async function listPurchases(params?: Record<string, string>): Promise<PurchaseInvoice[]> {
   return withMocks(async () => {
-    const { data } = await apiClient.get('/purchases/invoices/');
-    return asList(unwrapData<Paginated<PurchaseInvoice> | PurchaseInvoice[]>(data));
+    const page = await listPage<PurchaseInvoice>('/purchases/invoices/', params);
+    return page.results;
   }, mockPurchases);
+}
+
+export async function listPurchasesPage(
+  params?: Record<string, string>,
+): Promise<{ results: PurchaseInvoice[]; next: string | null }> {
+  return withMocks(async () => listPage<PurchaseInvoice>('/purchases/invoices/', params), {
+    results: mockPurchases,
+    next: null,
+  });
+}
+
+export async function getPurchase(id: number | string): Promise<PurchaseInvoice> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get(`/purchases/invoices/${id}/`);
+    return unwrapData<PurchaseInvoice>(data);
+  }, mockPurchases.find((p) => String(p.id) === String(id)) ?? mockPurchases[0]);
 }
 
 export async function createPurchase(payload: {
   supplier: number;
   purchaseType?: string;
   invoiceDate?: string;
+  dueDate?: string | null;
+  paymentTermsDays?: number;
+  additionalCharges?: number | string;
+  invoiceDiscount?: number | string;
+  autoRoundOff?: boolean;
   supplierBillNumber?: string;
   notes?: string;
+  termsText?: string;
+  includeBankDetails?: boolean;
+  includePaymentQr?: boolean;
+  includeTerms?: boolean;
+  signature?: number | null;
   items: Array<Partial<LineItem>>;
 }): Promise<PurchaseInvoice> {
   return withMocks(async () => {
@@ -392,11 +558,81 @@ export async function createPurchase(payload: {
   });
 }
 
+export async function updatePurchase(
+  id: number,
+  payload: {
+    supplier?: number;
+    items?: Array<Partial<LineItem>>;
+    notes?: string;
+    purchaseType?: string;
+    invoiceDate?: string;
+    dueDate?: string | null;
+    paymentTermsDays?: number;
+    additionalCharges?: number | string;
+    invoiceDiscount?: number | string;
+    autoRoundOff?: boolean;
+    supplierBillNumber?: string;
+    termsText?: string;
+    includeBankDetails?: boolean;
+    includePaymentQr?: boolean;
+    includeTerms?: boolean;
+    signature?: number | null;
+  },
+): Promise<PurchaseInvoice> {
+  return withMocks(async () => {
+    const { data } = await apiClient.patch(`/purchases/invoices/${id}/`, payload);
+    return unwrapData<PurchaseInvoice>(data);
+  }, { ...mockPurchases[0], id, ...payload } as PurchaseInvoice);
+}
+
 export async function completePurchase(id: number): Promise<PurchaseInvoice> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/purchases/invoices/${id}/complete/`);
     return unwrapData<PurchaseInvoice>(data);
   }, { ...mockPurchases[0], id, status: 'COMPLETED', number: `PUR-${id}` });
+}
+
+export async function cancelPurchase(id: number): Promise<PurchaseInvoice> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/purchases/invoices/${id}/cancel/`);
+    return unwrapData<PurchaseInvoice>(data);
+  }, { ...mockPurchases[0], id, status: 'CANCELLED' });
+}
+
+export async function deletePurchase(id: number): Promise<void> {
+  return withMocks(async () => {
+    await apiClient.delete(`/purchases/invoices/${id}/`);
+  }, undefined);
+}
+
+export async function getPurchaseNumberSeries(): Promise<InvoiceNumberSeries> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/purchases/invoices/number-series/');
+    return unwrapData<InvoiceNumberSeries>(data);
+  }, {
+    docType: 'PURCHASE_INVOICE',
+    prefix: 'PUR',
+    nextNumber: 1,
+    padding: 5,
+    preview: 'PUR-00001',
+  });
+}
+
+export async function updatePurchaseNumberSeries(payload: {
+  prefix?: string;
+  nextNumber?: number;
+  padding?: number;
+}): Promise<InvoiceNumberSeries> {
+  return withMocks(async () => {
+    const { data } = await apiClient.patch('/purchases/invoices/number-series/', payload);
+    return unwrapData<InvoiceNumberSeries>(data);
+  }, {
+    docType: 'PURCHASE_INVOICE',
+    prefix: payload.prefix ?? 'PUR',
+    nextNumber: payload.nextNumber ?? 1,
+    padding: payload.padding ?? 5,
+    preview: `${payload.prefix ?? 'PUR'}-${String(payload.nextNumber ?? 1).padStart(payload.padding ?? 5, '0')}`,
+  });
 }
 
 export async function listPurchaseReturns(): Promise<PurchaseReturn[]> {
@@ -627,13 +863,21 @@ export async function universalSearch(q: string): Promise<SearchResult[]> {
   ));
 }
 
-export async function uploadImport(file: File, kind: ImportKind): Promise<ImportJob> {
+export async function uploadImport(
+  file: File,
+  kind: ImportKind,
+  extra?: { supplierId?: number },
+): Promise<ImportJob> {
   return withMocks(async () => {
     const form = new FormData();
     form.append('file', file);
     form.append('kind', kind);
+    if (extra?.supplierId != null) {
+      form.append('supplier_id', String(extra.supplierId));
+    }
+    // Let the browser set multipart boundary — do not force Content-Type.
     const { data } = await apiClient.post('/imports/', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': undefined as unknown as string },
     });
     return unwrapData<ImportJob>(data);
   }, {
@@ -650,10 +894,87 @@ export async function uploadImport(file: File, kind: ImportKind): Promise<Import
   });
 }
 
-export async function commitImport(id: number | string): Promise<ImportJob> {
+export async function getImportJob(id: number | string): Promise<ImportJob> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/imports/${id}/commit/`);
+    const { data } = await apiClient.get(`/imports/${id}/`);
     return unwrapData<ImportJob>(data);
+  }, {
+    id: Number(id),
+    kind: 'PURCHASE_BILL',
+    status: 'PREVIEWED',
+    totalRows: 1,
+    validRows: 1,
+    errorRows: 0,
+    preview: {
+      supplierName: 'Demo Supplier',
+      billNumber: 'PB-1',
+      billDate: '2026-07-01',
+      lines: [
+        {
+          name: 'Sample Item',
+          sku: 'SKU-1',
+          quantity: '1',
+          unitPrice: '100',
+          gstRate: '18',
+          include: true,
+        },
+      ],
+    },
+  });
+}
+
+export async function retryImportExtract(id: number | string): Promise<ImportJob> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/imports/${id}/retry-extract/`);
+    return unwrapData<ImportJob>(data);
+  }, {
+    id: Number(id),
+    kind: 'PURCHASE_BILL',
+    status: 'EXTRACTING',
+    totalRows: 0,
+    validRows: 0,
+    errorRows: 0,
+    preview: { lines: [] },
+  });
+}
+
+export async function updateImportPreview(
+  id: number | string,
+  payload: {
+    supplierId?: number | null;
+    supplierName?: string;
+    billNumber?: string;
+    billDate?: string;
+    lines?: Array<Record<string, unknown>>;
+  },
+): Promise<ImportJob> {
+  return withMocks(async () => {
+    const { data } = await apiClient.patch(`/imports/${id}/preview/`, payload);
+    return unwrapData<ImportJob>(data);
+  }, {
+    id: Number(id),
+    kind: 'PURCHASE_BILL',
+    status: 'PREVIEWED',
+    totalRows: payload.lines?.length ?? 0,
+    validRows: payload.lines?.filter((l) => l.include !== false).length ?? 0,
+    errorRows: 0,
+    preview: {
+      supplierName: payload.supplierName,
+      billNumber: payload.billNumber,
+      billDate: payload.billDate,
+      lines: (payload.lines ?? []) as never,
+    },
+    supplier: payload.supplierId ?? null,
+  });
+}
+
+export async function commitImport(
+  id: number | string,
+  payload?: Record<string, unknown>,
+): Promise<ImportJob | PurchaseBillCommitResult> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/imports/${id}/commit/`, payload ?? {});
+    return unwrapData<ImportJob | PurchaseBillCommitResult>(data);
   }, {
     id: Number(id),
     kind: 'PRODUCTS',

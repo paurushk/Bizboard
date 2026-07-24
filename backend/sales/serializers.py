@@ -41,25 +41,73 @@ class SalesItemSerializer(_BaseLineSerializer):
         fields = [
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate",
+            "hsn_code", "mrp", "unit_name",
+            "batch_no", "exp_date", "mfg_date",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY
-        extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
+        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "unit_name"]
+        extra_kwargs = {
+            "unit_price": {"required": False},
+            "gst_rate": {"required": False},
+            "batch_no": {"required": False, "allow_blank": True},
+            "exp_date": {"required": False, "allow_null": True},
+            "mfg_date": {"required": False, "allow_null": True},
+        }
 
 
 class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
     items = SalesItemSerializer(many=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
+    received = serializers.SerializerMethodField()
+    balance = serializers.SerializerMethodField()
 
     class Meta:
         model = SalesInvoice
         fields = [
             "id", "number", "status", "invoice_type", "customer", "customer_name",
-            "invoice_date", "notes", "items", "pdf_status", "pdf_file",
+            "invoice_date", "due_date", "payment_terms_days",
+            "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off",
+            "notes", "terms_text",
+            "include_bank_details", "include_payment_qr", "include_terms",
+            "signature",
+            "items", "pdf_status", "pdf_file",
+            "received", "balance",
             "completed_at", "cancelled_at", "created_at", "updated_at",
         ] + TOTAL_READONLY
         read_only_fields = [
-            "number", "status", "pdf_status", "pdf_file", "completed_at", "cancelled_at",
+            "number", "status", "pdf_status", "pdf_file", "received", "balance",
+            "completed_at", "cancelled_at",
         ] + TOTAL_READONLY
+
+    def get_balance(self, obj):
+        from decimal import Decimal
+
+        if obj.status == SalesInvoice.Status.DRAFT:
+            return obj.grand_total
+        allocated = getattr(obj, "_allocated", None)
+        if allocated is not None and self.context.get("view") and getattr(
+            self.context["view"], "action", None
+        ) == "list":
+            return max(Decimal(str(obj.grand_total or 0)) - Decimal(str(allocated or 0)), Decimal("0"))
+        try:
+            from ledgers.services import LedgerService
+
+            return LedgerService.sales_invoice_outstanding(obj)
+        except Exception:
+            from django.db.models import Sum
+
+            from payments.models import PaymentAllocation
+
+            allocated = (
+                PaymentAllocation.objects.filter(sales_invoice=obj).aggregate(t=Sum("amount"))["t"]
+                or Decimal("0")
+            )
+            return max(obj.grand_total - allocated, Decimal("0"))
+
+    def get_received(self, obj):
+        from decimal import Decimal
+
+        balance = Decimal(str(self.get_balance(obj) or 0))
+        return max(Decimal(str(obj.grand_total or 0)) - balance, Decimal("0"))
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
@@ -67,22 +115,40 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             raise serializers.ValidationError("Cannot create an invoice for a blocked customer.")
         return customer
 
+    def validate_signature(self, signature):
+        if signature is not None:
+            self.check_company_ref(signature, "signature")
+        return signature
+
     def create(self, validated_data):
+        from django.db import transaction
+
         items_data = validated_data.pop("items")
-        invoice = SalesInvoice.objects.create(**validated_data)
-        SalesService.set_items(invoice, [dict(l) for l in items_data], self.context["request"].user)
-        return invoice
+        from core.services.document_numbers import DocumentNumberService
+
+        with transaction.atomic():
+            if not validated_data.get("number"):
+                validated_data["number"] = DocumentNumberService.next_number(
+                    self.company, "SALES_INVOICE"
+                )
+            invoice = SalesInvoice.objects.create(**validated_data)
+            SalesService.set_items(invoice, [dict(l) for l in items_data], self.context["request"].user)
+            return invoice
 
     def update(self, instance, validated_data):
         from core.exceptions import BusinessRuleError
 
-        if instance.status != SalesInvoice.Status.DRAFT:
-            raise BusinessRuleError("Completed invoice cannot be edited; use Sales Return or Cancel.")
+        if instance.status in (SalesInvoice.Status.CANCELLED, SalesInvoice.Status.RETURNED):
+            raise BusinessRuleError("Cancelled/returned invoice cannot be edited.")
+        if instance.status == SalesInvoice.Status.COMPLETED and "customer" in validated_data:
+            if validated_data["customer"].pk != instance.customer_id:
+                raise BusinessRuleError("Cannot change customer on a completed invoice.")
         items_data = validated_data.pop("items", None)
         instance = super().update(instance, validated_data)
         if items_data is not None:
             SalesService.set_items(instance, [dict(l) for l in items_data], self.context["request"].user)
         else:
+            # Preserve line snapshots on header-only updates.
             SalesService.set_items(
                 instance,
                 [
@@ -90,6 +156,8 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
                         "product": i.product, "description": i.description,
                         "quantity": i.quantity, "unit_price": i.unit_price,
                         "discount_percent": i.discount_percent, "gst_rate": i.gst_rate,
+                        "hsn_code": i.hsn_code, "mrp": i.mrp, "unit_name": i.unit_name,
+                        "batch_no": i.batch_no, "exp_date": i.exp_date, "mfg_date": i.mfg_date,
                     }
                     for i in instance.items.all()
                 ],

@@ -41,11 +41,55 @@ def test_cannot_complete_twice(tenant_a):
     assert resp.status_code == 400
 
 
-def test_completed_invoice_cannot_be_edited(tenant_a):
-    data, product, customer = _completed_invoice(tenant_a)
+def test_completed_invoice_audited_edit_allows_line_change(tenant_a):
+    data, product, _ = _completed_invoice(tenant_a, qty="2")
     resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
-        "notes": "sneaky edit",
-        "items": [{"product": product.id, "quantity": "1", "unit_price": "1"}],
+        "notes": "audited edit",
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+    }, format="json")
+    assert resp.status_code == 200, resp.data
+    assert Decimal(resp.data["items"][0]["quantity"]) == Decimal("1")
+    assert resp.data["notes"] == "audited edit"
+    assert StockMovement.objects.filter(
+        movement_type=MovementType.ADJUSTMENT,
+        reference_type="sales_invoice_edit",
+    ).exists()
+
+
+def test_completed_invoice_cannot_change_customer(tenant_a):
+    data, product, customer = _completed_invoice(tenant_a)
+    other = make_customer(tenant_a.company, name="Other Party")
+    resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
+        "customer": other.id,
+        "items": [{"product": product.id, "quantity": "2", "unit_price": "100"}],
+    }, format="json")
+    assert resp.status_code == 400
+
+
+def test_completed_invoice_cannot_reduce_below_returned_qty(tenant_a):
+    data, product, customer = _completed_invoice(tenant_a, qty="3")
+    ret = tenant_a.client.post("/api/v1/sales/returns/", {
+        "customer": customer.id, "sales_invoice": data["id"],
+        "items": [{"product": product.id, "quantity": "2", "unit_price": "100"}],
+    }, format="json")
+    assert tenant_a.client.post(f"/api/v1/sales/returns/{ret.data['id']}/complete/").status_code == 200
+    resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+    }, format="json")
+    assert resp.status_code == 400
+
+
+def test_completed_invoice_edit_blocks_negative_stock(tenant_a):
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "2")
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "1", "unit_price": "100"},
+    ])
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+    # Remaining on hand = 1; increasing sold qty by 2 would go negative under BLOCK.
+    resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{inv['id']}/", {
+        "items": [{"product": product.id, "quantity": "3", "unit_price": "100"}],
     }, format="json")
     assert resp.status_code == 400
 
@@ -149,9 +193,17 @@ def test_purchase_status_machine(tenant_a):
     assert resp.status_code == 200
     assert resp.data["number"].startswith("PUR-")
 
-    # Completed purchase cannot be line-edited
+    # Completed purchase supports audited line edits
     resp = tenant_a.client.patch(f"/api/v1/purchases/invoices/{pur['id']}/", {
-        "items": [{"product": product.id, "quantity": "1", "unit_price": "1"}],
+        "items": [{"product": product.id, "quantity": "4", "unit_price": "80"}],
+    }, format="json")
+    assert resp.status_code == 200, resp.data
+    assert Decimal(resp.data["items"][0]["quantity"]) == Decimal("4")
+
+    other = make_supplier(tenant_a.company, name="Other Supplier")
+    resp = tenant_a.client.patch(f"/api/v1/purchases/invoices/{pur['id']}/", {
+        "supplier": other.id,
+        "items": [{"product": product.id, "quantity": "4", "unit_price": "80"}],
     }, format="json")
     assert resp.status_code == 400
 
@@ -161,3 +213,20 @@ def test_purchase_status_machine(tenant_a):
     from inventory.models import StockBalance
 
     assert StockBalance.objects.get(product=product).on_hand == Decimal("0")
+
+
+def test_purchase_return_cannot_exceed_purchased_qty(tenant_a):
+    product = make_product(tenant_a.company)
+    supplier = make_supplier(tenant_a.company)
+    pur = create_draft_purchase(tenant_a, supplier, [
+        {"product": product.id, "quantity": "2", "unit_price": "80"},
+    ])
+    assert tenant_a.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/").status_code == 200
+    ret = tenant_a.client.post("/api/v1/purchases/returns/", {
+        "supplier": supplier.id,
+        "purchase_invoice": pur["id"],
+        "items": [{"product": product.id, "quantity": "5", "unit_price": "80"}],
+    }, format="json")
+    assert ret.status_code == 201, ret.data
+    resp = tenant_a.client.post(f"/api/v1/purchases/returns/{ret.data['id']}/complete/")
+    assert resp.status_code == 400

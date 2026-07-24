@@ -49,10 +49,14 @@ def test_login_wrong_password_rejected(tenant_a):
 
 
 def test_otp_login_flow(tenant_a):
+    from accounts.models import OtpChallenge
+
     client = APIClient()
     resp = client.post("/api/v1/auth/otp/request/", {"phone": tenant_a.owner.phone}, format="json")
     assert resp.status_code == 200
-    code = resp.data["debug_code"]
+    code = resp.data.get("debug_code")
+    if not code:
+        code = OtpChallenge.objects.filter(phone=tenant_a.owner.phone).latest("created_at").code
 
     bad = client.post("/api/v1/auth/otp/verify/", {"phone": tenant_a.owner.phone, "code": "000000"}, format="json")
     assert bad.status_code == 400

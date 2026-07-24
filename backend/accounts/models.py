@@ -71,11 +71,16 @@ class Company(TimeStampedModel):
     logo = models.ForeignKey(
         "core.FileAsset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
+    signature = models.ForeignKey(
+        "core.FileAsset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     fy_start_month = models.PositiveSmallIntegerField(default=4)
     negative_stock_policy = models.CharField(
         max_length=8, choices=NegativeStockPolicy.choices, default=NegativeStockPolicy.BLOCK
     )
     invoice_terms = models.TextField(blank=True)
+    # When False (default), GST Complete requires party state/GSTIN state code.
+    assume_local_state_for_blank_party = models.BooleanField(default=False)
 
     class Meta:
         verbose_name_plural = "companies"
@@ -100,6 +105,9 @@ class CompanyUser(TimeStampedModel):
     role = models.CharField(max_length=16, choices=Role.choices, default=Role.SALES_STAFF)
     can_manage_inventory = models.BooleanField(default=False)
     can_import = models.BooleanField(default=False)
+    can_cancel_documents = models.BooleanField(default=False)
+    can_view_financial_reports = models.BooleanField(default=True)
+    can_export = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
 
     class Meta:

@@ -88,9 +88,13 @@ class LedgerService:
                 "reference_id": ret.pk, "debit": Decimal("0"), "credit": ret.grand_total,
             })
         for receipt in CustomerReceipt.objects.filter(company=company, customer=customer):
+            allocated = _sum(PaymentAllocation.objects.filter(receipt=receipt))
+            unallocated = receipt.amount - allocated
             entries.append({
                 "date": receipt.receipt_date, "type": "RECEIPT", "number": receipt.number,
                 "reference_id": receipt.pk, "debit": Decimal("0"), "credit": receipt.amount,
+                "is_advance": unallocated > 0,
+                "unallocated": unallocated,
             })
 
         entries.sort(key=lambda e: (e["date"], e["reference_id"]))
@@ -146,9 +150,13 @@ class LedgerService:
                 "reference_id": ret.pk, "credit": Decimal("0"), "debit": ret.grand_total,
             })
         for payment in SupplierPayment.objects.filter(company=company, supplier=supplier):
+            allocated = _sum(PaymentAllocation.objects.filter(supplier_payment=payment))
+            unallocated = payment.amount - allocated
             entries.append({
                 "date": payment.payment_date, "type": "PAYMENT", "number": payment.number,
                 "reference_id": payment.pk, "credit": Decimal("0"), "debit": payment.amount,
+                "is_advance": unallocated > 0,
+                "unallocated": unallocated,
             })
 
         entries.sort(key=lambda e: (e["date"], e["reference_id"]))

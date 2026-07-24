@@ -89,7 +89,7 @@ export function AppShell() {
           {user?.fullName || user?.email}
         </Typography>
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-          {user?.role.replace(/_/g, ' ')}
+          {user?.role?.replace(/_/g, ' ')}
         </Typography>
         <Button fullWidth variant="outlined" size="small" onClick={() => void logout()}>
           {t('auth.logout')}

@@ -11,9 +11,11 @@ class ImportJob(CompanyScopedModel):
         SUPPLIERS = "SUPPLIERS"
         PRODUCTS = "PRODUCTS"
         OPENING_STOCK = "OPENING_STOCK"
+        PURCHASE_BILL = "PURCHASE_BILL"
 
     class Status(models.TextChoices):
         UPLOADED = "UPLOADED"
+        EXTRACTING = "EXTRACTING"
         PREVIEWED = "PREVIEWED"
         COMMITTED = "COMMITTED"
         FAILED = "FAILED"
@@ -27,6 +29,21 @@ class ImportJob(CompanyScopedModel):
     preview = models.JSONField(default=list, blank=True)
     errors = models.JSONField(default=list, blank=True)
     committed_at = models.DateTimeField(null=True, blank=True)
+    supplier = models.ForeignKey(
+        "masters.Supplier",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    purchase_invoice = models.ForeignKey(
+        "purchases.PurchaseInvoice",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    failure_reason = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-created_at"]

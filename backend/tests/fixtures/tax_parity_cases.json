@@ -1,0 +1,47 @@
+[
+  {
+    "id": "odd_paise_10_05_18",
+    "quantity": 1,
+    "unitPrice": 10.05,
+    "gstRate": 18,
+    "intraState": true,
+    "discountPercent": 0,
+    "expected": {
+      "taxableAmount": 10.05,
+      "cgst": 0.9,
+      "sgst": 0.91,
+      "igst": 0,
+      "lineTotal": 11.86
+    }
+  },
+  {
+    "id": "even_200_18",
+    "quantity": 2,
+    "unitPrice": 100,
+    "gstRate": 18,
+    "intraState": true,
+    "discountPercent": 0,
+    "expected": {
+      "taxableAmount": 200,
+      "cgst": 18,
+      "sgst": 18,
+      "igst": 0,
+      "lineTotal": 236
+    }
+  },
+  {
+    "id": "inter_100_12",
+    "quantity": 1,
+    "unitPrice": 100,
+    "gstRate": 12,
+    "intraState": false,
+    "discountPercent": 0,
+    "expected": {
+      "taxableAmount": 100,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 12,
+      "lineTotal": 112
+    }
+  }
+]

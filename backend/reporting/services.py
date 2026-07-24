@@ -3,21 +3,100 @@ Report Service (E5.2–E5.5) — dashboards, registers and exports via
 aggregated queries; API clients never scan raw document tables (§9).
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db.models import Count, F, Sum
+from django.db.models.functions import Coalesce
 
 from inventory.models import StockBalance
 from ledgers.services import LedgerService
-from masters.models import Customer, Supplier
-from purchases.models import PurchaseInvoice
-from sales.models import SalesInvoice
+from payments.models import PaymentAllocation
+from purchases.models import PurchaseInvoice, PurchaseReturn
+from sales.models import SalesInvoice, SalesReturn
 
 OPEN_SALES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
 
 
 class ReportService:
+    @staticmethod
+    def _company_receivables(company) -> Decimal:
+        """SQL aggregation — avoids per-customer Python loop."""
+        inv = (
+            SalesInvoice.objects.filter(company=company, status__in=OPEN_SALES).aggregate(
+                t=Coalesce(Sum("grand_total"), Decimal("0"))
+            )["t"]
+            or Decimal("0")
+        )
+        rets = (
+            SalesReturn.objects.filter(
+                company=company, status=SalesReturn.Status.COMPLETED
+            ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
+            or Decimal("0")
+        )
+        allocated = (
+            PaymentAllocation.objects.filter(
+                company=company, receipt__isnull=False
+            ).aggregate(t=Coalesce(Sum("amount"), Decimal("0")))["t"]
+            or Decimal("0")
+        )
+        return inv - rets - allocated
+
+    @staticmethod
+    def _company_payables(company) -> Decimal:
+        inv = (
+            PurchaseInvoice.objects.filter(
+                company=company, status=PurchaseInvoice.Status.COMPLETED
+            ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
+            or Decimal("0")
+        )
+        rets = (
+            PurchaseReturn.objects.filter(
+                company=company, status=PurchaseReturn.Status.COMPLETED
+            ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
+            or Decimal("0")
+        )
+        allocated = (
+            PaymentAllocation.objects.filter(
+                company=company, supplier_payment__isnull=False
+            ).aggregate(t=Coalesce(Sum("amount"), Decimal("0")))["t"]
+            or Decimal("0")
+        )
+        return inv - rets - allocated
+
+    @staticmethod
+    def receivables_aging(company, as_of: date | None = None):
+        """Bucket open sales invoice outstanding by due date (or invoice_date + terms)."""
+        as_of = as_of or date.today()
+        buckets = {
+            "current": Decimal("0"),
+            "days_1_30": Decimal("0"),
+            "days_31_60": Decimal("0"),
+            "days_61_90": Decimal("0"),
+            "days_90_plus": Decimal("0"),
+        }
+        for inv in SalesInvoice.objects.filter(company=company, status__in=OPEN_SALES).only(
+            "id", "grand_total", "invoice_date", "due_date", "payment_terms_days"
+        ):
+            outstanding = LedgerService.sales_invoice_outstanding(inv)
+            if outstanding <= 0:
+                continue
+            due = inv.due_date or (
+                inv.invoice_date + timedelta(days=inv.payment_terms_days or 0)
+            )
+            days = (as_of - due).days
+            if days <= 0:
+                buckets["current"] += outstanding
+            elif days <= 30:
+                buckets["days_1_30"] += outstanding
+            elif days <= 60:
+                buckets["days_31_60"] += outstanding
+            elif days <= 90:
+                buckets["days_61_90"] += outstanding
+            else:
+                buckets["days_90_plus"] += outstanding
+        return buckets
+
     @staticmethod
     def dashboard(company):
         today = date.today()
@@ -33,14 +112,6 @@ class ReportService:
             company=company, status=PurchaseInvoice.Status.COMPLETED, invoice_date__gte=month_start
         ).aggregate(total=Sum("grand_total"), count=Count("id"))
 
-        receivables = sum(
-            (LedgerService.customer_outstanding(company, c) for c in Customer.objects.filter(company=company)),
-            Decimal("0"),
-        )
-        payables = sum(
-            (LedgerService.supplier_outstanding(company, s) for s in Supplier.objects.filter(company=company)),
-            Decimal("0"),
-        )
         low_stock = StockBalance.objects.filter(
             company=company, product__status="ACTIVE", on_hand__lte=F("product__reorder_level")
         ).count()
@@ -52,14 +123,22 @@ class ReportService:
         return {
             "sales_today": {"total": sales_today["total"] or 0, "count": sales_today["count"]},
             "sales_this_month": {"total": sales_month["total"] or 0, "count": sales_month["count"]},
-            "purchases_this_month": {"total": purchases_month["total"] or 0, "count": purchases_month["count"]},
-            "receivables": receivables,
-            "payables": payables,
+            "purchases_this_month": {
+                "total": purchases_month["total"] or 0,
+                "count": purchases_month["count"],
+            },
+            "receivables": ReportService._company_receivables(company),
+            "payables": ReportService._company_payables(company),
             "low_stock_count": low_stock,
+            "receivables_aging": ReportService.receivables_aging(company),
             "recent_invoices": [
                 {
-                    "id": i.id, "number": i.number, "customer": i.customer.name,
-                    "date": i.invoice_date, "status": i.status, "grand_total": i.grand_total,
+                    "id": i.id,
+                    "number": i.number,
+                    "customer": i.customer.name,
+                    "date": i.invoice_date,
+                    "status": i.status,
+                    "grand_total": i.grand_total,
                 }
                 for i in recent.select_related("customer")
             ],
@@ -78,20 +157,31 @@ class ReportService:
             qs = qs.filter(invoice_date__lte=date_to)
         rows = [
             {
-                "id": i.id, "number": i.number, "date": i.invoice_date,
-                "customer": i.customer.name, "invoice_type": i.invoice_type,
-                "status": i.status, "taxable": i.taxable_total,
-                "cgst": i.cgst_total, "sgst": i.sgst_total, "igst": i.igst_total,
+                "id": i.id,
+                "number": i.number,
+                "date": i.invoice_date,
+                "customer": i.customer.name,
+                "invoice_type": i.invoice_type,
+                "status": i.status,
+                "taxable": i.taxable_total,
+                "cgst": i.cgst_total,
+                "sgst": i.sgst_total,
+                "igst": i.igst_total,
                 "grand_total": i.grand_total,
             }
             for i in qs.select_related("customer")
         ]
         totals = qs.aggregate(taxable=Sum("taxable_total"), grand=Sum("grand_total"))
-        return {"rows": rows, "totals": {"taxable": totals["taxable"] or 0, "grand_total": totals["grand"] or 0}}
+        return {
+            "rows": rows,
+            "totals": {"taxable": totals["taxable"] or 0, "grand_total": totals["grand"] or 0},
+        }
 
     @staticmethod
     def purchase_register(company, date_from=None, date_to=None, supplier_id=None, status=None):
-        qs = PurchaseInvoice.objects.filter(company=company).exclude(status=PurchaseInvoice.Status.DRAFT)
+        qs = PurchaseInvoice.objects.filter(company=company).exclude(
+            status=PurchaseInvoice.Status.DRAFT
+        )
         if status:
             qs = qs.filter(status=status)
         if supplier_id:
@@ -102,15 +192,24 @@ class ReportService:
             qs = qs.filter(invoice_date__lte=date_to)
         rows = [
             {
-                "id": i.id, "number": i.number, "date": i.invoice_date,
-                "supplier": i.supplier.name, "status": i.status,
-                "taxable": i.taxable_total, "cgst": i.cgst_total,
-                "sgst": i.sgst_total, "igst": i.igst_total, "grand_total": i.grand_total,
+                "id": i.id,
+                "number": i.number,
+                "date": i.invoice_date,
+                "supplier": i.supplier.name,
+                "status": i.status,
+                "taxable": i.taxable_total,
+                "cgst": i.cgst_total,
+                "sgst": i.sgst_total,
+                "igst": i.igst_total,
+                "grand_total": i.grand_total,
             }
             for i in qs.select_related("supplier")
         ]
         totals = qs.aggregate(taxable=Sum("taxable_total"), grand=Sum("grand_total"))
-        return {"rows": rows, "totals": {"taxable": totals["taxable"] or 0, "grand_total": totals["grand"] or 0}}
+        return {
+            "rows": rows,
+            "totals": {"taxable": totals["taxable"] or 0, "grand_total": totals["grand"] or 0},
+        }
 
     @staticmethod
     def inventory_summary(company):
@@ -121,9 +220,13 @@ class ReportService:
             value = b.on_hand * b.product.purchase_price
             total_value += value
             rows.append({
-                "product_id": b.product_id, "product": b.product.name,
-                "sku": b.product.sku, "on_hand": b.on_hand, "reserved": b.reserved,
-                "available": b.available, "reorder_level": b.product.reorder_level,
+                "product_id": b.product_id,
+                "product": b.product.name,
+                "sku": b.product.sku,
+                "on_hand": b.on_hand,
+                "reserved": b.reserved,
+                "available": b.available,
+                "reorder_level": b.product.reorder_level,
                 "stock_value": value,
             })
         return {"rows": rows, "total_stock_value": total_value}
@@ -145,8 +248,10 @@ class ReportService:
         return {
             "rows": [
                 {
-                    "product_id": r["product_id"], "product": r["product__name"],
-                    "quantity": r["quantity"], "amount": r["amount"],
+                    "product_id": r["product_id"],
+                    "product": r["product__name"],
+                    "quantity": r["quantity"],
+                    "amount": r["amount"],
                 }
                 for r in rows
             ]
@@ -167,8 +272,10 @@ class ReportService:
         return {
             "rows": [
                 {
-                    "customer_id": r["customer_id"], "customer": r["customer__name"],
-                    "invoices": r["invoices"], "amount": r["amount"],
+                    "customer_id": r["customer_id"],
+                    "customer": r["customer__name"],
+                    "invoices": r["invoices"],
+                    "amount": r["amount"],
                 }
                 for r in rows
             ]

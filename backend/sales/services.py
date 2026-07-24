@@ -9,7 +9,8 @@ from django.utils import timezone
 
 from core.events import emit
 from core.exceptions import BusinessRuleError
-from core.services.billing import compute_document_totals, is_intra_state
+from core.services.billing import compute_document_totals
+from core.services.place_of_supply import assert_place_of_supply_for_gst, party_intra_state
 from core.services.document_numbers import DocumentNumberService
 from inventory.models import MovementType
 from inventory.services import InventoryService
@@ -39,10 +40,16 @@ def _validate_lines(items_data, company, *, check_active=True):
 
 
 def _build_items(model_cls, parent_field, parent, items_data):
+    # Prefetch units to avoid N+1 when snapshotting unit_name.
+    product_ids = [line["product"].pk for line in items_data]
+    products = {
+        p.pk: p
+        for p in Product.objects.filter(pk__in=product_ids).select_related("unit")
+    }
     items = []
     for line in items_data:
-        product = line["product"]
-        items.append(model_cls(**{
+        product = products.get(line["product"].pk, line["product"])
+        kwargs = {
             parent_field: parent,
             "product": product,
             "description": line.get("description") or product.name,
@@ -50,7 +57,24 @@ def _build_items(model_cls, parent_field, parent, items_data):
             "unit_price": line.get("unit_price", product.selling_price),
             "discount_percent": line.get("discount_percent", Decimal("0")),
             "gst_rate": line.get("gst_rate", product.gst_rate),
-        }))
+        }
+        # Snapshot product fields onto sales lines for stable GST invoice PDFs.
+        if model_cls is SalesItem:
+            unit = getattr(product, "unit", None)
+            kwargs.update({
+                "hsn_code": line.get("hsn_code") or product.hsn_code or "",
+                "mrp": line.get("mrp", product.mrp or Decimal("0")),
+                "unit_name": (
+                    line.get("unit_name")
+                    or (unit.short_name.upper() if unit and unit.short_name else None)
+                    or (unit.name.upper()[:16] if unit and unit.name else None)
+                    or "PCS"
+                ),
+                "batch_no": line.get("batch_no") or "",
+                "exp_date": line.get("exp_date"),
+                "mfg_date": line.get("mfg_date"),
+            })
+        items.append(model_cls(**kwargs))
     return items
 
 
@@ -64,17 +88,95 @@ class SalesService:
     @staticmethod
     @transaction.atomic
     def set_items(invoice: SalesInvoice, items_data, user):
-        if invoice.status != SalesInvoice.Status.DRAFT:
-            raise BusinessRuleError("Completed invoice cannot be line-edited; use Sales Return or Cancel.")
+        if invoice.status in (SalesInvoice.Status.CANCELLED, SalesInvoice.Status.RETURNED):
+            raise BusinessRuleError("Cancelled/returned invoice cannot be line-edited.")
+        if invoice.status not in (SalesInvoice.Status.DRAFT, SalesInvoice.Status.COMPLETED):
+            raise BusinessRuleError(f"Cannot edit invoice in status {invoice.status}.")
+
+        old_qty = defaultdict(Decimal)
+        adjust_stock = invoice.status == SalesInvoice.Status.COMPLETED
+        if adjust_stock:
+            for item in invoice.items.select_related("product"):
+                old_qty[item.product_id] += item.quantity
+
         _validate_lines(items_data, invoice.company)
+
+        new_qty_preview = defaultdict(Decimal)
+        for line in items_data:
+            new_qty_preview[line["product"].pk] += Decimal(line["quantity"])
+
+        if adjust_stock:
+            # Cannot reduce a line below quantities already returned.
+            already = SalesService._returned_quantities(invoice)
+            for product_id, returned_qty in already.items():
+                if new_qty_preview.get(product_id, Decimal("0")) < returned_qty:
+                    raise BusinessRuleError(
+                        f"Quantity cannot be below already-returned quantity {returned_qty}."
+                    )
+            # Extra stock sold on edit must pass negative-stock policy.
+            for product_id, new_q in new_qty_preview.items():
+                delta = new_q - old_qty.get(product_id, Decimal("0"))
+                if delta > 0:
+                    product = next(
+                        (line["product"] for line in items_data if line["product"].pk == product_id),
+                        None,
+                    ) or Product.objects.get(pk=product_id)
+                    InventoryService.check_negative_stock(invoice.company, product, delta)
+
         invoice.items.all().delete()
         items = _build_items(SalesItem, "invoice", invoice, items_data)
         compute_document_totals(
             invoice, items,
             tax_enabled=_tax_enabled(invoice.invoice_type),
-            intra_state=is_intra_state(invoice.company.state, invoice.customer.state),
+            intra_state=party_intra_state(
+                invoice.company, invoice.customer.state, invoice.customer.gstin or ""
+            ),
+            additional_charges=invoice.additional_charges,
+            invoice_discount=invoice.invoice_discount,
+            auto_round_off=invoice.auto_round_off,
+            invoice_discount_mode=getattr(invoice, "invoice_discount_mode", None),
         )
         SalesItem.objects.bulk_create(items)
+
+        if adjust_stock:
+            new_qty = defaultdict(Decimal)
+            product_by_id = {}
+            for item in items:
+                new_qty[item.product_id] += item.quantity
+                product_by_id[item.product_id] = item.product
+            for product_id in set(old_qty) | set(new_qty):
+                delta = new_qty[product_id] - old_qty[product_id]
+                if delta == 0:
+                    continue
+                product = product_by_id.get(product_id) or Product.objects.get(pk=product_id)
+                if delta > 0:
+                    InventoryService.post_movement(
+                        company=invoice.company,
+                        product=product,
+                        movement_type=MovementType.SALE,
+                        quantity=delta,
+                        reference_type="sales_invoice",
+                        reference_id=invoice.pk,
+                        user=user,
+                    )
+                else:
+                    InventoryService.post_movement(
+                        company=invoice.company,
+                        product=product,
+                        movement_type=MovementType.ADJUSTMENT,
+                        quantity=-delta,
+                        reference_type="sales_invoice_edit",
+                        reference_id=invoice.pk,
+                        reason=f"Edit of {invoice.number or invoice.pk}",
+                        user=user,
+                    )
+            invoice.pdf_status = SalesInvoice.PdfStatus.QUEUED
+            invoice.updated_by = user
+            invoice.save()
+            emit("sales_invoice.edited", invoice=invoice, user=user)
+            emit("sales_invoice.completed", invoice=invoice, user=user)
+            return invoice
+
         invoice.updated_by = user
         invoice.save()
         return invoice
@@ -92,6 +194,13 @@ class SalesService:
         if not items:
             raise BusinessRuleError("Cannot complete an invoice without line items.")
 
+        assert_place_of_supply_for_gst(
+            company=invoice.company,
+            party_state=invoice.customer.state or "",
+            party_gstin=invoice.customer.gstin or "",
+            tax_enabled=_tax_enabled(invoice.invoice_type),
+        )
+
         warnings = []
         # Aggregate per product for the negative-stock check.
         required = defaultdict(Decimal)
@@ -106,7 +215,9 @@ class SalesService:
             if warning:
                 warnings.append(warning)
 
-        invoice.number = DocumentNumberService.next_number(invoice.company, "SALES_INVOICE")
+        invoice.number = invoice.number or DocumentNumberService.next_number(
+            invoice.company, "SALES_INVOICE"
+        )
         invoice.status = SalesInvoice.Status.COMPLETED
         invoice.completed_at = timezone.now()
         invoice.pdf_status = SalesInvoice.PdfStatus.QUEUED
@@ -169,7 +280,9 @@ class SalesService:
         compute_document_totals(
             quotation, items,
             tax_enabled=_tax_enabled(quotation.invoice_type),
-            intra_state=is_intra_state(quotation.company.state, quotation.customer.state),
+            intra_state=party_intra_state(
+                quotation.company, quotation.customer.state, quotation.customer.gstin or ""
+            ),
         )
         QuotationItem.objects.bulk_create(items)
         quotation.updated_by = user
@@ -234,7 +347,9 @@ class SalesService:
         compute_document_totals(
             sales_return, items,
             tax_enabled=_tax_enabled(sales_return.sales_invoice.invoice_type),
-            intra_state=is_intra_state(sales_return.company.state, sales_return.customer.state),
+            intra_state=party_intra_state(
+                sales_return.company, sales_return.customer.state, sales_return.customer.gstin or ""
+            ),
         )
         SalesReturnItem.objects.bulk_create(items)
         sales_return.updated_by = user

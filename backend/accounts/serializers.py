@@ -26,8 +26,9 @@ class CompanySerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "legal_name", "gstin", "registration_type", "state",
             "address", "city", "pincode", "phone", "email", "upi_id",
-            "bank_name", "bank_account", "bank_ifsc", "logo", "fy_start_month",
-            "negative_stock_policy", "invoice_terms", "is_gst_registered",
+            "bank_name", "bank_account", "bank_ifsc", "logo", "signature",
+            "fy_start_month", "negative_stock_policy", "invoice_terms",
+            "assume_local_state_for_blank_party", "is_gst_registered",
         ]
 
 
@@ -40,7 +41,9 @@ class CompanyUserSerializer(serializers.ModelSerializer):
         model = CompanyUser
         fields = [
             "id", "user", "email", "full_name", "phone", "role",
-            "can_manage_inventory", "can_import", "is_active",
+            "can_manage_inventory", "can_import",
+            "can_cancel_documents", "can_view_financial_reports", "can_export",
+            "is_active",
         ]
         read_only_fields = ["user"]
 
@@ -53,6 +56,9 @@ class InviteUserSerializer(serializers.Serializer):
     role = serializers.ChoiceField(choices=CompanyUser.Role.choices, default=CompanyUser.Role.SALES_STAFF)
     can_manage_inventory = serializers.BooleanField(default=False)
     can_import = serializers.BooleanField(default=False)
+    can_cancel_documents = serializers.BooleanField(default=False)
+    can_view_financial_reports = serializers.BooleanField(default=True)
+    can_export = serializers.BooleanField(default=False)
 
 
 class MeSerializer(serializers.Serializer):
@@ -63,5 +69,8 @@ class MeSerializer(serializers.Serializer):
     role = serializers.CharField()
     can_manage_inventory = serializers.BooleanField()
     can_import = serializers.BooleanField()
+    can_cancel_documents = serializers.BooleanField()
+    can_view_financial_reports = serializers.BooleanField()
+    can_export = serializers.BooleanField()
     company_id = serializers.IntegerField(source="company.id")
     company = CompanySerializer()

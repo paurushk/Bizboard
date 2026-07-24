@@ -14,6 +14,15 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // Default JSON Content-Type breaks multipart uploads (missing boundary).
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    if (typeof config.headers.set === 'function') {
+      config.headers.set('Content-Type', false as unknown as string);
+    } else {
+      delete (config.headers as Record<string, unknown>)['Content-Type'];
+      delete (config.headers as Record<string, unknown>)['content-type'];
+    }
+  }
   return config;
 });
 
@@ -63,12 +72,20 @@ export function unwrapData<T>(payload: unknown): T {
 
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const data = error.response?.data as
-      | { detail?: string; message?: string; error?: string }
-      | undefined;
-    return data?.detail || data?.message || data?.error || error.message;
+    const data = error.response?.data as Record<string, unknown> | undefined;
+    const nested = data?.error;
+    if (nested && typeof nested === 'object' && nested !== null) {
+      const msg = (nested as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+    for (const candidate of [data?.detail, data?.message, data?.error]) {
+      if (typeof candidate === 'string' && candidate.trim()) return candidate;
+    }
+    if (error.message) return error.message;
+    return 'Request failed';
   }
   if (error instanceof Error) return error.message;
+  if (typeof error === 'string' && error.trim()) return error;
   return 'Unexpected error';
 }
 

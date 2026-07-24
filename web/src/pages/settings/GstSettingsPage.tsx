@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -8,10 +10,10 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Controller, useForm } from 'react-hook-form';
-import { Navigate } from 'react-router-dom';
 import { getCompany, updateCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { t } from '@/i18n';
 import type { NegativeStockPolicy, RegistrationType } from '@/types/domain';
 import { isValidGstin } from '@/utils/gst';
@@ -22,6 +24,7 @@ interface GstForm {
   state: string;
   registrationType: RegistrationType;
   negativeStockPolicy: NegativeStockPolicy;
+  assumeLocalStateForBlankParty: boolean;
 }
 
 export function GstSettingsPage() {
@@ -37,6 +40,7 @@ export function GstSettingsPage() {
         state: query.data.state ?? '',
         registrationType: query.data.registrationType ?? 'REGULAR',
         negativeStockPolicy: query.data.negativeStockPolicy ?? 'BLOCK',
+        assumeLocalStateForBlankParty: !!query.data.assumeLocalStateForBlankParty,
       });
     }
   }, [query.data, reset]);
@@ -46,7 +50,7 @@ export function GstSettingsPage() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['company'] }),
   });
 
-  if (!canManageGst(user)) return <Navigate to="/" replace />;
+  if (!canManageGst(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
     return <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />;
@@ -101,6 +105,21 @@ export function GstSettingsPage() {
                 <MenuItem value="WARN">Warn</MenuItem>
                 <MenuItem value="BLOCK">Block</MenuItem>
               </TextField>
+            )}
+          />
+          <Controller
+            name="assumeLocalStateForBlankParty"
+            control={control}
+            render={({ field }) => (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={!!field.value}
+                    onChange={(e) => field.onChange(e.target.checked)}
+                  />
+                }
+                label="Assume local (intra-state) when party state/GSTIN is blank"
+              />
             )}
           />
           <Button type="submit" variant="contained" disabled={mutation.isPending}>

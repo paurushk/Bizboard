@@ -1,6 +1,14 @@
-/** Round to 2 decimal places using banker's-friendly half-up for currency display. */
+/** Round to 2 decimal places using ROUND_HALF_UP (matches Python Decimal q2). */
 export function roundMoney(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
+  if (!Number.isFinite(value)) return 0;
+  const sign = value < 0 ? -1 : 1;
+  const abs = Math.abs(value);
+  // Avoid binary float artifacts: scale via fixed string then half-up on the 3rd dp.
+  const scaled = abs * 100;
+  const floored = Math.floor(scaled + 1e-9);
+  const frac = scaled - floored;
+  const rounded = frac >= 0.5 - 1e-12 ? floored + 1 : floored;
+  return (sign * rounded) / 100;
 }
 
 export function toNumber(value: string | number | null | undefined): number {

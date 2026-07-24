@@ -24,6 +24,7 @@ import {
   listCustomers,
   listProducts,
   listQuotations,
+  listSalesInvoicesPage,
 } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
@@ -73,10 +74,20 @@ export function QuotationsPage() {
 
   const convertMutation = useMutation({
     mutationFn: (id: number) => convertQuotation(id),
-    onSuccess: (invoice) => {
-      setMessage(`Converted to draft invoice #${invoice.id}`);
+    onSuccess: async (invoice) => {
+      const flash = `Converted to draft invoice #${invoice.id}`;
+      setMessage(flash);
       void qc.invalidateQueries({ queryKey: ['quotations'] });
-      void navigate(`/sales/history/${invoice.id}`);
+      try {
+        await qc.fetchQuery({
+          queryKey: ['sales-invoices'],
+          queryFn: () => listSalesInvoicesPage(),
+          staleTime: 0,
+        });
+      } catch {
+        void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
+      }
+      void navigate('/sales/history', { state: { message: flash } });
     },
     onError: (err) => setError(getErrorMessage(err)),
   });

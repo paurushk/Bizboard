@@ -5,6 +5,9 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -15,14 +18,19 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
+import TableViewOutlinedIcon from '@mui/icons-material/TableViewOutlined';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { createProduct, listProducts, updateProduct } from '@/api/resources';
+import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { Product } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
+import { canImport } from '@/utils/permissions';
 import { productStatusTone, statusLabelKey } from '@/utils/status';
 
 const emptyForm: {
@@ -49,11 +57,14 @@ const emptyForm: {
 
 export function ProductsPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const query = useQuery({ queryKey: ['products'], queryFn: () => listProducts() });
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
+  const [bulkAnchor, setBulkAnchor] = useState<null | HTMLElement>(null);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -78,18 +89,63 @@ export function ProductsPage() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
+      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
         <Typography variant="h4">{t('nav.products')}</Typography>
-        <Button
-          variant="contained"
-          onClick={() => {
-            setEditing(null);
-            setForm(emptyForm);
-            setOpen(true);
-          }}
-        >
-          {t('common.add')}
-        </Button>
+        <Stack direction="row" spacing={1}>
+          {canImport(user) ? (
+            <>
+              <Button variant="outlined" onClick={(e) => setBulkAnchor(e.currentTarget)}>
+                {t('products.bulkActions')}
+              </Button>
+              <Menu
+                anchorEl={bulkAnchor}
+                open={Boolean(bulkAnchor)}
+                onClose={() => setBulkAnchor(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+              >
+                <MenuItem
+                  onClick={() => {
+                    setBulkAnchor(null);
+                    void navigate('/settings/import?kind=PRODUCTS');
+                  }}
+                >
+                  <ListItemIcon>
+                    <TableViewOutlinedIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={t('products.bulkAddItems')}
+                    secondary={t('products.bulkAddItemsHint')}
+                  />
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    setBulkAnchor(null);
+                    void navigate('/purchases/bill-upload');
+                  }}
+                >
+                  <ListItemIcon>
+                    <CloudUploadOutlinedIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={t('products.purchaseBillUpload')}
+                    secondary={t('products.purchaseBillUploadHint')}
+                  />
+                </MenuItem>
+              </Menu>
+            </>
+          ) : null}
+          <Button
+            variant="contained"
+            onClick={() => {
+              setEditing(null);
+              setForm(emptyForm);
+              setOpen(true);
+            }}
+          >
+            {t('common.add')}
+          </Button>
+        </Stack>
       </Stack>
       {error ? <Alert severity="error">{error}</Alert> : null}
       {query.isLoading ? <LoadingState /> : null}
