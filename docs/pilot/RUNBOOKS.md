@@ -6,10 +6,26 @@
 - Fix: restart worker; use Regenerate PDF on invoice detail.
 - Customer workaround: download after regenerate.
 
+## PDF download not ready (P0-404)
+- Symptom: `GET /api/v1/sales/invoices/{id}/pdf/` returns **409** with `"PDF is generating, retry shortly"` (and current `pdf_status`).
+- Meaning: stored ORIGINAL is not `READY` / missing `pdf_file`. Download **never** sync-renders PDF (avoids request hangs when the worker is down or slow).
+- Behavior:
+  - `QUEUED` → 409 only (no re-enqueue storm).
+  - `NONE` / `FAILED` → status set to `QUEUED`, `generate_invoice_pdf.delay(...)` enqueued, then 409.
+- Client: poll `GET .../pdf-status/` or retry download shortly; use `POST .../regenerate-pdf/` for explicit retry after `FAILED`.
+- If 409 persists: treat as “PDF worker down” above.
+
 ## OTP / SMS failure
 - Symptom: OTP request errors “not configured”.
 - Phase 1: use email/password login; set `SMS_PROVIDER` + provider credentials for phone OTP.
 - Never enable `OTP_DEBUG_ECHO` in production.
+- Frontend: production builds hide the OTP login tab unless `VITE_ENABLE_OTP=true`. The “Dev OTP:” hint is shown only when `import.meta.env.DEV` is true **and** the API returns `debugCode`.
+
+## Media / invoice PDF download (BUG-703 / P0-101)
+- **Pilot decision:** invoice PDFs and uploads are served by the Django API via `FileResponse` after JWT + tenant checks — **not** via nginx `X-Accel-Redirect`.
+- nginx `location /media/` is `internal` so direct `/media/company_N/...` URLs are not publicly enumerable.
+- Clients download through authenticated API routes (e.g. `GET /api/v1/sales/invoices/{id}/pdf/`). Unauthenticated → 401; cross-tenant → 404.
+- Post-pilot: optional upgrade to `X-Accel-Redirect` for offloading large files without changing the auth boundary.
 
 ## SMTP / email share failure
 - Symptom: Share email queued but not delivered.
@@ -32,11 +48,43 @@
   4. Run this drill on a schedule (e.g. monthly) against a scratch environment, not just when a real incident forces it.
 - **If the Postgres volume itself is lost/corrupted:** restore the most recent dump into a fresh `db` volume; there is currently no other backup path, so the dump cadence above is the entire recovery story.
 
-## Migration rollback
+## Deploy rollback (P0-508 / E9)
+
+Record the **image tag** (or compose build digest) and **migration head** for every pilot deploy.
+
+### Decision tree
+1. **App-only regression** (bad code, no schema/data corruption): redeploy the previous known-good **image tag**. Prefer tag rollback over “rebuild whatever is on main.”
+2. **Schema-forward migration is safe to reverse** (pure additive/reversible; verified `reverse` exists):  
+   `docker compose exec api python manage.py showmigrations <app>`  
+   then `docker compose exec api python manage.py migrate <app> <previous_migration_name>`  
+   then redeploy the matching older image.  
+   **Do not** reverse data migrations that mutated money/docs unless you have a tested reverse **and** a backup.
+3. **Data integrity suspected / irreversible migration / unknown blast radius:** **stop writers**, **restore from backup** (see above), then bring up the last known-good image tag. Prefer restore over clever migrate-backwards when money or tenant data may be wrong.
+4. After any rollback: hit `/api/v1/health/`, spot-check complete→PDF→ledger, and note the incident in the go log.
+
+### Image tags
+- Tag releases explicitly (e.g. `bizboard-api:2026-08-01-a1b2c3d`) rather than only `:latest`.
+- Keep the previous tag pullable for at least one pilot week.
+
+## Migration rollback (detail)
 - Identify the last-known-good migration per app: `docker compose exec api python manage.py showmigrations <app>`.
 - Roll back: `docker compose exec api python manage.py migrate <app> <previous_migration_name>`.
 - Data migrations should have a real reverse (not a silent no-op) — verify before relying on this for anything that mutated data, and always restore from backup first if the rollback is due to a suspected data-integrity issue rather than a pure schema mistake.
 
+## Healthchecks (P0-502 / E2) — documented skips
+- **Present:** `db` (`pg_isready`), `redis` (`PING`), `api` (`GET /api/v1/health/`).
+- **Skipped by design:** `worker`, `web`, `nginx` compose healthchecks.
+  - Worker: prefer watching Celery queue depth / `inspect active` over a flaky `celery inspect ping` healthcheck that can false-red during broker blips.
+  - Web/nginx: nginx already `depends_on` api healthy; static web has no meaningful deep check worth the compose noise for pilot.
+- Restart policies: `unless-stopped` on api/worker/db/redis/web/nginx.
+
 ## Basic monitoring
 - No dedicated monitoring stack ships with this repo yet. At minimum, poll `GET /api/v1/health/` from an external uptime checker and alert on failures/latency.
 - Watch Celery queue depth (`docker compose exec worker celery -A config inspect active`) during PDF-generation bursts — a growing backlog is the earliest signal of the "PDF worker down" scenario above before customers notice.
+
+## On-call (placeholder)
+- **Primary:** _TBD (pilot owner)_ — phone/Slack: _TBD_
+- **Secondary:** _TBD_
+- **Hours:** best-effort during pilot business hours (IST) unless otherwise agreed.
+- **Escalate when:** `/health/` down >5m; PDF queue stuck with customer-visible 409s; backup job failed; suspected cross-tenant incident (page immediately).
+- Fill names before paid pilot traffic; keep the page in the same channel as uptime alerts.

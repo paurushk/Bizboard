@@ -42,21 +42,26 @@ def test_cannot_complete_twice(tenant_a):
 
 
 def test_completed_invoice_audited_edit_allows_line_change(tenant_a):
+    """H9-A: Owner may amend unit_price with confirm_amend; stock unchanged."""
     data, product, _ = _completed_invoice(tenant_a, qty="2")
+    from inventory.models import StockBalance
+
+    before_stock = StockBalance.objects.get(product=product).on_hand
     resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
-        "notes": "audited edit",
-        "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+        "confirm_amend": True,
+        "notes": "audited amend",
+        "items": [{"product": product.id, "quantity": "2", "unit_price": "90"}],
     }, format="json")
     assert resp.status_code == 200, resp.data
-    assert Decimal(resp.data["items"][0]["quantity"]) == Decimal("1")
-    assert resp.data["notes"] == "audited edit"
-    assert StockMovement.objects.filter(
+    assert Decimal(resp.data["items"][0]["quantity"]) == Decimal("2")
+    assert Decimal(resp.data["items"][0]["unit_price"]) == Decimal("90.00")
+    assert resp.data["notes"] == "audited amend"
+    assert StockBalance.objects.get(product=product).on_hand == before_stock
+    assert not StockMovement.objects.filter(
         movement_type=MovementType.ADJUSTMENT,
         reference_type="sales_invoice_edit",
     ).exists()
 
-    # BUG-213: post-completion edits must leave a real before/after diff,
-    # not just a bare "UPDATE" row.
     from core.models import AuditEvent
 
     diff_event = AuditEvent.objects.filter(
@@ -64,7 +69,32 @@ def test_completed_invoice_audited_edit_allows_line_change(tenant_a):
         description="Completed document edited",
     ).latest("created_at")
     assert Decimal(diff_event.metadata["before"]["grand_total"]) == Decimal("236.00")
-    assert Decimal(diff_event.metadata["after"]["grand_total"]) == Decimal("118.00")
+    assert Decimal(diff_event.metadata["after"]["grand_total"]) == Decimal("212.00")
+    assert diff_event.metadata.get("amend") is True
+
+
+def test_completed_invoice_amend_requires_owner_confirm(tenant_a):
+    data, product, _ = _completed_invoice(tenant_a, qty="2")
+    # Without confirm_amend
+    resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
+        "items": [{"product": product.id, "quantity": "2", "unit_price": "90"}],
+    }, format="json")
+    assert resp.status_code == 400
+    # Staff with confirm still blocked
+    resp = tenant_a.staff_client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
+        "confirm_amend": True,
+        "items": [{"product": product.id, "quantity": "2", "unit_price": "90"}],
+    }, format="json")
+    assert resp.status_code == 400
+
+
+def test_completed_invoice_amend_rejects_quantity_change(tenant_a):
+    data, product, _ = _completed_invoice(tenant_a, qty="2")
+    resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
+        "confirm_amend": True,
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+    }, format="json")
+    assert resp.status_code == 400
 
 
 def test_completed_invoice_cannot_change_customer(tenant_a):
@@ -84,7 +114,9 @@ def test_completed_invoice_cannot_reduce_below_returned_qty(tenant_a):
         "items": [{"product": product.id, "quantity": "2", "unit_price": "100"}],
     }, format="json")
     assert tenant_a.client.post(f"/api/v1/sales/returns/{ret.data['id']}/complete/").status_code == 200
+    # H9-A blocks quantity changes on completed invoices entirely.
     resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
+        "confirm_amend": True,
         "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
     }, format="json")
     assert resp.status_code == 400
@@ -98,8 +130,9 @@ def test_completed_invoice_edit_blocks_negative_stock(tenant_a):
         {"product": product.id, "quantity": "1", "unit_price": "100"},
     ])
     assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
-    # Remaining on hand = 1; increasing sold qty by 2 would go negative under BLOCK.
+    # H9-A: quantity increases are not an allowed amend field.
     resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{inv['id']}/", {
+        "confirm_amend": True,
         "items": [{"product": product.id, "quantity": "3", "unit_price": "100"}],
     }, format="json")
     assert resp.status_code == 400

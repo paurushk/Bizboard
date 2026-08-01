@@ -8,6 +8,8 @@ from core.services.billing import DISCOUNT_BEFORE_TAX, compute_document_totals, 
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "tax_parity_cases.json"
 PARITY_CASES = json.loads(FIXTURE_PATH.read_text())
+LINE_CASES = [c for c in PARITY_CASES if c.get("level", "line") == "line"]
+DOC_CASES = [c for c in PARITY_CASES if c.get("level") == "document"]
 
 
 class _Doc:
@@ -81,16 +83,16 @@ def test_before_tax_invoice_discount_reduces_gst():
     assert doc.grand_total == Decimal("106.00")
 
 
-def test_additional_charges_are_taxed_at_line_rate():
-    """BUG-205 — additional charges are part of the value of supply and
-    taxable at the invoice's blended rate, not permanently GST-exempt."""
+def test_additional_charges_are_non_taxable_for_pilot():
+    """P0-209 / B11 — Phase 0 scopes additional charges as non-taxable."""
     doc = _Doc()
     doc.additional_charges = Decimal("100")
     items = [_Item(1, 100, gst_rate=18)]
     compute_document_totals(doc, items, tax_enabled=True, intra_state=True)
     assert doc.taxable_total == Decimal("100.00")
-    # 18% of the charges (100) = 18, on top of the line's own 18 tax.
-    assert doc.cgst_total + doc.sgst_total == Decimal("36.00")
+    # Line tax only (18); charges add to grand without GST.
+    assert doc.cgst_total + doc.sgst_total == Decimal("18.00")
+    assert doc.grand_total == Decimal("218.00")
 
 
 def test_additional_charges_untaxed_when_tax_disabled():
@@ -102,7 +104,7 @@ def test_additional_charges_untaxed_when_tax_disabled():
     assert doc.grand_total == Decimal("200.00")
 
 
-@pytest.mark.parametrize("case", PARITY_CASES, ids=[c["id"] for c in PARITY_CASES])
+@pytest.mark.parametrize("case", LINE_CASES, ids=[c["id"] for c in LINE_CASES])
 def test_line_tax_matches_frontend_fixture(case):
     """BUG-216/724 — single canonical fixture shared with web/src/utils/tax.test.ts
     so FE/BE line-tax math can't silently drift apart."""
@@ -120,3 +122,35 @@ def test_line_tax_matches_frontend_fixture(case):
     assert item.sgst == Decimal(str(expected["sgst"]))
     assert item.igst == Decimal(str(expected["igst"]))
     assert item.line_total == Decimal(str(expected["lineTotal"]))
+
+
+@pytest.mark.parametrize("case", DOC_CASES, ids=[c["id"] for c in DOC_CASES])
+def test_document_tax_parity_fixture(case):
+    """P0-203 — document-level F4–F8 / BEFORE_TAX / AFTER_TAX / round-off / multi-rate."""
+    doc = _Doc()
+    doc.additional_charges = Decimal(str(case.get("additionalCharges", 0)))
+    doc.invoice_discount = Decimal(str(case.get("invoiceDiscount", 0)))
+    doc.invoice_discount_mode = case.get("invoiceDiscountMode", "AFTER_TAX")
+    doc.auto_round_off = bool(case.get("autoRoundOff", True))
+    items = [
+        _Item(
+            line["quantity"],
+            line["unitPrice"],
+            discount_percent=line.get("discountPercent", 0),
+            gst_rate=line["gstRate"],
+        )
+        for line in case["lines"]
+    ]
+    compute_document_totals(
+        doc,
+        items,
+        tax_enabled=case.get("taxEnabled", True),
+        intra_state=case["intraState"],
+    )
+    expected = case["expected"]
+    assert doc.taxable_total == Decimal(str(expected["taxableTotal"]))
+    assert doc.cgst_total == Decimal(str(expected["cgstTotal"]))
+    assert doc.sgst_total == Decimal(str(expected["sgstTotal"]))
+    assert doc.igst_total == Decimal(str(expected["igstTotal"]))
+    assert doc.grand_total == Decimal(str(expected["grandTotal"]))
+    assert doc.round_off == Decimal(str(expected["roundOff"]))

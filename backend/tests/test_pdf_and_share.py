@@ -93,6 +93,27 @@ def test_pdf_generated_after_complete(tenant_a):
     assert "Rupees" in text
 
 
+def test_pdf_download_requires_auth(tenant_a):
+    """P0-101 / BUG-703 — PDF download is JWT-gated (FileResponse via API)."""
+    from rest_framework.test import APIClient
+
+    data, _ = _complete(tenant_a)
+    anon = APIClient()
+    resp = anon.get(f"/api/v1/sales/invoices/{data['id']}/pdf/")
+    assert resp.status_code == 401
+
+
+def test_cross_tenant_pdf_download_returns_404(tenant_a, tenant_b):
+    """P0-101 / BUG-703 — another tenant cannot download this invoice's PDF."""
+    data, _ = _complete(tenant_a)
+    resp = tenant_b.client.get(f"/api/v1/sales/invoices/{data['id']}/pdf/")
+    assert resp.status_code == 404
+
+    # Owner still can.
+    own = tenant_a.client.get(f"/api/v1/sales/invoices/{data['id']}/pdf/")
+    assert own.status_code == 200
+
+
 def test_regenerate_pdf_endpoint(tenant_a):
     data, _ = _complete(tenant_a)
     # Force failed then regenerate
@@ -107,6 +128,46 @@ def test_regenerate_pdf_endpoint(tenant_a):
     assert resp.data["pdf_status"] in ("QUEUED", "READY")
     status = tenant_a.client.get(f"/api/v1/sales/invoices/{data['id']}/pdf-status/")
     assert status.data["pdf_status"] == "READY"
+
+
+def test_pdf_download_returns_409_when_not_ready(tenant_a):
+    """P0-404 — download must not sync-call generate_invoice_pdf."""
+    from unittest.mock import MagicMock
+
+    data, _ = _complete(tenant_a)
+    inv = SalesInvoice.objects.get(pk=data["id"])
+    inv.pdf_status = SalesInvoice.PdfStatus.QUEUED
+    inv.pdf_file = None
+    inv.save(update_fields=["pdf_status", "pdf_file"])
+
+    with patch("sales.views.generate_invoice_pdf") as mock_gen:
+        mock_gen.delay = MagicMock()
+        download = tenant_a.client.get(f"/api/v1/sales/invoices/{data['id']}/pdf/")
+        assert download.status_code == 409, download.data
+        assert "retry shortly" in download.data["detail"].lower()
+        assert download.data["pdf_status"] == "QUEUED"
+        mock_gen.assert_not_called()
+        mock_gen.delay.assert_not_called()
+
+
+def test_pdf_download_enqueues_when_failed(tenant_a):
+    """P0-404 — FAILED download enqueues async task and returns 409."""
+    from unittest.mock import MagicMock
+
+    data, _ = _complete(tenant_a)
+    inv = SalesInvoice.objects.get(pk=data["id"])
+    inv.pdf_status = SalesInvoice.PdfStatus.FAILED
+    inv.pdf_file = None
+    inv.save(update_fields=["pdf_status", "pdf_file"])
+
+    with patch("sales.views.generate_invoice_pdf") as mock_gen:
+        mock_gen.delay = MagicMock()
+        download = tenant_a.client.get(f"/api/v1/sales/invoices/{data['id']}/pdf/")
+        assert download.status_code == 409, download.data
+        assert "retry shortly" in download.data["detail"].lower()
+        assert download.data["pdf_status"] == "QUEUED"
+        mock_gen.assert_not_called()
+        mock_gen.delay.assert_called_once_with(inv.pk)
 
 
 def test_header_patch_preserves_line_snapshots(tenant_a):
@@ -305,3 +366,92 @@ def test_pdf_line_total_row_uses_sum_of_line_amounts(tenant_a):
     # Both appear: line TOTAL (100) and footer TOTAL (125)
     assert "100.00" in text
     assert "125.00" in text
+    assert "non-taxable" in text.lower()
+    assert "Additional Charges" in text
+
+
+def test_pdf_before_tax_discount_already_reflected(tenant_a):
+    """P0-204b — BEFORE_TAX discount must not look like a post-tax deduction."""
+    product = make_product(tenant_a.company, gst_rate="18")
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "1", "unit_price": "100"},
+    ])
+    patch = tenant_a.client.patch(
+        f"/api/v1/sales/invoices/{inv['id']}/",
+        {
+            "invoice_discount": "10",
+            "invoice_discount_mode": "BEFORE_TAX",
+            "auto_round_off": True,
+        },
+        format="json",
+    )
+    assert patch.status_code == 200, patch.data
+    resp = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    assert resp.status_code == 200, resp.data
+    invoice = SalesInvoice.objects.prefetch_related("items__product").get(pk=inv["id"])
+    assert invoice.invoice_discount_mode == "BEFORE_TAX"
+    assert invoice.taxable_total == Decimal("90.00")
+    pdf = render_gst_tax_invoice(invoice, copy="ORIGINAL")
+    text = _pdf_text(pdf)
+    compact = " ".join(text.split())
+    assert "already reflected" in text.lower()
+    assert "Discount (already reflected above)" in compact
+    # Must not present a bare post-tax Discount row (without the already-reflected note).
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Discount") and "already reflected" not in stripped.lower():
+            # Allow wrapped continuation lines that only say "above)"
+            if stripped.lower() in {"above)", "above"}:
+                continue
+            # A lone "Discount" label without the note would imply double deduction.
+            if stripped == "Discount":
+                raise AssertionError("PDF implies post-tax Discount deduction")
+
+
+def test_pdf_totals_match_db_odd_paise_and_before_tax(tenant_a):
+    """P0-211 / F11 — render → extract TOTAL → assert vs DB (F3 + F6)."""
+    from sales.pdf.helpers import format_money
+
+    cases = [
+        {
+            "id": "f3_odd_paise",
+            "unit_price": "10.05",
+            "gst_rate": "18",
+            "extra": {"auto_round_off": True},
+        },
+        {
+            "id": "f6_before_tax",
+            "unit_price": "100",
+            "gst_rate": "18",
+            "extra": {
+                "invoice_discount": "10",
+                "invoice_discount_mode": "BEFORE_TAX",
+                "auto_round_off": True,
+            },
+        },
+    ]
+    for case in cases:
+        product = make_product(
+            tenant_a.company,
+            sku=f"PDF-{case['id']}",
+            gst_rate=case["gst_rate"],
+        )
+        add_stock(tenant_a, product, "10")
+        customer = make_customer(tenant_a.company, name=f"Cust {case['id']}")
+        inv = create_draft_invoice(tenant_a, customer, [
+            {"product": product.id, "quantity": "1", "unit_price": case["unit_price"]},
+        ])
+        if case["extra"]:
+            assert tenant_a.client.patch(
+                f"/api/v1/sales/invoices/{inv['id']}/", case["extra"], format="json",
+            ).status_code == 200
+        resp = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+        assert resp.status_code == 200, resp.data
+        invoice = SalesInvoice.objects.prefetch_related("items__product").get(pk=inv["id"])
+        pdf = render_gst_tax_invoice(invoice, copy="ORIGINAL")
+        text = _pdf_text(pdf)
+        assert format_money(invoice.grand_total) in text, (
+            f"{case['id']}: PDF missing grand_total {invoice.grand_total}"
+        )

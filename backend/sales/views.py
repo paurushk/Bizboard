@@ -1,6 +1,7 @@
 from django.db.models import DecimalField, OuterRef, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import FileResponse
+from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -197,12 +198,23 @@ class SalesInvoiceViewSet(CompanyScopedViewSet):
         if copy not in ("ORIGINAL", "DUPLICATE"):
             copy = "ORIGINAL"
 
-        # Ensure stored ORIGINAL exists (async path / generate-on-demand fallback §14).
+        # P0-404: never sync-hang generate_invoice_pdf on download. Clients
+        # must poll pdf-status / retry; use regenerate-pdf for FAILED.
         if invoice.pdf_status != SalesInvoice.PdfStatus.READY or not invoice.pdf_file:
-            generate_invoice_pdf(invoice.pk)
-            invoice.refresh_from_db()
-            if not invoice.pdf_file:
-                raise BusinessRuleError("PDF is not ready for this invoice.")
+            if invoice.pdf_status in (
+                SalesInvoice.PdfStatus.NONE,
+                SalesInvoice.PdfStatus.FAILED,
+            ):
+                invoice.pdf_status = SalesInvoice.PdfStatus.QUEUED
+                invoice.save(update_fields=["pdf_status"])
+                generate_invoice_pdf.delay(invoice.pk)
+            return Response(
+                {
+                    "detail": "PDF is generating, retry shortly",
+                    "pdf_status": invoice.pdf_status,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         # DUPLICATE is rendered in-memory so the stored file stays ORIGINAL.
         if copy == "DUPLICATE":

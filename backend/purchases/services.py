@@ -20,11 +20,25 @@ from .models import PurchaseInvoice, PurchaseItem, PurchaseReturn, PurchaseRetur
 
 
 def _validate_lines(items_data, company):
+    from core.validators import ALLOWED_GST_RATES
+
+    allowed_gst = {Decimal(r) for r in ALLOWED_GST_RATES}
     if not items_data:
         raise BusinessRuleError("At least one line item is required.")
     for line in items_data:
         if Decimal(line["quantity"]) <= 0:
             raise BusinessRuleError("Quantity on each line must be greater than zero.")
+        unit_price = Decimal(str(line.get("unit_price", line["product"].purchase_price)))
+        if unit_price < 0:
+            raise BusinessRuleError("Unit price cannot be negative.")
+        discount_percent = Decimal(str(line.get("discount_percent", 0) or 0))
+        if discount_percent < 0 or discount_percent > 100:
+            raise BusinessRuleError("Discount percent must be between 0 and 100.")
+        gst_rate = Decimal(str(line.get("gst_rate", line["product"].gst_rate)))
+        if gst_rate not in allowed_gst:
+            raise BusinessRuleError(
+                f"Invalid GST rate {gst_rate}. Allowed: {', '.join(ALLOWED_GST_RATES)}%."
+            )
         if line["product"].company_id != company.id:
             raise BusinessRuleError("Invalid product reference.")
 

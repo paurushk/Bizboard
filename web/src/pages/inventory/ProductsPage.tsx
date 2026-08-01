@@ -69,9 +69,12 @@ export function ProductsPage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (form.hsnCode && !isValidHsnSac(form.hsnCode)) {
+        throw new Error('HSN/SAC must be 4, 6, or 8 digits');
+      }
       const payload = {
         ...form,
-        gstRate: Number(form.gstRate),
+        gstRate: normalizeGstRate(Number(form.gstRate) || 0),
         purchasePrice: Number(form.purchasePrice),
         sellingPrice: Number(form.sellingPrice),
         reorderLevel: Number(form.reorderLevel),
@@ -83,6 +86,7 @@ export function ProductsPage() {
       setOpen(false);
       setEditing(null);
       setForm(emptyForm);
+      setError(null);
       void qc.invalidateQueries({ queryKey: ['products'] });
     },
     onError: (err) => setError(getErrorMessage(err)),

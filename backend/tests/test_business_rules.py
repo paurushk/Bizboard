@@ -166,6 +166,30 @@ def test_discount_percent_over_100_rejected(tenant_a):
     assert resp.status_code == 400
 
 
+def test_negative_additional_charges_rejected(tenant_a):
+    """P0-210 — additional_charges >= 0 on serializers."""
+    product = make_product(tenant_a.company)
+    customer = make_customer(tenant_a.company)
+    resp = tenant_a.client.post("/api/v1/sales/invoices/", {
+        "customer": customer.id,
+        "additional_charges": "-5",
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+    }, format="json")
+    assert resp.status_code == 400
+
+
+def test_purchase_negative_unit_price_rejected(tenant_a):
+    product = make_product(tenant_a.company)
+    from tests.conftest import make_supplier
+
+    supplier = make_supplier(tenant_a.company)
+    resp = tenant_a.client.post("/api/v1/purchases/invoices/", {
+        "supplier": supplier.id,
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "-10"}],
+    }, format="json")
+    assert resp.status_code == 400
+
+
 def test_duplicate_customer_gstin_rejected(tenant_a):
     """BUG-321 — gstin is a legally-unique identifier per business."""
     tenant_a.client.post("/api/v1/customers/", {

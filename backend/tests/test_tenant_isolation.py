@@ -114,11 +114,13 @@ def test_cross_tenant_write_attempts_all_rejected(tenant_a, tenant_b):
 
     cases = [
         ("patch", f"/api/v1/sales/invoices/{invoice['id']}/", {"invoice_discount": "5"}),
+        ("delete", f"/api/v1/sales/invoices/{invoice['id']}/", None),
         ("post", f"/api/v1/sales/invoices/{invoice['id']}/complete/", None),
         ("post", f"/api/v1/sales/invoices/{invoice['id']}/cancel/", None),
         ("post", f"/api/v1/sales/invoices/{invoice['id']}/regenerate-pdf/", None),
         ("post", f"/api/v1/sales/invoices/{invoice['id']}/share/", {"channel": "email"}),
         ("patch", f"/api/v1/purchases/invoices/{purchase['id']}/", {"invoice_discount": "5"}),
+        ("delete", f"/api/v1/purchases/invoices/{purchase['id']}/", None),
         ("post", f"/api/v1/purchases/invoices/{purchase['id']}/complete/", None),
         ("post", f"/api/v1/purchases/invoices/{purchase['id']}/cancel/", None),
         ("patch", f"/api/v1/customers/{customer.id}/", {"name": "Hijacked"}),
@@ -132,3 +134,27 @@ def test_cross_tenant_write_attempts_all_rejected(tenant_a, tenant_b):
         call = getattr(tenant_b.client, method)
         resp = call(path, payload, format="json") if payload is not None else call(path)
         assert resp.status_code == 404, f"{method.upper()} {path} returned {resp.status_code}, expected 404"
+
+
+def test_cross_tenant_invoice_patch_and_delete_rejected(tenant_a, tenant_b):
+    """P0-109 / BUG-721 — focused PATCH/DELETE of another tenant's invoice → 404."""
+    product = make_product(tenant_a.company)
+    customer = make_customer(tenant_a.company)
+    invoice = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "1", "unit_price": "100"}
+    ])
+
+    patch = tenant_b.client.patch(
+        f"/api/v1/sales/invoices/{invoice['id']}/",
+        {"invoice_discount": "5"},
+        format="json",
+    )
+    assert patch.status_code == 404
+
+    delete = tenant_b.client.delete(f"/api/v1/sales/invoices/{invoice['id']}/")
+    assert delete.status_code == 404
+
+    # Own-tenant invoice still intact.
+    own = tenant_a.client.get(f"/api/v1/sales/invoices/{invoice['id']}/")
+    assert own.status_code == 200
+    assert own.data["id"] == invoice["id"]

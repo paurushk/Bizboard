@@ -284,6 +284,8 @@ export async function updateSalesInvoice(
     includePaymentQr?: boolean;
     includeTerms?: boolean;
     signature?: number | null;
+    /** H9-A: required for Owner amend of completed invoice money fields */
+    confirmAmend?: boolean;
   },
 ): Promise<SalesInvoice> {
   return withMocks(async () => {

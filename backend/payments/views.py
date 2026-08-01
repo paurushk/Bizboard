@@ -22,6 +22,13 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
     serializer_class = CustomerReceiptSerializer
     http_method_names = ["get", "post", "delete"]
 
+    def get_permissions(self):
+        # BUG-311 / P0-110b: deleting a receipt is money-adjacent — same bar as
+        # cancelling documents, not plain company membership.
+        if self.action == "destroy":
+            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        return super().get_permissions()
+
     def get_queryset(self):
         qs = super().get_queryset()
         if self.request.query_params.get("customer"):
@@ -57,6 +64,12 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
     queryset = SupplierPayment.objects.select_related("supplier").prefetch_related("allocations")
     serializer_class = SupplierPaymentSerializer
     http_method_names = ["get", "post", "delete"]
+
+    def get_permissions(self):
+        # BUG-311 / P0-110b: same permission bar as receipt delete.
+        if self.action == "destroy":
+            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        return super().get_permissions()
 
     def get_queryset(self):
         qs = super().get_queryset()

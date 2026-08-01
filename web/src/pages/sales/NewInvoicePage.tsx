@@ -50,8 +50,13 @@ import {
   uploadFile,
 } from '@/api/resources';
 import { getErrorMessage } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import {
+  primarySaveAction,
+  useBillingSaveFeedback,
+} from '@/hooks/useBillingSaveFeedback';
 import { t } from '@/i18n';
 import type { Customer, InvoiceType, PaymentMode, Product, SalesInvoice } from '@/types/domain';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
@@ -232,14 +237,23 @@ export function NewInvoicePage() {
   const isEdit = Number.isFinite(editId) && (editId as number) > 0;
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const isOwner = user?.role === 'OWNER';
   const barcodeRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [productQuery, setProductQuery] = useState('');
   const debouncedProductQuery = useDebouncedValue(productQuery, 300);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    message,
+    error,
+    setError,
+    clearFeedback,
+    flashSaveAndNew,
+    flashError,
+    flashWarning,
+  } = useBillingSaveFeedback();
   const [editingStatus, setEditingStatus] = useState<SalesInvoice['status'] | null>(null);
   const [loadedEdit, setLoadedEdit] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -322,9 +336,8 @@ export function NewInvoicePage() {
   useEffect(() => {
     // Remount-safe: when switching /sales/new ↔ /sales/history/:id/edit, reset hydrate flag.
     setLoadedEdit(false);
-    setError(null);
-    setMessage(null);
-  }, [editId]);
+    clearFeedback();
+  }, [editId, clearFeedback]);
 
   useEffect(() => {
     if (!existingInvoice.data || loadedEdit) return;
@@ -476,11 +489,9 @@ export function NewInvoicePage() {
   }, [markFullyPaid, totals.grandTotal]);
 
   const resetForm = () => {
-    // BUG-500: message/error are intentionally NOT cleared here — this is
-    // called from the "Save & New" success handler right after it sets a
-    // confirmation flash message, and clearing it in the same tick (React
-    // batches both updates) silently wiped that message (and any
-    // payment-allocation warning) before it was ever shown.
+    // BUG-500 / P0-311: do NOT call clearFeedback here — Save & New sets the
+    // success flash then resets fields in the same tick; wiping feedback would
+    // batch-erase the message before paint. Use useBillingSaveFeedback.
     setLines([]);
     setCustomerId('');
     setInvoiceType('GST');
@@ -539,7 +550,20 @@ export function NewInvoicePage() {
       let invoice: SalesInvoice;
       let completeWarning: string | null = null;
       if (isEdit && editId) {
-        invoice = await updateSalesInvoice(editId, payload);
+        // H9-A: completed invoices need Owner + confirm_amend for money-field edits.
+        if (editingStatus === 'COMPLETED') {
+          if (!isOwner) {
+            throw new Error(
+              'Only an Owner can amend a completed invoice. Use a return for stock corrections, not price fixes.',
+            );
+          }
+          if (!window.confirm(t('billing.confirmAmendCompleted'))) {
+            throw new Error('Amend cancelled');
+          }
+          invoice = await updateSalesInvoice(editId, { ...payload, confirmAmend: true });
+        } else {
+          invoice = await updateSalesInvoice(editId, payload);
+        }
         if (mode !== 'draft' && invoice.status === 'DRAFT') {
           try {
             invoice = await completeSalesInvoice(invoice.id);
@@ -585,13 +609,13 @@ export function NewInvoicePage() {
       return { invoice, mode, paymentWarning };
     },
     onSuccess: async ({ invoice, mode, paymentWarning }) => {
-      setError(paymentWarning ?? null);
+      flashWarning(paymentWarning ?? null);
       void qc.invalidateQueries({ queryKey: ['sales-invoice-number-series'] });
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoice.id] });
       const label = invoice.number?.trim() ? invoice.number : `Draft #${invoice.id}`;
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
-        setMessage(`Invoice ${label} saved — start the next one`);
+        flashSaveAndNew(`Invoice ${label} saved — start the next one`, paymentWarning);
         resetForm();
         navigate('/sales/new', { replace: true });
         return;
@@ -621,7 +645,7 @@ export function NewInvoicePage() {
         },
       });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => flashError(getErrorMessage(err)),
   });
 
   const partyMutation = useMutation({
@@ -751,6 +775,7 @@ export function NewInvoicePage() {
   const activeCustomers = (customers.data ?? []).filter((c) => c.status === 'ACTIVE');
   const canSave = lines.length > 0 && Boolean(customerId) && !saveMutation.isPending;
   const canComplete = canSave && posKnown;
+  const primarySave = primarySaveAction({ isEdit, editingStatus });
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;
@@ -804,21 +829,11 @@ export function NewInvoicePage() {
           </Button>
           <Button
             variant="contained"
-            disabled={isEdit && editingStatus === 'COMPLETED' ? !canSave : !canComplete}
-            onClick={() =>
-              saveMutation.mutate(
-                isEdit && editingStatus === 'COMPLETED' ? 'draft' : 'complete',
-              )
-            }
+            disabled={primarySave.mode === 'draft' ? !canSave : !canComplete}
+            onClick={() => saveMutation.mutate(primarySave.mode)}
           >
-            {/* BUG-507: this button completes/finalizes the document unless
-                editing an already-COMPLETED one — label it accordingly so
-                editing a draft doesn't say "Save" while silently finalizing it. */}
-            {isEdit && editingStatus === 'COMPLETED'
-              ? t('common.save')
-              : isEdit
-                ? t('billing.saveAndComplete')
-                : t('billing.save')}
+            {/* BUG-507 / P0-302: label matches action — never "Save" while completing. */}
+            {t(primarySave.labelKey)}
           </Button>
           <Button
             variant="outlined"
@@ -1393,6 +1408,7 @@ export function NewInvoicePage() {
                   min={0}
                   decimals={2}
                   fullWidth={false}
+                  helperText={t('billing.additionalChargesHint')}
                   InputProps={{
                     startAdornment: <InputAdornment position="start">₹</InputAdornment>,
                   }}

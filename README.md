@@ -20,7 +20,10 @@ The approved scope and acceptance criteria are in
 **Phase 0 (pilot hardening):** canonical DoD
 [`docs/pilot/PHASE_0_DOD.md`](docs/pilot/PHASE_0_DOD.md),
 implementation plan
-[`docs/pilot/PHASE_0_IMPLEMENTATION_PLAN.md`](docs/pilot/PHASE_0_IMPLEMENTATION_PLAN.md).
+[`docs/pilot/PHASE_0_IMPLEMENTATION_PLAN.md`](docs/pilot/PHASE_0_IMPLEMENTATION_PLAN.md),
+Wave 0 audit [`docs/pilot/WAVE0_AUDIT.md`](docs/pilot/WAVE0_AUDIT.md),
+go/no-go [`docs/pilot/GO_NO_GO.md`](docs/pilot/GO_NO_GO.md).
+Pilot fixtures: `python manage.py seed_pilot_fixtures`.
 
 ## Local development
 

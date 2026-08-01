@@ -64,6 +64,10 @@ import {
   type InvoiceDiscountMode,
 } from '@/utils/tax';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import {
+  primarySaveAction,
+  useBillingSaveFeedback,
+} from '@/hooks/useBillingSaveFeedback';
 
 interface DraftLine {
   key: string;
@@ -240,8 +244,15 @@ export function NewPurchasePage() {
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [productQuery, setProductQuery] = useState('');
   const debouncedProductQuery = useDebouncedValue(productQuery, 300);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    message,
+    error,
+    setError,
+    clearFeedback,
+    flashSaveAndNew,
+    flashError,
+    flashWarning,
+  } = useBillingSaveFeedback();
   const [editingStatus, setEditingStatus] = useState<PurchaseInvoice['status'] | null>(null);
   const [loadedEdit, setLoadedEdit] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -321,6 +332,11 @@ export function NewPurchasePage() {
     setPrefix(series.data.prefix);
     setNextNumber(series.data.nextNumber);
   }, [series.data, isEdit]);
+
+  useEffect(() => {
+    setLoadedEdit(false);
+    clearFeedback();
+  }, [editId, clearFeedback]);
 
   useEffect(() => {
     if (!existingInvoice.data || loadedEdit) return;
@@ -479,9 +495,8 @@ export function NewPurchasePage() {
   }, [markFullyPaid, totals.grandTotal]);
 
   const resetForm = () => {
-    // BUG-500: see NewInvoicePage's resetForm — message/error must survive
-    // this reset, since it's called right after the "Save & New" success
-    // handler sets a confirmation flash message.
+    // BUG-501 / P0-311: do NOT call clearFeedback here — Save & New sets the
+    // success flash then resets fields in the same tick. See useBillingSaveFeedback.
     setLines([]);
     setSupplierId('');
     setPurchaseType('GST');
@@ -586,13 +601,13 @@ export function NewPurchasePage() {
       return { invoice, mode, paymentWarning };
     },
     onSuccess: async ({ invoice, mode, paymentWarning }) => {
-      setError(paymentWarning ?? null);
+      flashWarning(paymentWarning ?? null);
       void qc.invalidateQueries({ queryKey: ['purchase-invoice-number-series'] });
       void qc.invalidateQueries({ queryKey: ['purchase-invoice', invoice.id] });
       const label = invoice.number?.trim() ? invoice.number : `Draft #${invoice.id}`;
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
-        setMessage(`Purchase ${label} saved — start the next one`);
+        flashSaveAndNew(`Purchase ${label} saved — start the next one`, paymentWarning);
         resetForm();
         navigate('/purchases/new', { replace: true });
         return;
@@ -621,7 +636,7 @@ export function NewPurchasePage() {
         },
       });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => flashError(getErrorMessage(err)),
   });
 
   const partyMutation = useMutation({
@@ -749,6 +764,7 @@ export function NewPurchasePage() {
   const activeSuppliers = (suppliers.data ?? []).filter((c) => c.isActive);
   const canSave = lines.length > 0 && Boolean(supplierId) && !saveMutation.isPending;
   const canComplete = canSave && posKnown;
+  const primarySave = primarySaveAction({ isEdit, editingStatus });
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;
@@ -802,19 +818,11 @@ export function NewPurchasePage() {
           </Button>
           <Button
             variant="contained"
-            disabled={isEdit && editingStatus === 'COMPLETED' ? !canSave : !canComplete}
-            onClick={() =>
-              saveMutation.mutate(
-                isEdit && editingStatus === 'COMPLETED' ? 'draft' : 'complete',
-              )
-            }
+            disabled={primarySave.mode === 'draft' ? !canSave : !canComplete}
+            onClick={() => saveMutation.mutate(primarySave.mode)}
           >
-            {/* BUG-507: label reflects that this finalizes a draft, same as NewInvoicePage. */}
-            {isEdit && editingStatus === 'COMPLETED'
-              ? t('common.save')
-              : isEdit
-                ? t('billing.saveAndComplete')
-                : t('billing.save')}
+            {/* BUG-507 / P0-302: label matches action — never "Save" while completing. */}
+            {t(primarySave.labelKey)}
           </Button>
           <Button
             variant="outlined"
@@ -1391,6 +1399,7 @@ export function NewPurchasePage() {
                   min={0}
                   decimals={2}
                   fullWidth={false}
+                  helperText={t('billing.additionalChargesHint')}
                   InputProps={{
                     startAdornment: <InputAdornment position="start">₹</InputAdornment>,
                   }}

@@ -18,6 +18,8 @@ Scenarios align with DoD **F1–F8** in [`docs/pilot/PHASE_0_DOD.md`](../pilot/P
 
 **Prerequisite:** BUG-204 fixed (PDF honors `invoice_discount_mode`) before F6 can pass. Automated PDF assert (F11) covers at least F1/F3/F6.
 
+**PDF template freeze:** declared 2026-08-01 on `wip/phase0` after P0-204b/P0-209 — do not change tax presentation without re-CA.
+
 CA name: ________________  Date: ________  Sign-off (F9): ________
 
 B11 / F12 decision (tax additional charges / scope out): ________________  Initials: ________

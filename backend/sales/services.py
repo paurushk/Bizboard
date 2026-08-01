@@ -27,11 +27,26 @@ from .models import (
 
 
 def _validate_lines(items_data, company, *, check_active=True):
+    from core.validators import ALLOWED_GST_RATES
+
+    allowed_gst = {Decimal(r) for r in ALLOWED_GST_RATES}
     if not items_data:
         raise BusinessRuleError("At least one line item is required.")
     for line in items_data:
         if Decimal(line["quantity"]) <= 0:
             raise BusinessRuleError("Quantity on each line must be greater than zero.")
+        unit_price = Decimal(str(line.get("unit_price", line["product"].selling_price)))
+        if unit_price < 0:
+            raise BusinessRuleError("Unit price cannot be negative.")
+        discount_percent = Decimal(str(line.get("discount_percent", 0) or 0))
+        if discount_percent < 0 or discount_percent > 100:
+            raise BusinessRuleError("Discount percent must be between 0 and 100.")
+        gst_rate = Decimal(str(line.get("gst_rate", line["product"].gst_rate)))
+        # Allowed slab set (0–28); reject non-slab overrides like 17%.
+        if gst_rate not in allowed_gst:
+            raise BusinessRuleError(
+                f"Invalid GST rate {gst_rate}. Allowed: {', '.join(ALLOWED_GST_RATES)}%."
+            )
         product = line["product"]
         if product.company_id != company.id:
             raise BusinessRuleError("Invalid product reference.")
@@ -179,7 +194,13 @@ class SalesService:
             invoice.pdf_status = SalesInvoice.PdfStatus.QUEUED
             invoice.updated_by = user
             invoice.save()
-            emit("sales_invoice.edited", invoice=invoice, user=user, old_totals=old_totals)
+            emit(
+                "sales_invoice.edited",
+                invoice=invoice,
+                user=user,
+                old_totals=old_totals,
+                amend=True,
+            )
             emit("sales_invoice.completed", invoice=invoice, user=user)
             return invoice
 

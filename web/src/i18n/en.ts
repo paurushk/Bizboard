@@ -190,7 +190,8 @@ export const en = {
     amount: 'AMOUNT (₹)',
     subtotal: 'SUBTOTAL',
     taxableAmount: 'Taxable Amount',
-    additionalCharges: 'Additional Charges',
+    additionalCharges: 'Additional Charges (non-taxable)',
+    additionalChargesHint: 'Freight/packing — non-taxable for pilot (no GST added)',
     invoiceDiscount: 'Invoice discount',
     invoiceDiscountAfterTax: 'Cash discount (after tax)',
     invoiceDiscountBeforeTax: 'Discount (reduces GST)',
@@ -219,7 +220,9 @@ export const en = {
     save: 'Save',
     saveAndComplete: 'Save & Complete',
     editingCompletedWarning:
-      'This document is already completed — saving changes here creates an audited edit to an issued GST record.',
+      'Completed invoice: Owners may amend prices/discounts/charges with confirmation (audited). Quantities, products, and GST rates are locked. Do not use Returns to fix prices.',
+    confirmAmendCompleted:
+      'Amend this completed GST invoice? Changes to prices/discounts/charges will be audited. Quantities and GST rates stay locked.',
     settings: 'Settings',
     days: 'days',
     createParty: 'Create party',

@@ -22,15 +22,16 @@ def audit_document_event(*, document, user=None, event="", **kwargs):
 @subscribe("sales_invoice.edited")
 @subscribe("purchase_invoice.edited")
 def audit_edited_document_event(*, invoice, user=None, old_totals=None, **kwargs):
-    """BUG-213: post-completion line-item edits used to leave only a bare
-    generic UPDATE row (from CompanyScopedViewSet.perform_update) with no
-    record of what actually changed on an already-issued GST document."""
+    """BUG-213 / H9-A: post-completion edits leave a before/after totals diff."""
     if old_totals is None:
         return
     new_totals = {
         "grand_total": str(invoice.grand_total), "taxable_total": str(invoice.taxable_total),
         "tax_total": str(invoice.cgst_total + invoice.sgst_total + invoice.igst_total),
     }
+    meta = {"before": old_totals, "after": new_totals}
+    if kwargs.get("amend"):
+        meta["amend"] = True
     AuditService.log(
         company=invoice.company,
         user=user,
@@ -38,5 +39,5 @@ def audit_edited_document_event(*, invoice, user=None, old_totals=None, **kwargs
         entity_type=type(invoice).__name__,
         entity_id=str(invoice.pk),
         description="Completed document edited",
-        metadata={"before": old_totals, "after": new_totals},
+        metadata=meta,
     )

@@ -14,13 +14,16 @@ const fixturePath = path.resolve(
 );
 const cases: Array<{
   id: string;
+  level?: string;
   quantity: number;
   unitPrice: number;
   gstRate: number;
   intraState: boolean;
   discountPercent: number;
   expected: { taxableAmount: number; cgst: number; sgst: number; igst: number; lineTotal: number };
-}> = JSON.parse(readFileSync(fixturePath, 'utf-8'));
+}> = JSON.parse(readFileSync(fixturePath, 'utf-8')).filter(
+  (c: { level?: string }) => !c.level || c.level === 'line',
+);
 
 describe('tax utils', () => {
   for (const c of cases) {

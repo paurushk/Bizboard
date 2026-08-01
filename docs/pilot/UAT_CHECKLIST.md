@@ -9,11 +9,14 @@
 
 | Code | Profile | Seed/reset notes | Owner |
 |------|---------|------------------|-------|
-| C1 | Demo / retail GST intra-state | | |
-| C2 | Inter-state sales heavy | | |
-| C3 | NON_GST / composition-style billing | | |
-| C4 | Multi-rate products (5% + 28%) | | |
-| C5 | Multi-user (Owner + Staff flags) | | |
+| C1 | Pilot Retail GST | `seed_pilot_fixtures` → pilot-c1@bizboard.local / PilotPass123! | |
+| C2 | Pilot Inter-State | pilot-c2@… | |
+| C3 | Pilot Non-GST Shop | pilot-c3@… | |
+| C4 | Pilot Multi-Rate | pilot-c4@… | |
+| C5 | Pilot Multi-User | pilot-c5@… + pilot-c5-staff@… | |
+
+Reset: `python manage.py seed_pilot_fixtures --reset`  
+Perf seed (optional): `python manage.py seed_pilot_fixtures --perf-invoices 5000`
 
 ## Matrix (mark Pass / Fail / Blocked + date)
 

@@ -15,6 +15,7 @@ import { requestOtp } from '@/api/auth';
 import { getErrorMessage } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { t } from '@/i18n';
+import { formatOtpHint, isOtpLoginEnabled } from '@/pages/loginOtp';
 
 interface PasswordForm {
   email: string;
@@ -28,6 +29,7 @@ interface OtpForm {
 
 export function LoginPage() {
   const { login, loginWithOtp, isAuthenticated } = useAuth();
+  const otpEnabled = isOtpLoginEnabled();
   const [tab, setTab] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [otpHint, setOtpHint] = useState<string | null>(null);
@@ -57,7 +59,8 @@ export function LoginPage() {
     try {
       const phone = otpForm.getValues('phone');
       const res = await requestOtp(phone);
-      setOtpHint(res.debugCode ? `Dev OTP: ${res.debugCode}` : res.detail);
+      // BUG-628 / P0-108: never surface "Dev OTP:" outside DEV builds.
+      setOtpHint(formatOtpHint(res));
     } catch (err) {
       setError(getErrorMessage(err));
     }
@@ -89,14 +92,16 @@ export function LoginPage() {
         <Stack spacing={2}>
           <Typography variant="h4">{t('app.name')}</Typography>
           <Typography color="text.secondary">{t('auth.loginTitle')}</Typography>
-          <Tabs value={tab} onChange={(_, v) => setTab(v)}>
-            <Tab label={t('auth.passwordLogin')} />
-            <Tab label={t('auth.otpLogin')} />
-          </Tabs>
+          {otpEnabled ? (
+            <Tabs value={tab} onChange={(_, v) => setTab(v)}>
+              <Tab label={t('auth.passwordLogin')} />
+              <Tab label={t('auth.otpLogin')} />
+            </Tabs>
+          ) : null}
           {error ? <Alert severity="error">{error}</Alert> : null}
-          {otpHint ? <Alert severity="info">{otpHint}</Alert> : null}
+          {otpEnabled && otpHint ? <Alert severity="info">{otpHint}</Alert> : null}
 
-          {tab === 0 ? (
+          {!otpEnabled || tab === 0 ? (
             <Stack spacing={2} component="form" onSubmit={onPasswordLogin}>
               <TextField
                 label={t('auth.email')}

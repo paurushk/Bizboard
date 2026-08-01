@@ -188,6 +188,49 @@ def test_staff_without_cancel_permission_cannot_delete_allocation(tenant_a):
     assert owner_resp.status_code == 204
 
 
+def test_staff_without_cancel_permission_cannot_delete_receipt(tenant_a):
+    """BUG-311 / P0-110b — receipt delete requires cancel permission."""
+    customer = make_customer(tenant_a.company)
+    receipt = _receipt(tenant_a, customer, "500")
+    resp = tenant_a.staff_client.delete(f"/api/v1/payments/receipts/{receipt['id']}/")
+    assert resp.status_code == 403
+
+
+def test_receipt_and_allocation_delete_create_audit_events(tenant_a):
+    """P0-110b — money-adjacent deletes must leave an AuditEvent trail."""
+    from core.models import AuditEvent
+
+    customer = make_customer(tenant_a.company)
+    receipt = _receipt(tenant_a, customer, "500")
+    receipt_id = str(receipt["id"])
+
+    del_receipt = tenant_a.client.delete(f"/api/v1/payments/receipts/{receipt_id}/")
+    assert del_receipt.status_code == 204
+    assert AuditEvent.objects.filter(
+        company=tenant_a.company,
+        action=AuditEvent.Action.DELETE,
+        entity_type="CustomerReceipt",
+        entity_id=receipt_id,
+    ).exists()
+
+    inv, customer2, _ = _completed_sale(tenant_a)
+    receipt2 = _receipt(tenant_a, customer2, "1000")
+    alloc = tenant_a.client.post("/api/v1/payments/allocations/", {
+        "receipt": receipt2["id"], "sales_invoice": inv["id"], "amount": "1000",
+    }, format="json")
+    assert alloc.status_code == 201
+    alloc_id = str(alloc.data["id"])
+
+    del_alloc = tenant_a.client.delete(f"/api/v1/payments/allocations/{alloc_id}/")
+    assert del_alloc.status_code == 204
+    assert AuditEvent.objects.filter(
+        company=tenant_a.company,
+        action=AuditEvent.Action.DELETE,
+        entity_type="PaymentAllocation",
+        entity_id=alloc_id,
+    ).exists()
+
+
 def test_cannot_cancel_invoice_with_payment_allocation(tenant_a):
     """BUG-722 — cancelling a paid invoice would leave a dangling
     allocation pointing at a no-longer-completed document."""

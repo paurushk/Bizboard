@@ -347,7 +347,7 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     invoice_discount = Decimal(getattr(invoice, "invoice_discount", 0) or 0)
     if additional_charges:
         right_rows.append([
-            Paragraph("Additional Charges", styles["total_label"]),
+            Paragraph("Additional Charges (non-taxable)", styles["total_label"]),
             Paragraph(format_money(additional_charges), styles["total_value"]),
         ])
     if show_tax:

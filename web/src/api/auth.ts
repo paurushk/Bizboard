@@ -66,10 +66,17 @@ export async function register(
 
 export async function requestOtp(phone: string): Promise<{ detail: string; debugCode?: string }> {
   if (shouldUseMocks()) {
-    return { detail: 'OTP sent.', debugCode: '123456' };
+    // Only echo a debug code in DEV mocks — production mock path must not invent one.
+    return import.meta.env.DEV
+      ? { detail: 'OTP sent.', debugCode: '123456' }
+      : { detail: 'OTP sent.' };
   }
   const { data } = await apiClient.post('/auth/otp/request/', { phone });
-  return unwrapData(data);
+  const body = unwrapData<{ detail: string; debugCode?: string; debug_code?: string }>(data);
+  return {
+    detail: body.detail,
+    debugCode: body.debugCode ?? body.debug_code,
+  };
 }
 
 export async function verifyOtp(

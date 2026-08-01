@@ -103,6 +103,11 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         self.check_company_ref(supplier, "supplier")
         return supplier
 
+    def validate_additional_charges(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Additional charges cannot be negative.")
+        return value
+
     def validate_signature(self, signature):
         if signature is not None:
             self.check_company_ref(signature, "signature")

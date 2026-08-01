@@ -111,6 +111,13 @@ def test_csv_export(tenant_a):
     assert b"INV-00001" in resp.content
 
 
+def test_csv_export_requires_can_export(tenant_a):
+    """P0-313 / BUG-612: staff without can_export must be denied at the API."""
+    _setup_documents(tenant_a)
+    resp = tenant_a.staff_client.get("/api/v1/exports/sales-register/")
+    assert resp.status_code == 403
+
+
 def test_audit_log_records_and_is_owner_only(tenant_a):
     _setup_documents(tenant_a)
     resp = tenant_a.client.get("/api/v1/audit/")

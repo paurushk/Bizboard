@@ -1,21 +1,7 @@
 [
   {
-    "id": "odd_paise_10_05_18",
-    "quantity": 1,
-    "unitPrice": 10.05,
-    "gstRate": 18,
-    "intraState": true,
-    "discountPercent": 0,
-    "expected": {
-      "taxableAmount": 10.05,
-      "cgst": 0.9,
-      "sgst": 0.91,
-      "igst": 0,
-      "lineTotal": 11.86
-    }
-  },
-  {
-    "id": "even_200_18",
+    "id": "f1_even_200_18",
+    "level": "line",
     "quantity": 2,
     "unitPrice": 100,
     "gstRate": 18,
@@ -30,7 +16,8 @@
     }
   },
   {
-    "id": "inter_100_12",
+    "id": "f2_inter_100_12",
+    "level": "line",
     "quantity": 1,
     "unitPrice": 100,
     "gstRate": 12,
@@ -45,7 +32,40 @@
     }
   },
   {
+    "id": "f3_odd_paise_10_05_18",
+    "level": "line",
+    "quantity": 1,
+    "unitPrice": 10.05,
+    "gstRate": 18,
+    "intraState": true,
+    "discountPercent": 0,
+    "expected": {
+      "taxableAmount": 10.05,
+      "cgst": 0.9,
+      "sgst": 0.91,
+      "igst": 0,
+      "lineTotal": 11.86
+    }
+  },
+  {
+    "id": "f4_non_gst_line_zero_rate",
+    "level": "line",
+    "quantity": 1,
+    "unitPrice": 100,
+    "gstRate": 0,
+    "intraState": true,
+    "discountPercent": 0,
+    "expected": {
+      "taxableAmount": 100,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "lineTotal": 100
+    }
+  },
+  {
     "id": "discounted_odd_paise_28",
+    "level": "line",
     "quantity": 3,
     "unitPrice": 33.33,
     "gstRate": 28,
@@ -61,6 +81,7 @@
   },
   {
     "id": "fractional_qty_zero_rate",
+    "level": "line",
     "quantity": 2.5,
     "unitPrice": 19.99,
     "gstRate": 0,
@@ -76,6 +97,7 @@
   },
   {
     "id": "inter_odd_paise_5",
+    "level": "line",
     "quantity": 7,
     "unitPrice": 8.15,
     "gstRate": 5,
@@ -87,6 +109,154 @@
       "sgst": 0,
       "igst": 2.85,
       "lineTotal": 59.9
+    }
+  },
+  {
+    "id": "f5_after_tax_discount",
+    "level": "document",
+    "taxEnabled": true,
+    "intraState": true,
+    "invoiceDiscount": 10,
+    "invoiceDiscountMode": "AFTER_TAX",
+    "autoRoundOff": true,
+    "additionalCharges": 0,
+    "lines": [
+      {"quantity": 1, "unitPrice": 100, "gstRate": 18, "discountPercent": 0}
+    ],
+    "expected": {
+      "taxableTotal": 100,
+      "cgstTotal": 9,
+      "sgstTotal": 9,
+      "igstTotal": 0,
+      "grandTotal": 108,
+      "roundOff": 0
+    }
+  },
+  {
+    "id": "f6_before_tax_discount",
+    "level": "document",
+    "taxEnabled": true,
+    "intraState": true,
+    "invoiceDiscount": 10,
+    "invoiceDiscountMode": "BEFORE_TAX",
+    "autoRoundOff": true,
+    "additionalCharges": 0,
+    "lines": [
+      {"quantity": 1, "unitPrice": 100, "gstRate": 18, "discountPercent": 0}
+    ],
+    "expected": {
+      "taxableTotal": 90,
+      "cgstTotal": 8.1,
+      "sgstTotal": 8.1,
+      "igstTotal": 0,
+      "grandTotal": 106,
+      "roundOff": -0.2
+    }
+  },
+  {
+    "id": "f7_round_off_on",
+    "level": "document",
+    "taxEnabled": true,
+    "intraState": true,
+    "invoiceDiscount": 0,
+    "invoiceDiscountMode": "AFTER_TAX",
+    "autoRoundOff": true,
+    "additionalCharges": 0,
+    "lines": [
+      {"quantity": 1, "unitPrice": 10.05, "gstRate": 18, "discountPercent": 0}
+    ],
+    "expected": {
+      "taxableTotal": 10.05,
+      "cgstTotal": 0.9,
+      "sgstTotal": 0.91,
+      "igstTotal": 0,
+      "grandTotal": 12,
+      "roundOff": 0.14
+    }
+  },
+  {
+    "id": "f7_round_off_off",
+    "level": "document",
+    "taxEnabled": true,
+    "intraState": true,
+    "invoiceDiscount": 0,
+    "invoiceDiscountMode": "AFTER_TAX",
+    "autoRoundOff": false,
+    "additionalCharges": 0,
+    "lines": [
+      {"quantity": 1, "unitPrice": 10.05, "gstRate": 18, "discountPercent": 0}
+    ],
+    "expected": {
+      "taxableTotal": 10.05,
+      "cgstTotal": 0.9,
+      "sgstTotal": 0.91,
+      "igstTotal": 0,
+      "grandTotal": 11.86,
+      "roundOff": 0
+    }
+  },
+  {
+    "id": "f8_multi_rate_5_28",
+    "level": "document",
+    "taxEnabled": true,
+    "intraState": true,
+    "invoiceDiscount": 0,
+    "invoiceDiscountMode": "AFTER_TAX",
+    "autoRoundOff": true,
+    "additionalCharges": 0,
+    "lines": [
+      {"quantity": 1, "unitPrice": 100, "gstRate": 5, "discountPercent": 0},
+      {"quantity": 1, "unitPrice": 100, "gstRate": 28, "discountPercent": 0}
+    ],
+    "expected": {
+      "taxableTotal": 200,
+      "cgstTotal": 16.5,
+      "sgstTotal": 16.5,
+      "igstTotal": 0,
+      "grandTotal": 233,
+      "roundOff": 0
+    }
+  },
+  {
+    "id": "f4_non_gst_document",
+    "level": "document",
+    "taxEnabled": false,
+    "intraState": true,
+    "invoiceDiscount": 0,
+    "invoiceDiscountMode": "AFTER_TAX",
+    "autoRoundOff": true,
+    "additionalCharges": 0,
+    "lines": [
+      {"quantity": 1, "unitPrice": 100, "gstRate": 18, "discountPercent": 0}
+    ],
+    "expected": {
+      "taxableTotal": 100,
+      "cgstTotal": 0,
+      "sgstTotal": 0,
+      "igstTotal": 0,
+      "grandTotal": 100,
+      "roundOff": 0
+    }
+  },
+  {
+    "id": "f2_inter_document",
+    "level": "document",
+    "taxEnabled": true,
+    "intraState": false,
+    "invoiceDiscount": 0,
+    "invoiceDiscountMode": "AFTER_TAX",
+    "autoRoundOff": true,
+    "additionalCharges": 0,
+    "lines": [
+      {"quantity": 1, "unitPrice": 100, "gstRate": 12, "discountPercent": 0}
+    ],
+    "expected": {
+      "taxableTotal": 100,
+      "cgstTotal": 0,
+      "sgstTotal": 0,
+      "igstTotal": 12,
+      "grandTotal": 112,
+      "roundOff": 0
     }
   }
 ]
