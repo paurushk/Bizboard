@@ -13,6 +13,15 @@ class RegisterSerializer(serializers.Serializer):
     state = serializers.CharField(max_length=64, required=False, allow_blank=True, default="")
 
     def validate_email(self, value):
+        # BUG-114 (accepted tradeoff): this does leak whether an email is
+        # already registered. Fully closing it would require an
+        # email-verification pipeline (accept the signup, email a
+        # confirmation link, only reveal "already registered" out-of-band)
+        # that doesn't exist in this codebase yet. Self-registration
+        # enumeration is a common, lower-severity industry tradeoff;
+        # BUG-109/701 (the actually exploitable consequence — silently
+        # attaching a found account to someone else's company) is closed
+        # separately in CompanyUserViewSet.create.
         if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError("A user with this email already exists.")
         return value
@@ -27,6 +36,21 @@ class CompanySerializer(serializers.ModelSerializer):
             "id", "name", "legal_name", "gstin", "registration_type", "state",
             "address", "city", "pincode", "phone", "email", "upi_id",
             "bank_name", "bank_account", "bank_ifsc", "logo", "signature",
+            "fy_start_month", "negative_stock_policy", "invoice_terms",
+            "assume_local_state_for_blank_party", "is_gst_registered",
+        ]
+
+
+class CompanySerializerStaff(serializers.ModelSerializer):
+    """Non-owner read view of Company — omits bank/UPI details (BUG-111)."""
+
+    is_gst_registered = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Company
+        fields = [
+            "id", "name", "legal_name", "gstin", "registration_type", "state",
+            "address", "city", "pincode", "phone", "email", "logo", "signature",
             "fy_start_month", "negative_stock_policy", "invoice_terms",
             "assume_local_state_for_blank_party", "is_gst_registered",
         ]
@@ -73,4 +97,10 @@ class MeSerializer(serializers.Serializer):
     can_view_financial_reports = serializers.BooleanField()
     can_export = serializers.BooleanField()
     company_id = serializers.IntegerField(source="company.id")
-    company = CompanySerializer()
+    company = serializers.SerializerMethodField()
+
+    def get_company(self, obj):
+        # Non-owners don't get bank/UPI details embedded in their own
+        # session payload either (BUG-111).
+        serializer_cls = CompanySerializer if obj.role == "OWNER" else CompanySerializerStaff
+        return serializer_cls(obj.company).data

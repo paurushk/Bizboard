@@ -39,24 +39,30 @@ The codebase **is** a strong foundation: tenant isolation works, 120 backend tes
 
 ### Must-fix before any paid pilot (P0)
 
-- [ ] Align FE tax math with BE residual split + add parity tests  
-- [ ] Fix API error envelope (`success: false` on all non-2xx)  
-- [ ] Label / split before-tax vs after-tax discounts  
-- [ ] Force `DEBUG=0`, strong secrets, disable OTP echo in prod compose  
-- [ ] CA review & sign-off of Tax Invoice PDF + sample GST scenarios  
-- [ ] SMTP (or provider) for invoice email; document WhatsApp limitation  
-- [ ] File upload allowlist + size limits  
-- [ ] Auth rate limiting  
-- [ ] TLS termination + basic security headers  
+<!-- BUG-729/731: this checklist had drifted from reality in both directions
+     — some items were already done and still shown unchecked, others were
+     checked as done in the old TEST_REPORT.md/PERFORMANCE_REPORT.md while a
+     regression sat unfixed. `bugs/INDEX.md` is now the authoritative,
+     re-verified source; this list is updated to match it as of the pass
+     that closed most of these out. -->
+- [x] Align FE tax math with BE residual split + add parity tests (verified matching via cross-language reproduction; `roundMoney` further hardened against float-representation edge cases)
+- [x] Fix API error envelope (`success: false` on all non-2xx)
+- [x] Label / split before-tax vs after-tax discounts (Sales was already done; Purchases UI now matches)
+- [x] Force `DEBUG=0`, strong secrets, disable OTP echo in prod compose (placeholder-secret denylist added; see `bugs/01-backend-core-auth-config.md` BUG-101 for the one residual, documented gap that can't be closed without either an explicit `DJANGO_ENV` in every deploy target or changing the zero-config local-dev default)
+- [ ] CA review & sign-off of Tax Invoice PDF + sample GST scenarios
+- [ ] SMTP (or provider) for invoice email; document WhatsApp limitation
+- [x] File upload allowlist + size limits (already implemented in `FileService.validate_upload`)
+- [x] Auth rate limiting (already implemented; OTP verify's own throttle scope added)
+- [ ] TLS termination + basic security headers (headers present at nginx; TLS termination is an infra/ops task for the upstream load balancer)
 
 ### Should-fix before expanding pilot (P1)
 
-- [ ] Access-denied UX  
-- [ ] Receivables aging  
-- [ ] Dashboard outstanding SQL aggregation  
-- [ ] Staff permission matrix UAT (cancel / export / financials)  
-- [ ] Expand Playwright golden-path E2E  
-- [ ] Warn when party state missing (don’t silently assume intra)  
+- [x] Access-denied UX (`ForbiddenPage` now used consistently instead of silent redirects)
+- [x] Receivables aging (dashboard now renders the aging buckets the backend already computed)
+- [x] Dashboard outstanding SQL aggregation (customer/supplier ledger list views and receivables aging now use bulk aggregation instead of N+1 loops)
+- [x] Staff permission matrix UAT (cancel / export / financials) — `canCancelDocuments`/`canExport` are now actually enforced in the UI, not just defined
+- [ ] Expand Playwright golden-path E2E (still the single biggest test-coverage gap — see `bugs/07-tests-ci-infra-migrations.md` BUG-725)
+- [x] Warn when party state missing (don't silently assume intra) — Purchases now has the same `posKnown` gate Sales already had
 
 ### Before claiming GA / 10k (P2)
 

@@ -1,5 +1,14 @@
 # BizBoard Production Readiness — TEST REPORT
 
+> **Stale-numbers notice (BUG-729):** a follow-up pass on 2026-07-25 found
+> the test counts/timings below no longer match reality (actual: 149
+> backend tests, ~30 frontend tests as of that pass, both smaller/faster
+> suites than claimed here). Rather than re-editing this snapshot every
+> time the suite changes, treat `bugs/INDEX.md` and a fresh
+> `cd backend && pytest` / `cd web && npm test -- --run` as the
+> authoritative current numbers — this file is a point-in-time snapshot, not
+> a live source of truth.
+
 **Date:** 2026-07-24  
 **Environment:** Docker stack (`localhost`) — Postgres 17, Redis, API, Celery worker, Nginx, Web  
 **Roles exercised:** Demo OWNER (`demo@bizboard.local`)  

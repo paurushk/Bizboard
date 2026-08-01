@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 from core.models import TimeStampedModel
@@ -38,6 +39,17 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+
+    class Meta:
+        constraints = [
+            # BUG-108: two active users sharing a phone number crashed OTP
+            # verification's User.objects.get(phone=...) with
+            # MultipleObjectsReturned. Blank phones (users who never set one)
+            # are exempt from the constraint.
+            models.UniqueConstraint(
+                fields=["phone"], condition=~Q(phone=""), name="uniq_user_phone_when_set",
+            ),
+        ]
 
 
 class Company(TimeStampedModel):
@@ -106,12 +118,27 @@ class CompanyUser(TimeStampedModel):
     can_manage_inventory = models.BooleanField(default=False)
     can_import = models.BooleanField(default=False)
     can_cancel_documents = models.BooleanField(default=False)
-    can_view_financial_reports = models.BooleanField(default=True)
+    # BUG-319: every other capability flag defaults False (least privilege);
+    # this one alone defaulted True, silently granting every new SALES_STAFF
+    # member visibility into revenue/margins/who-owes-what unless an owner
+    # remembered to explicitly revoke it.
+    can_view_financial_reports = models.BooleanField(default=False)
     can_export = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
 
     class Meta:
         unique_together = [("company", "user")]
+        constraints = [
+            # BUG-110/702: without this, get_company_user()'s "active
+            # membership" lookup is only deterministic by luck — a user with
+            # two active memberships resolves to an arbitrary company per
+            # request. MVP is explicitly single-company-per-tenant, so at
+            # most one active membership per user is also the correct model,
+            # not just a safety net.
+            models.UniqueConstraint(
+                fields=["user"], condition=Q(is_active=True), name="uniq_active_membership_per_user",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.user} @ {self.company} ({self.role})"
@@ -123,6 +150,9 @@ class OtpChallenge(TimeStampedModel):
     expires_at = models.DateTimeField()
     consumed = models.BooleanField(default=False)
     attempts = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        indexes = [models.Index(fields=["phone", "consumed", "-created_at"])]
 
     @property
     def is_expired(self):

@@ -69,6 +69,15 @@ class Customer(CompanyScopedModel):
     class Meta:
         ordering = ["name"]
         indexes = [models.Index(fields=["company", "status"])]
+        constraints = [
+            # BUG-321: gstin is a legally-unique-per-entity identifier;
+            # without this, duplicate customer records fragment purchase
+            # history and understate true outstanding balances.
+            models.UniqueConstraint(
+                fields=["company", "gstin"], condition=~models.Q(gstin=""),
+                name="uniq_customer_gstin_per_company",
+            ),
+        ]
 
     def __str__(self):
         return self.name
@@ -86,6 +95,12 @@ class Supplier(CompanyScopedModel):
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "gstin"], condition=~models.Q(gstin=""),
+                name="uniq_supplier_gstin_per_company",
+            ),
+        ]
 
     def __str__(self):
         return self.name
@@ -120,7 +135,15 @@ class Product(CompanyScopedModel):
                 fields=["company", "sku"],
                 condition=~models.Q(sku=""),
                 name="uniq_product_sku_per_company",
-            )
+            ),
+            # BUG-320: without this, two products can share a barcode and a
+            # barcode-scan/import match picks an arbitrary one, silently
+            # applying stock/price changes to the wrong SKU.
+            models.UniqueConstraint(
+                fields=["company", "barcode"],
+                condition=~models.Q(barcode=""),
+                name="uniq_product_barcode_per_company",
+            ),
         ]
         indexes = [models.Index(fields=["company", "status"])]
 

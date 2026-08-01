@@ -124,13 +124,12 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         from django.db import transaction
 
         items_data = validated_data.pop("items")
-        from core.services.document_numbers import DocumentNumberService
-
+        # BUG-208: numbers are assigned on Complete (SalesService.complete),
+        # not on draft creation — a draft that's later deleted or abandoned
+        # must not permanently burn a slot in the GST-sequential series.
+        # ("number" is read-only, so it was never actually present here; this
+        # used to unconditionally call next_number() on every single draft.)
         with transaction.atomic():
-            if not validated_data.get("number"):
-                validated_data["number"] = DocumentNumberService.next_number(
-                    self.company, "SALES_INVOICE"
-                )
             invoice = SalesInvoice.objects.create(**validated_data)
             SalesService.set_items(invoice, [dict(l) for l in items_data], self.context["request"].user)
             return invoice

@@ -85,7 +85,7 @@ export function CustomersPage() {
       {error ? <Alert severity="error">{error}</Alert> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.length === 0 ? <EmptyState description={t('empty.customers')} /> : null}
       {query.data && query.data.length > 0 ? (

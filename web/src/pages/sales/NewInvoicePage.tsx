@@ -47,7 +47,6 @@ import {
   searchProducts,
   updateCompany,
   updateSalesInvoice,
-  updateSalesInvoiceNumberSeries,
   uploadFile,
 } from '@/api/resources';
 import { getErrorMessage } from '@/api/client';
@@ -252,14 +251,12 @@ export function NewInvoicePage() {
   const [dueDate, setDueDate] = useState(() => addDaysIso(todayIso(), 30));
   const [showPaymentTerms, setShowPaymentTerms] = useState(true);
 
+  // BUG-514: prefix/nextNumber are read-only display-only previews (the
+  // fields are permanently disabled below) — the series-editing machinery
+  // that used to accompany them was dead code, since it could never be
+  // triggered through this UI.
   const [prefix, setPrefix] = useState('INV');
   const [nextNumber, setNextNumber] = useState(1);
-  const [seriesBaseline, setSeriesBaseline] = useState<{ prefix: string; nextNumber: number } | null>(
-    null,
-  );
-  const seriesDirty =
-    seriesBaseline != null &&
-    (prefix !== seriesBaseline.prefix || nextNumber !== seriesBaseline.nextNumber);
 
   const [notes, setNotes] = useState('');
   const [termsText, setTermsText] = useState('');
@@ -320,7 +317,6 @@ export function NewInvoicePage() {
     if (!series.data || isEdit) return;
     setPrefix(series.data.prefix);
     setNextNumber(series.data.nextNumber);
-    setSeriesBaseline({ prefix: series.data.prefix, nextNumber: series.data.nextNumber });
   }, [series.data, isEdit]);
 
   useEffect(() => {
@@ -480,6 +476,11 @@ export function NewInvoicePage() {
   }, [markFullyPaid, totals.grandTotal]);
 
   const resetForm = () => {
+    // BUG-500: message/error are intentionally NOT cleared here — this is
+    // called from the "Save & New" success handler right after it sets a
+    // confirmation flash message, and clearing it in the same tick (React
+    // batches both updates) silently wiped that message (and any
+    // payment-allocation warning) before it was ever shown.
     setLines([]);
     setCustomerId('');
     setInvoiceType('GST');
@@ -496,9 +497,6 @@ export function NewInvoicePage() {
     setAmountReceived(0);
     setMarkFullyPaid(false);
     setPaymentMode('CASH');
-    setMessage(null);
-    setError(null);
-    setSeriesBaseline(null);
     void qc.invalidateQueries({ queryKey: ['sales-invoice-number-series'] });
     barcodeRef.current?.focus();
   };
@@ -536,10 +534,6 @@ export function NewInvoicePage() {
     mutationFn: async (mode: 'draft' | 'complete' | 'complete_new') => {
       if (!customerId) throw new Error('Customer is required');
       if (lines.length === 0) throw new Error('Add at least one item');
-
-      if (!isEdit && seriesDirty) {
-        await updateSalesInvoiceNumberSeries({ prefix, nextNumber });
-      }
 
       const payload = buildPayload();
       let invoice: SalesInvoice;
@@ -594,7 +588,6 @@ export function NewInvoicePage() {
       setError(paymentWarning ?? null);
       void qc.invalidateQueries({ queryKey: ['sales-invoice-number-series'] });
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoice.id] });
-      setSeriesBaseline(null);
       const label = invoice.number?.trim() ? invoice.number : `Draft #${invoice.id}`;
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
@@ -724,6 +717,18 @@ export function NewInvoicePage() {
   };
 
   useEffect(() => {
+    // BUG-513: warn before an accidental tab close/refresh discards a
+    // half-built invoice — no confirmation existed at all previously.
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (lines.length === 0) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [lines.length]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const meta = e.ctrlKey || e.metaKey;
       if (meta && e.key.toLowerCase() === 's') {
@@ -806,7 +811,14 @@ export function NewInvoicePage() {
               )
             }
           >
-            {isEdit ? t('common.save') : t('billing.save')}
+            {/* BUG-507: this button completes/finalizes the document unless
+                editing an already-COMPLETED one — label it accordingly so
+                editing a draft doesn't say "Save" while silently finalizing it. */}
+            {isEdit && editingStatus === 'COMPLETED'
+              ? t('common.save')
+              : isEdit
+                ? t('billing.saveAndComplete')
+                : t('billing.save')}
           </Button>
           <Button
             variant="outlined"
@@ -830,6 +842,9 @@ export function NewInvoicePage() {
 
       {message ? <Alert severity="success">{message}</Alert> : null}
       {error ? <Alert severity="error">{error}</Alert> : null}
+      {isEdit && editingStatus === 'COMPLETED' ? (
+        <Alert severity="warning">{t('billing.editingCompletedWarning')}</Alert>
+      ) : null}
 
       <Paper sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
@@ -888,7 +903,7 @@ export function NewInvoicePage() {
                     <TextField
                       {...params}
                       label={t('billing.customer')}
-                      placeholder="+ Add Party"
+                      placeholder="Search or select customer…"
                     />
                   )}
                 />
@@ -1126,7 +1141,9 @@ export function NewInvoicePage() {
                     <Stack direction="row" spacing={0.5} sx={{ minWidth: 180 }}>
                       <NumericField
                         value={line.discountPercent}
-                        onValueChange={(n) => updateLine(line.key, { discountPercent: n })}
+                        onValueChange={(n) =>
+                          updateLine(line.key, { discountPercent: Math.min(100, n) })
+                        }
                         min={0}
                         decimals={2}
                         fullWidth={false}

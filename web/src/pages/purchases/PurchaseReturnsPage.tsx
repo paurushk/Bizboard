@@ -26,9 +26,14 @@ import {
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
-import type { PurchaseInvoice } from '@/types/domain';
+import type { LineItem, PurchaseInvoice } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+
+function lineLabel(item: LineItem): string {
+  const name = item.productName ?? item.description ?? `Product #${item.product}`;
+  return `${name} — purchased ${toNumber(item.quantity)}`;
+}
 
 export function PurchaseReturnsPage() {
   const qc = useQueryClient();
@@ -37,15 +42,21 @@ export function PurchaseReturnsPage() {
 
   const [open, setOpen] = useState(false);
   const [purchase, setPurchase] = useState<PurchaseInvoice | null>(null);
+  // BUG-531: previously always returned purchase.items[0] with no way to
+  // pick a different line for a multi-item purchase.
+  const [item, setItem] = useState<LineItem | null>(null);
   const [qty, setQty] = useState('1');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  const maxQty = item ? toNumber(item.quantity) : 1;
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!purchase || !purchase.items?.[0]) throw new Error('Select a purchase with items');
-      const item = purchase.items[0];
+      if (!purchase || !item) throw new Error('Select a purchase line to return');
+      // BUG-532: clamp to what was actually purchased on this line.
+      const quantity = Math.min(Math.max(1, Math.floor(Number(qty)) || 1), maxQty);
       const draft = await createPurchaseReturn({
         supplier: purchase.supplier,
         purchaseInvoice: purchase.id,
@@ -54,7 +65,7 @@ export function PurchaseReturnsPage() {
         items: [
           {
             product: item.product,
-            quantity: Number(qty),
+            quantity,
             unitPrice: toNumber(item.unitPrice),
             gstRate: toNumber(item.gstRate),
           },
@@ -65,6 +76,10 @@ export function PurchaseReturnsPage() {
     onSuccess: () => {
       setOpen(false);
       setMessage('Purchase return completed');
+      setPurchase(null);
+      setItem(null);
+      setQty('1');
+      setReason('');
       void qc.invalidateQueries({ queryKey: ['purchase-returns'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -84,7 +99,7 @@ export function PurchaseReturnsPage() {
       {error ? <Alert severity="error">{error}</Alert> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.length === 0 ? <EmptyState /> : null}
       {query.data && query.data.length > 0 ? (
@@ -127,14 +142,31 @@ export function PurchaseReturnsPage() {
               options={completed}
               getOptionLabel={(o) => `${o.number ?? o.id} · ${o.supplierName ?? ''}`}
               value={purchase}
-              onChange={(_, v) => setPurchase(v)}
+              onChange={(_, v) => {
+                setPurchase(v);
+                setItem(null);
+              }}
               renderInput={(params) => <TextField {...params} label="Original purchase" />}
+            />
+            <Autocomplete
+              options={purchase?.items ?? []}
+              getOptionLabel={lineLabel}
+              value={item}
+              onChange={(_, v) => {
+                setItem(v);
+                setQty('1');
+              }}
+              disabled={!purchase}
+              renderInput={(params) => <TextField {...params} label="Item to return" />}
             />
             <TextField
               type="number"
               label={t('billing.qty')}
               value={qty}
               onChange={(e) => setQty(e.target.value)}
+              disabled={!item}
+              inputProps={{ min: 1, max: maxQty }}
+              helperText={item ? `Up to ${maxQty} (quantity purchased on this line)` : undefined}
             />
             <TextField
               label={t('common.reason')}
@@ -147,7 +179,7 @@ export function PurchaseReturnsPage() {
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={!purchase || createMutation.isPending}
+            disabled={!purchase || !item || createMutation.isPending}
             onClick={() => createMutation.mutate()}
           >
             {t('common.complete')}

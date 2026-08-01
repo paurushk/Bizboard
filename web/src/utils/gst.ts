@@ -13,8 +13,15 @@ export function isValidHsnSac(code: string): boolean {
   return /^[0-9]{4}([0-9]{2})?([0-9]{2})?$/.test(code.trim());
 }
 
+const ALLOWED_GST_RATES = [0, 0.25, 3, 5, 12, 18, 28];
+
+/** Snap an arbitrary rate to the nearest official GST slab (BUG-416) —
+ * previously this only clamped to [0, 28], so an in-range-but-invalid rate
+ * like 15 or 22 passed through unchanged despite the function's name
+ * implying real-slab normalization. */
 export function normalizeGstRate(rate: number): number {
-  const allowed = [0, 5, 12, 18, 28];
-  if (allowed.includes(rate)) return rate;
-  return Math.max(0, Math.min(28, rate));
+  if (!Number.isFinite(rate)) return 0;
+  return ALLOWED_GST_RATES.reduce((closest, candidate) =>
+    Math.abs(candidate - rate) < Math.abs(closest - rate) ? candidate : closest,
+  );
 }

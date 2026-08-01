@@ -95,6 +95,12 @@ class SalesService:
 
         old_qty = defaultdict(Decimal)
         adjust_stock = invoice.status == SalesInvoice.Status.COMPLETED
+        # BUG-213: snapshot pre-edit totals so a completed-document edit
+        # leaves a real diff in the audit log, not just a bare "UPDATE".
+        old_totals = {
+            "grand_total": str(invoice.grand_total), "taxable_total": str(invoice.taxable_total),
+            "tax_total": str(invoice.cgst_total + invoice.sgst_total + invoice.igst_total),
+        } if adjust_stock else None
         if adjust_stock:
             for item in invoice.items.select_related("product"):
                 old_qty[item.product_id] += item.quantity
@@ -173,7 +179,7 @@ class SalesService:
             invoice.pdf_status = SalesInvoice.PdfStatus.QUEUED
             invoice.updated_by = user
             invoice.save()
-            emit("sales_invoice.edited", invoice=invoice, user=user)
+            emit("sales_invoice.edited", invoice=invoice, user=user, old_totals=old_totals)
             emit("sales_invoice.completed", invoice=invoice, user=user)
             return invoice
 
@@ -246,6 +252,14 @@ class SalesService:
             raise BusinessRuleError("Invoice is already cancelled.")
         if invoice.returns.filter(status=SalesReturn.Status.COMPLETED).exists():
             raise BusinessRuleError("Cannot cancel an invoice with completed returns.")
+        if invoice.allocations.exists():
+            # BUG-722: cancelling a paid/partially-paid invoice would leave
+            # payment allocations pointing at a document that's no longer
+            # completed — the ledger has no defined meaning for that.
+            raise BusinessRuleError(
+                "Cannot cancel an invoice with payment allocations against it. "
+                "Remove the allocation(s) first."
+            )
 
         if invoice.status in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
             # Restore stock via ADJUSTMENT — never delete SALE movements (§5.3).

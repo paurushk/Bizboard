@@ -360,7 +360,16 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
                 Paragraph(row["label"], styles["total_label"]),
                 Paragraph(format_money(row["amount"]), styles["total_value"]),
             ])
-    if invoice_discount:
+    discount_mode = getattr(invoice, "invoice_discount_mode", "AFTER_TAX")
+    if invoice_discount and discount_mode == "BEFORE_TAX":
+        # BUG-204: the discount has already been netted into TAXABLE AMOUNT
+        # and the tax rows above — printing it again as a further deduction
+        # would make the visible arithmetic not sum to TOTAL.
+        right_rows.append([
+            Paragraph("Discount (already reflected above)", styles["total_label"]),
+            Paragraph(format_money(invoice_discount), styles["total_value"]),
+        ])
+    elif invoice_discount:
         right_rows.append([
             Paragraph("Discount", styles["total_label"]),
             Paragraph(format_money(invoice_discount), styles["total_value"]),

@@ -129,13 +129,8 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         from django.db import transaction
 
         items_data = validated_data.pop("items")
-        from core.services.document_numbers import DocumentNumberService
-
+        # BUG-208: defer numbering to Complete, matching sales invoices.
         with transaction.atomic():
-            if not validated_data.get("number"):
-                validated_data["number"] = DocumentNumberService.next_number(
-                    self.company, "PURCHASE_INVOICE"
-                )
             invoice = PurchaseInvoice.objects.create(**validated_data)
             PurchaseService.set_items(
                 invoice, self._prepare_items(items_data), self.context["request"].user

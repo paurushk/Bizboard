@@ -63,6 +63,9 @@ class PaymentService:
     @transaction.atomic
     def allocate_receipt(*, receipt, sales_invoice, amount, user=None):
         from ledgers.services import LedgerService
+        from sales.models import SalesInvoice
+
+        from .models import CustomerReceipt
 
         amount = Decimal(amount)
         if amount <= 0:
@@ -71,6 +74,15 @@ class PaymentService:
             raise BusinessRuleError("Receipt and invoice belong to different companies.")
         if receipt.customer_id != sales_invoice.customer_id:
             raise BusinessRuleError("Receipt customer must match the invoice customer.")
+
+        # Lock both rows before recomputing unallocated/outstanding — without
+        # this, two concurrent allocations against the same receipt (or the
+        # same invoice) can both read a stale "still has room" snapshot and
+        # both pass, over-allocating past the receipt amount or the invoice
+        # balance (BUG-308).
+        receipt = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
+        sales_invoice = SalesInvoice.objects.select_for_update().get(pk=sales_invoice.pk)
+
         if sales_invoice.status not in ("COMPLETED", "RETURNED"):
             raise BusinessRuleError("Allocations are only allowed against completed invoices.")
 
@@ -93,6 +105,9 @@ class PaymentService:
     @transaction.atomic
     def allocate_supplier_payment(*, payment, purchase_invoice, amount, user=None):
         from ledgers.services import LedgerService
+        from purchases.models import PurchaseInvoice
+
+        from .models import SupplierPayment
 
         amount = Decimal(amount)
         if amount <= 0:
@@ -101,6 +116,11 @@ class PaymentService:
             raise BusinessRuleError("Payment and invoice belong to different companies.")
         if payment.supplier_id != purchase_invoice.supplier_id:
             raise BusinessRuleError("Payment supplier must match the invoice supplier.")
+
+        # See allocate_receipt — same race, same fix (BUG-308).
+        payment = SupplierPayment.objects.select_for_update().get(pk=payment.pk)
+        purchase_invoice = PurchaseInvoice.objects.select_for_update().get(pk=purchase_invoice.pk)
+
         if purchase_invoice.status != "COMPLETED":
             raise BusinessRuleError("Allocations are only allowed against completed invoices.")
 

@@ -118,3 +118,60 @@ def test_invalid_gst_rate_rejected(tenant_a):
         "name": "Bad Rate", "sku": "BR-1", "gst_rate": "17",
     }, format="json")
     assert resp.status_code == 400
+
+
+def test_duplicate_product_barcode_rejected(tenant_a):
+    """BUG-320 — two products sharing a barcode made a barcode-scan match
+    pick an arbitrary one."""
+    tenant_a.client.post("/api/v1/products/", {
+        "name": "First", "sku": "BC-1", "barcode": "8901234567890", "gst_rate": "18",
+    }, format="json")
+    resp = tenant_a.client.post("/api/v1/products/", {
+        "name": "Second", "sku": "BC-2", "barcode": "8901234567890", "gst_rate": "18",
+    }, format="json")
+    assert resp.status_code == 400
+
+
+def test_invalid_line_gst_rate_rejected(tenant_a):
+    """BUG-210 — the product master validates gst_rate, but a line's own
+    (potentially overridden) rate on the invoice did not."""
+    product = make_product(tenant_a.company)
+    customer = make_customer(tenant_a.company)
+    resp = tenant_a.client.post("/api/v1/sales/invoices/", {
+        "customer": customer.id,
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "17"}],
+    }, format="json")
+    assert resp.status_code == 400
+
+
+def test_negative_unit_price_rejected(tenant_a):
+    """BUG-211."""
+    product = make_product(tenant_a.company)
+    customer = make_customer(tenant_a.company)
+    resp = tenant_a.client.post("/api/v1/sales/invoices/", {
+        "customer": customer.id,
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "-50"}],
+    }, format="json")
+    assert resp.status_code == 400
+
+
+def test_discount_percent_over_100_rejected(tenant_a):
+    """BUG-211."""
+    product = make_product(tenant_a.company)
+    customer = make_customer(tenant_a.company)
+    resp = tenant_a.client.post("/api/v1/sales/invoices/", {
+        "customer": customer.id,
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "100", "discount_percent": "150"}],
+    }, format="json")
+    assert resp.status_code == 400
+
+
+def test_duplicate_customer_gstin_rejected(tenant_a):
+    """BUG-321 — gstin is a legally-unique identifier per business."""
+    tenant_a.client.post("/api/v1/customers/", {
+        "name": "Alpha Retail", "gstin": "29ABCDE1234F1Z5",
+    }, format="json")
+    resp = tenant_a.client.post("/api/v1/customers/", {
+        "name": "Alpha Retail Duplicate", "gstin": "29ABCDE1234F1Z5",
+    }, format="json")
+    assert resp.status_code == 400

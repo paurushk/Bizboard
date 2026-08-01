@@ -24,15 +24,18 @@ import {
   listCustomers,
   shareInvoice,
 } from '@/api/resources';
+import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PdfStatusPoller } from '@/components/PdfStatusPoller';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { formatMoney, toNumber } from '@/utils/money';
+import { canCancelDocuments } from '@/utils/permissions';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 
 export function InvoiceDetailPage() {
+  const { user } = useAuth();
   const { id } = useParams();
   const location = useLocation();
   const invoiceId = Number(id);
@@ -82,11 +85,17 @@ export function InvoiceDetailPage() {
     onError: (err) => setError(getErrorMessage(err)),
   });
 
+  const [shareLink, setShareLink] = useState<string | null>(null);
+
   const shareMutation = useMutation({
     mutationFn: (payload: { channel: 'EMAIL' | 'WHATSAPP'; recipient: string }) =>
       shareInvoice(invoiceId, payload),
     onSuccess: (res) => {
-      setMessage(res.shareLink ? `Share ready: ${res.shareLink}` : `Share ${res.status}`);
+      setMessage(res.shareLink ? `Share ready` : `Share ${res.status}`);
+      setShareLink(res.shareLink ?? null);
+      // BUG-519: window.open here is frequently blocked by popup blockers
+      // since it fires from an async callback, not directly from the click;
+      // the link is also rendered as a clickable fallback below.
       if (res.shareLink) window.open(res.shareLink, '_blank');
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -116,7 +125,7 @@ export function InvoiceDetailPage() {
 
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
   }
   if (!query.data) return <EmptyState />;
 
@@ -184,12 +193,18 @@ export function InvoiceDetailPage() {
               {t('common.complete')}
             </Button>
           ) : null}
-          {inv.status === 'COMPLETED' ? (
+          {inv.status === 'COMPLETED' && canCancelDocuments(user) ? (
             <Button
               color="error"
               variant="outlined"
               disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate()}
+              onClick={() => {
+                // BUG-520: a single mis-click used to cancel a completed,
+                // potentially already-shared GST invoice with no recovery.
+                if (window.confirm(`Cancel invoice ${inv.number ?? inv.id}? This cannot be undone.`)) {
+                  cancelMutation.mutate();
+                }
+              }}
             >
               {t('common.cancel')}
             </Button>
@@ -327,10 +342,13 @@ export function InvoiceDetailPage() {
               value={sharePhone}
               onChange={(e) => setSharePhone(e.target.value)}
               placeholder="9198XXXXXXXX"
+              error={Boolean(sharePhone) && !/^\d{10,15}$/.test(sharePhone.replace(/\D/g, ''))}
             />
             <Button
               variant="outlined"
-              disabled={!sharePhone || shareMutation.isPending}
+              disabled={
+                !/^\d{10,15}$/.test(sharePhone.replace(/\D/g, '')) || shareMutation.isPending
+              }
               onClick={() =>
                 shareMutation.mutate({ channel: 'WHATSAPP', recipient: sharePhone })
               }
@@ -341,15 +359,25 @@ export function InvoiceDetailPage() {
               label={t('common.email')}
               value={shareEmail}
               onChange={(e) => setShareEmail(e.target.value)}
+              error={Boolean(shareEmail) && !/^\S+@\S+\.\S+$/.test(shareEmail)}
             />
             <Button
               variant="outlined"
-              disabled={!shareEmail || shareMutation.isPending}
+              disabled={!/^\S+@\S+\.\S+$/.test(shareEmail) || shareMutation.isPending}
               onClick={() => shareMutation.mutate({ channel: 'EMAIL', recipient: shareEmail })}
             >
               {t('common.email')}
             </Button>
           </Stack>
+          {shareLink ? (
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              {/* BUG-519: a popup-blocked window.open left users with no way
+                  to recover the link — it's now always shown as clickable. */}
+              <a href={shareLink} target="_blank" rel="noreferrer">
+                {shareLink}
+              </a>
+            </Typography>
+          ) : null}
         </Paper>
       ) : null}
     </Stack>

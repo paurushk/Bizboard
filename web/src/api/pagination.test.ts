@@ -5,10 +5,11 @@ vi.mock('@/api/client', () => ({
     get: vi.fn(),
   },
   unwrapData: <T>(data: T) => data,
+  shouldUseMocks: () => false,
 }));
 
 import { apiClient } from '@/api/client';
-import { fetchNextPage, listPage } from '@/api/resources';
+import { fetchNextPage, listCustomers, listPage } from '@/api/resources';
 
 describe('list pagination helpers', () => {
   beforeEach(() => {
@@ -39,5 +40,26 @@ describe('list pagination helpers', () => {
     expect(apiClient.get).toHaveBeenCalledWith('/sales/invoices/?cursor=xyz');
     expect(page.results[0].id).toBe(3);
     expect(page.next).toBeNull();
+  });
+
+  it('BUG-521/606-609: listCustomers walks every page instead of returning only page 1', async () => {
+    const page1 = { id: 1, name: 'Customer 1' };
+    const page2 = { id: 2, name: 'Customer 2 (page 2)' };
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({
+        data: {
+          results: [page1],
+          next: 'http://localhost/api/v1/customers/?cursor=page2',
+          previous: null,
+          count: 2,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: { results: [page2], next: null, previous: null, count: 2 },
+      });
+
+    const customers = await listCustomers();
+    expect(customers).toHaveLength(2);
+    expect(customers.map((c) => c.id)).toEqual([1, 2]);
   });
 });

@@ -21,13 +21,38 @@ SECRET_KEY = os.environ.get(
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 DJANGO_ENV = (os.environ.get("DJANGO_ENV") or ("production" if not DEBUG else "development")).strip().lower()
 _DEFAULT_SECRET = "dev-insecure-bizboard-secret-key-change-me-32b"
+# Known placeholder values checked into this repo's own example env files —
+# these must never be treated as "a real secret was set" (BUG-704). A prior
+# length-only check (>=32 chars) let the .env.example placeholder through,
+# since it happens to be 33 characters.
+_KNOWN_PLACEHOLDER_SECRETS = {
+    _DEFAULT_SECRET,
+    "replace-with-a-long-random-secret",
+    "replace-with-long-random-secret-at-least-32-chars",
+    "change-me-in-production",
+}
 if DJANGO_ENV == "production" or os.environ.get("DJANGO_FAIL_FAST_SECRETS") == "1":
     if DEBUG:
         raise ImproperlyConfigured("DJANGO_DEBUG must be 0 in production.")
-    if not os.environ.get("DJANGO_SECRET_KEY") or SECRET_KEY == _DEFAULT_SECRET or len(SECRET_KEY) < 32:
-        raise ImproperlyConfigured("Set a strong DJANGO_SECRET_KEY for production.")
+    if (
+        not os.environ.get("DJANGO_SECRET_KEY")
+        or SECRET_KEY in _KNOWN_PLACEHOLDER_SECRETS
+        or len(SECRET_KEY) < 40
+    ):
+        raise ImproperlyConfigured(
+            "Set a strong, unique DJANGO_SECRET_KEY (40+ chars, not a value copied "
+            "from .env.example) for production."
+        )
     if os.environ.get("REQUIRE_SMTP") == "1" and not os.environ.get("EMAIL_HOST"):
         raise ImproperlyConfigured("EMAIL_HOST is required when REQUIRE_SMTP=1.")
+# NOTE (BUG-101, residual/documented risk): this check only fires once
+# DJANGO_ENV resolves to "production", which itself derives from DEBUG when
+# unset. An operator who deploys for real but simply never sets
+# DJANGO_DEBUG=0 *at all* still boots with DEBUG=True and this check never
+# runs — that specific gap can't be closed without either breaking the
+# zero-config local-dev flow this repo's README documents, or requiring an
+# explicit DJANGO_ENV=production in every real deployment (already done in
+# .env.production.example; make sure any other deploy target does the same).
 ALLOWED_HOSTS = [
     h.strip()
     for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
@@ -146,6 +171,11 @@ REST_FRAMEWORK = {
         "user": "600/min",
         "login": "10/min",
         "otp": "5/min",
+        # Separate from "otp" (which limits how many SMS get sent — an SMS
+        # cost/abuse concern) — verifying a code should have its own,
+        # slightly looser budget so it doesn't share a bucket with sending
+        # and get exhausted by the OTP_MAX_ATTEMPTS=5 lockout path itself.
+        "otp_verify": "20/min",
         "register": "5/min",
     },
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
@@ -157,7 +187,11 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": False,
+    # Rotate on every refresh + blacklist the old token, so a stolen refresh
+    # token used alongside the legitimate owner immediately desyncs and stops
+    # working for one of them, rather than staying silently valid for the
+    # full 7-day window (BUG-107).
+    "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
 }
 

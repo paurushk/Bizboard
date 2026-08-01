@@ -50,3 +50,26 @@ def test_next_number_rolls_back_with_outer_transaction(tenant_a):
 def test_unknown_doc_type_rejected(tenant_a):
     with pytest.raises(ValueError):
         DocumentNumberService.next_number(tenant_a.company, "NOPE")
+
+
+def test_deleting_draft_invoice_leaves_no_number_gap(tenant_a):
+    """BUG-208 — numbers must be assigned on Complete, not draft creation,
+    so an abandoned/deleted draft doesn't burn a slot in the GST series."""
+    from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
+
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+
+    draft = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "1", "unit_price": "100"}
+    ])
+    assert not draft["number"]
+    delete_resp = tenant_a.client.delete(f"/api/v1/sales/invoices/{draft['id']}/")
+    assert delete_resp.status_code == 204
+
+    second = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "1", "unit_price": "100"}
+    ])
+    complete_resp = tenant_a.client.post(f"/api/v1/sales/invoices/{second['id']}/complete/")
+    assert complete_resp.data["number"] == "INV-00001"

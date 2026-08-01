@@ -35,8 +35,12 @@ def _file_to_images(raw: bytes, content_type: str, filename: str) -> list[bytes]
     return [raw]
 
 
-@shared_task
+# BUG-306: cap total task runtime so a hung/slow LLM provider can't wedge a
+# worker (and the ImportJob) forever — soft limit raises inside the task so
+# the except below can still mark the job FAILED cleanly.
+@shared_task(time_limit=180, soft_time_limit=150)
 def extract_purchase_bill_task(job_id: int):
+    from celery.exceptions import SoftTimeLimitExceeded
     from core.exceptions import BusinessRuleError
     from core.services.llm import extract_purchase_bill
     from imports.models import ImportJob
@@ -61,5 +65,7 @@ def extract_purchase_bill_task(job_id: int):
         BillImportService.apply_extraction(job, payload)
     except BusinessRuleError as exc:
         BillImportService.mark_failed(job, str(exc.detail if hasattr(exc, "detail") else exc))
+    except SoftTimeLimitExceeded:
+        BillImportService.mark_failed(job, "Extraction timed out — please retry.")
     except Exception as exc:  # noqa: BLE001 — surface to job failure_reason
         BillImportService.mark_failed(job, str(exc))

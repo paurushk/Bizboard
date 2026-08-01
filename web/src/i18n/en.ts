@@ -217,6 +217,9 @@ export const en = {
     authorizedSignatory: 'Authorized signatory for',
     saveAndNew: 'Save & New',
     save: 'Save',
+    saveAndComplete: 'Save & Complete',
+    editingCompletedWarning:
+      'This document is already completed — saving changes here creates an audited edit to an issued GST record.',
     settings: 'Settings',
     days: 'days',
     createParty: 'Create party',
@@ -282,11 +285,21 @@ export const en = {
   dashboard: {
     todaySales: "Today's sales",
     monthSales: 'This month',
-    unpaid: 'Purchases this month',
+    // BUG-637: renamed from "unpaid" — the key name didn't describe what it
+    // actually bound to (purchasesThisMonth.total), a copy/rename artifact
+    // that risked a future maintainer "fixing" the text to match the old name.
+    purchasesThisMonth: 'Purchases this month',
     lowStock: 'Low stock items',
     receivables: 'Customer outstanding',
     payables: 'Supplier payables',
     alerts: 'Business alerts',
+    receivablesAging: 'Receivables aging',
+    recentInvoices: 'Recent invoices',
+    agingCurrent: 'Current',
+    aging1to30: '1-30 days',
+    aging31to60: '31-60 days',
+    aging61to90: '61-90 days',
+    aging90plus: '90+ days',
   },
   empty: {
     invoices: 'No invoices yet. Create your first sale.',

@@ -1,9 +1,11 @@
+from django.db.models import ProtectedError
 from rest_framework import mixins, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.exceptions import BusinessRuleError
-from core.permissions import HasCompany, get_company_user
+from core.permissions import CanCancelDocuments, HasCompany, get_company_user
+from core.services.audit import AuditService
 from core.viewsets import CompanyScopedViewSet
 
 from .models import CustomerReceipt, PaymentAllocation, SupplierPayment
@@ -42,6 +44,14 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
         self._audit("CREATE", receipt)
         return Response(self.get_serializer(receipt).data, status=status.HTTP_201_CREATED)
 
+    def perform_destroy(self, instance):
+        try:
+            super().perform_destroy(instance)
+        except ProtectedError:
+            raise BusinessRuleError(
+                "Cannot delete a receipt that has payment allocations against it."
+            )
+
 
 class SupplierPaymentViewSet(CompanyScopedViewSet):
     queryset = SupplierPayment.objects.select_related("supplier").prefetch_related("allocations")
@@ -70,6 +80,14 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
         self._audit("CREATE", payment)
         return Response(self.get_serializer(payment).data, status=status.HTTP_201_CREATED)
 
+    def perform_destroy(self, instance):
+        try:
+            super().perform_destroy(instance)
+        except ProtectedError:
+            raise BusinessRuleError(
+                "Cannot delete a payment that has allocations against it."
+            )
+
 
 class PaymentAllocationViewSet(
     mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
@@ -78,6 +96,14 @@ class PaymentAllocationViewSet(
     queryset = PaymentAllocation.objects.all()
     serializer_class = PaymentAllocationSerializer
     permission_classes = [IsAuthenticated, HasCompany]
+
+    def get_permissions(self):
+        # BUG-310: un-applying a payment allocation is effectively reversing
+        # a completed document's paid status — same permission bar as
+        # cancelling documents, not just plain company membership.
+        if self.action == "destroy":
+            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        return super().get_permissions()
 
     @property
     def company(self):
@@ -117,4 +143,12 @@ class PaymentAllocationViewSet(
                 payment=payment, purchase_invoice=data["purchase_invoice"],
                 amount=data["amount"], user=request.user,
             )
+        AuditService.log(company=self.company, user=request.user, action="CREATE",
+                         entity_type="PaymentAllocation", entity_id=allocation.id)
         return Response(self.get_serializer(allocation).data, status=status.HTTP_201_CREATED)
+
+    def perform_destroy(self, instance):
+        entity_id = str(instance.pk)
+        instance.delete()
+        AuditService.log(company=self.company, user=self.request.user, action="DELETE",
+                         entity_type="PaymentAllocation", entity_id=entity_id)

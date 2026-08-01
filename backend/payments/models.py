@@ -47,11 +47,14 @@ class SupplierPayment(CompanyScopedModel):
 class PaymentAllocation(CompanyScopedModel):
     """Links a receipt/payment to an open invoice — partial or full (§8.1)."""
 
+    # PROTECT (not CASCADE, BUG-311): deleting a receipt/payment must not
+    # silently vanish its allocations and retroactively make a paid invoice
+    # look unpaid again with no record of what happened.
     receipt = models.ForeignKey(
-        CustomerReceipt, null=True, blank=True, on_delete=models.CASCADE, related_name="allocations"
+        CustomerReceipt, null=True, blank=True, on_delete=models.PROTECT, related_name="allocations"
     )
     supplier_payment = models.ForeignKey(
-        SupplierPayment, null=True, blank=True, on_delete=models.CASCADE, related_name="allocations"
+        SupplierPayment, null=True, blank=True, on_delete=models.PROTECT, related_name="allocations"
     )
     sales_invoice = models.ForeignKey(
         "sales.SalesInvoice", null=True, blank=True, on_delete=models.PROTECT, related_name="allocations"

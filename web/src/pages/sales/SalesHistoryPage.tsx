@@ -315,8 +315,13 @@ export function SalesHistoryPage() {
             onClick={() => {
               if (!active) return;
               const id = active.id;
+              const label = invoiceNumberLabel(active);
               closeMenu();
-              cancelMutation.mutate(id);
+              // BUG-520: a single mis-click on this menu used to cancel a
+              // completed, potentially already-shared GST invoice.
+              if (window.confirm(`Cancel invoice ${label}? This cannot be undone.`)) {
+                cancelMutation.mutate(id);
+              }
             }}
           >
             <ListItemIcon>
@@ -331,8 +336,11 @@ export function SalesHistoryPage() {
             onClick={() => {
               if (!active) return;
               const id = active.id;
+              const label = invoiceNumberLabel(active);
               closeMenu();
-              deleteMutation.mutate(id);
+              if (window.confirm(`Delete draft ${label}? This cannot be undone.`)) {
+                deleteMutation.mutate(id);
+              }
             }}
           >
             <ListItemIcon>

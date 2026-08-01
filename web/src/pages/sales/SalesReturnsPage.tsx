@@ -26,9 +26,14 @@ import {
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
-import type { SalesInvoice } from '@/types/domain';
+import type { LineItem, SalesInvoice } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+
+function lineLabel(item: LineItem): string {
+  const name = item.productName ?? item.description ?? `Product #${item.product}`;
+  return `${name} — sold ${toNumber(item.quantity)}`;
+}
 
 export function SalesReturnsPage() {
   const qc = useQueryClient();
@@ -40,15 +45,21 @@ export function SalesReturnsPage() {
 
   const [open, setOpen] = useState(false);
   const [invoice, setInvoice] = useState<SalesInvoice | null>(null);
+  // BUG-531: previously always returned invoice.items[0] — the invoice's
+  // first line — with no way to pick a different one for a multi-item sale.
+  const [item, setItem] = useState<LineItem | null>(null);
   const [qty, setQty] = useState('1');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  const maxQty = item ? toNumber(item.quantity) : 1;
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!invoice || !invoice.items?.[0]) throw new Error('Select an invoice with items');
-      const item = invoice.items[0];
+      if (!invoice || !item) throw new Error('Select an invoice line to return');
+      // BUG-532: clamp to what was actually sold on this line.
+      const quantity = Math.min(Math.max(1, Math.floor(Number(qty)) || 1), maxQty);
       const draft = await createSalesReturn({
         customer: invoice.customer,
         salesInvoice: invoice.id,
@@ -57,7 +68,7 @@ export function SalesReturnsPage() {
         items: [
           {
             product: item.product,
-            quantity: Number(qty),
+            quantity,
             unitPrice: toNumber(item.unitPrice),
             gstRate: toNumber(item.gstRate),
           },
@@ -68,6 +79,10 @@ export function SalesReturnsPage() {
     onSuccess: () => {
       setOpen(false);
       setMessage('Sales return completed');
+      setInvoice(null);
+      setItem(null);
+      setQty('1');
+      setReason('');
       void qc.invalidateQueries({ queryKey: ['sales-returns'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -85,7 +100,7 @@ export function SalesReturnsPage() {
       {error ? <Alert severity="error">{error}</Alert> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.length === 0 ? <EmptyState /> : null}
       {query.data && query.data.length > 0 ? (
@@ -128,15 +143,31 @@ export function SalesReturnsPage() {
               options={invoices.data ?? []}
               getOptionLabel={(o) => `${o.number ?? o.id} · ${o.customerName ?? ''}`}
               value={invoice}
-              onChange={(_, v) => setInvoice(v)}
+              onChange={(_, v) => {
+                setInvoice(v);
+                setItem(null);
+              }}
               renderInput={(params) => <TextField {...params} label="Original invoice" />}
+            />
+            <Autocomplete
+              options={invoice?.items ?? []}
+              getOptionLabel={lineLabel}
+              value={item}
+              onChange={(_, v) => {
+                setItem(v);
+                setQty('1');
+              }}
+              disabled={!invoice}
+              renderInput={(params) => <TextField {...params} label="Item to return" />}
             />
             <TextField
               type="number"
               label={t('billing.qty')}
               value={qty}
               onChange={(e) => setQty(e.target.value)}
-              helperText="Applies to the first line item of the invoice"
+              disabled={!item}
+              inputProps={{ min: 1, max: maxQty }}
+              helperText={item ? `Up to ${maxQty} (quantity sold on this line)` : undefined}
             />
             <TextField
               label={t('common.reason')}
@@ -149,7 +180,7 @@ export function SalesReturnsPage() {
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={!invoice || createMutation.isPending}
+            disabled={!invoice || !item || createMutation.isPending}
             onClick={() => createMutation.mutate()}
           >
             {t('common.complete')}

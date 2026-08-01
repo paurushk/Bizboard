@@ -80,13 +80,34 @@ EXPORTS = {
         company,
         date_from=_parse_date(params.get("date_from")),
         date_to=_parse_date(params.get("date_to")),
+        customer_id=params.get("customer"),
+        status=params.get("status"),
     )["rows"],
     "purchase-register": lambda company, params: ReportService.purchase_register(
         company,
         date_from=_parse_date(params.get("date_from")),
         date_to=_parse_date(params.get("date_to")),
+        supplier_id=params.get("supplier"),
+        status=params.get("status"),
     )["rows"],
     "inventory-summary": lambda company, params: ReportService.inventory_summary(company)["rows"],
+}
+
+# BUG-323: known column names per export, used as a CSV header fallback
+# when a filter narrows the result down to zero rows.
+EXPORT_FIELDS = {
+    "sales-register": [
+        "id", "number", "date", "customer", "invoice_type", "status",
+        "taxable", "cgst", "sgst", "igst", "grand_total",
+    ],
+    "purchase-register": [
+        "id", "number", "date", "supplier", "status",
+        "taxable", "cgst", "sgst", "igst", "grand_total",
+    ],
+    "inventory-summary": [
+        "product_id", "product", "sku", "on_hand", "reserved",
+        "available", "reorder_level", "stock_value",
+    ],
 }
 
 
@@ -100,8 +121,12 @@ class ExportView(BaseReportView):
             raise BusinessRuleError(f"Unknown export '{report}'. Available: {', '.join(EXPORTS)}.")
         rows = EXPORTS[report](self.company, request.query_params)
         buffer = io.StringIO()
-        if rows:
-            writer = csv.DictWriter(buffer, fieldnames=list(rows[0].keys()))
+        # BUG-323: a filtered-to-zero-rows export used to produce a
+        # completely empty file with no header, which some spreadsheet
+        # tools mis-render as a corrupt/blank CSV.
+        fieldnames = list(rows[0].keys()) if rows else EXPORT_FIELDS.get(report, [])
+        if fieldnames:
+            writer = csv.DictWriter(buffer, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows)
         response = HttpResponse(buffer.getvalue(), content_type="text/csv")

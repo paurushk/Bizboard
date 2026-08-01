@@ -168,6 +168,21 @@ def compute_document_totals(
         sgst_total += item.sgst
         igst_total += item.igst
 
+    # BUG-205: additional charges (packing/delivery/etc billed on the same
+    # invoice) are generally part of the value of supply under GST law and
+    # taxable at the same blended rate as the goods/services they ride
+    # along with — they were previously always tax-exempt regardless of
+    # rate, understating output tax whenever this field carried a taxable
+    # charge rather than a pure pass-through reimbursement.
+    if tax_enabled and charges > 0 and taxable_total > 0:
+        blended_tax = (cgst_total + sgst_total + igst_total) / taxable_total * charges
+        if intra_state:
+            half = q2(blended_tax / 2)
+            cgst_total += half
+            sgst_total += q2(blended_tax) - half
+        else:
+            igst_total += q2(blended_tax)
+
     if mode == DISCOUNT_BEFORE_TAX:
         raw_total = taxable_total + cgst_total + sgst_total + igst_total + charges
     else:

@@ -40,6 +40,10 @@ async function refreshAccessToken(): Promise<string | null> {
     return access as string;
   } catch {
     clearTokens();
+    // BUG-407: previously nothing told AuthContext the session died here —
+    // the app kept rendering as "logged in" while every subsequent request
+    // silently 401'd, with no forced navigation back to /login.
+    window.dispatchEvent(new Event('bizboard:session-expired'));
     return null;
   }
 }

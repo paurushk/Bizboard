@@ -99,6 +99,25 @@ def test_purchase_return_decreases_stock(tenant_a):
     assert on_hand(tenant_a.company, product) == Decimal("3")
 
 
+def test_fully_returned_purchase_marked_returned(tenant_a):
+    """BUG-212 — mirrors the sales-side RETURNED status transition."""
+    product = make_product(tenant_a.company)
+    supplier = make_supplier(tenant_a.company)
+    pur = create_draft_purchase(tenant_a, supplier, [
+        {"product": product.id, "quantity": "5", "unit_price": "80"}
+    ])
+    tenant_a.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/")
+
+    ret = tenant_a.client.post("/api/v1/purchases/returns/", {
+        "supplier": supplier.id, "purchase_invoice": pur["id"],
+        "items": [{"product": product.id, "quantity": "5", "unit_price": "80"}],
+    }, format="json")
+    tenant_a.client.post(f"/api/v1/purchases/returns/{ret.data['id']}/complete/")
+
+    detail = tenant_a.client.get(f"/api/v1/purchases/invoices/{pur['id']}/")
+    assert detail.data["status"] == "RETURNED"
+
+
 def test_manual_adjustment_and_permissions(tenant_a):
     product = make_product(tenant_a.company)
     add_stock(tenant_a, product, "10")
@@ -157,3 +176,39 @@ def test_low_stock_alerts(tenant_a):
     resp = tenant_a.client.get("/api/v1/inventory/alerts/")
     assert resp.status_code == 200
     assert resp.data["count"] == 1
+
+
+def test_low_stock_alert_clears_after_restock(tenant_a):
+    """BUG-726 — the alert must disappear once stock is replenished."""
+    product = make_product(tenant_a.company, reorder_level="5")
+    add_stock(tenant_a, product, "3")
+    InventoryService.post_movement(
+        company=tenant_a.company, product=product,
+        movement_type=MovementType.ADJUSTMENT, quantity=Decimal("10"),
+        reason="restock", user=tenant_a.owner,
+    )
+    resp = tenant_a.client.get("/api/v1/inventory/alerts/")
+    assert resp.data["count"] == 0
+
+
+def test_opening_stock_cannot_be_recorded_twice(tenant_a):
+    """BUG-312 — re-submitting opening stock must not additively stack."""
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "10")
+    resp = tenant_a.client.post("/api/v1/inventory/opening-stock/", {
+        "product": product.id, "quantity": "10", "unit_cost": "80",
+    }, format="json")
+    assert resp.status_code == 400
+    assert on_hand(tenant_a.company, product) == Decimal("10")
+
+
+def test_manual_adjustment_respects_negative_stock_policy(tenant_a):
+    """BUG-322 — ADJUSTMENT movements were the one gap where the company's
+    negative_stock_policy=BLOCK was never enforced at all."""
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "5")
+    resp = tenant_a.client.post("/api/v1/inventory/adjustments/", {
+        "product": product.id, "quantity": "-10", "reason": "shrinkage",
+    }, format="json")
+    assert resp.status_code == 400
+    assert on_hand(tenant_a.company, product) == Decimal("5")

@@ -1,5 +1,10 @@
 # BizBoard — PERFORMANCE REPORT
 
+> **Update (BUG-301/302, 2026-07-25):** the dashboard/ledger N+1 risks noted
+> below have been fixed — customer/supplier ledger list views and
+> receivables aging now use bulk SQL aggregation instead of a per-row Python
+> loop. See `bugs/03-backend-inventory-payments-reporting.md` for details.
+
 **Date:** 2026-07-24  
 **Environment:** Local Docker on Windows host; demo dataset (small)  
 

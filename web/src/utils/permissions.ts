@@ -25,7 +25,10 @@ export function canCancelDocuments(user: User | null): boolean {
 }
 
 export function canViewFinancialReports(user: User | null): boolean {
-  return !!user && (user.canViewFinancialReports !== false || isOwner(user.role));
+  // BUG-319: the backend flag now defaults to false (least privilege, like
+  // its sibling capability flags) — mirror that here instead of treating a
+  // missing/undefined value as permissive.
+  return !!user && (user.canViewFinancialReports === true || isOwner(user.role));
 }
 
 export function canExport(user: User | null): boolean {

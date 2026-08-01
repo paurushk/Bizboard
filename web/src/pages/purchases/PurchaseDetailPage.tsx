@@ -20,13 +20,16 @@ import {
   completePurchase,
   getPurchase,
 } from '@/api/resources';
+import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { formatMoney, toNumber } from '@/utils/money';
+import { canCancelDocuments } from '@/utils/permissions';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 
 export function PurchaseDetailPage() {
+  const { user } = useAuth();
   const { id } = useParams();
   const location = useLocation();
   const purchaseId = Number(id);
@@ -64,7 +67,7 @@ export function PurchaseDetailPage() {
 
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
   }
   if (!query.data) return <EmptyState />;
 
@@ -131,12 +134,16 @@ export function PurchaseDetailPage() {
               {t('common.complete')}
             </Button>
           ) : null}
-          {inv.status === 'COMPLETED' ? (
+          {inv.status === 'COMPLETED' && canCancelDocuments(user) ? (
             <Button
               color="error"
               variant="outlined"
               disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate()}
+              onClick={() => {
+                if (window.confirm(`Cancel purchase ${inv.number ?? inv.id}? This cannot be undone.`)) {
+                  cancelMutation.mutate();
+                }
+              }}
             >
               {t('common.cancel')}
             </Button>

@@ -17,3 +17,26 @@ def audit_document_event(*, document, user=None, event="", **kwargs):
         description=event or type(document).__name__,
         metadata={"status": status, "number": getattr(document, "number", "")},
     )
+
+
+@subscribe("sales_invoice.edited")
+@subscribe("purchase_invoice.edited")
+def audit_edited_document_event(*, invoice, user=None, old_totals=None, **kwargs):
+    """BUG-213: post-completion line-item edits used to leave only a bare
+    generic UPDATE row (from CompanyScopedViewSet.perform_update) with no
+    record of what actually changed on an already-issued GST document."""
+    if old_totals is None:
+        return
+    new_totals = {
+        "grand_total": str(invoice.grand_total), "taxable_total": str(invoice.taxable_total),
+        "tax_total": str(invoice.cgst_total + invoice.sgst_total + invoice.igst_total),
+    }
+    AuditService.log(
+        company=invoice.company,
+        user=user,
+        action="UPDATE",
+        entity_type=type(invoice).__name__,
+        entity_id=str(invoice.pk),
+        description="Completed document edited",
+        metadata={"before": old_totals, "after": new_totals},
+    )

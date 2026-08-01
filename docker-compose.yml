@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-bizboard}
       POSTGRES_USER: ${POSTGRES_USER:-bizboard}
@@ -15,6 +16,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
@@ -26,6 +28,10 @@ services:
 
   api:
     build: ./backend
+    # BUG-708/709: no restart policy meant a single OOM-kill or unhandled
+    # exception left the container dead until someone noticed; no healthcheck
+    # meant nginx could start proxying to a not-yet-ready Django process.
+    restart: unless-stopped
     command: >
       sh -c "python manage.py migrate &&
              gunicorn config.wsgi:application --bind 0.0.0.0:8000"
@@ -42,9 +48,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   worker:
     build: ./backend
+    restart: unless-stopped
     command: celery -A config worker -l info
     env_file:
       - path: .env
@@ -62,19 +75,23 @@ services:
 
   web:
     build: ./web
+    restart: unless-stopped
     depends_on:
       - api
 
   nginx:
     image: nginx:1.27-alpine
+    restart: unless-stopped
     ports:
       - "${APP_PORT:-80}:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - media_data:/var/www/media:ro
     depends_on:
-      - api
-      - web
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
 
 volumes:
   postgres_data:

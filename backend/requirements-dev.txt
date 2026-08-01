@@ -1,3 +1,7 @@
 -r requirements.txt
+# BUG-711: test/lint tooling belongs only here, not in requirements.txt
+# (which the production Docker image installs directly) — the prod image
+# was previously shipping pytest/ruff for no runtime benefit.
+ruff>=0.6
 pytest>=8.0
 pytest-django>=4.8

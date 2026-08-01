@@ -107,6 +107,10 @@ class Quotation(DocumentTotalsModel):
 
     class Meta:
         ordering = ["-quotation_date", "-id"]
+        # BUG-717: SalesInvoice/SalesReturn both get this same shape of
+        # index; Quotation was missed despite being listed/filtered the
+        # same way (company + status, ordered by date).
+        indexes = [models.Index(fields=["company", "status", "quotation_date"])]
 
 
 class QuotationItem(DocumentLineModel):

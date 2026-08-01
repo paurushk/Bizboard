@@ -17,6 +17,11 @@ traders, and small wholesalers.
 The approved scope and acceptance criteria are in
 [`MVP_IMPLEMENTATION_PLAN.md`](MVP_IMPLEMENTATION_PLAN.md).
 
+**Phase 0 (pilot hardening):** canonical DoD
+[`docs/pilot/PHASE_0_DOD.md`](docs/pilot/PHASE_0_DOD.md),
+implementation plan
+[`docs/pilot/PHASE_0_IMPLEMENTATION_PLAN.md`](docs/pilot/PHASE_0_IMPLEMENTATION_PLAN.md).
+
 ## Local development
 
 ### Docker (recommended)
@@ -37,7 +42,9 @@ Backend:
 ```sh
 cd backend
 python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt
+# Module-invocation form (BUG-734) is more robust to PATH ambiguity on
+# machines with multiple Python installs than a bare `pip install`.
+.venv/Scripts/python -m pip install -r requirements-dev.txt
 .venv/Scripts/python manage.py migrate
 .venv/Scripts/python manage.py seed_demo
 .venv/Scripts/python manage.py runserver

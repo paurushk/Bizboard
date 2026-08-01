@@ -11,6 +11,10 @@ class PurchaseInvoice(DocumentTotalsModel):
         DRAFT = "DRAFT"
         COMPLETED = "COMPLETED"
         CANCELLED = "CANCELLED"
+        # BUG-212: mirrors SalesInvoice.Status.RETURNED — without this, a
+        # fully-returned purchase stayed indistinguishable from COMPLETED in
+        # listings/filters, unlike the equivalent sales flow.
+        RETURNED = "RETURNED"
 
     class PurchaseType(models.TextChoices):
         GST = "GST"

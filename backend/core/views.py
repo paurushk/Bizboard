@@ -1,4 +1,4 @@
-from django.http import FileResponse
+from django.http import FileResponse, Http404
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -47,7 +47,11 @@ class FileAssetViewSet(
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
         asset = self.get_object()
-        return FileResponse(asset.file.open("rb"), as_attachment=True, filename=asset.original_name)
+        try:
+            handle = asset.file.open("rb")
+        except (FileNotFoundError, OSError) as exc:
+            raise Http404("File is no longer available.") from exc
+        return FileResponse(handle, as_attachment=True, filename=asset.original_name)
 
 
 class NotificationViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):

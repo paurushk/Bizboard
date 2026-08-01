@@ -88,6 +88,32 @@ export async function fetchNextPage<T>(nextUrl: string): Promise<{ results: T[];
   return { results: asList(body), next: getNextUrl(body) };
 }
 
+/**
+ * BUG-521/606-609: several call sites (customer/supplier/product/stock
+ * pickers and tables) expect a full T[] and silently only ever got page 1
+ * of a paginated response, making any record past the first page (~50
+ * rows) invisible/unreachable through the UI with no error shown. This
+ * transparently walks every page so callers keep their existing `T[]`
+ * signature instead of needing a "load more" UI at every use site.
+ */
+async function fetchAllPages<T>(
+  path: string,
+  params?: Record<string, string>,
+): Promise<T[]> {
+  const first = await listPage<T>(path, params);
+  let results = first.results;
+  let next = first.next;
+  // Safety cap — a runaway `next` cursor should never spin forever.
+  let guard = 0;
+  while (next && guard < 200) {
+    const page = await fetchNextPage<T>(next);
+    results = results.concat(page.results);
+    next = page.next;
+    guard += 1;
+  }
+  return results;
+}
+
 export async function getDashboard(): Promise<DashboardKpis> {
   return withMocks(async () => {
     const { data } = await apiClient.get('/dashboard/');
@@ -110,10 +136,7 @@ export async function updateCompany(payload: Partial<Company>): Promise<Company>
 }
 
 export async function listCustomers(params?: { q?: string }): Promise<Customer[]> {
-  return withMocks(async () => {
-    const { data } = await apiClient.get('/customers/', { params });
-    return asList(unwrapData<Paginated<Customer> | Customer[]>(data));
-  }, mockCustomers);
+  return withMocks(async () => fetchAllPages<Customer>('/customers/', params), mockCustomers);
 }
 
 export async function createCustomer(payload: Partial<Customer>): Promise<Customer> {
@@ -131,10 +154,7 @@ export async function updateCustomer(id: number, payload: Partial<Customer>): Pr
 }
 
 export async function listSuppliers(): Promise<Supplier[]> {
-  return withMocks(async () => {
-    const { data } = await apiClient.get('/suppliers/');
-    return asList(unwrapData<Paginated<Supplier> | Supplier[]>(data));
-  }, mockSuppliers);
+  return withMocks(async () => fetchAllPages<Supplier>('/suppliers/'), mockSuppliers);
 }
 
 export async function createSupplier(payload: Partial<Supplier>): Promise<Supplier> {
@@ -152,10 +172,7 @@ export async function updateSupplier(id: number, payload: Partial<Supplier>): Pr
 }
 
 export async function listProducts(params?: { q?: string }): Promise<Product[]> {
-  return withMocks(async () => {
-    const { data } = await apiClient.get('/products/', { params });
-    return asList(unwrapData<Paginated<Product> | Product[]>(data));
-  }, () => filterProducts(params?.q));
+  return withMocks(async () => fetchAllPages<Product>('/products/', params), () => filterProducts(params?.q));
 }
 
 function filterProducts(q?: string): Product[] {
@@ -735,10 +752,7 @@ export async function createAllocation(payload: {
 }
 
 export async function listStock(): Promise<StockBalance[]> {
-  return withMocks(async () => {
-    const { data } = await apiClient.get('/inventory/balances/');
-    return asList(unwrapData<Paginated<StockBalance> | StockBalance[]>(data));
-  }, mockStock);
+  return withMocks(async () => fetchAllPages<StockBalance>('/inventory/balances/'), mockStock);
 }
 
 export async function listLowStock(): Promise<StockBalance[]> {
@@ -986,7 +1000,12 @@ export async function commitImport(
   });
 }
 
-export async function exportReport(type: string): Promise<{ url: string }> {
+export async function exportReport(
+  type: string,
+  // BUG-616/323: the export previously ignored whatever date range was
+  // applied on-screen, silently exporting the full unfiltered register.
+  params?: { dateFrom?: string; dateTo?: string },
+): Promise<{ url: string }> {
   return withMocks(async () => {
     const reportMap: Record<string, string> = {
       sales: 'sales-register',
@@ -999,6 +1018,10 @@ export async function exportReport(type: string): Promise<{ url: string }> {
       responseType: 'blob',
       // CSV bypasses the JSON envelope renderer
       transformResponse: [(d) => d],
+      params: {
+        date_from: params?.dateFrom || undefined,
+        date_to: params?.dateTo || undefined,
+      },
     });
     const blob =
       response.data instanceof Blob

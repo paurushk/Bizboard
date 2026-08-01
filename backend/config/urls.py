@@ -36,7 +36,7 @@ api_v1_patterns = [
 if settings.ENABLE_API_DOCS:
     api_v1_patterns += [
         path("schema/", GatedSchemaView.as_view(), name="schema"),
-        path("docs/", GatedSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+        path("docs/", GatedSwaggerView.as_view(url_name="v1:schema"), name="swagger-ui"),
     ]
 
 urlpatterns = [

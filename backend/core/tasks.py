@@ -22,4 +22,8 @@ def send_email_notification(notification_id):
         notification.status = Notification.Status.FAILED
         notification.error = str(exc)
         notification.save(update_fields=["status", "error"])
-        raise
+        # BUG-214: do not re-raise — under CELERY_TASK_ALWAYS_EAGER (dev/test
+        # default) this propagated straight out of NotificationService.send()
+        # into the share API view as an unhandled 500 instead of a clean
+        # "share failed" response, unlike the PDF task's explicit
+        # survive-failure design.

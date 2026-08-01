@@ -1,6 +1,13 @@
+import json
 from decimal import Decimal
+from pathlib import Path
+
+import pytest
 
 from core.services.billing import DISCOUNT_BEFORE_TAX, compute_document_totals, q2
+
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "tax_parity_cases.json"
+PARITY_CASES = json.loads(FIXTURE_PATH.read_text())
 
 
 class _Doc:
@@ -72,3 +79,44 @@ def test_before_tax_invoice_discount_reduces_gst():
     assert doc.cgst_total + doc.sgst_total == Decimal("16.20")
     # 90 + 16.20 = 106.20 → rounds to 106
     assert doc.grand_total == Decimal("106.00")
+
+
+def test_additional_charges_are_taxed_at_line_rate():
+    """BUG-205 — additional charges are part of the value of supply and
+    taxable at the invoice's blended rate, not permanently GST-exempt."""
+    doc = _Doc()
+    doc.additional_charges = Decimal("100")
+    items = [_Item(1, 100, gst_rate=18)]
+    compute_document_totals(doc, items, tax_enabled=True, intra_state=True)
+    assert doc.taxable_total == Decimal("100.00")
+    # 18% of the charges (100) = 18, on top of the line's own 18 tax.
+    assert doc.cgst_total + doc.sgst_total == Decimal("36.00")
+
+
+def test_additional_charges_untaxed_when_tax_disabled():
+    doc = _Doc()
+    doc.additional_charges = Decimal("100")
+    items = [_Item(1, 100, gst_rate=0)]
+    compute_document_totals(doc, items, tax_enabled=False, intra_state=True)
+    assert doc.cgst_total == doc.sgst_total == doc.igst_total == Decimal("0.00")
+    assert doc.grand_total == Decimal("200.00")
+
+
+@pytest.mark.parametrize("case", PARITY_CASES, ids=[c["id"] for c in PARITY_CASES])
+def test_line_tax_matches_frontend_fixture(case):
+    """BUG-216/724 — single canonical fixture shared with web/src/utils/tax.test.ts
+    so FE/BE line-tax math can't silently drift apart."""
+    doc = _Doc()
+    item = _Item(
+        case["quantity"],
+        case["unitPrice"],
+        discount_percent=case["discountPercent"],
+        gst_rate=case["gstRate"],
+    )
+    compute_document_totals(doc, [item], tax_enabled=True, intra_state=case["intraState"])
+    expected = case["expected"]
+    assert item.taxable_amount == Decimal(str(expected["taxableAmount"]))
+    assert item.cgst == Decimal(str(expected["cgst"]))
+    assert item.sgst == Decimal(str(expected["sgst"]))
+    assert item.igst == Decimal(str(expected["igst"]))
+    assert item.line_total == Decimal(str(expected["lineTotal"]))

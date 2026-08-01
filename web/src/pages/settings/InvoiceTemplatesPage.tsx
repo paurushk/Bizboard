@@ -8,12 +8,13 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link as RouterLink, Navigate } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { getCompany, updateCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
+import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { canManageUsers } from '@/utils/permissions';
 
 const LAYOUT_LEGEND = [
@@ -54,10 +55,10 @@ export function InvoiceTemplatesPage() {
     onError: (err) => setError(getErrorMessage(err)),
   });
 
-  if (!allowed) return <Navigate to="/" replace />;
+  if (!allowed) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
   }
   if (!query.data) return <EmptyState />;
 

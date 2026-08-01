@@ -6,12 +6,13 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { getErrorMessage } from '@/api/client';
 import { Controller, useForm } from 'react-hook-form';
-import { Navigate } from 'react-router-dom';
 import { getCompany, updateCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { LoadingState, ErrorState } from '@/components/PageState';
 import { t } from '@/i18n';
+import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import type { Company } from '@/types/domain';
 import { canManageUsers } from '@/utils/permissions';
 
@@ -61,10 +62,10 @@ export function CompanySettingsPage() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['company'] }),
   });
 
-  if (!canManageUsers(user)) return <Navigate to="/" replace />;
+  if (!canManageUsers(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
   }
 
   return (
@@ -75,6 +76,7 @@ export function CompanySettingsPage() {
     >
       <Typography variant="h4">{t('nav.company')}</Typography>
       {mutation.isSuccess ? <Alert severity="success">Company saved</Alert> : null}
+      {mutation.isError ? <Alert severity="error">{getErrorMessage(mutation.error)}</Alert> : null}
       <Paper sx={{ p: 2, maxWidth: 640 }}>
         <Stack spacing={2}>
           {(

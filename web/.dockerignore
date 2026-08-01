@@ -1,0 +1,9 @@
+# BUG-707: without this, `COPY . .` after `npm ci` copied the host's
+# node_modules over the container's fresh install, potentially replacing
+# Linux-container native binaries with Windows/macOS-host ones.
+node_modules/
+dist/
+test-results/
+playwright-report/
+.env
+.env.*

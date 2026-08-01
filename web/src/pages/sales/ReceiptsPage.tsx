@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -51,9 +52,13 @@ export function ReceiptsPage() {
   const createMutation = useMutation({
     mutationFn: async () => {
       if (!customer) throw new Error('Customer required');
+      // BUG-528: a plain type="number" field with only a truthiness check
+      // let a negative amount ("-500" is a non-empty string) through.
+      const receiptAmount = Number(amount);
+      if (!(receiptAmount > 0)) throw new Error('Amount must be greater than zero');
       const receipt = await createReceipt({
         customer: customer.id,
-        amount: Number(amount),
+        amount: receiptAmount,
         mode,
         receiptDate: new Date().toISOString().slice(0, 10),
       });
@@ -78,8 +83,13 @@ export function ReceiptsPage() {
     onError: (err) => setError(getErrorMessage(err)),
   });
 
+  // BUG-529: only offer invoices that still have an outstanding balance —
+  // previously any COMPLETED invoice was offered regardless of balance,
+  // including already fully-paid ones.
   const openInvoices = (invoices.data ?? []).filter(
-    (inv) => !customer || inv.customer === customer.id,
+    (inv) =>
+      (!customer || inv.customer === customer.id) &&
+      toNumber(inv.balance ?? inv.grandTotal) > 0,
   );
 
   return (
@@ -94,7 +104,7 @@ export function ReceiptsPage() {
       {error ? <Alert severity="error">{error}</Alert> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.length === 0 ? <EmptyState /> : null}
       {query.data && query.data.length > 0 ? (
@@ -111,16 +121,29 @@ export function ReceiptsPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {query.data.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell>{r.number ?? r.id}</TableCell>
-                  <TableCell>{r.receiptDate}</TableCell>
-                  <TableCell>{r.customerName}</TableCell>
-                  <TableCell>{r.mode}</TableCell>
-                  <TableCell align="right">{formatMoney(r.amount)}</TableCell>
-                  <TableCell align="right">{formatMoney(r.allocated)}</TableCell>
-                </TableRow>
-              ))}
+              {query.data.map((r) => {
+                const unallocated = toNumber(r.amount) - toNumber(r.allocated);
+                return (
+                  <TableRow key={r.id}>
+                    <TableCell>{r.number ?? r.id}</TableCell>
+                    <TableCell>{r.receiptDate}</TableCell>
+                    <TableCell>{r.customerName}</TableCell>
+                    <TableCell>{r.mode}</TableCell>
+                    <TableCell align="right">{formatMoney(r.amount)}</TableCell>
+                    <TableCell align="right">
+                      {formatMoney(r.allocated)}
+                      {unallocated > 0 ? (
+                        <Chip
+                          size="small"
+                          color="info"
+                          sx={{ ml: 1 }}
+                          label={`Advance ${formatMoney(unallocated)}`}
+                        />
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </Paper>
@@ -158,7 +181,14 @@ export function ReceiptsPage() {
               value={invoice}
               onChange={(_, v) => {
                 setInvoice(v);
-                if (v) setAllocAmount(String(Math.min(toNumber(amount), toNumber(v.grandTotal))));
+                // BUG-529: default to the invoice's remaining balance, not
+                // its full grand total, so over-allocation isn't suggested
+                // by default for a partially-paid invoice.
+                if (v) {
+                  setAllocAmount(
+                    String(Math.min(toNumber(amount), toNumber(v.balance ?? v.grandTotal))),
+                  );
+                }
               }}
               renderInput={(params) => (
                 <TextField {...params} label="Allocate to invoice (optional)" />

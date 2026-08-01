@@ -10,7 +10,6 @@ from django.db.models import Count, F, Sum
 from django.db.models.functions import Coalesce
 
 from inventory.models import StockBalance
-from ledgers.services import LedgerService
 from payments.models import PaymentAllocation
 from purchases.models import PurchaseInvoice, PurchaseReturn
 from sales.models import SalesInvoice, SalesReturn
@@ -75,10 +74,34 @@ class ReportService:
             "days_61_90": Decimal("0"),
             "days_90_plus": Decimal("0"),
         }
-        for inv in SalesInvoice.objects.filter(company=company, status__in=OPEN_SALES).only(
-            "id", "grand_total", "invoice_date", "due_date", "payment_terms_days"
-        ):
-            outstanding = LedgerService.sales_invoice_outstanding(inv)
+        invoices = list(
+            SalesInvoice.objects.filter(company=company, status__in=OPEN_SALES).only(
+                "id", "grand_total", "invoice_date", "due_date", "payment_terms_days"
+            )
+        )
+        if not invoices:
+            return buckets
+        # BUG-302: precompute returns/allocations for every invoice in 2
+        # queries total instead of calling sales_invoice_outstanding() (2
+        # more queries each) once per invoice — this ran on every dashboard load.
+        invoice_ids = [inv.id for inv in invoices]
+        returns_by_id = dict(
+            SalesReturn.objects.filter(
+                sales_invoice_id__in=invoice_ids, status=SalesReturn.Status.COMPLETED
+            ).values("sales_invoice_id").annotate(total=Sum("grand_total"))
+            .values_list("sales_invoice_id", "total")
+        )
+        allocated_by_id = dict(
+            PaymentAllocation.objects.filter(sales_invoice_id__in=invoice_ids)
+            .values("sales_invoice_id").annotate(total=Sum("amount"))
+            .values_list("sales_invoice_id", "total")
+        )
+        for inv in invoices:
+            outstanding = (
+                inv.grand_total
+                - (returns_by_id.get(inv.id) or Decimal("0"))
+                - (allocated_by_id.get(inv.id) or Decimal("0"))
+            )
             if outstanding <= 0:
                 continue
             due = inv.due_date or (

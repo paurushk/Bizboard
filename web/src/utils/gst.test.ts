@@ -20,4 +20,10 @@ describe('gst utils', () => {
     expect(normalizeGstRate(99)).toBe(28);
     expect(normalizeGstRate(-1)).toBe(0);
   });
+
+  it('BUG-416: snaps an in-range-but-invalid rate to the nearest real slab', () => {
+    expect(normalizeGstRate(15)).toBe(12);
+    expect(normalizeGstRate(20)).toBe(18);
+    expect(normalizeGstRate(22)).toBe(18);
+  });
 });

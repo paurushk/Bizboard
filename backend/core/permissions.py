@@ -7,9 +7,14 @@ def get_company_user(request):
         return request._company_user
     company_user = None
     if request.user and request.user.is_authenticated:
+        # .order_by("id") makes resolution deterministic; a DB-level partial
+        # unique constraint (accounts migration 0006) additionally guarantees
+        # at most one active membership per user, so this should never
+        # actually need to pick among multiple rows (BUG-110/702).
         company_user = (
             request.user.company_memberships.filter(is_active=True)
             .select_related("company")
+            .order_by("id")
             .first()
         )
     request._company_user = company_user

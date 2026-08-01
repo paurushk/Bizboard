@@ -10,6 +10,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Controller, useForm } from 'react-hook-form';
+import { getErrorMessage } from '@/api/client';
 import { getCompany, updateCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { ErrorState, LoadingState } from '@/components/PageState';
@@ -53,7 +54,7 @@ export function GstSettingsPage() {
   if (!canManageGst(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
   }
 
   return (
@@ -64,6 +65,7 @@ export function GstSettingsPage() {
     >
       <Typography variant="h4">{t('nav.gst')}</Typography>
       {mutation.isSuccess ? <Alert severity="success">GST settings saved</Alert> : null}
+      {mutation.isError ? <Alert severity="error">{getErrorMessage(mutation.error)}</Alert> : null}
       <Paper sx={{ p: 2, maxWidth: 560 }}>
         <Stack spacing={2}>
           <Controller

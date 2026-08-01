@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -9,6 +10,7 @@ import {
 import * as authApi from '@/api/auth';
 import {
   clearSession,
+  getAccessToken,
   getStoredUser,
   hasSession,
   setStoredUser,
@@ -70,6 +72,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
     setUser(null);
     setUsingMockSession(false);
+  }, []);
+
+  // BUG-407: force the app into a logged-out state as soon as a refresh
+  // definitively fails, instead of leaving stale `user` state rendered
+  // while every subsequent request silently 401s.
+  useEffect(() => {
+    const onSessionExpired = () => {
+      clearSession();
+      setUser(null);
+      setUsingMockSession(false);
+    };
+    window.addEventListener('bizboard:session-expired', onSessionExpired);
+    return () => window.removeEventListener('bizboard:session-expired', onSessionExpired);
+  }, []);
+
+  // BUG-408: logging out in one tab left other open tabs believing they
+  // were still authenticated until their next API call happened to 401.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== 'bizboard.access' && e.key !== 'bizboard.user') return;
+      if (!getAccessToken() || !getStoredUser()) {
+        setUser(null);
+        setUsingMockSession(false);
+      } else {
+        setUser(getStoredUser());
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   const value = useMemo(

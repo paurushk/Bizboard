@@ -47,7 +47,6 @@ import {
   searchProducts,
   updateCompany,
   updatePurchase,
-  updatePurchaseNumberSeries,
   uploadFile,
 } from '@/api/resources';
 import { getErrorMessage } from '@/api/client';
@@ -61,6 +60,7 @@ import {
   calculateInvoiceTotals,
   calculateLineTax,
   isIntraState,
+  placeOfSupplyKnown,
   type InvoiceDiscountMode,
 } from '@/utils/tax';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -254,14 +254,12 @@ export function NewPurchasePage() {
   const [dueDate, setDueDate] = useState(() => addDaysIso(todayIso(), 30));
   const [showPaymentTerms, setShowPaymentTerms] = useState(true);
 
+  // BUG-502/514: prefix/nextNumber are read-only display-only previews, same
+  // as the Sales invoice form — this field used to be live-editable here and,
+  // if touched, would permanently reassign the company's purchase numbering
+  // sequence via updatePurchaseNumberSeries on save.
   const [prefix, setPrefix] = useState('PUR');
   const [nextNumber, setNextNumber] = useState(1);
-  const [seriesBaseline, setSeriesBaseline] = useState<{ prefix: string; nextNumber: number } | null>(
-    null,
-  );
-  const seriesDirty =
-    seriesBaseline != null &&
-    (prefix !== seriesBaseline.prefix || nextNumber !== seriesBaseline.nextNumber);
 
   const [notes, setNotes] = useState('');
   const [termsText, setTermsText] = useState('');
@@ -322,7 +320,6 @@ export function NewPurchasePage() {
     if (!series.data || isEdit) return;
     setPrefix(series.data.prefix);
     setNextNumber(series.data.nextNumber);
-    setSeriesBaseline({ prefix: series.data.prefix, nextNumber: series.data.nextNumber });
   }, [series.data, isEdit]);
 
   useEffect(() => {
@@ -330,6 +327,10 @@ export function NewPurchasePage() {
     const inv = existingInvoice.data;
     if (inv.status === 'CANCELLED') {
       setError('This purchase cannot be edited.');
+      // BUG-517: without this, an unrelated cache invalidation (e.g. of
+      // `suppliers`) while this page stays mounted re-runs this effect and
+      // re-fires setError, unlike the equivalent Sales branch.
+      setLoadedEdit(true);
       return;
     }
     setEditingStatus(inv.status);
@@ -462,6 +463,15 @@ export function NewPurchasePage() {
     [lineTaxes, lines, additionalCharges, invoiceDiscount, autoRoundOff, invoiceDiscountMode, intraState, purchaseType],
   );
 
+  // BUG-508/421: mirrors NewInvoicePage's posKnown gate — without it, a
+  // purchase from a supplier with no state/GSTIN on file silently defaults
+  // to intra-state CGST/SGST with no warning, risking incorrect ITC.
+  const posKnown =
+    purchaseType === 'NON_GST' ||
+    !company.data?.isGstRegistered ||
+    company.data?.assumeLocalStateForBlankParty ||
+    placeOfSupplyKnown(selectedSupplier?.state, selectedSupplier?.gstin);
+
   const balance = roundMoney(Math.max(0, totals.grandTotal - amountPaid));
 
   useEffect(() => {
@@ -469,6 +479,9 @@ export function NewPurchasePage() {
   }, [markFullyPaid, totals.grandTotal]);
 
   const resetForm = () => {
+    // BUG-500: see NewInvoicePage's resetForm — message/error must survive
+    // this reset, since it's called right after the "Save & New" success
+    // handler sets a confirmation flash message.
     setLines([]);
     setSupplierId('');
     setPurchaseType('GST');
@@ -485,9 +498,6 @@ export function NewPurchasePage() {
     setAmountPaid(0);
     setMarkFullyPaid(false);
     setPaymentMode('CASH');
-    setMessage(null);
-    setError(null);
-    setSeriesBaseline(null);
     void qc.invalidateQueries({ queryKey: ['purchase-invoice-number-series'] });
     barcodeRef.current?.focus();
   };
@@ -526,10 +536,6 @@ export function NewPurchasePage() {
     mutationFn: async (mode: 'draft' | 'complete' | 'complete_new') => {
       if (!supplierId) throw new Error('Supplier is required');
       if (lines.length === 0) throw new Error('Add at least one item');
-
-      if (!isEdit && seriesDirty) {
-        await updatePurchaseNumberSeries({ prefix, nextNumber });
-      }
 
       const payload = buildPayload();
       let invoice: PurchaseInvoice;
@@ -583,7 +589,6 @@ export function NewPurchasePage() {
       setError(paymentWarning ?? null);
       void qc.invalidateQueries({ queryKey: ['purchase-invoice-number-series'] });
       void qc.invalidateQueries({ queryKey: ['purchase-invoice', invoice.id] });
-      setSeriesBaseline(null);
       const label = invoice.number?.trim() ? invoice.number : `Draft #${invoice.id}`;
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
@@ -711,6 +716,17 @@ export function NewPurchasePage() {
   };
 
   useEffect(() => {
+    // BUG-513: same guard as NewInvoicePage.
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (lines.length === 0) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [lines.length]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const meta = e.ctrlKey || e.metaKey;
       if (meta && e.key.toLowerCase() === 's') {
@@ -732,6 +748,7 @@ export function NewPurchasePage() {
 
   const activeSuppliers = (suppliers.data ?? []).filter((c) => c.isActive);
   const canSave = lines.length > 0 && Boolean(supplierId) && !saveMutation.isPending;
+  const canComplete = canSave && posKnown;
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;
@@ -785,18 +802,23 @@ export function NewPurchasePage() {
           </Button>
           <Button
             variant="contained"
-            disabled={!canSave}
+            disabled={isEdit && editingStatus === 'COMPLETED' ? !canSave : !canComplete}
             onClick={() =>
               saveMutation.mutate(
                 isEdit && editingStatus === 'COMPLETED' ? 'draft' : 'complete',
               )
             }
           >
-            {isEdit ? t('common.save') : t('billing.save')}
+            {/* BUG-507: label reflects that this finalizes a draft, same as NewInvoicePage. */}
+            {isEdit && editingStatus === 'COMPLETED'
+              ? t('common.save')
+              : isEdit
+                ? t('billing.saveAndComplete')
+                : t('billing.save')}
           </Button>
           <Button
             variant="outlined"
-            disabled={!canSave || isEdit}
+            disabled={!canComplete || isEdit}
             onClick={() => saveMutation.mutate('complete_new')}
           >
             {t('billing.saveAndNew')}
@@ -816,6 +838,9 @@ export function NewPurchasePage() {
 
       {message ? <Alert severity="success">{message}</Alert> : null}
       {error ? <Alert severity="error">{error}</Alert> : null}
+      {isEdit && editingStatus === 'COMPLETED' ? (
+        <Alert severity="warning">{t('billing.editingCompletedWarning')}</Alert>
+      ) : null}
 
       <Paper sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
@@ -873,7 +898,7 @@ export function NewPurchasePage() {
                     <TextField
                       {...params}
                       label={t('billing.supplier')}
-                      placeholder="+ Add Party"
+                      placeholder="Search or select supplier…"
                     />
                   )}
                 />
@@ -894,24 +919,22 @@ export function NewPurchasePage() {
               <CompactField
                 label={t('billing.invoicePrefix')}
                 value={prefix}
-                onChange={(e) => setPrefix(e.target.value)}
-                disabled={isEdit}
+                InputProps={{ readOnly: true }}
+                disabled
                 sx={{ width: 120 }}
               />
               <NumericField
                 label={t('billing.invoiceNumber')}
                 value={nextNumber}
-                onValueChange={(n) => setNextNumber(Math.max(1, Math.floor(n) || 1))}
+                onValueChange={() => undefined}
                 min={1}
                 emptyAs={1}
                 fullWidth
-                disabled={isEdit}
+                disabled
                 helperText={
                   isEdit
                     ? 'Purchase number is fixed when editing'
-                    : series?.data?.preview
-                      ? `Next will be ${prefix}-${String(nextNumber).padStart(series.data.padding ?? 5, '0')}`
-                      : undefined
+                    : `${t('billing.nextNumberHint')}: ${prefix}-${String(nextNumber).padStart(series?.data?.padding ?? 5, '0')}`
                 }
               />
             </Stack>
@@ -1116,7 +1139,9 @@ export function NewPurchasePage() {
                     <Stack direction="row" spacing={0.5} sx={{ minWidth: 180 }}>
                       <NumericField
                         value={line.discountPercent}
-                        onValueChange={(n) => updateLine(line.key, { discountPercent: n })}
+                        onValueChange={(n) =>
+                          updateLine(line.key, { discountPercent: Math.min(100, n) })
+                        }
                         min={0}
                         decimals={2}
                         fullWidth={false}
@@ -1384,21 +1409,40 @@ export function NewPurchasePage() {
               <Row label={t('billing.igst')} value={formatMoney(totals.igstTotal)} />
             ) : null}
             <Row
-              label={`+ ${t('billing.invoiceDiscount')}`}
+              label={t('billing.invoiceDiscount')}
               value={
-                <NumericField
-                  value={invoiceDiscount}
-                  onValueChange={setInvoiceDiscount}
-                  min={0}
-                  decimals={2}
-                  fullWidth={false}
-                  InputProps={{
-                    startAdornment: <InputAdornment position="start">- ₹</InputAdornment>,
-                  }}
-                  sx={{ maxWidth: 140 }}
-                />
+                <Stack direction="row" spacing={1} alignItems="center">
+                  {/* BUG-203/504: was "+ Invoice discount" next to a "- ₹"
+                      adornment (contradictory signs), and had no BEFORE_TAX
+                      option at all, unlike the equivalent Sales control. */}
+                  <CompactField
+                    select
+                    value={invoiceDiscountMode}
+                    onChange={(e) => setInvoiceDiscountMode(e.target.value as InvoiceDiscountMode)}
+                    sx={{ minWidth: 180 }}
+                  >
+                    <MenuItem value="AFTER_TAX">{t('billing.invoiceDiscountAfterTax')}</MenuItem>
+                    <MenuItem value="BEFORE_TAX">{t('billing.invoiceDiscountBeforeTax')}</MenuItem>
+                  </CompactField>
+                  <NumericField
+                    value={invoiceDiscount}
+                    onValueChange={setInvoiceDiscount}
+                    min={0}
+                    decimals={2}
+                    fullWidth={false}
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                    }}
+                    sx={{ maxWidth: 120 }}
+                  />
+                </Stack>
               }
             />
+            {!posKnown ? (
+              <Alert severity="warning" sx={{ mt: 1 }}>
+                {t('billing.placeOfSupplyRequired')}
+              </Alert>
+            ) : null}
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <FormControlLabel
                 control={

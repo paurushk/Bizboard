@@ -5,8 +5,10 @@ import pytest
 from tests.conftest import (
     add_stock,
     create_draft_invoice,
+    create_draft_purchase,
     make_customer,
     make_product,
+    make_supplier,
 )
 
 pytestmark = pytest.mark.django_db
@@ -92,3 +94,41 @@ def test_receipt_for_other_companys_customer_rejected(tenant_a, tenant_b):
         "customer": customer_a.id, "amount": "100", "mode": "CASH",
     }, format="json")
     assert resp.status_code == 400
+
+
+def test_cross_tenant_write_attempts_all_rejected(tenant_a, tenant_b):
+    """BUG-721 — every mutating endpoint (PATCH/DELETE/action) must reject a
+    request scoped to another tenant's object id with 404, not just GET/create.
+    IDs are sequential BigAutoFields across the whole system, so this is a
+    realistic, cheap cross-tenant attack surface to leave untested."""
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    supplier = make_supplier(tenant_a.company)
+    invoice = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "1", "unit_price": "100"}
+    ])
+    purchase = create_draft_purchase(tenant_a, supplier, [
+        {"product": product.id, "quantity": "1", "unit_price": "80"}
+    ])
+
+    cases = [
+        ("patch", f"/api/v1/sales/invoices/{invoice['id']}/", {"invoice_discount": "5"}),
+        ("post", f"/api/v1/sales/invoices/{invoice['id']}/complete/", None),
+        ("post", f"/api/v1/sales/invoices/{invoice['id']}/cancel/", None),
+        ("post", f"/api/v1/sales/invoices/{invoice['id']}/regenerate-pdf/", None),
+        ("post", f"/api/v1/sales/invoices/{invoice['id']}/share/", {"channel": "email"}),
+        ("patch", f"/api/v1/purchases/invoices/{purchase['id']}/", {"invoice_discount": "5"}),
+        ("post", f"/api/v1/purchases/invoices/{purchase['id']}/complete/", None),
+        ("post", f"/api/v1/purchases/invoices/{purchase['id']}/cancel/", None),
+        ("patch", f"/api/v1/customers/{customer.id}/", {"name": "Hijacked"}),
+        ("delete", f"/api/v1/customers/{customer.id}/", None),
+        ("patch", f"/api/v1/suppliers/{supplier.id}/", {"name": "Hijacked"}),
+        ("delete", f"/api/v1/suppliers/{supplier.id}/", None),
+        ("patch", f"/api/v1/products/{product.id}/", {"name": "Hijacked"}),
+        ("delete", f"/api/v1/products/{product.id}/", None),
+    ]
+    for method, path, payload in cases:
+        call = getattr(tenant_b.client, method)
+        resp = call(path, payload, format="json") if payload is not None else call(path)
+        assert resp.status_code == 404, f"{method.upper()} {path} returned {resp.status_code}, expected 404"

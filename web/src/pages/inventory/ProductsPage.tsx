@@ -29,6 +29,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { Product } from '@/types/domain';
+import { isValidHsnSac, normalizeGstRate } from '@/utils/gst';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canImport } from '@/utils/permissions';
 import { productStatusTone, statusLabelKey } from '@/utils/status';
@@ -150,7 +151,7 @@ export function ProductsPage() {
       {error ? <Alert severity="error">{error}</Alert> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.length === 0 ? <EmptyState description={t('empty.products')} /> : null}
       {query.data && query.data.length > 0 ? (
@@ -235,30 +236,51 @@ export function ProductsPage() {
               label="HSN"
               value={form.hsnCode}
               onChange={(e) => setForm((f) => ({ ...f, hsnCode: e.target.value }))}
+              // BUG-621: isValidHsnSac already existed (and is unit-tested)
+              // but was never actually wired into the one form that enters
+              // an HSN code.
+              error={Boolean(form.hsnCode) && !isValidHsnSac(form.hsnCode)}
+              helperText={
+                Boolean(form.hsnCode) && !isValidHsnSac(form.hsnCode)
+                  ? 'HSN/SAC must be 4, 6, or 8 digits'
+                  : undefined
+              }
             />
             <TextField
               label="GST %"
               type="number"
               value={form.gstRate}
               onChange={(e) => setForm((f) => ({ ...f, gstRate: e.target.value }))}
+              onBlur={() =>
+                setForm((f) => ({ ...f, gstRate: String(normalizeGstRate(Number(f.gstRate) || 0)) }))
+              }
+              helperText="Snapped to the nearest GST slab (0/0.25/3/5/12/18/28%)"
             />
             <TextField
               label="Purchase price"
               type="number"
+              inputProps={{ min: 0 }}
               value={form.purchasePrice}
               onChange={(e) => setForm((f) => ({ ...f, purchasePrice: e.target.value }))}
+              // BUG-622: negative purchase/selling prices silently corrupted
+              // margin calculations with no client-side feedback.
+              error={Number(form.purchasePrice) < 0}
             />
             <TextField
               label="Selling price"
               type="number"
+              inputProps={{ min: 0 }}
               value={form.sellingPrice}
               onChange={(e) => setForm((f) => ({ ...f, sellingPrice: e.target.value }))}
+              error={Number(form.sellingPrice) < 0}
             />
             <TextField
               label="Reorder level"
               type="number"
+              inputProps={{ min: 0 }}
               value={form.reorderLevel}
               onChange={(e) => setForm((f) => ({ ...f, reorderLevel: e.target.value }))}
+              error={Number(form.reorderLevel) < 0}
             />
             <TextField
               select
@@ -277,7 +299,15 @@ export function ProductsPage() {
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={!form.name || !form.sku || saveMutation.isPending}
+            disabled={
+              !form.name ||
+              !form.sku ||
+              (Boolean(form.hsnCode) && !isValidHsnSac(form.hsnCode)) ||
+              Number(form.purchasePrice) < 0 ||
+              Number(form.sellingPrice) < 0 ||
+              Number(form.reorderLevel) < 0 ||
+              saveMutation.isPending
+            }
             onClick={() => saveMutation.mutate()}
           >
             {t('common.save')}

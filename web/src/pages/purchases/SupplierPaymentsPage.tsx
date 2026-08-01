@@ -48,9 +48,13 @@ export function SupplierPaymentsPage() {
   const createMutation = useMutation({
     mutationFn: async () => {
       if (!supplier) throw new Error('Supplier required');
+      // BUG-528: reject non-positive amounts (a plain type="number" field
+      // let "-500" through since it's a non-empty string).
+      const paymentAmount = Number(amount);
+      if (!(paymentAmount > 0)) throw new Error('Amount must be greater than zero');
       const payment = await createSupplierPayment({
         supplier: supplier.id,
-        amount: Number(amount),
+        amount: paymentAmount,
         mode,
         paymentDate: new Date().toISOString().slice(0, 10),
       });
@@ -66,13 +70,23 @@ export function SupplierPaymentsPage() {
     onSuccess: () => {
       setOpen(false);
       setMessage('Supplier payment created');
+      // BUG-530: reset the form so reopening doesn't show stale values —
+      // ReceiptsPage already did this, this page didn't.
+      setSupplier(null);
+      setAmount('');
+      setPurchase(null);
+      setAllocAmount('');
       void qc.invalidateQueries({ queryKey: ['supplier-payments'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
 
+  // BUG-529: only offer purchases with an outstanding balance.
   const openPurchases = (purchases.data ?? []).filter(
-    (p) => p.status === 'COMPLETED' && (!supplier || p.supplier === supplier.id),
+    (p) =>
+      p.status === 'COMPLETED' &&
+      (!supplier || p.supplier === supplier.id) &&
+      toNumber(p.balance ?? p.grandTotal) > 0,
   );
 
   return (
@@ -87,7 +101,7 @@ export function SupplierPaymentsPage() {
       {error ? <Alert severity="error">{error}</Alert> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.length === 0 ? <EmptyState /> : null}
       {query.data && query.data.length > 0 ? (
@@ -149,7 +163,11 @@ export function SupplierPaymentsPage() {
               value={purchase}
               onChange={(_, v) => {
                 setPurchase(v);
-                if (v) setAllocAmount(String(Math.min(toNumber(amount), toNumber(v.grandTotal))));
+                if (v) {
+                  setAllocAmount(
+                    String(Math.min(toNumber(amount), toNumber(v.balance ?? v.grandTotal))),
+                  );
+                }
               }}
               renderInput={(params) => (
                 <TextField {...params} label="Allocate to purchase (optional)" />

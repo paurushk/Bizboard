@@ -15,12 +15,13 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation } from '@tanstack/react-query';
-import { Navigate, Link as RouterLink, useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { commitImport, uploadImport } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
+import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import type { ImportJob, ImportKind } from '@/types/domain';
 import { canImport } from '@/utils/permissions';
 import { statusLabelKey } from '@/utils/status';
@@ -91,7 +92,7 @@ export function ImportPage() {
     onError: (err) => setError(getErrorMessage(err)),
   });
 
-  if (!canImport(user)) return <Navigate to="/" replace />;
+  if (!canImport(user)) return <ForbiddenPage />;
 
   const previewRows = Array.isArray(job?.preview) ? job!.preview : [];
 

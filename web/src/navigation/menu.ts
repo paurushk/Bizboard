@@ -5,6 +5,7 @@ import {
   canImport,
   canManageGst,
   canManageUsers,
+  canViewFinancialReports,
 } from '@/utils/permissions';
 
 export interface NavItem {
@@ -64,6 +65,10 @@ export const navigation: NavItem[] = [
   {
     id: 'reports',
     labelKey: 'nav.reports',
+    // BUG-624: without this, every user saw the Reports section even
+    // though the route layer (App.tsx RoleRoute) rejects anyone without
+    // canViewFinancialReports — a guaranteed dead-end click.
+    visible: canViewFinancialReports,
     children: [
       { id: 'report-sales', labelKey: 'nav.salesReports', path: '/reports/sales' },
       { id: 'report-purchases', labelKey: 'nav.purchaseReports', path: '/reports/purchases' },

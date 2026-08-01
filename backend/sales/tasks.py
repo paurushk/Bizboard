@@ -7,8 +7,8 @@ from celery import shared_task
 logger = logging.getLogger(__name__)
 
 
-@shared_task
-def generate_invoice_pdf(invoice_id):
+@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
+def generate_invoice_pdf(self, invoice_id):
     from core.models import FileAsset
     from core.services.files import FileService
 

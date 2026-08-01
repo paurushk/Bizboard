@@ -270,7 +270,11 @@ export function PurchaseHistoryPage() {
         <MenuItem
           disabled={!active || active.status !== 'COMPLETED'}
           onClick={() => {
-            if (active) cancelMutation.mutate(active.id);
+            // BUG-520: same one-click-cancels-a-completed-document risk as
+            // the sales history page.
+            if (active && window.confirm(`Cancel purchase ${purchaseNumberLabel(active)}? This cannot be undone.`)) {
+              cancelMutation.mutate(active.id);
+            }
             closeMenu();
           }}
         >
@@ -282,7 +286,9 @@ export function PurchaseHistoryPage() {
         <MenuItem
           disabled={!active || active.status !== 'DRAFT'}
           onClick={() => {
-            if (active) deleteMutation.mutate(active.id);
+            if (active && window.confirm(`Delete draft ${purchaseNumberLabel(active)}? This cannot be undone.`)) {
+              deleteMutation.mutate(active.id);
+            }
             closeMenu();
           }}
         >

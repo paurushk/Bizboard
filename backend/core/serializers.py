@@ -23,10 +23,14 @@ class FileAssetSerializer(serializers.ModelSerializer):
         read_only_fields = ["original_name", "content_type", "size"]
 
     def get_url(self, obj):
+        # Points at the authenticated download action, not the raw storage
+        # path — /media/ is nginx-internal-only (BUG-703) so a direct
+        # obj.file.url is not fetchable by an unauthenticated client anyway.
+        if not obj.file:
+            return None
         request = self.context.get("request")
-        if obj.file and request:
-            return request.build_absolute_uri(obj.file.url)
-        return obj.file.url if obj.file else None
+        path = f"/api/v1/files/{obj.id}/download/"
+        return request.build_absolute_uri(path) if request else path
 
 
 class NotificationSerializer(serializers.ModelSerializer):

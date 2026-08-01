@@ -1,7 +1,10 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+
+from core.validators import validate_gst_rate
 
 
 class TimeStampedModel(models.Model):
@@ -60,9 +63,21 @@ class DocumentLineModel(models.Model):
 
     description = models.CharField(max_length=255, blank=True)
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
-    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
-    discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
-    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    # BUG-211: previously unvalidated — a negative unit_price or a
+    # discount_percent > 100 silently produced negative taxable/tax amounts
+    # with no server-side rejection.
+    unit_price = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0"))],
+    )
+    discount_percent = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+    )
+    # BUG-210: Product.gst_rate is validated against ALLOWED_GST_RATES, but
+    # the line-item rate actually used to compute charged/filed tax was not.
+    gst_rate = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("0"), validators=[validate_gst_rate],
+    )
     taxable_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     cgst = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     sgst = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))

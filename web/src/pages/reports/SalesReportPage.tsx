@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -9,18 +10,39 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { getErrorMessage } from '@/api/client';
 import { exportReport, getSalesRegister } from '@/api/resources';
+import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
+import { canExport } from '@/utils/permissions';
+
+function downloadBlobUrl(url: string, filename: string) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
 
 export function SalesReportPage() {
+  const { user } = useAuth();
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const query = useQuery({
     queryKey: ['sales-register', dateFrom, dateTo],
     queryFn: () => getSalesRegister({ dateFrom: dateFrom || undefined, dateTo: dateTo || undefined }),
+  });
+
+  const exportMutation = useMutation({
+    // BUG-616: forward the same date filter the on-screen table is using —
+    // previously export ignored it and always exported the full register.
+    mutationFn: () => exportReport('sales', { dateFrom: dateFrom || undefined, dateTo: dateTo || undefined }),
+    onSuccess: (r) => downloadBlobUrl(r.url, 'sales-register.csv'),
   });
 
   return (
@@ -44,17 +66,23 @@ export function SalesReportPage() {
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
           />
-          <Button
-            variant="outlined"
-            onClick={() => void exportReport('sales').then((r) => window.open(r.url, '_blank'))}
-          >
-            {t('common.export')}
-          </Button>
+          {canExport(user) ? (
+            <Button
+              variant="outlined"
+              disabled={exportMutation.isPending}
+              onClick={() => exportMutation.mutate()}
+            >
+              {t('common.export')}
+            </Button>
+          ) : null}
         </Stack>
       </Stack>
+      {exportMutation.isError ? (
+        <Alert severity="error">{getErrorMessage(exportMutation.error)}</Alert>
+      ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.rows?.length === 0 ? <EmptyState description={t('empty.reports')} /> : null}
       {query.data && query.data.rows.length > 0 ? (

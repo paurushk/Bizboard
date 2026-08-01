@@ -47,3 +47,7 @@ class ImportJob(CompanyScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        # BUG-718: listing a company's import history filters by company
+        # (and realistically status) ordered by created_at — unlike almost
+        # every other document model, this had no supporting index at all.
+        indexes = [models.Index(fields=["company", "status", "created_at"])]

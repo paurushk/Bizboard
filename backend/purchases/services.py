@@ -88,6 +88,11 @@ class PurchaseService:
 
         old_qty = defaultdict(Decimal)
         adjust_stock = invoice.status == PurchaseInvoice.Status.COMPLETED
+        # BUG-213: same pre-edit snapshot as SalesService.set_items.
+        old_totals = {
+            "grand_total": str(invoice.grand_total), "taxable_total": str(invoice.taxable_total),
+            "tax_total": str(invoice.cgst_total + invoice.sgst_total + invoice.igst_total),
+        } if adjust_stock else None
         if adjust_stock:
             for item in invoice.items.select_related("product"):
                 old_qty[item.product_id] += item.quantity
@@ -168,7 +173,7 @@ class PurchaseService:
                         reason=f"Edit of {invoice.number or invoice.pk}",
                         user=user,
                     )
-            emit("purchase_invoice.edited", invoice=invoice, user=user)
+            emit("purchase_invoice.edited", invoice=invoice, user=user, old_totals=old_totals)
 
         invoice.updated_by = user
         invoice.save()
@@ -222,6 +227,12 @@ class PurchaseService:
             raise BusinessRuleError("Purchase is already cancelled.")
         if invoice.returns.filter(status=PurchaseReturn.Status.COMPLETED).exists():
             raise BusinessRuleError("Cannot cancel a purchase with completed returns.")
+        if invoice.allocations.exists():
+            # BUG-722 (purchase side) — same reasoning as sales invoices.
+            raise BusinessRuleError(
+                "Cannot cancel a purchase with payment allocations against it. "
+                "Remove the allocation(s) first."
+            )
 
         if invoice.status == PurchaseInvoice.Status.COMPLETED:
             # Reverse stock via ADJUSTMENT — movements stay append-only (§5.3).
@@ -328,6 +339,18 @@ class PurchaseService:
                 reference_id=purchase_return.pk,
                 user=user,
             )
+
+        # BUG-212: mark the invoice Returned once every purchased quantity
+        # has come back, mirroring SalesService.complete_return.
+        if invoice:
+            now_returned = PurchaseService._returned_quantities(invoice)
+            fully_returned = all(
+                now_returned.get(pid, Decimal("0")) >= qty for pid, qty in purchased.items()
+            )
+            if fully_returned and invoice.status != PurchaseInvoice.Status.RETURNED:
+                invoice.status = PurchaseInvoice.Status.RETURNED
+                invoice.save(update_fields=["status"])
+
         emit("document.completed", document=purchase_return, user=user, event="purchase_return.completed")
         return purchase_return
 
@@ -349,6 +372,10 @@ class PurchaseService:
                     reason=f"Cancellation of {purchase_return.number}",
                     user=user,
                 )
+            invoice = purchase_return.purchase_invoice
+            if invoice and invoice.status == PurchaseInvoice.Status.RETURNED:
+                invoice.status = PurchaseInvoice.Status.COMPLETED
+                invoice.save(update_fields=["status"])
         purchase_return.status = PurchaseReturn.Status.CANCELLED
         purchase_return.cancelled_at = timezone.now()
         purchase_return.updated_by = user

@@ -69,6 +69,36 @@ class LedgerService:
         return invoices - returns - allocated
 
     @staticmethod
+    def bulk_customer_outstanding(company) -> dict:
+        """BUG-301: one SQL aggregation per component instead of 3 queries
+        per customer — CustomerLedgerListView used to issue `3N + 1` queries
+        for N customers with no pagination at all."""
+        invoices = dict(
+            SalesInvoice.objects.filter(company=company, status__in=OPEN_SALES_STATUSES)
+            .values("customer_id").annotate(total=Sum("grand_total"))
+            .values_list("customer_id", "total")
+        )
+        returns = dict(
+            SalesReturn.objects.filter(company=company, status=SalesReturn.Status.COMPLETED)
+            .values("customer_id").annotate(total=Sum("grand_total"))
+            .values_list("customer_id", "total")
+        )
+        allocated = dict(
+            PaymentAllocation.objects.filter(company=company, receipt__isnull=False)
+            .values("sales_invoice__customer_id").annotate(total=Sum("amount"))
+            .values_list("sales_invoice__customer_id", "total")
+        )
+        customer_ids = set(invoices) | set(returns) | set(allocated)
+        return {
+            cid: (
+                (invoices.get(cid) or Decimal("0"))
+                - (returns.get(cid) or Decimal("0"))
+                - (allocated.get(cid) or Decimal("0"))
+            )
+            for cid in customer_ids
+        }
+
+    @staticmethod
     def customer_statement(company, customer, date_from=None, date_to=None):
         """Running-balance statement built dynamically from documents."""
         entries = []
@@ -131,6 +161,34 @@ class LedgerService:
             )
         )
         return invoices - returns - allocated
+
+    @staticmethod
+    def bulk_supplier_outstanding(company) -> dict:
+        """BUG-301 (supplier side) — same N+1 fix as bulk_customer_outstanding."""
+        invoices = dict(
+            PurchaseInvoice.objects.filter(company=company, status=PurchaseInvoice.Status.COMPLETED)
+            .values("supplier_id").annotate(total=Sum("grand_total"))
+            .values_list("supplier_id", "total")
+        )
+        returns = dict(
+            PurchaseReturn.objects.filter(company=company, status=PurchaseReturn.Status.COMPLETED)
+            .values("supplier_id").annotate(total=Sum("grand_total"))
+            .values_list("supplier_id", "total")
+        )
+        allocated = dict(
+            PaymentAllocation.objects.filter(company=company, supplier_payment__isnull=False)
+            .values("purchase_invoice__supplier_id").annotate(total=Sum("amount"))
+            .values_list("purchase_invoice__supplier_id", "total")
+        )
+        supplier_ids = set(invoices) | set(returns) | set(allocated)
+        return {
+            sid: (
+                (invoices.get(sid) or Decimal("0"))
+                - (returns.get(sid) or Decimal("0"))
+                - (allocated.get(sid) or Decimal("0"))
+            )
+            for sid in supplier_ids
+        }
 
     @staticmethod
     def supplier_statement(company, supplier, date_from=None, date_to=None):

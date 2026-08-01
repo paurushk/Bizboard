@@ -55,6 +55,17 @@ def test_completed_invoice_audited_edit_allows_line_change(tenant_a):
         reference_type="sales_invoice_edit",
     ).exists()
 
+    # BUG-213: post-completion edits must leave a real before/after diff,
+    # not just a bare "UPDATE" row.
+    from core.models import AuditEvent
+
+    diff_event = AuditEvent.objects.filter(
+        entity_type="SalesInvoice", entity_id=str(data["id"]),
+        description="Completed document edited",
+    ).latest("created_at")
+    assert Decimal(diff_event.metadata["before"]["grand_total"]) == Decimal("236.00")
+    assert Decimal(diff_event.metadata["after"]["grand_total"]) == Decimal("118.00")
+
 
 def test_completed_invoice_cannot_change_customer(tenant_a):
     data, product, customer = _completed_invoice(tenant_a)

@@ -134,7 +134,13 @@ def _extract_openai_compatible(
     if not api_key:
         raise BusinessRuleError("LLM API key is not configured for the selected provider.")
 
-    client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+    # BUG-306: no timeout meant a hanging provider blocked the worker
+    # indefinitely, leaving the ImportJob stuck in EXTRACTING forever.
+    client = (
+        OpenAI(api_key=api_key, base_url=base_url, timeout=60.0)
+        if base_url
+        else OpenAI(api_key=api_key, timeout=60.0)
+    )
     content: list[dict[str, Any]] = [{"type": "text", "text": EXTRACT_PROMPT}]
     for image in images:
         mime = _detect_image_mime(image)
@@ -161,7 +167,7 @@ def _extract_claude(*, api_key: str, model: str, images: list[bytes]) -> dict[st
     if not api_key:
         raise BusinessRuleError("ANTHROPIC_API_KEY is not configured.")
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, timeout=60.0)
     content: list[dict[str, Any]] = []
     for image in images:
         content.append({

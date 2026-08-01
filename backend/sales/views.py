@@ -16,7 +16,7 @@ from core.viewsets import CompanyScopedViewSet
 from masters.models import Customer, Product
 from payments.models import PaymentAllocation
 
-from .models import Quotation, SalesInvoice, SalesItem, SalesReturn
+from .models import Quotation, SalesInvoice, SalesReturn
 from .serializers import QuotationSerializer, SalesInvoiceSerializer, SalesReturnSerializer
 from .services import SalesService, _tax_enabled
 from .tasks import generate_invoice_pdf

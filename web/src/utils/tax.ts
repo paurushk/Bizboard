@@ -33,7 +33,10 @@ export interface LineTaxResult {
 export function calculateLineTax(input: LineTaxInput): LineTaxResult {
   const qty = input.quantity;
   const gross = roundMoney(qty * input.unitPrice);
-  let discountPercent = input.discountPercent ?? 0;
+  // BUG-511: the applied discount amount was already clamped to gross, but
+  // the displayed percent itself wasn't — a line could show "500%" even
+  // though only 100% (the full gross) was actually being discounted.
+  let discountPercent = Math.min(100, Math.max(0, input.discountPercent ?? 0));
   let discountAmount =
     input.discountAmount != null
       ? roundMoney(input.discountAmount)

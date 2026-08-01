@@ -43,5 +43,50 @@
       "igst": 12,
       "lineTotal": 112
     }
+  },
+  {
+    "id": "discounted_odd_paise_28",
+    "quantity": 3,
+    "unitPrice": 33.33,
+    "gstRate": 28,
+    "intraState": true,
+    "discountPercent": 15,
+    "expected": {
+      "taxableAmount": 84.99,
+      "cgst": 11.9,
+      "sgst": 11.9,
+      "igst": 0,
+      "lineTotal": 108.79
+    }
+  },
+  {
+    "id": "fractional_qty_zero_rate",
+    "quantity": 2.5,
+    "unitPrice": 19.99,
+    "gstRate": 0,
+    "intraState": true,
+    "discountPercent": 0,
+    "expected": {
+      "taxableAmount": 49.98,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "lineTotal": 49.98
+    }
+  },
+  {
+    "id": "inter_odd_paise_5",
+    "quantity": 7,
+    "unitPrice": 8.15,
+    "gstRate": 5,
+    "intraState": false,
+    "discountPercent": 0,
+    "expected": {
+      "taxableAmount": 57.05,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 2.85,
+      "lineTotal": 59.9
+    }
   }
 ]

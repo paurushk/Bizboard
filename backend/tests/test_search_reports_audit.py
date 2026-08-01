@@ -60,6 +60,40 @@ def test_sales_and_purchase_registers(tenant_a):
     assert Decimal(str(resp.data["totals"]["grand_total"])) == Decimal("1888.00")
 
 
+def test_sales_register_date_range_filters_across_month_boundary(tenant_a):
+    """BUG-727 — GSTR-1 style monthly extraction depends on invoice_date
+    boundaries being inclusive/exclusive exactly at the edges."""
+    product = make_product(tenant_a.company, name="Blue Pen", sku="PEN-B")
+    add_stock(tenant_a, product, "100")
+    customer = make_customer(tenant_a.company, name="Sharma Stores", state="Karnataka")
+
+    def _invoice_on(date_str):
+        payload = {
+            "customer": customer.id,
+            "invoice_type": "GST",
+            "invoice_date": date_str,
+            "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+        }
+        resp = tenant_a.client.post("/api/v1/sales/invoices/", payload, format="json")
+        assert resp.status_code == 201, resp.data
+        complete = tenant_a.client.post(f"/api/v1/sales/invoices/{resp.data['id']}/complete/")
+        assert complete.status_code == 200
+        return complete.data
+
+    june_30 = _invoice_on("2026-06-30")
+    july_1 = _invoice_on("2026-07-01")
+    july_31 = _invoice_on("2026-07-31")
+    aug_1 = _invoice_on("2026-08-01")
+
+    resp = tenant_a.client.get("/api/v1/reports/sales-register/", {
+        "date_from": "2026-07-01", "date_to": "2026-07-31",
+    })
+    numbers = {row["number"] for row in resp.data["rows"]}
+    assert numbers == {july_1["number"], july_31["number"]}
+    assert june_30["number"] not in numbers
+    assert aug_1["number"] not in numbers
+
+
 def test_inventory_summary_and_product_sales(tenant_a):
     _setup_documents(tenant_a)
     resp = tenant_a.client.get("/api/v1/reports/inventory-summary/")

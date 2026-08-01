@@ -8,8 +8,11 @@ def assert_place_of_supply_for_gst(*, company, party_state: str, party_gstin: st
     """Block GST Complete when place of supply cannot be determined."""
     if not tax_enabled:
         return
-    if not company.is_gst_registered:
-        return
+    # BUG-206: this used to also return early whenever the company itself
+    # wasn't GST-registered — but an unregistered/composition company can
+    # still issue a tax_enabled invoice type (TAX/RETAIL) that computes real
+    # CGST/SGST/IGST, so gating on tax_enabled alone (not is_gst_registered)
+    # is what actually matches whether tax is about to be computed.
     if place_of_supply_known(party_state=party_state, party_gstin=party_gstin):
         return
     if getattr(company, "assume_local_state_for_blank_party", False):

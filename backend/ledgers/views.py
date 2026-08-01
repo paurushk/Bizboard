@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.permissions import CanCancelDocuments, CanViewFinancialReports, HasCompany, get_company_user
+from core.permissions import CanViewFinancialReports, HasCompany, get_company_user
 from masters.models import Customer, Supplier
 
 from .services import LedgerService
@@ -22,12 +22,14 @@ class CustomerLedgerListView(APIView):
 
     def get(self, request):
         company = get_company_user(request).company
+        # BUG-301: one bulk SQL aggregation instead of 3N+1 queries.
+        outstanding_by_id = LedgerService.bulk_customer_outstanding(company)
         rows = [
             {
                 "customer_id": c.id,
                 "customer_name": c.name,
                 "status": c.status,
-                "outstanding": LedgerService.customer_outstanding(company, c),
+                "outstanding": outstanding_by_id.get(c.id, 0),
             }
             for c in Customer.objects.filter(company=company)
         ]
@@ -60,11 +62,12 @@ class SupplierLedgerListView(APIView):
 
     def get(self, request):
         company = get_company_user(request).company
+        outstanding_by_id = LedgerService.bulk_supplier_outstanding(company)
         rows = [
             {
                 "supplier_id": s.id,
                 "supplier_name": s.name,
-                "outstanding": LedgerService.supplier_outstanding(company, s),
+                "outstanding": outstanding_by_id.get(s.id, 0),
             }
             for s in Supplier.objects.filter(company=company)
         ]
