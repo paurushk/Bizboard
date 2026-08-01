@@ -97,6 +97,74 @@ def test_completed_invoice_amend_rejects_quantity_change(tenant_a):
     assert resp.status_code == 400
 
 
+def test_completed_invoice_notes_only_skips_amend_confirm(tenant_a):
+    """Header-only notes change must not require confirm_amend or requeue PDF."""
+    data, product, _ = _completed_invoice(tenant_a, qty="2")
+    from sales.models import SalesInvoice
+
+    inv = SalesInvoice.objects.get(pk=data["id"])
+    prior_pdf = inv.pdf_status
+    resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
+        "notes": "header only",
+        "items": [{"product": product.id, "quantity": "2", "unit_price": "100"}],
+    }, format="json")
+    assert resp.status_code == 200, resp.data
+    assert resp.data["notes"] == "header only"
+    inv.refresh_from_db()
+    assert inv.pdf_status == prior_pdf
+
+
+def test_completed_invoice_amend_allows_reordered_lines(tenant_a):
+    p1 = make_product(tenant_a.company, sku="H9-A")
+    p2 = make_product(tenant_a.company, sku="H9-B")
+    add_stock(tenant_a, p1, "10")
+    add_stock(tenant_a, p2, "10")
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(tenant_a, customer, [
+        {"product": p1.id, "quantity": "1", "unit_price": "100"},
+        {"product": p2.id, "quantity": "1", "unit_price": "50"},
+    ])
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+    detail = tenant_a.client.get(f"/api/v1/sales/invoices/{inv['id']}/").data
+    items = detail["items"]
+    # Reverse order — matcher must use id/product, not list position.
+    resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{inv['id']}/", {
+        "confirm_amend": True,
+        "items": [
+            {"id": items[1]["id"], "product": p2.id, "quantity": "1", "unit_price": "55"},
+            {"id": items[0]["id"], "product": p1.id, "quantity": "1", "unit_price": "110"},
+        ],
+    }, format="json")
+    assert resp.status_code == 200, resp.data
+
+
+def test_completed_purchase_h9a_amend(tenant_a):
+    product = make_product(tenant_a.company)
+    supplier = make_supplier(tenant_a.company)
+    pur = create_draft_purchase(tenant_a, supplier, [
+        {"product": product.id, "quantity": "5", "unit_price": "80"},
+    ])
+    assert tenant_a.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/").status_code == 200
+    resp = tenant_a.client.patch(f"/api/v1/purchases/invoices/{pur['id']}/", {
+        "confirm_amend": True,
+        "items": [{"product": product.id, "quantity": "5", "unit_price": "75"}],
+    }, format="json")
+    assert resp.status_code == 200, resp.data
+    assert Decimal(resp.data["items"][0]["unit_price"]) == Decimal("75.00")
+    # Staff blocked
+    resp = tenant_a.staff_client.patch(f"/api/v1/purchases/invoices/{pur['id']}/", {
+        "confirm_amend": True,
+        "items": [{"product": product.id, "quantity": "5", "unit_price": "70"}],
+    }, format="json")
+    assert resp.status_code == 400
+    # Qty change rejected
+    resp = tenant_a.client.patch(f"/api/v1/purchases/invoices/{pur['id']}/", {
+        "confirm_amend": True,
+        "items": [{"product": product.id, "quantity": "4", "unit_price": "75"}],
+    }, format="json")
+    assert resp.status_code == 400
+
+
 def test_completed_invoice_cannot_change_customer(tenant_a):
     data, product, customer = _completed_invoice(tenant_a)
     other = make_customer(tenant_a.company, name="Other Party")
@@ -237,17 +305,18 @@ def test_purchase_status_machine(tenant_a):
     assert resp.status_code == 200
     assert resp.data["number"].startswith("PUR-")
 
-    # Completed purchase supports audited line edits
+    # H9-A: completed purchase price amend needs confirm; qty change blocked
     resp = tenant_a.client.patch(f"/api/v1/purchases/invoices/{pur['id']}/", {
-        "items": [{"product": product.id, "quantity": "4", "unit_price": "80"}],
+        "confirm_amend": True,
+        "items": [{"product": product.id, "quantity": "5", "unit_price": "70"}],
     }, format="json")
     assert resp.status_code == 200, resp.data
-    assert Decimal(resp.data["items"][0]["quantity"]) == Decimal("4")
+    assert Decimal(resp.data["items"][0]["unit_price"]) == Decimal("70.00")
 
     other = make_supplier(tenant_a.company, name="Other Supplier")
     resp = tenant_a.client.patch(f"/api/v1/purchases/invoices/{pur['id']}/", {
         "supplier": other.id,
-        "items": [{"product": product.id, "quantity": "4", "unit_price": "80"}],
+        "items": [{"product": product.id, "quantity": "5", "unit_price": "70"}],
     }, format="json")
     assert resp.status_code == 400
 

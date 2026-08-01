@@ -71,6 +71,8 @@ import {
 
 interface DraftLine {
   key: string;
+  /** Persisted line id when editing an existing purchase (H9-A amend). */
+  lineId?: number;
   product: number;
   productName: string;
   description: string;
@@ -233,6 +235,7 @@ function parseNumericText(
 
 export function NewPurchasePage() {
   const { user } = useAuth();
+  const isOwner = user?.role === 'OWNER';
   const { id: editIdParam } = useParams();
   const editId = editIdParam ? Number(editIdParam) : null;
   const isEdit = Number.isFinite(editId) && (editId as number) > 0;
@@ -400,6 +403,7 @@ export function NewPurchasePage() {
       });
       return {
         key: `edit-${item.id ?? idx}-${item.product}`,
+        lineId: item.id,
         product: item.product,
         productName: item.productName ?? item.description ?? `Product #${item.product}`,
         description: item.description && item.description !== item.productName ? item.description : '',
@@ -535,6 +539,7 @@ export function NewPurchasePage() {
     includeTerms: showTerms,
     signature: signatureId,
     items: lines.map((l) => ({
+      ...(l.lineId != null ? { id: l.lineId } : {}),
       product: l.product,
       description: l.description || l.productName,
       quantity: l.quantity,
@@ -548,16 +553,31 @@ export function NewPurchasePage() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: async (mode: 'draft' | 'complete' | 'complete_new') => {
+    mutationFn: async (mode: 'draft' | 'complete' | 'complete_new' | 'save') => {
       if (!supplierId) throw new Error('Supplier is required');
       if (lines.length === 0) throw new Error('Add at least one item');
 
+      const shouldComplete = mode === 'complete' || mode === 'complete_new';
       const payload = buildPayload();
       let invoice: PurchaseInvoice;
       let completeWarning: string | null = null;
       if (isEdit && editId) {
-        invoice = await updatePurchase(editId, payload);
-        if (mode !== 'draft' && invoice.status === 'DRAFT') {
+        // H9-A: completed purchases need Owner + confirm_amend for money-field edits.
+        if (editingStatus === 'COMPLETED') {
+          if (!isOwner) {
+            throw new Error(
+              'Only an Owner can amend a completed purchase. Use a return for stock corrections, not price fixes.',
+            );
+          }
+          if (!window.confirm(t('billing.confirmAmendCompleted'))) {
+            throw new Error('Amend cancelled');
+          }
+          invoice = await updatePurchase(editId, { ...payload, confirmAmend: true });
+        } else {
+          invoice = await updatePurchase(editId, payload);
+        }
+        // mode 'save' (completed edit) persists without completing — same path as draft.
+        if (shouldComplete && invoice.status === 'DRAFT') {
           try {
             invoice = await completePurchase(invoice.id);
           } catch (err) {
@@ -566,7 +586,7 @@ export function NewPurchasePage() {
         }
       } else {
         invoice = await createPurchase(payload);
-        if (mode !== 'draft') {
+        if (shouldComplete) {
           try {
             invoice = await completePurchase(invoice.id);
           } catch (err) {
@@ -576,7 +596,7 @@ export function NewPurchasePage() {
       }
 
       let paymentWarning: string | null = completeWarning;
-      if (mode !== 'draft' && amountPaid > 0 && invoice.status === 'COMPLETED') {
+      if (shouldComplete && amountPaid > 0 && invoice.status === 'COMPLETED') {
         const already = toNumber(invoice.paid);
         const toAllocate = Math.max(0, amountPaid - already);
         if (toAllocate > 0) {
@@ -687,7 +707,7 @@ export function NewPurchasePage() {
   });
 
   const addProduct = (product: Product | null) => {
-    if (!product) return;
+    if (!product || editingStatus === 'COMPLETED') return;
     if (product.status !== 'ACTIVE') {
       setError('Cannot purchase inactive product');
       return;
@@ -765,6 +785,8 @@ export function NewPurchasePage() {
   const canSave = lines.length > 0 && Boolean(supplierId) && !saveMutation.isPending;
   const canComplete = canSave && posKnown;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
+  const isCompletedEdit = editingStatus === 'COMPLETED';
+  const canAmendMoney = isCompletedEdit && isOwner;
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;
@@ -818,7 +840,11 @@ export function NewPurchasePage() {
           </Button>
           <Button
             variant="contained"
-            disabled={primarySave.mode === 'draft' ? !canSave : !canComplete}
+            disabled={
+              primarySave.mode === 'save'
+                ? !canSave || (isCompletedEdit && !isOwner)
+                : !canComplete
+            }
             onClick={() => saveMutation.mutate(primarySave.mode)}
           >
             {/* BUG-507 / P0-302: label matches action — never "Save" while completing. */}
@@ -1126,6 +1152,7 @@ export function NewPurchasePage() {
                         min={0}
                         emptyAs={1}
                         fullWidth={false}
+                        disabled={isCompletedEdit}
                         sx={{ width: 80, minWidth: 80 }}
                       />
                       <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
@@ -1140,6 +1167,7 @@ export function NewPurchasePage() {
                       min={0}
                       decimals={2}
                       fullWidth={false}
+                      disabled={isCompletedEdit && !canAmendMoney}
                       sx={{ width: 96, minWidth: 96 }}
                     />
                   </TableCell>
@@ -1153,6 +1181,7 @@ export function NewPurchasePage() {
                         min={0}
                         decimals={2}
                         fullWidth={false}
+                        disabled={isCompletedEdit && !canAmendMoney}
                         sx={{ width: 88, minWidth: 88 }}
                         InputProps={{
                           endAdornment: <InputAdornment position="end">%</InputAdornment>,
@@ -1166,6 +1195,7 @@ export function NewPurchasePage() {
                         min={0}
                         decimals={2}
                         fullWidth={false}
+                        disabled={isCompletedEdit && !canAmendMoney}
                         sx={{ width: 96, minWidth: 96 }}
                         InputProps={{
                           startAdornment: <InputAdornment position="start">₹</InputAdornment>,
@@ -1190,6 +1220,7 @@ export function NewPurchasePage() {
                         size="small"
                         color="primary"
                         aria-label="add row"
+                        disabled={isCompletedEdit}
                         onClick={() => barcodeRef.current?.focus()}
                       >
                         <AddIcon fontSize="small" />
@@ -1197,6 +1228,7 @@ export function NewPurchasePage() {
                       <IconButton
                         size="small"
                         aria-label={t('common.remove')}
+                        disabled={isCompletedEdit}
                         onClick={() => setLines((prev) => prev.filter((x) => x.key !== line.key))}
                       >
                         <DeleteIcon fontSize="small" />
@@ -1235,6 +1267,7 @@ export function NewPurchasePage() {
               inputValue={productQuery}
               onInputChange={(_, v) => setProductQuery(v)}
               onChange={(_, v) => addProduct(v)}
+              disabled={isCompletedEdit}
               getOptionLabel={(o) =>
                 `${o.name} · ${o.sku}${o.unitName ? ` · ${o.unitName}` : ''}`
               }
@@ -1244,6 +1277,7 @@ export function NewPurchasePage() {
                   inputRef={barcodeRef}
                   placeholder={`+ ${t('billing.addItem')} / ${t('billing.searchProduct')}`}
                   autoFocus
+                  disabled={isCompletedEdit}
                 />
               )}
             />
@@ -1251,7 +1285,10 @@ export function NewPurchasePage() {
               component="button"
               type="button"
               underline="hover"
-              onClick={() => setItemDialogOpen(true)}
+              disabled={isCompletedEdit}
+              onClick={() => {
+                if (!isCompletedEdit) setItemDialogOpen(true);
+              }}
               sx={{ whiteSpace: 'nowrap' }}
             >
               + {t('billing.createItem')}
@@ -1260,6 +1297,7 @@ export function NewPurchasePage() {
           <Button
             variant="outlined"
             startIcon={<QrCodeScannerIcon />}
+            disabled={isCompletedEdit}
             onClick={() => barcodeRef.current?.focus()}
             sx={{ whiteSpace: 'nowrap' }}
           >
@@ -1399,6 +1437,7 @@ export function NewPurchasePage() {
                   min={0}
                   decimals={2}
                   fullWidth={false}
+                  disabled={isCompletedEdit && !canAmendMoney}
                   helperText={t('billing.additionalChargesHint')}
                   InputProps={{
                     startAdornment: <InputAdornment position="start">₹</InputAdornment>,
@@ -1428,6 +1467,7 @@ export function NewPurchasePage() {
                     select
                     value={invoiceDiscountMode}
                     onChange={(e) => setInvoiceDiscountMode(e.target.value as InvoiceDiscountMode)}
+                    disabled={isCompletedEdit && !canAmendMoney}
                     sx={{ minWidth: 180 }}
                   >
                     <MenuItem value="AFTER_TAX">{t('billing.invoiceDiscountAfterTax')}</MenuItem>
@@ -1439,6 +1479,7 @@ export function NewPurchasePage() {
                     min={0}
                     decimals={2}
                     fullWidth={false}
+                    disabled={isCompletedEdit && !canAmendMoney}
                     InputProps={{
                       startAdornment: <InputAdornment position="start">₹</InputAdornment>,
                     }}

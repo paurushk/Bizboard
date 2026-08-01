@@ -144,6 +144,11 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
     def update(self, instance, validated_data):
         from core.exceptions import BusinessRuleError
         from core.permissions import get_company_user
+        from core.services.h9_amend import (
+            assert_h9a_line_allowlist,
+            existing_lines_as_items_data,
+            lines_prices_unchanged,
+        )
 
         if instance.status in (SalesInvoice.Status.CANCELLED, SalesInvoice.Status.RETURNED):
             raise BusinessRuleError("Cancelled/returned invoice cannot be edited.")
@@ -162,9 +167,17 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         }
         money_changing = bool(money_fields & set(validated_data.keys()))
         items_in_request = items_data is not serializers.empty
+        existing_qs = instance.items.select_related("product")
 
-        if instance.status == SalesInvoice.Status.COMPLETED and (items_in_request or money_changing):
-            # H9-A: Owner amend of allowlisted money fields only, with explicit confirm.
+        lines_price_changing = False
+        if instance.status == SalesInvoice.Status.COMPLETED and items_in_request:
+            assert_h9a_line_allowlist(existing_qs, items_data)
+            lines_price_changing = not lines_prices_unchanged(existing_qs, items_data)
+
+        needs_amend = instance.status == SalesInvoice.Status.COMPLETED and (
+            money_changing or lines_price_changing
+        )
+        if needs_amend:
             cu = get_company_user(request)
             is_owner = cu is not None and cu.role == "OWNER"
             if not confirm_amend or not is_owner:
@@ -172,57 +185,29 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
                     "Completed invoices require Owner confirm_amend to change "
                     "prices, discounts, or additional charges."
                 )
-            if items_in_request:
-                self._assert_h9a_line_allowlist(instance, items_data)
 
         if items_data is serializers.empty:
             items_data = None
 
         instance = super().update(instance, validated_data)
+        user = self.context["request"].user
+
+        if instance.status == SalesInvoice.Status.COMPLETED:
+            if needs_amend:
+                payload = (
+                    [dict(l) for l in items_data]
+                    if items_data is not None
+                    else existing_lines_as_items_data(instance.items)
+                )
+                SalesService.set_items(instance, payload, user)
+            # else: notes/terms-only — no set_items, no PDF requeue
+            return instance
+
         if items_data is not None:
-            SalesService.set_items(instance, [dict(l) for l in items_data], self.context["request"].user)
+            SalesService.set_items(instance, [dict(l) for l in items_data], user)
         else:
-            # Preserve line snapshots on header-only updates.
-            SalesService.set_items(
-                instance,
-                [
-                    {
-                        "product": i.product, "description": i.description,
-                        "quantity": i.quantity, "unit_price": i.unit_price,
-                        "discount_percent": i.discount_percent, "gst_rate": i.gst_rate,
-                        "hsn_code": i.hsn_code, "mrp": i.mrp, "unit_name": i.unit_name,
-                        "batch_no": i.batch_no, "exp_date": i.exp_date, "mfg_date": i.mfg_date,
-                    }
-                    for i in instance.items.all()
-                ],
-                self.context["request"].user,
-            )
+            SalesService.set_items(instance, existing_lines_as_items_data(instance.items), user)
         return instance
-
-    @staticmethod
-    def _assert_h9a_line_allowlist(instance, items_data):
-        """H9-A: only unit_price / discount_percent may change; qty & product fixed."""
-        from core.exceptions import BusinessRuleError
-
-        existing = list(instance.items.select_related("product").order_by("id"))
-        if len(items_data) != len(existing):
-            raise BusinessRuleError(
-                "Completed invoice amend cannot add or remove lines (H9-A)."
-            )
-        for line, old in zip(items_data, existing):
-            product = line["product"]
-            if product.pk != old.product_id:
-                raise BusinessRuleError(
-                    "Completed invoice amend cannot change products (H9-A)."
-                )
-            if Decimal(str(line["quantity"])) != Decimal(str(old.quantity)):
-                raise BusinessRuleError(
-                    "Completed invoice amend cannot change quantities (H9-A)."
-                )
-            if "gst_rate" in line and Decimal(str(line["gst_rate"])) != Decimal(str(old.gst_rate)):
-                raise BusinessRuleError(
-                    "Completed invoice amend cannot change GST rates (H9-A)."
-                )
 
 
 class QuotationItemSerializer(_BaseLineSerializer):

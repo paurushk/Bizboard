@@ -201,7 +201,17 @@ class SalesService:
                 old_totals=old_totals,
                 amend=True,
             )
-            emit("sales_invoice.completed", invoice=invoice, user=user)
+            # Do not re-emit sales_invoice.completed (would re-fire first-complete
+            # handlers). Queue PDF regeneration explicitly after amend.
+            from django.conf import settings as django_settings
+
+            from .tasks import generate_invoice_pdf
+
+            invoice_id = invoice.pk
+            if django_settings.CELERY_TASK_ALWAYS_EAGER:
+                generate_invoice_pdf.delay(invoice_id)
+            else:
+                transaction.on_commit(lambda: generate_invoice_pdf.delay(invoice_id))
             return invoice
 
         invoice.updated_by = user

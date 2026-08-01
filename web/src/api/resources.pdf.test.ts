@@ -1,3 +1,4 @@
+import { AxiosError } from 'axios';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const get = vi.fn();
@@ -30,5 +31,28 @@ describe('downloadInvoicePdf', () => {
       responseType: 'blob',
       params: { copy: 'DUPLICATE' },
     });
+  });
+
+  it('parses 409 blob JSON into a readable Error', async () => {
+    const payload = JSON.stringify({ detail: 'PDF is generating, retry shortly' });
+    const blob = new Blob([payload], { type: 'application/json' });
+    // jsdom Blob may lack .text(); ensure the path under test can read the body.
+    if (typeof blob.text !== 'function') {
+      Object.defineProperty(blob, 'text', {
+        value: async () => payload,
+      });
+    }
+    const err = new AxiosError('Conflict');
+    err.response = {
+      status: 409,
+      data: blob,
+      statusText: 'Conflict',
+      headers: {},
+      config: {} as never,
+    };
+    get.mockRejectedValue(err);
+
+    const { downloadInvoicePdf } = await import('@/api/resources');
+    await expect(downloadInvoicePdf(42)).rejects.toThrow('PDF is generating, retry shortly');
   });
 });

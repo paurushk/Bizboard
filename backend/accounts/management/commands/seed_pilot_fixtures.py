@@ -19,11 +19,13 @@ from sales.models import SalesInvoice
 from sales.services import SalesService
 
 
+# GSTINs must match core.validators.GSTIN_RE (format-valid; not live-verified).
 PROFILES = [
     {
         "code": "C1",
         "name": "Pilot Retail GST",
         "email": "pilot-c1@bizboard.local",
+        "phone": "9000000001",
         "state": "Karnataka",
         "gstin": "29ABCDE1234F1Z5",
         "customer_state": "Karnataka",
@@ -33,8 +35,9 @@ PROFILES = [
         "code": "C2",
         "name": "Pilot Inter-State",
         "email": "pilot-c2@bizboard.local",
+        "phone": "9000000002",
         "state": "Karnataka",
-        "gstin": "29BBBBB1234F1Z5",
+        "gstin": "29AABCU9603R1ZM",
         "customer_state": "Maharashtra",
         "rates": ("18",),
     },
@@ -42,6 +45,7 @@ PROFILES = [
         "code": "C3",
         "name": "Pilot Non-GST Shop",
         "email": "pilot-c3@bizboard.local",
+        "phone": "9000000003",
         "state": "Karnataka",
         "gstin": "",
         "customer_state": "Karnataka",
@@ -52,8 +56,9 @@ PROFILES = [
         "code": "C4",
         "name": "Pilot Multi-Rate",
         "email": "pilot-c4@bizboard.local",
+        "phone": "9000000004",
         "state": "Karnataka",
-        "gstin": "29CCCCC1234F1Z5",
+        "gstin": "29AAACW3775F1Z2",
         "customer_state": "Karnataka",
         "rates": ("5", "28"),
     },
@@ -61,8 +66,9 @@ PROFILES = [
         "code": "C5",
         "name": "Pilot Multi-User",
         "email": "pilot-c5@bizboard.local",
+        "phone": "9000000005",
         "state": "Karnataka",
-        "gstin": "29DDDDD1234F1Z5",
+        "gstin": "29AAAAA0000A1Z5",
         "customer_state": "Karnataka",
         "rates": ("18",),
         "staff_email": "pilot-c5-staff@bizboard.local",
@@ -78,7 +84,10 @@ class Command(BaseCommand):
             "--perf-invoices",
             type=int,
             default=0,
-            help="If >0, create this many completed invoices on C1 for perf floor seeding.",
+            help=(
+                "If >0, create this many completed invoices on C1 for perf floor seeding. "
+                "Slow for large N (e.g. 5000); use only on staging."
+            ),
         )
         parser.add_argument(
             "--reset",
@@ -117,7 +126,7 @@ class Command(BaseCommand):
             email=profile["email"],
             password="PilotPass123!",
             full_name=f"{profile['code']} Owner",
-            phone=f"9{ord(profile['code'][1])}0000001"[:10],
+            phone=profile["phone"],
         )
         company_kwargs = dict(
             name=profile["name"],
@@ -130,7 +139,9 @@ class Command(BaseCommand):
         )
         if profile.get("non_gst_company"):
             company_kwargs["registration_type"] = Company.RegistrationType.UNREGISTERED
-        company = Company.objects.create(**company_kwargs)
+        company = Company(**company_kwargs)
+        company.full_clean()
+        company.save()
         CompanyUser.objects.create(
             company=company, user=user, role=CompanyUser.Role.OWNER,
             can_manage_inventory=True, can_import=True,

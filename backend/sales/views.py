@@ -200,11 +200,20 @@ class SalesInvoiceViewSet(CompanyScopedViewSet):
 
         # P0-404: never sync-hang generate_invoice_pdf on download. Clients
         # must poll pdf-status / retry; use regenerate-pdf for FAILED.
+        # Orphan READY (flag set but file missing) must re-enqueue or clients
+        # spin forever on 409.
         if invoice.pdf_status != SalesInvoice.PdfStatus.READY or not invoice.pdf_file:
-            if invoice.pdf_status in (
-                SalesInvoice.PdfStatus.NONE,
-                SalesInvoice.PdfStatus.FAILED,
-            ):
+            should_enqueue = (
+                invoice.pdf_status in (
+                    SalesInvoice.PdfStatus.NONE,
+                    SalesInvoice.PdfStatus.FAILED,
+                )
+                or (
+                    invoice.pdf_status == SalesInvoice.PdfStatus.READY
+                    and not invoice.pdf_file
+                )
+            )
+            if should_enqueue:
                 invoice.pdf_status = SalesInvoice.PdfStatus.QUEUED
                 invoice.save(update_fields=["pdf_status"])
                 generate_invoice_pdf.delay(invoice.pk)

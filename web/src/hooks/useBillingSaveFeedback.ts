@@ -15,7 +15,7 @@ export type BillingDocumentStatus = 'DRAFT' | 'COMPLETED' | 'CANCELLED' | string
 
 export type PrimarySaveAction = {
   /** Mutation mode for the primary button. */
-  mode: 'draft' | 'complete';
+  mode: 'draft' | 'complete' | 'save';
   /** i18n key for the button label. */
   labelKey: 'common.save' | 'billing.saveAndComplete';
 };
@@ -30,7 +30,7 @@ export function primarySaveAction(opts: {
   editingStatus: BillingDocumentStatus;
 }): PrimarySaveAction {
   if (opts.isEdit && opts.editingStatus === 'COMPLETED') {
-    return { mode: 'draft', labelKey: 'common.save' };
+    return { mode: 'save', labelKey: 'common.save' };
   }
   return { mode: 'complete', labelKey: 'billing.saveAndComplete' };
 }

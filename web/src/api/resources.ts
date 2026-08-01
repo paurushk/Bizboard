@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { apiClient, shouldUseMocks, unwrapData } from './client';
 import {
   mockCompany,
@@ -395,11 +396,25 @@ export async function downloadInvoicePdf(
     return new Blob(['mock-pdf'], { type: 'application/pdf' });
   }
   const copy = options?.copy ?? 'ORIGINAL';
-  const { data } = await apiClient.get(`/sales/invoices/${id}/pdf/`, {
-    responseType: 'blob',
-    params: { copy },
-  });
-  return data as Blob;
+  try {
+    const { data } = await apiClient.get(`/sales/invoices/${id}/pdf/`, {
+      responseType: 'blob',
+      params: { copy },
+    });
+    return data as Blob;
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.data instanceof Blob) {
+      const text = await err.response.data.text();
+      try {
+        const json = JSON.parse(text) as { detail?: string; error?: { message?: string } };
+        throw new Error(json.detail || json.error?.message || 'PDF is generating, retry shortly');
+      } catch (e) {
+        if (e instanceof Error && e.message !== 'Unexpected end of JSON input') throw e;
+        throw new Error('PDF is generating, retry shortly');
+      }
+    }
+    throw err;
+  }
 }
 
 export async function shareInvoice(
@@ -596,6 +611,8 @@ export async function updatePurchase(
     includePaymentQr?: boolean;
     includeTerms?: boolean;
     signature?: number | null;
+    /** H9-A: required for Owner amend of completed purchase money fields */
+    confirmAmend?: boolean;
   },
 ): Promise<PurchaseInvoice> {
   return withMocks(async () => {

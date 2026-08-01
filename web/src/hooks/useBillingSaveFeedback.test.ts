@@ -19,7 +19,7 @@ describe('primarySaveAction', () => {
 
   it('labels editing a completed document as Save (update only)', () => {
     expect(primarySaveAction({ isEdit: true, editingStatus: 'COMPLETED' })).toEqual({
-      mode: 'draft',
+      mode: 'save',
       labelKey: 'common.save',
     });
   });

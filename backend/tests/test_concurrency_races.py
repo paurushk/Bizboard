@@ -137,3 +137,50 @@ def test_concurrent_payment_over_allocation_blocked(tenant_a):
         or Decimal("0")
     )
     assert allocated == Decimal("1000.00")
+
+
+def test_concurrent_sales_complete_oversell_blocked(tenant_a):
+    """P0-201 e2e — two Completes each needing qty 1 against stock 1 → one wins."""
+    _require_postgres()
+    from sales.models import SalesInvoice
+    from sales.services import SalesService
+
+    tenant_a.company.negative_stock_policy = "BLOCK"
+    tenant_a.company.save(update_fields=["negative_stock_policy"])
+    product = make_product(tenant_a.company, sku="RACE-COMPLETE")
+    add_stock(tenant_a, product, "1")
+    customer = make_customer(tenant_a.company, state="Karnataka")
+
+    drafts = []
+    for _ in range(2):
+        inv = create_draft_invoice(tenant_a, customer, [
+            {"product": product.id, "quantity": "1", "unit_price": "100"},
+        ])
+        drafts.append(SalesInvoice.objects.get(pk=inv["id"]))
+
+    successes: list[int] = []
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(2, timeout=10)
+
+    def complete_one(invoice: SalesInvoice):
+        connection.close()
+        try:
+            barrier.wait()
+            SalesService.complete(invoice, tenant_a.owner)
+            successes.append(1)
+        except BusinessRuleError as exc:
+            errors.append(exc)
+        except Exception as exc:  # pragma: no cover
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=complete_one, args=(d,)) for d in drafts]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert len(successes) == 1, (successes, errors)
+    assert len(errors) == 1
+    assert StockBalance.objects.get(product=product).on_hand == Decimal("0")

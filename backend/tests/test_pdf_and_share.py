@@ -170,6 +170,24 @@ def test_pdf_download_enqueues_when_failed(tenant_a):
         mock_gen.delay.assert_called_once_with(inv.pk)
 
 
+def test_pdf_download_enqueues_orphan_ready_without_file(tenant_a):
+    """READY flag with missing pdf_file must re-enqueue, not spin on 409 forever."""
+    from unittest.mock import MagicMock
+
+    data, _ = _complete(tenant_a)
+    inv = SalesInvoice.objects.get(pk=data["id"])
+    inv.pdf_status = SalesInvoice.PdfStatus.READY
+    inv.pdf_file = None
+    inv.save(update_fields=["pdf_status", "pdf_file"])
+
+    with patch("sales.views.generate_invoice_pdf") as mock_gen:
+        mock_gen.delay = MagicMock()
+        download = tenant_a.client.get(f"/api/v1/sales/invoices/{data['id']}/pdf/")
+        assert download.status_code == 409, download.data
+        assert download.data["pdf_status"] == "QUEUED"
+        mock_gen.delay.assert_called_once_with(inv.pk)
+
+
 def test_header_patch_preserves_line_snapshots(tenant_a):
     data, product = _complete(tenant_a)
     from masters.models import Product

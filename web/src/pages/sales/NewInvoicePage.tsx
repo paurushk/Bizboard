@@ -71,6 +71,8 @@ import {
 
 interface DraftLine {
   key: string;
+  /** Persisted line id when editing an existing invoice (H9-A amend). */
+  lineId?: number;
   product: number;
   productName: string;
   description: string;
@@ -397,6 +399,7 @@ export function NewInvoicePage() {
       });
       return {
         key: `edit-${item.id ?? idx}-${item.product}`,
+        lineId: item.id,
         product: item.product,
         productName: item.productName ?? item.description ?? `Product #${item.product}`,
         description: item.description && item.description !== item.productName ? item.description : '',
@@ -529,6 +532,7 @@ export function NewInvoicePage() {
     includeTerms: showTerms,
     signature: signatureId,
     items: lines.map((l) => ({
+      ...(l.lineId != null ? { id: l.lineId } : {}),
       product: l.product,
       description: l.description || l.productName,
       quantity: l.quantity,
@@ -542,10 +546,11 @@ export function NewInvoicePage() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: async (mode: 'draft' | 'complete' | 'complete_new') => {
+    mutationFn: async (mode: 'draft' | 'complete' | 'complete_new' | 'save') => {
       if (!customerId) throw new Error('Customer is required');
       if (lines.length === 0) throw new Error('Add at least one item');
 
+      const shouldComplete = mode === 'complete' || mode === 'complete_new';
       const payload = buildPayload();
       let invoice: SalesInvoice;
       let completeWarning: string | null = null;
@@ -564,7 +569,8 @@ export function NewInvoicePage() {
         } else {
           invoice = await updateSalesInvoice(editId, payload);
         }
-        if (mode !== 'draft' && invoice.status === 'DRAFT') {
+        // mode 'save' (completed edit) persists without completing — same path as draft.
+        if (shouldComplete && invoice.status === 'DRAFT') {
           try {
             invoice = await completeSalesInvoice(invoice.id);
           } catch (err) {
@@ -573,7 +579,7 @@ export function NewInvoicePage() {
         }
       } else {
         invoice = await createSalesInvoice(payload);
-        if (mode !== 'draft') {
+        if (shouldComplete) {
           try {
             invoice = await completeSalesInvoice(invoice.id);
           } catch (err) {
@@ -584,7 +590,7 @@ export function NewInvoicePage() {
       }
 
       let paymentWarning: string | null = completeWarning;
-      if (mode !== 'draft' && amountReceived > 0 && invoice.status === 'COMPLETED') {
+      if (shouldComplete && amountReceived > 0 && invoice.status === 'COMPLETED') {
         const already = toNumber(invoice.received);
         const toAllocate = Math.max(0, amountReceived - already);
         if (toAllocate > 0) {
@@ -697,7 +703,7 @@ export function NewInvoicePage() {
   });
 
   const addProduct = (product: Product | null) => {
-    if (!product) return;
+    if (!product || editingStatus === 'COMPLETED') return;
     if (product.status !== 'ACTIVE') {
       setError('Cannot sell inactive product');
       return;
@@ -776,6 +782,8 @@ export function NewInvoicePage() {
   const canSave = lines.length > 0 && Boolean(customerId) && !saveMutation.isPending;
   const canComplete = canSave && posKnown;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
+  const isCompletedEdit = editingStatus === 'COMPLETED';
+  const canAmendMoney = isCompletedEdit && isOwner;
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;
@@ -829,7 +837,11 @@ export function NewInvoicePage() {
           </Button>
           <Button
             variant="contained"
-            disabled={primarySave.mode === 'draft' ? !canSave : !canComplete}
+            disabled={
+              primarySave.mode === 'save'
+                ? !canSave || (isCompletedEdit && !isOwner)
+                : !canComplete
+            }
             onClick={() => saveMutation.mutate(primarySave.mode)}
           >
             {/* BUG-507 / P0-302: label matches action — never "Save" while completing. */}
@@ -1135,6 +1147,7 @@ export function NewInvoicePage() {
                         min={0}
                         emptyAs={1}
                         fullWidth={false}
+                        disabled={isCompletedEdit}
                         sx={{ width: 80, minWidth: 80 }}
                       />
                       <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
@@ -1149,6 +1162,7 @@ export function NewInvoicePage() {
                       min={0}
                       decimals={2}
                       fullWidth={false}
+                      disabled={isCompletedEdit && !canAmendMoney}
                       sx={{ width: 96, minWidth: 96 }}
                     />
                   </TableCell>
@@ -1162,6 +1176,7 @@ export function NewInvoicePage() {
                         min={0}
                         decimals={2}
                         fullWidth={false}
+                        disabled={isCompletedEdit && !canAmendMoney}
                         sx={{ width: 88, minWidth: 88 }}
                         InputProps={{
                           endAdornment: <InputAdornment position="end">%</InputAdornment>,
@@ -1175,6 +1190,7 @@ export function NewInvoicePage() {
                         min={0}
                         decimals={2}
                         fullWidth={false}
+                        disabled={isCompletedEdit && !canAmendMoney}
                         sx={{ width: 96, minWidth: 96 }}
                         InputProps={{
                           startAdornment: <InputAdornment position="start">₹</InputAdornment>,
@@ -1199,6 +1215,7 @@ export function NewInvoicePage() {
                         size="small"
                         color="primary"
                         aria-label="add row"
+                        disabled={isCompletedEdit}
                         onClick={() => barcodeRef.current?.focus()}
                       >
                         <AddIcon fontSize="small" />
@@ -1206,6 +1223,7 @@ export function NewInvoicePage() {
                       <IconButton
                         size="small"
                         aria-label={t('common.remove')}
+                        disabled={isCompletedEdit}
                         onClick={() => setLines((prev) => prev.filter((x) => x.key !== line.key))}
                       >
                         <DeleteIcon fontSize="small" />
@@ -1244,6 +1262,7 @@ export function NewInvoicePage() {
               inputValue={productQuery}
               onInputChange={(_, v) => setProductQuery(v)}
               onChange={(_, v) => addProduct(v)}
+              disabled={isCompletedEdit}
               getOptionLabel={(o) =>
                 `${o.name} · ${o.sku}${o.unitName ? ` · ${o.unitName}` : ''}`
               }
@@ -1253,6 +1272,7 @@ export function NewInvoicePage() {
                   inputRef={barcodeRef}
                   placeholder={`+ ${t('billing.addItem')} / ${t('billing.searchProduct')}`}
                   autoFocus
+                  disabled={isCompletedEdit}
                 />
               )}
             />
@@ -1260,7 +1280,10 @@ export function NewInvoicePage() {
               component="button"
               type="button"
               underline="hover"
-              onClick={() => setItemDialogOpen(true)}
+              disabled={isCompletedEdit}
+              onClick={() => {
+                if (!isCompletedEdit) setItemDialogOpen(true);
+              }}
               sx={{ whiteSpace: 'nowrap' }}
             >
               + {t('billing.createItem')}
@@ -1269,6 +1292,7 @@ export function NewInvoicePage() {
           <Button
             variant="outlined"
             startIcon={<QrCodeScannerIcon />}
+            disabled={isCompletedEdit}
             onClick={() => barcodeRef.current?.focus()}
             sx={{ whiteSpace: 'nowrap' }}
           >
@@ -1408,6 +1432,7 @@ export function NewInvoicePage() {
                   min={0}
                   decimals={2}
                   fullWidth={false}
+                  disabled={isCompletedEdit && !canAmendMoney}
                   helperText={t('billing.additionalChargesHint')}
                   InputProps={{
                     startAdornment: <InputAdornment position="start">₹</InputAdornment>,
@@ -1434,6 +1459,7 @@ export function NewInvoicePage() {
                     select
                     value={invoiceDiscountMode}
                     onChange={(e) => setInvoiceDiscountMode(e.target.value as InvoiceDiscountMode)}
+                    disabled={isCompletedEdit && !canAmendMoney}
                     sx={{ minWidth: 180 }}
                   >
                     <MenuItem value="AFTER_TAX">{t('billing.invoiceDiscountAfterTax')}</MenuItem>
@@ -1445,6 +1471,7 @@ export function NewInvoicePage() {
                     min={0}
                     decimals={2}
                     fullWidth={false}
+                    disabled={isCompletedEdit && !canAmendMoney}
                     InputProps={{
                       startAdornment: <InputAdornment position="start">₹</InputAdornment>,
                     }}

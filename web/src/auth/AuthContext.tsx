@@ -77,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // BUG-407: force the app into a logged-out state as soon as a refresh
   // definitively fails, instead of leaving stale `user` state rendered
   // while every subsequent request silently 401s.
+  // ProtectedRoute redirects to /login when user is cleared on session-expired.
   useEffect(() => {
     const onSessionExpired = () => {
       clearSession();

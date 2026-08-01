@@ -144,31 +144,69 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
 
     def update(self, instance, validated_data):
         from core.exceptions import BusinessRuleError
+        from core.permissions import get_company_user
+        from core.services.h9_amend import (
+            assert_h9a_line_allowlist,
+            existing_lines_as_items_data,
+            lines_prices_unchanged,
+        )
 
         if instance.status == PurchaseInvoice.Status.CANCELLED:
             raise BusinessRuleError("Cancelled purchase cannot be edited.")
         if instance.status == PurchaseInvoice.Status.COMPLETED and "supplier" in validated_data:
             if validated_data["supplier"].pk != instance.supplier_id:
                 raise BusinessRuleError("Cannot change supplier on a completed purchase.")
-        items_data = validated_data.pop("items", None)
+
+        items_data = validated_data.pop("items", serializers.empty)
+        request = self.context["request"]
+        raw = getattr(request, "data", None) or {}
+        confirm_raw = raw.get("confirm_amend") if hasattr(raw, "get") else None
+        confirm_amend = confirm_raw in (True, "true", "True", 1, "1")
+
+        money_fields = {
+            "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off",
+        }
+        money_changing = bool(money_fields & set(validated_data.keys()))
+        items_in_request = items_data is not serializers.empty
+        existing_qs = instance.items.select_related("product")
+
+        lines_price_changing = False
+        prepared = None
+        if items_in_request:
+            prepared = self._prepare_items(items_data)
+
+        if instance.status == PurchaseInvoice.Status.COMPLETED and items_in_request:
+            assert_h9a_line_allowlist(existing_qs, prepared)
+            lines_price_changing = not lines_prices_unchanged(existing_qs, prepared)
+
+        needs_amend = instance.status == PurchaseInvoice.Status.COMPLETED and (
+            money_changing or lines_price_changing
+        )
+        if needs_amend:
+            cu = get_company_user(request)
+            is_owner = cu is not None and cu.role == "OWNER"
+            if not confirm_amend or not is_owner:
+                raise BusinessRuleError(
+                    "Completed purchases require Owner confirm_amend to change "
+                    "prices, discounts, or additional charges."
+                )
+
+        if items_data is serializers.empty:
+            prepared = None
+
         instance = super().update(instance, validated_data)
-        if items_data is not None:
-            PurchaseService.set_items(instance, self._prepare_items(items_data), self.context["request"].user)
+        user = self.context["request"].user
+
+        if instance.status == PurchaseInvoice.Status.COMPLETED:
+            if needs_amend:
+                payload = prepared if prepared is not None else existing_lines_as_items_data(instance.items)
+                PurchaseService.set_items(instance, payload, user)
+            return instance
+
+        if prepared is not None:
+            PurchaseService.set_items(instance, prepared, user)
         else:
-            PurchaseService.set_items(
-                instance,
-                [
-                    {
-                        "product": i.product, "description": i.description,
-                        "quantity": i.quantity, "unit_price": i.unit_price,
-                        "discount_percent": i.discount_percent, "gst_rate": i.gst_rate,
-                        "hsn_code": i.hsn_code, "mrp": i.mrp, "unit_name": i.unit_name,
-                        "batch_no": i.batch_no, "exp_date": i.exp_date, "mfg_date": i.mfg_date,
-                    }
-                    for i in instance.items.all()
-                ],
-                self.context["request"].user,
-            )
+            PurchaseService.set_items(instance, existing_lines_as_items_data(instance.items), user)
         return instance
 
 

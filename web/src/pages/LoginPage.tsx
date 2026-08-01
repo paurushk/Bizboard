@@ -34,6 +34,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [otpHint, setOtpHint] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [otpRequesting, setOtpRequesting] = useState(false);
 
   const passwordForm = useForm<PasswordForm>({
     defaultValues: { email: '', password: '' },
@@ -56,6 +57,7 @@ export function LoginPage() {
 
   const onRequestOtp = async () => {
     setError(null);
+    setOtpRequesting(true);
     try {
       const phone = otpForm.getValues('phone');
       const res = await requestOtp(phone);
@@ -63,6 +65,8 @@ export function LoginPage() {
       setOtpHint(formatOtpHint(res));
     } catch (err) {
       setError(getErrorMessage(err));
+    } finally {
+      setOtpRequesting(false);
     }
   };
 
@@ -126,7 +130,11 @@ export function LoginPage() {
                 required
                 {...otpForm.register('phone', { required: true })}
               />
-              <Button variant="outlined" onClick={() => void onRequestOtp()}>
+              <Button
+                variant="outlined"
+                disabled={otpRequesting}
+                onClick={() => void onRequestOtp()}
+              >
                 {t('auth.requestOtp')}
               </Button>
               <TextField
