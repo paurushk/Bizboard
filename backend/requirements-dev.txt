@@ -3,5 +3,5 @@
 # (which the production Docker image installs directly) — the prod image
 # was previously shipping pytest/ruff for no runtime benefit.
 ruff>=0.6
-pytest>=8.0
+pytest>=9.1.1
 pytest-django>=4.8
