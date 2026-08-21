@@ -73,6 +73,12 @@ export function PurchaseDetailPage() {
 
   const inv = query.data;
   const showTax = inv.purchaseType === 'GST';
+  const hasRcm =
+    inv.isReverseCharge ||
+    inv.rcmTaxable != null ||
+    inv.rcmCgst != null ||
+    inv.rcmSgst != null ||
+    inv.rcmIgst != null;
 
   return (
     <Stack spacing={2}>
@@ -89,6 +95,9 @@ export function PurchaseDetailPage() {
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: 'wrap' }}>
             <StatusChip tone={documentStatusTone(inv.status)} labelKey={statusLabelKey(inv.status)} />
             <Chip size="small" label={inv.purchaseType} variant="outlined" />
+            {inv.isReverseCharge ? (
+              <Chip size="small" label="Reverse charge (RCM)" color="warning" variant="outlined" />
+            ) : null}
             <Typography variant="body2" color="text.secondary">
               {inv.invoiceDate}
             </Typography>
@@ -196,6 +205,38 @@ export function PurchaseDetailPage() {
                   <Typography>IGST</Typography>
                   <Typography>{formatMoney(inv.igstTotal)}</Typography>
                 </Stack>
+              </>
+            ) : null}
+            {hasRcm ? (
+              <>
+                <Divider sx={{ my: 0.5 }} />
+                <Typography variant="caption" color="text.secondary">
+                  Reverse charge (RCM)
+                </Typography>
+                {inv.rcmTaxable != null ? (
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography>RCM taxable</Typography>
+                    <Typography>{formatMoney(inv.rcmTaxable)}</Typography>
+                  </Stack>
+                ) : null}
+                {inv.rcmCgst != null ? (
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography>RCM CGST</Typography>
+                    <Typography>{formatMoney(inv.rcmCgst)}</Typography>
+                  </Stack>
+                ) : null}
+                {inv.rcmSgst != null ? (
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography>RCM SGST</Typography>
+                    <Typography>{formatMoney(inv.rcmSgst)}</Typography>
+                  </Stack>
+                ) : null}
+                {inv.rcmIgst != null ? (
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography>RCM IGST</Typography>
+                    <Typography>{formatMoney(inv.rcmIgst)}</Typography>
+                  </Stack>
+                ) : null}
               </>
             ) : null}
           </Stack>

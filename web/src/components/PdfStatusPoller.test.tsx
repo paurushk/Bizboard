@@ -5,16 +5,16 @@ import type { ReactElement } from 'react';
 import { PdfStatusPoller } from '@/components/PdfStatusPoller';
 
 vi.mock('@/api/resources', () => ({
-  getInvoicePdfStatus: vi.fn(async () => ({ pdfStatus: 'FAILED', pdfFile: null })),
-  regenerateInvoicePdf: vi.fn(async () => ({ pdfStatus: 'QUEUED', pdfFile: null })),
-  downloadInvoicePdf: vi.fn(async () => new Blob(['x'])),
+  getSalesDocumentPdfStatus: vi.fn(async () => ({ pdfStatus: 'FAILED', pdfFile: null })),
+  regenerateSalesDocumentPdf: vi.fn(async () => ({ pdfStatus: 'QUEUED', pdfFile: null })),
+  downloadSalesDocumentPdf: vi.fn(async () => new Blob(['x'])),
 }));
 
 vi.mock('@/i18n', () => ({
   t: (key: string) => key,
 }));
 
-import { regenerateInvoicePdf } from '@/api/resources';
+import { regenerateSalesDocumentPdf } from '@/api/resources';
 
 function wrap(ui: ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -26,12 +26,21 @@ describe('PdfStatusPoller', () => {
     vi.clearAllMocks();
   });
 
-  it('calls regenerateInvoicePdf on retry', async () => {
+  it('calls regenerateSalesDocumentPdf on retry for invoice', async () => {
     wrap(<PdfStatusPoller invoiceId={42} />);
     const retry = await screen.findByText('common.retry');
     fireEvent.click(retry);
     await waitFor(() => {
-      expect(regenerateInvoicePdf).toHaveBeenCalledWith(42);
+      expect(regenerateSalesDocumentPdf).toHaveBeenCalledWith('invoice', 42);
+    });
+  });
+
+  it('uses docType for credit notes', async () => {
+    wrap(<PdfStatusPoller documentId={7} docType="credit-note" />);
+    const retry = await screen.findByText('common.retry');
+    fireEvent.click(retry);
+    await waitFor(() => {
+      expect(regenerateSalesDocumentPdf).toHaveBeenCalledWith('credit-note', 7);
     });
   });
 });

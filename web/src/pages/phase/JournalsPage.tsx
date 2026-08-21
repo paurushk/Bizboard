@@ -1,0 +1,163 @@
+import { useMemo, useState } from 'react';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import MenuItem from '@mui/material/MenuItem';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { getErrorMessage } from '@/api/client';
+import * as api from '@/api/resources';
+import { todayIso } from '@/components/billing';
+import { ErrorState, LoadingState } from '@/components/PageState';
+import { formatMoney } from '@/utils/money';
+import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
+
+export function JournalsPage() {
+  const qc = useQueryClient();
+  const query = useQuery({
+    queryKey: ['journals'],
+    queryFn: async () => (await api.listJournalsPage()).results,
+  });
+  const accounts = useQuery({ queryKey: ['accounts'], queryFn: api.listAccounts });
+  const [open, setOpen] = useState(false);
+  const [narration, setNarration] = useState('');
+  const [lines, setLines] = useState([
+    { account: '', debit: '', credit: '' },
+    { account: '', debit: '', credit: '' },
+  ]);
+  const [error, setError] = useState('');
+  const totals = useMemo(() => {
+    const debit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
+    const credit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+    return { debit, credit, balanced: Math.abs(debit - credit) < 0.005 && debit > 0 };
+  }, [lines]);
+  const create = useMutation({
+    mutationFn: () =>
+      api.createJournal({
+        narration,
+        entryDate: todayIso(),
+        lines: lines
+          .filter((l) => l.account)
+          .map((l) => ({
+            account: Number(l.account),
+            debit: Number(l.debit) || 0,
+            credit: Number(l.credit) || 0,
+          })),
+      }),
+    onSuccess: () => {
+      setOpen(false);
+      void qc.invalidateQueries({ queryKey: ['journals'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
+  });
+  const post = useMutation({
+    mutationFn: (id: number) => api.postJournal(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['journals'] }),
+  });
+  const reverse = useMutation({
+    mutationFn: (id: number) => api.reverseJournal(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['journals'] }),
+  });
+  if (query.isLoading) return <LoadingState />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  return (
+    <PageShell
+      title="Journals"
+      subtitle="Manual vouchers. Posted lines are immutable — reverse with a contra entry."
+      actions={
+        <Button variant="contained" onClick={() => setOpen(true)}>
+          New voucher
+        </Button>
+      }
+    >
+      <DataTable
+        rows={asRows(query.data)}
+        empty="No journals yet."
+        columns={[
+          { key: 'number', label: 'Number' },
+          { key: 'entryDate', label: 'Date' },
+          { key: 'status', label: 'Status', status: true },
+          { key: 'narration', label: 'Narration' },
+        ]}
+        actions={(r) =>
+          r.status === 'DRAFT' ? (
+            <Button size="small" variant="contained" onClick={() => post.mutate(Number(r.id))}>
+              Post
+            </Button>
+          ) : r.status === 'POSTED' ? (
+            <Button size="small" color="warning" onClick={() => reverse.mutate(Number(r.id))}>
+              Reverse
+            </Button>
+          ) : null
+        }
+      />
+      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle>Journal voucher</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Narration" value={narration} onChange={(e) => setNarration(e.target.value)} fullWidth />
+            {lines.map((line, idx) => (
+              <Stack key={idx} direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                <TextField
+                  select
+                  label="Account"
+                  value={line.account}
+                  onChange={(e) => {
+                    const next = [...lines];
+                    next[idx] = { ...next[idx], account: e.target.value };
+                    setLines(next);
+                  }}
+                  sx={{ flex: 2 }}
+                >
+                  {(accounts.data ?? []).map((a) => (
+                    <MenuItem key={a.id} value={String(a.id)}>
+                      {a.code} — {a.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Debit"
+                  type="number"
+                  value={line.debit}
+                  onChange={(e) => {
+                    const next = [...lines];
+                    next[idx] = { ...next[idx], debit: e.target.value, credit: '' };
+                    setLines(next);
+                  }}
+                />
+                <TextField
+                  label="Credit"
+                  type="number"
+                  value={line.credit}
+                  onChange={(e) => {
+                    const next = [...lines];
+                    next[idx] = { ...next[idx], credit: e.target.value, debit: '' };
+                    setLines(next);
+                  }}
+                />
+              </Stack>
+            ))}
+            <Button size="small" onClick={() => setLines([...lines, { account: '', debit: '', credit: '' }])}>
+              Add line
+            </Button>
+            <Alert severity={totals.balanced ? 'success' : 'warning'}>
+              Debit {formatMoney(totals.debit)} · Credit {formatMoney(totals.credit)}
+              {totals.balanced ? ' · Balanced' : ' · Not balanced'}
+            </Alert>
+            {error ? <Alert severity="error">{error}</Alert> : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button variant="contained" disabled={!totals.balanced || create.isPending} onClick={() => create.mutate()}>
+            Save draft
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </PageShell>
+  );
+}

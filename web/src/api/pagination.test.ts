@@ -9,11 +9,30 @@ vi.mock('@/api/client', () => ({
 }));
 
 import { apiClient } from '@/api/client';
-import { fetchNextPage, listCustomers, listPage } from '@/api/resources';
+import { fetchNextPage, fetchPage, listCustomers, listPage } from '@/api/resources';
 
 describe('list pagination helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('fetchPage maps page/pageSize and returns full page result', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: {
+        results: [{ id: 1 }, { id: 2 }],
+        next: 'http://localhost/api/v1/customers/?page=3',
+        previous: 'http://localhost/api/v1/customers/?page=1',
+        count: 120,
+      },
+    });
+    const page = await fetchPage<{ id: number }>('/customers/', { page: 2, pageSize: 50, q: 'acme' });
+    expect(apiClient.get).toHaveBeenCalledWith('/customers/', {
+      params: { page: '2', page_size: '50', q: 'acme' },
+    });
+    expect(page.results).toHaveLength(2);
+    expect(page.count).toBe(120);
+    expect(page.next).toContain('page=3');
+    expect(page.previous).toContain('page=1');
   });
 
   it('listPage returns results and next cursor', async () => {
@@ -40,6 +59,13 @@ describe('list pagination helpers', () => {
     expect(apiClient.get).toHaveBeenCalledWith('/sales/invoices/?cursor=xyz');
     expect(page.results[0].id).toBe(3);
     expect(page.next).toBeNull();
+  });
+
+  it('BB-000222: fetchNextPage rejects unexpected next host', async () => {
+    await expect(
+      fetchNextPage('https://evil.example/api/v1/customers/?page=2'),
+    ).rejects.toThrow(/unexpected host/i);
+    expect(apiClient.get).not.toHaveBeenCalled();
   });
 
   it('BUG-521/606-609: listCustomers walks every page instead of returning only page 1', async () => {

@@ -13,7 +13,10 @@ export default defineConfig({
     baseURL: webBase,
     trace: 'on-first-retry',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'mobile', use: { ...devices['Pixel 5'] } },
+  ],
   webServer: process.env.E2E_SKIP_WEBSERVER
     ? undefined
     : {

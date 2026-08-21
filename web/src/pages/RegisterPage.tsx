@@ -7,26 +7,41 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useForm } from 'react-hook-form';
-import { Link as RouterLink, Navigate } from 'react-router-dom';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { Controller, useForm } from 'react-hook-form';
+import { Link as RouterLink, Navigate, useNavigate } from 'react-router-dom';
+import { z } from 'zod';
 import { getErrorMessage } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { StateSelect } from '@/components/StateSelect';
 import { t } from '@/i18n';
 
-interface RegisterForm {
-  companyName: string;
-  fullName: string;
-  email: string;
-  password: string;
-  phone: string;
-  state: string;
-}
+const registerSchema = z.object({
+  companyName: z.string().trim().min(1, 'Company name is required'),
+  fullName: z.string().trim().optional(),
+  email: z.string().trim().email('Enter a valid email'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  phone: z.string().trim().optional(),
+  // BB-000751: state drives GSTIN structure and place-of-supply on every
+  // invoice this company issues — it must not be silently skippable.
+  state: z.string().trim().min(1, 'State is required'),
+  gstin: z.string().trim().optional(),
+});
+
+type RegisterForm = z.infer<typeof registerSchema>;
 
 export function RegisterPage() {
   const { register: registerUser, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { register, handleSubmit } = useForm<RegisterForm>({
+  const {
+    register,
+    handleSubmit,
+    control,
+    formState: { errors },
+  } = useForm<RegisterForm>({
+    resolver: zodResolver(registerSchema),
     defaultValues: {
       companyName: '',
       fullName: '',
@@ -34,6 +49,7 @@ export function RegisterPage() {
       password: '',
       phone: '',
       state: '',
+      gstin: '',
     },
   });
 
@@ -43,7 +59,13 @@ export function RegisterPage() {
     setIsSubmitting(true);
     setError(null);
     try {
-      await registerUser(values);
+      const result = await registerUser(values);
+      navigate(
+        result === 'pending'
+          ? `/login?registered=1&email=${encodeURIComponent(values.email)}`
+          : '/',
+        { replace: true, state: { email: values.email } },
+      );
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -68,23 +90,63 @@ export function RegisterPage() {
           <TextField
             label={t('auth.companyName')}
             required
-            {...register('companyName', { required: true })}
+            error={Boolean(errors.companyName)}
+            helperText={errors.companyName?.message}
+            {...register('companyName')}
           />
-          <TextField label={t('auth.fullName')} {...register('fullName')} />
+          <TextField
+            label={`${t('auth.fullName')} (optional)`}
+            error={Boolean(errors.fullName)}
+            helperText={errors.fullName?.message}
+            {...register('fullName')}
+          />
           <TextField
             label={t('auth.email')}
             type="email"
             required
-            {...register('email', { required: true })}
+            error={Boolean(errors.email)}
+            helperText={errors.email?.message}
+            {...register('email')}
           />
           <TextField
             label={t('auth.password')}
             type="password"
             required
-            {...register('password', { required: true })}
+            error={Boolean(errors.password)}
+            helperText={errors.password?.message}
+            {...register('password')}
           />
-          <TextField label={t('auth.phone')} {...register('phone')} />
-          <TextField label={t('auth.state')} {...register('state')} />
+          <TextField
+            label={`${t('auth.phone')} (optional)`}
+            error={Boolean(errors.phone)}
+            helperText={errors.phone?.message}
+            {...register('phone')}
+          />
+          <Controller
+            name="state"
+            control={control}
+            render={({ field }) => (
+              <StateSelect
+                value={field.value}
+                onChange={field.onChange}
+                required
+              />
+            )}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
+            {t('auth.stateHelper')}
+          </Typography>
+          {errors.state ? (
+            <Typography variant="caption" color="error">
+              {errors.state.message}
+            </Typography>
+          ) : null}
+          <TextField
+            label={t('auth.gstinOptional')}
+            error={Boolean(errors.gstin)}
+            helperText={errors.gstin?.message ?? t('auth.gstinHelper')}
+            {...register('gstin')}
+          />
           <Button type="submit" variant="contained" disabled={isSubmitting}>
             {t('auth.register')}
           </Button>

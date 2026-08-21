@@ -24,6 +24,16 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Unhandled render error', error, info.componentStack);
+    // BB-000752: report to Sentry when available (dynamic import keeps bundle optional).
+    void import('@sentry/react')
+      .then((Sentry) => {
+        Sentry.captureException(error, {
+          extra: { componentStack: info.componentStack },
+        });
+      })
+      .catch(() => {
+        /* Sentry not installed / not configured */
+      });
   }
 
   render() {

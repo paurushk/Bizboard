@@ -6,9 +6,10 @@ from unittest.mock import patch
 
 import pytest
 from pypdf import PdfReader
+from reportlab.lib.units import mm
 
 from sales.models import SalesInvoice
-from sales.pdf import render_gst_tax_invoice
+from sales.pdf import render_gst_tax_invoice, render_thermal_receipt
 from sales.pdf.helpers import amount_in_words, tax_breakup_by_rate
 from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
 
@@ -18,6 +19,11 @@ pytestmark = pytest.mark.django_db
 def _pdf_text(content: bytes) -> str:
     reader = PdfReader(BytesIO(content))
     return "\n".join((page.extract_text() or "") for page in reader.pages)
+
+
+def _pdf_page_width_pt(content: bytes) -> float:
+    reader = PdfReader(BytesIO(content))
+    return float(reader.pages[0].mediabox.width)
 
 
 def _complete(tenant, *, product_kwargs=None, lines=None, customer_kwargs=None):
@@ -72,7 +78,7 @@ def test_tax_breakup_mixed_rates(tenant_a):
 
 
 def test_pdf_generated_after_complete(tenant_a):
-    tenant_a.company.gstin = "29ABCDE1234F1Z5"
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
     tenant_a.company.upi_id = "demo@upi"
     tenant_a.company.save(update_fields=["gstin", "upi_id"])
     data, _product = _complete(tenant_a)
@@ -209,7 +215,7 @@ def test_header_patch_preserves_line_snapshots(tenant_a):
 
 
 def test_pdf_duplicate_copy_stamp(tenant_a):
-    tenant_a.company.gstin = "29ABCDE1234F1Z5"
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
     tenant_a.company.save(update_fields=["gstin"])
     data, _ = _complete(tenant_a)
 
@@ -243,7 +249,7 @@ def test_pdf_line_snapshots_stable(tenant_a):
 
 
 def test_pdf_multipage_totals(tenant_a):
-    tenant_a.company.gstin = "29ABCDE1234F1Z5"
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
     tenant_a.company.save(update_fields=["gstin"])
     products = []
     for i in range(32):
@@ -293,7 +299,7 @@ def test_share_whatsapp_returns_link(tenant_a):
         "channel": "whatsapp",
     }, format="json")
     assert resp.status_code == 200
-    assert resp.data["status"] == "SENT"
+    assert resp.data["status"] == "LINK_READY"
     assert resp.data["share_link"].startswith("https://wa.me/")
 
 
@@ -340,7 +346,7 @@ def test_complete_survives_pdf_failure(mock_pdf, tenant_a):
 
 
 def test_retail_pdf_shows_tax_columns(tenant_a):
-    tenant_a.company.gstin = "29ABCDE1234F1Z5"
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
     tenant_a.company.save(update_fields=["gstin"])
     product = make_product(tenant_a.company, gst_rate="18", hsn_code="3004")
     add_stock(tenant_a, product, "10")
@@ -473,3 +479,63 @@ def test_pdf_totals_match_db_odd_paise_and_before_tax(tenant_a):
         assert format_money(invoice.grand_total) in text, (
             f"{case['id']}: PDF missing grand_total {invoice.grand_total}"
         )
+
+
+def test_thermal_receipt_pdf_width_and_content(tenant_a):
+    """Phase 2 — thermal receipt bytes non-empty and page width matches 80 vs 58 mm."""
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
+    tenant_a.company.upi_id = "shop@upi"
+    tenant_a.company.save(update_fields=["gstin", "upi_id"])
+    data, _ = _complete(tenant_a)
+    invoice = SalesInvoice.objects.select_related("company", "customer").prefetch_related(
+        "items__product"
+    ).get(pk=data["id"])
+
+    pdf_80 = render_thermal_receipt(invoice, width_mm=80)
+    pdf_58 = render_thermal_receipt(invoice, width_mm=58)
+
+    assert pdf_80.startswith(b"%PDF")
+    assert pdf_58.startswith(b"%PDF")
+    assert len(pdf_80) > 100
+    assert len(pdf_58) > 100
+
+    w80 = _pdf_page_width_pt(pdf_80)
+    w58 = _pdf_page_width_pt(pdf_58)
+    assert abs(w80 - 80 * mm) < 2
+    assert abs(w58 - 58 * mm) < 2
+    assert w80 > w58
+
+    text = _pdf_text(pdf_80)
+    assert tenant_a.company.name in text
+    assert tenant_a.company.gstin in text
+    assert invoice.number in text
+    assert "TOTAL" in text
+    assert "UPI" in text
+
+
+def test_thermal_pdf_endpoint_sync(tenant_a):
+    data, _ = _complete(tenant_a)
+
+    resp80 = tenant_a.client.get(f"/api/v1/sales/invoices/{data['id']}/thermal-pdf/")
+    assert resp80.status_code == 200
+    content80 = b"".join(resp80.streaming_content)
+    assert content80.startswith(b"%PDF")
+    assert abs(_pdf_page_width_pt(content80) - 80 * mm) < 2
+
+    resp58 = tenant_a.client.get(
+        f"/api/v1/sales/invoices/{data['id']}/thermal-pdf/",
+        {"width": "58"},
+    )
+    assert resp58.status_code == 200
+    content58 = b"".join(resp58.streaming_content)
+    assert abs(_pdf_page_width_pt(content58) - 58 * mm) < 2
+
+
+def test_thermal_pdf_rejects_draft(tenant_a):
+    product = make_product(tenant_a.company)
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "1", "unit_price": "100"},
+    ])
+    resp = tenant_a.client.get(f"/api/v1/sales/invoices/{inv['id']}/thermal-pdf/")
+    assert resp.status_code == 400

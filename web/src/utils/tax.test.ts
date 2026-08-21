@@ -1,7 +1,14 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { calculateInvoiceTotals, calculateLineTax, resolvePlaceOfSupply } from '@/utils/tax';
+import {
+  calculateInvoiceTotals,
+  calculateLineTax,
+  extractExclusiveFromInclusiveLine,
+  extractStateCode,
+  isIntraState,
+  resolvePlaceOfSupply,
+} from '@/utils/tax';
 
 /**
  * BUG-216/724: read the single canonical fixture shared with
@@ -15,12 +22,21 @@ const fixturePath = path.resolve(
 const cases: Array<{
   id: string;
   level?: string;
+  priceMode?: string;
   quantity: number;
   unitPrice: number;
+  unitPriceInclusive?: number;
   gstRate: number;
   intraState: boolean;
   discountPercent: number;
-  expected: { taxableAmount: number; cgst: number; sgst: number; igst: number; lineTotal: number };
+  expected: {
+    taxableAmount: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+    lineTotal: number;
+    exclusiveUnitPrice?: number;
+  };
 }> = JSON.parse(readFileSync(fixturePath, 'utf-8')).filter(
   (c: { level?: string }) => !c.level || c.level === 'line',
 );
@@ -28,12 +44,27 @@ const cases: Array<{
 describe('tax utils', () => {
   for (const c of cases) {
     it(`parity: ${c.id}`, () => {
+      let unitPrice = c.unitPrice;
+      let discountPercent = c.discountPercent;
+      if (c.priceMode === 'INCLUSIVE') {
+        const extracted = extractExclusiveFromInclusiveLine({
+          quantity: c.quantity,
+          unitPriceInclusive: c.unitPriceInclusive ?? c.unitPrice,
+          discountPercent: c.discountPercent,
+          gstRate: c.gstRate,
+        });
+        unitPrice = extracted.exclusiveUnitPrice;
+        discountPercent = 0;
+        if (c.expected.exclusiveUnitPrice != null) {
+          expect(extracted.exclusiveUnitPrice).toBe(c.expected.exclusiveUnitPrice);
+        }
+      }
       const line = calculateLineTax({
         quantity: c.quantity,
-        unitPrice: c.unitPrice,
+        unitPrice,
         gstRate: c.gstRate,
         intraState: c.intraState,
-        discountPercent: c.discountPercent,
+        discountPercent,
       });
       expect(line.taxableAmount).toBe(c.expected.taxableAmount);
       expect(line.cgst).toBe(c.expected.cgst);
@@ -57,8 +88,71 @@ describe('tax utils', () => {
 
   it('marks blank party place of supply as unknown', () => {
     expect(resolvePlaceOfSupply('Karnataka', '')).toBe('unknown');
-    expect(resolvePlaceOfSupply('29ABCDE1234F1Z5', '27AAAAA0000A1Z5')).toBe('inter');
-    expect(resolvePlaceOfSupply('29ABCDE1234F1Z5', '29BBBBB0000B1Z5')).toBe('intra');
+    expect(resolvePlaceOfSupply('29ABCDE1234F1ZW', '27AAAAA0000A1Z2')).toBe('inter');
+    expect(resolvePlaceOfSupply('29ABCDE1234F1ZW', '29BBBBB0000B1ZP')).toBe('intra');
+  });
+
+  it('BB-000232: blank company place of supply is unknown', () => {
+    expect(resolvePlaceOfSupply('', 'Karnataka')).toBe('unknown');
+    expect(resolvePlaceOfSupply(undefined, '29BBBBB0000B1ZP')).toBe('unknown');
+    expect(isIntraState('', 'Karnataka')).toBeNull();
+  });
+
+  it('BB-000033: blank party isIntraState is null, not intra', () => {
+    expect(isIntraState('Karnataka', '')).toBeNull();
+    expect(isIntraState('29ABCDE1234F1ZW', undefined)).toBeNull();
+    expect(isIntraState('29ABCDE1234F1ZW', '29BBBBB0000B1ZP')).toBe(true);
+    expect(isIntraState('29ABCDE1234F1ZW', '27AAAAA0000A1Z2')).toBe(false);
+  });
+
+  it('BB-000278: assumeLocalStateForBlankParty treats blank party as intra', () => {
+    expect(
+      isIntraState('Karnataka', '', { assumeLocalStateForBlankParty: true }),
+    ).toBe(true);
+    expect(
+      isIntraState('29ABCDE1234F1ZW', undefined, { assumeLocalStateForBlankParty: true }),
+    ).toBe(true);
+    // Still respects known inter-state when party is present.
+    expect(
+      isIntraState('29ABCDE1234F1ZW', '27AAAAA0000A1Z2', {
+        assumeLocalStateForBlankParty: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('BB-000320: extractStateCode maps Indian state names/abbreviations to codes', () => {
+    expect(extractStateCode('Karnataka')).toBe('29');
+    expect(extractStateCode('karnataka')).toBe('29');
+    expect(extractStateCode('  Karnataka  ')).toBe('29');
+    expect(extractStateCode('KA')).toBe('29');
+    expect(extractStateCode('Maharashtra')).toBe('27');
+    expect(extractStateCode('Tamil Nadu')).toBe('33');
+    expect(extractStateCode('29ABCDE1234F1ZW')).toBe('29');
+    expect(extractStateCode('Atlantis')).toBeNull();
+    expect(extractStateCode('')).toBeNull();
+    expect(extractStateCode(undefined)).toBeNull();
+  });
+
+  it('BB-000320: isIntraState matches BE for company GSTIN vs named party state', () => {
+    // Company GSTIN in Karnataka (29...) + party state name "Karnataka" → intra.
+    expect(isIntraState('29ABCDE1234F1ZW', 'Karnataka')).toBe(true);
+    // Party in a different named state → inter.
+    expect(isIntraState('29ABCDE1234F1ZW', 'Maharashtra')).toBe(false);
+  });
+
+  it('BB-000033: unknown POS yields zero tax (no CGST split)', () => {
+    const line = calculateLineTax({
+      quantity: 1,
+      unitPrice: 100,
+      gstRate: 18,
+      intraState: null,
+    });
+    expect(line.taxableAmount).toBe(100);
+    expect(line.cgst).toBe(0);
+    expect(line.sgst).toBe(0);
+    expect(line.igst).toBe(0);
+    expect(line.taxTotal).toBe(0);
+    expect(line.lineTotal).toBe(100);
   });
 });
 
@@ -103,5 +197,53 @@ describe('calculateInvoiceTotals', () => {
     });
     expect(totals.taxableTotal).toBe(100);
     expect(totals.grandTotal).toBe(168);
+  });
+
+  it('tax-inclusive extract from discounted line gross (Phase 2)', () => {
+    const { exclusiveUnitPrice, taxableAmount } = extractExclusiveFromInclusiveLine({
+      quantity: 2,
+      unitPriceInclusive: 118,
+      discountPercent: 0,
+      gstRate: 18,
+    });
+    expect(taxableAmount).toBe(200);
+    expect(exclusiveUnitPrice).toBe(100);
+  });
+
+  it('BB-000033: calculateInvoiceTotals with unknown POS shows zero tax', () => {
+    const line = {
+      ...calculateLineTax({ quantity: 1, unitPrice: 100, gstRate: 18, intraState: null }),
+      gstRate: 18,
+      intraState: null as boolean | null,
+    };
+    const totals = calculateInvoiceTotals([line], { applyRoundOff: false });
+    expect(totals.taxableTotal).toBe(100);
+    expect(totals.cgstTotal).toBe(0);
+    expect(totals.sgstTotal).toBe(0);
+    expect(totals.igstTotal).toBe(0);
+    expect(totals.taxTotal).toBe(0);
+    expect(totals.grandTotal).toBe(100);
+  });
+
+  it('BB-000518: AFTER_TAX discount reduces grand total without changing taxable', () => {
+    const line = calculateLineTax({ quantity: 1, unitPrice: 100, gstRate: 18 });
+    const totals = calculateInvoiceTotals([line], {
+      applyRoundOff: false,
+      invoiceDiscount: 10,
+      invoiceDiscountMode: 'AFTER_TAX',
+    });
+    expect(totals.taxableTotal).toBe(100);
+    expect(totals.grandTotal).toBe(108);
+  });
+
+  it('Wave 18: cess rolls into line and invoice totals', () => {
+    const line = calculateLineTax({ quantity: 1, unitPrice: 100, gstRate: 18, cessRate: 1, intraState: true });
+    expect(line.cess).toBe(1);
+    expect(line.lineTotal).toBe(119);
+    const totals = calculateInvoiceTotals([{ ...line, gstRate: 18, cessRate: 1, intraState: true }], {
+      applyRoundOff: false,
+    });
+    expect(totals.cessTotal).toBe(1);
+    expect(totals.grandTotal).toBe(119);
   });
 });

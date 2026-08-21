@@ -1,5 +1,18 @@
 from rest_framework.permissions import BasePermission
 
+from core.exceptions import CompanyContextConflict
+
+
+def _header_company_id(request) -> int | None:
+    """BB-000055: optional X-Company-Id — never trusted without membership check."""
+    raw = request.META.get("HTTP_X_COMPANY_ID") or request.headers.get("X-Company-Id")
+    if not raw:
+        return None
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+
 
 def get_company_user(request):
     """Resolve (and cache) the requesting user's active company membership."""
@@ -7,16 +20,30 @@ def get_company_user(request):
         return request._company_user
     company_user = None
     if request.user and request.user.is_authenticated:
-        # .order_by("id") makes resolution deterministic; a DB-level partial
-        # unique constraint (accounts migration 0006) additionally guarantees
-        # at most one active membership per user, so this should never
-        # actually need to pick among multiple rows (BUG-110/702).
-        company_user = (
-            request.user.company_memberships.filter(is_active=True)
-            .select_related("company")
-            .order_by("id")
-            .first()
-        )
+        user = request.user
+        qs = user.company_memberships.filter(is_active=True).select_related("company")
+        header_id = _header_company_id(request)
+        active_company_id = getattr(user, "active_company_id", None)
+        # BB-000658: header must match active_company or 409 (no silent override).
+        if header_id is not None and active_company_id and int(header_id) != int(active_company_id):
+            raise CompanyContextConflict()
+        if header_id is not None and (active_company_id is None or int(header_id) == int(active_company_id)):
+            company_user = qs.filter(company_id=header_id).order_by("id").first()
+            if company_user is not None:
+                request._company_user = company_user
+                return company_user
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("X-Company-Id is not a company you belong to.")
+        if active_company_id:
+            company_user = qs.filter(company_id=active_company_id).order_by("id").first()
+        if company_user is None:
+            memberships = list(qs.order_by("id")[:2])
+            if len(memberships) > 1:
+                raise CompanyContextConflict(
+                    detail="Select an active company; multiple memberships are available."
+                )
+            company_user = memberships[0] if memberships else None
     request._company_user = company_user
     return company_user
 
@@ -88,3 +115,149 @@ class CanExport(BasePermission):
     def has_permission(self, request, view):
         cu = get_company_user(request)
         return cu is not None and (cu.role == "OWNER" or cu.can_export)
+
+
+class CanCreateSales(BasePermission):
+    """Create / complete sales invoices (BB-000018)."""
+
+    message = "Sales create permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        return cu.role == "OWNER" or cu.can_create_sales
+
+
+class CanCreatePurchases(BasePermission):
+    """Create / complete purchase invoices (BB-000018)."""
+
+    message = "Purchases create permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        return cu.role == "OWNER" or cu.can_create_purchases
+
+
+class CanCreatePayments(BasePermission):
+    """Create receipts / supplier payments (BB-000018)."""
+
+    message = "Payments create permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        return cu.role == "OWNER" or cu.can_create_payments
+
+
+class CanViewSalesSurfaces(BasePermission):
+    """Sales list/retrieve/pdf surfaces — not VIEWER; create-sales, financial reports, or Owner (BB-000297)."""
+
+    message = "Sales view permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        return cu.role == "OWNER" or cu.can_create_sales or cu.can_view_financial_reports
+
+
+class CanViewPurchaseSurfaces(BasePermission):
+    """Purchase list/retrieve/pdf surfaces — not VIEWER; create-purchases, financial reports, or Owner (BB-000297)."""
+
+    message = "Purchases view permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        return cu.role == "OWNER" or cu.can_create_purchases or cu.can_view_financial_reports
+
+
+class CanViewPaymentSurfaces(BasePermission):
+    """Payment list/retrieve surfaces — not VIEWER (BB-000297 / BB-000691)."""
+
+    message = "Payments view permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        return cu.role == "OWNER" or cu.can_create_payments or cu.can_view_financial_reports
+
+
+class DenyViewerWrite(BasePermission):
+    """BB-000553: VIEWER cannot mutate ERP preview modules."""
+
+    message = "Viewers cannot modify this resource."
+
+    def has_permission(self, request, view):
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return True
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        return True
+
+
+class CanPostJournals(BasePermission):
+    """Post / reverse journals and mutate books masters (BB-000316/200/267)."""
+
+    message = "Journal posting permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        return cu.role == "OWNER" or cu.can_post_journals
+
+
+class CanViewInventorySurfaces(BasePermission):
+    """Stock balances / valuation — not VIEWER; inventory or financial capability (BB-000420)."""
+
+    message = "Inventory view permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        return (
+            cu.role == "OWNER"
+            or cu.can_manage_inventory
+            or cu.can_view_financial_reports
+        )
+
+
+class CanViewMastersCatalog(BasePermission):
+    """Party/product masters — deny VIEWER catalog browsing (BB-000422)."""
+
+    message = "Masters view permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        return True
+
+
+class CanManageFileAssets(BasePermission):
+    """File uploads / company PDF list — Owner or financial export roles (BB-000421)."""
+
+    message = "File access permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return (
+                cu.role == "OWNER"
+                or cu.can_view_financial_reports
+                or cu.can_export
+                or cu.can_create_sales
+                or cu.can_create_purchases
+            )
+        return cu.role == "OWNER" or cu.can_export or cu.can_create_sales or cu.can_create_purchases

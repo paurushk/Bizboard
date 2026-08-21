@@ -17,6 +17,7 @@ class _Doc:
     invoice_discount = Decimal("0")
     invoice_discount_mode = "AFTER_TAX"
     auto_round_off = True
+    price_mode = "EXCLUSIVE"
     subtotal = Decimal("0")
     discount_total = Decimal("0")
     taxable_total = Decimal("0")
@@ -28,9 +29,12 @@ class _Doc:
 
 
 class _Item:
-    def __init__(self, qty, price, discount_percent=0, gst_rate=18):
+    def __init__(self, qty, price, discount_percent=0, gst_rate=18, unit_price_inclusive=None):
         self.quantity = Decimal(str(qty))
         self.unit_price = Decimal(str(price))
+        self.unit_price_inclusive = (
+            Decimal(str(unit_price_inclusive)) if unit_price_inclusive is not None else None
+        )
         self.discount_percent = Decimal(str(discount_percent))
         self.gst_rate = Decimal(str(gst_rate))
         self.taxable_amount = Decimal("0")
@@ -109,11 +113,14 @@ def test_line_tax_matches_frontend_fixture(case):
     """BUG-216/724 — single canonical fixture shared with web/src/utils/tax.test.ts
     so FE/BE line-tax math can't silently drift apart."""
     doc = _Doc()
+    doc.price_mode = case.get("priceMode", "EXCLUSIVE")
+    inclusive = case.get("unitPriceInclusive")
     item = _Item(
         case["quantity"],
         case["unitPrice"],
         discount_percent=case["discountPercent"],
         gst_rate=case["gstRate"],
+        unit_price_inclusive=inclusive,
     )
     compute_document_totals(doc, [item], tax_enabled=True, intra_state=case["intraState"])
     expected = case["expected"]
@@ -122,6 +129,8 @@ def test_line_tax_matches_frontend_fixture(case):
     assert item.sgst == Decimal(str(expected["sgst"]))
     assert item.igst == Decimal(str(expected["igst"]))
     assert item.line_total == Decimal(str(expected["lineTotal"]))
+    if "exclusiveUnitPrice" in expected:
+        assert item.unit_price == Decimal(str(expected["exclusiveUnitPrice"]))
 
 
 @pytest.mark.parametrize("case", DOC_CASES, ids=[c["id"] for c in DOC_CASES])
@@ -132,12 +141,14 @@ def test_document_tax_parity_fixture(case):
     doc.invoice_discount = Decimal(str(case.get("invoiceDiscount", 0)))
     doc.invoice_discount_mode = case.get("invoiceDiscountMode", "AFTER_TAX")
     doc.auto_round_off = bool(case.get("autoRoundOff", True))
+    doc.price_mode = case.get("priceMode", "EXCLUSIVE")
     items = [
         _Item(
             line["quantity"],
             line["unitPrice"],
             discount_percent=line.get("discountPercent", 0),
             gst_rate=line["gstRate"],
+            unit_price_inclusive=line.get("unitPriceInclusive"),
         )
         for line in case["lines"]
     ]

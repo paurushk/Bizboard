@@ -51,6 +51,7 @@ class DocumentTotalsModel(CompanyScopedModel):
     cgst_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     sgst_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     igst_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    cess_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     round_off = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0"))
     grand_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
 
@@ -59,8 +60,17 @@ class DocumentTotalsModel(CompanyScopedModel):
 
 
 class DocumentLineModel(models.Model):
-    """Shared line-item fields for tax documents."""
+    """Shared line-item fields for tax documents.
 
+    company is denormalized from the parent document for tenant defense-in-depth
+    (BB-000017 / next-batch-8).
+    """
+
+    company = models.ForeignKey(
+        "accounts.Company",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
     description = models.CharField(max_length=255, blank=True)
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
     # BUG-211: previously unvalidated — a negative unit_price or a
@@ -82,6 +92,10 @@ class DocumentLineModel(models.Model):
     cgst = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     sgst = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     igst = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    cess_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    # TAX-12: specific (per-unit) cess; when > 0 overrides percentage cess_rate.
+    cess_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    cess = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     line_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
 
     class Meta:
@@ -89,19 +103,31 @@ class DocumentLineModel(models.Model):
 
 
 class DocumentSeries(models.Model):
-    """Independent number sequences per document type (Document Number Service)."""
+    """Independent number sequences per document type (Document Number Service).
+
+    BB-000646 / ADR-A25: unique per company + doc_type + GSTIN + FY.
+    Empty gstin_key/fy_label is the legacy company-wide series.
+    """
 
     company = models.ForeignKey("accounts.Company", on_delete=models.CASCADE, related_name="document_series")
     doc_type = models.CharField(max_length=32)
     prefix = models.CharField(max_length=16)
     next_number = models.PositiveIntegerField(default=1)
     padding = models.PositiveSmallIntegerField(default=5)
+    gstin_key = models.CharField(max_length=15, blank=True, default="")
+    fy_label = models.CharField(max_length=8, blank=True, default="")
 
     class Meta:
-        unique_together = [("company", "doc_type")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "doc_type", "gstin_key", "fy_label"],
+                name="uniq_document_series_gstin_fy",
+            )
+        ]
 
     def __str__(self):
-        return f"{self.company_id}:{self.doc_type}"
+        extra = f":{self.gstin_key}:{self.fy_label}" if (self.gstin_key or self.fy_label) else ""
+        return f"{self.company_id}:{self.doc_type}{extra}"
 
 
 class AuditEvent(models.Model):
@@ -134,7 +160,12 @@ class AuditEvent(models.Model):
 
 
 def file_upload_path(instance, filename):
-    return f"company_{instance.company_id}/{instance.kind.lower()}/{filename}"
+    import os
+    import uuid
+
+    ext = os.path.splitext(filename or "")[1][:16]
+    safe_ext = ext if ext.startswith(".") else ""
+    return f"company_{instance.company_id}/{instance.kind.lower()}/{uuid.uuid4().hex}{safe_ext}"
 
 
 class FileAsset(CompanyScopedModel):
@@ -143,6 +174,9 @@ class FileAsset(CompanyScopedModel):
     class Kind(models.TextChoices):
         LOGO = "LOGO"
         INVOICE_PDF = "INVOICE_PDF"
+        CREDIT_NOTE_PDF = "CREDIT_NOTE_PDF"
+        DEBIT_NOTE_PDF = "DEBIT_NOTE_PDF"
+        CHALLAN_PDF = "CHALLAN_PDF"
         ATTACHMENT = "ATTACHMENT"
         IMPORT = "IMPORT"
         EXPORT = "EXPORT"
@@ -169,6 +203,8 @@ class Notification(CompanyScopedModel):
     class Status(models.TextChoices):
         QUEUED = "QUEUED"
         SENT = "SENT"
+        # BB-000282: WhatsApp share-link ready (not a delivered send).
+        LINK_READY = "LINK_READY"
         FAILED = "FAILED"
 
     channel = models.CharField(max_length=16, choices=Channel.choices)
@@ -181,3 +217,105 @@ class Notification(CompanyScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class MoneyFieldAudit(CompanyScopedModel):
+    """Wave 16B: append-only money field change log (BB-000522)."""
+
+    entity_type = models.CharField(max_length=64)
+    entity_id = models.PositiveBigIntegerField()
+    field = models.CharField(max_length=64)
+    old_value = models.CharField(max_length=64, blank=True)
+    new_value = models.CharField(max_length=64, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["company", "entity_type", "entity_id"], name="money_audit_entity_idx"),
+        ]
+
+
+def log_money_change(*, company, entity_type, entity_id, field, old_value, new_value, user=None):
+    if str(old_value) == str(new_value):
+        return None
+    return MoneyFieldAudit.objects.create(
+        company=company,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        field=field,
+        old_value=str(old_value)[:64],
+        new_value=str(new_value)[:64],
+        user=user,
+        created_by=user,
+        updated_by=user,
+    )
+
+
+class StatutoryDocumentEvent(models.Model):
+    """BB-000177: append-only statutory lifecycle log (complete / amend / cancel)."""
+
+    class EventType(models.TextChoices):
+        COMPLETE = "COMPLETE"
+        AMEND = "AMEND"
+        CANCEL = "CANCEL"
+        IRN = "IRN"
+        EWAY = "EWAY"
+
+    company = models.ForeignKey(
+        "accounts.Company", on_delete=models.CASCADE, related_name="statutory_events"
+    )
+    entity_type = models.CharField(max_length=64)
+    entity_id = models.PositiveBigIntegerField()
+    event_type = models.CharField(max_length=16, choices=EventType.choices)
+    payload = models.JSONField(default=dict, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["company", "entity_type", "entity_id"], name="stat_evt_entity_idx"),
+        ]
+
+
+class IdempotencyRecord(CompanyScopedModel):
+    """BB-000610: durable Idempotency-Key store (survives cache flush / multi-worker)."""
+
+    scope = models.CharField(max_length=64)
+    key = models.CharField(max_length=128)
+    status_code = models.PositiveSmallIntegerField(default=200)
+    body = models.JSONField(default=dict, blank=True)
+    resource_id = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "scope", "key"],
+                name="uniq_idempotency_company_scope_key",
+            ),
+        ]
+
+
+def log_statutory_event(
+    *,
+    company,
+    entity_type: str,
+    entity_id: int,
+    event_type: str,
+    payload: dict | None = None,
+    user=None,
+):
+    """Record a statutory document lifecycle event."""
+    return StatutoryDocumentEvent.objects.create(
+        company=company,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        event_type=event_type,
+        payload=payload or {},
+        user=user,
+    )

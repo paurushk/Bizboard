@@ -1,3 +1,4 @@
+import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -7,6 +8,7 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { listLowStock } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -24,17 +26,18 @@ export function LowStockPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.data?.length === 0 ? <EmptyState description="No low-stock alerts" /> : null}
+      {query.data?.length === 0 ? <EmptyState description="All items are well stocked above reorder levels." /> : null}
       {query.data && query.data.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Product</TableCell>
-                <TableCell>SKU</TableCell>
+                <TableCell>{t('common.name')}</TableCell>
+                <TableCell>{t('common.sku')}</TableCell>
                 <TableCell align="right">Available</TableCell>
-                <TableCell align="right">Reorder</TableCell>
-                <TableCell>Alert</TableCell>
+                <TableCell align="right">Reorder Level</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell align="right">{t('common.actions')}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -42,10 +45,22 @@ export function LowStockPage() {
                 <TableRow key={s.product}>
                   <TableCell>{s.productName}</TableCell>
                   <TableCell>{s.sku}</TableCell>
-                  <TableCell align="right">{toNumber(s.available)}</TableCell>
+                  <TableCell align="right" sx={{ color: 'error.main', fontWeight: 600 }}>
+                    {toNumber(s.available)}
+                  </TableCell>
                   <TableCell align="right">{toNumber(s.reorderLevel)}</TableCell>
                   <TableCell>
                     <StatusChip tone="warning" label="Below reorder" />
+                  </TableCell>
+                  <TableCell align="right">
+                    <Button
+                      component={RouterLink}
+                      to={`/purchases/new?productId=${s.product}`}
+                      size="small"
+                      variant="outlined"
+                    >
+                      {t('billing.reorderItem')}
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}

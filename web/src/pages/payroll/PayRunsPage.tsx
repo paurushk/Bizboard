@@ -1,0 +1,248 @@
+import { Fragment, useState } from 'react';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import Collapse from '@mui/material/Collapse';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableHead from '@mui/material/TableHead';
+import TableRow from '@mui/material/TableRow';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { getErrorMessage } from '@/api/client';
+import {
+  completePayRun,
+  createPayRun,
+  listPayRunsPage,
+  updatePayRun,
+  type PayRun,
+} from '@/api/payroll';
+import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { StatusChip } from '@/components/StatusChip';
+import { t } from '@/i18n';
+import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
+import { formatMoney } from '@/utils/money';
+import { documentStatusTone, statusLabelKey } from '@/utils/status';
+
+const PAGE_SIZE = 50;
+
+function currentPeriod(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export function PayRunsPage() {
+  return (
+    <ModuleGate module="payroll" title={t('nav.payRuns')}>
+      <PayRunsPageInner />
+    </ModuleGate>
+  );
+}
+
+function PayRunsPageInner() {
+  const qc = useQueryClient();
+  const [page, setPage] = useState(1);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<PayRun | null>(null);
+  const [period, setPeriod] = useState(currentPeriod());
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const query = useQuery({
+    queryKey: ['pay-runs', page],
+    queryFn: () => listPayRunsPage({ page, pageSize: PAGE_SIZE }),
+  });
+
+  const rows = query.data?.results ?? [];
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (editing) return updatePayRun(editing.id, { period });
+      return createPayRun({ period });
+    },
+    onSuccess: () => {
+      setOpen(false);
+      setEditing(null);
+      setPeriod(currentPeriod());
+      void qc.invalidateQueries({ queryKey: ['pay-runs'] });
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const completeMutation = useMutation({
+    mutationFn: (id: number) => completePayRun(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['pay-runs'] }),
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const openCreate = () => {
+    setEditing(null);
+    setPeriod(currentPeriod());
+    setOpen(true);
+  };
+
+  const openEdit = (run: PayRun) => {
+    if (run.status !== 'DRAFT') return;
+    setEditing(run);
+    setPeriod(run.period);
+    setOpen(true);
+  };
+
+  return (
+    <Stack spacing={2}>
+      <MvpModuleBanner module="payroll" />
+      <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Typography variant="h4">{t('nav.payRuns')}</Typography>
+        <Button variant="contained" onClick={openCreate}>
+          {t('common.add')}
+        </Button>
+      </Stack>
+      {error ? <Alert severity="error">{error}</Alert> : null}
+      {query.isLoading ? <LoadingState /> : null}
+      {query.isError ? (
+        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+      ) : null}
+      {rows.length === 0 && !query.isLoading && !query.isError ? (
+        <EmptyState description={t('empty.payRuns')} />
+      ) : null}
+      {rows.length > 0 ? (
+        <Paper sx={{ overflow: 'auto' }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>{t('erp.period')}</TableCell>
+                <TableCell>{t('common.status')}</TableCell>
+                <TableCell>{t('erp.slips')}</TableCell>
+                <TableCell align="right">{t('common.actions')}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((run) => (
+                <Fragment key={run.id}>
+                  <TableRow>
+                    <TableCell>{run.period}</TableCell>
+                    <TableCell>
+                      <StatusChip
+                        tone={documentStatusTone(run.status)}
+                        labelKey={statusLabelKey(run.status)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Button size="small" onClick={() => setExpandedId(expandedId === run.id ? null : run.id)}>
+                        {run.slips?.length ?? 0}
+                      </Button>
+                    </TableCell>
+                    <TableCell align="right">
+                      {run.status === 'DRAFT' ? (
+                        <>
+                          <Button size="small" onClick={() => openEdit(run)}>
+                            {t('common.edit')}
+                          </Button>
+                          <Button
+                            size="small"
+                            disabled={completeMutation.isPending}
+                            onClick={() => completeMutation.mutate(run.id)}
+                          >
+                            {t('common.complete')}
+                          </Button>
+                        </>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell colSpan={4} sx={{ py: 0, border: 0 }}>
+                      <Collapse in={expandedId === run.id} unmountOnExit>
+                        {run.slips?.length ? (
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>{t('nav.employees')}</TableCell>
+                                <TableCell align="right">{t('erp.gross')}</TableCell>
+                                <TableCell align="right">PF</TableCell>
+                                <TableCell align="right">ESI</TableCell>
+                                <TableCell align="right">PT</TableCell>
+                                <TableCell align="right">{t('erp.deductions')}</TableCell>
+                                <TableCell align="right">{t('erp.net')}</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {run.slips.map((s) => (
+                                <TableRow key={s.id}>
+                                  <TableCell>{s.employeeName}</TableCell>
+                                  <TableCell align="right">{formatMoney(s.gross)}</TableCell>
+                                  <TableCell align="right">{formatMoney(s.pfEmployee || '0')}</TableCell>
+                                  <TableCell align="right">{formatMoney(s.esiEmployee || '0')}</TableCell>
+                                  <TableCell align="right">{formatMoney(s.ptAmount || '0')}</TableCell>
+                                  <TableCell align="right">{formatMoney(s.deductions)}</TableCell>
+                                  <TableCell align="right">{formatMoney(s.net)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+                            {t('erp.slipsOnComplete')}
+                          </Typography>
+                        )}
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
+                </Fragment>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
+      ) : null}
+      {query.data && (query.data.next || page > 1) ? (
+        <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+          <Typography variant="body2" color="text.secondary">
+            {t('common.page')} {page}
+          </Typography>
+          <Button variant="outlined" size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            {t('common.previous')}
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            disabled={!query.data.next}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            {t('common.next')}
+          </Button>
+        </Stack>
+      ) : null}
+
+      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>{editing ? t('common.edit') : t('common.create')} pay run</DialogTitle>
+        <DialogContent>
+          <TextField
+            label={t('erp.period')}
+            placeholder="YYYY-MM"
+            required
+            fullWidth
+            sx={{ mt: 1 }}
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={!period || saveMutation.isPending}
+            onClick={() => saveMutation.mutate()}
+          >
+            {t('common.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Stack>
+  );
+}

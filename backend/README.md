@@ -112,6 +112,10 @@ docker compose up --build api worker
 
 The `api` service builds from this directory (`./backend`).
 
+**Media uploads (BB-000521):** PDFs and images are stored on the shared `media_data`
+volume without antivirus scanning in the default image. For production hardening,
+add a separate AV pipeline or an optional ClamAV sidecar — not included here.
+
 ## Celery worker (non-eager)
 
 ```bash

@@ -12,6 +12,11 @@ class CompanyScopedViewSet(viewsets.ModelViewSet):
     """
 
     permission_classes = [IsAuthenticated, HasCompany]
+
+    def get_permissions(self):
+        from billing.permissions import SubscriptionWritesAllowed
+
+        return [*super().get_permissions(), SubscriptionWritesAllowed()]
     audit_entity: str = ""
 
     @property
@@ -34,7 +39,8 @@ class CompanyScopedViewSet(viewsets.ModelViewSet):
         self._audit("CREATE", instance)
 
     def perform_update(self, serializer):
-        instance = serializer.save(updated_by=self.request.user)
+        # BB-000084: never allow company reassignment via mass assignment.
+        instance = serializer.save(updated_by=self.request.user, company=self.company)
         self._audit("UPDATE", instance)
 
     def perform_destroy(self, instance):

@@ -1,0 +1,61 @@
+BB-000318	Critical	P0	Sandbox payment provider allowed in production (test_mode blocked asymmetrically)
+BB-000319	Critical	P0	Credit/debit notes, returns, orders, challans mutate under HasCompany only (VIEWER can post GL/stock)
+BB-000320	Critical	P0	FE tax preview lacks state-name→code map (BE has it) — IGST vs CGST/SGST mismatch
+BB-000321	Critical	P0	FEFO multi-batch sale cancel restores full qty to first batch only
+BB-000322	Critical	P0	Purchase posts Dr 5100 expense while sales COGS credits Inventory 1400 — hybrid double-count
+BB-000323	Critical	P0	supplier_outstanding double-counts purchase return + auto CN (invoice-level fix incomplete)
+BB-000324	Critical	P0	E-invoice marks unregistered buyers as SupTyp B2B
+BB-000325	Critical	P0	Wave 10–11 Open==0 invalidated — residual Criticals remain after re-audit (meta)
+BB-000326	High	P0	Sales/purchase invoice update/destroy/list ungated beyond HasCompany
+BB-000327	High	P0	Invoice number-series PATCH open to any company member
+BB-000328	High	P0	Quotation convert and masters CRUD open to VIEWER
+BB-000329	High	P1	Accounting CoA/journals readable without CanViewFinancialReports
+BB-000330	High	P1	FixedAsset create lacks CanPostJournals
+BB-000331	High	P1	AI insights API grants via can_view_financial_reports (VIEWER default True)
+BB-000332	High	P1	OTP login impossible in production — enablement conflated with OTP_DEBUG_ECHO
+BB-000333	High	P1	filing_place_of_supply / e-Invoice Stcd can remain free-text state names
+BB-000334	High	P1	Filing-identity amend can desync POS vs tax components
+BB-000335	High	P1	Opening-balance invoices included in GSTR-1/3B builders
+BB-000336	High	P1	RCM purchase credit/debit notes — wrong GL + missing 3.1(d) netting
+BB-000337	High	P1	Purchase complete soft-warns on closed GST period while sales hard-blocks
+BB-000338	High	P1	Credit/debit note complete ignores GST/accounting period soft-close
+BB-000339	High	P1	Purchase CN/DN lacks outstanding / over-credit cap (sales CN has it)
+BB-000340	High	P1	Sales return serial_numbers never saved (_build_items dead branch)
+BB-000341	High	P1	Sales return stock restore ignores original batch
+BB-000342	High	P1	Delivery challan convert always creates NON_GST invoice
+BB-000343	High	P1	Challan stock issue and SO reservation ignore batch tracking
+BB-000344	High	P1	Accounting UI flag defaults ON — README claims off by default
+BB-000345	High	P1	CI pins constraints.txt but Docker/CD installs requirements without constraints
+BB-000346	High	P1	Tally preview commit trusts client-rewritten opening amounts
+BB-000347	High	P1	.env.example cannot boot as documented (DJANGO_ENV / Fernet / DEBUG mismatch)
+BB-000348	High	P1	fetchAllPages still powers returns/notes/quotations/journals pickers (throw at 50 pages)
+BB-000349	Medium	P1	Register still enumerates emails via access/user_id/company_id body shape
+BB-000350	Medium	P1	FE create-capability helpers treat undefined as allow (!== false)
+BB-000351	Medium	P1	Webhook over-capture silently clamps amount and marks link PAID
+BB-000352	Medium	P1	SANDBOX_WEBHOOK_SECRET production boot check is pass no-op
+BB-000353	Medium	P1	Refresh cookie endpoint CSRF-exempt with configurable SameSite (access JWT in body)
+BB-000354	Medium	P2	Shared global SANDBOX_WEBHOOK_SECRET across all tenants
+BB-000355	Medium	P2	VIEWER default can_view_financial_reports=True expands blast radius
+BB-000356	Medium	P2	Company-wide notification list leaks recipient/body to any member
+BB-000357	Medium	P2	Payment receipts/bank statements/search party PII readable without payment/financial caps
+BB-000358	Medium	P2	Anonymous health readiness discloses infra topology (db/cache/celery/queue)
+BB-000359	Medium	P2	Readiness ignores Celery beat; beat service has no healthcheck
+BB-000360	Medium	P2	Backend Sentry dead without package; FE Sentry blocked by CSP connect-src self
+BB-000361	Medium	P2	GSTR-1 CDNR skips invoice-value mismatch gate; AFTER_TAX still allowed on TAX/RETAIL
+BB-000362	Medium	P2	Inclusive invoices under-report discount_total; RCM flag clear leaves stale rcm_* memos
+BB-000363	Medium	P2	Journal number collisions across source types (JV-SALES_-id)
+BB-000364	Medium	P2	Auto return CNs omit source_item / invoice HSN snapshot; BooksHealth ignores accounting_enabled
+BB-000365	Medium	P2	GSTR B2CL inter-check uses tax-time party state not filing POS; place_of_supply_known accepts any text
+BB-000366	Medium	P2	Invite can still set invitee password; no password-change / logout-all API
+BB-000367	Medium	P2	Gateway credential PATCH merges empty strings wiping secrets
+BB-000368	Medium	P2	docker-compose env_file.required false; no prod overlay; CD pushes latest without provenance
+BB-000369	Medium	P2	AI tax-refusal regex bypassable; LLM path weakly tested for injection
+BB-000370	Medium	P1	Light e2e mock-only; seeds obsolete localStorage JWTs; golden path narrow
+BB-000371	Medium	P2	Accessibility residual on billing tables; mobile dense editors oversell responsive
+BB-000372	Medium	P2	Structured observability thin (no request-id/JSON logs/metrics); OpenAPI DESCRIPTION overclaims
+BB-000373	Medium	P2	Universal search unscoped throttle + expensive icontains; edge nginx no limit_req
+BB-000374	Low	P3	OTP generation uses random.randint not secrets
+BB-000375	Low	P3	Access JWT still XSS-exfiltratable in memory (15m); Redis TLS not documented
+BB-000376	Low	P3	Dependabot omits Docker base images; CodeQL shallow without build
+BB-000377	Low	P3	CELERY_TIMEZONE defaults UTC while Django TIME_ZONE Asia/Kolkata; round-off absorbed into Sales/Purchases
+BB-000378	Low	P3	E2E smoke seeds obsolete localStorage JWTs (test honesty)

@@ -29,7 +29,7 @@ export function UniversalSearch() {
 
   return (
     <Autocomplete<SearchResult>
-      sx={{ width: { xs: '100%', sm: 360 } }}
+      sx={{ width: { xs: '100%', sm: 360 }, minWidth: 0, maxWidth: '100%' }}
       options={options}
       loading={query.isFetching}
       filterOptions={(x) => x}
@@ -39,7 +39,7 @@ export function UniversalSearch() {
       onChange={(_, value) => {
         if (value) navigate(value.path);
       }}
-      noOptionsText={debounced.length < 2 ? t('common.universalSearch') : t('common.noResults')}
+      noOptionsText={debounced.length < 2 ? t('common.search') : t('common.noResults')}
       renderOption={(props, option) => (
         <li {...props} key={`${option.type}-${option.id}`}>
           <div>
@@ -57,7 +57,17 @@ export function UniversalSearch() {
         <TextField
           {...params}
           size="small"
-          placeholder={t('common.universalSearch')}
+          placeholder={t('common.search')}
+          inputProps={{
+            ...params.inputProps,
+            'aria-label': t('common.universalSearch'),
+          }}
+          sx={{
+            '& .MuiInputBase-input': {
+              // UXW2-017: keep placeholder readable on narrow headers
+              fontSize: { xs: '0.875rem', sm: '0.875rem' },
+            },
+          }}
           InputProps={{
             ...params.InputProps,
             endAdornment: (

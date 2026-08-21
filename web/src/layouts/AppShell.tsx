@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import MenuIcon from '@mui/icons-material/Menu';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -15,15 +15,32 @@ import ListItemText from '@mui/material/ListItemText';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { Outlet, NavLink, Link as RouterLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { UniversalSearch } from '@/components/UniversalSearch';
-import { t } from '@/i18n';
+import { CompanySwitcher } from '@/components/CompanySwitcher';
+import { LocaleSwitcher } from '@/components/LocaleSwitcher';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { getLocale, subscribeLocale, t } from '@/i18n';
 import { filterNav, type NavItem } from '@/navigation/menu';
 
 const DRAWER_WIDTH = 272;
+const MOBILE_BILLING_TIP_KEY = 'bizboard.dismiss.mobileBillingTip';
 
-function NavSection({ item }: { item: NavItem }) {
+/** Re-render shell copy when locale changes without a full reload (FE-18). */
+function useLocaleTick() {
+  const [, setTick] = useState(0);
+  useEffect(() => subscribeLocale(() => setTick((n) => n + 1)), []);
+  return getLocale();
+}
+
+function NavSection({
+  item,
+  onNavigate,
+}: {
+  item: NavItem;
+  onNavigate?: () => void;
+}) {
   const location = useLocation();
   const childActive = item.children?.some((c) => c.path && location.pathname.startsWith(c.path));
   const [open, setOpen] = useState(Boolean(childActive));
@@ -34,6 +51,7 @@ function NavSection({ item }: { item: NavItem }) {
         component={NavLink}
         to={item.path ?? '/'}
         selected={location.pathname === item.path}
+        onClick={onNavigate}
       >
         <ListItemText primary={t(item.labelKey)} />
       </ListItemButton>
@@ -42,11 +60,15 @@ function NavSection({ item }: { item: NavItem }) {
 
   return (
     <>
-      <ListItemButton onClick={() => setOpen((v) => !v)}>
+      <ListItemButton
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls={`nav-section-${item.id}`}
+      >
         <ListItemText primary={t(item.labelKey)} />
         {open ? <ExpandLess /> : <ExpandMore />}
       </ListItemButton>
-      <Collapse in={open} timeout="auto" unmountOnExit>
+      <Collapse in={open} timeout="auto" unmountOnExit id={`nav-section-${item.id}`}>
         <List component="div" disablePadding>
           {item.children.map((child) => (
             <ListItemButton
@@ -55,6 +77,7 @@ function NavSection({ item }: { item: NavItem }) {
               to={child.path ?? '/'}
               selected={location.pathname === child.path}
               sx={{ pl: 4 }}
+              onClick={onNavigate}
             >
               <ListItemText primary={t(child.labelKey)} />
             </ListItemButton>
@@ -66,9 +89,29 @@ function NavSection({ item }: { item: NavItem }) {
 }
 
 export function AppShell() {
+  useLocaleTick();
   const { user, logout, usingMockSession } = useAuth();
+  const { writesBlocked } = useSubscriptionGate();
+  const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [hideBillingTip, setHideBillingTip] = useState(
+    () => typeof window !== 'undefined' && localStorage.getItem(MOBILE_BILLING_TIP_KEY) === '1',
+  );
   const items = useMemo(() => filterNav(user), [user]);
+
+  // BB-000242: close mobile drawer after navigation.
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
+  const closeMobile = () => setMobileOpen(false);
+  const showBillingTip =
+    !hideBillingTip &&
+    (location.pathname === '/pos' ||
+      /\/(sales|purchases)\/(new|history\/\d+\/edit)/.test(location.pathname) ||
+      /\/(sales|purchases)\/(credit-notes|debit-notes|orders|delivery-challans)\/(new|\d+)/.test(
+        location.pathname,
+      ));
 
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -80,7 +123,7 @@ export function AppShell() {
       <Divider />
       <List sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
         {items.map((item) => (
-          <NavSection key={item.id} item={item} />
+          <NavSection key={item.id} item={item} onNavigate={closeMobile} />
         ))}
       </List>
       <Divider />
@@ -100,35 +143,60 @@ export function AppShell() {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      <Box
+        component="a"
+        href="#main-content"
+        sx={{
+          position: 'absolute',
+          left: -10000,
+          top: 8,
+          zIndex: (theme) => theme.zIndex.tooltip + 1,
+          bgcolor: 'background.paper',
+          color: 'text.primary',
+          px: 2,
+          py: 1,
+          borderRadius: 1,
+          boxShadow: 2,
+          textDecoration: 'none',
+          '&:focus': { left: 8 },
+        }}
+      >
+        Skip to content
+      </Box>
       <AppBar
         position="fixed"
         sx={{
           width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
           ml: { md: `${DRAWER_WIDTH}px` },
+          // UXW2-015: keep header chrome from intercepting clicks on form fields below.
+          overflow: 'hidden',
         }}
       >
-        <Toolbar sx={{ gap: 2, flexWrap: 'wrap' }}>
+        <Toolbar sx={{ gap: 1, minHeight: 64, flexWrap: 'nowrap' }}>
           <IconButton
             color="inherit"
             edge="start"
             sx={{ display: { md: 'none' } }}
             onClick={() => setMobileOpen(true)}
+            aria-label="Open navigation"
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" sx={{ flexGrow: { xs: 1, sm: 0 }, mr: { sm: 2 } }}>
+          <Typography variant="h6" sx={{ flexGrow: { xs: 1, sm: 0 }, mr: { sm: 2 }, flexShrink: 0 }}>
             {t('app.name')}
           </Typography>
-          <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: { xs: 'stretch', sm: 'center' } }}>
+          <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: { xs: 'stretch', sm: 'center' }, minWidth: 0 }}>
             <UniversalSearch />
           </Box>
+          <CompanySwitcher />
+          <LocaleSwitcher />
           <Typography variant="body2" sx={{ display: { xs: 'none', lg: 'block' } }}>
             {user?.email}
           </Typography>
         </Toolbar>
       </AppBar>
 
-      <Box component="nav" sx={{ width: { md: DRAWER_WIDTH }, flexShrink: { md: 0 } }}>
+      <Box component="nav" sx={{ width: { md: DRAWER_WIDTH }, flexShrink: { md: 0 } }} aria-label="Main">
         <Drawer
           variant="temporary"
           open={mobileOpen}
@@ -155,18 +223,47 @@ export function AppShell() {
 
       <Box
         component="main"
+        id="main-content"
+        tabIndex={-1}
         sx={{
           flexGrow: 1,
           width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
           p: { xs: 2, md: 3 },
           background:
             'linear-gradient(180deg, #E8F3F1 0%, #F3F6F5 140px, #F3F6F5 100%)',
+          outline: 'none',
         }}
       >
         <Toolbar />
+        <Box sx={{ minHeight: 8 }} aria-hidden />
         {usingMockSession ? (
           <Alert severity="info" sx={{ mb: 2 }}>
             {t('common.mockBanner')}
+          </Alert>
+        ) : null}
+        {writesBlocked ? (
+          <Alert
+            severity="error"
+            sx={{ mb: 2 }}
+            action={
+              <Button component={RouterLink} to="/settings/billing" color="inherit" size="small">
+                {t('nav.billing')}
+              </Button>
+            }
+          >
+            Subscription is suspended or the trial has ended. The workspace is read-only.
+          </Alert>
+        ) : null}
+        {showBillingTip ? (
+          <Alert
+            severity="info"
+            sx={{ mb: 2, display: { xs: 'flex', md: 'none' } }}
+            onClose={() => {
+              localStorage.setItem(MOBILE_BILLING_TIP_KEY, '1');
+              setHideBillingTip(true);
+            }}
+          >
+            {t('billing.mobileBillingTip')}
           </Alert>
         ) : null}
         <Outlet />

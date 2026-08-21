@@ -20,59 +20,77 @@ import { getErrorMessage } from '@/api/client';
 import {
   completeSalesReturn,
   createSalesReturn,
-  listSalesInvoices,
-  listSalesReturns,
+  getSalesInvoice,
+  listSalesInvoicesPage,
+  listSalesReturnsPage,
 } from '@/api/resources';
+import {
+  InvoiceReturnLineTable,
+  activeSourceLines,
+  invoiceItemsToSourceLines,
+  todayIso,
+  type InvoiceSourceLine,
+} from '@/components/billing';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
-import type { LineItem, SalesInvoice } from '@/types/domain';
-import { formatMoney, toNumber } from '@/utils/money';
+import type { SalesInvoice } from '@/types/domain';
+import { formatMoney } from '@/utils/money';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 
-function lineLabel(item: LineItem): string {
-  const name = item.productName ?? item.description ?? `Product #${item.product}`;
-  return `${name} — sold ${toNumber(item.quantity)}`;
-}
+const PAGE_SIZE = 50;
 
 export function SalesReturnsPage() {
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['sales-returns'], queryFn: listSalesReturns });
+  const [page] = useState(1);
+  const query = useQuery({
+    queryKey: ['sales-returns', page],
+    queryFn: () => listSalesReturnsPage({ page, pageSize: PAGE_SIZE }),
+  });
   const invoices = useQuery({
     queryKey: ['completed-sales'],
-    queryFn: () => listSalesInvoices({ status: 'COMPLETED' }),
+    queryFn: async () => {
+      const res = await listSalesInvoicesPage({ status: 'COMPLETED', pageSize: PAGE_SIZE });
+      return res.results;
+    },
   });
+
+  const returns = query.data?.results ?? [];
 
   const [open, setOpen] = useState(false);
   const [invoice, setInvoice] = useState<SalesInvoice | null>(null);
-  // BUG-531: previously always returned invoice.items[0] — the invoice's
-  // first line — with no way to pick a different one for a multi-item sale.
-  const [item, setItem] = useState<LineItem | null>(null);
-  const [qty, setQty] = useState('1');
+  const [lines, setLines] = useState<InvoiceSourceLine[]>([]);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const maxQty = item ? toNumber(item.quantity) : 1;
+  const onInvoicePick = async (inv: SalesInvoice | null) => {
+    setInvoice(inv);
+    if (!inv) {
+      setLines([]);
+      return;
+    }
+    const full = inv.items?.length ? inv : await getSalesInvoice(inv.id);
+    setInvoice(full);
+    setLines(invoiceItemsToSourceLines(full.items));
+  };
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!invoice || !item) throw new Error('Select an invoice line to return');
-      // BUG-532: clamp to what was actually sold on this line.
-      const quantity = Math.min(Math.max(1, Math.floor(Number(qty)) || 1), maxQty);
+      if (!invoice) throw new Error(t('phase1.selectInvoice'));
+      const selected = activeSourceLines(lines);
+      if (selected.length === 0) throw new Error(t('phase1.selectInvoiceLines'));
       const draft = await createSalesReturn({
         customer: invoice.customer,
         salesInvoice: invoice.id,
-        returnDate: new Date().toISOString().slice(0, 10),
+        returnDate: todayIso(),
         reason,
-        items: [
-          {
-            product: item.product,
-            quantity,
-            unitPrice: toNumber(item.unitPrice),
-            gstRate: toNumber(item.gstRate),
-          },
-        ],
+        items: selected.map((l) => ({
+          product: l.product,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          gstRate: l.gstRate,
+        })),
       });
       return completeSalesReturn(draft.id);
     },
@@ -80,8 +98,7 @@ export function SalesReturnsPage() {
       setOpen(false);
       setMessage('Sales return completed');
       setInvoice(null);
-      setItem(null);
-      setQty('1');
+      setLines([]);
       setReason('');
       void qc.invalidateQueries({ queryKey: ['sales-returns'] });
     },
@@ -92,8 +109,14 @@ export function SalesReturnsPage() {
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.salesReturns')}</Typography>
-        <Button variant="contained" onClick={() => setOpen(true)}>
-          {t('common.create')}
+        <Button
+          variant="contained"
+          onClick={() => {
+            setError(null);
+            setOpen(true);
+          }}
+        >
+          {t('phase1.newSalesReturn')}
         </Button>
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
@@ -102,8 +125,8 @@ export function SalesReturnsPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.data?.length === 0 ? <EmptyState /> : null}
-      {query.data && query.data.length > 0 ? (
+      {returns.length === 0 && query.isSuccess ? <EmptyState /> : null}
+      {returns.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
@@ -116,7 +139,7 @@ export function SalesReturnsPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {query.data.map((r) => (
+              {returns.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>{r.number ?? r.id}</TableCell>
                   <TableCell>{r.returnDate}</TableCell>
@@ -135,40 +158,26 @@ export function SalesReturnsPage() {
         </Paper>
       ) : null}
 
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="md">
         <DialogTitle>New sales return</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            {/* Same-family fix as UXW2B-011/UXW2B-010: surface mutation errors inside
+                the modal itself — a page-level Alert behind the Dialog is invisible. */}
+            {error ? <Alert severity="error">{error}</Alert> : null}
+            {invoice && lines.length > 0 && activeSourceLines(lines).length === 0 ? (
+              <Alert severity="warning">Select at least one item to return.</Alert>
+            ) : null}
             <Autocomplete
               options={invoices.data ?? []}
               getOptionLabel={(o) => `${o.number ?? o.id} · ${o.customerName ?? ''}`}
               value={invoice}
-              onChange={(_, v) => {
-                setInvoice(v);
-                setItem(null);
-              }}
+              onChange={(_, v) => void onInvoicePick(v)}
               renderInput={(params) => <TextField {...params} label="Original invoice" />}
             />
-            <Autocomplete
-              options={invoice?.items ?? []}
-              getOptionLabel={lineLabel}
-              value={item}
-              onChange={(_, v) => {
-                setItem(v);
-                setQty('1');
-              }}
-              disabled={!invoice}
-              renderInput={(params) => <TextField {...params} label="Item to return" />}
-            />
-            <TextField
-              type="number"
-              label={t('billing.qty')}
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              disabled={!item}
-              inputProps={{ min: 1, max: maxQty }}
-              helperText={item ? `Up to ${maxQty} (quantity sold on this line)` : undefined}
-            />
+            {lines.length > 0 ? (
+              <InvoiceReturnLineTable lines={lines} onChange={setLines} />
+            ) : null}
             <TextField
               label={t('common.reason')}
               value={reason}
@@ -180,7 +189,7 @@ export function SalesReturnsPage() {
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={!invoice || !item || createMutation.isPending}
+            disabled={!invoice || activeSourceLines(lines).length === 0 || createMutation.isPending}
             onClick={() => createMutation.mutate()}
           >
             {t('common.complete')}

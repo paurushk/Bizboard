@@ -22,14 +22,16 @@ import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   convertQuotation,
+  convertQuotationToOrder,
   createQuotation,
   listCustomers,
-  listProducts,
-  listQuotations,
+  listQuotationsPage,
   listSalesInvoicesPage,
 } from '@/api/resources';
+import { todayIso } from '@/components/billing';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
 import type { Customer, Product } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
@@ -43,19 +45,25 @@ interface DraftLine {
 
 const emptyForm = { customer: null as Customer | null, lines: [] as DraftLine[] };
 
+const PAGE_SIZE = 50;
+
 export function QuotationsPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const query = useQuery({ queryKey: ['quotations'], queryFn: listQuotations });
+  const [page] = useState(1);
+  const query = useQuery({
+    queryKey: ['quotations', page],
+    queryFn: () => listQuotationsPage({ page, pageSize: PAGE_SIZE }),
+  });
   const customers = useQuery({ queryKey: ['customers'], queryFn: () => listCustomers() });
-  const products = useQuery({ queryKey: ['products'], queryFn: () => listProducts() });
+  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
+  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct });
 
   const [open, setOpen] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(emptyForm.customer);
   // BUG-523: quotations were hardcoded to exactly one line item — this is
   // now a real multi-line list, matching how invoices/purchases work.
   const [lines, setLines] = useState<DraftLine[]>(emptyForm.lines);
-  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
   const [pendingQty, setPendingQty] = useState('1');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -65,6 +73,7 @@ export function QuotationsPage() {
     setLines([]);
     setPendingProduct(null);
     setPendingQty('1');
+    productSearch.setProductQuery('');
   };
 
   const addLine = () => {
@@ -81,7 +90,7 @@ export function QuotationsPage() {
       if (lines.length === 0) throw new Error('Add at least one product');
       return createQuotation({
         customer: customer?.id,
-        quotationDate: new Date().toISOString().slice(0, 10),
+        quotationDate: todayIso(),
         invoiceType: 'GST',
         items: lines.map((l) => ({
           product: l.product.id,
@@ -127,12 +136,30 @@ export function QuotationsPage() {
     },
   });
 
+  const convertToOrderMutation = useMutation({
+    mutationFn: (id: number) => convertQuotationToOrder(id),
+    onSuccess: async (order) => {
+      const flash = `Converted to draft sales order #${order.id}`;
+      setMessage(flash);
+      setConvertingId(null);
+      void qc.invalidateQueries({ queryKey: ['quotations'] });
+      void qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      void navigate('/sales/orders', { state: { message: flash } });
+    },
+    onError: (err) => {
+      setConvertingId(null);
+      setError(getErrorMessage(err));
+    },
+  });
+
+  const quotations = query.data?.results ?? [];
+
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.quotations')}</Typography>
         <Button variant="contained" onClick={() => setOpen(true)}>
-          {t('common.create')}
+          {t('phase1.newQuotation')}
         </Button>
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
@@ -141,8 +168,8 @@ export function QuotationsPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.data?.length === 0 ? <EmptyState description={t('empty.invoices')} /> : null}
-      {query.data && query.data.length > 0 ? (
+      {quotations.length === 0 && query.isSuccess ? <EmptyState description={t('empty.quotations')} /> : null}
+      {quotations.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
@@ -156,7 +183,7 @@ export function QuotationsPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {query.data.map((q) => (
+              {quotations.map((q) => (
                 <TableRow key={q.id}>
                   <TableCell>{q.number ?? '—'}</TableCell>
                   <TableCell>{q.quotationDate}</TableCell>
@@ -170,18 +197,35 @@ export function QuotationsPage() {
                   <TableCell align="right">{formatMoney(q.grandTotal)}</TableCell>
                   <TableCell align="right">
                     {q.status === 'DRAFT' ? (
-                      <Button
-                        size="small"
-                        disabled={convertMutation.isPending && convertingId === q.id}
-                        onClick={() => {
-                          // BUG-525: without this guard, a rapid double-click
-                          // could fire the conversion twice.
-                          setConvertingId(q.id);
-                          convertMutation.mutate(q.id);
-                        }}
-                      >
-                        {t('common.convert')}
-                      </Button>
+                      <Stack direction="row" spacing={1} justifyContent="flex-end">
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={
+                            (convertMutation.isPending || convertToOrderMutation.isPending) &&
+                            convertingId === q.id
+                          }
+                          onClick={() => {
+                            setConvertingId(q.id);
+                            convertToOrderMutation.mutate(q.id);
+                          }}
+                        >
+                          To Order
+                        </Button>
+                        <Button
+                          size="small"
+                          disabled={
+                            (convertMutation.isPending || convertToOrderMutation.isPending) &&
+                            convertingId === q.id
+                          }
+                          onClick={() => {
+                            setConvertingId(q.id);
+                            convertMutation.mutate(q.id);
+                          }}
+                        >
+                          {t('common.convert')}
+                        </Button>
+                      </Stack>
                     ) : null}
                   </TableCell>
                 </TableRow>
@@ -247,11 +291,23 @@ export function QuotationsPage() {
             <Stack direction="row" spacing={1} alignItems="center">
               <Autocomplete
                 sx={{ flex: 1 }}
-                options={(products.data ?? []).filter((p) => p.status === 'ACTIVE')}
+                options={productSearch.options}
+                loading={productSearch.isFetching}
+                filterOptions={(opts) => opts}
+                inputValue={productSearch.productQuery}
+                onInputChange={(_, v, reason) => {
+                  if (reason === 'input' || reason === 'clear') productSearch.setProductQuery(v);
+                }}
                 getOptionLabel={(o) => `${o.name} · ${o.sku}`}
                 value={pendingProduct}
                 onChange={(_, v) => setPendingProduct(v)}
-                renderInput={(params) => <TextField {...params} label={t('nav.products')} />}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label={t('nav.products')}
+                    helperText={productSearch.helperText}
+                  />
+                )}
               />
               <TextField
                 type="number"

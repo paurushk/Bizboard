@@ -1,0 +1,118 @@
+"""BB-000372 / BB-000443 / BB-000478: request-id + JSON access log with duration + hashed IDs."""
+
+import hashlib
+import json
+import logging
+import re
+import time
+import uuid
+
+from django.conf import settings
+
+logger = logging.getLogger("bizboard.request")
+
+_DOC_NUMBER_RE = re.compile(
+    r"(?<=/)(?:INV|SI|PI|CN|DN|PR|SR|PO|SO|DC|RCP|PMT)-\d[\w-]*(?=/|$)",
+    re.I,
+)
+_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.I,
+)
+
+
+def _hash_id(value) -> str:
+    if value is None:
+        return ""
+    return hashlib.sha256(str(value).encode()).hexdigest()[:12]
+
+
+def _redact_path(path: str) -> str:
+    """BB-000587: drop document numbers / UUIDs from access logs."""
+    redacted = _DOC_NUMBER_RE.sub(":doc", path)
+    return _UUID_RE.sub(":id", redacted)
+
+
+class RequestIdMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.request_id = rid
+        started = time.monotonic()
+        try:
+            from core.views import bump_request_count
+
+            bump_request_count()
+        except Exception:  # noqa: BLE001 — metrics must not break requests
+            pass
+        response = self.get_response(request)
+        response["X-Request-ID"] = rid
+        if getattr(settings, "JSON_REQUEST_LOGS", True):
+            user_id_h = ""
+            company_id_h = ""
+            user = getattr(request, "user", None)
+            if user is not None and getattr(user, "is_authenticated", False):
+                user_id_h = _hash_id(user.pk)
+                try:
+                    from core.permissions import get_company_user
+
+                    cu = get_company_user(request)
+                    if cu is not None:
+                        company_id_h = _hash_id(cu.company_id)
+                except Exception:  # noqa: BLE001 — logging must not break requests
+                    pass
+            duration_ms = int((time.monotonic() - started) * 1000)
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "request",
+                        "request_id": rid,
+                        "method": request.method,
+                        "path": _redact_path(request.path),
+                        "status": response.status_code,
+                        "duration_ms": duration_ms,
+                        "user_id": user_id_h,
+                        "company_id": company_id_h,
+                    },
+                    separators=(",", ":"),
+                )
+            )
+        return response
+
+
+class PostgresRlsMiddleware:
+    """SET SESSION app.company_id when POSTGRES_RLS_ENABLED (Postgres only).
+
+    Authenticates Cookie JWT before resolving company so RLS is not skipped
+    for DRF cookie/bearer sessions (BB-000604).
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if getattr(settings, "POSTGRES_RLS_ENABLED", False):
+            if not getattr(getattr(request, "user", None), "is_authenticated", False):
+                try:
+                    from core.authentication import CookieJWTAuthentication
+
+                    result = CookieJWTAuthentication().authenticate(request)
+                    if result is not None:
+                        request.user, request.auth = result
+                except Exception:  # noqa: BLE001 — unauthenticated requests continue
+                    pass
+            company_id = None
+            try:
+                from core.permissions import get_company_user
+
+                cu = get_company_user(request)
+                if cu is not None:
+                    company_id = cu.company_id
+            except Exception:  # noqa: BLE001
+                company_id = None
+            from core.rls import set_rls_company
+
+            set_rls_company(company_id)
+        return self.get_response(request)

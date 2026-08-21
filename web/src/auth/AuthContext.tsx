@@ -7,23 +7,30 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
 import * as authApi from '@/api/auth';
+import { shouldUseMocks, silentRefreshAccessToken } from '@/api/client';
+import { fetchFeatureFlags } from '@/config/featureFlags';
 import {
   clearSession,
   getAccessToken,
   getStoredUser,
-  hasSession,
+  setAccessToken,
   setStoredUser,
-  setTokens,
 } from '@/auth/session';
+import { clearAllDrafts } from '@/offline/invoiceDraftCache';
+import { clearBizboardPwaCaches } from '@/pwaCaches';
 import type { User } from '@/types/domain';
 
 interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
+  /** False until boot /auth/me settles (or no session to restore). */
+  authReady: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithOtp: (phone: string, code: string) => Promise<void>;
-  register: (payload: authApi.RegisterPayload) => Promise<void>;
+  register: (payload: authApi.RegisterPayload) => Promise<'session' | 'pending'>;
   logout: () => Promise<void>;
   usingMockSession: boolean;
 }
@@ -31,22 +38,27 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => getStoredUser());
+  // BB-000228 / BB-000266: access is memory-only — always boot via cookie refresh.
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [usingMockSession, setUsingMockSession] = useState(false);
 
-  const applySession = useCallback((nextUser: User, tokens: { access: string; refresh: string }) => {
-    setTokens(tokens);
+  const applySession = useCallback((nextUser: User, access: string) => {
+    setAccessToken(access);
+    // BB-000030: localStorage keeps display fields only; live ACL from this User.
     setStoredUser(nextUser);
     setUser(nextUser);
     setUsingMockSession(
-      tokens.access.startsWith('mock') || tokens.access.startsWith('dev'),
+      shouldUseMocks() || access.startsWith('mock') || access.startsWith('dev'),
     );
+    setAuthReady(true);
   }, []);
 
   const login = useCallback(
     async (email: string, password: string) => {
       const result = await authApi.login({ email, password });
-      applySession(result.user, result.tokens);
+      applySession(result.user, result.tokens.access);
+      await fetchFeatureFlags(true);
     },
     [applySession],
   );
@@ -54,7 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithOtp = useCallback(
     async (phone: string, code: string) => {
       const result = await authApi.verifyOtp(phone, code);
-      applySession(result.user, result.tokens);
+      applySession(result.user, result.tokens.access);
+      await fetchFeatureFlags(true);
     },
     [applySession],
   );
@@ -62,43 +75,153 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = useCallback(
     async (payload: authApi.RegisterPayload) => {
       const result = await authApi.register(payload);
-      applySession(result.user, result.tokens);
+      if (result.kind === 'pending') {
+        return 'pending';
+      }
+      applySession(result.user, result.tokens.access);
+      return 'session';
     },
     [applySession],
   );
 
   const logout = useCallback(async () => {
+    const companyId = user?.companyId;
+    const userId = user?.id;
     await authApi.logout();
+    if (companyId && userId) {
+      try {
+        await clearAllDrafts(companyId, userId);
+      } catch {
+        // best-effort wipe
+      }
+    }
+    await clearBizboardPwaCaches();
     clearSession();
     setUser(null);
     setUsingMockSession(false);
-  }, []);
+    setAuthReady(true);
+  }, [user]);
 
-  // BUG-407: force the app into a logged-out state as soon as a refresh
-  // definitively fails, instead of leaving stale `user` state rendered
-  // while every subsequent request silently 401s.
-  // ProtectedRoute redirects to /login when user is cleared on session-expired.
+  // BUG-407: force logged-out state when refresh fails.
   useEffect(() => {
     const onSessionExpired = () => {
+      void clearBizboardPwaCaches();
       clearSession();
       setUser(null);
       setUsingMockSession(false);
+      setAuthReady(true);
     };
     window.addEventListener('bizboard:session-expired', onSessionExpired);
     return () => window.removeEventListener('bizboard:session-expired', onSessionExpired);
   }, []);
 
-  // BUG-408: logging out in one tab left other open tabs believing they
-  // were still authenticated until their next API call happened to 401.
+  // UXW2-002: proactive sliding refresh so long invoice forms do not dump to /login
+  // on the first Save after access JWT expiry. Also refresh on tab focus.
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key !== 'bizboard.access' && e.key !== 'bizboard.user') return;
-      if (!getAccessToken() || !getStoredUser()) {
+    if (!user || shouldUseMocks()) return;
+    const refreshQuietly = () => {
+      void silentRefreshAccessToken({ force: true, notifyOnFailure: false });
+    };
+    const intervalId = window.setInterval(refreshQuietly, 10 * 60 * 1000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refreshQuietly();
+    };
+    window.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', refreshQuietly);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', refreshQuietly);
+    };
+  }, [user]);
+
+  // BB-000266 / BB-000030: memory empty on load — silent-refresh, then /auth/me.
+  // Never hydrate role/capabilities from localStorage (display profile only).
+  useEffect(() => {
+    let cancelled = false;
+    setAuthReady(false);
+    (async () => {
+      try {
+        if (shouldUseMocks()) {
+          const stored = getStoredUser();
+          if (stored) {
+            setAccessToken('mock-access');
+            // Mocks: re-fetch mock me so capabilities are not taken from storage.
+            const me = await authApi.fetchCurrentUser();
+            if (cancelled) return;
+            setStoredUser(me);
+            setUser(me);
+            setUsingMockSession(true);
+          }
+          return;
+        }
+        // Drop any legacy full-user blob before me settles (no capability flash).
+        setStoredUser(getStoredUser());
+        // Do not notify on boot failure — anonymous visitors have no cookie.
+        const access = await silentRefreshAccessToken({ notifyOnFailure: false });
+        if (cancelled) return;
+        if (!access) {
+          clearSession();
+          setUser(null);
+          setUsingMockSession(false);
+          return;
+        }
+        const me = await authApi.fetchCurrentUser();
+        if (cancelled) return;
+        setStoredUser(me);
+        setUser(me);
+        setUsingMockSession(shouldUseMocks());
+        // UXW2-006: main.tsx's boot-time fetch races this silent refresh and can
+        // land before the access token is set, silently leaving flags null for an
+        // otherwise-authenticated session. Re-fetch now that auth is confirmed.
+        void fetchFeatureFlags(true).catch(() => {
+          // best-effort — a route that needs a flag will just see it as off
+        });
+      } catch {
+        if (cancelled) return;
+        clearSession();
         setUser(null);
         setUsingMockSession(false);
-      } else {
-        setUser(getStoredUser());
+      } finally {
+        if (!cancelled) setAuthReady(true);
       }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // BUG-408 / BB-000299: sync across tabs via stored user; re-fetch /auth/me.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== 'bizboard.user') return;
+      void (async () => {
+        if (!getStoredUser()) {
+          clearSession();
+          setUser(null);
+          setUsingMockSession(false);
+          return;
+        }
+        try {
+          if (!getAccessToken()) {
+            const access = await silentRefreshAccessToken();
+            if (!access) {
+              clearSession();
+              setUser(null);
+              setUsingMockSession(false);
+              return;
+            }
+          }
+          const me = await authApi.fetchCurrentUser();
+          setStoredUser(me);
+          setUser(me);
+          setUsingMockSession(shouldUseMocks());
+        } catch {
+          clearSession();
+          setUser(null);
+          setUsingMockSession(false);
+        }
+      })();
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
@@ -107,15 +230,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       user,
-      isAuthenticated: Boolean(user && hasSession()),
+      isAuthenticated: Boolean(user),
+      authReady,
       login,
       loginWithOtp,
       register,
       logout,
       usingMockSession,
     }),
-    [user, login, loginWithOtp, register, logout, usingMockSession],
+    [user, authReady, login, loginWithOtp, register, logout, usingMockSession],
   );
+
+  if (!authReady) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -20,56 +20,77 @@ import { getErrorMessage } from '@/api/client';
 import {
   completePurchaseReturn,
   createPurchaseReturn,
-  listPurchaseReturns,
-  listPurchases,
+  getPurchase,
+  listPurchaseReturnsPage,
+  listPurchasesPage,
 } from '@/api/resources';
+import {
+  InvoiceReturnLineTable,
+  activeSourceLines,
+  invoiceItemsToSourceLines,
+  todayIso,
+  type InvoiceSourceLine,
+} from '@/components/billing';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
-import type { LineItem, PurchaseInvoice } from '@/types/domain';
-import { formatMoney, toNumber } from '@/utils/money';
+import type { PurchaseInvoice } from '@/types/domain';
+import { formatMoney } from '@/utils/money';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 
-function lineLabel(item: LineItem): string {
-  const name = item.productName ?? item.description ?? `Product #${item.product}`;
-  return `${name} — purchased ${toNumber(item.quantity)}`;
-}
+const PAGE_SIZE = 50;
 
 export function PurchaseReturnsPage() {
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['purchase-returns'], queryFn: listPurchaseReturns });
-  const purchases = useQuery({ queryKey: ['purchases'], queryFn: () => listPurchases() });
+  const [page] = useState(1);
+  const query = useQuery({
+    queryKey: ['purchase-returns', page],
+    queryFn: () => listPurchaseReturnsPage({ page, pageSize: PAGE_SIZE }),
+  });
+  const purchases = useQuery({
+    queryKey: ['purchases'],
+    queryFn: async () => {
+      const res = await listPurchasesPage({ pageSize: PAGE_SIZE });
+      return res.results;
+    },
+  });
+
+  const returns = query.data?.results ?? [];
 
   const [open, setOpen] = useState(false);
   const [purchase, setPurchase] = useState<PurchaseInvoice | null>(null);
-  // BUG-531: previously always returned purchase.items[0] with no way to
-  // pick a different line for a multi-item purchase.
-  const [item, setItem] = useState<LineItem | null>(null);
-  const [qty, setQty] = useState('1');
+  const [lines, setLines] = useState<InvoiceSourceLine[]>([]);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const maxQty = item ? toNumber(item.quantity) : 1;
+  const onPurchasePick = async (pur: PurchaseInvoice | null) => {
+    setPurchase(pur);
+    if (!pur) {
+      setLines([]);
+      return;
+    }
+    const full = pur.items?.length ? pur : await getPurchase(pur.id);
+    setPurchase(full);
+    setLines(invoiceItemsToSourceLines(full.items));
+  };
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!purchase || !item) throw new Error('Select a purchase line to return');
-      // BUG-532: clamp to what was actually purchased on this line.
-      const quantity = Math.min(Math.max(1, Math.floor(Number(qty)) || 1), maxQty);
+      if (!purchase) throw new Error(t('phase1.selectPurchaseInvoice'));
+      const selected = activeSourceLines(lines);
+      if (selected.length === 0) throw new Error(t('phase1.selectInvoiceLines'));
       const draft = await createPurchaseReturn({
         supplier: purchase.supplier,
         purchaseInvoice: purchase.id,
-        returnDate: new Date().toISOString().slice(0, 10),
+        returnDate: todayIso(),
         reason,
-        items: [
-          {
-            product: item.product,
-            quantity,
-            unitPrice: toNumber(item.unitPrice),
-            gstRate: toNumber(item.gstRate),
-          },
-        ],
+        items: selected.map((l) => ({
+          product: l.product,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          gstRate: l.gstRate,
+        })),
       });
       return completePurchaseReturn(draft.id);
     },
@@ -77,8 +98,7 @@ export function PurchaseReturnsPage() {
       setOpen(false);
       setMessage('Purchase return completed');
       setPurchase(null);
-      setItem(null);
-      setQty('1');
+      setLines([]);
       setReason('');
       void qc.invalidateQueries({ queryKey: ['purchase-returns'] });
     },
@@ -92,7 +112,7 @@ export function PurchaseReturnsPage() {
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.purchaseReturns')}</Typography>
         <Button variant="contained" onClick={() => setOpen(true)}>
-          {t('common.create')}
+          {t('phase1.newPurchaseReturn')}
         </Button>
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
@@ -101,8 +121,8 @@ export function PurchaseReturnsPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.data?.length === 0 ? <EmptyState /> : null}
-      {query.data && query.data.length > 0 ? (
+      {returns.length === 0 && query.isSuccess ? <EmptyState /> : null}
+      {returns.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
@@ -115,7 +135,7 @@ export function PurchaseReturnsPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {query.data.map((r) => (
+              {returns.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>{r.number ?? r.id}</TableCell>
                   <TableCell>{r.returnDate}</TableCell>
@@ -134,7 +154,7 @@ export function PurchaseReturnsPage() {
         </Paper>
       ) : null}
 
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="md">
         <DialogTitle>New purchase return</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -142,32 +162,12 @@ export function PurchaseReturnsPage() {
               options={completed}
               getOptionLabel={(o) => `${o.number ?? o.id} · ${o.supplierName ?? ''}`}
               value={purchase}
-              onChange={(_, v) => {
-                setPurchase(v);
-                setItem(null);
-              }}
+              onChange={(_, v) => void onPurchasePick(v)}
               renderInput={(params) => <TextField {...params} label="Original purchase" />}
             />
-            <Autocomplete
-              options={purchase?.items ?? []}
-              getOptionLabel={lineLabel}
-              value={item}
-              onChange={(_, v) => {
-                setItem(v);
-                setQty('1');
-              }}
-              disabled={!purchase}
-              renderInput={(params) => <TextField {...params} label="Item to return" />}
-            />
-            <TextField
-              type="number"
-              label={t('billing.qty')}
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              disabled={!item}
-              inputProps={{ min: 1, max: maxQty }}
-              helperText={item ? `Up to ${maxQty} (quantity purchased on this line)` : undefined}
-            />
+            {lines.length > 0 ? (
+              <InvoiceReturnLineTable lines={lines} onChange={setLines} />
+            ) : null}
             <TextField
               label={t('common.reason')}
               value={reason}
@@ -179,7 +179,7 @@ export function PurchaseReturnsPage() {
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={!purchase || !item || createMutation.isPending}
+            disabled={!purchase || activeSourceLines(lines).length === 0 || createMutation.isPending}
             onClick={() => createMutation.mutate()}
           >
             {t('common.complete')}

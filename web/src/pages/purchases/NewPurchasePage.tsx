@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -16,19 +16,10 @@ import Link from '@mui/material/Link';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
-import KeyboardIcon from '@mui/icons-material/Keyboard';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
-import SettingsIcon from '@mui/icons-material/Settings';
 import Alert from '@mui/material/Alert';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
@@ -42,200 +33,79 @@ import {
   getCompany,
   getPurchase,
   getPurchaseNumberSeries,
-  listSuppliers,
+  getSupplier,
+  listSuppliersPage,
   listPurchasesPage,
+  listBatches,
+  listCostCenters,
   searchProducts,
+  listStock,
+  listWarehouses,
   updateCompany,
   updatePurchase,
+  updateSupplier,
   uploadFile,
 } from '@/api/resources';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, newIdempotencyKey } from '@/api/client';
+import { isValidGstin, isValidHsnSac } from '@/utils/gst';
 import { useAuth } from '@/auth/AuthContext';
+import {
+  clearPurchaseDraft,
+  loadPurchaseDraft,
+  OUTBOX_PLAINTEXT_WARNING,
+  OUTBOX_WARNING_DISMISS_KEY,
+  savePurchaseDraft,
+} from '@/offline/invoiceDraftCache';
+import { isRuntimeFlagEnabled } from '@/config/featureFlags';
+import { DocumentTaxSummary } from '@/components/DocumentTaxSummary';
+import { PartySelectPanel } from '@/components/PartySelectPanel';
+import { StateSelect } from '@/components/StateSelect';
 import { t } from '@/i18n';
-import type { PaymentMode, Product, PurchaseInvoice, PurchaseType, Supplier } from '@/types/domain';
+import type { PaymentMode, PriceMode, Product, PurchaseInvoice, PurchaseType } from '@/types/domain';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
+import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
 import { canImport } from '@/utils/permissions';
 import {
   addDaysIso,
   calculateInvoiceTotals,
   calculateLineTax,
+  extractExclusiveFromInclusiveLine,
   isIntraState,
   placeOfSupplyKnown,
   type InvoiceDiscountMode,
 } from '@/utils/tax';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+
 import {
+  CompactField,
+  DocumentEditorShell,
+  DraftLineTable,
+  formatSerialNumbersText,
+  makeLine as makeLineBase,
+  NumericField,
+  parseSerialNumbersText,
   primarySaveAction,
+  recomputeLine,
+  todayIso,
   useBillingSaveFeedback,
-} from '@/hooks/useBillingSaveFeedback';
+  useDebouncedValue,
+  type DraftLine,
+} from '@/components/billing';
 
-interface DraftLine {
-  key: string;
-  /** Persisted line id when editing an existing purchase (H9-A amend). */
-  lineId?: number;
-  product: number;
-  productName: string;
-  description: string;
-  sku: string;
-  hsnCode: string;
-  unitName: string;
-  batchNo: string;
-  expDate: string;
-  mfgDate: string;
-  mrp: number;
-  quantity: number;
-  unitPrice: number;
-  discountPercent: number;
-  discountAmount: number;
-  gstRate: number;
-  taxableAmount: number;
-  cgst: number;
-  sgst: number;
-  igst: number;
-  lineTotal: number;
-  gross: number;
-}
+const COL_PREFS_KEY = 'bizboard.billing.batchCols';
 
-const COL_PREFS_KEY = 'bizboard.purchase.columns.showBatch';
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function makeLine(product: Product, intraState: boolean, quantity = 1): DraftLine {
-  const tax = calculateLineTax({
-    quantity,
-    unitPrice: toNumber(product.purchasePrice),
-    gstRate: toNumber(product.gstRate),
-    intraState,
-  });
-  return {
-    key: `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    product: product.id,
-    productName: product.name,
-    description: '',
-    sku: product.sku,
-    hsnCode: product.hsnCode ?? '',
-    unitName: product.unitName ?? 'PCS',
-    batchNo: '',
-    expDate: '',
-    mfgDate: '',
-    mrp: toNumber(product.mrp),
-    quantity,
-    unitPrice: toNumber(product.purchasePrice),
-    gstRate: toNumber(product.gstRate),
-    ...tax,
-  };
-}
-
-function recomputeLine(
-  line: DraftLine,
-  intraState: boolean,
-  patch: Partial<DraftLine> = {},
+function makeLine(
+  product: Parameters<typeof makeLineBase>[0],
+  intraState: boolean | null,
+  quantity = 1,
 ): DraftLine {
-  const next = { ...line, ...patch };
-  const tax = calculateLineTax({
-    quantity: next.quantity,
-    unitPrice: next.unitPrice,
-    discountPercent: next.discountPercent,
-    gstRate: next.gstRate,
-    intraState,
-  });
-  return {
-    ...next,
-    ...tax,
-  };
-}
-
-function CompactField(props: ComponentProps<typeof TextField>) {
-  return <TextField size="small" variant="outlined" fullWidth {...props} />;
-}
-
-/** Text decimal field — avoids leading-zero glitch of controlled type="number". */
-function NumericField({
-  value,
-  onValueChange,
-  min = 0,
-  emptyAs = 0,
-  decimals,
-  fullWidth = false,
-  sx,
-  InputProps,
-  inputProps,
-  ...rest
-}: Omit<ComponentProps<typeof TextField>, 'value' | 'onChange' | 'type'> & {
-  value: number;
-  onValueChange: (n: number) => void;
-  min?: number;
-  emptyAs?: number;
-  decimals?: number;
-}) {
-  const [text, setText] = useState(() => formatNumericText(value, decimals));
-  const [focused, setFocused] = useState(false);
-
-  useEffect(() => {
-    if (!focused) setText(formatNumericText(value, decimals));
-  }, [value, focused, decimals]);
-
-  return (
-    <TextField
-      size="small"
-      variant="outlined"
-      fullWidth={fullWidth}
-      {...rest}
-      value={text}
-      onFocus={(e) => {
-        setFocused(true);
-        rest.onFocus?.(e);
-      }}
-      onBlur={(e) => {
-        setFocused(false);
-        const parsed = parseNumericText(text, { min, emptyAs, decimals });
-        setText(formatNumericText(parsed, decimals));
-        onValueChange(parsed);
-        rest.onBlur?.(e);
-      }}
-      onChange={(e) => {
-        const raw = e.target.value;
-        if (raw !== '' && !/^\d*\.?\d*$/.test(raw)) return;
-        setText(raw);
-        if (raw === '' || raw === '.') {
-          onValueChange(emptyAs);
-          return;
-        }
-        const n = Number(raw);
-        if (!Number.isFinite(n)) return;
-        onValueChange(Math.max(min, n));
-      }}
-      inputProps={{ inputMode: 'decimal', ...inputProps }}
-      InputProps={InputProps}
-      sx={sx}
-    />
-  );
-}
-
-function formatNumericText(value: number, decimals?: number): string {
-  if (!Number.isFinite(value)) return '';
-  if (value === 0) return '';
-  if (decimals != null) return String(roundMoney(value));
-  return String(value);
-}
-
-function parseNumericText(
-  text: string,
-  opts: { min: number; emptyAs: number; decimals?: number },
-): number {
-  const trimmed = text.trim();
-  if (trimmed === '' || trimmed === '.') return opts.emptyAs;
-  const n = Number(trimmed);
-  if (!Number.isFinite(n)) return opts.emptyAs;
-  const clamped = Math.max(opts.min, n);
-  return opts.decimals != null ? roundMoney(clamped) : clamped;
+  return makeLineBase(product, intraState, quantity, 'purchasePrice');
 }
 
 export function NewPurchasePage() {
   const { user } = useAuth();
   const isOwner = user?.role === 'OWNER';
+  const companyId = user?.companyId ?? 0;
+  const userId = user?.id ?? 0;
   const { id: editIdParam } = useParams();
   const editId = editIdParam ? Number(editIdParam) : null;
   const isEdit = Number.isFinite(editId) && (editId as number) > 0;
@@ -243,6 +113,20 @@ export function NewPurchasePage() {
   const qc = useQueryClient();
   const barcodeRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const skipAutosaveRef = useRef(false);
+  const [offline, setOffline] = useState(
+    typeof navigator !== 'undefined' ? !navigator.onLine : false,
+  );
+  const [pendingDraft, setPendingDraft] = useState<{
+    savedAt: string;
+    payload: Record<string, unknown>;
+  } | null>(null);
+  const [hasLocalDraft, setHasLocalDraft] = useState(false);
+  const [hideOutboxWarn, setHideOutboxWarn] = useState(
+    () =>
+      typeof localStorage !== 'undefined' &&
+      localStorage.getItem(OUTBOX_WARNING_DISMISS_KEY) === '1',
+  );
 
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [productQuery, setProductQuery] = useState('');
@@ -261,7 +145,14 @@ export function NewPurchasePage() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const [supplierId, setSupplierId] = useState<number | ''>('');
+  const [supplierQuery, setSupplierQuery] = useState('');
+  const debouncedSupplierQuery = useDebouncedValue(supplierQuery, 300);
+  const [warehouseId, setWarehouseId] = useState<number | ''>('');
+  const [costCenterId, setCostCenterId] = useState<number | ''>('');
   const [purchaseType, setPurchaseType] = useState<PurchaseType>('GST');
+  const [priceMode, setPriceMode] = useState<PriceMode>('EXCLUSIVE');
+  const [isReverseCharge, setIsReverseCharge] = useState(false);
+  const [itcEligibility, setItcEligibility] = useState<'CLAIMABLE' | 'INELIGIBLE' | 'REVERSED'>('CLAIMABLE');
   const [supplierBillNumber, setSupplierBillNumber] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(todayIso());
   const [paymentTermsDays, setPaymentTermsDays] = useState(30);
@@ -281,6 +172,10 @@ export function NewPurchasePage() {
   const [showTerms, setShowTerms] = useState(true);
   const [showBank, setShowBank] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [showTds, setShowTds] = useState(false);
+  const [tdsSection, setTdsSection] = useState('');
+  const [tdsRate, setTdsRate] = useState(0);
+  const [tdsAmount, setTdsAmount] = useState(0);
 
   const [additionalCharges, setAdditionalCharges] = useState(0);
   const [invoiceDiscount, setInvoiceDiscount] = useState(0);
@@ -300,7 +195,15 @@ export function NewPurchasePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [partyDialogOpen, setPartyDialogOpen] = useState(false);
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
-  const [partyForm, setPartyForm] = useState({ name: '', phone: '', gstin: '', state: '' });
+  const [itemDialogError, setItemDialogError] = useState<string | null>(null);
+  const [partyForm, setPartyForm] = useState<{
+    id?: number;
+    name: string;
+    phone: string;
+    gstin: string;
+    state: string;
+  }>({ name: '', phone: '', gstin: '', state: '' });
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [itemForm, setItemForm] = useState({
     name: '',
     sku: '',
@@ -313,7 +216,19 @@ export function NewPurchasePage() {
   const [signatureId, setSignatureId] = useState<number | null>(null);
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
+  const suppliers = useQuery({
+    queryKey: ['suppliers-search', debouncedSupplierQuery],
+    queryFn: () => listSuppliersPage({ q: debouncedSupplierQuery, pageSize: 50 }),
+    enabled: debouncedSupplierQuery.trim().length >= 2,
+  });
+  const selectedSupplierQuery = useQuery({
+    queryKey: ['supplier', supplierId],
+    queryFn: () => getSupplier(supplierId as number),
+    enabled: Boolean(supplierId),
+  });
+  const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
+  const costCenters = useQuery({ queryKey: ['cost-centers'], queryFn: listCostCenters });
+  const batches = useQuery({ queryKey: ['batches'], queryFn: () => listBatches() });
   const series = useQuery({
     queryKey: ['purchase-invoice-number-series'],
     queryFn: getPurchaseNumberSeries,
@@ -329,12 +244,85 @@ export function NewPurchasePage() {
     queryFn: () => searchProducts(debouncedProductQuery),
     enabled: debouncedProductQuery.length >= 1,
   });
+  const stockBalances = useQuery({
+    queryKey: ['stock'],
+    queryFn: listStock,
+    staleTime: 60_000,
+  });
+  const availableByProduct = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const s of stockBalances.data ?? []) {
+      const id = Number(s.product);
+      map.set(id, (map.get(id) ?? 0) + toNumber(s.available ?? s.onHand));
+    }
+    return map;
+  }, [stockBalances.data]);
 
   useEffect(() => {
     if (!series.data || isEdit) return;
     setPrefix(series.data.prefix);
     setNextNumber(series.data.nextNumber);
   }, [series.data, isEdit]);
+
+  useEffect(() => {
+    const onOnline = () => setOffline(false);
+    const onOffline = () => setOffline(true);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+
+  // FE-08: offer restore of local purchase draft on mount (new documents only).
+  useEffect(() => {
+    if (isEdit || !companyId || !userId) return;
+    void (async () => {
+      const draft = await loadPurchaseDraft(companyId, userId);
+      if (!draft?.payload) return;
+      const p = draft.payload;
+      const draftLines = (p.lines as DraftLine[] | undefined) ?? [];
+      if (!draftLines.length && !p.supplierId) return;
+      setPendingDraft({ savedAt: draft.savedAt, payload: p });
+      setHasLocalDraft(true);
+    })();
+  }, [isEdit, companyId, userId]);
+
+  // FE-08: autosave purchase editor draft (debounced).
+  useEffect(() => {
+    if (isEdit || !companyId || !userId || skipAutosaveRef.current) return;
+    if (!lines.length && !supplierId) return;
+    const timer = window.setTimeout(() => {
+      void savePurchaseDraft(companyId, userId, {
+        supplierId,
+        purchaseType,
+        priceMode,
+        invoiceDate,
+        supplierBillNumber,
+        notes,
+        lines,
+        additionalCharges,
+        invoiceDiscount,
+        invoiceDiscountMode,
+      }).then(() => setHasLocalDraft(true));
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [
+    isEdit,
+    companyId,
+    userId,
+    supplierId,
+    purchaseType,
+    priceMode,
+    invoiceDate,
+    supplierBillNumber,
+    notes,
+    lines,
+    additionalCharges,
+    invoiceDiscount,
+    invoiceDiscountMode,
+  ]);
 
   useEffect(() => {
     setLoadedEdit(false);
@@ -354,7 +342,12 @@ export function NewPurchasePage() {
     }
     setEditingStatus(inv.status);
     setSupplierId(inv.supplier);
+    setWarehouseId(inv.warehouse ?? '');
+    setCostCenterId(inv.costCenter ?? '');
     setPurchaseType(inv.purchaseType);
+    setPriceMode((inv.priceMode as PriceMode) || 'EXCLUSIVE');
+    setIsReverseCharge(!!inv.isReverseCharge);
+    setItcEligibility(inv.itcEligibility ?? 'CLAIMABLE');
     setSupplierBillNumber(inv.supplierBillNumber ?? '');
     setInvoiceDate(inv.invoiceDate);
     setPaymentTermsDays(inv.paymentTermsDays ?? 0);
@@ -369,6 +362,10 @@ export function NewPurchasePage() {
     setAdditionalCharges(toNumber(inv.additionalCharges));
     setInvoiceDiscount(toNumber(inv.invoiceDiscount));
     setInvoiceDiscountMode((inv.invoiceDiscountMode as InvoiceDiscountMode) || 'AFTER_TAX');
+    setTdsSection(inv.tdsSection ?? '');
+    setTdsRate(toNumber(inv.tdsRate));
+    setTdsAmount(toNumber(inv.tdsAmount));
+    setShowTds(Boolean(inv.tdsSection || toNumber(inv.tdsAmount)));
     setAutoRoundOff(inv.autoRoundOff ?? true);
     setSignatureId(inv.signature ?? null);
     if (inv.number?.trim()) {
@@ -385,21 +382,38 @@ export function NewPurchasePage() {
       }
     }
     const companyState = company.data?.gstin || company.data?.state || '';
+    const selected = selectedSupplierQuery.data;
     const partyState =
-      suppliers.data?.find((s) => s.id === inv.supplier)?.gstin
-      || suppliers.data?.find((s) => s.id === inv.supplier)?.state
-      || '';
+      (selected && selected.id === inv.supplier
+        ? selected.gstin || selected.state
+        : '') || '';
     const mapped: DraftLine[] = (inv.items ?? []).map((item, idx) => {
       const qty = toNumber(item.quantity);
-      const unitPrice = toNumber(item.unitPrice);
+      const inclusiveMode = (inv.priceMode as PriceMode) === 'INCLUSIVE';
+      const unitPrice = inclusiveMode
+        ? toNumber(item.unitPriceInclusive ?? item.unitPrice)
+        : toNumber(item.unitPrice);
       const discountPercent = toNumber(item.discountPercent);
       const gstRate = toNumber(item.gstRate);
+      const cessRate = toNumber(item.cessRate);
+      const effectiveUnit =
+        inclusiveMode && gstRate > 0
+          ? extractExclusiveFromInclusiveLine({
+              quantity: qty,
+              unitPriceInclusive: unitPrice,
+              discountPercent,
+              gstRate,
+            }).exclusiveUnitPrice
+          : unitPrice;
       const tax = calculateLineTax({
         quantity: qty,
-        unitPrice,
-        discountPercent,
+        unitPrice: effectiveUnit,
+        discountPercent: inclusiveMode ? 0 : discountPercent,
         gstRate,
-        intraState: isIntraState(companyState, partyState),
+        cessRate,
+        intraState: isIntraState(companyState, partyState, {
+          assumeLocalStateForBlankParty: !!company.data?.assumeLocalStateForBlankParty,
+        }),
       });
       return {
         key: `edit-${item.id ?? idx}-${item.product}`,
@@ -411,27 +425,48 @@ export function NewPurchasePage() {
         hsnCode: item.hsnCode ?? '',
         unitName: item.unitName ?? 'PCS',
         batchNo: item.batchNo ?? '',
+        batch: item.batch ?? null,
+        trackBatch: Boolean(
+          (products.data ?? []).find((p) => p.id === item.product)?.trackBatch ?? item.batch,
+        ),
+        trackSerial: Boolean(
+          (products.data ?? []).find((p) => p.id === item.product)?.trackSerial
+            ?? (item as { serialNumbers?: string[] }).serialNumbers?.length,
+        ),
+        serialNumbersText: formatSerialNumbersText((item as { serialNumbers?: string[] }).serialNumbers),
         expDate: item.expDate ?? '',
         mfgDate: item.mfgDate ?? '',
         mrp: toNumber(item.mrp),
         quantity: qty,
         unitPrice,
         gstRate,
+        cessRate,
         ...tax,
       };
     });
     setLines(mapped);
     setLoadedEdit(true);
-  }, [existingInvoice.data, loadedEdit, company.data?.gstin, company.data?.state, suppliers.data]);
+  }, [existingInvoice.data, loadedEdit, company.data?.gstin, company.data?.state, selectedSupplierQuery.data, products.data]);
 
   useEffect(() => {
-    if (company.data?.invoiceTerms && !termsText && !isEdit) {
-      setTermsText(company.data.invoiceTerms);
+    if (!isEdit && !warehouseId) {
+      const defaultWarehouse = warehouses.data?.find((warehouse) => warehouse.isDefault);
+      if (defaultWarehouse) setWarehouseId(defaultWarehouse.id);
     }
+  }, [isEdit, warehouseId, warehouses.data]);
+
+  useEffect(() => {
     if (company.data?.signature) {
       setSignatureId(company.data.signature);
     }
-  }, [company.data, termsText, isEdit]);
+  }, [company.data, isEdit]);
+
+  useEffect(() => {
+    if (isEdit || termsText) return;
+    setTermsText(
+      '1. Goods received are subject to inspection and approval.\n2. Payment as per agreed terms.\n3. All disputes are subject to local jurisdiction.',
+    );
+  }, [isEdit, termsText]);
 
   useEffect(() => {
     setDueDate(addDaysIso(invoiceDate, paymentTermsDays || 0));
@@ -445,24 +480,44 @@ export function NewPurchasePage() {
     }
   }, [showBatchCols]);
 
-  const selectedSupplier = (suppliers.data ?? []).find((c) => c.id === supplierId);
+  const selectedSupplier = selectedSupplierQuery.data ?? null;
   const intraState = isIntraState(
     company.data?.gstin || company.data?.state,
     selectedSupplier?.gstin || selectedSupplier?.state,
+    { assumeLocalStateForBlankParty: !!company.data?.assumeLocalStateForBlankParty },
   );
 
   const lineTaxes = useMemo(
     () =>
-      lines.map((l) =>
-        calculateLineTax({
+      lines.map((l) => {
+        const gstRate = purchaseType === 'NON_GST' ? 0 : l.gstRate;
+        let unitPrice = l.unitPrice;
+        if (priceMode === 'INCLUSIVE' && gstRate > 0) {
+          unitPrice = extractExclusiveFromInclusiveLine({
+            quantity: l.quantity,
+            unitPriceInclusive: l.unitPrice,
+            discountPercent: l.discountPercent,
+            gstRate,
+          }).exclusiveUnitPrice;
+          return calculateLineTax({
+            quantity: l.quantity,
+            unitPrice,
+            discountPercent: 0,
+            gstRate,
+            cessRate: purchaseType === 'NON_GST' ? 0 : l.cessRate ?? 0,
+            intraState,
+          });
+        }
+        return calculateLineTax({
           quantity: l.quantity,
-          unitPrice: l.unitPrice,
+          unitPrice,
           discountPercent: l.discountPercent,
-          gstRate: purchaseType === 'NON_GST' ? 0 : l.gstRate,
+          gstRate,
+          cessRate: purchaseType === 'NON_GST' ? 0 : l.cessRate ?? 0,
           intraState,
-        }),
-      ),
-    [lines, intraState, purchaseType],
+        });
+      }),
+    [lines, intraState, purchaseType, priceMode],
   );
 
   const totals = useMemo(
@@ -471,6 +526,7 @@ export function NewPurchasePage() {
         lineTaxes.map((l, i) => ({
           ...l,
           gstRate: purchaseType === 'NON_GST' ? 0 : lines[i]?.gstRate ?? 0,
+          cessRate: purchaseType === 'NON_GST' ? 0 : lines[i]?.cessRate ?? 0,
           intraState,
         })),
         {
@@ -483,6 +539,35 @@ export function NewPurchasePage() {
     [lineTaxes, lines, additionalCharges, invoiceDiscount, autoRoundOff, invoiceDiscountMode, intraState, purchaseType],
   );
 
+  const rcmPreview = useMemo(() => {
+    if (!isReverseCharge || purchaseType === 'NON_GST') return null;
+    const charges = roundMoney(additionalCharges);
+    const discount = roundMoney(invoiceDiscount);
+    const taxable = totals.taxableTotal;
+    const rawPayable =
+      invoiceDiscountMode === 'BEFORE_TAX'
+        ? roundMoney(taxable + charges)
+        : roundMoney(taxable + charges - discount);
+    const clamped = Math.max(0, rawPayable);
+    const payable = autoRoundOff ? Math.round(clamped) : roundMoney(clamped);
+    return {
+      rcmTaxable: totals.taxableTotal,
+      rcmTaxTotal: totals.taxTotal,
+      rcmCgst: totals.cgstTotal,
+      rcmSgst: totals.sgstTotal,
+      rcmIgst: totals.igstTotal,
+      payable,
+    };
+  }, [
+    isReverseCharge,
+    purchaseType,
+    totals,
+    additionalCharges,
+    invoiceDiscount,
+    invoiceDiscountMode,
+    autoRoundOff,
+  ]);
+
   // BUG-508/421: mirrors NewInvoicePage's posKnown gate — without it, a
   // purchase from a supplier with no state/GSTIN on file silently defaults
   // to intra-state CGST/SGST with no warning, risking incorrect ITC.
@@ -492,18 +577,26 @@ export function NewPurchasePage() {
     company.data?.assumeLocalStateForBlankParty ||
     placeOfSupplyKnown(selectedSupplier?.state, selectedSupplier?.gstin);
 
-  const balance = roundMoney(Math.max(0, totals.grandTotal - amountPaid));
+  const displayGrandTotal = rcmPreview?.payable ?? totals.grandTotal;
+
+  const balance = roundMoney(Math.max(0, displayGrandTotal - amountPaid));
 
   useEffect(() => {
-    if (markFullyPaid) setAmountPaid(totals.grandTotal);
-  }, [markFullyPaid, totals.grandTotal]);
+    if (markFullyPaid) setAmountPaid(displayGrandTotal);
+  }, [markFullyPaid, displayGrandTotal]);
 
   const resetForm = () => {
     // BUG-501 / P0-311: do NOT call clearFeedback here — Save & New sets the
     // success flash then resets fields in the same tick. See useBillingSaveFeedback.
+    setIdempotencyKey(null);
     setLines([]);
     setSupplierId('');
+    setWarehouseId(warehouses.data?.find((warehouse) => warehouse.isDefault)?.id ?? '');
+    setCostCenterId('');
     setPurchaseType('GST');
+    setPriceMode('EXCLUSIVE');
+    setIsReverseCharge(false);
+    setItcEligibility('CLAIMABLE');
     setSupplierBillNumber('');
     setInvoiceDate(todayIso());
     setPaymentTermsDays(30);
@@ -517,13 +610,41 @@ export function NewPurchasePage() {
     setAmountPaid(0);
     setMarkFullyPaid(false);
     setPaymentMode('CASH');
+    if (companyId && userId) {
+      void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
+    }
     void qc.invalidateQueries({ queryKey: ['purchase-invoice-number-series'] });
     barcodeRef.current?.focus();
   };
 
+  const applyPendingDraft = () => {
+    if (!pendingDraft) return;
+    const p = pendingDraft.payload;
+    skipAutosaveRef.current = true;
+    if (p.supplierId) setSupplierId(Number(p.supplierId));
+    if (p.purchaseType) setPurchaseType(p.purchaseType as PurchaseType);
+    if (p.priceMode) setPriceMode(p.priceMode as PriceMode);
+    if (typeof p.invoiceDate === 'string') setInvoiceDate(p.invoiceDate);
+    if (typeof p.supplierBillNumber === 'string') setSupplierBillNumber(p.supplierBillNumber);
+    if (typeof p.notes === 'string') setNotes(p.notes);
+    if (Array.isArray(p.lines)) setLines(p.lines as DraftLine[]);
+    if (typeof p.additionalCharges === 'number') setAdditionalCharges(p.additionalCharges);
+    if (typeof p.invoiceDiscount === 'number') setInvoiceDiscount(p.invoiceDiscount);
+    if (p.invoiceDiscountMode) setInvoiceDiscountMode(p.invoiceDiscountMode as InvoiceDiscountMode);
+    setPendingDraft(null);
+    window.setTimeout(() => {
+      skipAutosaveRef.current = false;
+    }, 800);
+  };
+
   const buildPayload = () => ({
     supplier: Number(supplierId),
+    warehouse: warehouseId ? Number(warehouseId) : undefined,
+    costCenter: costCenterId ? Number(costCenterId) : undefined,
     purchaseType,
+    priceMode,
+    isReverseCharge,
+    itcEligibility,
     invoiceDate,
     dueDate,
     paymentTermsDays,
@@ -538,17 +659,26 @@ export function NewPurchasePage() {
     includePaymentQr: showQr,
     includeTerms: showTerms,
     signature: signatureId,
+    ...(isRuntimeFlagEnabled('ENABLE_TDS')
+      ? { tdsSection, tdsRate, tdsAmount }
+      : {}),
     items: lines.map((l) => ({
       ...(l.lineId != null ? { id: l.lineId } : {}),
       product: l.product,
       description: l.description || l.productName,
       quantity: l.quantity,
-      unitPrice: l.unitPrice,
+      unitPrice: priceMode === 'INCLUSIVE' ? undefined : l.unitPrice,
+      unitPriceInclusive: priceMode === 'INCLUSIVE' ? l.unitPrice : undefined,
       discountPercent: l.discountPercent,
       gstRate: purchaseType === 'NON_GST' ? 0 : l.gstRate,
+      cessRate: purchaseType === 'NON_GST' ? 0 : l.cessRate ?? 0,
+      batch: l.batch ?? undefined,
       batchNo: l.batchNo || undefined,
       expDate: l.expDate || null,
       mfgDate: l.mfgDate || null,
+      ...(l.trackSerial && l.serialNumbersText?.trim()
+        ? { serialNumbers: parseSerialNumbersText(l.serialNumbersText) }
+        : {}),
     })),
   });
 
@@ -558,7 +688,14 @@ export function NewPurchasePage() {
       if (lines.length === 0) throw new Error('Add at least one item');
 
       const shouldComplete = mode === 'complete' || mode === 'complete_new';
+      if (shouldComplete && purchaseType !== 'NON_GST' && intraState === null) {
+        throw new Error(
+          'Supplier state or GSTIN is required for GST purchases. Update the supplier or enable assume-local in GST settings.',
+        );
+      }
       const payload = buildPayload();
+      const key = idempotencyKey ?? newIdempotencyKey();
+      setIdempotencyKey(key);
       let invoice: PurchaseInvoice;
       let completeWarning: string | null = null;
       if (isEdit && editId) {
@@ -585,7 +722,7 @@ export function NewPurchasePage() {
           }
         }
       } else {
-        invoice = await createPurchase(payload);
+        invoice = await createPurchase(payload, { idempotencyKey: key });
         if (shouldComplete) {
           try {
             invoice = await completePurchase(invoice.id);
@@ -624,6 +761,9 @@ export function NewPurchasePage() {
       flashWarning(paymentWarning ?? null);
       void qc.invalidateQueries({ queryKey: ['purchase-invoice-number-series'] });
       void qc.invalidateQueries({ queryKey: ['purchase-invoice', invoice.id] });
+      if (companyId && userId) {
+        void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
+      }
       const label = invoice.number?.trim() ? invoice.number : `Draft #${invoice.id}`;
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
@@ -633,9 +773,10 @@ export function NewPurchasePage() {
         return;
       }
 
+      const totalQty = lines.reduce((acc, l) => acc + (Number(l.quantity) || 0), 0);
       const flash =
         invoice.status === 'COMPLETED'
-          ? `Purchase ${label} saved`
+          ? `Purchase ${label} saved — ${totalQty} items added to stock`
           : `Draft ${label} saved${paymentWarning ? ` — complete failed: ${paymentWarning}` : ''}`;
 
       try {
@@ -660,19 +801,43 @@ export function NewPurchasePage() {
   });
 
   const partyMutation = useMutation({
-    mutationFn: () =>
-      createSupplier({
+    mutationFn: async () => {
+      const gstin = partyForm.gstin.trim().toUpperCase();
+      if (gstin) {
+        if (!isValidGstin(gstin)) throw new Error('Enter a valid 15-character GSTIN.');
+        const existing = await listSuppliersPage({ gstin, pageSize: 5 });
+        if (
+          existing.results.some(
+            (s) =>
+              (s.gstin ?? '').toUpperCase() === gstin &&
+              (!partyForm.id || s.id !== partyForm.id),
+          )
+        ) {
+          throw new Error('A supplier with this GSTIN already exists.');
+        }
+      }
+      if (partyForm.id) {
+        return updateSupplier(partyForm.id, {
+          name: partyForm.name.trim(),
+          phone: partyForm.phone,
+          gstin: gstin || partyForm.gstin,
+          state: partyForm.state,
+        });
+      }
+      return createSupplier({
         name: partyForm.name.trim(),
         phone: partyForm.phone,
-        gstin: partyForm.gstin,
+        gstin: gstin || partyForm.gstin,
         state: partyForm.state,
         isActive: true,
-      }),
+      });
+    },
     onSuccess: (c) => {
-      void qc.invalidateQueries({ queryKey: ['suppliers'] });
+      void qc.invalidateQueries({ queryKey: ['suppliers-search'] });
+      void qc.invalidateQueries({ queryKey: ['supplier', c.id] });
       setSupplierId(c.id);
       setPartyDialogOpen(false);
-      setPartyForm({ name: '', phone: '', gstin: '', state: '' });
+      setPartyForm({ id: undefined, name: '', phone: '', gstin: '', state: '' });
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -681,10 +846,12 @@ export function NewPurchasePage() {
     mutationFn: () =>
       createProduct({
         name: itemForm.name.trim(),
-        sku: itemForm.sku,
-        hsnCode: itemForm.hsnCode,
+        sku: itemForm.sku.trim(),
+        hsnCode: itemForm.hsnCode.trim(),
         purchasePrice: Number(itemForm.purchasePrice) || 0,
-        sellingPrice: Number(itemForm.purchasePrice) || 0,
+        // UXW2B-003: default selling price to MRP, not purchase price — mirroring
+        // purchase price silently created zero-margin items on every quick-add.
+        sellingPrice: Number(itemForm.mrp) || Number(itemForm.purchasePrice) || 0,
         mrp: Number(itemForm.mrp) || 0,
         gstRate: Number(itemForm.gstRate) || 0,
         reorderLevel: 0,
@@ -692,8 +859,10 @@ export function NewPurchasePage() {
       }),
     onSuccess: (p) => {
       void qc.invalidateQueries({ queryKey: ['products'] });
+      void qc.invalidateQueries({ queryKey: ['product-search'] });
       setLines((prev) => [...prev, makeLine(p, intraState)]);
       setItemDialogOpen(false);
+      setItemDialogError(null);
       setItemForm({
         name: '',
         sku: '',
@@ -703,7 +872,7 @@ export function NewPurchasePage() {
         gstRate: '18',
       });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => setItemDialogError(getErrorMessage(err)),
   });
 
   const addProduct = (product: Product | null) => {
@@ -781,7 +950,9 @@ export function NewPurchasePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [saveMutation.isPending, saveMutation.mutate]);
 
-  const activeSuppliers = (suppliers.data ?? []).filter((c) => c.isActive);
+  const activeSuppliers = (suppliers.data?.results ?? []).filter(
+    (c) => c.isActive !== false && (c as unknown as { is_active?: boolean }).is_active !== false,
+  );
   const canSave = lines.length > 0 && Boolean(supplierId) && !saveMutation.isPending;
   const canComplete = canSave && posKnown;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
@@ -802,151 +973,112 @@ export function NewPurchasePage() {
   };
 
   return (
-    <Stack spacing={2} sx={{ pb: 4 }}>
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        flexWrap="wrap"
-        gap={1}
-      >
-        <Typography variant="h4">
-          {isEdit ? t('billing.purchaseEditTitle') : t('billing.purchaseTitle')}
-        </Typography>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Tooltip title={t('billing.shortcuts')}>
-            <IconButton size="small" aria-label="shortcuts" onClick={() => setShortcutsOpen(true)}>
-              <KeyboardIcon />
-            </IconButton>
-          </Tooltip>
-          {canImport(user) ? (
-            <Button
-              component={RouterLink}
-              to="/purchases/bill-upload"
-              variant="outlined"
-              size="small"
-              color="warning"
-            >
-              {t('billing.uploadBill')}
-            </Button>
-          ) : null}
+    <DocumentEditorShell
+      title={isEdit ? t('billing.purchaseEditTitle') : t('billing.purchaseTitle')}
+      primarySave={primarySave}
+      canSave={canSave}
+      canComplete={canComplete}
+      primaryDisabledExtra={isCompletedEdit && !isOwner}
+      isEdit={isEdit}
+      showDraftButton={!isEdit || editingStatus === 'DRAFT'}
+      backTo={isEdit ? '/purchases/history' : null}
+      message={message}
+      error={error}
+      warning={
+        isEdit && editingStatus === 'COMPLETED' ? t('billing.editingCompletedWarning') : null
+      }
+      saving={saveMutation.isPending}
+      onPrimarySave={() => saveMutation.mutate(primarySave.mode)}
+      onSaveAndNew={() => saveMutation.mutate('complete_new')}
+      onDraft={() => saveMutation.mutate('draft')}
+      onOpenShortcuts={() => setShortcutsOpen(true)}
+      onOpenSettings={() => setSettingsOpen(true)}
+      extraActions={
+        canImport(user) ? (
           <Button
-            startIcon={<SettingsIcon />}
+            component={RouterLink}
+            to="/purchases/bill-upload"
             variant="outlined"
             size="small"
-            onClick={() => setSettingsOpen(true)}
+            color="warning"
           >
-            {t('billing.settings')}
+            {t('billing.uploadBill')}
           </Button>
-          <Button
-            variant="contained"
-            disabled={
-              primarySave.mode === 'save'
-                ? !canSave || (isCompletedEdit && !isOwner)
-                : !canComplete
-            }
-            onClick={() => saveMutation.mutate(primarySave.mode)}
-          >
-            {/* BUG-507 / P0-302: label matches action — never "Save" while completing. */}
-            {t(primarySave.labelKey)}
-          </Button>
-          <Button
-            variant="outlined"
-            disabled={!canComplete || isEdit}
-            onClick={() => saveMutation.mutate('complete_new')}
-          >
-            {t('billing.saveAndNew')}
-          </Button>
-          {(!isEdit || editingStatus === 'DRAFT') && (
-            <Button size="small" disabled={!canSave} onClick={() => saveMutation.mutate('draft')}>
-              {t('common.draft')}
-            </Button>
-          )}
-          {isEdit ? (
-            <Button size="small" component={RouterLink} to={`/purchases/history`}>
-              {t('common.back')}
-            </Button>
-          ) : null}
-        </Stack>
-      </Stack>
-
-      {message ? <Alert severity="success">{message}</Alert> : null}
-      {error ? <Alert severity="error">{error}</Alert> : null}
-      {isEdit && editingStatus === 'COMPLETED' ? (
-        <Alert severity="warning">{t('billing.editingCompletedWarning')}</Alert>
+        ) : null
+      }
+    >
+      <Stack spacing={2}>
+      {pendingDraft ? (
+        <Alert
+          severity="info"
+          action={
+            <Stack direction="row" spacing={1}>
+              <Button color="inherit" size="small" onClick={applyPendingDraft}>
+                {t('billing.restoreDraft')}
+              </Button>
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => {
+                  setPendingDraft(null);
+                  if (companyId && userId) {
+                    void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
+                  }
+                }}
+              >
+                {t('common.cancel')}
+              </Button>
+            </Stack>
+          }
+        >
+          {t('billing.restorePurchaseDraft', {
+            when: new Date(pendingDraft.savedAt).toLocaleString(),
+          })}
+        </Alert>
       ) : null}
-
+      {(offline || hasLocalDraft) && !isEdit && (!hideOutboxWarn || offline) ? (
+        <Alert
+          severity="warning"
+          onClose={
+            offline
+              ? undefined
+              : () => {
+                  localStorage.setItem(OUTBOX_WARNING_DISMISS_KEY, '1');
+                  setHideOutboxWarn(true);
+                }
+          }
+        >
+          {OUTBOX_PLAINTEXT_WARNING}
+        </Alert>
+      ) : null}
       <Paper sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-          <Box
-            sx={{
-              flex: 1.2,
-              border: '1px dashed',
-              borderColor: 'primary.light',
-              borderRadius: 1,
-              p: 2,
-              minHeight: 120,
+          <PartySelectPanel
+            label={t('billing.billFrom')}
+            selectedParty={selectedSupplier}
+            editingStatus={editingStatus}
+            onClear={() => setSupplierId('')}
+            options={activeSuppliers}
+            query={supplierQuery}
+            onQueryChange={setSupplierQuery}
+            onSelect={(v) => setSupplierId(v?.id ?? '')}
+            loading={suppliers.isFetching}
+            onCreatePartyClick={() => {
+              setPartyForm({ id: undefined, name: '', phone: '', gstin: '', state: '' });
+              setPartyDialogOpen(true);
             }}
-          >
-            <Typography variant="caption" color="text.secondary">
-              {t('billing.billFrom')}
-            </Typography>
-            {selectedSupplier ? (
-              <Stack spacing={0.5} sx={{ mt: 0.5 }}>
-                <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                  <Box>
-                    <Typography fontWeight={700}>{selectedSupplier.name}</Typography>
-                    {selectedSupplier.phone ? (
-                      <Typography variant="body2" color="text.secondary">
-                        {selectedSupplier.phone}
-                      </Typography>
-                    ) : null}
-                    {selectedSupplier.gstin ? (
-                      <Typography variant="body2" color="text.secondary">
-                        GSTIN: {selectedSupplier.gstin}
-                      </Typography>
-                    ) : null}
-                    {selectedSupplier.address ? (
-                      <Typography variant="body2" color="text.secondary">
-                        {selectedSupplier.address}
-                      </Typography>
-                    ) : null}
-                  </Box>
-                  {editingStatus !== 'COMPLETED' ? (
-                    <Button size="small" onClick={() => setSupplierId('')}>
-                      Change
-                    </Button>
-                  ) : null}
-                </Stack>
-              </Stack>
-            ) : (
-              <Stack spacing={1} sx={{ mt: 1 }}>
-                <Autocomplete<Supplier>
-                  options={activeSuppliers}
-                  getOptionLabel={(o) => o.name}
-                  value={null}
-                  onChange={(_, v) => {
-                    setSupplierId(v?.id ?? '');
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label={t('billing.supplier')}
-                      placeholder="Search or select supplier…"
-                    />
-                  )}
-                />
-                <Link
-                  component="button"
-                  type="button"
-                  underline="hover"
-                  onClick={() => setPartyDialogOpen(true)}
-                >
-                  + {t('billing.createParty')}
-                </Link>
-              </Stack>
-            )}
-          </Box>
+            onEditPartyClick={() => {
+              if (!selectedSupplier) return;
+              setPartyForm({
+                id: selectedSupplier.id,
+                name: selectedSupplier.name ?? '',
+                phone: selectedSupplier.phone ?? '',
+                gstin: selectedSupplier.gstin ?? '',
+                state: selectedSupplier.state ?? '',
+              });
+              setPartyDialogOpen(true);
+            }}
+          />
 
           <Stack spacing={1.5} sx={{ flex: 1, minWidth: 280 }}>
             <Stack direction="row" spacing={1}>
@@ -972,6 +1104,31 @@ export function NewPurchasePage() {
                 }
               />
             </Stack>
+            <CompactField
+              select
+              label="Warehouse"
+              value={warehouseId}
+              onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : '')}
+            >
+              {(warehouses.data ?? []).filter((warehouse) => warehouse.isActive !== false).map((warehouse) => (
+                <MenuItem key={warehouse.id} value={warehouse.id}>
+                  {warehouse.name}{warehouse.isDefault ? ' (default)' : ''}
+                </MenuItem>
+              ))}
+            </CompactField>
+            <CompactField
+              select
+              label="Cost center"
+              value={costCenterId}
+              onChange={(e) => setCostCenterId(e.target.value ? Number(e.target.value) : '')}
+            >
+              <MenuItem value="">None</MenuItem>
+              {(costCenters.data ?? []).map((cc) => (
+                <MenuItem key={String(cc.id)} value={Number(cc.id)}>
+                  {String(cc.code ?? cc.name ?? cc.id)}
+                </MenuItem>
+              ))}
+            </CompactField>
             <Stack direction="row" spacing={1}>
               <CompactField
                 label={t('billing.purchaseInvDate')}
@@ -989,7 +1146,46 @@ export function NewPurchasePage() {
                 <MenuItem value="GST">GST</MenuItem>
                 <MenuItem value="NON_GST">Non-GST</MenuItem>
               </CompactField>
+              {purchaseType === 'GST' ? (
+                <CompactField
+                  select
+                  label="Price mode"
+                  value={priceMode}
+                  onChange={(e) => setPriceMode(e.target.value as PriceMode)}
+                  disabled={isCompletedEdit && !canAmendMoney}
+                >
+                  <MenuItem value="EXCLUSIVE">Tax exclusive</MenuItem>
+                  <MenuItem value="INCLUSIVE">Tax inclusive</MenuItem>
+                </CompactField>
+              ) : null}
             </Stack>
+            {purchaseType === 'GST' ? (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={isReverseCharge}
+                    onChange={(e) => setIsReverseCharge(e.target.checked)}
+                    disabled={isCompletedEdit && !canAmendMoney}
+                  />
+                }
+                label="Reverse charge (RCM)"
+              />
+            ) : null}
+            {purchaseType === 'GST' ? (
+              <CompactField
+                select
+                label={t('billing.itcEligibility')}
+                value={itcEligibility}
+                onChange={(e) =>
+                  setItcEligibility(e.target.value as 'CLAIMABLE' | 'INELIGIBLE' | 'REVERSED')
+                }
+                disabled={isCompletedEdit && !canAmendMoney}
+              >
+                <MenuItem value="CLAIMABLE">Claimable</MenuItem>
+                <MenuItem value="INELIGIBLE">Ineligible</MenuItem>
+                <MenuItem value="REVERSED">Reversed</MenuItem>
+              </CompactField>
+            ) : null}
             <CompactField
               label={t('billing.originalInvNo')}
               value={supplierBillNumber}
@@ -1054,192 +1250,72 @@ export function NewPurchasePage() {
       </Paper>
 
       <Paper sx={{ overflow: 'auto' }}>
-        <Table size="small" stickyHeader>
-          <TableHead>
-            <TableRow>
-              <TableCell width={48}>{t('billing.no')}</TableCell>
-              <TableCell sx={{ minWidth: 180 }}>{t('billing.items')}</TableCell>
-              <TableCell width={90}>{t('billing.hsn')}</TableCell>
-              {showBatchCols ? (
-                <>
-                  <TableCell width={90}>{t('billing.batchNo')}</TableCell>
-                  <TableCell width={110}>{t('billing.expDate')}</TableCell>
-                  <TableCell width={110}>{t('billing.mfgDate')}</TableCell>
-                </>
+        <DraftLineTable
+          lines={lines}
+          taxes={lineTaxes}
+          showCess={purchaseType !== 'NON_GST'}
+          qtyDisabled={isCompletedEdit}
+          moneyDisabled={isCompletedEdit && !canAmendMoney}
+          deleteDisabled={isCompletedEdit}
+          showBatchSlot={showBatchCols || lines.some((line) => line.trackBatch)}
+          showSerialSlot={lines.some((line) => line.trackSerial)}
+          onUpdate={updateLine}
+          onDelete={(key) => setLines((prev) => prev.filter((x) => x.key !== key))}
+          onFocusAdd={() => barcodeRef.current?.focus()}
+          renderBatchSlot={(line) => (
+            <>
+              <TableCell>
+                {line.trackBatch ? (
+                  <Autocomplete
+                    size="small"
+                    options={(batches.data ?? []).filter((lot) => Number(lot.product) === line.product)}
+                    getOptionLabel={(lot) => `${lot.batchNo}${lot.expiryDate ? ` · exp ${lot.expiryDate}` : ''}`}
+                    value={(batches.data ?? []).find((lot) => Number(lot.id) === line.batch) ?? null}
+                    onChange={(_, lot) => updateLine(line.key, {
+                      batch: lot ? Number(lot.id) : null,
+                      batchNo: lot?.batchNo ?? '',
+                    })}
+                    renderInput={(params) => <TextField {...params} placeholder="FEFO batch" helperText="Leave blank to use FEFO" />}
+                  />
+                ) : (
+                  <CompactField value={line.batchNo} onChange={(e) => updateLine(line.key, { batchNo: e.target.value })} />
+                )}
+              </TableCell>
+              <TableCell>
+                <CompactField
+                  type="date"
+                  value={line.expDate}
+                  onChange={(e) => updateLine(line.key, { expDate: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </TableCell>
+              <TableCell>
+                <CompactField
+                  type="date"
+                  value={line.mfgDate}
+                  onChange={(e) => updateLine(line.key, { mfgDate: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </TableCell>
+            </>
+          )}
+          renderSerialSlot={(line) => (
+            <TableCell>
+              {line.trackSerial ? (
+                <CompactField
+                  multiline
+                  minRows={1}
+                  maxRows={3}
+                  placeholder="SN-001, SN-002"
+                  value={line.serialNumbersText ?? ''}
+                  onChange={(e) => updateLine(line.key, { serialNumbersText: e.target.value })}
+                  helperText={`${parseSerialNumbersText(line.serialNumbersText ?? '').length} serial(s)`}
+                />
               ) : null}
-              <TableCell width={80} align="right">
-                {t('billing.mrp')}
-              </TableCell>
-              <TableCell width={130}>{t('billing.qty')}</TableCell>
-              <TableCell width={110} align="right">
-                {t('billing.price')}
-              </TableCell>
-              <TableCell width={200}>{t('billing.discount')}</TableCell>
-              <TableCell width={100}>{t('billing.tax')}</TableCell>
-              <TableCell width={100} align="right">
-                {t('billing.amount')}
-              </TableCell>
-              <TableCell width={72} />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {lines.map((line, idx) => {
-              const tax = lineTaxes[idx];
-              const mrpOff =
-                line.mrp > 0 && line.unitPrice < line.mrp
-                  ? roundMoney(((line.mrp - line.unitPrice) / line.mrp) * 100)
-                  : null;
-              return (
-                <TableRow key={line.key} hover>
-                  <TableCell>{idx + 1}</TableCell>
-                  <TableCell>
-                    <Typography fontWeight={600} variant="body2">
-                      {line.productName}
-                    </Typography>
-                    <CompactField
-                      placeholder="Description (optional)"
-                      value={line.description}
-                      onChange={(e) => updateLine(line.key, { description: e.target.value })}
-                      sx={{ mt: 0.5 }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">{line.hsnCode || '—'}</Typography>
-                  </TableCell>
-                  {showBatchCols ? (
-                    <>
-                      <TableCell>
-                        <CompactField
-                          value={line.batchNo}
-                          onChange={(e) => updateLine(line.key, { batchNo: e.target.value })}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <CompactField
-                          type="date"
-                          value={line.expDate}
-                          onChange={(e) => updateLine(line.key, { expDate: e.target.value })}
-                          InputLabelProps={{ shrink: true }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <CompactField
-                          type="date"
-                          value={line.mfgDate}
-                          onChange={(e) => updateLine(line.key, { mfgDate: e.target.value })}
-                          InputLabelProps={{ shrink: true }}
-                        />
-                      </TableCell>
-                    </>
-                  ) : null}
-                  <TableCell align="right">
-                    <Typography variant="body2">
-                      {line.mrp > 0 ? formatMoney(line.mrp) : '—'}
-                    </Typography>
-                    {mrpOff != null ? (
-                      <Typography variant="caption" color="success.main" title="Savings vs MRP (not line discount)">
-                        {mrpOff}% vs MRP
-                      </Typography>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>
-                    <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 110 }}>
-                      <NumericField
-                        value={line.quantity}
-                        onValueChange={(n) =>
-                          updateLine(line.key, { quantity: n > 0 ? n : 1 })
-                        }
-                        min={0}
-                        emptyAs={1}
-                        fullWidth={false}
-                        disabled={isCompletedEdit}
-                        sx={{ width: 80, minWidth: 80 }}
-                      />
-                      <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-                        {line.unitName}
-                      </Typography>
-                    </Stack>
-                  </TableCell>
-                  <TableCell align="right">
-                    <NumericField
-                      value={line.unitPrice}
-                      onValueChange={(n) => updateLine(line.key, { unitPrice: n })}
-                      min={0}
-                      decimals={2}
-                      fullWidth={false}
-                      disabled={isCompletedEdit && !canAmendMoney}
-                      sx={{ width: 96, minWidth: 96 }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Stack direction="row" spacing={0.5} sx={{ minWidth: 180 }}>
-                      <NumericField
-                        value={line.discountPercent}
-                        onValueChange={(n) =>
-                          updateLine(line.key, { discountPercent: Math.min(100, n) })
-                        }
-                        min={0}
-                        decimals={2}
-                        fullWidth={false}
-                        disabled={isCompletedEdit && !canAmendMoney}
-                        sx={{ width: 88, minWidth: 88 }}
-                        InputProps={{
-                          endAdornment: <InputAdornment position="end">%</InputAdornment>,
-                        }}
-                      />
-                      <NumericField
-                        value={line.discountAmount}
-                        onValueChange={(n) =>
-                          updateLine(line.key, { discountAmount: n }, { fromDiscountAmount: true })
-                        }
-                        min={0}
-                        decimals={2}
-                        fullWidth={false}
-                        disabled={isCompletedEdit && !canAmendMoney}
-                        sx={{ width: 96, minWidth: 96 }}
-                        InputProps={{
-                          startAdornment: <InputAdornment position="start">₹</InputAdornment>,
-                        }}
-                      />
-                    </Stack>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {purchaseType === 'NON_GST' || line.gstRate <= 0 ? '0%' : `${line.gstRate}%`}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      (₹ {(tax?.taxTotal ?? 0).toFixed(2)})
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography fontWeight={600}>{formatMoney(tax?.lineTotal ?? 0)}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Stack direction="row">
-                      <IconButton
-                        size="small"
-                        color="primary"
-                        aria-label="add row"
-                        disabled={isCompletedEdit}
-                        onClick={() => barcodeRef.current?.focus()}
-                      >
-                        <AddIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        aria-label={t('common.remove')}
-                        disabled={isCompletedEdit}
-                        onClick={() => setLines((prev) => prev.filter((x) => x.key !== line.key))}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Stack>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+            </TableCell>
+          )}
+        />
+
 
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
@@ -1265,11 +1341,13 @@ export function NewPurchasePage() {
               options={(products.data ?? []).filter((p) => p.status === 'ACTIVE')}
               loading={products.isFetching}
               inputValue={productQuery}
-              onInputChange={(_, v) => setProductQuery(v)}
+              onInputChange={(_, v, reason) => {
+                if (reason === 'input' || reason === 'clear') setProductQuery(v);
+              }}
               onChange={(_, v) => addProduct(v)}
               disabled={isCompletedEdit}
               getOptionLabel={(o) =>
-                `${o.name} · ${o.sku}${o.unitName ? ` · ${o.unitName}` : ''}`
+                formatProductOptionLabel(o, availableByProduct.get(Number(o.id)))
               }
               renderInput={(params) => (
                 <TextField
@@ -1285,11 +1363,14 @@ export function NewPurchasePage() {
               component="button"
               type="button"
               underline="hover"
-              disabled={isCompletedEdit}
+              disabled={isCompletedEdit || !isOwner}
               onClick={() => {
-                if (!isCompletedEdit) setItemDialogOpen(true);
+                if (isCompletedEdit || !isOwner) return;
+                setItemDialogError(null);
+                setItemDialogOpen(true);
               }}
               sx={{ whiteSpace: 'nowrap' }}
+              title={!isOwner ? 'Only the company owner can create products.' : undefined}
             >
               + {t('billing.createItem')}
             </Link>
@@ -1322,8 +1403,14 @@ export function NewPurchasePage() {
           <Typography>
             {t('billing.tax')} {formatMoney(totals.taxTotal)}
           </Typography>
+          {totals.cessTotal > 0 ? (
+            <Typography>
+              {t('billing.cess')} {formatMoney(totals.cessTotal)}
+            </Typography>
+          ) : null}
           <Typography fontWeight={700}>
-            {t('billing.totalAmount')} {formatMoney(totals.grandTotal)}
+            {t('billing.totalAmount')}{' '}
+            {formatMoney(rcmPreview ? rcmPreview.payable : totals.grandTotal)}
           </Typography>
         </Box>
       </Paper>
@@ -1369,6 +1456,25 @@ export function NewPurchasePage() {
               onChange={(e) => setTermsText(e.target.value)}
             />
           </Collapse>
+
+          {isRuntimeFlagEnabled('ENABLE_TDS') ? (
+            <>
+              {!showTds ? (
+                <Link component="button" type="button" underline="hover" onClick={() => setShowTds(true)}>
+                  + TDS (194C / 194J / 194Q)
+                </Link>
+              ) : (
+                <Paper variant="outlined" sx={{ p: 1.5 }}>
+                  <Typography variant="subtitle2">TDS withheld</Typography>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
+                    <TextField size="small" label="Section" value={tdsSection} onChange={(e) => setTdsSection(e.target.value)} placeholder="194C" />
+                    <TextField size="small" type="number" label="Rate %" value={tdsRate || ''} onChange={(e) => setTdsRate(Number(e.target.value) || 0)} />
+                    <TextField size="small" type="number" label="TDS amount" value={tdsAmount || ''} onChange={(e) => setTdsAmount(Number(e.target.value) || 0)} />
+                  </Stack>
+                </Paper>
+              )}
+            </>
+          ) : null}
 
           {!showBank ? (
             <Link
@@ -1426,88 +1532,33 @@ export function NewPurchasePage() {
           )}
         </Stack>
 
-        <Paper sx={{ p: 2, width: '100%', maxWidth: 420, ml: { md: 'auto' } }}>
-          <Stack spacing={1.25}>
-            <Row
-              label={`+ ${t('billing.additionalCharges')}`}
-              value={
-                <NumericField
-                  value={additionalCharges}
-                  onValueChange={setAdditionalCharges}
-                  min={0}
-                  decimals={2}
-                  fullWidth={false}
-                  disabled={isCompletedEdit && !canAmendMoney}
-                  helperText={t('billing.additionalChargesHint')}
-                  InputProps={{
-                    startAdornment: <InputAdornment position="start">₹</InputAdornment>,
-                  }}
-                  sx={{ maxWidth: 140 }}
-                />
-              }
-            />
-            <Row label={t('billing.taxableAmount')} value={formatMoney(totals.taxableTotal)} />
-            {totals.cgstTotal > 0 ? (
-              <Row label={t('billing.cgst')} value={formatMoney(totals.cgstTotal)} />
-            ) : null}
-            {totals.sgstTotal > 0 ? (
-              <Row label={t('billing.sgst')} value={formatMoney(totals.sgstTotal)} />
-            ) : null}
-            {totals.igstTotal > 0 ? (
-              <Row label={t('billing.igst')} value={formatMoney(totals.igstTotal)} />
-            ) : null}
-            <Row
-              label={t('billing.invoiceDiscount')}
-              value={
-                <Stack direction="row" spacing={1} alignItems="center">
-                  {/* BUG-203/504: was "+ Invoice discount" next to a "- ₹"
-                      adornment (contradictory signs), and had no BEFORE_TAX
-                      option at all, unlike the equivalent Sales control. */}
-                  <CompactField
-                    select
-                    value={invoiceDiscountMode}
-                    onChange={(e) => setInvoiceDiscountMode(e.target.value as InvoiceDiscountMode)}
-                    disabled={isCompletedEdit && !canAmendMoney}
-                    sx={{ minWidth: 180 }}
-                  >
-                    <MenuItem value="AFTER_TAX">{t('billing.invoiceDiscountAfterTax')}</MenuItem>
-                    <MenuItem value="BEFORE_TAX">{t('billing.invoiceDiscountBeforeTax')}</MenuItem>
-                  </CompactField>
-                  <NumericField
-                    value={invoiceDiscount}
-                    onValueChange={setInvoiceDiscount}
-                    min={0}
-                    decimals={2}
-                    fullWidth={false}
-                    disabled={isCompletedEdit && !canAmendMoney}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">₹</InputAdornment>,
-                    }}
-                    sx={{ maxWidth: 120 }}
-                  />
-                </Stack>
-              }
-            />
-            {!posKnown ? (
-              <Alert severity="warning" sx={{ mt: 1 }}>
-                {t('billing.placeOfSupplyRequired')}
+        <DocumentTaxSummary
+          totals={totals}
+          displayGrandTotal={displayGrandTotal}
+          totalLabel={rcmPreview ? 'Payable (RCM, excl. tax)' : t('billing.totalAmount')}
+          additionalCharges={additionalCharges}
+          onAdditionalChargesChange={setAdditionalCharges}
+          invoiceDiscount={invoiceDiscount}
+          onInvoiceDiscountChange={setInvoiceDiscount}
+          invoiceDiscountMode={invoiceDiscountMode}
+          onInvoiceDiscountModeChange={setInvoiceDiscountMode}
+          autoRoundOff={autoRoundOff}
+          onAutoRoundOffChange={setAutoRoundOff}
+          posKnown={posKnown}
+          partyRole="supplier"
+          isCompletedEdit={isCompletedEdit}
+          canAmendMoney={canAmendMoney}
+          extraAlerts={
+            rcmPreview ? (
+              <Alert severity="info">
+                Reverse charge: tax liability {formatMoney(rcmPreview.rcmTaxTotal)} (CGST{' '}
+                {formatMoney(rcmPreview.rcmCgst)}, SGST {formatMoney(rcmPreview.rcmSgst)}, IGST{' '}
+                {formatMoney(rcmPreview.rcmIgst)}). Payable to supplier (excl. tax):{' '}
+                {formatMoney(rcmPreview.payable)}.
               </Alert>
-            ) : null}
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={autoRoundOff}
-                    onChange={(e) => setAutoRoundOff(e.target.checked)}
-                    size="small"
-                  />
-                }
-                label={t('billing.autoRoundOff')}
-              />
-              <Typography variant="body2">{formatMoney(totals.roundOff)}</Typography>
-            </Stack>
-            <Divider />
-            <Row label={t('billing.totalAmount')} value={formatMoney(totals.grandTotal)} bold />
+            ) : null
+          }
+        >
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Typography>{t('billing.amountPaid')}</Typography>
               <FormControlLabel
@@ -1516,7 +1567,7 @@ export function NewPurchasePage() {
                     checked={markFullyPaid}
                     onChange={(e) => {
                       setMarkFullyPaid(e.target.checked);
-                      if (e.target.checked) setAmountPaid(totals.grandTotal);
+                      if (e.target.checked) setAmountPaid(displayGrandTotal);
                     }}
                     size="small"
                   />
@@ -1599,8 +1650,7 @@ export function NewPurchasePage() {
                 onChange={(e) => void onSignaturePick(e.target.files?.[0] ?? null)}
               />
             </Box>
-          </Stack>
-        </Paper>
+        </DocumentTaxSummary>
       </Stack>
 
 
@@ -1649,7 +1699,9 @@ export function NewPurchasePage() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>{t('billing.createParty')}</DialogTitle>
+        <DialogTitle>
+          {partyForm.id ? 'Edit Supplier' : t('billing.createParty')}
+        </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
@@ -1668,10 +1720,9 @@ export function NewPurchasePage() {
               value={partyForm.gstin}
               onChange={(e) => setPartyForm((f) => ({ ...f, gstin: e.target.value }))}
             />
-            <TextField
-              label={t('auth.state')}
+            <StateSelect
               value={partyForm.state}
-              onChange={(e) => setPartyForm((f) => ({ ...f, state: e.target.value }))}
+              onChange={(state) => setPartyForm((f) => ({ ...f, state }))}
             />
           </Stack>
         </DialogContent>
@@ -1682,15 +1733,24 @@ export function NewPurchasePage() {
             disabled={!partyForm.name.trim() || partyMutation.isPending}
             onClick={() => partyMutation.mutate()}
           >
-            {t('common.create')}
+            {partyForm.id ? t('common.save') : t('common.create')}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={itemDialogOpen} onClose={() => setItemDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={itemDialogOpen}
+        onClose={() => {
+          setItemDialogOpen(false);
+          setItemDialogError(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>{t('billing.createItem')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            {itemDialogError ? <Alert severity="error">{itemDialogError}</Alert> : null}
             <TextField
               required
               label={t('common.name')}
@@ -1701,11 +1761,18 @@ export function NewPurchasePage() {
               label="SKU"
               value={itemForm.sku}
               onChange={(e) => setItemForm((f) => ({ ...f, sku: e.target.value }))}
+              helperText="Must be unique if set"
             />
             <TextField
               label="HSN"
               value={itemForm.hsnCode}
               onChange={(e) => setItemForm((f) => ({ ...f, hsnCode: e.target.value }))}
+              error={Boolean(itemForm.hsnCode) && !isValidHsnSac(itemForm.hsnCode)}
+              helperText={
+                Boolean(itemForm.hsnCode) && !isValidHsnSac(itemForm.hsnCode)
+                  ? 'HSN/SAC must be 4, 6, or 8 digits'
+                  : undefined
+              }
             />
             <Stack direction="row" spacing={1}>
               <TextField
@@ -1733,37 +1800,34 @@ export function NewPurchasePage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setItemDialogOpen(false)}>{t('common.cancel')}</Button>
           <Button
+            type="button"
+            onClick={() => {
+              setItemDialogOpen(false);
+              setItemDialogError(null);
+            }}
+          >
+            {t('common.cancel')}
+          </Button>
+          <Button
+            type="button"
             variant="contained"
-            disabled={!itemForm.name.trim() || itemMutation.isPending}
-            onClick={() => itemMutation.mutate()}
+            disabled={
+              !itemForm.name.trim() ||
+              itemMutation.isPending ||
+              (Boolean(itemForm.hsnCode) && !isValidHsnSac(itemForm.hsnCode))
+            }
+            onClick={() => {
+              setItemDialogError(null);
+              itemMutation.mutate();
+            }}
           >
             {t('common.create')}
           </Button>
         </DialogActions>
       </Dialog>
-    </Stack>
+      </Stack>
+    </DocumentEditorShell>
   );
 }
 
-function Row({
-  label,
-  value,
-  bold,
-}: {
-  label: string;
-  value: ReactNode;
-  bold?: boolean;
-}) {
-  return (
-    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
-      <Typography fontWeight={bold ? 700 : 400}>{label}</Typography>
-      {typeof value === 'string' || typeof value === 'number' ? (
-        <Typography fontWeight={bold ? 700 : 500}>{value}</Typography>
-      ) : (
-        value
-      )}
-    </Box>
-  );
-}

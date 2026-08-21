@@ -1,3 +1,5 @@
+> **Historical / superseded (2026-08-03):** See docs/reviews/ for the live engineering audit.
+
 # BizBoard — PERFORMANCE REPORT
 
 > **Update (BUG-301 / P0-510, 2026-08-01):** customer/supplier ledger **list**
@@ -71,6 +73,10 @@ On demo data the API is snappy. Architecture choices are mostly sound (paginated
 - CDN/TLS latency  
 - Worker saturation under PDF burst  
 - P0-620 seed p95 floors (invoice list <2s; ledger list usable)
+
+### Load harness scope (BB-000129)
+
+`load/k6_smoke.js` is an **MVP smoke harness** (5 VUs × 30s: health + optional auth + draft create). It is **not** a 10k-invoice soak or multi-tenant capacity proof — see `load/README.md`.
 
 ---
 

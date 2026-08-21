@@ -15,6 +15,20 @@ import type {
   User,
 } from '@/types/domain';
 
+export const mockViewerUser: User = {
+  id: 99,
+  email: 'viewer@bizboard.local',
+  fullName: 'Demo Viewer',
+  role: 'VIEWER',
+  companyId: 1,
+  canManageInventory: false,
+  canImport: false,
+  canViewFinancialReports: false,
+  canCreateSales: false,
+  canCreatePurchases: false,
+  canCreatePayments: false,
+};
+
 export const mockUser: User = {
   id: 1,
   email: 'owner@bizboard.local',
@@ -82,6 +96,20 @@ export const mockCompany: Company = {
   registrationType: 'REGULAR',
   negativeStockPolicy: 'WARN',
   isGstRegistered: true,
+  taxProfileConfirmedAt: '2026-01-01T00:00:00Z',
+  onboardingStartedAt: '2026-01-01T00:00:00Z',
+  onboarding: {
+    status: 'COMPLETED',
+    step: null,
+    uiStep: null,
+    dismissed: false,
+    taxDone: true,
+    shopDone: true,
+    paymentsDone: true,
+    catalogDone: true,
+    activationDone: true,
+    started: true,
+  },
 };
 
 export const mockCustomers: Customer[] = [

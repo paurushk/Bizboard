@@ -94,6 +94,17 @@ def test_sales_register_date_range_filters_across_month_boundary(tenant_a):
     assert aug_1["number"] not in numbers
 
 
+def test_sales_register_ignores_non_integer_filters(tenant_a):
+    """WC-019: garbage customer/warehouse query params must not 500."""
+    resp = tenant_a.client.get("/api/v1/reports/sales-register/", {
+        "customer": "not-an-id",
+        "warehouse": "abc",
+        "company_gstin": "x",
+    })
+    assert resp.status_code == 200
+    assert "rows" in resp.data
+
+
 def test_inventory_summary_and_product_sales(tenant_a):
     _setup_documents(tenant_a)
     resp = tenant_a.client.get("/api/v1/reports/inventory-summary/")
@@ -105,10 +116,33 @@ def test_inventory_summary_and_product_sales(tenant_a):
 
 def test_csv_export(tenant_a):
     _setup_documents(tenant_a)
+    # Sales register export
     resp = tenant_a.client.get("/api/v1/exports/sales-register/")
     assert resp.status_code == 200
     assert resp["Content-Type"] == "text/csv"
     assert b"INV-00001" in resp.content
+
+    # Sales alias and date filtering
+    resp_filtered = tenant_a.client.get("/api/v1/exports/sales/?date_from=2020-01-01&date_to=2030-12-31")
+    assert resp_filtered.status_code == 200
+    assert b"INV-00001" in resp_filtered.content
+
+    # Customer export
+    resp_cust = tenant_a.client.get("/api/v1/exports/customers/")
+    assert resp_cust.status_code == 200
+    assert resp_cust["Content-Type"] == "text/csv"
+    assert b"Sharma Stores" in resp_cust.content
+
+    # Purchase register export
+    resp_pur = tenant_a.client.get("/api/v1/exports/purchases/")
+    assert resp_pur.status_code == 200
+    assert resp_pur["Content-Type"] == "text/csv"
+
+    # Inventory summary export
+    resp_inv = tenant_a.client.get("/api/v1/exports/inventory/")
+    assert resp_inv.status_code == 200
+    assert resp_inv["Content-Type"] == "text/csv"
+    assert b"PEN-B" in resp_inv.content
 
 
 def test_csv_export_requires_can_export(tenant_a):
@@ -116,6 +150,16 @@ def test_csv_export_requires_can_export(tenant_a):
     _setup_documents(tenant_a)
     resp = tenant_a.staff_client.get("/api/v1/exports/sales-register/")
     assert resp.status_code == 403
+    resp_cust = tenant_a.staff_client.get("/api/v1/exports/customers/")
+    assert resp_cust.status_code == 403
+
+
+def test_cash_book_xlsx_requires_can_export(tenant_a):
+    """BB-000137: cash-book XLSX is an export — staff without can_export → 403."""
+    resp = tenant_a.staff_client.get("/api/v1/reports/cash-book/?export=xlsx")
+    assert resp.status_code == 403
+    owner = tenant_a.client.get("/api/v1/reports/cash-book/?export=xlsx")
+    assert owner.status_code == 200
 
 
 def test_audit_log_records_and_is_owner_only(tenant_a):

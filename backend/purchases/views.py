@@ -1,11 +1,23 @@
+import io
+
+from django.core.cache import cache
 from django.db.models import DecimalField, OuterRef, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
+from django.http import FileResponse
+from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.exceptions import BusinessRuleError
-from core.permissions import CanCancelDocuments, HasCompany
+from core.idempotency import get_record, replay_record, store_record
+from core.permissions import (
+    CanCancelDocuments,
+    CanCreatePurchases,
+    CanViewPurchaseSurfaces,
+    HasCompany,
+    IsOwner,
+)
 from core.services.document_numbers import DocumentNumberService
 from core.viewsets import CompanyScopedViewSet
 from payments.models import PaymentAllocation
@@ -14,20 +26,57 @@ from .models import PurchaseInvoice, PurchaseReturn
 from .serializers import PurchaseInvoiceSerializer, PurchaseReturnSerializer
 from .services import PurchaseService
 
+_PURCHASE_IDEMPOTENCY_TTL = 60 * 60 * 24  # 24h
+
 
 class PurchaseInvoiceViewSet(CompanyScopedViewSet):
     queryset = PurchaseInvoice.objects.select_related("supplier").prefetch_related("items__product")
     serializer_class = PurchaseInvoiceSerializer
 
+    def create(self, request, *args, **kwargs):
+        """BB-000189 / BB-000283: Idempotency-Key → cache lookup by company + key (24h)."""
+        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        cache_key = None
+        if raw_key:
+            cache_key = f"purchase_invoice_idempotency:{self.company.id}:{raw_key}"
+            prior_id = cache.get(cache_key)
+            if prior_id is not None:
+                try:
+                    invoice = self.get_queryset().get(pk=prior_id)
+                except PurchaseInvoice.DoesNotExist:
+                    cache.delete(cache_key)
+                else:
+                    serializer = self.get_serializer(invoice)
+                    return Response(serializer.data, status=status.HTTP_200_OK)
+
+        response = super().create(request, *args, **kwargs)
+        if cache_key is not None and response.status_code == status.HTTP_201_CREATED:
+            data = getattr(response, "data", None) or {}
+            if isinstance(data, dict) and isinstance(data.get("success"), bool) and "data" in data:
+                data = data.get("data") or {}
+            created_id = data.get("id") if isinstance(data, dict) else None
+            if created_id is not None:
+                cache.set(cache_key, created_id, _PURCHASE_IDEMPOTENCY_TTL)
+        return response
+
     def get_permissions(self):
-        if getattr(self, "action", None) == "cancel":
+        action = getattr(self, "action", None)
+        if action == "cancel":
             return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        if action in ("create", "complete", "update", "partial_update", "destroy"):
+            return [IsAuthenticated(), HasCompany(), CanCreatePurchases()]
+        if action in ("list", "retrieve"):
+            return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
+        if action == "number_series":
+            if self.request.method == "GET":
+                return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
+            return [IsAuthenticated(), HasCompany(), IsOwner()]
         return super().get_permissions()
 
     def get_queryset(self):
         qs = super().get_queryset()
         allocated = (
-            PaymentAllocation.objects.filter(purchase_invoice_id=OuterRef("pk"))
+            PaymentAllocation.objects.filter(purchase_invoice_id=OuterRef("pk"), reversed_at__isnull=True)
             .values("purchase_invoice_id")
             .annotate(total=Sum("amount"))
             .values("total")[:1]
@@ -75,18 +124,90 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
-        invoice = PurchaseService.complete(self.get_object(), request.user)
-        return Response(self.get_serializer(invoice).data)
+        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        if raw_key:
+            existing = get_record(company=self.company, scope="purchase_invoice_complete", raw_key=raw_key)
+            if existing is not None:
+                return replay_record(existing)
+        confirm_no_rcm = str(request.data.get("confirm_no_rcm") or "").lower() in (
+            "true", "1", "yes",
+        )
+        confirm_duplicate_bill = str(
+            request.data.get("confirm_duplicate_bill") or ""
+        ).lower() in ("true", "1", "yes")
+        invoice, warnings = PurchaseService.complete(
+            self.get_object(),
+            request.user,
+            confirm_no_rcm=confirm_no_rcm,
+            confirm_duplicate_bill=confirm_duplicate_bill,
+        )
+        data = self.get_serializer(invoice).data
+        data["warnings"] = warnings
+        response = Response(data)
+        if raw_key:
+            store_record(
+                company=self.company,
+                scope="purchase_invoice_complete",
+                raw_key=raw_key,
+                response=response,
+                resource_id=str(invoice.pk),
+            )
+        return response
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         invoice = PurchaseService.cancel(self.get_object(), request.user)
         return Response(self.get_serializer(invoice).data)
 
+    @action(detail=True, methods=["get"])
+    def pdf(self, request, pk=None):
+        """Render GST Purchase Bill PDF (Rule 46 / Rule 54 CGST Rules)."""
+        from .pdf import render_gst_purchase_bill
+
+        invoice = self.get_object()
+        copy = (request.query_params.get("copy") or "ORIGINAL").upper()
+        content = render_gst_purchase_bill(invoice, copy=copy)
+        filename = f"{invoice.number or invoice.pk}_purchase_bill.pdf"
+        return FileResponse(
+            io.BytesIO(content),
+            as_attachment=True,
+            filename=filename,
+            content_type="application/pdf",
+        )
+
 
 class PurchaseReturnViewSet(CompanyScopedViewSet):
     queryset = PurchaseReturn.objects.select_related("supplier").prefetch_related("items__product")
     serializer_class = PurchaseReturnSerializer
+
+    def get_permissions(self):
+        action = getattr(self, "action", None)
+        if action == "number_series":
+            return [IsAuthenticated(), HasCompany(), IsOwner()]
+        if action == "cancel":
+            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        if action in ("create", "update", "partial_update", "destroy", "complete"):
+            return [IsAuthenticated(), HasCompany(), CanCreatePurchases()]
+        if action in ("list", "retrieve"):
+            return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
+        return super().get_permissions()
+
+    @action(detail=False, methods=["get", "patch"], url_path="number-series")
+    def number_series(self, request):
+        company = self.company
+        if request.method == "GET":
+            return Response(DocumentNumberService.peek(company, "PURCHASE_RETURN"))
+        try:
+            data = DocumentNumberService.configure(
+                company,
+                "PURCHASE_RETURN",
+                prefix=request.data.get("prefix"),
+                next_number=request.data.get("next_number"),
+                padding=request.data.get("padding"),
+            )
+        except ValueError as exc:
+            raise BusinessRuleError(str(exc)) from exc
+        return Response(data)
 
     def get_queryset(self):
         qs = super().get_queryset()

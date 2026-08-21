@@ -14,6 +14,8 @@ backend/staticfiles/
 web/node_modules/
 web/dist/
 web/coverage/
+mobile/node_modules/
+mobile/ios/
 
 # Environment and editor
 .env
@@ -32,4 +34,7 @@ web_build_out.txt
 web/test-results/
 web/playwright-report/
 ~$*.docx
+~$*.xlsx
+~$*.xls
 *.png.tmp
+.claude/worktrees/

@@ -75,7 +75,7 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
   await page.getByRole('option', { name: new RegExp(productSku) }).click();
   await expect(page.getByText('₹118.00').first()).toBeVisible();
 
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/);
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
   await expect(invoiceRow).toContainText('Completed');

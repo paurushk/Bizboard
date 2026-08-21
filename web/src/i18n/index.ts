@@ -1,8 +1,22 @@
 import { en, type MessageTree } from './en';
+import { hi } from './hi';
 
-const catalogs: Record<string, MessageTree> = { en };
+const catalogs: Record<string, MessageTree> = { en, hi: hi as unknown as MessageTree };
 
-let locale = 'en';
+const LOCALE_STORAGE_KEY = 'bizboard:locale';
+
+type LocaleListener = () => void;
+const listeners = new Set<LocaleListener>();
+
+function loadStoredLocale(): string {
+  if (typeof localStorage !== 'undefined') {
+    const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (stored && catalogs[stored]) return stored;
+  }
+  return 'en';
+}
+
+let locale = loadStoredLocale();
 
 function getByPath(obj: unknown, path: string): string | undefined {
   const parts = path.split('.');
@@ -27,11 +41,26 @@ export function t(key: string, vars?: Record<string, string | number>): string {
 }
 
 export function setLocale(next: string) {
-  locale = catalogs[next] ? next : 'en';
+  const resolved = catalogs[next] ? next : 'en';
+  if (resolved === locale) return;
+  locale = resolved;
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+  }
+  listeners.forEach((fn) => fn());
 }
 
 export function getLocale() {
   return locale;
 }
 
+/** FE-18: subscribe so UI can re-render without a full page reload. */
+export function subscribeLocale(listener: LocaleListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
 export { en };
+export { hi };

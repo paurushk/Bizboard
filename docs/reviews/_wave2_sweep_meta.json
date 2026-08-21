@@ -1,0 +1,1127 @@
+[
+  {
+    "tag": "D",
+    "route": "/",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/settings/company",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 POST http://localhost/api/v1/auth/refresh/",
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/settings/gst",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 POST http://localhost/api/v1/auth/refresh/",
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/settings/users",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/settings/bank-accounts",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 POST http://localhost/api/v1/auth/refresh/",
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/settings/payment-gateway",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/purchases/suppliers",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 POST http://localhost/api/v1/auth/refresh/",
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/inventory/products",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/inventory/stock",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/inventory/adjustments",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/inventory/low-stock",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/inventory/transfers",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/inventory/serials",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/inventory/warehouses",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/purchases/new",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/purchases/orders",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/purchases/history",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/purchases/debit-notes",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/purchases/payments",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/sales/customers",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/sales/new",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/sales/quotations",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/sales/orders",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/sales/delivery-challans",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/sales/history",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/sales/credit-notes",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/sales/receipts",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/payments/links",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/payments/statements",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/payments/reconciliation",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/reports/sales",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/reports/purchases",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/reports/inventory",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/reports/customer-ledger",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/reports/supplier-ledger",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/reports/cash-book",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/reports/gstr1",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/reports/gstr3b",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/reports/profit-and-loss",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/reports/balance-sheet",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/reports/trial-balance",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/accounting/accounts",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "D",
+    "route": "/accounting/journals",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/settings/company",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/settings/gst",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/settings/users",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/settings/bank-accounts",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/settings/payment-gateway",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/purchases/suppliers",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/inventory/products",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/inventory/stock",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/inventory/adjustments",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/inventory/low-stock",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/inventory/transfers",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/inventory/serials",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/inventory/warehouses",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/purchases/new",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/purchases/orders",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/purchases/history",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/purchases/debit-notes",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/purchases/payments",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/sales/customers",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 POST http://localhost/api/v1/auth/refresh/",
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/sales/new",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/sales/quotations",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/sales/orders",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/sales/delivery-challans",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/sales/history",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/sales/credit-notes",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/sales/receipts",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/payments/links",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/payments/statements",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/payments/reconciliation",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 POST http://localhost/api/v1/auth/refresh/",
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/reports/sales",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/reports/purchases",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/reports/inventory",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/reports/customer-ledger",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/reports/supplier-ledger",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/reports/cash-book",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/reports/gstr1",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/reports/gstr3b",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/reports/profit-and-loss",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/reports/balance-sheet",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/reports/trial-balance",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/accounting/accounts",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  },
+  {
+    "tag": "M",
+    "route": "/accounting/journals",
+    "ok": false,
+    "title": "Bizboard",
+    "issues": [
+      "g is not defined"
+    ],
+    "api": [
+      "401 GET http://localhost/api/v1/feature-flags/",
+      "401 POST http://localhost/api/v1/auth/refresh/"
+    ]
+  }
+]

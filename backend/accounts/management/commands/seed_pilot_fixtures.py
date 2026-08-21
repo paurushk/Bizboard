@@ -7,7 +7,8 @@ Usage:
 
 from decimal import Decimal
 
-from django.core.management.base import BaseCommand
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
@@ -27,7 +28,7 @@ PROFILES = [
         "email": "pilot-c1@bizboard.local",
         "phone": "9000000001",
         "state": "Karnataka",
-        "gstin": "29ABCDE1234F1Z5",
+        "gstin": "29ABCDE1234F1ZW",
         "customer_state": "Karnataka",
         "rates": ("12", "18"),
     },
@@ -37,7 +38,7 @@ PROFILES = [
         "email": "pilot-c2@bizboard.local",
         "phone": "9000000002",
         "state": "Karnataka",
-        "gstin": "29AABCU9603R1ZM",
+        "gstin": "29AABCU9603R1ZJ",
         "customer_state": "Maharashtra",
         "rates": ("18",),
     },
@@ -68,7 +69,7 @@ PROFILES = [
         "email": "pilot-c5@bizboard.local",
         "phone": "9000000005",
         "state": "Karnataka",
-        "gstin": "29AAAAA0000A1Z5",
+        "gstin": "29AAAAA0000A1ZY",
         "customer_state": "Karnataka",
         "rates": ("18",),
         "staff_email": "pilot-c5-staff@bizboard.local",
@@ -97,6 +98,9 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        if getattr(settings, "DJANGO_ENV", "").strip().lower() == "production":
+            raise CommandError("seed_pilot_fixtures refuses to run when DJANGO_ENV=production.")
+
         if options["reset"]:
             for p in PROFILES:
                 Company.objects.filter(name=p["name"]).delete()
@@ -136,6 +140,7 @@ class Command(BaseCommand):
             address="Pilot Street",
             city="Bengaluru",
             pincode="560001",
+            tax_profile_confirmed_at=timezone.now(),
         )
         if profile.get("non_gst_company"):
             company_kwargs["registration_type"] = Company.RegistrationType.UNREGISTERED
@@ -146,6 +151,8 @@ class Command(BaseCommand):
             company=company, user=user, role=CompanyUser.Role.OWNER,
             can_manage_inventory=True, can_import=True,
             can_cancel_documents=True, can_view_financial_reports=True, can_export=True,
+            can_create_sales=True, can_create_purchases=True, can_create_payments=True,
+            can_post_journals=True,
         )
         if profile.get("staff_email"):
             staff = User.objects.create_user(

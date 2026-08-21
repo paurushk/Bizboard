@@ -1,0 +1,172 @@
+"""BB-000669: recurring sales invoice schedules — draft-only generation."""
+
+from __future__ import annotations
+
+from calendar import monthrange
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+
+from django.db import transaction
+from django.utils import timezone
+
+from accounting.models import AccountingPeriod
+from core.exceptions import BusinessRuleError
+from masters.models import Product
+from reporting.models import GstReturnPeriod
+
+from .models import RecurringInvoiceRun, RecurringInvoiceSchedule, SalesInvoice
+from .services import SalesService
+
+
+def period_key_for(cadence: str, on_date: date) -> str:
+    if cadence == RecurringInvoiceSchedule.Cadence.WEEKLY:
+        iso_year, iso_week, _ = on_date.isocalendar()
+        return f"{iso_year:04d}-W{iso_week:02d}"
+    return f"{on_date.year:04d}-{on_date.month:02d}"
+
+
+def advance_next_run(dt: datetime, cadence: str) -> datetime:
+    if cadence == RecurringInvoiceSchedule.Cadence.WEEKLY:
+        return dt + timedelta(weeks=1)
+    month = dt.month + 1
+    year = dt.year + (1 if month > 12 else 0)
+    month = month if month <= 12 else 1
+    day = min(dt.day, monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+
+def period_is_locked(company, on_date: date) -> bool:
+    period = f"{on_date.year:04d}-{on_date.month:02d}"
+    if GstReturnPeriod.objects.filter(
+        company=company,
+        period=period,
+        status__in=(GstReturnPeriod.Status.SOFT_CLOSED, GstReturnPeriod.Status.CLOSED),
+    ).exists():
+        return True
+    return AccountingPeriod.objects.filter(
+        company=company,
+        start_date__lte=on_date,
+        end_date__gte=on_date,
+        status__in=(AccountingPeriod.Status.SOFT_CLOSED, AccountingPeriod.Status.CLOSED),
+    ).exists()
+
+
+def _template_items(company, template) -> list[dict]:
+    if isinstance(template, list):
+        raw_items = template
+    else:
+        raw_items = (template or {}).get("items") or []
+    if not raw_items:
+        raise BusinessRuleError("Recurring schedule line template must include items.")
+    items = []
+    for line in raw_items:
+        product_id = line.get("product") or line.get("productId") or line.get("product_id")
+        if not product_id:
+            raise BusinessRuleError("Each template line needs a product.")
+        try:
+            product = Product.objects.get(pk=int(product_id), company=company)
+        except (Product.DoesNotExist, TypeError, ValueError) as exc:
+            raise BusinessRuleError("Template product is invalid for this company.") from exc
+        item = {
+            "product": product,
+            "quantity": Decimal(str(line.get("quantity") or 1)),
+            "description": line.get("description") or "",
+        }
+        unit_price = line.get("unit_price", line.get("unitPrice", None))
+        if unit_price is not None:
+            item["unit_price"] = Decimal(str(unit_price))
+        gst_rate = line.get("gst_rate", line.get("gstRate", None))
+        if gst_rate is not None:
+            item["gst_rate"] = Decimal(str(gst_rate))
+        discount = line.get("discount_percent", line.get("discountPercent", None))
+        if discount is not None:
+            item["discount_percent"] = Decimal(str(discount))
+        items.append(item)
+    return items
+
+
+@transaction.atomic
+def generate_draft_for_schedule(schedule: RecurringInvoiceSchedule, *, run_date: date | None = None, user=None):
+    """Create one DRAFT invoice for the period. Never completes. Skip locked/duplicate."""
+    schedule = RecurringInvoiceSchedule.objects.select_for_update().get(pk=schedule.pk)
+    if not schedule.is_active:
+        return None
+    if run_date is not None:
+        on_date = run_date
+    elif schedule.next_run_at:
+        nxt = schedule.next_run_at
+        on_date = timezone.localtime(nxt).date() if timezone.is_aware(nxt) else nxt.date()
+    else:
+        on_date = timezone.localdate()
+
+    key = period_key_for(schedule.cadence, on_date)
+    if RecurringInvoiceRun.objects.filter(schedule=schedule, period_key=key).exists():
+        return RecurringInvoiceRun.objects.filter(schedule=schedule, period_key=key).first()
+    if period_is_locked(schedule.company, on_date):
+        return None
+
+    invoice = SalesInvoice.objects.create(
+        company=schedule.company,
+        customer=schedule.customer,
+        company_gstin=schedule.company_gstin,
+        invoice_date=on_date,
+        notes=schedule.notes or "",
+        status=SalesInvoice.Status.DRAFT,
+        created_by=user,
+        updated_by=user,
+    )
+    SalesService.set_items(invoice, _template_items(schedule.company, schedule.line_template), user)
+    invoice.refresh_from_db()
+    if invoice.status != SalesInvoice.Status.DRAFT:
+        raise BusinessRuleError("Recurring generator must leave invoices in DRAFT.")
+
+    run = RecurringInvoiceRun.objects.create(
+        company=schedule.company,
+        schedule=schedule,
+        period_key=key,
+        invoice=invoice,
+    )
+    nxt = schedule.next_run_at
+    if nxt.date() <= on_date:
+        schedule.next_run_at = advance_next_run(nxt, schedule.cadence)
+        schedule.save(update_fields=["next_run_at", "updated_at"])
+    return run
+
+
+def process_due_schedules(*, now=None):
+    now = now or timezone.now()
+    created = 0
+    skipped_locked = 0
+    skipped_duplicate = 0
+    for schedule in RecurringInvoiceSchedule.objects.filter(is_active=True, next_run_at__lte=now).select_related(
+        "company", "customer", "company_gstin",
+    ):
+        on_date = timezone.localtime(schedule.next_run_at).date() if timezone.is_aware(schedule.next_run_at) else schedule.next_run_at.date()
+        key = period_key_for(schedule.cadence, on_date)
+        if RecurringInvoiceRun.objects.filter(schedule=schedule, period_key=key).exists():
+            skipped_duplicate += 1
+            schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence)
+            schedule.save(update_fields=["next_run_at", "updated_at"])
+            continue
+        if period_is_locked(schedule.company, on_date):
+            skipped_locked += 1
+            continue
+        run = generate_draft_for_schedule(schedule, run_date=on_date)
+        if run is not None and run.invoice_id:
+            created += 1
+            inv = run.invoice
+            assert inv.status == SalesInvoice.Status.DRAFT
+            from core.models import Notification
+            from core.services.notifications import NotificationService
+
+            NotificationService.send(
+                company=schedule.company,
+                channel=Notification.Channel.SMS,
+                recipient="owner",
+                subject="Recurring invoice draft ready",
+                body=(
+                    f"Draft invoice #{inv.pk} was generated from a recurring schedule. "
+                    "Complete it when ready — BizBoard never auto-completes recurring invoices."
+                ),
+            )
+    return {"created": created, "skipped_locked": skipped_locked, "skipped_duplicate": skipped_duplicate}

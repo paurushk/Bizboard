@@ -1,61 +1,269 @@
-"""Payment Service — receipts, supplier payments, allocations (§5.4, §8)."""
+"""Payment Service — receipts, supplier payments, allocations, links, gateway finalize."""
 
+from __future__ import annotations
+
+import logging
+import secrets
+from datetime import timedelta
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Sum
+from django.utils import timezone
 
 from core.events import emit
 from core.exceptions import BusinessRuleError
-from core.services.document_numbers import DocumentNumberService
+from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 
-from .models import CustomerReceipt, PaymentAllocation, SupplierPayment
+logger = logging.getLogger(__name__)
+
+from .gateway import decrypt_gateway_credentials, get_adapter
+from .models import (
+    BankAccount,
+    BankLineMatchStatus,
+    BankStatementLine,
+    BankStatementStatus,
+    CustomerReceipt,
+    GatewayPayment,
+    GatewayPaymentStatus,
+    PaymentAllocation,
+    PaymentLink,
+    PaymentLinkStatus,
+    PaymentSource,
+    ReceiptStatus,
+    SupplierPayment,
+    SupplierPaymentStatus,
+)
+from .upi import normalize_utr
 
 
 def _allocated_of_payment(payment_field, payment) -> Decimal:
     return (
-        PaymentAllocation.objects.filter(**{payment_field: payment})
+        PaymentAllocation.objects.filter(**{payment_field: payment}, reversed_at__isnull=True)
         .aggregate(total=Sum("amount"))["total"]
         or Decimal("0")
     )
 
 
+def _reverse_allocation_journals(allocation, user=None):
+    from accounting.models import JournalEntry
+    from accounting.services import PostingService
+
+    company = allocation.company
+    if not getattr(company, "accounting_enabled", False):
+        return
+    # BB-000701: reverse on original JE / money-doc date (not localdate).
+    money_date = None
+    if allocation.receipt_id:
+        money_date = allocation.receipt.receipt_date
+    elif allocation.supplier_payment_id:
+        money_date = allocation.supplier_payment.payment_date
+    for purpose in ("ALLOCATE_RECEIPT", "ALLOCATE_PAYMENT"):
+        entry = (
+            JournalEntry.objects.filter(
+                company=company,
+                source_type="PAYMENT_ALLOCATION",
+                source_id=allocation.id,
+                purpose=purpose,
+                status=JournalEntry.Status.POSTED,
+            )
+            .select_for_update()
+            .first()
+        )
+        if entry:
+            PostingService.reverse(
+                entry, user=user, entry_date=entry.entry_date or money_date
+            )
+
+
+def _reverse_money_document_journal(*, company, source_type, source_id, user=None, entry_date=None):
+    from accounting.models import JournalEntry
+    from accounting.services import PostingService
+
+    if not getattr(company, "accounting_enabled", False):
+        return
+    entry = (
+        JournalEntry.objects.filter(
+            company=company,
+            source_type=source_type,
+            source_id=source_id,
+            purpose="CREATE",
+            status=JournalEntry.Status.POSTED,
+        )
+        .select_for_update()
+        .first()
+    )
+    if entry:
+        PostingService.reverse(entry, user=user, entry_date=entry_date)
+
+
+def _check_utr_duplicate(*, company, utr: str, exclude_receipt_id=None, exclude_payment_id=None) -> str | None:
+    """BB-000645: all-time unique (company, normalized UTR) across receipts and payments."""
+    utr = normalize_utr(utr)
+    if not utr:
+        return None
+    qs = CustomerReceipt.objects.filter(company=company, utr=utr).exclude(status=ReceiptStatus.VOIDED)
+    if exclude_receipt_id:
+        qs = qs.exclude(pk=exclude_receipt_id)
+    if qs.exists():
+        return f"UTR {utr} was already used on another receipt."
+    qs2 = SupplierPayment.objects.filter(company=company, utr=utr).exclude(
+        status=SupplierPaymentStatus.VOIDED
+    )
+    if exclude_payment_id:
+        qs2 = qs2.exclude(pk=exclude_payment_id)
+    if qs2.exists():
+        return f"UTR {utr} was already used on a supplier payment."
+    return None
+
+
+def _assert_utr_unique(*, company, utr: str, exclude_receipt_id=None, exclude_payment_id=None) -> None:
+    warn = _check_utr_duplicate(
+        company=company,
+        utr=utr,
+        exclude_receipt_id=exclude_receipt_id,
+        exclude_payment_id=exclude_payment_id,
+    )
+    if warn:
+        raise BusinessRuleError(warn)
+
+
 class PaymentService:
     @staticmethod
     @transaction.atomic
-    def create_receipt(*, company, customer, amount, mode, receipt_date=None,
-                       reference="", notes="", user=None):
+    def create_receipt(
+        *,
+        company,
+        customer,
+        amount,
+        mode,
+        receipt_date=None,
+        reference="",
+        notes="",
+        user=None,
+        bank_account=None,
+        utr="",
+        source=PaymentSource.MANUAL,
+        gateway_payment=None,
+        warn_utr_duplicate=True,
+    ):
         if Decimal(amount) <= 0:
             raise BusinessRuleError("Receipt amount must be greater than zero.")
         if customer.company_id != company.id:
             raise BusinessRuleError("Invalid customer reference.")
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        gate_date = receipt_date or timezone.localdate()
+        # BB-000700: gate in service (bank import / gateway settle bypass HTTP views).
+        assert_period_allows_money_amend(company, gate_date)
+        utr_n = normalize_utr((utr or reference) if mode in ("UPI", "BANK") else utr)
+        if getattr(company, "require_payment_reference", False) and mode in ("UPI", "BANK") and not utr_n:
+            raise BusinessRuleError("UTR / payment reference is required for UPI and Bank receipts.")
+        if bank_account and bank_account.company_id != company.id:
+            raise BusinessRuleError("Invalid bank account.")
+        _assert_utr_unique(company=company, utr=utr_n)
+        warn = _check_utr_duplicate(company=company, utr=utr_n) if warn_utr_duplicate else None
+
+        gstin_key = resolve_series_gstin(company)
         receipt = CustomerReceipt(
-            company=company, customer=customer, amount=amount, mode=mode,
-            reference=reference, notes=notes, created_by=user, updated_by=user,
-            number=DocumentNumberService.next_number(company, "CUSTOMER_RECEIPT"),
+            company=company,
+            customer=customer,
+            amount=amount,
+            mode=mode,
+            reference=reference,
+            utr=utr_n,
+            notes=notes,
+            bank_account=bank_account,
+            source=source,
+            gateway_payment=gateway_payment,
+            created_by=user,
+            updated_by=user,
+            number=DocumentNumberService.next_number(
+                company,
+                "CUSTOMER_RECEIPT",
+                gstin=gstin_key,
+                on_date=(receipt_date or timezone.localdate()) if gstin_key else None,
+            ),
         )
         if receipt_date:
             receipt.receipt_date = receipt_date
         receipt.save()
+        if company.accounting_enabled:
+            from accounting.services import PostingService
+
+            PostingService.post_receipt(receipt, user)
         emit("document.completed", document=receipt, user=user, event="customer_receipt.created")
+        receipt._utr_warning = warn  # transient for API
         return receipt
 
     @staticmethod
     @transaction.atomic
-    def create_supplier_payment(*, company, supplier, amount, mode, payment_date=None,
-                                reference="", notes="", user=None):
+    def create_supplier_payment(
+        *,
+        company,
+        supplier,
+        amount,
+        mode,
+        payment_date=None,
+        reference="",
+        notes="",
+        user=None,
+        bank_account=None,
+        utr="",
+        source=PaymentSource.MANUAL,
+        tds_section="",
+        tds_rate=None,
+        tds_amount=None,
+    ):
         if Decimal(amount) <= 0:
             raise BusinessRuleError("Payment amount must be greater than zero.")
         if supplier.company_id != company.id:
             raise BusinessRuleError("Invalid supplier reference.")
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        gate_date = payment_date or timezone.localdate()
+        # BB-000700: gate in service layer, not only HTTP views.
+        assert_period_allows_money_amend(company, gate_date)
+        utr_n = normalize_utr((utr or reference) if mode in ("UPI", "BANK") else utr)
+        if getattr(company, "require_payment_reference", False) and mode in ("UPI", "BANK") and not utr_n:
+            raise BusinessRuleError("UTR / payment reference is required for UPI and Bank payments.")
+        if bank_account and bank_account.company_id != company.id:
+            raise BusinessRuleError("Invalid bank account.")
+        _assert_utr_unique(company=company, utr=utr_n)
+        tds_amt = Decimal(str(tds_amount or 0))
+        tds_rt = Decimal(str(tds_rate or 0))
+        if tds_amt < 0 or tds_rt < 0:
+            raise BusinessRuleError("TDS rate/amount cannot be negative.")
+        gstin_key = resolve_series_gstin(company)
         payment = SupplierPayment(
-            company=company, supplier=supplier, amount=amount, mode=mode,
-            reference=reference, notes=notes, created_by=user, updated_by=user,
-            number=DocumentNumberService.next_number(company, "SUPPLIER_PAYMENT"),
+            company=company,
+            supplier=supplier,
+            amount=amount,
+            mode=mode,
+            reference=reference,
+            utr=utr_n,
+            notes=notes,
+            bank_account=bank_account,
+            source=source,
+            tds_section=(tds_section or "").strip(),
+            tds_rate=tds_rt,
+            tds_amount=tds_amt,
+            created_by=user,
+            updated_by=user,
+            number=DocumentNumberService.next_number(
+                company,
+                "SUPPLIER_PAYMENT",
+                gstin=gstin_key,
+                on_date=(payment_date or timezone.localdate()) if gstin_key else None,
+            ),
         )
         if payment_date:
             payment.payment_date = payment_date
         payment.save()
+        if company.accounting_enabled:
+            from accounting.services import PostingService
+
+            PostingService.post_supplier_payment(payment, user)
         emit("document.completed", document=payment, user=user, event="supplier_payment.created")
         return payment
 
@@ -65,8 +273,6 @@ class PaymentService:
         from ledgers.services import LedgerService
         from sales.models import SalesInvoice
 
-        from .models import CustomerReceipt
-
         amount = Decimal(amount)
         if amount <= 0:
             raise BusinessRuleError("Allocation amount must be greater than zero.")
@@ -75,16 +281,13 @@ class PaymentService:
         if receipt.customer_id != sales_invoice.customer_id:
             raise BusinessRuleError("Receipt customer must match the invoice customer.")
 
-        # Lock both rows before recomputing unallocated/outstanding — without
-        # this, two concurrent allocations against the same receipt (or the
-        # same invoice) can both read a stale "still has room" snapshot and
-        # both pass, over-allocating past the receipt amount or the invoice
-        # balance (BUG-308).
         receipt = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
         sales_invoice = SalesInvoice.objects.select_for_update().get(pk=sales_invoice.pk)
 
         if sales_invoice.status not in ("COMPLETED", "RETURNED"):
             raise BusinessRuleError("Allocations are only allowed against completed invoices.")
+        if receipt.status != ReceiptStatus.POSTED:
+            raise BusinessRuleError("Only posted receipts can be allocated.")
 
         unallocated = receipt.amount - _allocated_of_payment("receipt", receipt)
         if amount > unallocated:
@@ -96,18 +299,25 @@ class PaymentService:
             raise BusinessRuleError(
                 f"Allocation {amount} exceeds invoice open outstanding {open_outstanding}."
             )
-        return PaymentAllocation.objects.create(
-            company=receipt.company, receipt=receipt, sales_invoice=sales_invoice,
-            amount=amount, created_by=user, updated_by=user,
+        alloc = PaymentAllocation.objects.create(
+            company=receipt.company,
+            receipt=receipt,
+            sales_invoice=sales_invoice,
+            amount=amount,
+            created_by=user,
+            updated_by=user,
         )
+        if receipt.company.accounting_enabled:
+            from accounting.services import PostingService
+
+            PostingService.post_receipt_allocation(alloc, user)
+        return alloc
 
     @staticmethod
     @transaction.atomic
     def allocate_supplier_payment(*, payment, purchase_invoice, amount, user=None):
         from ledgers.services import LedgerService
         from purchases.models import PurchaseInvoice
-
-        from .models import SupplierPayment
 
         amount = Decimal(amount)
         if amount <= 0:
@@ -117,12 +327,13 @@ class PaymentService:
         if payment.supplier_id != purchase_invoice.supplier_id:
             raise BusinessRuleError("Payment supplier must match the invoice supplier.")
 
-        # See allocate_receipt — same race, same fix (BUG-308).
         payment = SupplierPayment.objects.select_for_update().get(pk=payment.pk)
         purchase_invoice = PurchaseInvoice.objects.select_for_update().get(pk=purchase_invoice.pk)
 
-        if purchase_invoice.status != "COMPLETED":
+        if purchase_invoice.status not in ("COMPLETED", "RETURNED"):
             raise BusinessRuleError("Allocations are only allowed against completed invoices.")
+        if payment.status != SupplierPaymentStatus.POSTED:
+            raise BusinessRuleError("Only posted supplier payments can be allocated.")
 
         unallocated = payment.amount - _allocated_of_payment("supplier_payment", payment)
         if amount > unallocated:
@@ -134,8 +345,623 @@ class PaymentService:
             raise BusinessRuleError(
                 f"Allocation {amount} exceeds invoice open outstanding {open_outstanding}."
             )
-        return PaymentAllocation.objects.create(
-            company=payment.company, supplier_payment=payment,
-            purchase_invoice=purchase_invoice, amount=amount,
-            created_by=user, updated_by=user,
+        alloc = PaymentAllocation.objects.create(
+            company=payment.company,
+            supplier_payment=payment,
+            purchase_invoice=purchase_invoice,
+            amount=amount,
+            created_by=user,
+            updated_by=user,
         )
+        if payment.company.accounting_enabled:
+            from accounting.services import PostingService
+
+            PostingService.post_supplier_payment_allocation(alloc, user)
+        return alloc
+
+    @staticmethod
+    @transaction.atomic
+    def reverse_allocation(*, allocation, user=None):
+        """BB-000651: unallocate without hard-delete; reverse JE and reopen invoice headroom."""
+        alloc = PaymentAllocation.objects.select_for_update().get(pk=allocation.pk)
+        if alloc.reversed_at:
+            return alloc
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        gate_date = None
+        if alloc.receipt_id:
+            gate_date = alloc.receipt.receipt_date
+        elif alloc.supplier_payment_id:
+            gate_date = alloc.supplier_payment.payment_date
+        assert_period_allows_money_amend(alloc.company, gate_date)
+        _reverse_allocation_journals(alloc, user=user)
+        alloc.reversed_at = timezone.now()
+        alloc.updated_by = user
+        alloc.save(update_fields=["reversed_at", "updated_by", "updated_at"])
+        return alloc
+
+    @staticmethod
+    @transaction.atomic
+    def void_receipt(*, receipt, user=None, reason=""):
+        """BB-000650: VOID receipt — reverse allocations + CREATE JE; never hard-delete."""
+        rec = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
+        if rec.status == ReceiptStatus.VOIDED:
+            return rec
+        if rec.status == ReceiptStatus.REFUNDED:
+            raise BusinessRuleError("Refunded receipts cannot be voided.")
+        if rec.gateway_payment_id or rec.source == PaymentSource.GATEWAY:
+            raise BusinessRuleError("Gateway receipts must be refunded, not voided.")
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(rec.company, rec.receipt_date)
+        for alloc in list(rec.allocations.select_for_update().filter(reversed_at__isnull=True)):
+            PaymentService.reverse_allocation(allocation=alloc, user=user)
+        _reverse_money_document_journal(
+            company=rec.company,
+            source_type="CUSTOMER_RECEIPT",
+            source_id=rec.id,
+            user=user,
+            entry_date=rec.receipt_date,
+        )
+        note = (rec.notes or "").strip()
+        void_note = f"VOIDED{(': ' + reason) if reason else ''}"
+        rec.notes = f"{note}\n{void_note}".strip() if note else void_note
+        rec.status = ReceiptStatus.VOIDED
+        rec.updated_by = user
+        rec.save(update_fields=["notes", "status", "updated_by", "updated_at"])
+        emit("document.voided", document=rec, user=user, event="customer_receipt.voided")
+        return rec
+
+    @staticmethod
+    @transaction.atomic
+    def void_supplier_payment(*, payment, user=None, reason=""):
+        """BB-000650: VOID supplier payment — reverse allocations + CREATE JE."""
+        pay = SupplierPayment.objects.select_for_update().get(pk=payment.pk)
+        if pay.status == SupplierPaymentStatus.VOIDED:
+            return pay
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(pay.company, pay.payment_date)
+        for alloc in list(pay.allocations.select_for_update().filter(reversed_at__isnull=True)):
+            PaymentService.reverse_allocation(allocation=alloc, user=user)
+        _reverse_money_document_journal(
+            company=pay.company,
+            source_type="SUPPLIER_PAYMENT",
+            source_id=pay.id,
+            user=user,
+            entry_date=pay.payment_date,
+        )
+        note = (pay.notes or "").strip()
+        void_note = f"VOIDED{(': ' + reason) if reason else ''}"
+        pay.notes = f"{note}\n{void_note}".strip() if note else void_note
+        pay.status = SupplierPaymentStatus.VOIDED
+        pay.updated_by = user
+        pay.save(update_fields=["notes", "status", "updated_by", "updated_at"])
+        emit("document.voided", document=pay, user=user, event="supplier_payment.voided")
+        return pay
+
+    @staticmethod
+    def ensure_default_bank_account(company, user=None) -> BankAccount:
+        existing = BankAccount.objects.filter(company=company, is_default=True).first()
+        if existing:
+            return existing
+        name = "Cash" if not company.bank_account else (company.bank_name or "Primary Bank")
+        acct = BankAccount.objects.create(
+            company=company,
+            name=name or "Primary",
+            account_number_masked=(company.bank_account or "")[-4:].rjust(4, "*") if company.bank_account else "",
+            ifsc=company.bank_ifsc or "",
+            account_type="CASH_BOX" if not company.bank_account else "CURRENT",
+            opening_balance=company.opening_cash_balance or Decimal("0"),
+            opening_as_of=company.opening_cash_as_of,
+            is_default=True,
+            created_by=user,
+            updated_by=user,
+        )
+        return acct
+
+    @staticmethod
+    @transaction.atomic
+    def create_payment_link(
+        *,
+        company,
+        amount,
+        sales_invoice=None,
+        customer=None,
+        allow_partial=False,
+        expires_hours=72,
+        provider=None,
+        notes="",
+        user=None,
+        public_base_url="",
+    ):
+        from ledgers.services import LedgerService
+
+        amount = Decimal(amount)
+        if amount <= 0:
+            raise BusinessRuleError("Payment link amount must be greater than zero.")
+        if sales_invoice:
+            if sales_invoice.company_id != company.id:
+                raise BusinessRuleError("Invalid invoice.")
+            if sales_invoice.status not in ("COMPLETED", "RETURNED"):
+                raise BusinessRuleError("Payment links require a completed invoice.")
+            customer = sales_invoice.customer
+            outstanding = LedgerService.sales_invoice_outstanding(sales_invoice)
+            if amount > outstanding:
+                raise BusinessRuleError(
+                    f"Link amount {amount} exceeds invoice outstanding {outstanding}."
+                )
+            if not allow_partial and amount != outstanding:
+                # Default: full outstanding
+                amount = outstanding
+        if not customer:
+            raise BusinessRuleError("Customer is required for a payment link.")
+        if customer.company_id != company.id:
+            raise BusinessRuleError("Invalid customer.")
+
+        from django.conf import settings
+
+        from payments.gateway import DISABLED_PROVIDERS, sandbox_forbidden_env
+
+        provider = (provider or getattr(company, "payment_gateway_provider", None) or "razorpay").lower()
+        if provider in DISABLED_PROVIDERS:
+            raise BusinessRuleError(
+                f"Payment provider '{provider}' is not enabled. Use sandbox (test) or razorpay."
+            )
+        # Sandbox only in development/test/local (create path).
+        if provider == "sandbox" and sandbox_forbidden_env():
+            raise BusinessRuleError(
+                "Payment provider 'sandbox' cannot be used outside development/test/local."
+            )
+        creds = decrypt_gateway_credentials(getattr(company, "payment_gateway_credentials_encrypted", "") or "")
+        if provider != "sandbox" and not creds:
+            # Only allowlist envs may remap empty-cred + test_mode → sandbox.
+            django_env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
+            if (
+                getattr(company, "payment_gateway_test_mode", False)
+                and django_env in ("development", "test", "local")
+                and not sandbox_forbidden_env()
+            ):
+                provider = "sandbox"
+            else:
+                raise BusinessRuleError(
+                    "Payment gateway credentials are required. Configure Razorpay or use provider=sandbox in test."
+                )
+        # BB-000393: one open link per invoice — prevent outstanding oversubscription.
+        if sales_invoice:
+            open_links = PaymentLink.objects.filter(
+                company=company,
+                sales_invoice=sales_invoice,
+                status__in=(
+                    PaymentLinkStatus.CREATED,
+                    PaymentLinkStatus.SENT,
+                    PaymentLinkStatus.PARTIALLY_PAID,
+                ),
+            )
+            reserved = sum((Decimal(str(l.amount)) for l in open_links), Decimal("0"))
+            if reserved + amount > outstanding + Decimal("0.001"):
+                raise BusinessRuleError(
+                    f"Open payment links already reserve {reserved}; "
+                    f"cannot create another link of {amount} against outstanding {outstanding}."
+                )
+        adapter = get_adapter(provider, creds if provider != "sandbox" else None, company_id=company.id)
+
+        # BB-000514: ≥128-bit entropy (token_urlsafe(24) ≈ 192 bits).
+        token = secrets.token_urlsafe(24)
+        expires_at = timezone.now() + timedelta(hours=expires_hours)
+        callback = (public_base_url or "").rstrip("/") + f"/pay/{token}"
+
+        result = adapter.create_payment_link(
+            amount=amount,
+            description=notes or (sales_invoice.number if sales_invoice else f"Payment {customer.name}"),
+            customer_name=customer.name or "",
+            customer_email=getattr(customer, "email", "") or "",
+            customer_phone=getattr(customer, "phone", "") or "",
+            reference=sales_invoice.number if sales_invoice else token[:12],
+            callback_url=callback,
+            expire_by=int(expires_at.timestamp()),
+            accept_partial=allow_partial,
+            allow_partial=allow_partial,
+        )
+
+        link = PaymentLink.objects.create(
+            company=company,
+            token=token,
+            sales_invoice=sales_invoice,
+            customer=customer,
+            amount=amount,
+            allow_partial=allow_partial,
+            status=PaymentLinkStatus.CREATED,
+            expires_at=expires_at,
+            provider=adapter.name if hasattr(adapter, "name") else provider,
+            provider_link_id=result.provider_link_id,
+            provider_short_url=result.short_url,
+            notes=notes,
+            created_by=user,
+            updated_by=user,
+        )
+        emit("payment_link.created", document=link, user=user, event="payment_link.created")
+        return link
+
+    @staticmethod
+    @transaction.atomic
+    def cancel_payment_link(*, link, user=None):
+        link = PaymentLink.objects.select_for_update().get(pk=link.pk)
+        if link.status == PaymentLinkStatus.PAID:
+            raise BusinessRuleError("Cannot cancel a paid payment link.")
+        # PARTIALLY_PAID may cancel remaining collection window.
+        link.status = PaymentLinkStatus.CANCELLED
+        link.updated_by = user
+        link.save(update_fields=["status", "updated_by", "updated_at"])
+        return link
+
+    @staticmethod
+    @transaction.atomic
+    def finalize_gateway_payment(
+        *,
+        company,
+        provider: str,
+        provider_payment_id: str,
+        amount: Decimal,
+        fee: Decimal = Decimal("0"),
+        payment_link: PaymentLink | None = None,
+        raw_payload=None,
+        user=None,
+    ):
+        """Idempotent webhook finalize → receipt + allocate."""
+        if not provider_payment_id:
+            raise BusinessRuleError("Missing provider payment id.")
+
+        existing = (
+            GatewayPayment.objects.select_for_update()
+            .filter(company=company, provider=provider, provider_payment_id=provider_payment_id)
+            .first()
+        )
+        if existing and existing.status == GatewayPaymentStatus.CAPTURED:
+            return existing
+
+        if existing is None:
+            try:
+                existing = GatewayPayment.objects.create(
+                    company=company,
+                    provider=provider,
+                    provider_payment_id=provider_payment_id,
+                    amount=amount,
+                    fee=fee,
+                    status=GatewayPaymentStatus.CREATED,
+                    payment_link=payment_link,
+                    raw_payload=raw_payload,
+                    created_by=user,
+                    updated_by=user,
+                )
+            except IntegrityError:
+                # First-arrival race: peer committed the unique row — re-fetch.
+                existing = (
+                    GatewayPayment.objects.select_for_update()
+                    .filter(
+                        company=company,
+                        provider=provider,
+                        provider_payment_id=provider_payment_id,
+                    )
+                    .first()
+                )
+                if existing is None:
+                    raise
+                if existing.status == GatewayPaymentStatus.CAPTURED:
+                    return existing
+        else:
+            existing.amount = amount
+            existing.fee = fee
+            existing.payment_link = payment_link or existing.payment_link
+            existing.raw_payload = raw_payload
+            existing.save()
+
+        link = payment_link or existing.payment_link
+        if link is None and existing.payment_link_id:
+            link = PaymentLink.objects.select_for_update().filter(pk=existing.payment_link_id).first()
+
+        if link is None:
+            raise BusinessRuleError("Gateway payment is not tied to a payment link.")
+
+        link = PaymentLink.objects.select_for_update().get(pk=link.pk)
+        if link.status == PaymentLinkStatus.CANCELLED:
+            raise BusinessRuleError("Payment link has been cancelled.")
+        if link.sales_invoice_id:
+            from sales.models import SalesInvoice
+
+            invoice_status = (
+                SalesInvoice.objects.filter(pk=link.sales_invoice_id)
+                .values_list("status", flat=True)
+                .first()
+            )
+            if invoice_status == SalesInvoice.Status.CANCELLED:
+                raise BusinessRuleError("Invoice has been cancelled; payment cannot be captured.")
+        # BB-000438: link already fully paid — do not mark a second provider id CAPTURED without receipt.
+        if link.status == PaymentLinkStatus.PAID and link.paid_receipt_id:
+            if existing.status != GatewayPaymentStatus.CAPTURED:
+                existing.status = GatewayPaymentStatus.FAILED
+                existing.save(update_fields=["status", "updated_at"])
+            raise BusinessRuleError(
+                "Payment link is already paid; duplicate capture ignored."
+            )
+
+        if link.expires_at and link.expires_at < timezone.now() and link.status not in (
+            PaymentLinkStatus.PAID,
+            PaymentLinkStatus.PARTIALLY_PAID,
+        ):
+            link.status = PaymentLinkStatus.EXPIRED
+            link.save(update_fields=["status", "updated_at"])
+            raise BusinessRuleError("Payment link has expired.")
+
+        capture_amount = Decimal(amount)
+        if not link.allow_partial and capture_amount < link.amount:
+            raise BusinessRuleError(
+                f"Captured amount {capture_amount} is below link amount {link.amount}; partial capture is not allowed."
+            )
+        # BB-000391: always reject over-capture (even when allow_partial).
+        if capture_amount > link.amount:
+            raise BusinessRuleError(
+                f"Captured amount {capture_amount} exceeds link amount {link.amount}."
+            )
+
+        # Sum prior captures on this link (gateway receipts).
+        prior_captured = (
+            GatewayPayment.objects.filter(
+                payment_link=link,
+                status=GatewayPaymentStatus.CAPTURED,
+            )
+            .exclude(pk=existing.pk)
+            .aggregate(total=Sum("amount"))["total"]
+            or Decimal("0")
+        )
+        remaining_on_link = link.amount - Decimal(str(prior_captured))
+        if capture_amount > remaining_on_link:
+            raise BusinessRuleError(
+                f"Captured amount {capture_amount} exceeds remaining link balance {remaining_on_link}."
+            )
+
+        receipt = PaymentService.create_receipt(
+            company=company,
+            customer=link.customer,
+            amount=capture_amount,
+            mode="UPI",
+            reference=provider_payment_id,
+            utr=provider_payment_id[:64],
+            notes=f"Gateway {provider} capture",
+            user=user,
+            source=PaymentSource.PAYMENT_LINK,
+            gateway_payment=existing,
+            warn_utr_duplicate=False,
+        )
+        # Record capture even if allocation fails (savepoint isolates BusinessRuleError).
+        if link.sales_invoice_id:
+            from ledgers.services import LedgerService
+
+            try:
+                with transaction.atomic():
+                    outstanding = LedgerService.sales_invoice_outstanding(link.sales_invoice)
+                    alloc_amt = min(capture_amount, outstanding)
+                    if alloc_amt > 0:
+                        PaymentService.allocate_receipt(
+                            receipt=receipt,
+                            sales_invoice=link.sales_invoice,
+                            amount=alloc_amt,
+                            user=user,
+                        )
+            except BusinessRuleError:
+                logger.exception(
+                    "Gateway payment %s captured but allocation failed for invoice %s",
+                    provider_payment_id,
+                    link.sales_invoice_id,
+                )
+
+        existing.status = GatewayPaymentStatus.CAPTURED
+        existing.save(update_fields=["status", "updated_at"])
+        total_captured = Decimal(str(prior_captured)) + capture_amount
+        # BB-000392: PARTIALLY_PAID until fully collected.
+        if total_captured + Decimal("0.001") >= link.amount:
+            link.status = PaymentLinkStatus.PAID
+            link.paid_receipt = receipt
+        else:
+            link.status = PaymentLinkStatus.PARTIALLY_PAID
+            if not link.paid_receipt_id:
+                link.paid_receipt = receipt
+        link.updated_by = user
+        link.save(update_fields=["status", "paid_receipt", "updated_by", "updated_at"])
+        emit("payment_link.paid", document=link, user=user, event="payment_link.paid")
+        return existing
+
+    @staticmethod
+    @transaction.atomic
+    def refund_gateway_payment(*, gateway_payment, amount=None, user=None, reason=""):
+        """Full refund of a captured gateway payment: unwind allocations + reverse GL (no receipt delete)."""
+        from accounting.models import JournalEntry
+        from accounting.services import PostingService
+
+        from .models import GatewayPaymentStatus
+
+        gp = GatewayPayment.objects.select_for_update().get(pk=gateway_payment.pk)
+        if gp.status == GatewayPaymentStatus.REFUNDED:
+            return gp
+        if gp.status != GatewayPaymentStatus.CAPTURED:
+            raise BusinessRuleError("Only captured gateway payments can be refunded.")
+
+        refund_amount = Decimal(amount if amount is not None else gp.amount)
+        # Partial refunds are not supported yet — allocation/GL unwind must stay proportional.
+        if refund_amount != gp.amount:
+            raise BusinessRuleError("Only full refunds are supported. Omit amount or pass the full captured amount.")
+        if refund_amount <= 0:
+            raise BusinessRuleError("Invalid refund amount.")
+
+        company = gp.company
+        creds = decrypt_gateway_credentials(
+            getattr(company, "payment_gateway_credentials_encrypted", "") or ""
+        )
+        adapter = get_adapter(gp.provider, creds if creds else None)
+        adapter.refund(provider_payment_id=gp.provider_payment_id, amount=refund_amount)
+
+        receipts = list(CustomerReceipt.objects.filter(gateway_payment=gp).select_for_update())
+        for receipt in receipts:
+            for alloc in list(receipt.allocations.select_for_update().filter(reversed_at__isnull=True)):
+                PaymentService.reverse_allocation(allocation=alloc, user=user)
+            note = (receipt.notes or "").strip()
+            refund_note = f"Refunded {refund_amount} via {gp.provider}" + (f": {reason}" if reason else "")
+            receipt.notes = f"{note}\n{refund_note}".strip() if note else refund_note
+            # BB-000457: mark REFUNDED so ledger does not treat as unallocated advance.
+            receipt.status = ReceiptStatus.REFUNDED
+            receipt.updated_by = user
+            receipt.save(update_fields=["notes", "status", "updated_by", "updated_at"])
+
+            if getattr(company, "accounting_enabled", False):
+                entry = (
+                    JournalEntry.objects.filter(
+                        company=company,
+                        source_type="CUSTOMER_RECEIPT",
+                        source_id=receipt.id,
+                        purpose="CREATE",
+                        status=JournalEntry.Status.POSTED,
+                    )
+                    .select_for_update()
+                    .first()
+                )
+                if entry:
+                    PostingService.reverse(entry, user=user)
+
+        # BB-000458: reopen payment link so customer can re-pay after full refund.
+        link = None
+        if gp.payment_link_id:
+            link = PaymentLink.objects.select_for_update().filter(pk=gp.payment_link_id).first()
+        if link is not None:
+            link.status = (
+                PaymentLinkStatus.SENT
+                if link.status
+                in (
+                    PaymentLinkStatus.PAID,
+                    PaymentLinkStatus.PARTIALLY_PAID,
+                    PaymentLinkStatus.SENT,
+                )
+                else PaymentLinkStatus.CREATED
+            )
+            link.paid_receipt = None
+            link.updated_by = user
+            link.save(update_fields=["status", "paid_receipt", "updated_by", "updated_at"])
+
+        gp.status = GatewayPaymentStatus.REFUNDED
+        gp.updated_by = user
+        raw = gp.raw_payload if isinstance(gp.raw_payload, dict) else {}
+        raw = {**raw, "refund_amount": str(refund_amount), "refund_reason": reason}
+        gp.raw_payload = raw
+        gp.save(update_fields=["status", "raw_payload", "updated_by", "updated_at"])
+        emit("gateway_payment.refunded", document=gp, user=user, event="gateway_payment.refunded")
+        return gp
+
+    @staticmethod
+    def share_payment_link(*, link, channel, recipient, user=None, public_base_url=""):
+        from core.services.notifications import NotificationService
+
+        if link.status in (PaymentLinkStatus.CANCELLED, PaymentLinkStatus.EXPIRED):
+            raise BusinessRuleError("Cannot share a cancelled or expired link.")
+        path = f"/pay/{link.token}"
+        url = (public_base_url.rstrip("/") + path) if public_base_url else path
+        body = (
+            f"Please pay {link.amount} using this secure BizBoard link: {url}"
+            + (f" (Invoice {link.sales_invoice.number})" if link.sales_invoice_id else "")
+        )
+        notification = NotificationService.send(
+            company=link.company,
+            channel=channel,
+            recipient=recipient,
+            subject=f"Payment request — {link.company.name}",
+            body=body,
+            user=user,
+        )
+        if link.status == PaymentLinkStatus.CREATED:
+            link.status = PaymentLinkStatus.SENT
+            link.updated_by = user
+            link.save(update_fields=["status", "updated_by", "updated_at"])
+        return notification
+
+    @staticmethod
+    def payment_health(*, company):
+        from datetime import timedelta
+
+        from django.db.models import Count
+        from ledgers.services import LedgerService
+
+        alerts = []
+        ar = LedgerService.bulk_customer_outstanding(company) if hasattr(LedgerService, "bulk_customer_outstanding") else {}
+        total_ar = sum(ar.values(), Decimal("0")) if isinstance(ar, dict) else Decimal("0")
+        if not (company.upi_id or "").strip() and total_ar > 0:
+            alerts.append(
+                {
+                    "code": "UPI_ID_MISSING",
+                    "severity": "critical",
+                    "message": "Company UPI ID is missing while open receivables exist.",
+                }
+            )
+
+        dup_utrs = (
+            CustomerReceipt.objects.filter(company=company)
+            .exclude(utr="")
+            .values("utr")
+            .annotate(c=Count("id"))
+            .filter(c__gt=1)
+        )
+        for row in dup_utrs[:20]:
+            alerts.append(
+                {
+                    "code": "DUPLICATE_UTR",
+                    "severity": "critical",
+                    "message": f"UTR {row['utr']} appears on {row['c']} receipts.",
+                    "utr": row["utr"],
+                }
+            )
+
+        # Open completed invoices without payment link
+        from sales.models import SalesInvoice
+
+        open_invs = SalesInvoice.objects.filter(company=company, status__in=("COMPLETED", "RETURNED"))[:50]
+        for inv in open_invs:
+            outstanding = LedgerService.sales_invoice_outstanding(inv)
+            if outstanding <= 0:
+                continue
+            if not PaymentLink.objects.filter(
+                company=company,
+                sales_invoice=inv,
+                status__in=(PaymentLinkStatus.CREATED, PaymentLinkStatus.SENT, PaymentLinkStatus.PAID),
+            ).exists() and not (company.upi_id or "").strip():
+                alerts.append(
+                    {
+                        "code": "OPEN_INVOICE_NO_LINK_OR_UPI",
+                        "severity": "warning",
+                        "message": f"Invoice {inv.number} has outstanding {outstanding} with no payment link and no company UPI.",
+                        "invoice_id": inv.id,
+                    }
+                )
+                break  # one sample warning is enough for health strip
+
+        unmatched = BankStatementLine.objects.filter(
+            company=company,
+            match_status__in=(BankLineMatchStatus.UNMATCHED, BankLineMatchStatus.SUGGESTED),
+            statement__status=BankStatementStatus.COMMITTED,
+        )
+        aging = {"days_0_7": 0, "days_8_30": 0, "days_30_plus": 0}
+        today = timezone.localdate()
+        for line in unmatched.only("txn_date"):
+            days = (today - line.txn_date).days
+            if days <= 7:
+                aging["days_0_7"] += 1
+            elif days <= 30:
+                aging["days_8_30"] += 1
+            else:
+                aging["days_30_plus"] += 1
+
+        return {
+            "alerts": alerts,
+            "summary": {
+                "critical": sum(1 for a in alerts if a["severity"] == "critical"),
+                "warning": sum(1 for a in alerts if a["severity"] == "warning"),
+                "info": sum(1 for a in alerts if a["severity"] == "info"),
+            },
+            "unmatched_aging": aging,
+        }

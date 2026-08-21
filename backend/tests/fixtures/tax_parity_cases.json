@@ -258,5 +258,88 @@
       "grandTotal": 112,
       "roundOff": 0
     }
+  },
+  {
+    "id": "inclusive_line_118_18",
+    "level": "line",
+    "priceMode": "INCLUSIVE",
+    "quantity": 1,
+    "unitPrice": 118,
+    "unitPriceInclusive": 118,
+    "gstRate": 18,
+    "intraState": true,
+    "discountPercent": 0,
+    "expected": {
+      "taxableAmount": 100,
+      "cgst": 9,
+      "sgst": 9,
+      "igst": 0,
+      "lineTotal": 118,
+      "exclusiveUnitPrice": 100
+    }
+  },
+  {
+    "id": "inclusive_line_discount_10",
+    "level": "line",
+    "priceMode": "INCLUSIVE",
+    "quantity": 1,
+    "unitPrice": 118,
+    "unitPriceInclusive": 118,
+    "gstRate": 18,
+    "intraState": true,
+    "discountPercent": 10,
+    "expected": {
+      "taxableAmount": 90,
+      "cgst": 8.1,
+      "sgst": 8.1,
+      "igst": 0,
+      "lineTotal": 106.2,
+      "exclusiveUnitPrice": 90
+    }
+  },
+  {
+    "id": "inclusive_doc_before_tax_discount",
+    "level": "document",
+    "priceMode": "INCLUSIVE",
+    "taxEnabled": true,
+    "intraState": true,
+    "invoiceDiscount": 10,
+    "invoiceDiscountMode": "BEFORE_TAX",
+    "autoRoundOff": true,
+    "additionalCharges": 0,
+    "lines": [
+      {"quantity": 1, "unitPrice": 118, "unitPriceInclusive": 118, "gstRate": 18, "discountPercent": 0}
+    ],
+    "expected": {
+      "taxableTotal": 90,
+      "cgstTotal": 8.1,
+      "sgstTotal": 8.1,
+      "igstTotal": 0,
+      "grandTotal": 106,
+      "roundOff": -0.2
+    }
+  },
+  {
+    "id": "mixed_nil_exempt_taxable_document",
+    "level": "document",
+    "taxEnabled": true,
+    "intraState": true,
+    "invoiceDiscount": 0,
+    "invoiceDiscountMode": "AFTER_TAX",
+    "autoRoundOff": true,
+    "additionalCharges": 0,
+    "lines": [
+      {"quantity": 1, "unitPrice": 100, "gstRate": 0, "discountPercent": 0},
+      {"quantity": 1, "unitPrice": 100, "gstRate": 18, "discountPercent": 0},
+      {"quantity": 1, "unitPrice": 50, "gstRate": 0, "discountPercent": 0}
+    ],
+    "expected": {
+      "taxableTotal": 250,
+      "cgstTotal": 9,
+      "sgstTotal": 9,
+      "igstTotal": 0,
+      "grandTotal": 268,
+      "roundOff": 0
+    }
   }
 ]

@@ -1,5 +1,9 @@
 # Pilot onboarding (Phase 0)
 
+Product setup wizard design: [`docs/onboarding/NEW_USER_ONBOARDING_PLAN.md`](../onboarding/NEW_USER_ONBOARDING_PLAN.md).
+When `ENABLE_SETUP_WIZARD=1`, the product path is Register → Login → `/setup`;
+when off, onboarding remains checklist-only.
+
 1. Create Owner account / use seeded pilot user (`seed_pilot_fixtures`).
 2. Set Company + GST settings (state, GSTIN). **Save errors are shown — do not leave GSTIN blank if GST-registered.**
 3. Import CSV (products/customers/suppliers) via Settings → Import — review preview errors before commit.
@@ -19,4 +23,13 @@ Owners may amend prices/discounts/charges on completed invoices with confirmatio
 
 ## Scope honesty
 
-Pilot is **billing + inventory + derived ledgers**. Not claimed: GSTR filing, e-Invoice, full accounting, Tally sync.
+Pilot is **billing + inventory + derived ledgers**.
+
+**Feature flags** (`web/.env.example`): GSTR reports, AI insights, Tally,
+e-invoice sandbox submit, and accounting UI are off unless
+`VITE_ENABLE_*` or `VITE_PILOT_ADVANCED` is set. Accounting also needs
+`company.accountingEnabled`.
+
+**Do not claim:** live GST portal / NIC e-invoice filing (sandbox submit is
+preview only — not filed to GSTN), WhatsApp beyond share-link, full
+Manufacturing / Payroll / CRM, or multi-company.

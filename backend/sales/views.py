@@ -7,35 +7,109 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.exceptions import BusinessRuleError
+from core.idempotency import begin_record, get_record, release_record, replay_record, store_record
 from core.models import Notification
-from core.permissions import CanCancelDocuments, HasCompany
+from billing.permissions import SubscriptionWritesAllowed
+from core.permissions import (
+    CanCancelDocuments,
+    CanCreateSales,
+    CanViewSalesSurfaces,
+    HasCompany,
+    IsOwner,
+)
 from core.services.billing import compute_document_totals
-from core.services.document_numbers import DocumentNumberService
+from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 from core.services.notifications import NotificationService
 from core.services.place_of_supply import party_intra_state
 from core.viewsets import CompanyScopedViewSet
 from masters.models import Customer, Product
 from payments.models import PaymentAllocation
 
-from .models import Quotation, SalesInvoice, SalesReturn
-from .serializers import QuotationSerializer, SalesInvoiceSerializer, SalesReturnSerializer
+from .einvoice_eway_actions import InvoiceEinvoiceEwayActionsMixin
+from .models import Quotation, RecurringInvoiceSchedule, SalesInvoice, SalesReturn
+from .serializers import (
+    QuotationSerializer,
+    RecurringInvoiceScheduleSerializer,
+    SalesInvoiceSerializer,
+    SalesReturnSerializer,
+)
 from .services import SalesService, _tax_enabled
 from .tasks import generate_invoice_pdf
 
+_INVOICE_IDEMPOTENCY_TTL = 60 * 60 * 24  # 24h
 
-class SalesInvoiceViewSet(CompanyScopedViewSet):
+
+class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet):
     queryset = SalesInvoice.objects.select_related("customer").prefetch_related("items__product")
     serializer_class = SalesInvoiceSerializer
 
+    def create(self, request, *args, **kwargs):
+        """BB-000610 / BB-000730: durable Idempotency-Key with begin-of-request placeholder."""
+        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        claimed = None
+        if raw_key:
+            claimed = begin_record(
+                company=self.company, scope="sales_invoice_create", raw_key=raw_key
+            )
+            if isinstance(claimed, Response):
+                return claimed
+
+        created_ok = False
+        try:
+            response = super().create(request, *args, **kwargs)
+            if raw_key and response.status_code == status.HTTP_201_CREATED:
+                data = getattr(response, "data", None) or {}
+                if isinstance(data, dict) and isinstance(data.get("success"), bool) and "data" in data:
+                    data = data.get("data") or {}
+                created_id = data.get("id") if isinstance(data, dict) else ""
+                store_record(
+                    company=self.company,
+                    scope="sales_invoice_create",
+                    raw_key=raw_key,
+                    response=response,
+                    resource_id=str(created_id or ""),
+                )
+                created_ok = True
+            return response
+        finally:
+            # Release in-flight placeholder if create did not complete successfully.
+            if raw_key and claimed is not None and not isinstance(claimed, Response) and not created_ok:
+                release_record(
+                    company=self.company, scope="sales_invoice_create", raw_key=raw_key
+                )
+
     def get_permissions(self):
-        if getattr(self, "action", None) == "cancel":
-            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        action = getattr(self, "action", None)
+        if action == "cancel":
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
+        if action in (
+            "create", "complete", "update", "partial_update", "destroy",
+            "preview_totals", "share",
+        ):
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
+        if action in ("list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "thermal_pdf"):
+            return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
+        if action == "number_series":
+            if self.request.method == "GET":
+                return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
+            return [IsAuthenticated(), HasCompany(), IsOwner()]
+        if action in (
+            "mark_einvoice_generated",
+            "mark_eway_generated",
+            "submit_einvoice",
+            "cancel_einvoice",
+            "submit_eway",
+            "cancel_eway",
+            "prepare_einvoice",
+            "prepare_eway",
+        ):
+            return [IsAuthenticated(), HasCompany(), IsOwner()]
         return super().get_permissions()
 
     def get_queryset(self):
         qs = super().get_queryset()
         allocated = (
-            PaymentAllocation.objects.filter(sales_invoice_id=OuterRef("pk"))
+            PaymentAllocation.objects.filter(sales_invoice_id=OuterRef("pk"), reversed_at__isnull=True)
             .values("sales_invoice_id")
             .annotate(total=Sum("amount"))
             .values("total")[:1]
@@ -69,8 +143,14 @@ class SalesInvoiceViewSet(CompanyScopedViewSet):
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
     def number_series(self, request):
         company = self.company
+        # UXW2B-004: SalesInvoice.complete() assigns the real number from the
+        # GSTIN-keyed series (gstin=invoice.company_gstin.gstin), but this preview
+        # was peeking the un-keyed default series — showing "INV-00001" while the
+        # actual save used e.g. "INV-2627-F1Z5-00011". Preview with the company's
+        # current primary GSTIN so it resolves the same series completion will use.
+        gstin = resolve_series_gstin(company)
         if request.method == "GET":
-            return Response(DocumentNumberService.peek(company, "SALES_INVOICE"))
+            return Response(DocumentNumberService.peek(company, "SALES_INVOICE", gstin=gstin))
         try:
             data = DocumentNumberService.configure(
                 company,
@@ -78,6 +158,7 @@ class SalesInvoiceViewSet(CompanyScopedViewSet):
                 prefix=request.data.get("prefix"),
                 next_number=request.data.get("next_number"),
                 padding=request.data.get("padding"),
+                gstin=gstin,
             )
         except ValueError as exc:
             raise BusinessRuleError(str(exc)) from exc
@@ -158,10 +239,29 @@ class SalesInvoiceViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
-        invoice, warnings = SalesService.complete(self.get_object(), request.user)
+        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        if raw_key:
+            existing = get_record(company=self.company, scope="sales_invoice_complete", raw_key=raw_key)
+            if existing is not None:
+                return replay_record(existing)
+        confirm_rcm = str(request.data.get("confirm_sales_rcm") or "").lower() in (
+            "1", "true", "yes",
+        )
+        invoice, warnings = SalesService.complete(
+            self.get_object(), request.user, confirm_sales_rcm=confirm_rcm,
+        )
         data = self.get_serializer(invoice).data
         data["warnings"] = warnings
-        return Response(data)
+        response = Response(data)
+        if raw_key:
+            store_record(
+                company=self.company,
+                scope="sales_invoice_complete",
+                raw_key=raw_key,
+                response=response,
+                resource_id=str(invoice.pk),
+            )
+        return response
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -241,6 +341,32 @@ class SalesInvoiceViewSet(CompanyScopedViewSet):
             filename=invoice.pdf_file.original_name,
         )
 
+    @action(detail=True, methods=["get"], url_path="thermal-pdf")
+    def thermal_pdf(self, request, pk=None):
+        import io
+
+        from .pdf import render_thermal_receipt
+
+        invoice = self.get_object()
+        if invoice.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
+            raise BusinessRuleError("Thermal receipt is not available for this invoice.")
+
+        width_param = request.query_params.get("width", "80")
+        try:
+            width_mm = int(width_param)
+        except (TypeError, ValueError):
+            width_mm = 80
+        if width_mm not in (58, 80):
+            width_mm = 80
+
+        content = render_thermal_receipt(invoice, width_mm=width_mm)
+        return FileResponse(
+            io.BytesIO(content),
+            as_attachment=True,
+            filename=f"{invoice.number or invoice.pk}_thermal_{width_mm}mm.pdf",
+            content_type="application/pdf",
+        )
+
     @action(detail=True, methods=["post"])
     def share(self, request, pk=None):
         """Share via Notification Service — email or whatsapp (E4.10)."""
@@ -269,6 +395,11 @@ class SalesInvoiceViewSet(CompanyScopedViewSet):
 
         data = NotificationSerializer(notification).data
         data["pdf_url"] = pdf_path
+        # BB-000743: mode for WhatsApp honesty (cloud vs link / fallback).
+        if channel == Notification.Channel.WHATSAPP:
+            data["mode"] = getattr(notification, "delivery_mode", None) or (
+                "cloud" if notification.status == Notification.Status.SENT else "link"
+            )
         return Response(data)
 
 
@@ -277,8 +408,15 @@ class QuotationViewSet(CompanyScopedViewSet):
     serializer_class = QuotationSerializer
 
     def get_permissions(self):
-        if getattr(self, "action", None) == "cancel":
-            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        action = getattr(self, "action", None)
+        if action == "number_series":
+            return [IsAuthenticated(), HasCompany(), IsOwner()]
+        if action == "cancel":
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
+        if action in ("create", "update", "partial_update", "destroy", "convert", "convert_to_order"):
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
+        if action in ("list", "retrieve"):
+            return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         return super().get_permissions()
 
     def get_queryset(self):
@@ -287,10 +425,44 @@ class QuotationViewSet(CompanyScopedViewSet):
             qs = qs.filter(status=self.request.query_params["status"])
         return qs
 
+    @action(detail=False, methods=["get", "patch"], url_path="number-series")
+    def number_series(self, request):
+        company = self.company
+        if request.method == "GET":
+            return Response(DocumentNumberService.peek(company, "QUOTATION"))
+        try:
+            data = DocumentNumberService.configure(
+                company,
+                "QUOTATION",
+                prefix=request.data.get("prefix"),
+                next_number=request.data.get("next_number"),
+                padding=request.data.get("padding"),
+            )
+        except ValueError as exc:
+            raise BusinessRuleError(str(exc)) from exc
+        return Response(data)
+
     @action(detail=True, methods=["post"])
     def convert(self, request, pk=None):
-        invoice = SalesService.convert_quotation(self.get_object(), request.user)
+        confirm_expired = str(request.data.get("confirm_expired") or "").lower() in (
+            "true", "1", "yes",
+        )
+        invoice = SalesService.convert_quotation(
+            self.get_object(), request.user, confirm_expired=confirm_expired,
+        )
         return Response(SalesInvoiceSerializer(invoice, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=["post"], url_path="convert-to-order")
+    def convert_to_order(self, request, pk=None):
+        from .notes_serializers import SalesOrderSerializer
+
+        confirm_expired = str(request.data.get("confirm_expired") or "").lower() in (
+            "true", "1", "yes",
+        )
+        order = SalesService.convert_quotation_to_order(
+            self.get_object(), request.user, confirm_expired=confirm_expired,
+        )
+        return Response(SalesOrderSerializer(order, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -301,6 +473,35 @@ class QuotationViewSet(CompanyScopedViewSet):
 class SalesReturnViewSet(CompanyScopedViewSet):
     queryset = SalesReturn.objects.select_related("customer", "sales_invoice").prefetch_related("items__product")
     serializer_class = SalesReturnSerializer
+
+    def get_permissions(self):
+        action = getattr(self, "action", None)
+        if action == "number_series":
+            return [IsAuthenticated(), HasCompany(), IsOwner()]
+        if action == "cancel":
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
+        if action in ("create", "update", "partial_update", "destroy", "complete"):
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
+        if action in ("list", "retrieve"):
+            return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
+        return super().get_permissions()
+
+    @action(detail=False, methods=["get", "patch"], url_path="number-series")
+    def number_series(self, request):
+        company = self.company
+        if request.method == "GET":
+            return Response(DocumentNumberService.peek(company, "SALES_RETURN"))
+        try:
+            data = DocumentNumberService.configure(
+                company,
+                "SALES_RETURN",
+                prefix=request.data.get("prefix"),
+                next_number=request.data.get("next_number"),
+                padding=request.data.get("padding"),
+            )
+        except ValueError as exc:
+            raise BusinessRuleError(str(exc)) from exc
+        return Response(data)
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -324,3 +525,35 @@ class SalesReturnViewSet(CompanyScopedViewSet):
     def cancel(self, request, pk=None):
         sales_return = SalesService.cancel_return(self.get_object(), request.user)
         return Response(self.get_serializer(sales_return).data)
+
+
+class RecurringInvoiceScheduleViewSet(CompanyScopedViewSet):
+    queryset = RecurringInvoiceSchedule.objects.select_related("customer", "company_gstin")
+    serializer_class = RecurringInvoiceScheduleSerializer
+    audit_entity = "RecurringInvoiceSchedule"
+
+    def get_permissions(self):
+        action = getattr(self, "action", None)
+        if action == "run_now":
+            return [IsAuthenticated(), HasCompany(), IsOwner()]
+        if action in ("create", "update", "partial_update", "destroy"):
+            return [IsAuthenticated(), HasCompany(), CanCreateSales()]
+        return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
+
+    @action(detail=True, methods=["post"], url_path="run-now")
+    def run_now(self, request, pk=None):
+        from django.utils import timezone
+
+        from .recurring import generate_draft_for_schedule
+
+        schedule = self.get_object()
+        run = generate_draft_for_schedule(schedule, run_date=timezone.localdate(), user=request.user)
+        if run is None:
+            raise BusinessRuleError("Schedule did not generate an invoice (inactive, locked period, or duplicate).")
+        return Response({
+            "ok": True,
+            "run_id": run.id,
+            "invoice_id": run.invoice_id,
+            "period_key": run.period_key,
+            "status": run.invoice.status if run.invoice_id else None,
+        })

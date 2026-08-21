@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { VirtualizedTable } from '@/components/VirtualizedTable';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -30,16 +31,21 @@ import {
   completeSalesInvoice,
   deleteSalesInvoice,
   downloadInvoicePdf,
-  fetchNextPage,
+  downloadInvoiceThermalPdf,
   listSalesInvoicesPage,
 } from '@/api/resources';
+import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { formatMoney } from '@/utils/money';
+import { canCreateSales } from '@/utils/permissions';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { isSetupWizardEnabled } from '@/config/features';
+
+const PAGE_SIZE = 50;
 
 function invoiceNumberLabel(inv: SalesInvoice): string {
   if (inv.number && inv.number.trim()) return inv.number;
@@ -47,12 +53,11 @@ function invoiceNumberLabel(inv: SalesInvoice): string {
 }
 
 export function SalesHistoryPage() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const qc = useQueryClient();
-  const [extraRows, setExtraRows] = useState<SalesInvoice[]>([]);
-  const [nextUrl, setNextUrl] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [active, setActive] = useState<SalesInvoice | null>(null);
   const [message, setMessage] = useState<string | null>(() => {
@@ -65,17 +70,11 @@ export function SalesHistoryPage() {
   });
 
   const query = useQuery({
-    queryKey: ['sales-invoices'],
-    queryFn: () => listSalesInvoicesPage(),
+    queryKey: ['sales-invoices', page],
+    queryFn: () => listSalesInvoicesPage({ page, pageSize: PAGE_SIZE }),
     staleTime: 0,
     refetchOnMount: 'always',
   });
-
-  useEffect(() => {
-    if (!query.data) return;
-    setExtraRows([]);
-    setNextUrl(query.data.next);
-  }, [query.data]);
 
   const closeMenu = () => {
     setMenuAnchor(null);
@@ -124,34 +123,39 @@ export function SalesHistoryPage() {
     }
   };
 
-  const busy =
-    completeMutation.isPending || cancelMutation.isPending || deleteMutation.isPending;
-
-  const loadMore = async () => {
-    if (!nextUrl) return;
-    setLoadingMore(true);
+  const runThermalPrint = async (width: 80 | 58) => {
+    if (!active) return;
+    const id = active.id;
+    closeMenu();
     try {
-      const page = await fetchNextPage<SalesInvoice>(nextUrl);
-      setExtraRows((prev) => [...prev, ...page.results]);
-      setNextUrl(page.next);
+      const blob = await downloadInvoiceThermalPdf(id, width);
+      printBlob(blob);
     } catch (err) {
       setError(getErrorMessage(err));
-    } finally {
-      setLoadingMore(false);
     }
   };
 
-  const rows = [...(query.data?.results ?? []), ...extraRows];
+  const busy =
+    completeMutation.isPending || cancelMutation.isPending || deleteMutation.isPending;
+
+  const rows = query.data?.results ?? [];
   const showLoading = query.isPending || (query.isFetching && rows.length === 0);
   const showEmpty = !showLoading && !query.isError && rows.length === 0;
+  const allowCreate = canCreateSales(user);
+  const canContinueSetup =
+    isSetupWizardEnabled() &&
+    user?.role === 'OWNER' &&
+    !user.company?.onboarding?.activationDone;
 
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.salesHistory')}</Typography>
-        <Button component={RouterLink} to="/sales/new" variant="contained">
-          {t('nav.newInvoice')}
-        </Button>
+        {allowCreate ? (
+          <Button component={RouterLink} to="/sales/new" variant="contained">
+            {t('nav.newInvoice')}
+          </Button>
+        ) : null}
       </Stack>
 
       {message ? (
@@ -176,14 +180,25 @@ export function SalesHistoryPage() {
         <EmptyState
           description={t('empty.invoices')}
           action={
-            <Button component={RouterLink} to="/sales/new" variant="contained">
-              {t('nav.newInvoice')}
-            </Button>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              {canContinueSetup ? (
+                <Button component={RouterLink} to="/setup?step=first_bill" variant="contained">
+                  {t('setup.continueSetup')}
+                </Button>
+              ) : null}
+              {allowCreate ? (
+                <Button component={RouterLink} to="/sales/new" variant={canContinueSetup ? 'outlined' : 'contained'}>
+                  {t('nav.newInvoice')}
+                </Button>
+              ) : null}
+            </Stack>
           }
         />
       ) : null}
       {rows.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
+          <VirtualizedTable rowCount={rows.length} rowHeight={52}>
+            {(virtualRows) => (
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -198,8 +213,21 @@ export function SalesHistoryPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((inv) => (
-                <TableRow key={inv.id} hover>
+              {/* Companion fix to UXW2B-007: VirtualizedTable's outer spacer reserves the
+                  full scrollable height, but only the current window of rows is rendered
+                  in normal flow — without these leading/trailing spacer rows they'd always
+                  render right after the header, so scrolling past the first screenful showed
+                  blank space instead of the (correctly computed) later rows. */}
+              {virtualRows.length > 0 ? (
+                <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden>
+                  <TableCell style={{ padding: 0, border: 0 }} colSpan={6} />
+                </TableRow>
+              ) : null}
+              {virtualRows.map((vRow) => {
+                const inv = rows[vRow.index];
+                if (!inv) return null;
+                return (
+                <TableRow key={inv.id} hover style={{ height: vRow.size }}>
                   <TableCell>{inv.invoiceDate}</TableCell>
                   <TableCell>
                     <Typography
@@ -233,15 +261,44 @@ export function SalesHistoryPage() {
                     </IconButton>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
+              {virtualRows.length > 0 ? (
+                <TableRow
+                  style={{
+                    height: Math.max(0, rows.length * 52 - virtualRows[virtualRows.length - 1].end),
+                    padding: 0,
+                    border: 0,
+                  }}
+                  aria-hidden
+                >
+                  <TableCell style={{ padding: 0, border: 0 }} colSpan={6} />
+                </TableRow>
+              ) : null}
             </TableBody>
           </Table>
+            )}
+          </VirtualizedTable>
         </Paper>
       ) : null}
-      {nextUrl ? (
-        <Button variant="outlined" disabled={loadingMore} onClick={() => void loadMore()}>
-          {t('history.loadMore')}
-        </Button>
+      {query.data && (query.data.next || page > 1) ? (
+        <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+          <Typography variant="body2" color="text.secondary">
+            {t('common.page')} {page}
+            {query.data.count ? ` / ${Math.max(1, Math.ceil(query.data.count / PAGE_SIZE))}` : ''}
+          </Typography>
+          <Button variant="outlined" size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            {t('common.previous')}
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            disabled={!query.data.next}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            {t('common.next')}
+          </Button>
+        </Stack>
       ) : null}
 
       <Menu
@@ -306,6 +363,18 @@ export function SalesHistoryPage() {
                 <PictureAsPdfOutlinedIcon fontSize="small" />
               </ListItemIcon>
               <ListItemText>{t('common.download')}</ListItemText>
+            </MenuItem>
+            <MenuItem onClick={() => void runThermalPrint(80)}>
+              <ListItemIcon>
+                <PrintOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Print receipt (80mm)</ListItemText>
+            </MenuItem>
+            <MenuItem onClick={() => void runThermalPrint(58)}>
+              <ListItemIcon>
+                <PrintOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Print receipt (58mm)</ListItemText>
             </MenuItem>
           </>
         ) : null}

@@ -39,14 +39,24 @@
 ## Place of supply blocked
 - Add customer/supplier state or GSTIN, or Owner enables “Assume local state for blank party” in GST settings (use sparingly).
 
-## Database backup / restore (BUG-733)
-- **Backup:** `docker compose exec db pg_dump -U ${POSTGRES_USER:-bizboard} ${POSTGRES_DB:-bizboard} > backup_$(date +%Y%m%d).sql`. Schedule this daily via host cron/ops tooling and copy the dump off-host (S3/other durable storage) — the `postgres_data` Docker volume alone is not a backup.
-- **Restore drill (practice this before you need it for real):**
-  1. `docker compose stop api worker` (stop writers).
-  2. `docker compose exec -T db psql -U ${POSTGRES_USER:-bizboard} ${POSTGRES_DB:-bizboard} < backup_YYYYMMDD.sql`
+## Database backup / restore (BUG-733 / Wave 16A)
+- **Backup:** `docker compose --profile backup run --rm backup` (writes gzipped dump under `./backups/`), or `docker compose exec db pg_dump -U ${POSTGRES_USER} ${POSTGRES_DB} > backup_$(date +%Y%m%d).sql`. Schedule daily via host cron/ops tooling and copy the dump off-host (S3/other durable storage) — the `postgres_data` Docker volume alone is not a backup.
+- **Restore (scripted):** `docker compose --profile restore run --rm restore` uses [`scripts/restore.sh`](../../scripts/restore.sh) against the latest `./backups/bizboard-*.sql.gz` (or `RESTORE_FILE=...`).
+- **RPO / RTO:** RPO = time since last successful off-host backup; RTO = restore script duration + `migrate` check + app start. Record both after every drill.
+- **Restore drill (practice this before you need it for real) — Final Gate:**
+  1. `docker compose stop api worker beat` (stop all writers including Celery beat).
+  2. Run restore profile (or `psql` pipe) on a scratch environment.
   3. `docker compose start api worker`, then verify via `/api/v1/health/` and a spot-check invoice/customer lookup.
-  4. Run this drill on a schedule (e.g. monthly) against a scratch environment, not just when a real incident forces it.
+  4. Date the drill in `GO_NO_GO.md`. Monthly scratch drills are ops calendar, not CI.
 - **If the Postgres volume itself is lost/corrupted:** restore the most recent dump into a fresh `db` volume; there is currently no other backup path, so the dump cadence above is the entire recovery story.
+
+## Observability (Wave 16A)
+- Set `SENTRY_DSN` (+ optional `SENTRY_RELEASE`) for Django + Celery. Frontend: `VITE_SENTRY_DSN`.
+- PagerDuty / on-call routing remains an ops Final Gate (BB-000509).
+
+## Digest-pinned deploy (Wave 16A)
+- Prefer `scripts/pin_image_digests.sh <api-ref> <web-ref>` → `docker-compose.digest.yml`.
+- Host-side digest verification each release remains Final Gate (BB-000470).
 
 ## Deploy rollback (P0-508 / E9)
 

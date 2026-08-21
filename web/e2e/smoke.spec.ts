@@ -1,23 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-
-const mockOwner = {
-  id: 1,
-  email: 'owner@bizboard.local',
-  fullName: 'Demo Owner',
-  role: 'OWNER',
-  companyId: 1,
-  canManageInventory: true,
-  canImport: true,
-};
-
-/** Seed tokens on every document load so full navigations stay authenticated. */
-async function seedMockSession(page: Page) {
-  await page.addInitScript((user) => {
-    localStorage.setItem('bizboard.access', 'mock-access');
-    localStorage.setItem('bizboard.refresh', 'mock-refresh');
-    localStorage.setItem('bizboard.user', JSON.stringify(user));
-  }, mockOwner);
-}
+import { expect, test } from '@playwright/test';
+import { loginAsOwner, loginAsViewer } from './helpers/auth';
 
 test.describe('Bizboard smoke', () => {
   test('login page renders', async ({ page }) => {
@@ -37,8 +19,17 @@ test.describe('Bizboard smoke', () => {
     await expect(page.getByRole('textbox', { name: /email/i })).toBeVisible();
   });
 
+  test('VIEWER sees limited home landing (BB-000439 / BB-000528)', async ({ page }) => {
+    await loginAsViewer(page);
+    await page.goto('/');
+    await expect(page.getByText(/welcome to bizboard|limited access/i).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText(/access denied|forbidden|403/i)).toHaveCount(0);
+  });
+
   test('authenticated templates route resolves', async ({ page }) => {
-    await seedMockSession(page);
+    await loginAsOwner(page);
     await page.goto('/settings/templates');
     await expect(page).toHaveURL(/\/settings\/templates/);
     await expect(page).not.toHaveURL(/\/settings\/invoice-templates/);
@@ -46,21 +37,21 @@ test.describe('Bizboard smoke', () => {
   });
 
   test('purchase bill upload is reachable for import-capable users', async ({ page }) => {
-    await seedMockSession(page);
+    await loginAsOwner(page);
     await page.goto('/purchases/bill-upload');
     await expect(page).toHaveURL(/\/purchases\/bill-upload/);
     await expect(page.getByRole('heading', { name: /bill|upload/i })).toBeVisible({ timeout: 15_000 });
   });
 
   test('completed invoice edit freezes party Change', async ({ page }) => {
-    await seedMockSession(page);
+    await loginAsOwner(page);
     await page.goto('/sales/history/1/edit');
     await expect(page.getByText(/Rahul Stores/i).first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: /^Change$/i })).toHaveCount(0);
   });
 
   test('new invoice templates link points to /settings/templates', async ({ page }) => {
-    await seedMockSession(page);
+    await loginAsOwner(page);
     await page.goto('/sales/new');
     await page.getByRole('main').getByRole('button', { name: /settings/i }).click();
     await expect(page.locator('a[href="/settings/templates"]').first()).toBeVisible({ timeout: 10_000 });

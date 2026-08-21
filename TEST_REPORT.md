@@ -1,3 +1,5 @@
+> **Historical (2026-07-24).** Superseded for decision-making by `docs/reviews/` (2026-08-02 Scope C audit). Do not treat Criticals here as current without re-verification.
+
 # BizBoard Production Readiness — TEST REPORT
 
 > **Stale-numbers notice (BUG-729):** a follow-up pass on 2026-07-25 found

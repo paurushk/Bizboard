@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { VirtualizedTable } from '@/components/VirtualizedTable';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -27,15 +28,18 @@ import {
   cancelPurchase,
   completePurchase,
   deletePurchase,
-  fetchNextPage,
   listPurchasesPage,
 } from '@/api/resources';
+import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { PurchaseInvoice } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
+import { canCreatePurchases } from '@/utils/permissions';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+
+const PAGE_SIZE = 50;
 
 function purchaseNumberLabel(p: PurchaseInvoice): string {
   if (p.number && p.number.trim()) return p.number;
@@ -43,12 +47,11 @@ function purchaseNumberLabel(p: PurchaseInvoice): string {
 }
 
 export function PurchaseHistoryPage() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const qc = useQueryClient();
-  const [extraRows, setExtraRows] = useState<PurchaseInvoice[]>([]);
-  const [nextUrl, setNextUrl] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [active, setActive] = useState<PurchaseInvoice | null>(null);
   const [message, setMessage] = useState<string | null>(() => {
@@ -61,17 +64,11 @@ export function PurchaseHistoryPage() {
   });
 
   const query = useQuery({
-    queryKey: ['purchases'],
-    queryFn: () => listPurchasesPage(),
+    queryKey: ['purchases', page],
+    queryFn: () => listPurchasesPage({ page, pageSize: PAGE_SIZE }),
     staleTime: 0,
     refetchOnMount: 'always',
   });
-
-  useEffect(() => {
-    if (!query.data) return;
-    setExtraRows([]);
-    setNextUrl(query.data.next);
-  }, [query.data]);
 
   const closeMenu = () => {
     setMenuAnchor(null);
@@ -79,20 +76,6 @@ export function PurchaseHistoryPage() {
   };
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['purchases'] });
-
-  const loadMore = async () => {
-    if (!nextUrl) return;
-    setLoadingMore(true);
-    try {
-      const page = await fetchNextPage<PurchaseInvoice>(nextUrl);
-      setExtraRows((prev) => [...prev, ...page.results]);
-      setNextUrl(page.next);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setLoadingMore(false);
-    }
-  };
 
   const completeMutation = useMutation({
     mutationFn: (id: number) => completePurchase(id),
@@ -124,17 +107,20 @@ export function PurchaseHistoryPage() {
   const busy =
     completeMutation.isPending || cancelMutation.isPending || deleteMutation.isPending;
 
-  const rows = [...(query.data?.results ?? []), ...extraRows];
+  const rows = query.data?.results ?? [];
   const showLoading = query.isPending || (query.isFetching && rows.length === 0);
   const showEmpty = !showLoading && !query.isError && rows.length === 0;
+  const allowCreate = canCreatePurchases(user);
 
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.purchaseHistory')}</Typography>
-        <Button component={RouterLink} to="/purchases/new" variant="contained">
-          {t('nav.newPurchase')}
-        </Button>
+        {allowCreate ? (
+          <Button component={RouterLink} to="/purchases/new" variant="contained">
+            {t('nav.newPurchase')}
+          </Button>
+        ) : null}
       </Stack>
       {message ? (
         <Alert severity="success" onClose={() => setMessage(null)}>
@@ -157,14 +143,18 @@ export function PurchaseHistoryPage() {
         <EmptyState
           description="No purchases yet."
           action={
-            <Button component={RouterLink} to="/purchases/new" variant="contained">
-              {t('nav.newPurchase')}
-            </Button>
+            allowCreate ? (
+              <Button component={RouterLink} to="/purchases/new" variant="contained">
+                {t('nav.newPurchase')}
+              </Button>
+            ) : undefined
           }
         />
       ) : null}
       {rows.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
+          <VirtualizedTable rowCount={rows.length} rowHeight={52}>
+            {(virtualRows) => (
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -179,8 +169,19 @@ export function PurchaseHistoryPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((p) => (
-                <TableRow key={p.id} hover>
+              {/* Companion fix to UXW2B-007 — see SalesHistoryPage for the full explanation:
+                  without these spacer rows, scrolling past the first screenful showed blank
+                  space instead of the (correctly computed) later rows. */}
+              {virtualRows.length > 0 ? (
+                <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden>
+                  <TableCell style={{ padding: 0, border: 0 }} colSpan={6} />
+                </TableRow>
+              ) : null}
+              {virtualRows.map((vRow) => {
+                const p = rows[vRow.index];
+                if (!p) return null;
+                return (
+                <TableRow key={p.id} hover style={{ height: vRow.size }}>
                   <TableCell>{p.invoiceDate}</TableCell>
                   <TableCell>
                     <Typography
@@ -214,15 +215,44 @@ export function PurchaseHistoryPage() {
                     </IconButton>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
+              {virtualRows.length > 0 ? (
+                <TableRow
+                  style={{
+                    height: Math.max(0, rows.length * 52 - virtualRows[virtualRows.length - 1].end),
+                    padding: 0,
+                    border: 0,
+                  }}
+                  aria-hidden
+                >
+                  <TableCell style={{ padding: 0, border: 0 }} colSpan={6} />
+                </TableRow>
+              ) : null}
             </TableBody>
           </Table>
+            )}
+          </VirtualizedTable>
         </Paper>
       ) : null}
-      {nextUrl ? (
-        <Button variant="outlined" disabled={loadingMore} onClick={() => void loadMore()}>
-          {t('history.loadMore')}
-        </Button>
+      {query.data && (query.data.next || page > 1) ? (
+        <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+          <Typography variant="body2" color="text.secondary">
+            {t('common.page')} {page}
+            {query.data.count ? ` / ${Math.max(1, Math.ceil(query.data.count / PAGE_SIZE))}` : ''}
+          </Typography>
+          <Button variant="outlined" size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            {t('common.previous')}
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            disabled={!query.data.next}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            {t('common.next')}
+          </Button>
+        </Stack>
       ) : null}
 
       <Menu

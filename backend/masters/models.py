@@ -30,6 +30,8 @@ class Brand(CompanyScopedModel):
 class Unit(CompanyScopedModel):
     name = models.CharField(max_length=50)
     short_name = models.CharField(max_length=10)
+    # GSTN Unit Quantity Code for GSTR-1 Table 12 (e.g. PCS, KGS, NOS).
+    uqc_code = models.CharField(max_length=8, blank=True)
 
     class Meta:
         unique_together = [("company", "name")]
@@ -49,10 +51,37 @@ class TaxRate(CompanyScopedModel):
         return f"{self.name} ({self.rate}%)"
 
 
+class PaymentMode(CompanyScopedModel):
+    name = models.CharField(max_length=50)
+    code = models.CharField(max_length=20, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = [("company", "name")]
+
+    def __str__(self):
+        return self.name
+
+
+class ExpenseCategory(CompanyScopedModel):
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=20, blank=True)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = [("company", "name")]
+        verbose_name_plural = "expense categories"
+
+    def __str__(self):
+        return self.name
+
+
 class Customer(CompanyScopedModel):
     class Status(models.TextChoices):
         ACTIVE = "ACTIVE"
         BLOCKED = "BLOCKED"
+        INACTIVE = "INACTIVE"
 
     name = models.CharField(max_length=255, db_index=True)
     phone = models.CharField(max_length=20, blank=True, db_index=True)
@@ -65,6 +94,27 @@ class Customer(CompanyScopedModel):
     credit_limit = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     credit_days = models.PositiveIntegerField(default=0)
     notes = models.TextField(blank=True)
+    gstin_verification_status = models.CharField(max_length=16, blank=True, default="UNVERIFIED")
+    gstin_legal_name = models.CharField(max_length=255, blank=True)
+    gstin_verified_at = models.DateTimeField(null=True, blank=True)
+    gstin_raw_payload = models.JSONField(null=True, blank=True)
+    # Wave 17A: SEZ / export / regular classification for GSTR + e-invoice.
+    class TaxpayerType(models.TextChoices):
+        REGULAR = "REGULAR", "Regular"
+        SEZWP = "SEZWP", "SEZ with payment"
+        SEZWOP = "SEZWOP", "SEZ without payment"
+        EXPWP = "EXPWP", "Export with payment"
+        EXPWOP = "EXPWOP", "Export without payment"
+        DEXP = "DEXP", "Deemed export"
+        COMPOSITION = "COMPOSITION", "Composition"
+        UNREGISTERED = "UNREGISTERED", "Unregistered"
+
+    taxpayer_type = models.CharField(
+        max_length=16, choices=TaxpayerType.choices, default=TaxpayerType.REGULAR, blank=True
+    )
+    price_list = models.ForeignKey(
+        "PriceList", null=True, blank=True, on_delete=models.SET_NULL, related_name="customers"
+    )
 
     class Meta:
         ordering = ["name"]
@@ -82,6 +132,20 @@ class Customer(CompanyScopedModel):
     def __str__(self):
         return self.name
 
+    def is_referenced(self):
+        """True if the customer appears on any document or payment."""
+        return (
+            self.sales_invoices.exists()
+            or self.quotations.exists()
+            or self.sales_returns.exists()
+            or self.sales_credit_notes.exists()
+            or self.sales_debit_notes.exists()
+            or self.sales_orders.exists()
+            or self.delivery_challans.exists()
+            or self.receipts.exists()
+            or self.payment_links.exists()
+        )
+
 
 class Supplier(CompanyScopedModel):
     name = models.CharField(max_length=255, db_index=True)
@@ -92,6 +156,16 @@ class Supplier(CompanyScopedModel):
     state = models.CharField(max_length=64, blank=True)
     is_active = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
+    gstin_verification_status = models.CharField(max_length=16, blank=True, default="UNVERIFIED")
+    gstin_legal_name = models.CharField(max_length=255, blank=True)
+    gstin_verified_at = models.DateTimeField(null=True, blank=True)
+    gstin_raw_payload = models.JSONField(null=True, blank=True)
+    taxpayer_type = models.CharField(
+        max_length=16,
+        choices=Customer.TaxpayerType.choices,
+        default=Customer.TaxpayerType.REGULAR,
+        blank=True,
+    )
 
     class Meta:
         ordering = ["name"]
@@ -104,6 +178,17 @@ class Supplier(CompanyScopedModel):
 
     def __str__(self):
         return self.name
+
+    def is_referenced(self):
+        """True if the supplier appears on any document or payment."""
+        return (
+            self.purchase_invoices.exists()
+            or self.purchase_returns.exists()
+            or self.purchase_credit_notes.exists()
+            or self.purchase_debit_notes.exists()
+            or self.purchase_orders.exists()
+            or self.payments.exists()
+        )
 
 
 class Product(CompanyScopedModel):
@@ -126,6 +211,8 @@ class Product(CompanyScopedModel):
     selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     mrp = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     reorder_level = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
+    track_batch = models.BooleanField(default=False)
+    track_serial = models.BooleanField(default=False)
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE)
 
     class Meta:
@@ -157,3 +244,30 @@ class Product(CompanyScopedModel):
             or self.sales_items.exists()
             or self.purchase_items.exists()
         )
+
+
+class PriceList(CompanyScopedModel):
+    name = models.CharField(max_length=100)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [models.UniqueConstraint(fields=["company", "name"], name="uniq_price_list_per_company")]
+
+    def __str__(self):
+        return self.name
+
+
+class PriceListItem(models.Model):
+    # BB-000017: denormalized tenancy key (price_list.company).
+    company = models.ForeignKey(
+        "accounts.Company", on_delete=models.CASCADE, related_name="+", db_index=True,
+    )
+    price_list = models.ForeignKey(PriceList, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="price_list_items")
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["price_list", "product"], name="uniq_product_price_per_list")
+        ]

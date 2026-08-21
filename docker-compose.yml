@@ -1,15 +1,16 @@
+# BB-000217: POSTGRES_PASSWORD and REDIS_PASSWORD must be set in .env (no weak defaults).
 services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-bizboard}
-      POSTGRES_USER: ${POSTGRES_USER:-bizboard}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bizboard}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bizboard}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -17,30 +18,50 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
 
-  api:
+  # BB-000714: one-shot migrate via profile (match prod) — not on api start.
+  #   docker compose --profile migrate run --rm migrate
+  migrate:
+    profiles: ["migrate"]
     build: ./backend
-    # BUG-708/709: no restart policy meant a single OOM-kill or unhandled
-    # exception left the container dead until someone noticed; no healthcheck
-    # meant nginx could start proxying to a not-yet-ready Django process.
-    restart: unless-stopped
-    command: >
-      sh -c "python manage.py migrate &&
-             gunicorn config.wsgi:application --bind 0.0.0.0:8000"
     env_file:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-bizboard}:${POSTGRES_PASSWORD:-bizboard}@db:5432/${POSTGRES_DB:-bizboard}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      # BB-000710: default off; env_file / shell can override (do not hard-pin "0").
+      POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-0}
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    # BB-000714: api must NOT migrate on start — use `--profile migrate` first.
+    command: >
+      gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout 120
+    # BB-000314: required:false for local/dev; a prod overlay should set required:true.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      # BB-000710: compose POSTGRES_USER is typically a superuser — default RLS off.
+      # Use ${POSTGRES_RLS_ENABLED:-0} so .env / env_file can enable RLS without editing compose.
+      POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-0}
     volumes:
       - media_data:/app/media
     depends_on:
@@ -49,7 +70,8 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')"]
+      # BB-000218/294: readiness — DB + cache + Celery workers (see HealthView ?ready=1).
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/?ready=1')"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -59,12 +81,15 @@ services:
     build: ./backend
     restart: unless-stopped
     command: celery -A config worker -l info
+    # BB-000314: required:false for local/dev; a prod overlay should set required:true.
     env_file:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-bizboard}:${POSTGRES_PASSWORD:-bizboard}@db:5432/${POSTGRES_DB:-bizboard}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      # BB-000710: allow env_file to win over a hard-coded "0".
+      POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-0}
     volumes:
       - media_data:/app/media
     depends_on:
@@ -72,9 +97,108 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Dockerfile HEALTHCHECK hits :8000/api/v1/health/ — worker has no gunicorn.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"from config.celery import app; app.broker_connection().ensure_connection(max_retries=1)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 25s
+
+  beat:
+    # BB-000636: run exactly one beat replica. Do not `compose up --scale beat=N`.
+    build: ./backend
+    restart: unless-stopped
+    command: celery -A config beat -l info
+    # BB-000314: required:false for local/dev; a prod overlay should set required:true.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-0}
+    volumes:
+      - media_data:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"from config.celery import app; app.broker_connection().ensure_connection(max_retries=1)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 25s
+
+  backup:
+    profiles: ["backup"]
+    image: postgres:17-alpine
+    restart: "no"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Wave 16A: restore latest dump (ops must still record dated restore drill).
+  restore:
+    profiles: ["restore"]
+    image: postgres:17-alpine
+    restart: "no"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      RESTORE_FILE: ${RESTORE_FILE:-}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/restore.sh:/restore.sh:ro
+    entrypoint: ["/bin/sh", "/restore.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Optional ClamAV for OCR/media (Wave 16A). App fail-opens with alert if unreachable.
+  clamav:
+    profiles: ["clamav"]
+    image: clamav/clamav:1.4
+    restart: unless-stopped
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        VITE_ENABLE_ACCOUNTING: ${VITE_ENABLE_ACCOUNTING:-true}
+        VITE_ENABLE_AI: ${VITE_ENABLE_AI:-true}
+        VITE_ENABLE_TALLY: ${VITE_ENABLE_TALLY:-true}
+        VITE_ENABLE_GSTR: ${VITE_ENABLE_GSTR:-true}
+        VITE_ENABLE_EINVOICE_SUBMIT: ${VITE_ENABLE_EINVOICE_SUBMIT:-true}
+        VITE_ENABLE_POS: ${VITE_ENABLE_POS:-true}
+        VITE_ENABLE_MANUFACTURING: ${VITE_ENABLE_MANUFACTURING:-true}
+        VITE_ENABLE_PAYROLL: ${VITE_ENABLE_PAYROLL:-true}
+        VITE_ENABLE_CRM: ${VITE_ENABLE_CRM:-true}
     restart: unless-stopped
     depends_on:
       - api
@@ -96,4 +220,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  # BB-000521: shared media has no built-in AV scan — optional clamav profile can mount here.
   media_data:

@@ -1,0 +1,85 @@
+BB-000463	P1	3-5d	fetchAllPages still used across money list helpers despite BB-000427 Resolved
+BB-000464	P1	0.5d	web/nginx.conf retains style-src unsafe-inline while root nginx/default.conf har
+BB-000465	P1	1d honesty / 15d+ FIFO	Company.inventory_valuation_method still offers FIFO while COGS forces WAVG
+BB-000466	P1	5-10d	Dual ledger architecture remains (document AR/AP vs optional GL) without control
+BB-000467	P1	10-20d	No PostgreSQL RLS — tenant isolation is application-only
+BB-000468	P1	Ops calendar	GO_NO_GO.md still unsigned — no CA/UAT/TLS/backup sign-off
+BB-000469	P1	2d + ops	compose backup profile exists but no scheduled restore drill automation
+BB-000470	P1	2-4d	CD pushes mutable sha tags without digest pin verification on deploy host
+BB-000471	P1	1d	Access JWT still returned in JSON body when DJANGO_ENV not production/staging
+BB-000472	P1	20-40d+	GSTR-3B ITC remains books-provisional — no GSTR-2B match engine
+BB-000473	P1	40-80d+	Live IRP/e-Way adapters still raise BusinessRuleError — production statutory dea
+BB-000474	P1	5-8d	PhasePages.tsx ~73KB god-module still hosts multiple accounting/report surfaces
+BB-000475	P1	8-12d	NewInvoicePage / NewPurchasePage ~69KB editors remain unsplit
+BB-000476	P1	8-15d	sales/services.py ~47KB god-service — sales/returns/challans/COGS in one module
+BB-000477	P1	5d+	No load / soak test evidence for shared-DB 10k-tenant target
+BB-000478	P1	1-3d	Request JSON logs omit latency, user_id, company_id — weak incident response
+BB-000479	P1	3-5d	Partial gateway refunds unsupported — allocation/GL cannot proportion
+BB-000480	P1	0.5d	Quotations/returns list routes require canCreateSales — viewers with financial r
+BB-000481	P2	15-30d	GSTR-9 builder remains minimal FY aid — not full annual return engine
+BB-000482	P2	10-20d	Composition CMP-08 / GSTR-4 aids absent — composition dealers blocked from regul
+BB-000483	P2	10d	SEZ / export / deemed export GST treatments not first-class
+BB-000484	P2	0.5d copy / 60d+ sync	Tally integration is CSV/XLSX migration — not bidirectional live sync
+BB-000485	P2	0.5d	WhatsApp remains wa.me deep link — not WhatsApp Business API
+BB-000486	P2	30d+	No native mobile app — responsive web only
+BB-000487	P2	20d+	Multi-warehouse ≠ multi-branch GSTIN / multi-company
+BB-000488	P2	3-5d	AI assistant tax refusal regex bypass via synonyms/typos/Indic
+BB-000489	P2	2d	OCR bill upload depends on LLM — no confidence threshold hard-stop before comple
+BB-000490	P2	2d	Fixed asset monthly depreciation Celery task isolates failures but no per-compan
+BB-000491	P2	3d	No idempotency-Key support on document complete APIs
+BB-000492	P2	2d	Search endpoints may still be heavier than throttle alone justifies at tenant sc
+BB-000493	P2	10d	Frontend vitest coverage thin vs page surface area
+BB-000494	P2	1d	E2E smoke can seed localStorage user — not full cookie auth path
+BB-000495	P2	2d	Accessibility: many MUI dialogs/pages lack audited axe CI gate
+BB-000496	P2	10d	i18n English-only — no Hindi for MSME target
+BB-000497	P2	1d	Password policy relies on Django defaults — no breached-password check
+BB-000498	P2	1d	Invite tokens use Django signing — OK entropy but no one-time consume flag on me
+BB-000499	P2	2d	FileAsset upload MIME allowlists exist — content sniffing vs extension spoof res
+BB-000500	P2	0.5d	Admin enabled when DEBUG — production ADMIN_ENABLED default off but path may sti
+BB-000501	P2	0.5d	CORS_ALLOW_CREDENTIALS true with origins from env — wildcard misconfig risk
+BB-000502	P2	0.5d	SQLite still default when DATABASE_URL absent — accidental non-prod DB in shared
+BB-000503	P2	0.5d	Gunicorn workers=2 hardcoded in compose — no concurrency tuning guide
+BB-000504	P2	0.5d	No read replicas / statement timeout defaults documented for PG
+BB-000505	P2	5d	Reporting gst_returns.py ~40KB complex builder — high defect density risk
+BB-000506	P2	3d	Payments views.py ~38KB mixes webhooks, recon, settings, links
+BB-000507	P2	5d	Hypothesis/property tests sparse outside money core
+BB-000508	P2	1d	Dependabot enabled but no auto-merge policy / SLSA for Actions pins
+BB-000509	P2	1d ops	Sentry optional — error budget / alert routing not codified
+BB-000510	P2	2d	BooksHealth / GstHealth warnings not forced before period close
+BB-000511	P2	depends on BB-000457	Credit limit exposure uses unallocated receipts — interacts badly with refund ph
+BB-000512	P2	3d	Delivery challan / SO reservation FEFO paths complex — residual edge lots
+BB-000513	P2	5d	No CQRS / read-model for dashboard KPIs — live aggregates on request
+BB-000514	P2	1d	Public pay page tokenized — brute force token entropy must stay high
+BB-000515	P2	3d	SMS OTP provider stub fail-closed in prod — WhatsApp/SMS delivery not production
+BB-000516	P2	0.5d	Email console backend forbidden in prod — transactional email still ops-dependen
+BB-000517	P2	1d	No formal API versioning sunset policy beyond /api/v1/
+BB-000518	P2	1d	OpenAPI/docs ENABLE_API_DOCS off when not DEBUG — good; no public schema CI diff
+BB-000519	P2	1d	Competitor gap: Zoho/TallyPrime/ERPNext still ahead on multi-company, payroll, m
+BB-000520	P2	0.5d	Root PRODUCTION_READINESS.md vs docs/reviews/21 drift risk
+BB-000521	P2	2d	Media volume shared across api/worker — no virus scan on OCR uploads
+BB-000522	P2	5d	No row-level audit for every money field change (only document CRUD audits)
+BB-000523	P2	3d	Cost centers optional — financial reports may ignore CC dimensions
+BB-000524	P2	0.5d copy	Bank recon CSV only — no account aggregator / AA / net banking fetch
+BB-000525	P2	0.5d	Razorpay only enabled gateway in prod list — Cashfree/PayU disabled stubs
+BB-000526	P2	3d	Frontend feature flags build-time only — cannot kill switch without redeploy
+BB-000527	P2	10d	CompanyUser single active membership — no multi-company user switcher
+BB-000528	P2	1d	Viewer role financial default False — good; dashboard empty-state UX weak
+BB-000529	P2	5d	No contract tests between FE types/domain.ts and DRF serializers
+BB-000530	P2	1d	Celery task send_email_notification autoretry may duplicate sends without provid
+BB-000531	P2	1d	Insights AI monthly token budget default 500k — cost runaway if enabled
+BB-000532	P2	5d	No formal data retention / GDPR-like deletion for tenant offboarding
+BB-000533	P2	2d	H9 amend purchase/sales period hard-block residuals need continuous regression s
+BB-000534	P2	1d	Place-of-supply known-gate FE/BE — residual unknown state names still soft?
+BB-000535	P2	2d	Nil-rated / exempt / non-GST line mixes on same invoice edge cases
+BB-000536	P2	2d	E-way distance/vehicle validation residual vs NIC schema
+BB-000537	P2	1d	Manual IRN / EWB status fields allow operator override — abuse residual
+BB-000538	P3	0.5d	Demo credentials documented in README — rotate for any shared env
+BB-000539	P3	0.5d	Office temp file ~$reenShot.docx present in repo root listing historically
+BB-000540	P3	0.5d	Multiple duplicate path entries for .github workflows in git status (slash vs ba
+BB-000541	P3	0.5d	Agent worktree .claude/worktrees present — ensure not packaged
+BB-000542	P3	0.5d	stats.json Unicode status keys historically corrupted in Windows cp1252 tools
+BB-000543	P3	0.5d	CHANGELOG / EXEC summary score thrash across waves without date-stamped score se
+BB-000545	P1	1d	Purchase return cancel restores stock via ADJUSTMENT without batch/lot replay
+BB-000546	P1	0.5d	No DB statement_timeout / idle_in_transaction_session_timeout in Django OPTIONS
+BB-000547	P2	1d	CookieJWTAuthentication + Authorization JWT dual stack increases confusion and t
+BB-000549	P2	1d	Purchase return cancel does not reverse inventory GL from auto purchase CN path 

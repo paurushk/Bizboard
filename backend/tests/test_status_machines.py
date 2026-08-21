@@ -74,13 +74,18 @@ def test_completed_invoice_audited_edit_allows_line_change(tenant_a):
 
 
 def test_completed_invoice_amend_requires_owner_confirm(tenant_a):
+    from accounts.models import CompanyUser
+
     data, product, _ = _completed_invoice(tenant_a, qty="2")
     # Without confirm_amend
     resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
         "items": [{"product": product.id, "quantity": "2", "unit_price": "90"}],
     }, format="json")
     assert resp.status_code == 400
-    # Staff with confirm still blocked
+    # Staff with create-sales capability (Wave 12B RBAC gate) but not Owner: still blocked.
+    membership = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.staff)
+    membership.can_create_sales = True
+    membership.save(update_fields=["can_create_sales"])
     resp = tenant_a.staff_client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
         "confirm_amend": True,
         "items": [{"product": product.id, "quantity": "2", "unit_price": "90"}],
@@ -151,7 +156,12 @@ def test_completed_purchase_h9a_amend(tenant_a):
     }, format="json")
     assert resp.status_code == 200, resp.data
     assert Decimal(resp.data["items"][0]["unit_price"]) == Decimal("75.00")
-    # Staff blocked
+    # Staff with create-purchases capability (Wave 12B RBAC gate) but not Owner: still blocked.
+    from accounts.models import CompanyUser
+
+    membership = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.staff)
+    membership.can_create_purchases = True
+    membership.save(update_fields=["can_create_purchases"])
     resp = tenant_a.staff_client.patch(f"/api/v1/purchases/invoices/{pur['id']}/", {
         "confirm_amend": True,
         "items": [{"product": product.id, "quantity": "5", "unit_price": "70"}],
@@ -339,6 +349,44 @@ def test_purchase_return_cannot_exceed_purchased_qty(tenant_a):
         "supplier": supplier.id,
         "purchase_invoice": pur["id"],
         "items": [{"product": product.id, "quantity": "5", "unit_price": "80"}],
+    }, format="json")
+    assert ret.status_code == 201, ret.data
+    resp = tenant_a.client.post(f"/api/v1/purchases/returns/{ret.data['id']}/complete/")
+    assert resp.status_code == 400
+
+
+def test_invoice_create_idempotency_key(tenant_a):
+    """BB-000189 — Idempotency-Key returns prior invoice id for 24h."""
+    from sales.models import SalesInvoice
+
+    customer = make_customer(tenant_a.company)
+    product = make_product(tenant_a.company)
+    payload = {
+        "customer": customer.id,
+        "invoice_type": "GST",
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+    }
+    headers = {"HTTP_IDEMPOTENCY_KEY": "wave7-invoice-key-1"}
+    first = tenant_a.client.post("/api/v1/sales/invoices/", payload, format="json", **headers)
+    assert first.status_code == 201, first.data
+    first_id = first.data["id"]
+
+    second = tenant_a.client.post("/api/v1/sales/invoices/", payload, format="json", **headers)
+    assert second.status_code in (200, 201), second.data
+    assert second.data["id"] == first_id
+    assert SalesInvoice.objects.filter(company=tenant_a.company).count() == 1
+
+
+def test_gst_purchase_return_requires_invoice(tenant_a):
+    """BB-000020 — GST-registered company cannot complete orphan purchase return."""
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
+    tenant_a.company.save(update_fields=["gstin"])
+    product = make_product(tenant_a.company)
+    supplier = make_supplier(tenant_a.company)
+    add_stock(tenant_a, product, "5")
+    ret = tenant_a.client.post("/api/v1/purchases/returns/", {
+        "supplier": supplier.id,
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "80"}],
     }, format="json")
     assert ret.status_code == 201, ret.data
     resp = tenant_a.client.post(f"/api/v1/purchases/returns/{ret.data['id']}/complete/")

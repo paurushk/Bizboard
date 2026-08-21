@@ -1,0 +1,13 @@
+{
+  "period": "2026-07",
+  "description": "Golden expectations for a multi-rate B2B month used by Phase 2 tests.",
+  "lines": [
+    {"sku": "P5", "hsn": "3004", "gst_rate": "5", "unit_price": "100", "quantity": "1"},
+    {"sku": "P28", "hsn": "8471", "gst_rate": "28", "unit_price": "200", "quantity": "1"}
+  ],
+  "expected": {
+    "b2b_rates": ["5.00", "28.00"],
+    "outward_taxable": "300.00",
+    "hsn_codes": ["3004", "8471"]
+  }
+}

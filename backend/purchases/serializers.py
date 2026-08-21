@@ -6,10 +6,10 @@ from masters.models import Product
 from .models import PurchaseInvoice, PurchaseItem, PurchaseReturn, PurchaseReturnItem
 from .services import PurchaseService
 
-LINE_READONLY = ["taxable_amount", "cgst", "sgst", "igst", "line_total"]
+LINE_READONLY = ["taxable_amount", "cgst", "sgst", "igst", "cess", "line_total"]
 TOTAL_READONLY = [
     "subtotal", "discount_total", "taxable_total", "cgst_total", "sgst_total",
-    "igst_total", "round_off", "grand_total",
+    "igst_total", "cess_total", "round_off", "grand_total",
 ]
 
 
@@ -31,11 +31,11 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
         model = PurchaseItem
         fields = [
             "id", "product", "product_name", "description", "quantity",
-            "unit_price", "discount_percent", "gst_rate",
-            "hsn_code", "mrp", "unit_name",
-            "batch_no", "exp_date", "mfg_date",
+            "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
+            "hsn_code", "mrp", "unit_name", "uqc_code", "unit_price_inclusive",
+            "batch", "batch_no", "exp_date", "mfg_date", "serial_numbers",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "unit_name"]
+        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "unit_name", "uqc_code"]
         extra_kwargs = {
             "unit_price": {"required": False},
             "gst_rate": {"required": False},
@@ -54,30 +54,43 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
     class Meta:
         model = PurchaseInvoice
         fields = [
-            "id", "number", "status", "purchase_type", "supplier", "supplier_name",
+            "id", "number", "status", "purchase_type", "supplier", "supplier_name", "warehouse", "cost_center",
             "invoice_date", "due_date", "payment_terms_days",
             "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off",
             "supplier_bill_number", "notes", "terms_text",
             "include_bank_details", "include_payment_qr", "include_terms",
             "signature", "attachment", "items",
+            "is_reverse_charge", "itc_eligibility", "rcm_taxable", "rcm_cgst", "rcm_sgst", "rcm_igst",
+            "company_gstin", "price_mode",
+            "tds_section", "tds_rate", "tds_amount",
             "paid", "balance",
             "completed_at", "cancelled_at", "created_at", "updated_at",
         ] + TOTAL_READONLY
         read_only_fields = [
             "number", "status", "paid", "balance",
+            "rcm_taxable", "rcm_cgst", "rcm_sgst", "rcm_igst",
             "completed_at", "cancelled_at",
         ] + TOTAL_READONLY
+
+    def _payable(self, obj):
+        from decimal import Decimal
+
+        return max(
+            Decimal(str(obj.grand_total or 0)) - Decimal(str(getattr(obj, "tds_amount", 0) or 0)),
+            Decimal("0"),
+        )
 
     def get_balance(self, obj):
         from decimal import Decimal
 
+        payable = self._payable(obj)
         if obj.status == PurchaseInvoice.Status.DRAFT:
-            return obj.grand_total
+            return payable
         allocated = getattr(obj, "_allocated", None)
         if allocated is not None and self.context.get("view") and getattr(
             self.context["view"], "action", None
         ) == "list":
-            return max(Decimal(str(obj.grand_total or 0)) - Decimal(str(allocated or 0)), Decimal("0"))
+            return max(payable - Decimal(str(allocated or 0)), Decimal("0"))
         try:
             from ledgers.services import LedgerService
 
@@ -88,20 +101,35 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             from payments.models import PaymentAllocation
 
             allocated = (
-                PaymentAllocation.objects.filter(purchase_invoice=obj).aggregate(t=Sum("amount"))["t"]
+                PaymentAllocation.objects.filter(purchase_invoice=obj, reversed_at__isnull=True).aggregate(t=Sum("amount"))["t"]
                 or Decimal("0")
             )
-            return max(obj.grand_total - allocated, Decimal("0"))
+            return max(payable - allocated, Decimal("0"))
 
     def get_paid(self, obj):
         from decimal import Decimal
 
         balance = Decimal(str(self.get_balance(obj) or 0))
-        return max(Decimal(str(obj.grand_total or 0)) - balance, Decimal("0"))
+        return max(self._payable(obj) - balance, Decimal("0"))
 
     def validate_supplier(self, supplier):
         self.check_company_ref(supplier, "supplier")
         return supplier
+
+    def validate_company_gstin(self, company_gstin):
+        if company_gstin is not None:
+            self.check_company_ref(company_gstin, "company_gstin")
+        return company_gstin
+
+    def validate_warehouse(self, warehouse):
+        if warehouse is not None:
+            self.check_company_ref(warehouse, "warehouse")
+        return warehouse
+
+    def validate_cost_center(self, cost_center):
+        if cost_center is not None:
+            self.check_company_ref(cost_center, "cost_center")
+        return cost_center
 
     def validate_additional_charges(self, value):
         if value is not None and value < 0:
@@ -133,7 +161,17 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
     def create(self, validated_data):
         from django.db import transaction
 
+        from masters.models import Customer as _Customer
+
         items_data = validated_data.pop("items")
+        supplier = validated_data.get("supplier")
+        # Supplier reuses Customer.TaxpayerType choices (no nested enum on Supplier).
+        if (
+            supplier is not None
+            and getattr(supplier, "taxpayer_type", None) == _Customer.TaxpayerType.COMPOSITION
+            and "itc_eligibility" not in validated_data
+        ):
+            validated_data["itc_eligibility"] = PurchaseInvoice.ItcEligibility.INELIGIBLE
         # BUG-208: defer numbering to Complete, matching sales invoices.
         with transaction.atomic():
             invoice = PurchaseInvoice.objects.create(**validated_data)
@@ -165,6 +203,7 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
 
         money_fields = {
             "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off",
+            "price_mode", "is_reverse_charge",
         }
         money_changing = bool(money_fields & set(validated_data.keys()))
         items_in_request = items_data is not serializers.empty
@@ -183,6 +222,9 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             money_changing or lines_price_changing
         )
         if needs_amend:
+            from reporting.gst_periods import assert_period_allows_money_amend
+
+            assert_period_allows_money_amend(instance.company, instance.invoice_date)
             cu = get_company_user(request)
             is_owner = cu is not None and cu.role == "OWNER"
             if not confirm_amend or not is_owner:
@@ -194,6 +236,20 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         if items_data is serializers.empty:
             prepared = None
 
+        from core.models import log_money_change
+
+        for fld in ("additional_charges", "invoice_discount", "grand_total", "taxable_total"):
+            if fld in validated_data:
+                log_money_change(
+                    company=instance.company,
+                    entity_type="purchaseinvoice",
+                    entity_id=instance.pk,
+                    field=fld,
+                    old_value=getattr(instance, fld, ""),
+                    new_value=validated_data[fld],
+                    user=request.user,
+                )
+
         instance = super().update(instance, validated_data)
         user = self.context["request"].user
 
@@ -201,6 +257,25 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             if needs_amend:
                 payload = prepared if prepared is not None else existing_lines_as_items_data(instance.items)
                 PurchaseService.set_items(instance, payload, user)
+                PurchaseService.restamp_fifo_layers_for_price_amend(instance)
+                # H9: reverse prior COMPLETE journals and re-post at amended totals.
+                if instance.company.accounting_enabled:
+                    from accounting.models import JournalEntry
+                    from accounting.services import PostingService
+
+                    for entry in JournalEntry.objects.filter(
+                        company=instance.company,
+                        source_type="PURCHASE_INVOICE",
+                        source_id=instance.id,
+                        purpose="COMPLETE",
+                        status=JournalEntry.Status.POSTED,
+                    ):
+                        PostingService.reverse(entry, user, instance.invoice_date)
+                    PostingService.post_purchase(instance, user)
+                # BB-000275: money amend must dirty snapshotted GST periods.
+                from reporting.gst_periods import mark_period_dirty_if_snapshotted
+
+                mark_period_dirty_if_snapshotted(instance.company, instance.invoice_date)
             return instance
 
         if prepared is not None:
@@ -219,9 +294,15 @@ class PurchaseReturnItemSerializer(serializers.ModelSerializer):
         fields = [
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate",
+            "batch", "serial_numbers",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY
-        extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
+        extra_kwargs = {
+            "unit_price": {"required": False},
+            "gst_rate": {"required": False},
+            "batch": {"required": False, "allow_null": True},
+            "serial_numbers": {"required": False},
+        }
 
 
 class PurchaseReturnSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):

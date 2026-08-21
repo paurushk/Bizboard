@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
@@ -10,38 +11,101 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Controller, useForm } from 'react-hook-form';
 import { Navigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { createStockAdjustment, listProducts } from '@/api/resources';
+import { createStockAdjustment, listStock, listWarehouses } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
 import type { Product } from '@/types/domain';
 import { canAdjustInventory } from '@/utils/permissions';
+import { toNumber } from '@/utils/money';
+
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 
 interface FormValues {
   product: number | '';
+  adjustmentType: 'ADD' | 'REDUCE';
   quantity: number;
-  reason: string;
+  reasonPreset: string;
+  customReason: string;
+  warehouse: number | '';
 }
+
+const PRESET_REASONS = [
+  { value: 'Damaged / Defective Goods', labelKey: 'adjustments.reasons.damaged' },
+  { value: 'Physical Count Discrepancy', labelKey: 'adjustments.reasons.discrepancy' },
+  { value: 'Theft / Lost Inventory', labelKey: 'adjustments.reasons.theft' },
+  { value: 'Opening Stock Correction', labelKey: 'adjustments.reasons.opening' },
+  { value: 'Customer Return / Exchange', labelKey: 'adjustments.reasons.customerReturn' },
+  { value: 'Other Reason', labelKey: 'adjustments.reasons.other' },
+];
 
 export function StockAdjustmentPage() {
   const { user } = useAuth();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const products = useQuery({ queryKey: ['products'], queryFn: () => listProducts() });
-  const { control, handleSubmit, reset } = useForm<FormValues>({
-    defaultValues: { product: '', quantity: 0, reason: '' },
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const productSearch = useProductSearch({ selected: selectedProduct });
+  const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
+  const stockQuery = useQuery({ queryKey: ['stock'], queryFn: listStock });
+  const { control, handleSubmit, reset, setValue, watch } = useForm<FormValues>({
+    defaultValues: {
+      product: '',
+      adjustmentType: 'ADD',
+      quantity: 1,
+      reasonPreset: 'Physical Count Discrepancy',
+      customReason: '',
+      warehouse: '',
+    },
   });
+  const selectedWarehouseId = watch('warehouse');
+  const adjustmentType = watch('adjustmentType');
+  const reasonPreset = watch('reasonPreset');
+
+  const currentStockEntry = selectedProduct
+    ? (stockQuery.data ?? []).find(
+        (s) =>
+          Number(s.product) === Number(selectedProduct.id) &&
+          (!selectedWarehouseId || Number(s.warehouse) === Number(selectedWarehouseId)),
+      )
+    : null;
+  const currentRecordedQty = currentStockEntry ? toNumber(currentStockEntry.onHand) : 0;
+
+  useEffect(() => {
+    const defaultWarehouse = warehouses.data?.find((warehouse) => warehouse.isDefault);
+    if (defaultWarehouse) setValue('warehouse', defaultWarehouse.id);
+  }, [warehouses.data, setValue]);
 
   const mutation = useMutation({
-    mutationFn: (values: FormValues) =>
-      createStockAdjustment({
+    mutationFn: (values: FormValues) => {
+      const mult = values.adjustmentType === 'ADD' ? 1 : -1;
+      const finalDelta = mult * Math.abs(Number(values.quantity));
+      const reasonText =
+        values.reasonPreset === 'Other Reason' && values.customReason.trim()
+          ? values.customReason.trim()
+          : values.reasonPreset;
+
+      return createStockAdjustment({
         product: Number(values.product),
-        quantity: values.quantity,
-        reason: values.reason,
-      }),
+        quantity: finalDelta,
+        reason: reasonText,
+        warehouse: values.warehouse ? Number(values.warehouse) : undefined,
+      });
+    },
     onSuccess: () => {
-      setMessage('Stock adjustment recorded');
+      setMessage('Stock adjustment recorded successfully');
       setError(null);
-      reset({ product: '', quantity: 0, reason: '' });
+      setSelectedProduct(null);
+      productSearch.setProductQuery('');
+      void stockQuery.refetch();
+      reset({
+        product: '',
+        adjustmentType: 'ADD',
+        quantity: 1,
+        reasonPreset: 'Physical Count Discrepancy',
+        customReason: '',
+        warehouse: warehouses.data?.find((w) => w.isDefault)?.id ?? '',
+      });
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -59,44 +123,132 @@ export function StockAdjustmentPage() {
       <Typography variant="h4">{t('nav.stockAdjustment')}</Typography>
       {message ? <Alert severity="success">{message}</Alert> : null}
       {error ? <Alert severity="error">{error}</Alert> : null}
-      <Paper sx={{ p: 2, maxWidth: 520 }}>
-        <Stack spacing={2}>
+      <Paper sx={{ p: 2.5, maxWidth: 540 }}>
+        <Stack spacing={2.5}>
           <Controller
             name="product"
             control={control}
             rules={{ required: true }}
             render={({ field }) => (
               <Autocomplete<Product>
-                options={products.data ?? []}
+                options={productSearch.options}
+                loading={productSearch.isFetching}
+                filterOptions={(opts) => opts}
+                inputValue={productSearch.productQuery}
+                onInputChange={(_, v, reason) => {
+                  if (reason === 'input' || reason === 'clear') productSearch.setProductQuery(v);
+                }}
                 getOptionLabel={(o) => `${o.name} (${o.sku})`}
-                value={(products.data ?? []).find((p) => p.id === field.value) ?? null}
-                onChange={(_, v) => field.onChange(v?.id ?? '')}
+                value={selectedProduct}
+                onChange={(_, v) => {
+                  setSelectedProduct(v);
+                  field.onChange(v?.id ?? '');
+                }}
                 renderInput={(params) => (
-                  <TextField {...params} required label={t('nav.products')} />
+                  <TextField
+                    {...params}
+                    required
+                    label={t('nav.products')}
+                    helperText={productSearch.helperText}
+                  />
                 )}
               />
             )}
           />
           <Controller
+            name="warehouse"
+            control={control}
+            render={({ field }) => (
+              <TextField select label="Warehouse" value={field.value} onChange={field.onChange}>
+                {(warehouses.data ?? []).filter((w) => w.isActive !== false).map((w) => (
+                  <MenuItem key={w.id} value={w.id}>
+                    {w.name}
+                    {w.isDefault ? ' (default)' : ''}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+          />
+          {selectedProduct ? (
+            <Alert severity="info" sx={{ py: 0.5 }}>
+              {t('adjustments.currentRecordedBalance')}:{' '}
+              <strong>
+                {currentRecordedQty} {selectedProduct.unitName || 'units'}
+              </strong>
+            </Alert>
+          ) : null}
+
+          <Stack spacing={1}>
+            <Typography variant="subtitle2" color="text.secondary">
+              {t('adjustments.adjustmentType')}
+            </Typography>
+            <Controller
+              name="adjustmentType"
+              control={control}
+              render={({ field }) => (
+                <ToggleButtonGroup
+                  value={field.value}
+                  exclusive
+                  fullWidth
+                  onChange={(_, val) => val && field.onChange(val)}
+                  color="primary"
+                >
+                  <ToggleButton value="ADD" color="success">
+                    {t('adjustments.addStock')}
+                  </ToggleButton>
+                  <ToggleButton value="REDUCE" color="error">
+                    {t('adjustments.reduceStock')}
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              )}
+            />
+          </Stack>
+
+          <Controller
             name="quantity"
             control={control}
-            rules={{ validate: (v) => v !== 0 }}
+            rules={{ validate: (v) => v > 0 }}
             render={({ field }) => (
               <TextField
                 type="number"
-                label="Quantity delta (+/−)"
-                helperText="Positive increases stock; negative decreases"
+                inputProps={{ min: 1 }}
+                label={
+                  adjustmentType === 'ADD'
+                    ? t('adjustments.qtyToAdd')
+                    : t('adjustments.qtyToReduce')
+                }
                 {...field}
-                onChange={(e) => field.onChange(Number(e.target.value))}
+                onChange={(e) => field.onChange(Math.max(1, Number(e.target.value)))}
               />
             )}
           />
+
           <Controller
-            name="reason"
+            name="reasonPreset"
             control={control}
             rules={{ required: true }}
-            render={({ field }) => <TextField required label="Reason" {...field} />}
+            render={({ field }) => (
+              <TextField select label={t('adjustments.reasonSelect')} {...field}>
+                {PRESET_REASONS.map((r) => (
+                  <MenuItem key={r.value} value={r.value}>
+                    {t(r.labelKey)}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
           />
+
+          {reasonPreset === 'Other Reason' ? (
+            <Controller
+              name="customReason"
+              control={control}
+              rules={{ required: true }}
+              render={({ field }) => (
+                <TextField required label="Specify Custom Reason" {...field} />
+              )}
+            />
+          ) : null}
+
           <Button type="submit" variant="contained" disabled={mutation.isPending}>
             {t('common.save')}
           </Button>

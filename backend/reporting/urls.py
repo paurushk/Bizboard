@@ -1,14 +1,31 @@
 from django.urls import path
+from rest_framework.routers import DefaultRouter
 
 from .views import (
+    CashBookView,
+    Cmp08View,
     CustomerSalesView,
     DashboardView,
     ExportView,
+    GstCaPackView,
+    GstFilingSandboxView,
+    GstHealthView,
+    GstPeriodView,
+    Gstr1View,
+    Gstr2bIngestViewSet,
+    Gstr3bView,
+    Gstr4View,
+    Gstr9View,
     InventorySummaryView,
     ProductSalesView,
     PurchaseRegisterView,
     SalesRegisterView,
+    TcsWorksheetView,
+    TdsWorksheetView,
 )
+
+router = DefaultRouter()
+router.register("reports/gstr2b", Gstr2bIngestViewSet, basename="gstr2b")
 
 urlpatterns = [
     path("dashboard/", DashboardView.as_view(), name="dashboard"),
@@ -17,5 +34,17 @@ urlpatterns = [
     path("reports/inventory-summary/", InventorySummaryView.as_view(), name="inventory-summary"),
     path("reports/product-sales/", ProductSalesView.as_view(), name="product-sales"),
     path("reports/customer-sales/", CustomerSalesView.as_view(), name="customer-sales"),
+    path("reports/cash-book/", CashBookView.as_view(), name="cash-book"),
+    path("reports/gstr1/", Gstr1View.as_view(), name="gstr1"),
+    path("reports/gstr3b/", Gstr3bView.as_view(), name="gstr3b"),
+    path("reports/gstr9/", Gstr9View.as_view(), name="gstr9"),
+    path("reports/cmp08/", Cmp08View.as_view(), name="cmp08"),
+    path("reports/gstr4/", Gstr4View.as_view(), name="gstr4"),
+    path("reports/gst-filing-sandbox/", GstFilingSandboxView.as_view(), name="gst-filing-sandbox"),
+    path("reports/gst-health/", GstHealthView.as_view(), name="gst-health"),
+    path("reports/gst-ca-pack/", GstCaPackView.as_view(), name="gst-ca-pack"),
+    path("reports/gst-period/", GstPeriodView.as_view(), name="gst-period"),
+    path("reports/tds-worksheet/", TdsWorksheetView.as_view(), name="tds-worksheet"),
+    path("reports/tcs-worksheet/", TcsWorksheetView.as_view(), name="tcs-worksheet"),
     path("exports/<str:report>/", ExportView.as_view(), name="exports"),
-]
+] + router.urls

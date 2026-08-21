@@ -4,40 +4,83 @@ const ACCESS_KEY = 'bizboard.access';
 const REFRESH_KEY = 'bizboard.refresh';
 const USER_KEY = 'bizboard.user';
 
+/**
+ * BB-000375: access JWT is httpOnly cookie (bb_access), not readable by XSS.
+ * Memory/localStorage no longer hold access tokens.
+ */
+let sessionEstablished = false;
+
+/**
+ * BB-000030: persisted profile is display-only — never role/capabilities.
+ * AuthContext always overwrites live user state from `/auth/me`.
+ */
+export type StoredUserProfile = {
+  id: number;
+  email: string;
+  fullName: string;
+  companyName?: string;
+};
+
 export function getAccessToken(): string | null {
-  return localStorage.getItem(ACCESS_KEY);
+  // Cookie auth — Authorization header not required when withCredentials=true.
+  return sessionEstablished ? 'cookie' : null;
 }
 
+/** Refresh JWT is httpOnly cookie-only; never read from localStorage. */
 export function getRefreshToken(): string | null {
-  return localStorage.getItem(REFRESH_KEY);
+  return null;
 }
 
-export function setTokens(tokens: AuthTokens): void {
-  localStorage.setItem(ACCESS_KEY, tokens.access);
-  localStorage.setItem(REFRESH_KEY, tokens.refresh);
+export function setAccessToken(_access: string): void {
+  sessionEstablished = true;
+  try {
+    localStorage.removeItem(ACCESS_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 export function clearTokens(): void {
-  localStorage.removeItem(ACCESS_KEY);
-  localStorage.removeItem(REFRESH_KEY);
+  sessionEstablished = false;
+  try {
+    localStorage.removeItem(ACCESS_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+  } catch {
+    // ignore
+  }
 }
 
-export function getStoredUser(): User | null {
-  const raw = localStorage.getItem(USER_KEY);
-  if (!raw) return null;
+export function setTokens(tokens: AuthTokens): void {
+  setAccessToken(tokens.access);
+}
+
+export function getStoredUser(): StoredUserProfile | null {
   try {
-    return JSON.parse(raw) as User;
+    const raw = localStorage.getItem(USER_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredUserProfile;
   } catch {
     return null;
   }
 }
 
-export function setStoredUser(user: User | null): void {
-  if (!user) {
-    localStorage.removeItem(USER_KEY);
-    return;
+export function setStoredUser(user: User | StoredUserProfile | null): void {
+  try {
+    if (!user) {
+      localStorage.removeItem(USER_KEY);
+      return;
+    }
+    const profile: StoredUserProfile = {
+      id: user.id,
+      email: user.email,
+      fullName: 'fullName' in user ? user.fullName : (user as User).fullName,
+      companyName: 'companyName' in user ? (user as StoredUserProfile).companyName : undefined,
+    };
+    localStorage.setItem(USER_KEY, JSON.stringify(profile));
+  } catch {
+    // ignore
   }
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 export function clearSession(): void {
@@ -45,6 +88,6 @@ export function clearSession(): void {
   setStoredUser(null);
 }
 
-export function hasSession(): boolean {
-  return Boolean(getAccessToken() && getStoredUser());
+export function hasStoredSession(): boolean {
+  return Boolean(getStoredUser());
 }

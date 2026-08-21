@@ -44,6 +44,22 @@ DEFAULT_TERMS = (
 )
 
 
+def _is_sandbox_gsp(company) -> bool:
+    provider = (getattr(company, "gsp_provider", None) or "").strip().lower()
+    return not provider or provider == "sandbox"
+
+
+def _manual_irn_watermark(canvas, _doc):
+    """BB-000214: mark PDFs when IRN was client-attested, not GSP-verified."""
+    canvas.saveState()
+    canvas.setFillGray(0.82)
+    canvas.setFont("Helvetica-Bold", 48)
+    canvas.translate(A4[0] / 2, A4[1] / 2)
+    canvas.rotate(40)
+    canvas.drawCentredString(0, 0, "MANUAL IRN")
+    canvas.restoreState()
+
+
 def _company_address(company) -> str:
     parts = [
         company.address or "",
@@ -89,7 +105,7 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     show_tax = invoice.invoice_type != invoice.InvoiceType.NON_GST
 
     allocated = (
-        PaymentAllocation.objects.filter(sales_invoice=invoice).aggregate(t=Sum("amount"))["t"]
+        PaymentAllocation.objects.filter(sales_invoice=invoice, reversed_at__isnull=True).aggregate(t=Sum("amount"))["t"]
         or Decimal("0")
     )
     # Prefer ledger outstanding math for balance (accounts for returns).
@@ -302,11 +318,51 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
 
     # ---- Footer: QR + tax summary ----
     left_flow = []
+    # e-Invoice signed QR (when IRN generated) takes precedence over UPI QR.
+    einvoice_qr = (getattr(invoice, "einvoice_qr", None) or "").strip()
+    sandbox_gsp = _is_sandbox_gsp(company)
+    einvoice_status = getattr(invoice, "einvoice_status", None)
+    show_einvoice_qr = einvoice_status in ("GENERATED", "MANUAL_IRN") and einvoice_qr
+    if show_einvoice_qr:
+        try:
+            import qrcode
+
+            qr = qrcode.QRCode(version=None, box_size=3, border=1)
+            qr.add_data(einvoice_qr)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            left_flow.append(Image(io.BytesIO(buf.getvalue()), width=32 * mm, height=32 * mm))
+            qr_label = "<b>e-Invoice QR</b>"
+            if einvoice_status == "MANUAL_IRN":
+                qr_label += " <b>(MANUAL IRN)</b>"
+            elif sandbox_gsp:
+                qr_label += " <b>(SANDBOX)</b>"
+            left_flow.append(Paragraph(qr_label, styles["meta"]))
+            if getattr(invoice, "irn", None):
+                irn_text = f"IRN: {invoice.irn[:24]}…"
+                if einvoice_status == "MANUAL_IRN":
+                    irn_text += " (MANUAL)"
+                elif sandbox_gsp:
+                    irn_text += " (SANDBOX)"
+                left_flow.append(Paragraph(irn_text, styles["meta"]))
+        except Exception:
+            left_flow.append(Paragraph("<b>e-Invoice QR unavailable</b>", styles["meta"]))
     include_qr = getattr(invoice, "include_payment_qr", True)
-    if include_qr:
+    if include_qr and not show_einvoice_qr:
+        # Amount-lock QR to outstanding when partially paid (Phase 3 gap).
+        from ledgers.services import LedgerService
+
+        try:
+            qr_amount = LedgerService.sales_invoice_outstanding(invoice)
+        except Exception:
+            qr_amount = invoice.grand_total
+        if qr_amount is None or qr_amount < 0:
+            qr_amount = invoice.grand_total
         qr_png = build_upi_qr_png(
             company.upi_id,
-            amount=invoice.grand_total,
+            amount=qr_amount if qr_amount > 0 else invoice.grand_total,
             note=f"Invoice {invoice.number or invoice.pk}",
         )
         if qr_png:
@@ -444,5 +500,8 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     )
     story.append(sign)
 
-    doc.build(story)
+    if einvoice_status == "MANUAL_IRN":
+        doc.build(story, onFirstPage=_manual_irn_watermark, onLaterPages=_manual_irn_watermark)
+    else:
+        doc.build(story)
     return buffer.getvalue()

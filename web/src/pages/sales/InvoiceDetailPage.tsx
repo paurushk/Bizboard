@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -17,21 +21,35 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
+  amendInvoiceFilingIdentity,
   cancelSalesInvoice,
   completeSalesInvoice,
+  createPaymentLink,
+  cancelPaymentLink,
   downloadInvoicePdf,
+  downloadInvoiceThermalPdf,
   getSalesInvoice,
+  getUpiQr,
+  listAllocationsPage,
   listCustomers,
+  listPaymentLinksPage,
   shareInvoice,
+  sharePaymentLink,
+  unallocatePayment,
+  updateSalesInvoice,
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { EinvoiceEwayPanel } from '@/components/EinvoiceEwayPanel';
+import { safePaymentHref } from '@/utils/safeUrl';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PdfStatusPoller } from '@/components/PdfStatusPoller';
 import { StatusChip } from '@/components/StatusChip';
+import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { t } from '@/i18n';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canCancelDocuments } from '@/utils/permissions';
+import { isAllowedPaymentUrl, isAllowedShareUrl, openShareUrl } from '@/utils/safeUrl';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 
 export function InvoiceDetailPage() {
@@ -43,6 +61,14 @@ export function InvoiceDetailPage() {
   const [sharePhone, setSharePhone] = useState('');
   const [shareEmail, setShareEmail] = useState('');
   const [prefilled, setPrefilled] = useState(false);
+  const [amendOpen, setAmendOpen] = useState(false);
+  const [amendGstin, setAmendGstin] = useState('');
+  const [amendPos, setAmendPos] = useState('');
+  const [amendReason, setAmendReason] = useState('');
+  const [vehicleNumber, setVehicleNumber] = useState('');
+  const [transporterName, setTransporterName] = useState('');
+  const [transporterId, setTransporterId] = useState('');
+  const [transportDistanceKm, setTransportDistanceKm] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(
     () => (location.state as { paymentWarning?: string } | null)?.paymentWarning ?? null,
@@ -58,6 +84,16 @@ export function InvoiceDetailPage() {
     queryKey: ['customers'],
     queryFn: () => listCustomers(),
   });
+
+  useEffect(() => {
+    if (!query.data) return;
+    setVehicleNumber(query.data.vehicleNumber ?? '');
+    setTransporterName(query.data.transporterName ?? '');
+    setTransporterId(query.data.transporterId ?? '');
+    setTransportDistanceKm(String(query.data.transportDistanceKm ?? ''));
+    setAmendGstin(query.data.filingPartyGstin ?? '');
+    setAmendPos(query.data.filingPlaceOfSupply ?? '');
+  }, [query.data]);
 
   useEffect(() => {
     if (prefilled || !query.data) return;
@@ -86,17 +122,166 @@ export function InvoiceDetailPage() {
   });
 
   const [shareLink, setShareLink] = useState<string | null>(null);
+  const [upiQr, setUpiQr] = useState<Record<string, string> | null>(null);
+  const [upiError, setUpiError] = useState<string | null>(null);
+  const [payLinkMsg, setPayLinkMsg] = useState<string | null>(null);
+  const [linkSharePhone, setLinkSharePhone] = useState('');
+  const [linkShareEmail, setLinkShareEmail] = useState('');
+
+  const paymentLinks = useQuery({
+    queryKey: ['payment-links', invoiceId],
+    queryFn: async () => {
+      const page = await listPaymentLinksPage({ pageSize: 50 });
+      return page.results.filter(
+        (l) => l.salesInvoice === invoiceId || Number(l.salesInvoice) === invoiceId,
+      );
+    },
+    enabled: Number.isFinite(invoiceId) && (query.data?.status === 'COMPLETED' || query.data?.status === 'RETURNED'),
+  });
+
+  const allocations = useQuery({
+    queryKey: ['invoice-allocations', invoiceId],
+    queryFn: () => listAllocationsPage({ sales_invoice: invoiceId, pageSize: 50 }),
+    enabled: Number.isFinite(invoiceId) && (query.data?.status === 'COMPLETED' || query.data?.status === 'RETURNED'),
+  });
+
+  const unallocateMutation = useMutation({
+    mutationFn: (allocationId: number) => unallocatePayment(allocationId),
+    onSuccess: () => {
+      setMessage('Payment unallocated');
+      void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
+      void qc.invalidateQueries({ queryKey: ['invoice-allocations', invoiceId] });
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const transportForPanel = useMemo(
+    () => ({
+      vehicleNumber,
+      transporterName,
+      transporterId,
+      transportDistanceKm,
+    }),
+    [vehicleNumber, transporterName, transporterId, transportDistanceKm],
+  );
+
+  const upiMutation = useMutation({
+    mutationFn: () => getUpiQr({ salesInvoice: invoiceId }),
+    onSuccess: (data) => {
+      setUpiQr(data);
+      setUpiError(null);
+    },
+    onError: (err) => setUpiError(getErrorMessage(err)),
+  });
+
+  const createLinkMutation = useMutation({
+    mutationFn: () =>
+      createPaymentLink({
+        salesInvoice: invoiceId,
+        customer: query.data?.customer,
+      }),
+    onSuccess: () => {
+      setPayLinkMsg('Payment link created');
+      void qc.invalidateQueries({ queryKey: ['payment-links', invoiceId] });
+    },
+    onError: (err) => setPayLinkMsg(getErrorMessage(err)),
+  });
+
+  const cancelLinkMutation = useMutation({
+    mutationFn: (id: number) => cancelPaymentLink(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['payment-links', invoiceId] }),
+    onError: (err) => setPayLinkMsg(getErrorMessage(err)),
+  });
+
+  const shareLinkMutation = useMutation({
+    mutationFn: (payload: { id: number; channel: 'EMAIL' | 'WHATSAPP'; recipient: string }) =>
+      sharePaymentLink(payload.id, { channel: payload.channel, recipient: payload.recipient }),
+    onSuccess: (res) => {
+      setPayLinkMsg('Payment link shared');
+      if (res.shareLink) {
+        try {
+          openShareUrl(String(res.shareLink));
+        } catch {
+          setPayLinkMsg('Payment link shared (blocked unsafe URL)');
+        }
+      }
+      void qc.invalidateQueries({ queryKey: ['payment-links', invoiceId] });
+    },
+    onError: (err) => setPayLinkMsg(getErrorMessage(err)),
+  });
 
   const shareMutation = useMutation({
     mutationFn: (payload: { channel: 'EMAIL' | 'WHATSAPP'; recipient: string }) =>
       shareInvoice(invoiceId, payload),
-    onSuccess: (res) => {
-      setMessage(res.shareLink ? `Share ready` : `Share ${res.status}`);
+    onSuccess: (res, variables) => {
       setShareLink(res.shareLink ?? null);
+      if (variables.channel === 'WHATSAPP') {
+        const mode = res.mode ?? (res.status === 'SENT' ? 'cloud' : 'link');
+        if (mode === 'cloud' && res.status === 'SENT') {
+          setMessage(t('common.whatsappCloudSent'));
+          setError(null);
+        } else if (res.error) {
+          // BB-000743: Cloud attempted but fell back to wa.me — never silent.
+          setError(res.error || t('common.whatsappFallbackWarn'));
+          setMessage(t('common.whatsappFallbackWarn'));
+        } else {
+          setMessage(t('common.whatsappLinkHint'));
+          setError(null);
+        }
+      } else {
+        setMessage(res.shareLink ? `Share ready` : `Share ${res.status}`);
+      }
       // BUG-519: window.open here is frequently blocked by popup blockers
       // since it fires from an async callback, not directly from the click;
       // the link is also rendered as a clickable fallback below.
-      if (res.shareLink) window.open(res.shareLink, '_blank');
+      if (res.shareLink) {
+        const mode =
+          variables.channel === 'WHATSAPP'
+            ? (res.mode ?? (res.status === 'SENT' ? 'cloud' : 'link'))
+            : 'link';
+        if (mode !== 'cloud') {
+          try {
+            openShareUrl(res.shareLink);
+          } catch {
+            setMessage('Share ready (blocked unsafe URL)');
+          }
+        }
+      }
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const whatsappButtonHint = isRuntimeFlagEnabled('ENABLE_WHATSAPP_CLOUD')
+    ? t('common.whatsapp')
+    : t('common.whatsappLinkHint');
+
+  const transportMutation = useMutation({
+    mutationFn: () =>
+      updateSalesInvoice(invoiceId, {
+        vehicleNumber: vehicleNumber.trim(),
+        transporterName: transporterName.trim(),
+        transporterId: transporterId.trim(),
+        transportDistanceKm: transportDistanceKm.trim() || null,
+      }),
+    onSuccess: () => {
+      setMessage('Transport details saved');
+      void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const amendMutation = useMutation({
+    mutationFn: () =>
+      amendInvoiceFilingIdentity(invoiceId, {
+        filingPartyGstin: amendGstin.trim() || undefined,
+        filingPlaceOfSupply: amendPos.trim() || undefined,
+        reason: amendReason.trim(),
+      }),
+    onSuccess: () => {
+      setMessage('Filing identity amended');
+      setAmendOpen(false);
+      setAmendReason('');
+      void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -123,6 +308,18 @@ export function InvoiceDetailPage() {
     }
   }, [invoiceId]);
 
+  const handleThermalPrint = useCallback(
+    async (width: 80 | 58) => {
+      try {
+        const blob = await downloadInvoiceThermalPdf(invoiceId, width);
+        printBlob(blob);
+      } catch (err) {
+        setError(getErrorMessage(err));
+      }
+    },
+    [invoiceId],
+  );
+
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
     return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
@@ -132,6 +329,10 @@ export function InvoiceDetailPage() {
   const inv = query.data;
   const canAct = inv.status === 'COMPLETED' || inv.status === 'RETURNED';
   const showTax = inv.invoiceType === 'GST' || inv.invoiceType === 'TAX' || inv.invoiceType === 'RETAIL';
+  const showEinvoicePanel =
+    canAct && (inv.invoiceType === 'GST' || inv.invoiceType === 'TAX');
+  const isOwner = user?.role === 'OWNER';
+  const activeAllocations = (allocations.data?.results ?? []).filter((row) => !row.reversedAt);
 
   return (
     <Stack spacing={2}>
@@ -159,8 +360,16 @@ export function InvoiceDetailPage() {
         </Button>
       </Stack>
 
-      {message ? <Alert severity="success">{message}</Alert> : null}
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {message ? (
+        <Alert severity="success" role="status" aria-live="polite">
+          {message}
+        </Alert>
+      ) : null}
+      {error ? (
+        <Alert severity="error" role="alert" aria-live="assertive">
+          {error}
+        </Alert>
+      ) : null}
 
       <Paper
         elevation={0}
@@ -219,6 +428,12 @@ export function InvoiceDetailPage() {
               </Button>
               <Button variant="outlined" onClick={() => void handlePrint()}>
                 {t('billing.print')}
+              </Button>
+              <Button variant="outlined" onClick={() => void handleThermalPrint(80)}>
+                Print receipt (80mm)
+              </Button>
+              <Button variant="outlined" onClick={() => void handleThermalPrint(58)}>
+                Print receipt (58mm)
               </Button>
             </>
           ) : null}
@@ -280,6 +495,202 @@ export function InvoiceDetailPage() {
         </Paper>
       </Stack>
 
+      {canAct ? (
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary">
+            Allocations
+          </Typography>
+          <Divider sx={{ my: 1 }} />
+          {activeAllocations.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No active allocations on this invoice.
+            </Typography>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Receipt</TableCell>
+                  <TableCell align="right">Amount</TableCell>
+                  <TableCell align="right" />
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {activeAllocations.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell>#{row.receipt ?? '—'}</TableCell>
+                    <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                    <TableCell align="right">
+                      {canCancelDocuments(user) ? (
+                        <Button
+                          size="small"
+                          color="warning"
+                          disabled={unallocateMutation.isPending}
+                          onClick={() => unallocateMutation.mutate(row.id)}
+                        >
+                          Unallocate
+                        </Button>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Paper>
+      ) : null}
+
+      {canAct && toNumber(inv.balance ?? inv.grandTotal) > 0 ? (
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+          <Paper sx={{ p: 2, flex: 1 }}>
+            <Typography variant="h6" sx={{ mb: 1 }}>
+              UPI collect
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              Amount-locked QR for outstanding {formatMoney(inv.balance ?? inv.grandTotal)}.
+            </Typography>
+            {upiError ? <Alert severity="error" sx={{ mb: 1 }}>{upiError}</Alert> : null}
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
+              <Button
+                variant="contained"
+                size="small"
+                disabled={upiMutation.isPending}
+                onClick={() => upiMutation.mutate()}
+              >
+                Generate UPI QR
+              </Button>
+              {upiQr?.intentUrl && isAllowedPaymentUrl(String(upiQr.intentUrl)) ? (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(String(upiQr.intentUrl));
+                    setMessage('UPI intent copied');
+                  }}
+                >
+                  Copy intent link
+                </Button>
+              ) : null}
+            </Stack>
+            {upiQr?.intentUrl && isAllowedPaymentUrl(String(upiQr.intentUrl)) ? (
+              <Stack spacing={1}>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  {String(upiQr.intentUrl)}
+                </Typography>
+                {upiQr.qrPngBase64 || upiQr.qr_png_base64 ? (
+                  <Box
+                    component="img"
+                    alt="UPI QR"
+                    src={`data:image/png;base64,${upiQr.qrPngBase64 || upiQr.qr_png_base64}`}
+                    sx={{ width: 180, height: 180, border: 1, borderColor: 'divider' }}
+                  />
+                ) : null}
+                <Typography variant="caption" color="text.secondary">
+                  Amount locked: {String(upiQr.amount ?? upiQr.amountLocked ?? inv.balance)}
+                </Typography>
+              </Stack>
+            ) : null}
+          </Paper>
+          <Paper sx={{ p: 2, flex: 1 }}>
+            <Typography variant="h6" sx={{ mb: 1 }}>
+              Payment link
+            </Typography>
+            {payLinkMsg ? (
+              <Alert severity={payLinkMsg.toLowerCase().includes('created') || payLinkMsg.toLowerCase().includes('shared') ? 'success' : 'error'} sx={{ mb: 1 }}>
+                {payLinkMsg}
+              </Alert>
+            ) : null}
+            <Button
+              variant="contained"
+              size="small"
+              disabled={createLinkMutation.isPending}
+              onClick={() => createLinkMutation.mutate()}
+              sx={{ mb: 1.5 }}
+            >
+              Create payment link
+            </Button>
+            <Stack spacing={1.5}>
+              {(paymentLinks.data ?? []).map((link) => (
+                <Box key={link.id} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Chip size="small" label={link.status} color={link.status === 'PAID' ? 'success' : 'default'} />
+                    <Typography variant="body2">{formatMoney(link.amount)}</Typography>
+                    {(() => {
+                      const href =
+                        safePaymentHref(String(link.providerShortUrl || ''))
+                        || safePaymentHref(link.publicPath || `/pay/${link.token}`);
+                      return href ? (
+                        <Button size="small" href={href} target="_blank" rel="noreferrer">
+                          Open
+                        </Button>
+                      ) : null;
+                    })()}
+                    {link.status !== 'CANCELLED' && link.status !== 'PAID' && link.status !== 'EXPIRED' ? (
+                      <Button
+                        size="small"
+                        color="error"
+                        disabled={cancelLinkMutation.isPending}
+                        onClick={() => cancelLinkMutation.mutate(link.id)}
+                      >
+                        Cancel
+                      </Button>
+                    ) : null}
+                  </Stack>
+                  {link.status === 'CREATED' || link.status === 'SENT' ? (
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
+                      <TextField
+                        size="small"
+                        label={t('common.whatsapp')}
+                        value={linkSharePhone}
+                        onChange={(e) => setLinkSharePhone(e.target.value)}
+                      />
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={!linkSharePhone.trim() || shareLinkMutation.isPending}
+                        onClick={() =>
+                          shareLinkMutation.mutate({
+                            id: link.id,
+                            channel: 'WHATSAPP',
+                            recipient: linkSharePhone,
+                          })
+                        }
+                      >
+                        {t('common.whatsapp')}
+                      </Button>
+                      <TextField
+                        size="small"
+                        label="Email"
+                        value={linkShareEmail}
+                        onChange={(e) => setLinkShareEmail(e.target.value)}
+                      />
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={!linkShareEmail.trim() || shareLinkMutation.isPending}
+                        onClick={() =>
+                          shareLinkMutation.mutate({
+                            id: link.id,
+                            channel: 'EMAIL',
+                            recipient: linkShareEmail,
+                          })
+                        }
+                      >
+                        Send email
+                      </Button>
+                    </Stack>
+                  ) : null}
+                </Box>
+              ))}
+              {!paymentLinks.data?.length ? (
+                <Typography variant="body2" color="text.secondary">
+                  No links yet for this invoice.
+                </Typography>
+              ) : null}
+            </Stack>
+          </Paper>
+        </Stack>
+      ) : null}
+
       <Paper sx={{ overflow: 'auto' }}>
         <Table size="small">
           <TableHead>
@@ -331,10 +742,86 @@ export function InvoiceDetailPage() {
         </Table>
       </Paper>
 
+      {showEinvoicePanel ? (
+        <>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6" sx={{ mb: 1.5 }}>
+              Transport (e-Way)
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 1.5 }}>
+              <TextField
+                label="Vehicle no"
+                size="small"
+                value={vehicleNumber}
+                onChange={(e) => setVehicleNumber(e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Transporter name"
+                size="small"
+                value={transporterName}
+                onChange={(e) => setTransporterName(e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Transporter ID"
+                size="small"
+                value={transporterId}
+                onChange={(e) => setTransporterId(e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Distance (km)"
+                size="small"
+                value={transportDistanceKm}
+                onChange={(e) => setTransportDistanceKm(e.target.value)}
+                fullWidth
+              />
+            </Stack>
+            <Button
+              variant="outlined"
+              size="small"
+              disabled={transportMutation.isPending}
+              onClick={() => transportMutation.mutate()}
+            >
+              Save transport
+            </Button>
+          </Paper>
+          <EinvoiceEwayPanel
+            invoice={inv}
+            onError={setError}
+            onMessage={setMessage}
+            transport={transportForPanel}
+          />
+        </>
+      ) : null}
+
+      {canAct && isOwner && inv.status === 'COMPLETED' ? (
+        <Paper sx={{ p: 2 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+            <Typography variant="h6">Filing identity</Typography>
+            <Button variant="outlined" size="small" onClick={() => setAmendOpen(true)}>
+              Amend filing identity
+            </Button>
+          </Stack>
+          <Stack spacing={0.5}>
+            <Typography variant="body2">
+              Filing party GSTIN: {inv.filingPartyGstin?.trim() || '—'}
+            </Typography>
+            <Typography variant="body2">
+              Place of supply: {inv.filingPlaceOfSupply?.trim() || '—'}
+            </Typography>
+          </Stack>
+        </Paper>
+      ) : null}
+
       {canAct ? (
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" sx={{ mb: 2 }}>
             {t('common.share')}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {whatsappButtonHint}
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField
@@ -342,6 +829,11 @@ export function InvoiceDetailPage() {
               value={sharePhone}
               onChange={(e) => setSharePhone(e.target.value)}
               placeholder="9198XXXXXXXX"
+              helperText={
+                isRuntimeFlagEnabled('ENABLE_WHATSAPP_CLOUD')
+                  ? undefined
+                  : t('common.whatsappLinkHint')
+              }
               error={Boolean(sharePhone) && !/^\d{10,15}$/.test(sharePhone.replace(/\D/g, ''))}
             />
             <Button
@@ -369,17 +861,55 @@ export function InvoiceDetailPage() {
               {t('common.email')}
             </Button>
           </Stack>
-          {shareLink ? (
+          {shareLink && isAllowedShareUrl(shareLink) ? (
             <Typography variant="body2" sx={{ mt: 1 }}>
               {/* BUG-519: a popup-blocked window.open left users with no way
                   to recover the link — it's now always shown as clickable. */}
-              <a href={shareLink} target="_blank" rel="noreferrer">
+              <a href={shareLink} target="_blank" rel="noopener noreferrer">
                 {shareLink}
               </a>
             </Typography>
           ) : null}
         </Paper>
       ) : null}
+
+      <Dialog open={amendOpen} onClose={() => setAmendOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Amend filing identity</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Filing party GSTIN"
+              value={amendGstin}
+              onChange={(e) => setAmendGstin(e.target.value)}
+              helperText={`Current: ${inv.filingPartyGstin?.trim() || '—'}`}
+            />
+            <TextField
+              label="Place of supply (state code)"
+              value={amendPos}
+              onChange={(e) => setAmendPos(e.target.value)}
+              helperText={`Current: ${inv.filingPlaceOfSupply?.trim() || '—'}`}
+            />
+            <TextField
+              label="Reason"
+              required
+              multiline
+              minRows={2}
+              value={amendReason}
+              onChange={(e) => setAmendReason(e.target.value)}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAmendOpen(false)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={!amendReason.trim() || amendMutation.isPending}
+            onClick={() => amendMutation.mutate()}
+          >
+            Save amendment
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }

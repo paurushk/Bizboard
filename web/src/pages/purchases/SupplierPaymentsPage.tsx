@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -21,20 +22,36 @@ import { getErrorMessage } from '@/api/client';
 import {
   createAllocation,
   createSupplierPayment,
-  listPurchases,
-  listSupplierPayments,
+  listPurchasesPage,
+  listSupplierPaymentsPage,
   listSuppliers,
+  voidSupplierPayment,
 } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { todayIso } from '@/components/billing';
 import { t } from '@/i18n';
 import type { PaymentMode, PurchaseInvoice, Supplier } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
 
+const PAGE_SIZE = 50;
+
 export function SupplierPaymentsPage() {
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['supplier-payments'], queryFn: listSupplierPayments });
+  const [page] = useState(1);
+  const query = useQuery({
+    queryKey: ['supplier-payments', page],
+    queryFn: () => listSupplierPaymentsPage({ page, pageSize: PAGE_SIZE }),
+  });
   const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
-  const purchases = useQuery({ queryKey: ['purchases'], queryFn: () => listPurchases() });
+  const purchases = useQuery({
+    queryKey: ['purchases'],
+    queryFn: async () => {
+      const res = await listPurchasesPage({ pageSize: PAGE_SIZE });
+      return res.results;
+    },
+  });
+
+  const payments = query.data?.results ?? [];
 
   const [open, setOpen] = useState(false);
   const [supplier, setSupplier] = useState<Supplier | null>(null);
@@ -56,7 +73,7 @@ export function SupplierPaymentsPage() {
         supplier: supplier.id,
         amount: paymentAmount,
         mode,
-        paymentDate: new Date().toISOString().slice(0, 10),
+        paymentDate: todayIso(),
       });
       if (purchase && Number(allocAmount) > 0) {
         await createAllocation({
@@ -81,6 +98,16 @@ export function SupplierPaymentsPage() {
     onError: (err) => setError(getErrorMessage(err)),
   });
 
+  const voidMutation = useMutation({
+    mutationFn: (id: number) => voidSupplierPayment(id),
+    onSuccess: () => {
+      setMessage('Payment voided');
+      void qc.invalidateQueries({ queryKey: ['supplier-payments'] });
+      void qc.invalidateQueries({ queryKey: ['purchases'] });
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
   // BUG-529: only offer purchases with an outstanding balance.
   const openPurchases = (purchases.data ?? []).filter(
     (p) =>
@@ -94,7 +121,7 @@ export function SupplierPaymentsPage() {
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.supplierPayments')}</Typography>
         <Button variant="contained" onClick={() => setOpen(true)}>
-          {t('common.create')}
+          {t('phase1.newSupplierPayment')}
         </Button>
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
@@ -103,8 +130,17 @@ export function SupplierPaymentsPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.data?.length === 0 ? <EmptyState /> : null}
-      {query.data && query.data.length > 0 ? (
+      {payments.length === 0 && query.isSuccess ? (
+        <EmptyState
+          description="Record payments made to suppliers."
+          action={
+            <Button variant="contained" onClick={() => setOpen(true)}>
+              {t('phase1.newSupplierPayment')}
+            </Button>
+          }
+        />
+      ) : null}
+      {payments.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
@@ -115,10 +151,11 @@ export function SupplierPaymentsPage() {
                 <TableCell>Mode</TableCell>
                 <TableCell align="right">{t('common.amount')}</TableCell>
                 <TableCell align="right">Allocated</TableCell>
+                <TableCell align="right">{t('common.actions')}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {query.data.map((p) => (
+              {payments.map((p) => (
                 <TableRow key={p.id}>
                   <TableCell>{p.number ?? p.id}</TableCell>
                   <TableCell>{p.paymentDate}</TableCell>
@@ -126,6 +163,24 @@ export function SupplierPaymentsPage() {
                   <TableCell>{p.mode}</TableCell>
                   <TableCell align="right">{formatMoney(p.amount)}</TableCell>
                   <TableCell align="right">{formatMoney(p.allocated)}</TableCell>
+                  <TableCell align="right">
+                    {p.status && p.status !== 'POSTED' ? (
+                      <Chip size="small" label={p.status} />
+                    ) : (
+                      <Button
+                        size="small"
+                        color="warning"
+                        disabled={voidMutation.isPending}
+                        onClick={() => {
+                          if (window.confirm(t('billing.confirmVoidPayment'))) {
+                            voidMutation.mutate(p.id);
+                          }
+                        }}
+                      >
+                        Void
+                      </Button>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

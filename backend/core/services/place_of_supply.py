@@ -1,18 +1,60 @@
 """Shared helpers for document complete / place-of-supply guards."""
 
 from core.exceptions import BusinessRuleError
-from core.services.billing import is_intra_state, place_of_supply_known
+from core.services.billing import extract_state_code, is_intra_state, place_of_supply_known
+
+EXPORT_SEZ_SUPPLY_TYPES = frozenset({"SEZWP", "SEZWOP", "EXPWP", "EXPWOP", "DEXP"})
+EXPORT_POS_CODE = "96"
 
 
-def assert_place_of_supply_for_gst(*, company, party_state: str, party_gstin: str = "", tax_enabled: bool):
+def is_export_or_sez_supply(supply_type: str | None) -> bool:
+    return (supply_type or "").strip().upper() in EXPORT_SEZ_SUPPLY_TYPES
+
+
+def resolve_place_of_supply_code(
+    *,
+    party_state="",
+    party_gstin="",
+    supply_type="",
+    company=None,
+    seller_gstin="",
+    seller_state="",
+) -> str | None:
+    if is_export_or_sez_supply(supply_type):
+        return EXPORT_POS_CODE
+    code = party_state_code(party_state, party_gstin)
+    if code:
+        return code
+    if company is not None and getattr(company, "assume_local_state_for_blank_party", False):
+        return (
+            extract_state_code(seller_gstin)
+            or extract_state_code(seller_state)
+            or extract_state_code(getattr(company, "gstin", None) or "")
+            or extract_state_code(getattr(company, "state", None) or "")
+        )
+    return None
+
+
+def assert_place_of_supply_for_gst(
+    *,
+    company,
+    party_state: str,
+    party_gstin: str = "",
+    tax_enabled: bool,
+    supply_type: str = "",
+):
     """Block GST Complete when place of supply cannot be determined."""
     if not tax_enabled:
+        return
+    # Export / SEZ: POS is fixed as 96 — no party state required.
+    if is_export_or_sez_supply(supply_type):
         return
     # BUG-206: this used to also return early whenever the company itself
     # wasn't GST-registered — but an unregistered/composition company can
     # still issue a tax_enabled invoice type (TAX/RETAIL) that computes real
     # CGST/SGST/IGST, so gating on tax_enabled alone (not is_gst_registered)
     # is what actually matches whether tax is about to be computed.
+    # BB-000063: place_of_supply_known uses GSTIN digits + state-name→code map.
     if place_of_supply_known(party_state=party_state, party_gstin=party_gstin):
         return
     if getattr(company, "assume_local_state_for_blank_party", False):
@@ -23,10 +65,28 @@ def assert_place_of_supply_for_gst(*, company, party_state: str, party_gstin: st
     )
 
 
-def party_intra_state(company, party_state: str, party_gstin: str = "") -> bool:
+def party_intra_state(
+    company,
+    party_state: str,
+    party_gstin: str = "",
+    *,
+    seller_state: str = "",
+    seller_gstin: str = "",
+) -> bool:
+    """Intra/inter via normalized state codes (BB-000063), not raw free-text alone.
+
+    Unresolvable free-text (or truly blank) is treated as blank for assume_local.
+    """
+    if not place_of_supply_known(party_state=party_state, party_gstin=party_gstin):
+        return bool(getattr(company, "assume_local_state_for_blank_party", False))
     return is_intra_state(
-        company.state,
+        seller_state or company.state or "",
         party_state,
-        company_gstin=company.gstin or "",
+        company_gstin=seller_gstin or company.gstin or "",
         party_gstin=party_gstin or "",
     )
+
+
+def party_state_code(party_state: str = "", party_gstin: str = "") -> str | None:
+    """Canonical POS code: GSTIN digits 0–1 first, else mapped state name."""
+    return extract_state_code(party_gstin) or extract_state_code(party_state)

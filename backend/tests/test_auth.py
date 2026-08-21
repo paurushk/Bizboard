@@ -23,16 +23,56 @@ def test_register_creates_user_company_and_owner_membership():
         "password": "StrongPass123!",
         "state": "Karnataka",
     }, format="json")
-    assert resp.status_code == 201
-    assert "access" in resp.data and "refresh" in resp.data
+    assert resp.status_code == 200
+    # BB-000349 / BB-000389: body never exposes tokens/ids; register sets no cookies.
+    assert resp.data["access"] is None
+    assert resp.data["user_id"] is None
+    assert resp.data["company_id"] is None
+    assert "refresh" not in resp.data
+    assert resp.data["detail"]
+    from django.conf import settings
+    assert settings.JWT_REFRESH_COOKIE_NAME not in resp.cookies
+    assert settings.JWT_ACCESS_COOKIE_NAME not in resp.cookies
 
-    # Owner can immediately use the API
+    login = client.post("/api/v1/auth/login/", {
+        "email": "boss@freshmart.test",
+        "password": "StrongPass123!",
+    }, format="json")
+    assert login.status_code == 200
     auth_client = APIClient()
-    auth_client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
+    auth_client.cookies = login.cookies
     me = auth_client.get("/api/v1/auth/me/")
     assert me.status_code == 200
     assert me.data["role"] == "OWNER"
     assert me.data["company"]["name"] == "Fresh Mart"
+    assert me.data["company"]["registration_type"] == "UNREGISTERED"
+    assert me.data["company"].get("gstin", "") in ("", None)
+
+
+def test_register_existing_email_same_shape_no_tokens():
+    """BB-000349 — duplicate and new share identical body shape (all null tokens/ids)."""
+    client = APIClient()
+    first = client.post("/api/v1/auth/register/", {
+        "company_name": "Fresh Mart",
+        "email": "dup@freshmart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+    }, format="json")
+    assert first.status_code == 200
+    assert first.data["access"] is None
+
+    again = client.post("/api/v1/auth/register/", {
+        "company_name": "Other Co",
+        "email": "dup@freshmart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+    }, format="json")
+    assert again.status_code == 200
+    assert set(again.data.keys()) == set(first.data.keys())
+    assert again.data["access"] is None
+    assert again.data["user_id"] is None
+    assert again.data["company_id"] is None
+    assert again.data["detail"] == first.data["detail"]
 
 
 def test_login_returns_tokens_and_audits(tenant_a):
@@ -42,11 +82,14 @@ def test_login_returns_tokens_and_audits(tenant_a):
     }, format="json")
     assert resp.status_code == 200
     assert "access" in resp.data
-    assert "refresh" in resp.data
+    assert "refresh" not in resp.data
     assert resp.data["user"]["email"] == tenant_a.owner.email
     assert resp.data["user"]["role"] == "OWNER"
     assert resp.data["user"]["company_id"] == tenant_a.company.id
     assert AuditEvent.objects.filter(user=tenant_a.owner, action="LOGIN").exists()
+    # Refresh is httpOnly cookie only (BB-000257).
+    from django.conf import settings
+    assert settings.JWT_REFRESH_COOKIE_NAME in resp.cookies
 
 
 def test_login_wrong_password_rejected(tenant_a):
@@ -57,39 +100,80 @@ def test_login_wrong_password_rejected(tenant_a):
     assert resp.status_code == 401
 
 
-def test_otp_login_flow(tenant_a):
+def test_otp_login_flow(tenant_a, monkeypatch):
     from accounts.models import OtpChallenge
+    from accounts.otp_utils import hash_otp
+
+    # Console SMS + OTP_ENABLED (not OTP_DEBUG_ECHO) — BB-000332.
+    monkeypatch.setattr("accounts.views.secrets.randbelow", lambda n: 123456)
+    monkeypatch.setattr("django.conf.settings.OTP_ENABLED", True)
+    monkeypatch.setattr("django.conf.settings.SMS_PROVIDER", "console")
 
     client = APIClient()
     resp = client.post("/api/v1/auth/otp/request/", {"phone": tenant_a.owner.phone}, format="json")
     assert resp.status_code == 200
-    code = resp.data.get("debug_code")
-    if not code:
-        code = OtpChallenge.objects.filter(phone=tenant_a.owner.phone).latest("created_at").code
+    assert "debug_code" not in resp.data
+
+    from accounts.otp_utils import phone_lookup_values
+
+    challenge = OtpChallenge.objects.filter(
+        phone__in=phone_lookup_values(tenant_a.owner.phone),
+    ).latest("created_at")
+    assert challenge.code == hash_otp("123456")
+    assert challenge.code != "123456"
 
     bad = client.post("/api/v1/auth/otp/verify/", {"phone": tenant_a.owner.phone, "code": "000000"}, format="json")
     assert bad.status_code == 400
 
-    ok = client.post("/api/v1/auth/otp/verify/", {"phone": tenant_a.owner.phone, "code": code}, format="json")
+    ok = client.post("/api/v1/auth/otp/verify/", {"phone": tenant_a.owner.phone, "code": "123456"}, format="json")
     assert ok.status_code == 200
     assert "access" in ok.data
+    assert "refresh" not in ok.data
     assert ok.data["user"]["email"] == tenant_a.owner.email
 
 
 def test_health_is_public():
     resp = APIClient().get("/api/v1/health/")
     assert resp.status_code == 200
+    assert resp.data["status"] in ("ok", "degraded")
+    assert resp.data["version"] == "v1"
+    # BB-000358: liveness omits topology keys.
+    assert "db" not in resp.data
+    assert "celery" not in resp.data
+
+    ready = APIClient().get("/api/v1/health/?ready=1")
+    assert ready.status_code in (200, 503)
+    # BB-000626: unauthenticated ready omits topology keys.
+    assert "db" not in ready.data
+    assert "cache" not in ready.data
+    assert "celery" not in ready.data
+
+
+def test_gstr_company_throttle_returns_429(tenant_a):
+    """CompanyRateThrottle on GSTR endpoints returns 429 after the scoped rate."""
+    from unittest.mock import patch
+
+    from core.throttles import CompanyRateThrottle
+
+    cache.clear()
+    # Patch rate so we don't burn 30 real GSTR builds in CI.
+    with patch.object(CompanyRateThrottle, "get_rate", return_value="2/min"):
+        for _ in range(2):
+            resp = tenant_a.client.get("/api/v1/reports/gstr1/", {"period": "2026-07"})
+            assert resp.status_code == 200
+        throttled = tenant_a.client.get("/api/v1/reports/gstr1/", {"period": "2026-07"})
+        assert throttled.status_code == 429
 
 
 def test_staff_cannot_update_company_settings(tenant_a):
-    resp = tenant_a.staff_client.patch("/api/v1/company/", {"gstin": "29ABCDE1234F1Z5"}, format="json")
+    resp = tenant_a.staff_client.patch("/api/v1/company/", {"gstin": "29ABCDE1234F1ZW"}, format="json")
     assert resp.status_code == 403
 
 
 def test_owner_updates_company_gst_settings(tenant_a):
-    resp = tenant_a.client.patch("/api/v1/company/", {"gstin": "29ABCDE1234F1Z5"}, format="json")
+    resp = tenant_a.client.patch("/api/v1/company/", {"gstin": "29ABCDE1234F1ZW"}, format="json")
     assert resp.status_code == 200
-    assert resp.data["gstin"] == "29ABCDE1234F1Z5"
+    assert resp.data["gstin"] == "29ABCDE1234F1ZW"
 
 
 def test_invalid_gstin_rejected(tenant_a):
@@ -109,6 +193,30 @@ def test_owner_invites_staff_user(tenant_a):
     }, format="json")
     assert resp.status_code == 201
     assert resp.data["role"] == "SALES_STAFF"
+    assert resp.data["can_create_sales"] is True
+    assert resp.data["can_create_payments"] is True
+
+
+def test_invite_sales_staff_can_omit_create_flags(tenant_a):
+    resp = tenant_a.client.post("/api/v1/company/users/", {
+        "email": "seller-defaults@alpha.test", "password": "StrongPass123!",
+        "role": "SALES_STAFF",
+    }, format="json")
+    assert resp.status_code == 201, resp.data
+    assert resp.data["can_create_sales"] is True
+    assert resp.data["can_create_payments"] is True
+
+
+def test_invite_sales_staff_respects_explicit_false_create_flags(tenant_a):
+    resp = tenant_a.client.post("/api/v1/company/users/", {
+        "email": "seller-locked@alpha.test", "password": "StrongPass123!",
+        "role": "SALES_STAFF",
+        "can_create_sales": False,
+        "can_create_payments": False,
+    }, format="json")
+    assert resp.status_code == 201, resp.data
+    assert resp.data["can_create_sales"] is False
+    assert resp.data["can_create_payments"] is False
 
 
 def test_cannot_attach_existing_user_to_company_without_consent(tenant_a, tenant_b):
@@ -116,10 +224,14 @@ def test_cannot_attach_existing_user_to_company_without_consent(tenant_a, tenant
     create an active membership for them with no consent."""
     resp = tenant_a.client.post("/api/v1/company/users/", {
         "email": tenant_b.owner.email, "password": "SomeoneElsesPass1!",
-        "role": "OWNER",
+        "role": "SALES_STAFF",
     }, format="json")
-    assert resp.status_code == 400
-    assert not tenant_b.owner.company_memberships.filter(company=tenant_a.company).exists()
+    # Consent invite: 201 with inactive membership + invite token (not a silent active join).
+    assert resp.status_code == 201, resp.data
+    assert resp.data.get("consent_required") is True
+    membership = tenant_b.owner.company_memberships.filter(company=tenant_a.company).first()
+    assert membership is not None
+    assert membership.is_active is False
 
 
 def test_duplicate_phone_rejected_at_creation(tenant_a):
@@ -146,21 +258,21 @@ def test_otp_request_response_identical_for_unknown_and_known_phone(tenant_a):
     assert "debug_code" not in unknown.data
 
 
-@override_settings(OTP_DEBUG_ECHO=False)
+@override_settings(OTP_DEBUG_ECHO=False, OTP_ENABLED=False, SMS_PROVIDER="console")
 def test_otp_request_blocked_outside_debug(tenant_a):
-    """BUG-102 — no real SMS gateway is wired up, so OTP must not report
-    success outside local development."""
+    """BUG-102 / BB-000332 — OTP off when not enabled and no real SMS provider."""
     client = APIClient()
     resp = client.post("/api/v1/auth/otp/request/", {"phone": tenant_a.owner.phone}, format="json")
     assert resp.status_code == 400
 
 
-def test_otp_verify_locks_out_after_max_attempts(tenant_a):
-    from accounts.models import OtpChallenge
+def test_otp_verify_locks_out_after_max_attempts(tenant_a, monkeypatch):
+    monkeypatch.setattr("accounts.views.secrets.randbelow", lambda n: 654321)
+    monkeypatch.setattr("django.conf.settings.OTP_ENABLED", True)
+    monkeypatch.setattr("django.conf.settings.SMS_PROVIDER", "console")
 
     client = APIClient()
     client.post("/api/v1/auth/otp/request/", {"phone": tenant_a.owner.phone}, format="json")
-    challenge = OtpChallenge.objects.filter(phone=tenant_a.owner.phone).latest("created_at")
 
     for _ in range(5):
         resp = client.post(
@@ -169,7 +281,7 @@ def test_otp_verify_locks_out_after_max_attempts(tenant_a):
         assert resp.status_code == 400
 
     locked = client.post(
-        "/api/v1/auth/otp/verify/", {"phone": tenant_a.owner.phone, "code": challenge.code}, format="json"
+        "/api/v1/auth/otp/verify/", {"phone": tenant_a.owner.phone, "code": "654321"}, format="json"
     )
     assert locked.status_code == 400
     assert "Too many attempts" in str(locked.data)
@@ -192,18 +304,21 @@ def test_login_locks_out_after_repeated_failures(tenant_a):
 def test_register_throttle_scope_enforced_by_drf():
     """BUG-125 — verify DRF's ScopedRateThrottle itself rejects requests once
     the configured 'register' rate (5/min) is exceeded, distinct from the
-    app-level login/OTP lockouts tested elsewhere in this file."""
-    client = APIClient()
+    app-level login/OTP lockouts tested elsewhere in this file.
+
+    Fresh client per request so cookie JWT auth does not switch the throttle
+    cache key from anon-IP to per-user (BB-000375 access cookie).
+    """
     for i in range(5):
-        resp = client.post("/api/v1/auth/register/", {
+        resp = APIClient().post("/api/v1/auth/register/", {
             "company_name": f"Throttle Co {i}",
             "email": f"throttle{i}@example.test",
             "password": "StrongPass123!",
             "state": "Karnataka",
         }, format="json")
-        assert resp.status_code == 201
+        assert resp.status_code == 200
 
-    throttled = client.post("/api/v1/auth/register/", {
+    throttled = APIClient().post("/api/v1/auth/register/", {
         "company_name": "Throttle Co Overflow",
         "email": "throttle-overflow@example.test",
         "password": "StrongPass123!",
@@ -213,34 +328,87 @@ def test_register_throttle_scope_enforced_by_drf():
 
 
 def test_logout_blacklists_refresh_token_and_prevents_reuse(tenant_a):
+    from django.conf import settings
+
     client = APIClient()
     login = client.post("/api/v1/auth/login/", {
         "email": tenant_a.owner.email, "password": "StrongPass123!",
     }, format="json")
-    refresh = login.data["refresh"]
-    access = login.data["access"]
+    assert login.status_code == 200, login.data
+    access = login.data.get("access")
+    refresh_cookie = login.cookies[settings.JWT_REFRESH_COOKIE_NAME].value
+    access_cookie_name = getattr(settings, "JWT_ACCESS_COOKIE_NAME", None)
+    if not access and access_cookie_name and access_cookie_name in login.cookies:
+        access = login.cookies[access_cookie_name].value
+    assert access, "login must return an access token (JSON body or access cookie)"
 
     auth_client = APIClient()
     auth_client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
-    logout_resp = auth_client.post("/api/v1/auth/logout/", {"refresh": refresh}, format="json")
-    assert logout_resp.status_code == 200
+    auth_client.cookies[settings.JWT_REFRESH_COOKIE_NAME] = refresh_cookie
+    if access_cookie_name:
+        auth_client.cookies[access_cookie_name] = access
+    logout_resp = auth_client.post("/api/v1/auth/logout/", {}, format="json")
+    assert logout_resp.status_code == 200, logout_resp.data
 
-    reuse = APIClient().post("/api/v1/auth/refresh/", {"refresh": refresh}, format="json")
-    assert reuse.status_code == 401
+    reuse = APIClient()
+    reuse.cookies[settings.JWT_REFRESH_COOKIE_NAME] = refresh_cookie
+    reuse_resp = reuse.post("/api/v1/auth/refresh/", {}, format="json")
+    assert reuse_resp.status_code == 401
 
 
 def test_refresh_rotates_token(tenant_a):
+    from django.conf import settings
+
     client = APIClient()
     login = client.post("/api/v1/auth/login/", {
         "email": tenant_a.owner.email, "password": "StrongPass123!",
     }, format="json")
-    old_refresh = login.data["refresh"]
-    resp = client.post("/api/v1/auth/refresh/", {"refresh": old_refresh}, format="json")
+    old_refresh = login.cookies[settings.JWT_REFRESH_COOKIE_NAME].value
+    client.cookies[settings.JWT_REFRESH_COOKIE_NAME] = old_refresh
+    resp = client.post("/api/v1/auth/refresh/", {}, format="json")
     assert resp.status_code == 200
-    assert resp.data["refresh"] != old_refresh
+    assert "access" in resp.data
+    assert "refresh" not in resp.data
+    new_refresh = resp.cookies[settings.JWT_REFRESH_COOKIE_NAME].value
+    assert new_refresh != old_refresh
     # BUG-107: rotated tokens are blacklisted — the old one can't be reused.
-    reuse = APIClient().post("/api/v1/auth/refresh/", {"refresh": old_refresh}, format="json")
-    assert reuse.status_code == 401
+    reuse = APIClient()
+    reuse.cookies[settings.JWT_REFRESH_COOKIE_NAME] = old_refresh
+    reuse_resp = reuse.post("/api/v1/auth/refresh/", {}, format="json")
+    assert reuse_resp.status_code == 401
+
+
+def test_refresh_rejects_body_token_when_not_debug(tenant_a):
+    """BB-000266: outside DEBUG, body refresh is rejected."""
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    refresh = str(RefreshToken.for_user(tenant_a.owner))
+    with override_settings(DEBUG=False):
+        resp = APIClient().post(
+            "/api/v1/auth/refresh/", {"refresh": refresh}, format="json",
+        )
+        assert resp.status_code == 401
+
+
+def test_owner_invites_staff_without_password(tenant_a):
+    """BB-000306 / BB-000418 — password optional; invite token + accept flow."""
+    resp = tenant_a.client.post("/api/v1/company/users/", {
+        "email": "invite.nopw@alpha.test",
+        "role": "SALES_STAFF",
+    }, format="json")
+    assert resp.status_code == 201
+    assert resp.data.get("invite_token")
+    from accounts.models import User
+    user = User.objects.get(email="invite.nopw@alpha.test")
+    assert not user.has_usable_password()
+
+    accept = APIClient().post("/api/v1/auth/invite/accept/", {
+        "token": resp.data["invite_token"],
+        "new_password": "InvitePass123!",
+    }, format="json")
+    assert accept.status_code == 200
+    user.refresh_from_db()
+    assert user.has_usable_password()
 
 
 def test_staff_cannot_read_bank_details(tenant_a):

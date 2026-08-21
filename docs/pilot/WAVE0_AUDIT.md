@@ -97,22 +97,27 @@
 | BUG-725 | High | P0-621 |
 | Remaining Highs in INDEX | High | Mapped in Wave 0 continuation to nearest C/B ticket or **WAIVED (pilot)** with PM note in go meeting |
 
-## Scoreboard snapshot (Must)
+## Scoreboard snapshot (Must) — refreshed 2026-08-02
 
 | DoD | Status | Notes |
 |-----|--------|-------|
-| A1–A11 | Partial | WIP + Wave 1 |
-| B1–B11 | Partial | Wave 2 |
-| C1–C12 | Partial | Wave 3 |
-| D1–D5 | Open/Partial | Wave 4 |
-| E1–E10 | Open/Partial | Wave 5 |
-| F1–F12 | Open | CA + F11 tests |
-| G1–G12 | Open | Wave 6 |
-| H1–H9 | Partial docs | Wave 6 |
+| A1–A11 | **Code Done** | Sign-off still open (A11 ENV accept-risk blank) |
+| B1–B11 | **Code Done** | BUG-204 PDF mode fixed + tests; B11 charges non-taxable (CA F12 initials blank) |
+| C1–C12 | **Code Done** | P0-311 DocumentEditorShell extracted 2026-08-02; remaining list `asList` cliffs fixed (`fetchAllPages`) |
+| D1–D5 | **Code Done** | SMTP/ops spot-test on staging still human |
+| E1–E10 | **Docs Ready / Ops Open** | ENV_CHECKLIST unsigned; TLS/backup/uptime need host execution |
+| F1–F12 | **Code Done / CA Open** | Automated PDF asserts green; F9 letter + F12 initials blank |
+| G1–G12 | **Open** | UAT matrix blank; golden e2e = `npm run test:e2e:golden` (manual vs real API) |
+| H1–H9 | **Docs Ready / Sign-off Open** | H9-A implemented; signature tables blank |
+
+### Critical/High disposition (code-verified 2026-08-02)
+
+Mapped Crit/High in the table above are **FIXED in tree** except: BUG-220 full CN **WAIVED for Phase 0** (H9-A); BUG-705 **WAIVED**; human gates F9/G*/E*/H* signatures. P0-311 structural extraction completed (shell + NumericField + line helpers); twin pages still hold page-specific save mutations by design.
 
 ## Exit
 
 Wave 0 audit artifact committed. Pull-forward implementation proceeds next.
+**2026-08-02:** Engineering closeout advanced (P0-311, pagination). Go still blocked on CA/UAT/ENV human signatures — see `GO_NO_GO.md`.
 
 ## Wave 4–5 ops notes (2026-08-02)
 

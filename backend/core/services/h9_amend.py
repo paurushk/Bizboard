@@ -88,21 +88,30 @@ def lines_prices_unchanged(existing_items, items_data) -> bool:
             return False
         if Decimal(str(line.get("gst_rate", old.gst_rate))) != Decimal(str(old.gst_rate)):
             return False
+        old_incl = getattr(old, "unit_price_inclusive", None)
+        if "unit_price_inclusive" in line or old_incl is not None:
+            new_incl = line.get("unit_price_inclusive", old_incl)
+            if Decimal(str(new_incl or 0)) != Decimal(str(old_incl or 0)):
+                return False
     return True
 
 
 def existing_lines_as_items_data(items_qs):
     return [
         {
+            "id": i.id,
             "product": i.product,
             "description": i.description,
             "quantity": i.quantity,
             "unit_price": i.unit_price,
             "discount_percent": i.discount_percent,
             "gst_rate": i.gst_rate,
+            "cess_rate": getattr(i, "cess_rate", 0) or 0,
             "hsn_code": getattr(i, "hsn_code", "") or "",
             "mrp": getattr(i, "mrp", None),
             "unit_name": getattr(i, "unit_name", "") or "",
+            "uqc_code": getattr(i, "uqc_code", "") or "",
+            "unit_price_inclusive": getattr(i, "unit_price_inclusive", None),
             "batch_no": getattr(i, "batch_no", "") or "",
             "exp_date": getattr(i, "exp_date", None),
             "mfg_date": getattr(i, "mfg_date", None),

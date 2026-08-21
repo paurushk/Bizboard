@@ -1,7 +1,7 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient, getErrorMessage } from '@/api/client';
-import { clearSession, getAccessToken, getRefreshToken, setTokens } from '@/auth/session';
+import { clearSession, getAccessToken, getRefreshToken, setAccessToken } from '@/auth/session';
 
 describe('getErrorMessage', () => {
   it('reads message from Bizboard error envelope', () => {
@@ -31,6 +31,21 @@ describe('getErrorMessage', () => {
     expect(msg).toBe('Nope');
   });
 
+  it('joins field details when message is generic Validation failed', () => {
+    const err = new axios.AxiosError('Request failed with status code 400');
+    err.response = {
+      data: {
+        success: false,
+        error: {
+          code: 'validation_error',
+          message: 'Validation failed.',
+          details: { gstin: ['Enter a valid GSTIN.'], phone: ['Required.'] },
+        },
+      },
+    } as never;
+    expect(getErrorMessage(err)).toBe('gstin: Enter a valid GSTIN.; phone: Required.');
+  });
+
   it('falls back for plain errors', () => {
     expect(getErrorMessage(new Error('boom'))).toBe('boom');
     expect(getErrorMessage('plain')).toBe('plain');
@@ -42,7 +57,7 @@ describe('refresh token rejection (BUG-407 / P0-111)', () => {
 
   beforeEach(() => {
     clearSession();
-    setTokens({ access: 'stale-access', refresh: 'stale-refresh' });
+    setAccessToken('stale-access');
   });
 
   afterEach(() => {
@@ -81,5 +96,25 @@ describe('refresh token rejection (BUG-407 / P0-111)', () => {
     expect(expired).toBe(true);
 
     window.removeEventListener('bizboard:session-expired', onExpired);
+  });
+
+  it('BB-000229: does not refresh-retry failed login', async () => {
+    const postSpy = vi.spyOn(axios, 'post');
+
+    apiClient.defaults.adapter = async (config) => {
+      const error = new AxiosError('Unauthorized');
+      error.config = config as InternalAxiosRequestConfig;
+      error.response = {
+        status: 401,
+        data: { detail: 'bad credentials' },
+        headers: {},
+        config: config as InternalAxiosRequestConfig,
+        statusText: 'Unauthorized',
+      };
+      throw error;
+    };
+
+    await expect(apiClient.post('/auth/login/', { email: 'a', password: 'b' })).rejects.toBeTruthy();
+    expect(postSpy).not.toHaveBeenCalled();
   });
 });

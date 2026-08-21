@@ -1,0 +1,4 @@
+entity_type,name,phone,gstin,state,sku,hsn_code,gst_rate,purchase_price,selling_price,reorder_level,opening_qty,opening_outstanding
+customer,Alpha Retail,,29AAAAA0000A1ZY,Karnataka,,,,,,,0
+supplier,Beta Wholesale,,29BBBBB0000B1ZP,Karnataka,,,,,,,0
+product,Demo Widget,,,Karnataka,WID-TALLY-1,8471,18,80,120,5,10,0

@@ -10,8 +10,10 @@ export interface LineTaxInput {
   /** Absolute discount amount for the line (synced with percent when provided alone). */
   discountAmount?: number;
   gstRate: number;
-  /** When true, split GST into CGST/SGST; otherwise IGST. */
-  intraState?: boolean;
+  /** Optional compensation cess % on taxable (Wave 18). */
+  cessRate?: number;
+  /** When true, split GST into CGST/SGST; otherwise IGST. null = unknown POS → zero tax. */
+  intraState?: boolean | null;
 }
 
 export interface LineTaxResult {
@@ -19,6 +21,7 @@ export interface LineTaxResult {
   cgst: number;
   sgst: number;
   igst: number;
+  cess: number;
   taxTotal: number;
   lineTotal: number;
   discountAmount: number;
@@ -50,6 +53,26 @@ export function calculateLineTax(input: LineTaxInput): LineTaxResult {
 
   discountAmount = Math.min(Math.max(0, discountAmount), gross);
   const taxableAmount = roundMoney(gross - discountAmount);
+
+  const cessRate = Math.max(0, input.cessRate ?? 0);
+  const cess = roundMoney(taxableAmount * (cessRate / 100));
+
+  // Unknown place of supply — do not assume intra; withhold tax until known.
+  if (input.intraState === null) {
+    return {
+      gross,
+      discountAmount,
+      discountPercent,
+      taxableAmount,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      cess: 0,
+      taxTotal: 0,
+      lineTotal: taxableAmount,
+    };
+  }
+
   const taxRaw = taxableAmount * (input.gstRate / 100);
   const intraState = input.intraState ?? true;
 
@@ -65,8 +88,9 @@ export function calculateLineTax(input: LineTaxInput): LineTaxResult {
       cgst,
       sgst,
       igst: 0,
+      cess,
       taxTotal: roundMoney(cgst + sgst),
-      lineTotal: roundMoney(taxableAmount + cgst + sgst),
+      lineTotal: roundMoney(taxableAmount + cgst + sgst + cess),
     };
   }
 
@@ -79,8 +103,9 @@ export function calculateLineTax(input: LineTaxInput): LineTaxResult {
     cgst: 0,
     sgst: 0,
     igst,
+    cess,
     taxTotal: igst,
-    lineTotal: roundMoney(taxableAmount + igst),
+    lineTotal: roundMoney(taxableAmount + igst + cess),
   };
 }
 
@@ -94,8 +119,21 @@ export interface InvoiceTotalsInput {
 function applyLineTaxOnTaxable(
   taxableAmount: number,
   gstRate: number,
-  intraState: boolean,
-): Pick<LineTaxResult, 'cgst' | 'sgst' | 'igst' | 'taxTotal' | 'lineTotal' | 'taxableAmount'> {
+  intraState: boolean | null,
+  cessRate = 0,
+): Pick<LineTaxResult, 'cgst' | 'sgst' | 'igst' | 'cess' | 'taxTotal' | 'lineTotal' | 'taxableAmount'> {
+  const cess = roundMoney(taxableAmount * (Math.max(0, cessRate) / 100));
+  if (intraState === null) {
+    return {
+      taxableAmount,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      cess: 0,
+      taxTotal: 0,
+      lineTotal: taxableAmount,
+    };
+  }
   const taxRaw = taxableAmount * (gstRate / 100);
   if (intraState) {
     const half = roundMoney(taxRaw / 2);
@@ -106,8 +144,9 @@ function applyLineTaxOnTaxable(
       cgst,
       sgst,
       igst: 0,
+      cess,
       taxTotal: roundMoney(cgst + sgst),
-      lineTotal: roundMoney(taxableAmount + cgst + sgst),
+      lineTotal: roundMoney(taxableAmount + cgst + sgst + cess),
     };
   }
   const igst = roundMoney(taxRaw);
@@ -116,16 +155,40 @@ function applyLineTaxOnTaxable(
     cgst: 0,
     sgst: 0,
     igst,
+    cess,
     taxTotal: igst,
-    lineTotal: roundMoney(taxableAmount + igst),
+    lineTotal: roundMoney(taxableAmount + igst + cess),
   };
+}
+
+/** Extract exclusive taxable from tax-inclusive line (matches BE discounted-gross extract). */
+export function extractExclusiveFromInclusiveLine(input: {
+  quantity: number;
+  unitPriceInclusive: number;
+  discountPercent?: number;
+  gstRate: number;
+}): { exclusiveUnitPrice: number; taxableAmount: number } {
+  const qty = input.quantity;
+  if (qty <= 0) {
+    return { exclusiveUnitPrice: roundMoney(input.unitPriceInclusive), taxableAmount: 0 };
+  }
+  const lineGrossInclusive = roundMoney(qty * input.unitPriceInclusive);
+  const discountAmt = roundMoney(lineGrossInclusive * ((input.discountPercent ?? 0) / 100));
+  const netInclusive = roundMoney(lineGrossInclusive - discountAmt);
+  const rate = input.gstRate;
+  const taxableAmount =
+    rate > 0 ? roundMoney((netInclusive * 100) / (100 + rate)) : netInclusive;
+  const exclusiveUnitPrice = roundMoney(taxableAmount / qty);
+  return { exclusiveUnitPrice, taxableAmount };
 }
 
 export function calculateInvoiceTotals(
   lines: Array<
     Pick<LineTaxResult, 'taxableAmount' | 'taxTotal' | 'cgst' | 'sgst' | 'igst' | 'gross' | 'discountAmount'> & {
       gstRate?: number;
-      intraState?: boolean;
+      cessRate?: number;
+      cess?: number;
+      intraState?: boolean | null;
     }
   >,
   options: InvoiceTotalsInput | boolean = true,
@@ -136,6 +199,7 @@ export function calculateInvoiceTotals(
   cgstTotal: number;
   sgstTotal: number;
   igstTotal: number;
+  cessTotal: number;
   taxTotal: number;
   additionalCharges: number;
   invoiceDiscount: number;
@@ -156,10 +220,13 @@ export function calculateInvoiceTotals(
   let working = lines.map((l) => ({
     taxableAmount: l.taxableAmount,
     gstRate: l.gstRate ?? 0,
-    intraState: l.intraState ?? true,
+    cessRate: l.cessRate ?? 0,
+    // Preserve null (unknown POS); only default undefined → intra for legacy callers.
+    intraState: l.intraState === null ? null : (l.intraState ?? true),
     cgst: l.cgst ?? 0,
     sgst: l.sgst ?? 0,
     igst: l.igst ?? 0,
+    cess: l.cess ?? 0,
     taxTotal: l.taxTotal,
     gross: l.gross,
     discountAmount: l.discountAmount,
@@ -174,13 +241,13 @@ export function calculateInvoiceTotals(
         if (i === working.length - 1) {
           const last = roundMoney(remaining - allocated);
           const taxableAmount = roundMoney(Math.max(0, l.taxableAmount - last));
-          return { ...l, ...applyLineTaxOnTaxable(taxableAmount, l.gstRate, l.intraState) };
+          return { ...l, ...applyLineTaxOnTaxable(taxableAmount, l.gstRate, l.intraState, l.cessRate) };
         }
         const share = roundMoney((l.taxableAmount / taxableSum) * remaining);
         const capped = Math.min(share, l.taxableAmount);
         allocated = roundMoney(allocated + capped);
         const taxableAmount = roundMoney(l.taxableAmount - capped);
-        return { ...l, ...applyLineTaxOnTaxable(taxableAmount, l.gstRate, l.intraState) };
+        return { ...l, ...applyLineTaxOnTaxable(taxableAmount, l.gstRate, l.intraState, l.cessRate) };
       });
     }
   }
@@ -189,11 +256,12 @@ export function calculateInvoiceTotals(
   const cgstTotal = roundMoney(working.reduce((sum, l) => sum + (l.cgst ?? 0), 0));
   const sgstTotal = roundMoney(working.reduce((sum, l) => sum + (l.sgst ?? 0), 0));
   const igstTotal = roundMoney(working.reduce((sum, l) => sum + (l.igst ?? 0), 0));
+  const cessTotal = roundMoney(working.reduce((sum, l) => sum + (l.cess ?? 0), 0));
   const taxTotal = roundMoney(cgstTotal + sgstTotal + igstTotal);
   const raw =
     mode === 'BEFORE_TAX'
-      ? roundMoney(taxableTotal + taxTotal + additionalCharges)
-      : roundMoney(taxableTotal + taxTotal + additionalCharges - invoiceDiscount);
+      ? roundMoney(taxableTotal + taxTotal + cessTotal + additionalCharges)
+      : roundMoney(taxableTotal + taxTotal + cessTotal + additionalCharges - invoiceDiscount);
   const clamped = Math.max(0, raw);
   const rounded = applyRoundOff ? Math.round(clamped) : clamped;
   const roundOff = roundMoney(rounded - clamped);
@@ -204,6 +272,7 @@ export function calculateInvoiceTotals(
     cgstTotal,
     sgstTotal,
     igstTotal,
+    cessTotal,
     taxTotal,
     additionalCharges,
     invoiceDiscount,
@@ -213,11 +282,123 @@ export function calculateInvoiceTotals(
   };
 }
 
+// BB-000320: ported from backend/core/services/billing.py IN_STATE_NAME_TO_CODE —
+// keep in sync so FE tax preview matches BE Complete posting (BB-000063).
+const IN_STATE_NAME_TO_CODE: Record<string, string> = {
+  'andaman and nicobar islands': '35',
+  'andaman & nicobar islands': '35',
+  'andhra pradesh': '37',
+  'arunachal pradesh': '12',
+  assam: '18',
+  bihar: '10',
+  chandigarh: '04',
+  chhattisgarh: '22',
+  'dadra and nagar haveli and daman and diu': '26',
+  'dadra and nagar haveli': '26',
+  'daman and diu': '26',
+  delhi: '07',
+  'nct of delhi': '07',
+  goa: '30',
+  gujarat: '24',
+  haryana: '06',
+  'himachal pradesh': '02',
+  'jammu and kashmir': '01',
+  'jammu & kashmir': '01',
+  jharkhand: '20',
+  karnataka: '29',
+  kerala: '32',
+  ladakh: '38',
+  lakshadweep: '31',
+  'madhya pradesh': '23',
+  maharashtra: '27',
+  manipur: '14',
+  meghalaya: '17',
+  mizoram: '15',
+  nagaland: '13',
+  odisha: '21',
+  orissa: '21',
+  puducherry: '34',
+  pondicherry: '34',
+  punjab: '03',
+  rajasthan: '08',
+  sikkim: '11',
+  'tamil nadu': '33',
+  telangana: '36',
+  tripura: '16',
+  'uttar pradesh': '09',
+  uttarakhand: '05',
+  'west bengal': '19',
+  // Common abbreviations
+  an: '35',
+  ap: '37',
+  ar: '12',
+  as: '18',
+  br: '10',
+  ch: '04',
+  cg: '22',
+  ct: '22',
+  dn: '26',
+  dd: '26',
+  dl: '07',
+  ga: '30',
+  gj: '24',
+  hr: '06',
+  hp: '02',
+  jk: '01',
+  jh: '20',
+  ka: '29',
+  kl: '32',
+  la: '38',
+  ld: '31',
+  mp: '23',
+  mh: '27',
+  mn: '14',
+  ml: '17',
+  mz: '15',
+  nl: '13',
+  od: '21',
+  or: '21',
+  py: '34',
+  pb: '03',
+  rj: '08',
+  sk: '11',
+  tn: '33',
+  ts: '36',
+  tg: '36',
+  tr: '16',
+  up: '09',
+  uk: '05',
+  ua: '05',
+  wb: '19',
+};
+
+/**
+ * Canonical GST state code from GSTIN (digits 0–1) or a mapped state name/abbr.
+ * Mirrors backend `core.services.billing.extract_state_code` (BB-000320).
+ */
 export function extractStateCode(value?: string): string | null {
   if (!value) return null;
   const trimmed = value.trim();
+  if (!trimmed) return null;
   if (/^\d{2}/.test(trimmed)) return trimmed.slice(0, 2);
-  return null;
+  const key = trimmed.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+  return IN_STATE_NAME_TO_CODE[key] ?? null;
+}
+
+/** Fail closed when GST tax applies but party place of supply is unknown. */
+export function assertPlaceOfSupplyKnown(
+  companyGstinOrState: string | undefined,
+  partyGstinOrState: string | undefined,
+  options?: { assumeLocalStateForBlankParty?: boolean },
+): void {
+  if (options?.assumeLocalStateForBlankParty && !(partyGstinOrState || '').trim()) {
+    return;
+  }
+  if (resolvePlaceOfSupply(companyGstinOrState, partyGstinOrState) === 'unknown') {
+    throw new Error(
+      'Customer/supplier state or GSTIN is required for GST invoices. Add place of supply or enable assume-local in GST settings.',
+    );
+  }
 }
 
 /** Resolve place of supply for GST; blank party → unknown (do not silently assume intra). */
@@ -230,25 +411,32 @@ export function resolvePlaceOfSupply(
   const companyCode = extractStateCode(companyGstinOrState);
   const partyCode = extractStateCode(partyGstinOrState);
   if (companyCode && partyCode) return companyCode === partyCode ? 'intra' : 'inter';
-  const a = (companyGstinOrState || '').trim().toLowerCase();
-  const b = partyRaw.toLowerCase();
-  if (!a) return 'intra';
-  return a === b ? 'intra' : 'inter';
+  // BB-000424: never invent inter/intra from free-text string equality.
+  return 'unknown';
 }
 
-/** Compare company GSTIN/state with party GSTIN/state for intra-state GST. */
+/**
+ * Compare company GSTIN/state with party GSTIN/state for intra-state GST.
+ * Returns null when party place of supply is unknown (do not assume intra),
+ * unless assumeLocalStateForBlankParty matches BE billing.is_intra_state.
+ */
 export function isIntraState(
   companyGstinOrStateCode: string | undefined,
   partyGstinOrState: string | undefined,
-): boolean {
+  options?: { assumeLocalStateForBlankParty?: boolean },
+): boolean | null {
   const place = resolvePlaceOfSupply(companyGstinOrStateCode, partyGstinOrState);
-  // unknown → treat as intra for preview only; Complete must be blocked separately
-  return place !== 'inter';
+  if (place === 'unknown') {
+    // BB-000278: match BE — blank party + assume-local → treat as intra.
+    if (options?.assumeLocalStateForBlankParty) return true;
+    return null;
+  }
+  return place === 'intra';
 }
 
 export function placeOfSupplyKnown(partyState?: string, partyGstin?: string): boolean {
-  if ((partyState || '').trim()) return true;
-  return extractStateCode(partyGstin) != null;
+  // BB-000390: known only when a real state code can be extracted (not any non-empty text).
+  return extractStateCode(partyState) != null || extractStateCode(partyGstin) != null;
 }
 
 export function addDaysIso(isoDate: string, days: number): string {

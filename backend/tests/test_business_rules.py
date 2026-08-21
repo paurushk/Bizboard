@@ -193,9 +193,9 @@ def test_purchase_negative_unit_price_rejected(tenant_a):
 def test_duplicate_customer_gstin_rejected(tenant_a):
     """BUG-321 — gstin is a legally-unique identifier per business."""
     tenant_a.client.post("/api/v1/customers/", {
-        "name": "Alpha Retail", "gstin": "29ABCDE1234F1Z5",
+        "name": "Alpha Retail", "gstin": "29ABCDE1234F1ZW",
     }, format="json")
     resp = tenant_a.client.post("/api/v1/customers/", {
-        "name": "Alpha Retail Duplicate", "gstin": "29ABCDE1234F1Z5",
+        "name": "Alpha Retail Duplicate", "gstin": "29ABCDE1234F1ZW",
     }, format="json")
     assert resp.status_code == 400

@@ -1,4 +1,5 @@
 import Box from '@mui/material/Box';
+import Alert from '@mui/material/Alert';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -8,35 +9,24 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import { useQuery } from '@tanstack/react-query';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { getDashboard, listLowStock } from '@/api/resources';
+import { getDashboard, getBusinessHealth, getCompany, getDailySummary, listBusinessAlerts, listLowStock, listProducts } from '@/api/resources';
+import { KpiStat, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
+import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { useAuth } from '@/auth/AuthContext';
 import { t } from '@/i18n';
 import type { DashboardKpis } from '@/types/domain';
+import { canViewAiInsights } from '@/utils/permissions';
 import { formatMoney, toNumber } from '@/utils/money';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { shouldForceSetup } from '@/onboarding/shouldForceSetup';
+import { useState } from 'react';
 
-function KpiCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Paper sx={{ p: 2.5, height: '100%' }}>
-      <Typography variant="body2" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography variant="h5" sx={{ mt: 1 }}>
-        {value}
-      </Typography>
-    </Paper>
-  );
-}
-
-// BUG-601: the backend already computes and returns these aging buckets on
-// every /dashboard/ call — the frontend previously never read them at all.
-// The camelCase renderer's exact key shape for numeric-prefixed segments
-// (days_1_30 etc.) wasn't confirmed when this type was written, so accept
-// any of the documented variants rather than silently showing nothing.
 function agingBucket(aging: NonNullable<DashboardKpis['receivablesAging']>, keys: string[]): number {
   for (const key of keys) {
     const value = (aging as Record<string, unknown>)[key];
@@ -46,8 +36,37 @@ function agingBucket(aging: NonNullable<DashboardKpis['receivablesAging']>, keys
 }
 
 export function DashboardPage() {
+  const { user } = useAuth();
+  const [inviteCtaDismissed, setInviteCtaDismissed] = useState(
+    () => localStorage.getItem('bb_invite_cta_dismissed') === '1',
+  );
+  const showInsights = canViewAiInsights(user);
   const dashboard = useQuery({ queryKey: ['dashboard'], queryFn: getDashboard });
+  const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  const products = useQuery({ queryKey: ['products-count'], queryFn: () => listProducts() });
   const lowStock = useQuery({ queryKey: ['low-stock'], queryFn: listLowStock });
+  const summary = useQuery({
+    queryKey: ['insights-summary'],
+    queryFn: () => getDailySummary(),
+    retry: false,
+    enabled: showInsights,
+  });
+  const bizAlerts = useQuery({
+    queryKey: ['insights-alerts'],
+    queryFn: () => listBusinessAlerts(),
+    retry: false,
+    enabled: showInsights,
+  });
+  const health = useQuery({
+    queryKey: ['insights-health'],
+    queryFn: getBusinessHealth,
+    retry: false,
+    enabled: showInsights,
+  });
+
+  if (!company.isLoading && shouldForceSetup(user, company.data)) {
+    return <Navigate to="/setup" replace />;
+  }
 
   if (dashboard.isLoading) return <LoadingState />;
   if (dashboard.isError) {
@@ -80,9 +99,100 @@ export function DashboardPage() {
       ]
     : [];
 
+  const topBiz = (bizAlerts.data ?? []).slice(0, 3);
+  const healthChip = health.data ? (
+    <Chip
+      component={RouterLink}
+      to="/insights/health"
+      clickable
+      color={Number(health.data.score) >= 70 ? 'success' : Number(health.data.score) >= 45 ? 'warning' : 'error'}
+      label={
+        Number(health.data.score) >= 70
+          ? `Books look healthy · open Insights`
+          : Number(health.data.score) >= 45
+            ? `Needs attention · open Insights`
+            : `Action needed · open Insights`
+      }
+      title={`Health grade ${health.data.grade} · score ${health.data.score}${
+        health.data.limitedData ? ' · limited data' : ''
+      }`}
+    />
+  ) : null;
+
   return (
     <Stack spacing={3}>
-      <Typography variant="h4">{t('nav.dashboard')}</Typography>
+      <PageHeader
+        title={t('nav.dashboard')}
+        actions={
+          showInsights ? (
+            <Button component={RouterLink} to="/insights" size="small" variant="outlined">
+              {t('nav.insights')}
+            </Button>
+          ) : null
+        }
+      />
+
+      <OnboardingChecklist
+        company={company.data}
+        productCount={products.data?.length ?? 0}
+        invoiceCount={data.recentInvoices?.length ?? 0}
+      />
+
+      {!inviteCtaDismissed &&
+      user?.role === 'OWNER' &&
+      (products.data?.length ?? 0) > 0 &&
+      (data.recentInvoices?.length ?? 0) > 0 ? (
+        <Alert
+          severity="success"
+          onClose={() => {
+            localStorage.setItem('bb_invite_cta_dismissed', '1');
+            setInviteCtaDismissed(true);
+          }}
+          action={<Button component={RouterLink} to="/settings/users">{t('onboarding.inviteStaff')}</Button>}
+        >
+          {t('onboarding.inviteStaffDescription')}
+        </Alert>
+      ) : null}
+
+      {showInsights && (summary.data || health.data || topBiz.length > 0) ? (
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2} flexWrap="wrap" useFlexGap>
+            {summary.data ? (
+              <Box sx={{ flex: 1, minWidth: 200 }}>
+                <Typography variant="subtitle2" color="text.secondary">
+                  {t('insights.todaySummary')}
+                </Typography>
+                <Typography variant="body2" sx={{ mt: 0.5 }}>
+                  Sales today {formatMoney(data.salesToday?.total)} (
+                  {data.salesToday?.count ?? 0} invoices). This month{' '}
+                  {formatMoney(data.salesThisMonth?.total)} (
+                  {data.salesThisMonth?.count ?? 0} invoices).
+                </Typography>
+              </Box>
+            ) : (
+              <Box sx={{ flex: 1 }} />
+            )}
+            {healthChip}
+            <Stack spacing={0.5}>
+              {topBiz.map((a) => (
+                <Stack key={a.id} direction="row" spacing={1} alignItems="center">
+                  <SeverityChip severity={a.severity} />
+                  <Typography variant="caption" noWrap sx={{ maxWidth: 220 }}>
+                    {a.message}
+                  </Typography>
+                </Stack>
+              ))}
+              {company.data?.negativeStockPolicy &&
+              company.data.negativeStockPolicy !== 'BLOCK' ? (
+                <Typography variant="caption" color="warning.main" component={RouterLink} to="/settings/gst">
+                  Negative stock policy: {company.data.negativeStockPolicy} — change in GST settings
+                </Typography>
+              ) : null}
+            </Stack>
+          </Stack>
+        </Paper>
+      ) : null}
+
       <Box
         sx={{
           display: 'grid',
@@ -94,45 +204,44 @@ export function DashboardPage() {
           },
         }}
       >
-        <KpiCard label={t('dashboard.todaySales')} value={formatMoney(data.salesToday?.total)} />
-        <KpiCard label={t('dashboard.monthSales')} value={formatMoney(data.salesThisMonth?.total)} />
-        <KpiCard
-          label={t('dashboard.purchasesThisMonth')}
-          value={formatMoney(data.purchasesThisMonth?.total)}
-        />
-        <KpiCard label={t('dashboard.lowStock')} value={String(data.lowStockCount ?? 0)} />
-        <KpiCard label={t('dashboard.receivables')} value={formatMoney(data.receivables)} />
-        <KpiCard label={t('dashboard.payables')} value={formatMoney(data.payables)} />
+        <KpiStat label={t('dashboard.todaySales')} value={data.salesToday?.total} money />
+        <KpiStat label={t('dashboard.monthSales')} value={data.salesThisMonth?.total} money />
+        <KpiStat label={t('dashboard.purchasesThisMonth')} value={data.purchasesThisMonth?.total} money />
+        <KpiStat label={t('dashboard.lowStock')} value={data.lowStockCount ?? 0} />
+        <KpiStat label={t('dashboard.receivables')} value={data.receivables} money />
+        <KpiStat label={t('dashboard.payables')} value={data.payables} money />
+        {data.cashPosition != null || data.cash_position != null ? (
+          <KpiStat
+            label={t('dashboard.cashPosition')}
+            value={
+              typeof (data.cashPosition ?? data.cash_position) === 'object'
+                ? ((data.cashPosition ?? data.cash_position) as { closing?: number }).closing ?? 0
+                : (data.cashPosition ?? data.cash_position ?? 0)
+            }
+            money
+          />
+        ) : null}
       </Box>
 
       {agingBuckets.length > 0 ? (
-        <Paper sx={{ p: 2.5 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            {t('dashboard.receivablesAging')}
-          </Typography>
+        <Stack spacing={1.5}>
+          <Typography variant="h6">{t('dashboard.receivablesAging')}</Typography>
           <Box
             sx={{
               display: 'grid',
-              gap: 2,
+              gap: 1.5,
               gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(5, 1fr)' },
             }}
           >
             {agingBuckets.map((bucket) => (
-              <Box key={bucket.label}>
-                <Typography variant="body2" color="text.secondary">
-                  {bucket.label}
-                </Typography>
-                <Typography variant="subtitle1" fontWeight={600}>
-                  {formatMoney(bucket.value)}
-                </Typography>
-              </Box>
+              <KpiStat key={bucket.label} label={bucket.label} value={bucket.value} money dense />
             ))}
           </Box>
-        </Paper>
+        </Stack>
       ) : null}
 
       {data.recentInvoices && data.recentInvoices.length > 0 ? (
-        <Paper sx={{ p: 2.5, overflow: 'auto' }}>
+        <Paper variant="outlined" sx={{ p: 2.5, overflow: 'auto' }}>
           <Typography variant="h6" sx={{ mb: 2 }}>
             {t('dashboard.recentInvoices')}
           </Typography>
@@ -163,7 +272,9 @@ export function DashboardPage() {
                   <TableCell>
                     <StatusChip tone={documentStatusTone(inv.status)} labelKey={statusLabelKey(inv.status)} />
                   </TableCell>
-                  <TableCell align="right">{formatMoney(inv.grandTotal)}</TableCell>
+                  <TableCell align="right">
+                    <MoneyText value={inv.grandTotal} />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -171,19 +282,18 @@ export function DashboardPage() {
         </Paper>
       ) : null}
 
-      <Paper sx={{ p: 2.5 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-          <Typography variant="h6">{t('dashboard.alerts')}</Typography>
-          <Button component={RouterLink} to="/sales/new" variant="contained">
-            {t('nav.newInvoice')}
-          </Button>
-        </Stack>
+      <Stack spacing={1.5}>
+        <PageHeader
+          title={t('dashboard.alerts')}
+          actions={
+            <Button component={RouterLink} to="/sales/new" variant="contained">
+              {t('nav.newInvoice')}
+            </Button>
+          }
+        />
         {lowStock.isLoading ? (
           <LoadingState />
         ) : lowStock.isError ? (
-          // BUG-611: previously an errored low-stock query was
-          // indistinguishable from "nothing is low on stock" — a real
-          // reassurance-when-there-shouldn't-be-one failure mode.
           <ErrorState message={getErrorMessage(lowStock.error)} onRetry={() => void lowStock.refetch()} />
         ) : (lowStock.data?.length ?? 0) === 0 ? (
           <EmptyState description={t('empty.stock')} />
@@ -200,7 +310,7 @@ export function DashboardPage() {
             </Button>
           </Stack>
         )}
-      </Paper>
+      </Stack>
     </Stack>
   );
 }

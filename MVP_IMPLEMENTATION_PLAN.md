@@ -1,3 +1,5 @@
+> **Historical / superseded (2026-08-03):** See docs/reviews/ for the live engineering audit.
+
 # Bizboard — MVP Implementation Plan
 
 **Product:** One-Stop GST Billing & Business Management Platform  

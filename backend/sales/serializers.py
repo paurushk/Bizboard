@@ -2,12 +2,19 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
+from core.exceptions import BusinessRuleError
 from core.permissions import get_company_user
+from core.services.h9_amend import (
+    assert_h9a_line_allowlist,
+    existing_lines_as_items_data,
+    lines_prices_unchanged,
+)
 from masters.models import Customer, Product
 
 from .models import (
     Quotation,
     QuotationItem,
+    RecurringInvoiceSchedule,
     SalesInvoice,
     SalesItem,
     SalesReturn,
@@ -15,10 +22,10 @@ from .models import (
 )
 from .services import SalesService
 
-LINE_READONLY = ["taxable_amount", "cgst", "sgst", "igst", "line_total"]
+LINE_READONLY = ["taxable_amount", "cgst", "sgst", "igst", "cess", "line_total"]
 TOTAL_READONLY = [
     "subtotal", "discount_total", "taxable_total", "cgst_total", "sgst_total",
-    "igst_total", "round_off", "grand_total",
+    "igst_total", "cess_total", "round_off", "grand_total",
 ]
 
 
@@ -42,11 +49,11 @@ class SalesItemSerializer(_BaseLineSerializer):
         model = SalesItem
         fields = [
             "id", "product", "product_name", "description", "quantity",
-            "unit_price", "discount_percent", "gst_rate",
-            "hsn_code", "mrp", "unit_name",
-            "batch_no", "exp_date", "mfg_date",
+            "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
+            "hsn_code", "mrp", "unit_name", "uqc_code", "unit_price_inclusive",
+            "batch", "batch_no", "exp_date", "mfg_date", "serial_numbers",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "unit_name"]
+        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "unit_name", "uqc_code"]
         extra_kwargs = {
             "unit_price": {"required": False},
             "gst_rate": {"required": False},
@@ -65,31 +72,46 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
     class Meta:
         model = SalesInvoice
         fields = [
-            "id", "number", "status", "invoice_type", "customer", "customer_name",
+            "id", "number", "status", "invoice_type", "customer", "customer_name", "warehouse", "cost_center",
             "invoice_date", "due_date", "payment_terms_days",
             "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off",
             "notes", "terms_text",
             "include_bank_details", "include_payment_qr", "include_terms",
             "signature",
             "items", "pdf_status", "pdf_file",
-            "received", "balance",
+            "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
+            "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
+            "filing_party_gstin", "filing_place_of_supply", "price_mode",
+            "transporter_name", "transporter_id", "vehicle_number", "transport_distance_km",
+            "sub_supply_type", "trans_mode",
+            "supply_type", "company_gstin", "is_reverse_charge", "ecommerce_operator_gstin",
+            "tcs_section", "tcs_rate", "tcs_amount",
+            "received", "balance", "is_opening_balance",
             "completed_at", "cancelled_at", "created_at", "updated_at",
         ] + TOTAL_READONLY
         read_only_fields = [
             "number", "status", "pdf_status", "pdf_file", "received", "balance",
-            "completed_at", "cancelled_at",
+            "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
+            "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
+            "completed_at", "cancelled_at", "is_opening_balance",
         ] + TOTAL_READONLY
+
+    def _receivable(self, obj):
+        from decimal import Decimal
+
+        return Decimal(str(obj.grand_total or 0)) + Decimal(str(getattr(obj, "tcs_amount", 0) or 0))
 
     def get_balance(self, obj):
         from decimal import Decimal
 
+        receivable = self._receivable(obj)
         if obj.status == SalesInvoice.Status.DRAFT:
-            return obj.grand_total
+            return receivable
         allocated = getattr(obj, "_allocated", None)
         if allocated is not None and self.context.get("view") and getattr(
             self.context["view"], "action", None
         ) == "list":
-            return max(Decimal(str(obj.grand_total or 0)) - Decimal(str(allocated or 0)), Decimal("0"))
+            return max(receivable - Decimal(str(allocated or 0)), Decimal("0"))
         try:
             from ledgers.services import LedgerService
 
@@ -100,16 +122,16 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             from payments.models import PaymentAllocation
 
             allocated = (
-                PaymentAllocation.objects.filter(sales_invoice=obj).aggregate(t=Sum("amount"))["t"]
+                PaymentAllocation.objects.filter(sales_invoice=obj, reversed_at__isnull=True).aggregate(t=Sum("amount"))["t"]
                 or Decimal("0")
             )
-            return max(obj.grand_total - allocated, Decimal("0"))
+            return max(receivable - allocated, Decimal("0"))
 
     def get_received(self, obj):
         from decimal import Decimal
 
         balance = Decimal(str(self.get_balance(obj) or 0))
-        return max(Decimal(str(obj.grand_total or 0)) - balance, Decimal("0"))
+        return max(self._receivable(obj) - balance, Decimal("0"))
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
@@ -122,13 +144,46 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             raise serializers.ValidationError("Additional charges cannot be negative.")
         return value
 
+    def validate_transporter_id(self, value):
+        # TAX-10: 15-char GSTIN or 12-digit TRANSIN when provided.
+        from sales.eway_payload import validate_eway_transport
+
+        tid = (value or "").strip()
+        if not tid:
+            return tid
+        errors = validate_eway_transport(
+            vehicle_number="",
+            distance_km=1,  # skip distance check for id-only validation
+            transporter_id=tid,
+        )
+        id_errors = [e for e in errors if "transporter_id" in e]
+        if id_errors:
+            raise serializers.ValidationError(id_errors[0])
+        return tid.replace(" ", "").upper()
+
     def validate_signature(self, signature):
         if signature is not None:
             self.check_company_ref(signature, "signature")
         return signature
 
+    def validate_warehouse(self, warehouse):
+        if warehouse is not None:
+            self.check_company_ref(warehouse, "warehouse")
+        return warehouse
+
+    def validate_cost_center(self, cost_center):
+        if cost_center is not None:
+            self.check_company_ref(cost_center, "cost_center")
+        return cost_center
+
+    def validate_company_gstin(self, company_gstin):
+        if company_gstin is not None:
+            self.check_company_ref(company_gstin, "company_gstin")
+        return company_gstin
+
     def create(self, validated_data):
         from django.db import transaction
+        from core.permissions import get_company_user
 
         items_data = validated_data.pop("items")
         # BUG-208: numbers are assigned on Complete (SalesService.complete),
@@ -138,6 +193,9 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         # used to unconditionally call next_number() on every single draft.)
         with transaction.atomic():
             invoice = SalesInvoice.objects.create(**validated_data)
+            # BB-000728: OWNER price-list override needs membership role.
+            cu = get_company_user(self.context["request"])
+            invoice._price_role = getattr(cu, "role", None) if cu else None
             SalesService.set_items(invoice, [dict(l) for l in items_data], self.context["request"].user)
             return invoice
 
@@ -164,6 +222,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
 
         money_fields = {
             "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off",
+            "price_mode",
         }
         money_changing = bool(money_fields & set(validated_data.keys()))
         items_in_request = items_data is not serializers.empty
@@ -178,6 +237,20 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             money_changing or lines_price_changing
         )
         if needs_amend:
+            from reporting.gst_periods import assert_period_allows_money_amend
+
+            assert_period_allows_money_amend(instance.company, instance.invoice_date)
+            # Live e-Invoice IRN: amend would desync portal — cancel IRN or use CN/DN.
+            einvoice_status = getattr(instance, "einvoice_status", None)
+            irn = (getattr(instance, "irn", None) or "").strip()
+            if einvoice_status in (
+                SalesInvoice.EInvoiceStatus.GENERATED,
+                SalesInvoice.EInvoiceStatus.MANUAL_IRN,
+            ) or irn:
+                raise BusinessRuleError(
+                    "Cannot amend an invoice with a live e-Invoice IRN. "
+                    "Cancel the IRN first, or issue a credit/debit note instead."
+                )
             cu = get_company_user(request)
             is_owner = cu is not None and cu.role == "OWNER"
             if not confirm_amend or not is_owner:
@@ -189,8 +262,26 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         if items_data is serializers.empty:
             items_data = None
 
+        # Wave 17A: money field audit trail before save.
+        from core.models import log_money_change
+
+        for fld in ("additional_charges", "invoice_discount", "grand_total", "taxable_total"):
+            if fld in validated_data:
+                log_money_change(
+                    company=instance.company,
+                    entity_type="salesinvoice",
+                    entity_id=instance.pk,
+                    field=fld,
+                    old_value=getattr(instance, fld, ""),
+                    new_value=validated_data[fld],
+                    user=request.user,
+                )
+
         instance = super().update(instance, validated_data)
         user = self.context["request"].user
+        # BB-000728: OWNER price-list override needs membership role.
+        cu = get_company_user(request)
+        instance._price_role = getattr(cu, "role", None) if cu else None
 
         if instance.status == SalesInvoice.Status.COMPLETED:
             if needs_amend:
@@ -200,6 +291,53 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
                     else existing_lines_as_items_data(instance.items)
                 )
                 SalesService.set_items(instance, payload, user)
+                # H9: reverse prior COMPLETE (+COGS) journals and re-post at amended totals.
+                if instance.company.accounting_enabled:
+                    from decimal import Decimal as D
+
+                    from accounting.models import JournalEntry
+                    from accounting.services import PostingService
+
+                    for entry in JournalEntry.objects.filter(
+                        company=instance.company,
+                        source_type="SALES_INVOICE",
+                        source_id=instance.id,
+                        purpose__in=("COMPLETE", "COGS"),
+                        status=JournalEntry.Status.POSTED,
+                    ):
+                        PostingService.reverse(entry, user, instance.invoice_date)
+                    PostingService.post_sales_invoice(instance, user)
+                    # Price-only H9: keep SALE peel unit_cost. Do not revalue from remaining layers.
+                    from sales.cogs_service import CogsService
+
+                    cogs_new = D("0")
+                    sale_moves = CogsService.invoice_sale_moves(instance)
+                    for move in sale_moves:
+                        cogs_new += D(str(move.unit_cost or 0)) * abs(D(str(move.quantity)))
+                    if not cogs_new:
+                        prior = JournalEntry.objects.filter(
+                            company=instance.company,
+                            source_type="SALES_INVOICE",
+                            source_id=instance.id,
+                            purpose="COGS",
+                            status=JournalEntry.Status.REVERSED,
+                        ).order_by("-id").first()
+                        if prior is not None:
+                            from accounting.models import JournalLine
+
+                            cogs_new = sum(
+                                (
+                                    D(str(line.debit or 0))
+                                    for line in JournalLine.objects.filter(entry=prior, account__code="5400")
+                                ),
+                                D("0"),
+                            )
+                    if cogs_new:
+                        PostingService.post_sales_cogs(instance, cogs_new, user)
+                # BB-000275: money amend must dirty snapshotted GST periods.
+                from reporting.gst_periods import mark_period_dirty_if_snapshotted
+
+                mark_period_dirty_if_snapshotted(instance.company, instance.invoice_date)
             # else: notes/terms-only — no set_items, no PDF requeue
             return instance
 
@@ -261,7 +399,7 @@ class SalesReturnItemSerializer(_BaseLineSerializer):
         model = SalesReturnItem
         fields = [
             "id", "product", "product_name", "description", "quantity",
-            "unit_price", "discount_percent", "gst_rate",
+            "unit_price", "discount_percent", "gst_rate", "serial_numbers",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
@@ -311,3 +449,30 @@ class SalesReturnSerializer(CompanyScopedSerializerMixin, serializers.ModelSeria
         if items_data is not None:
             SalesService.set_return_items(instance, [dict(l) for l in items_data], self.context["request"].user)
         return instance
+
+
+class RecurringInvoiceScheduleSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
+    customer_name = serializers.CharField(source="customer.name", read_only=True)
+
+    class Meta:
+        model = RecurringInvoiceSchedule
+        fields = [
+            "id", "customer", "customer_name", "company_gstin", "cadence",
+            "next_run_at", "is_active", "line_template", "notes",
+            "created_at", "updated_at",
+        ]
+
+    def validate_customer(self, customer):
+        self.check_company_ref(customer, "customer")
+        return customer
+
+    def validate_company_gstin(self, company_gstin):
+        if company_gstin is not None:
+            self.check_company_ref(company_gstin, "company_gstin")
+        return company_gstin
+
+    def validate_line_template(self, value):
+        items = value if isinstance(value, list) else (value or {}).get("items")
+        if not items:
+            raise serializers.ValidationError("line_template.items is required.")
+        return value if isinstance(value, dict) else {"items": value}

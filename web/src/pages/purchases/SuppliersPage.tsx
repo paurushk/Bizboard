@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -13,17 +14,33 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
-import { createSupplier, listSuppliers, updateSupplier } from '@/api/resources';
+import { createSupplier, listSuppliers, updateSupplier, verifySupplierGstin } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { StateSelect } from '@/components/StateSelect';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { Supplier } from '@/types/domain';
+import { isValidGstin, isValidIndianPhone } from '@/utils/gst';
+import { getStateFromGstin } from '@/utils/indianStates';
 import { formatMoney } from '@/utils/money';
 
 const emptyForm = { name: '', phone: '', email: '', gstin: '', state: '', address: '' };
+
+function gstinStatusColor(status?: string): 'default' | 'success' | 'warning' | 'error' {
+  switch ((status ?? 'UNVERIFIED').toUpperCase()) {
+    case 'VERIFIED':
+      return 'success';
+    case 'INVALID':
+    case 'FAILED':
+      return 'error';
+    default:
+      return 'warning';
+  }
+}
 
 export function SuppliersPage() {
   const qc = useQueryClient();
@@ -32,16 +49,23 @@ export function SuppliersPage() {
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
+  const [nameTouched, setNameTouched] = useState(false);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (editing) return updateSupplier(editing.id, form);
-      return createSupplier({ ...form, isActive: true });
+      const gstin = form.gstin.trim().toUpperCase();
+      if (gstin && !isValidGstin(gstin)) {
+        throw new Error('Enter a valid 15-character GSTIN.');
+      }
+      const payload = { ...form, gstin: gstin || form.gstin };
+      if (editing) return updateSupplier(editing.id, payload);
+      return createSupplier({ ...payload, isActive: true });
     },
     onSuccess: () => {
       setOpen(false);
       setEditing(null);
       setForm(emptyForm);
+      setError(null);
       void qc.invalidateQueries({ queryKey: ['suppliers'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -49,6 +73,12 @@ export function SuppliersPage() {
 
   const toggleMutation = useMutation({
     mutationFn: (s: Supplier) => updateSupplier(s.id, { isActive: !s.isActive }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['suppliers'] }),
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const verifyMutation = useMutation({
+    mutationFn: (id: number) => verifySupplierGstin(id),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['suppliers'] }),
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -62,6 +92,7 @@ export function SuppliersPage() {
           onClick={() => {
             setEditing(null);
             setForm(emptyForm);
+            setNameTouched(false);
             setOpen(true);
           }}
         >
@@ -73,7 +104,24 @@ export function SuppliersPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.data?.length === 0 ? <EmptyState /> : null}
+      {query.data?.length === 0 ? (
+        <EmptyState
+          description="Add suppliers to record purchase bills and track payables."
+          action={
+            <Button
+              variant="contained"
+              onClick={() => {
+                setEditing(null);
+                setForm(emptyForm);
+                setNameTouched(false);
+                setOpen(true);
+              }}
+            >
+              {t('common.add')} {t('nav.suppliers')}
+            </Button>
+          }
+        />
+      ) : null}
       {query.data && query.data.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <Table size="small">
@@ -82,6 +130,7 @@ export function SuppliersPage() {
                 <TableCell>{t('common.name')}</TableCell>
                 <TableCell>{t('common.phone')}</TableCell>
                 <TableCell>GSTIN</TableCell>
+                <TableCell>GSTIN status</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
                 <TableCell align="right">Outstanding</TableCell>
                 <TableCell />
@@ -90,9 +139,50 @@ export function SuppliersPage() {
             <TableBody>
               {query.data.map((s) => (
                 <TableRow key={s.id}>
-                  <TableCell>{s.name}</TableCell>
+                  <TableCell
+                    sx={{
+                      position: { xs: 'sticky', md: 'static' },
+                      left: 0,
+                      zIndex: 1,
+                      bgcolor: 'background.paper',
+                      minWidth: 120,
+                    }}
+                  >
+                    {s.name}
+                  </TableCell>
                   <TableCell>{s.phone ?? '—'}</TableCell>
-                  <TableCell>{s.gstin ?? '—'}</TableCell>
+                  <TableCell>
+                    {s.gstin ?? '—'}
+                    {s.gstinLegalName ? (
+                      <Typography variant="caption" display="block" color="text.secondary">
+                        {s.gstinLegalName}
+                      </Typography>
+                    ) : null}
+                  </TableCell>
+                  <TableCell>
+                    {s.gstin ? (
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <Chip
+                          size="small"
+                          label={
+                            (s.gstinVerificationStatus ?? 'UNVERIFIED') === 'UNVERIFIED'
+                              ? 'Unverified'
+                              : (s.gstinVerificationStatus ?? 'UNVERIFIED')
+                          }
+                          color={gstinStatusColor(s.gstinVerificationStatus)}
+                        />
+                        <Button
+                          size="small"
+                          disabled={verifyMutation.isPending}
+                          onClick={() => verifyMutation.mutate(s.id)}
+                        >
+                          Verify
+                        </Button>
+                      </Stack>
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
                   <TableCell>
                     <StatusChip
                       tone={s.isActive ? 'success' : 'default'}
@@ -113,6 +203,7 @@ export function SuppliersPage() {
                           state: s.state ?? '',
                           address: s.address ?? '',
                         });
+                        setNameTouched(false);
                         setOpen(true);
                       }}
                     >
@@ -133,35 +224,74 @@ export function SuppliersPage() {
         <DialogTitle>{editing ? t('common.edit') : t('common.create')} supplier</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            {(
-              [
-                ['name', t('common.name')],
-                ['phone', t('common.phone')],
-                ['email', t('common.email')],
-                ['gstin', 'GSTIN'],
-                ['state', t('auth.state')],
-                ['address', 'Address'],
-              ] as const
-            ).map(([key, label]) => (
-              <TextField
-                key={key}
-                label={label}
-                required={key === 'name'}
-                value={form[key]}
-                onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-              />
-            ))}
+            <TextField
+              label={t('common.name')}
+              required
+              value={form.name}
+              onBlur={() => setNameTouched(true)}
+              error={nameTouched && !form.name.trim()}
+              helperText={nameTouched && !form.name.trim() ? 'Supplier name is required' : undefined}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            />
+            <TextField
+              label={t('common.phone')}
+              value={form.phone}
+              error={Boolean(form.phone.trim() && !isValidIndianPhone(form.phone))}
+              helperText={
+                form.phone.trim() && !isValidIndianPhone(form.phone)
+                  ? 'Enter a valid 10-digit Indian mobile number'
+                  : undefined
+              }
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+            />
+            <TextField
+              label={t('common.email')}
+              value={form.email}
+              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+            />
+            <TextField
+              label="GSTIN"
+              value={form.gstin}
+              error={Boolean(form.gstin.trim() && form.gstin.trim().length === 15 && !isValidGstin(form.gstin.trim()))}
+              helperText={
+                form.gstin.trim() && form.gstin.trim().length === 15 && !isValidGstin(form.gstin.trim())
+                  ? 'Invalid 15-digit GSTIN checksum/format'
+                  : undefined
+              }
+              onChange={(e) => {
+                const val = e.target.value.toUpperCase().trim();
+                const matchedState = getStateFromGstin(val);
+                setForm((f) => ({
+                  ...f,
+                  gstin: val,
+                  state: matchedState && !f.state ? matchedState : f.state,
+                }));
+              }}
+            />
+            <StateSelect
+              value={form.state}
+              onChange={(state) => setForm((f) => ({ ...f, state }))}
+            />
+            <TextField
+              label="Address"
+              value={form.address}
+              onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-          <Button
-            variant="contained"
-            disabled={!form.name || saveMutation.isPending}
-            onClick={() => saveMutation.mutate()}
-          >
-            {t('common.save')}
-          </Button>
+          <Tooltip title={!form.name.trim() ? 'Enter supplier name to save' : ''}>
+            <span>
+              <Button
+                variant="contained"
+                disabled={!form.name.trim() || saveMutation.isPending}
+                onClick={() => saveMutation.mutate()}
+              >
+                {t('common.save')}
+              </Button>
+            </span>
+          </Tooltip>
         </DialogActions>
       </Dialog>
     </Stack>

@@ -21,6 +21,21 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // BB-000463: money lists must not use multi-page fetch; masters use fetchAllPagesMasters in resources.ts only.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Identifier[name="fetchAllPages"]',
+          message:
+            'fetchAllPages is banned. Use list*Page / fetchMoneyListFirstPage for money docs, or fetchAllPagesMasters in resources.ts for masters.',
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/api/legacy/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': 'off',
     },
   },
 );
