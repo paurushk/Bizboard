@@ -34,7 +34,7 @@ jobs:
       DATABASE_URL: postgresql://bizboard:bizboard@localhost:5432/bizboard_ci
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -152,7 +152,7 @@ jobs:
       E2E_GOLDEN_WEB_PORT: "5173"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -226,7 +226,7 @@ jobs:
       POSTGRES_RLS_ENABLED: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
