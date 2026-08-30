@@ -100,6 +100,7 @@ E-00 SaaS entitlement ── before E-02 / F-03 / J/K flags
         │  F-03 Owner enable
         │  F-04 digest
         │  F-05 WhatsApp pay-confirm + statement (collections)
+        │  F-06 CA Practice Console ── after D-01 + B-03 + B-05 + E-02
         │
         └─ G-01 Tally export
            G-02 WABA webhook
@@ -756,6 +757,10 @@ Plan-gated Owner AI enable + watermark. After E-00.
 
 ## F-04 — Daily digest email / Owner WhatsApp
 
+> Consumes the **B-05 Business Attention Center** feed (0-D) -- the digest is the top N ranked
+> attention rows by money impact, not a second alert engine. If B-05 has not shipped, F-04
+> falls back to the existing `insights/tasks.py` daily summary snapshot.
+
 | | |
 |---|---|
 | Effort | 1 week |
@@ -844,6 +849,81 @@ Flags `wa_payment_received`, `wa_statement`.
 ```
 Implement F-05 from docs/roadmap/WAVES_E_TO_L_CURSOR_IMPLEMENTATION_PLAN.md.
 WhatsApp payment-received + statement send. Opt-in. Don't dunn holding captures.
+```
+
+---
+
+## F-06 — CA Practice Console (cross-company board)
+
+| | |
+|---|---|
+| Effort | 4 weeks |
+| Source | one-level-up review Tier 4 * 0-D D-01 forward note |
+| GATE | eng. Needs D-01 (switcher + 409) + B-03 (per-company IMS state) + B-05 (per-company attention feed) + E-02 (books tie) shipped for the client companies it aggregates. |
+
+### Why
+
+A CA is a distribution channel: one practice carries 20-200 client companies. The console is the
+screen neither incumbent will produce -- Tally shows one company at a time and needs a VPN to reach a
+client's data; ClearTax shows filing status without the books behind it. Explicitly **Phase 2 /
+post-pilot**: do not start it until the single-company experience (0-D) is real.
+
+### Verify first
+
+Every queryset in the codebase is `company=`-scoped (correct for tenancy). The console needs a
+**separate, explicitly audited aggregation path** -- not a loosened filter. Memberships + switcher
+already exist (`useCompanySwitcher`, D-01).
+
+### Files
+
+- `backend/practice/` (new app) -- `PracticeBoardService.rows(user)` iterating the user's memberships, each row built from **already company-scoped** services (no cross-tenant query)
+- `backend/practice/tests/test_isolation.py`
+- FE: `/practice` route -- one row per client company; "needs me" filter; deep links
+- Client-side "What my CA needs from me" view (reuses D-04 missing-doc list)
+
+### Steps
+
+1. One row per client company. Columns: IMS actioned (`142 / 168`), credit at risk (`Rs 84,200`),
+   missing bills (`11`), GSTR-1 ready, 3B ready, books tie / not tie, next deadline (days).
+2. Sort by deadline; default filter to "needs me" (any red cell).
+3. Every cell is a **deep link into the fix** (that company's B-03 / D-04 / GSTR page), not a report.
+   Switching company reuses D-01's `X-Company-Id` flow.
+4. Roles: `PARTNER` sees all client companies; `MANAGER` / `STAFF` see assigned clients only.
+   Practice-level membership, not a new tenant model.
+5. Each aggregate value comes from the **same** company-scoped service the single-company screen
+   uses -- the console never runs a query that spans companies.
+6. Client-side mirror: "What my CA needs from me" -- missing bills (D-04), clarifications, approvals.
+
+### Tests
+
+- A practice with 3 client companies renders 3 rows; each number equals that company's own screen.
+- `STAFF` assigned to 1 of 3 clients sees exactly 1 row; isolation test proves no cross-tenant read.
+- A red "3B not ready" cell deep-links into that company's GSTR-3B page with the right context.
+- Removing a membership removes the row on next load.
+
+### DoD
+
+- [ ] A CA runs a month-end across 10 client companies from one board without opening Tally/ClearTax.
+- [ ] No query in `practice/` spans companies; isolation test green.
+- [ ] Staff-scoped visibility enforced; partner sees all.
+- [ ] Client sees the matching "what my CA needs" list.
+
+### Out of scope
+
+Bulk filing across companies; a practice-level billing/GST engine; white-label.
+
+### Rollback
+
+`/practice` behind `ENABLE_PRACTICE_CONSOLE` (default off). Removing it leaves D-01 untouched.
+
+### Agent prompt
+
+```
+Implement F-06 from docs/roadmap/WAVES_E_TO_L_CURSOR_IMPLEMENTATION_PLAN.md.
+Cross-company CA board: one row per client company (IMS actioned, credit at risk, missing bills,
+GSTR-1/3B ready, books tie, deadline), "needs me" filter, deep links. Every value from the existing
+company-scoped service -- no query spans companies. Staff/partner visibility. Client-side mirror.
+Behind ENABLE_PRACTICE_CONSOLE, default off. Stop when DoD is met.
 ```
 
 ---
@@ -1603,7 +1683,7 @@ Else implement only that L-id using 0–D contract.
 |---|---|
 | **E-00** | Starter cannot enable books; books plan can. |
 | **E** | Named company books-on; Health + ± paise gate; runbook used once; demo off. Waiver optional for year-1 CA. |
-| **F** | Tax refused; budget=0 off; pay-confirm WhatsApp; no AI CA copy in README. |
+| **F** | Tax refused; budget=0 off; pay-confirm WhatsApp; no AI CA copy in README. **F-06:** CA runs 10 client companies from one board; no query spans companies; isolation test green. |
 | **G** | Export disclaimer; WABA status; PAN not VALID in prod; locales beta or signed. |
 | **H–K** | Charter template filled; demo flags off. |
 | **L** | Demand-log ≥3 + charter. |
@@ -1618,6 +1698,7 @@ Agents: `ticket-logs/<ID>.md`. Integrator file: `ticket-logs/INTEGRATOR.md`.
 |---|---|
 | 2026-08-30 | E–L authored |
 | 2026-08-30 | Rigor revision: 0–D ticket shape, P0 def, waiver, E-00, BUG-*, templates, demand-log |
+| 2026-08-30 | One-level-up review: F-06 Practice Console; F-04 consumes B-05; IMS/ITC + Attention Center live in 0-D B-03/B-05 |
 
 ---
 
@@ -1635,6 +1716,7 @@ Agents: `ticket-logs/<ID>.md`. Integrator file: `ticket-logs/INTEGRATOR.md`.
 | AI tax advice | F-01 |
 | Token budget | F-02 |
 | Payment received WhatsApp | F-05 |
+| CA one board for all clients | F-06 (needs D-01 + B-03 + B-05) |
 | Recurring completed a bill | G-03a then BUG-G-03 |
 | Pay run cancel reopens | BUG-J-04 |
 | PF / EPS | J-01 or keep frozen |
