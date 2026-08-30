@@ -27,6 +27,15 @@ from integrations.tally.adapter import (
 )
 
 
+def _parse_iso_date(val):
+    if not val:
+        return None
+    try:
+        return date.fromisoformat(str(val).strip()[:10])
+    except (ValueError, TypeError):
+        return None
+
+
 class TallyUploadView(APIView):
     permission_classes = [IsAuthenticated, HasCompany, CanImport]
     parser_classes = [MultiPartParser, FormParser]
@@ -118,8 +127,8 @@ class TallyExportView(APIView):
         assert_tally_enabled(cu.company)
         date_from = request.query_params.get("date_from") or request.query_params.get("dateFrom")
         date_to = request.query_params.get("date_to") or request.query_params.get("dateTo")
-        df = date.fromisoformat(date_from) if date_from else None
-        dt = date.fromisoformat(date_to) if date_to else None
+        df = _parse_iso_date(date_from)
+        dt = _parse_iso_date(date_to)
         content = build_tally_export_csv(cu.company, date_from=df, date_to=dt)
         resp = HttpResponse(content, content_type="text/csv")
         resp["Content-Disposition"] = 'attachment; filename="bizboard_tally_export_aid.csv"'
@@ -163,16 +172,16 @@ class TallyHttpPushView(APIView):
         cu = get_company_user(request)
         assert_tally_enabled(cu.company)
         kind = (request.data.get("kind") or request.data.get("type") or "masters").lower()
-        base_url = request.data.get("base_url") or request.data.get("baseUrl") or None
+        base_url = request.data.get("base_url") or request.data.get("baseUrl")
         date_from = request.data.get("date_from") or request.data.get("dateFrom")
         date_to = request.data.get("date_to") or request.data.get("dateTo")
-        df = date.fromisoformat(date_from) if date_from else None
-        dt = date.fromisoformat(date_to) if date_to else None
+        df = _parse_iso_date(date_from)
+        dt = _parse_iso_date(date_to)
         try:
             if kind == "vouchers":
-                result = push_vouchers_http(cu.company, base_url, date_from=df, date_to=dt)
+                result = push_vouchers_http(cu.company, date_from=df, date_to=dt, base_url=base_url)
             else:
-                result = push_masters_http(cu.company, base_url)
+                result = push_masters_http(cu.company, base_url=base_url)
         except BusinessRuleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         result["mode"] = "export_dump"
@@ -214,6 +223,11 @@ class WhatsAppConnectionView(APIView):
 
     def put(self, request):
         cu = get_company_user(request)
+        if not build_feature_flags(company=cu.company).get("ENABLE_WHATSAPP_CLOUD"):
+            return Response(
+                {"detail": "WhatsApp Cloud is not enabled."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         token = (
             request.data.get("token")
             or request.data.get("access_token")

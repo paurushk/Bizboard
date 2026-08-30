@@ -123,19 +123,20 @@ export async function updateUnit(id: number, payload: Partial<Unit>): Promise<Un
   }, { id, name: payload.name ?? '', ...payload } as Unit);
 }
 
-export async function listProducts(params?: { q?: string }): Promise<Product[]> {
-  return withMocks(async () => fetchAllPagesMasters<Product>('/products/', params), () => filterProducts(params?.q));
+export async function listProducts(params?: { q?: string; cf?: Record<string, string[]> }): Promise<Product[]> {
+  return withMocks(async () => fetchAllPagesMasters<Product>('/products/', params), () => filterProducts(params?.q, params?.cf));
 }
 
 export async function listProductsPage(params?: {
   page?: number;
   pageSize?: number;
   q?: string;
+  cf?: Record<string, string[]>;
 }): Promise<PageResult<Product>> {
   return withMocks(
     async () => fetchPage<Product>('/products/', params),
     () => {
-      const all = filterProducts(params?.q);
+      const all = filterProducts(params?.q, params?.cf);
       const pageSize = params?.pageSize ?? 50;
       const page = Math.max(1, params?.page ?? 1);
       const start = (page - 1) * pageSize;
@@ -151,43 +152,106 @@ export async function listProductsPage(params?: {
   );
 }
 
-function filterProducts(q?: string): Product[] {
-  if (!q) return mockProducts;
-  const term = q.toLowerCase();
-  return mockProducts.filter(
-    (p) =>
-      p.name.toLowerCase().includes(term) ||
-      p.sku.toLowerCase().includes(term) ||
-      (p.barcode && p.barcode.includes(term)),
+function filterProducts(q?: string, cf?: Record<string, string[]>): Product[] {
+  let rows = mockProducts;
+  if (q) {
+    const term = q.toLowerCase();
+    rows = rows.filter(
+      (p) =>
+        p.name.toLowerCase().includes(term) ||
+        p.sku.toLowerCase().includes(term) ||
+        (p.barcode && p.barcode.toLowerCase().includes(term)) ||
+        Object.values(p.customFields ?? {}).some((value) => value.toLowerCase().includes(term)),
+    );
+  }
+  if (cf) {
+    rows = rows.filter((p) =>
+      Object.entries(cf).every(([key, values]) => {
+        if (!values.length) return true;
+        const current = (p.customFields?.[key] ?? '').toLowerCase();
+        return values.some((value) => current === value.toLowerCase());
+      }),
+    );
+  }
+  return rows;
+}
+
+export async function listProductCustomFieldValues(): Promise<Record<string, string[]>> {
+  return withMocks(
+    async () => {
+      const { data } = await apiClient.get('/products/custom-field-values/');
+      return unwrapData<Record<string, string[]>>(data);
+    },
+    (() => {
+      const extra: Record<string, string[]> = {};
+      for (const product of mockProducts) {
+        for (const [key, value] of Object.entries(product.customFields ?? {})) {
+          const text = String(value ?? '').trim();
+          if (!text) continue;
+          const bucket = extra[key] ?? [];
+          if (!bucket.some((item) => item.toLowerCase() === text.toLowerCase())) bucket.push(text);
+          extra[key] = bucket;
+        }
+      }
+      return extra;
+    })(),
   );
 }
 
-export async function searchProducts(q: string): Promise<Product[]> {
-  return listProducts({ q });
+export async function searchProducts(q: string, opts?: { cf?: Record<string, string[]> }): Promise<Product[]> {
+  return listProducts({ q, cf: opts?.cf });
 }
 
 export async function createProduct(payload: Partial<Product>): Promise<Product> {
   return withMocks(async () => {
     const { data } = await apiClient.post('/products/', payload);
     return unwrapData<Product>(data);
-  }, {
-    id: Date.now(),
-    name: payload.name ?? '',
-    sku: payload.sku ?? '',
-    gstRate: payload.gstRate ?? 18,
-    purchasePrice: payload.purchasePrice ?? 0,
-    sellingPrice: payload.sellingPrice ?? 0,
-    reorderLevel: payload.reorderLevel ?? 0,
-    status: 'ACTIVE',
-    ...payload,
-  } as Product);
+  }, () => {
+    const created = {
+      id: Date.now(),
+      name: payload.name ?? '',
+      sku: payload.sku ?? '',
+      gstRate: payload.gstRate ?? 18,
+      purchasePrice: payload.purchasePrice ?? 0,
+      sellingPrice: payload.sellingPrice ?? 0,
+      reorderLevel: payload.reorderLevel ?? 0,
+      status: 'ACTIVE' as const,
+      ...payload,
+    } as Product;
+    mockProducts.push(created);
+    return created;
+  });
+}
+
+export async function generateBarcode(productId?: number): Promise<{ barcode: string; svg?: string }> {
+  const { data } = await apiClient.post('/products/generate-barcode/', productId ? { product: productId } : {});
+  return unwrapData<{ barcode: string; svg?: string }>(data);
+}
+
+export async function fetchBarcodeImage(code: string): Promise<Blob> {
+  const { data } = await apiClient.get('/products/barcode-image/', {
+    params: { code },
+    responseType: 'blob',
+  });
+  return data as Blob;
+}
+
+export async function searchHsn(q: string, kind?: string): Promise<{ count: number; items: Array<{ code: string; description: string; kind: string }> }> {
+  const { data } = await apiClient.get('/products/hsn-search/', { params: { q, kind } });
+  return unwrapData(data);
 }
 
 export async function updateProduct(id: number, payload: Partial<Product>): Promise<Product> {
   return withMocks(async () => {
     const { data } = await apiClient.patch(`/products/${id}/`, payload);
     return unwrapData<Product>(data);
-  }, { ...mockProducts[0], ...payload, id } as Product);
+  }, () => {
+    const index = mockProducts.findIndex((row) => row.id === id);
+    const base = index >= 0 ? mockProducts[index] : mockProducts[0];
+    const next = { ...base, ...payload, id } as Product;
+    if (index >= 0) mockProducts[index] = next;
+    return next;
+  });
 }
 
 export async function listReceipts(): Promise<CustomerReceipt[]> {

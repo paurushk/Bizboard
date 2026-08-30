@@ -55,7 +55,23 @@ export function isValidUpiVpa(vpa: string): boolean {
   return /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(vpa.trim());
 }
 
-const ALLOWED_GST_RATES = [0, 0.25, 3, 5, 12, 18, 28, 40];
+export const ALLOWED_GST_RATES = [0, 0.25, 3, 5, 12, 18, 28, 40];
+
+const GST_RATE_LABELS: Record<number, string> = {
+  0: '0% (Exempt / Nil)',
+  0.25: '0.25% (Precious Stones)',
+  3: '3% (Gold / Silver)',
+  5: '5%',
+  12: '12%',
+  18: '18% (Standard Goods & Services)',
+  28: '28% (Luxury & Demerit)',
+  40: '40%',
+};
+
+export const GST_RATE_OPTIONS = ALLOWED_GST_RATES.map((value) => ({
+  value: String(value),
+  label: GST_RATE_LABELS[value] ?? `${value}%`,
+}));
 
 /** Snap an arbitrary rate to the nearest official GST slab (BUG-416) —
  * previously this only clamped to [0, 28], so an in-range-but-invalid rate

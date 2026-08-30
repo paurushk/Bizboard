@@ -31,7 +31,7 @@ export async function loginViaUi(
 ) {
   await page.goto('/login');
   await page.getByRole('textbox', { name: /email/i }).fill(credentials.email);
-  await page.getByLabel(/password/i).fill(credentials.password);
+  await page.locator('input[name="password"]').fill(credentials.password);
   await page.getByRole('button', { name: /sign in/i }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 }

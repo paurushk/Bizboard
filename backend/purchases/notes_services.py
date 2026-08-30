@@ -79,13 +79,40 @@ def _apply_rcm_memo_if_linked(note, items) -> None:
         apply_rcm_memo_after_tax(note, items)
 
 
-def _normalize_items(items_data, company):
+def _resolve_purchase_source_item(line, company_id, invoice_id=None):
+    """Resolve and tenant-check a CN/DN source PurchaseItem, or return None."""
+    from .models import PurchaseItem
+
+    source_item = line.get("source_item")
+    if source_item is None and line.get("source_item_id") is not None:
+        source_item = line.get("source_item_id")
+    if source_item is None:
+        return None
+    if isinstance(source_item, (int, str)):
+        try:
+            item = PurchaseItem.objects.get(pk=int(source_item), invoice__company_id=company_id)
+        except (PurchaseItem.DoesNotExist, TypeError, ValueError) as exc:
+            raise BusinessRuleError("source_item does not belong to this company.") from exc
+        if invoice_id is not None and item.invoice_id != invoice_id:
+            raise BusinessRuleError("source_item does not belong to this invoice.")
+        return item
+    if getattr(source_item, "invoice_id", None) is not None:
+        if not PurchaseItem.objects.filter(pk=source_item.pk, invoice__company_id=company_id).exists():
+            raise BusinessRuleError("source_item does not belong to this company.")
+        if invoice_id is not None and source_item.invoice_id != invoice_id:
+            raise BusinessRuleError("source_item does not belong to this invoice.")
+    return source_item
+
+
+def _normalize_items(items_data, company, invoice_id=None):
     out = []
     for line in items_data:
         d = dict(line)
         product = d.get("product")
         if not isinstance(product, Product):
             d["product"] = Product.objects.get(pk=product, company=company)
+        if "source_item" in d or "source_item_id" in d:
+            d["source_item"] = _resolve_purchase_source_item(d, company.id, invoice_id=invoice_id)
         out.append(d)
     return out
 
@@ -135,7 +162,9 @@ class PurchaseNotesService:
     def set_credit_note_items(note: PurchaseCreditNote, items_data, user):
         if note.status != PurchaseCreditNote.Status.DRAFT:
             raise BusinessRuleError("Completed credit note cannot be edited.")
-        items_data = _normalize_items(items_data, note.company)
+        items_data = _normalize_items(
+            items_data, note.company, invoice_id=note.purchase_invoice_id,
+        )
         _validate_lines(items_data, note.company)
         note.items.all().delete()
         items = _build_note_items(PurchaseCreditNoteItem, "credit_note", note, items_data)
@@ -179,7 +208,7 @@ class PurchaseNotesService:
             max_cn = _purchase_note_headroom(note.purchase_invoice, exclude_cn_id=note.pk)
             if note.grand_total > max_cn:
                 raise BusinessRuleError(
-                    f"Credit note {note.grand_total} exceeds remaining invoiced value {max_cn}."
+                    f"Credit note {note.grand_total} exceeds invoice remaining outstanding {max_cn}."
                 )
         warnings = []
         tax_enabled = True
@@ -222,6 +251,9 @@ class PurchaseNotesService:
         note = PurchaseCreditNote.objects.select_for_update().get(pk=note.pk)
         if note.status != PurchaseCreditNote.Status.COMPLETED:
             raise BusinessRuleError("Only completed credit notes can be cancelled.")
+        from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
+
+        assert_period_allows_money_amend(note.company, note.note_date)
         if note.company.accounting_enabled:
             from accounting.models import JournalEntry
             from accounting.services import PostingService
@@ -233,6 +265,7 @@ class PurchaseNotesService:
         note.cancelled_at = timezone.now()
         note.updated_by = user
         note.save()
+        mark_period_dirty_if_snapshotted(note.company, note.note_date)
         return note
 
     @staticmethod
@@ -240,7 +273,9 @@ class PurchaseNotesService:
     def set_debit_note_items(note: PurchaseDebitNote, items_data, user):
         if note.status != PurchaseDebitNote.Status.DRAFT:
             raise BusinessRuleError("Completed debit note cannot be edited.")
-        items_data = _normalize_items(items_data, note.company)
+        items_data = _normalize_items(
+            items_data, note.company, invoice_id=note.purchase_invoice_id,
+        )
         _validate_lines(items_data, note.company)
         note.items.all().delete()
         items = _build_note_items(PurchaseDebitNoteItem, "debit_note", note, items_data)
@@ -328,6 +363,9 @@ class PurchaseNotesService:
         note = PurchaseDebitNote.objects.select_for_update().get(pk=note.pk)
         if note.status != PurchaseDebitNote.Status.COMPLETED:
             raise BusinessRuleError("Only completed debit notes can be cancelled.")
+        from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
+
+        assert_period_allows_money_amend(note.company, note.note_date)
         if note.company.accounting_enabled:
             from accounting.models import JournalEntry
             from accounting.services import PostingService
@@ -339,6 +377,7 @@ class PurchaseNotesService:
         note.cancelled_at = timezone.now()
         note.updated_by = user
         note.save()
+        mark_period_dirty_if_snapshotted(note.company, note.note_date)
         return note
 
     @staticmethod

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from urllib.parse import quote
+
+logger = logging.getLogger(__name__)
 
 import requests
 from django.conf import settings
@@ -75,7 +78,8 @@ def _resolve_whatsapp_credentials(company=None) -> tuple[str, str]:
             or ""
         ).strip()
         return token, phone_number_id
-    except Exception:  # noqa: BLE001 — fail closed to wa.me
+    except Exception:
+        logger.warning("WhatsApp credential decrypt failed; falling back to wa.me", exc_info=True)
         return "", ""
 
 

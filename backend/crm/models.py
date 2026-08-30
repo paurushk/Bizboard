@@ -15,6 +15,9 @@ class Lead(CompanyScopedModel):
     name = models.CharField(max_length=200)
     phone = models.CharField(max_length=20, blank=True)
     email = models.EmailField(blank=True)
+    state = models.CharField(max_length=64, blank=True)
+    gstin = models.CharField(max_length=15, blank=True)
+    address = models.TextField(blank=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.NEW)
     customer = models.ForeignKey(
         "masters.Customer", null=True, blank=True, on_delete=models.SET_NULL, related_name="leads",

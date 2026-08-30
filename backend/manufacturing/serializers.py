@@ -28,7 +28,7 @@ class BomSerializer(serializers.ModelSerializer):
         lines_data = validated_data.pop("lines", [])
         bom = Bom.objects.create(**validated_data)
         for line in lines_data:
-            BomLine.objects.create(bom=bom, **line)
+            BomLine.objects.create(bom=bom, company_id=bom.company_id, **line)
         return bom
 
     def update(self, instance, validated_data):
@@ -39,7 +39,7 @@ class BomSerializer(serializers.ModelSerializer):
         if lines_data is not None:
             instance.lines.all().delete()
             for line in lines_data:
-                BomLine.objects.create(bom=instance, **line)
+                BomLine.objects.create(bom=instance, company_id=instance.company_id, **line)
         return instance
 
 

@@ -23,11 +23,15 @@ class SubscriptionWritesAllowed(BasePermission):
         user = getattr(request, "user", None)
         if user is None or not getattr(user, "is_authenticated", False):
             return True
+        from rest_framework.exceptions import APIException
+
         from core.permissions import get_company_user
 
         try:
             cu = get_company_user(request)
-        except Exception:  # noqa: BLE001
+        except APIException:
+            raise
+        except Exception:  # noqa: BLE001 — missing company context is not a write
             return True
         if cu is None:
             return True

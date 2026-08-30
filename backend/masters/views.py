@@ -1,5 +1,6 @@
 from django.core.cache import cache
 from django.db.models import Q
+from django.http import HttpResponse
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -28,6 +29,17 @@ _MASTERS_LIST_TTL = 60
 
 # BB-000297/Wave 12B: masters mutation is Owner-only; list/retrieve stay HasCompany.
 _MUTATE_ACTIONS = ("create", "update", "partial_update", "destroy")
+
+
+def _barcode_svg(code: str) -> str:
+    try:
+        from reportlab.graphics.barcode import createBarcodeDrawing
+        from reportlab.graphics import renderSVG
+
+        drawing = createBarcodeDrawing("Code128", value=code, barHeight=50, humanReadable=True)
+        return renderSVG.drawToString(drawing)
+    except Exception as exc:
+        raise BusinessRuleError("Could not render barcode image.") from exc
 
 
 class CategoryViewSet(CompanyScopedViewSet):
@@ -208,19 +220,92 @@ class ProductViewSet(CompanyScopedViewSet):
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        from django.db.models import Exists, OuterRef
+        from inventory.models import StockMovement
+
+        qs = super().get_queryset().annotate(
+            has_movements=Exists(StockMovement.objects.filter(product_id=OuterRef("pk")))
+        )
         status_filter = self.request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
         q = self.request.query_params.get("search") or self.request.query_params.get("q")
+        from masters.custom_fields import active_defs, apply_cf_filters, build_search_q
+
+        defs = active_defs(self.company)
         if q:
             qs = qs.filter(
                 Q(name__icontains=q)
                 | Q(sku__icontains=q)
                 | Q(barcode__icontains=q)
                 | Q(hsn_code__icontains=q)
+                | build_search_q(q, defs)
             )
+        qs = apply_cf_filters(qs, self.request.query_params, defs)
         return qs
+
+    def perform_destroy(self, instance):
+        from django.db.models import ProtectedError
+
+        from core.exceptions import BusinessRuleError
+
+        if instance.is_referenced():
+            raise BusinessRuleError(
+                f"Cannot delete '{instance.name}' because it has transaction history. Deactivate it instead."
+            )
+        try:
+            super().perform_destroy(instance)
+        except ProtectedError:
+            raise BusinessRuleError(
+                f"Cannot delete '{instance.name}' because related documents reference it. Deactivate it instead."
+            )
+
+    @action(detail=False, methods=["get"], url_path="custom-field-values")
+    def custom_field_values(self, request):
+        from masters.custom_fields import active_defs, distinct_values_for_keys
+
+        keys = [
+            row["key"]
+            for row in active_defs(self.company)
+            if row.get("type") == "list" and row.get("key")
+        ]
+        return Response(distinct_values_for_keys(self.company, keys))
+
+    @action(detail=False, methods=["post"], url_path="generate-barcode")
+    def generate_barcode(self, request):
+        import secrets
+
+        company = self.company
+        for _ in range(20):
+            candidate = f"BB{company.id:04d}{secrets.randbelow(10**8):08d}"
+            if not Product.objects.filter(company=company, barcode=candidate).exists():
+                product_id = request.data.get("product")
+                if product_id:
+                    product = self.get_queryset().filter(pk=product_id).first()
+                    if product is None:
+                        raise BusinessRuleError("Product not found.")
+                    product.barcode = candidate
+                    product.updated_by = request.user
+                    product.save(update_fields=["barcode", "updated_by"])
+                    return Response({**self.get_serializer(product).data, "svg": _barcode_svg(candidate)})
+                return Response({"barcode": candidate, "svg": _barcode_svg(candidate)})
+        raise BusinessRuleError("Could not generate a unique barcode. Retry.")
+
+    @action(detail=False, methods=["get"], url_path="barcode-image")
+    def barcode_image(self, request):
+        import re
+
+        code = re.sub(r"[^A-Za-z0-9\-_]", "", (request.query_params.get("code") or "").strip())[:64]
+        if not code:
+            raise BusinessRuleError("code is required")
+        return HttpResponse(_barcode_svg(code), content_type="image/svg+xml")
+
+    @action(detail=False, methods=["get"], url_path="hsn-search")
+    def hsn_search(self, request):
+        from .hsn_catalog import search_hsn
+
+        rows = search_hsn(request.query_params.get("q") or "", kind=request.query_params.get("kind"))
+        return Response({"count": len(rows), "items": rows})
 
     def destroy(self, request, *args, **kwargs):
         """Never hard-delete a referenced product (§4.5) — deactivate instead."""

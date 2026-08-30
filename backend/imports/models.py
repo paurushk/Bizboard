@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 
 from core.models import CompanyScopedModel
@@ -31,8 +32,8 @@ class ImportJob(CompanyScopedModel):
     total_rows = models.PositiveIntegerField(default=0)
     valid_rows = models.PositiveIntegerField(default=0)
     error_rows = models.PositiveIntegerField(default=0)
-    preview = models.JSONField(default=list, blank=True)
-    errors = models.JSONField(default=list, blank=True)
+    preview = models.JSONField(default=list, blank=True, encoder=DjangoJSONEncoder)
+    errors = models.JSONField(default=list, blank=True, encoder=DjangoJSONEncoder)
     # Fuzzy header alias resolutions shown at preview: [{"source","target"}].
     column_mappings = models.JSONField(default=list, blank=True)
     # Rows whose opening-stock movements were reversed via void-rows.
@@ -40,6 +41,10 @@ class ImportJob(CompanyScopedModel):
     # Document-level clarification Q&A (Bill Import Redesign Plan §4.3):
     # [{"field","question","options":[...], "answer": "..." | null}]
     clarifications = models.JSONField(default=list, blank=True)
+    extra_sheets = models.JSONField(default=dict, blank=True, encoder=DjangoJSONEncoder)
+    custom_field_defs_snapshot = models.JSONField(default=list, blank=True)
+    custom_field_header_map = models.JSONField(default=dict, blank=True)
+    file_sha256 = models.CharField(max_length=64, blank=True, db_index=True)
     committed_at = models.DateTimeField(null=True, blank=True)
     supplier = models.ForeignKey(
         "masters.Supplier",
@@ -116,6 +121,9 @@ class SupplierBillTemplate(CompanyScopedModel):
     line_total_formula = models.CharField(
         max_length=24, choices=LineTotalFormula.choices, default=LineTotalFormula.SIMPLE
     )
+    # R4-017 (non-issue): a bespoke billed-qty expression already round-trips via
+    # column_mapping["qty_formula"] — _template_answers() reads that before the
+    # enum. `line_total_formula` is only a coarse label.
     tax_calculation_type = models.CharField(
         max_length=16, choices=TaxCalculationType.choices, default=TaxCalculationType.EXCLUSIVE
     )

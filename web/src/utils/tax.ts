@@ -89,7 +89,7 @@ export function calculateLineTax(input: LineTaxInput): LineTaxResult {
       sgst,
       igst: 0,
       cess,
-      taxTotal: roundMoney(cgst + sgst),
+      taxTotal: roundMoney(cgst + sgst + cess),
       lineTotal: roundMoney(taxableAmount + cgst + sgst + cess),
     };
   }
@@ -104,7 +104,7 @@ export function calculateLineTax(input: LineTaxInput): LineTaxResult {
     sgst: 0,
     igst,
     cess,
-    taxTotal: igst,
+    taxTotal: roundMoney(igst + cess),
     lineTotal: roundMoney(taxableAmount + igst + cess),
   };
 }
@@ -114,6 +114,21 @@ export interface InvoiceTotalsInput {
   invoiceDiscount?: number;
   applyRoundOff?: boolean;
   invoiceDiscountMode?: InvoiceDiscountMode;
+  chargesHsn?: string;
+  chargesGstRate?: number;
+  intraState?: boolean | null;
+}
+
+export function chargesAreTaxable(opts: {
+  additionalCharges?: number;
+  chargesHsn?: string;
+  chargesGstRate?: number;
+}): boolean {
+  return (
+    roundMoney(opts.additionalCharges ?? 0) > 0 &&
+    (opts.chargesHsn ?? '').trim().length > 0 &&
+    (opts.chargesGstRate ?? 0) > 0
+  );
 }
 
 function applyLineTaxOnTaxable(
@@ -145,7 +160,7 @@ function applyLineTaxOnTaxable(
       sgst,
       igst: 0,
       cess,
-      taxTotal: roundMoney(cgst + sgst),
+      taxTotal: roundMoney(cgst + sgst + cess),
       lineTotal: roundMoney(taxableAmount + cgst + sgst + cess),
     };
   }
@@ -156,7 +171,7 @@ function applyLineTaxOnTaxable(
     sgst: 0,
     igst,
     cess,
-    taxTotal: igst,
+    taxTotal: roundMoney(igst + cess),
     lineTotal: roundMoney(taxableAmount + igst + cess),
   };
 }
@@ -167,6 +182,8 @@ export function extractExclusiveFromInclusiveLine(input: {
   unitPriceInclusive: number;
   discountPercent?: number;
   gstRate: number;
+  cessRate?: number;
+  cessAmount?: number;
 }): { exclusiveUnitPrice: number; taxableAmount: number } {
   const qty = input.quantity;
   if (qty <= 0) {
@@ -174,8 +191,12 @@ export function extractExclusiveFromInclusiveLine(input: {
   }
   const lineGrossInclusive = roundMoney(qty * input.unitPriceInclusive);
   const discountAmt = roundMoney(lineGrossInclusive * ((input.discountPercent ?? 0) / 100));
-  const netInclusive = roundMoney(lineGrossInclusive - discountAmt);
-  const rate = input.gstRate;
+  let netInclusive = roundMoney(lineGrossInclusive - discountAmt);
+  const specific = roundMoney(qty * (input.cessAmount ?? 0));
+  if (specific > 0) {
+    netInclusive = roundMoney(Math.max(0, netInclusive - specific));
+  }
+  const rate = input.gstRate + (specific > 0 ? 0 : (input.cessRate ?? 0));
   const taxableAmount =
     rate > 0 ? roundMoney((netInclusive * 100) / (100 + rate)) : netInclusive;
   const exclusiveUnitPrice = roundMoney(taxableAmount / qty);
@@ -189,6 +210,10 @@ export function calculateInvoiceTotals(
       cessRate?: number;
       cess?: number;
       intraState?: boolean | null;
+      /** R5-002: tax-inclusive line gross (Σ qty×MRP) so the displayed Subtotal
+       *  on an inclusive-priced document reflects what the customer sees and
+       *  foots to the Grand Total. */
+      inclusiveGross?: number;
     }
   >,
   options: InvoiceTotalsInput | boolean = true,
@@ -214,7 +239,9 @@ export function calculateInvoiceTotals(
   const invoiceDiscount = roundMoney(opts.invoiceDiscount ?? 0);
   const mode: InvoiceDiscountMode = opts.invoiceDiscountMode ?? 'AFTER_TAX';
 
-  const subtotal = roundMoney(lines.reduce((sum, l) => sum + (l.gross ?? l.taxableAmount), 0));
+  const subtotal = roundMoney(
+    lines.reduce((sum, l) => sum + (l.inclusiveGross ?? l.gross ?? l.taxableAmount), 0),
+  );
   const lineDiscountTotal = roundMoney(lines.reduce((sum, l) => sum + (l.discountAmount ?? 0), 0));
 
   let working = lines.map((l) => ({
@@ -252,16 +279,34 @@ export function calculateInvoiceTotals(
     }
   }
 
-  const taxableTotal = roundMoney(working.reduce((sum, l) => sum + l.taxableAmount, 0));
-  const cgstTotal = roundMoney(working.reduce((sum, l) => sum + (l.cgst ?? 0), 0));
-  const sgstTotal = roundMoney(working.reduce((sum, l) => sum + (l.sgst ?? 0), 0));
-  const igstTotal = roundMoney(working.reduce((sum, l) => sum + (l.igst ?? 0), 0));
+  const taxableLines = roundMoney(working.reduce((sum, l) => sum + l.taxableAmount, 0));
+  let cgstTotal = roundMoney(working.reduce((sum, l) => sum + (l.cgst ?? 0), 0));
+  let sgstTotal = roundMoney(working.reduce((sum, l) => sum + (l.sgst ?? 0), 0));
+  let igstTotal = roundMoney(working.reduce((sum, l) => sum + (l.igst ?? 0), 0));
   const cessTotal = roundMoney(working.reduce((sum, l) => sum + (l.cess ?? 0), 0));
-  const taxTotal = roundMoney(cgstTotal + sgstTotal + igstTotal);
+  const taxableCharges = chargesAreTaxable({
+    additionalCharges,
+    chargesHsn: opts.chargesHsn,
+    chargesGstRate: opts.chargesGstRate,
+  });
+  let taxableTotal = taxableLines;
+  if (taxableCharges) {
+    const chargeTax = applyLineTaxOnTaxable(
+      additionalCharges,
+      opts.chargesGstRate ?? 0,
+      opts.intraState ?? null,
+    );
+    taxableTotal = roundMoney(taxableLines + additionalCharges);
+    cgstTotal = roundMoney(cgstTotal + chargeTax.cgst);
+    sgstTotal = roundMoney(sgstTotal + chargeTax.sgst);
+    igstTotal = roundMoney(igstTotal + chargeTax.igst);
+  }
+  const taxTotal = roundMoney(cgstTotal + sgstTotal + igstTotal + cessTotal);
+  const chargesInGrand = taxableCharges ? 0 : additionalCharges;
   const raw =
     mode === 'BEFORE_TAX'
-      ? roundMoney(taxableTotal + taxTotal + cessTotal + additionalCharges)
-      : roundMoney(taxableTotal + taxTotal + cessTotal + additionalCharges - invoiceDiscount);
+      ? roundMoney(taxableTotal + taxTotal + chargesInGrand)
+      : roundMoney(taxableTotal + taxTotal + chargesInGrand - invoiceDiscount);
   const clamped = Math.max(0, raw);
   const rounded = applyRoundOff ? Math.round(clamped) : clamped;
   const roundOff = roundMoney(rounded - clamped);
@@ -370,7 +415,17 @@ const IN_STATE_NAME_TO_CODE: Record<string, string> = {
   uk: '05',
   ua: '05',
   wb: '19',
+  'other territory': '96',
+  'other country': '96',
+  foreign: '96',
+  export: '96',
 };
+
+export const VALID_GST_STATE_CODES = new Set([
+  ...Object.values(IN_STATE_NAME_TO_CODE),
+  '96',
+  '97',
+]);
 
 /**
  * Canonical GST state code from GSTIN (digits 0–1) or a mapped state name/abbr.
@@ -380,7 +435,13 @@ export function extractStateCode(value?: string): string | null {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if (/^\d{2}/.test(trimmed)) return trimmed.slice(0, 2);
+  if (trimmed.length === 15 && /^\d{2}/.test(trimmed)) {
+    const code = trimmed.slice(0, 2);
+    return VALID_GST_STATE_CODES.has(code) ? code : null;
+  }
+  if (trimmed.length === 2 && /^\d{2}$/.test(trimmed) && VALID_GST_STATE_CODES.has(trimmed)) {
+    return trimmed;
+  }
   const key = trimmed.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
   return IN_STATE_NAME_TO_CODE[key] ?? null;
 }

@@ -4,12 +4,13 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { apiClient, getErrorMessage } from '@/api/client';
+import { apiClient } from '@/api/client';
 import { exportReport } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { canExport, canManageUsers } from '@/utils/permissions';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 function downloadBlobUrl(url: string, filename: string) {
   const a = document.createElement('a');
@@ -80,9 +81,7 @@ export function BackupExportPage() {
           </Alert>
         ) : null}
         {exportMutation.isError ? (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {getErrorMessage(exportMutation.error)}
-          </Alert>
+          <HelpErrorAlert error={exportMutation.error} sx={{ mb: 2 }} />
         ) : null}
         <Stack direction="row" spacing={1} flexWrap="wrap">
           {(['sales', 'purchases', 'inventory', 'customers'] as const).map((type) => (

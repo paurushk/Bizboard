@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -32,6 +31,7 @@ import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const PAGE_SIZE = 50;
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'LOST'] as const;
@@ -69,6 +69,8 @@ function LeadsPageInner() {
   const [timelineLead, setTimelineLead] = useState<Lead | null>(null);
   const [activityKind, setActivityKind] = useState<string>('NOTE');
   const [activityBody, setActivityBody] = useState('');
+  const [convertLeadRow, setConvertLeadRow] = useState<Lead | null>(null);
+  const [convertAmount, setConvertAmount] = useState('0');
 
   const query = useQuery({
     queryKey: ['leads', page],
@@ -114,7 +116,8 @@ function LeadsPageInner() {
   });
 
   const convertMutation = useMutation({
-    mutationFn: (lead: Lead) => convertLead(lead.id),
+    mutationFn: ({ lead, amount }: { lead: Lead; amount: number }) =>
+      convertLead(lead.id, { amount }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['leads'] });
       void qc.invalidateQueries({ queryKey: ['opportunities'] });
@@ -161,10 +164,10 @@ function LeadsPageInner() {
           {t('common.add')}
         </Button>
       </Stack>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {rows.length === 0 && !query.isLoading && !query.isError ? (
         <EmptyState description={t('empty.leads')} />
@@ -207,7 +210,10 @@ function LeadsPageInner() {
                     <Button
                       size="small"
                       disabled={convertMutation.isPending}
-                      onClick={() => convertMutation.mutate(lead)}
+                      onClick={() => {
+                        setConvertLeadRow(lead);
+                        setConvertAmount('0');
+                      }}
                     >
                       {t('erp.convertLead')}
                     </Button>
@@ -356,6 +362,35 @@ function LeadsPageInner() {
             onClick={() => activityMutation.mutate()}
           >
             {t('erp.addActivity')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={Boolean(convertLeadRow)} onClose={() => setConvertLeadRow(null)} fullWidth maxWidth="xs">
+        <DialogTitle>{t('erp.convertLead')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2">{t('erp.convertLeadConfirm')}</Typography>
+            <TextField
+              label={t('erp.convertAmount')}
+              type="number"
+              value={convertAmount}
+              onChange={(e) => setConvertAmount(e.target.value)}
+              inputProps={{ min: 0, step: '0.01' }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConvertLeadRow(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={convertMutation.isPending || !convertLeadRow}
+            onClick={() => {
+              if (!convertLeadRow) return;
+              convertMutation.mutate({ lead: convertLeadRow, amount: Number(convertAmount) || 0 });
+              setConvertLeadRow(null);
+            }}
+          >
+            {t('erp.convertLead')}
           </Button>
         </DialogActions>
       </Dialog>

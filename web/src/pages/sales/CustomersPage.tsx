@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
@@ -22,6 +21,7 @@ import { getErrorMessage } from '@/api/client';
 import { getCompany, createCustomer, listCustomersPage, updateCustomer, verifyCustomerGstin } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
 import { StateSelect } from '@/components/StateSelect';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
@@ -32,6 +32,7 @@ import { formatMoney } from '@/utils/money';
 import { isViewer } from '@/utils/permissions';
 import { placeOfSupplyKnown } from '@/utils/tax';
 import { customerStatusTone, statusLabelKey } from '@/utils/status';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const emptyForm = { name: '', phone: '', email: '', gstin: '', state: '', billingAddress: '' };
 const PAGE_SIZE = 50;
@@ -69,7 +70,10 @@ export function CustomersPage() {
     !!company.data?.isGstRegistered && !company.data?.assumeLocalStateForBlankParty;
   const placeOfSupplyOk =
     !requirePlaceOfSupply || placeOfSupplyKnown(form.state, form.gstin);
-  const canSave = Boolean(form.name.trim()) && placeOfSupplyOk;
+  const canSave =
+    Boolean(form.name.trim()) &&
+    placeOfSupplyOk &&
+    (!form.phone.trim() || isValidIndianPhone(form.phone));
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -106,7 +110,7 @@ export function CustomersPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, state: company.data?.state || '' });
     setNameTouched(false);
     setOpen(true);
   };
@@ -135,20 +139,22 @@ export function CustomersPage() {
           </Button>
         ) : null}
       </Stack>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {rows.length === 0 && !query.isLoading && !query.isError ? (
         <EmptyState
           description={t('empty.customers')}
           action={
-            canMutate ? (
-              <Button variant="contained" onClick={openCreate}>
-                {t('common.add')} {t('nav.customers')}
-              </Button>
-            ) : null
+            <HelpEmptyLink intent="add-gstin">
+              {canMutate ? (
+                <Button variant="contained" onClick={openCreate}>
+                  {t('common.add')} {t('nav.customers')}
+                </Button>
+              ) : null}
+            </HelpEmptyLink>
           }
         />
       ) : null}

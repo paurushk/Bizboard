@@ -29,3 +29,25 @@ def set_rls_company(company_id) -> None:
     except Exception:
         logger.exception("Failed to set RLS company GUC for company_id=%s", company_id)
         raise
+
+
+def set_help_staff_all(enabled: bool) -> None:
+    """SET SESSION app.help_staff_all so staff `?all=1` health can read every tenant.
+
+    Help tables FORCE RLS with company_id = app.company_id. Without this GUC,
+    staff aggregates silently return only the caller's company. Always clear
+    (enabled=False) at the end of the request — pooled connections reuse GUCs.
+    """
+    if not getattr(settings, "POSTGRES_RLS_ENABLED", False):
+        return
+    if connection.vendor != "postgresql":
+        return
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT set_config('app.help_staff_all', %s, false)",
+                ["1" if enabled else ""],
+            )
+    except Exception:
+        logger.exception("Failed to set RLS help_staff_all GUC enabled=%s", enabled)
+        raise

@@ -1,0 +1,249 @@
+{
+  "findings": [
+    {
+      "id": "UXW2-001",
+      "title": "Route /sales/upload returns 404 Page Not Found",
+      "module": "/sales/upload",
+      "type": "Broken Flow",
+      "severity": "High",
+      "viewport": "Desktop",
+      "steps": [
+        "Navigate to /sales/upload"
+      ],
+      "expected": "Renders Sales Bill Upload page",
+      "actual": "Shows 404 Page Not Found",
+      "impact": "Feature is unreachable via URL routing",
+      "fix": "Add route handler in App.tsx and link navigation",
+      "evidence": "UXW2_sales_bill_upload.png"
+    },
+    {
+      "id": "UXW2-002",
+      "title": "Route /purchases/upload returns 404 Page Not Found",
+      "module": "/purchases/upload",
+      "type": "Broken Flow",
+      "severity": "High",
+      "viewport": "Desktop",
+      "steps": [
+        "Navigate to /purchases/upload"
+      ],
+      "expected": "Renders Purchase Bill Upload page",
+      "actual": "Shows 404 Page Not Found",
+      "impact": "Feature is unreachable via URL routing",
+      "fix": "Add route handler in App.tsx and link navigation",
+      "evidence": "UXW2_purchase_bill_upload.png"
+    },
+    {
+      "id": "UXW2-003",
+      "title": "Route /inventory/expiry returns 404 Page Not Found",
+      "module": "/inventory/expiry",
+      "type": "Broken Flow",
+      "severity": "High",
+      "viewport": "Desktop",
+      "steps": [
+        "Navigate to /inventory/expiry"
+      ],
+      "expected": "Renders Expiry Alerts page",
+      "actual": "Shows 404 Page Not Found",
+      "impact": "Feature is unreachable via URL routing",
+      "fix": "Add route handler in App.tsx and link navigation",
+      "evidence": "UXW2_expiry_alerts.png"
+    },
+    {
+      "id": "UXW2-004",
+      "title": "Route /inventory/count returns 404 Page Not Found",
+      "module": "/inventory/count",
+      "type": "Broken Flow",
+      "severity": "High",
+      "viewport": "Desktop",
+      "steps": [
+        "Navigate to /inventory/count"
+      ],
+      "expected": "Renders Stock Count page",
+      "actual": "Shows 404 Page Not Found",
+      "impact": "Feature is unreachable via URL routing",
+      "fix": "Add route handler in App.tsx and link navigation",
+      "evidence": "UXW2_stock_count.png"
+    },
+    {
+      "id": "UXW2-005",
+      "title": "Route /payments/recon returns 404 Page Not Found",
+      "module": "/payments/recon",
+      "type": "Broken Flow",
+      "severity": "High",
+      "viewport": "Desktop",
+      "steps": [
+        "Navigate to /payments/recon"
+      ],
+      "expected": "Renders Bank Reconciliation page",
+      "actual": "Shows 404 Page Not Found",
+      "impact": "Feature is unreachable via URL routing",
+      "fix": "Add route handler in App.tsx and link navigation",
+      "evidence": "UXW2_bank_recon.png"
+    },
+    {
+      "id": "UXW2-006",
+      "title": "Route /accounting/bank-recon returns 404 Page Not Found",
+      "module": "/accounting/bank-recon",
+      "type": "Broken Flow",
+      "severity": "High",
+      "viewport": "Desktop",
+      "steps": [
+        "Navigate to /accounting/bank-recon"
+      ],
+      "expected": "Renders Accounting Bank Recon page",
+      "actual": "Shows 404 Page Not Found",
+      "impact": "Feature is unreachable via URL routing",
+      "fix": "Add route handler in App.tsx and link navigation",
+      "evidence": "UXW2_accounting_bank_recon.png"
+    },
+    {
+      "id": "UXW2-007",
+      "title": "Route /reports/profit-loss returns 404 Page Not Found",
+      "module": "/reports/profit-loss",
+      "type": "Broken Flow",
+      "severity": "High",
+      "viewport": "Desktop",
+      "steps": [
+        "Navigate to /reports/profit-loss"
+      ],
+      "expected": "Renders Profit & Loss page",
+      "actual": "Shows 404 Page Not Found",
+      "impact": "Feature is unreachable via URL routing",
+      "fix": "Add route handler in App.tsx and link navigation",
+      "evidence": "UXW2_report_profit_loss.png"
+    },
+    {
+      "id": "UXW2-008",
+      "title": "Route /settings/items returns 404 Page Not Found",
+      "module": "/settings/items",
+      "type": "Broken Flow",
+      "severity": "High",
+      "viewport": "Desktop",
+      "steps": [
+        "Navigate to /settings/items"
+      ],
+      "expected": "Renders Item Settings page",
+      "actual": "Shows 404 Page Not Found",
+      "impact": "Feature is unreachable via URL routing",
+      "fix": "Add route handler in App.tsx and link navigation",
+      "evidence": "UXW2_settings_items.png"
+    }
+  ],
+  "consoleErrors": [
+    {
+      "url": "http://localhost/login",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "url": "http://localhost/reports/gstr3b",
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    }
+  ],
+  "networkErrors": [
+    {
+      "url": "http://localhost/api/v1/auth/refresh/",
+      "status": 401,
+      "method": "POST",
+      "page": "http://localhost/login"
+    },
+    {
+      "url": "http://localhost/api/v1/reports/gstr3b/?period=2026-08&format=json",
+      "status": 500,
+      "method": "GET",
+      "page": "http://localhost/reports/gstr3b"
+    }
+  ],
+  "auditLog": [
+    "[2026-08-24T16:59:40.875Z] Starting Wave 2 Full App Audit...",
+    "[2026-08-24T16:59:40.881Z] Navigating to login page...",
+    "[2026-08-24T16:59:49.591Z] Login successful, currently at: http://localhost/",
+    "[2026-08-24T16:59:51.730Z] Dashboard banner match: None, Card Area: Today's sales\n\n₹0.00",
+    "[2026-08-24T16:59:51.730Z] Phase 1: Testing Company & GST Settings...",
+    "[2026-08-24T17:00:02.078Z] Creating Supplier UXW2-Supplier-Alpha...",
+    "[2026-08-24T17:00:04.779Z] Creating Product UXW2-Item-Widget...",
+    "[2026-08-24T17:00:08.525Z] Opening Purchase Bill page...",
+    "[2026-08-24T17:00:13.723Z] Creating Customer UXW2-Customer-Beta...",
+    "[2026-08-24T17:00:16.535Z] Opening Sales Invoice page...",
+    "[2026-08-24T17:00:21.194Z] Beginning sweep across 70 routes...",
+    "[2026-08-24T17:00:21.205Z] Sweeping Sales History (/sales/history)...",
+    "[2026-08-24T17:00:26.212Z] Sweeping Quotations (/sales/quotations)...",
+    "[2026-08-24T17:00:29.757Z] Sweeping Sales Orders (/sales/orders)...",
+    "[2026-08-24T17:00:33.495Z] Sweeping New Sales Order (/sales/orders/new)...",
+    "[2026-08-24T17:00:37.451Z] Sweeping Delivery Challans (/sales/delivery-challans)...",
+    "[2026-08-24T17:00:41.071Z] Sweeping New Delivery Challan (/sales/delivery-challans/new)...",
+    "[2026-08-24T17:00:44.125Z] Sweeping Credit Notes (/sales/credit-notes)...",
+    "[2026-08-24T17:00:46.972Z] Sweeping New Credit Note (/sales/credit-notes/new)...",
+    "[2026-08-24T17:00:49.882Z] Sweeping Sales Debit Notes (/sales/debit-notes)...",
+    "[2026-08-24T17:00:52.470Z] Sweeping Sales Returns (/sales/returns)...",
+    "[2026-08-24T17:00:55.376Z] Sweeping Receipts (/sales/receipts)...",
+    "[2026-08-24T17:00:58.674Z] Sweeping Sales Bill Upload (/sales/upload)...",
+    "[2026-08-24T17:01:00.545Z] FINDING [UXW2-001]: (High) Route /sales/upload returns 404 Page Not Found [/sales/upload]",
+    "[2026-08-24T17:01:00.545Z] Sweeping Purchase History (/purchases/history)...",
+    "[2026-08-24T17:01:04.113Z] Sweeping Purchase Orders (/purchases/orders)...",
+    "[2026-08-24T17:01:08.018Z] Sweeping New Purchase Order (/purchases/orders/new)...",
+    "[2026-08-24T17:01:11.875Z] Sweeping Supplier Payments (/purchases/payments)...",
+    "[2026-08-24T17:01:15.923Z] Sweeping Purchase Returns (/purchases/returns)...",
+    "[2026-08-24T17:01:19.518Z] Sweeping Purchase Debit Notes (/purchases/debit-notes)...",
+    "[2026-08-24T17:01:22.826Z] Sweeping Purchase Credit Notes (/purchases/credit-notes)...",
+    "[2026-08-24T17:01:25.379Z] Sweeping Purchase Bill Upload (/purchases/upload)...",
+    "[2026-08-24T17:01:27.339Z] FINDING [UXW2-002]: (High) Route /purchases/upload returns 404 Page Not Found [/purchases/upload]",
+    "[2026-08-24T17:01:27.339Z] Sweeping Current Stock (/inventory/stock)...",
+    "[2026-08-24T17:01:29.939Z] Sweeping Stock Adjustments (/inventory/adjustments)...",
+    "[2026-08-24T17:01:32.144Z] Sweeping Low Stock (/inventory/low-stock)...",
+    "[2026-08-24T17:01:34.959Z] Sweeping Warehouses (/inventory/warehouses)...",
+    "[2026-08-24T17:01:37.702Z] Sweeping Stock Transfers (/inventory/transfers)...",
+    "[2026-08-24T17:01:40.209Z] Sweeping Expiry Alerts (/inventory/expiry)...",
+    "[2026-08-24T17:01:41.991Z] FINDING [UXW2-003]: (High) Route /inventory/expiry returns 404 Page Not Found [/inventory/expiry]",
+    "[2026-08-24T17:01:41.991Z] Sweeping Stock Count (/inventory/count)...",
+    "[2026-08-24T17:01:43.865Z] FINDING [UXW2-004]: (High) Route /inventory/count returns 404 Page Not Found [/inventory/count]",
+    "[2026-08-24T17:01:43.865Z] Sweeping Serials & Batches (/inventory/serials)...",
+    "[2026-08-24T17:01:46.387Z] Sweeping Payment Links (/payments/links)...",
+    "[2026-08-24T17:01:49.603Z] Sweeping Bank Statements (/payments/statements)...",
+    "[2026-08-24T17:01:52.665Z] Sweeping Bank Reconciliation (/payments/recon)...",
+    "[2026-08-24T17:01:54.561Z] FINDING [UXW2-005]: (High) Route /payments/recon returns 404 Page Not Found [/payments/recon]",
+    "[2026-08-24T17:01:54.561Z] Sweeping Chart of Accounts (/accounting/chart-of-accounts)...",
+    "[2026-08-24T17:01:57.184Z] Sweeping Journals (/accounting/journals)...",
+    "[2026-08-24T17:01:59.906Z] Sweeping Accounting Bank Recon (/accounting/bank-recon)...",
+    "[2026-08-24T17:02:01.690Z] FINDING [UXW2-006]: (High) Route /accounting/bank-recon returns 404 Page Not Found [/accounting/bank-recon]",
+    "[2026-08-24T17:02:01.690Z] Sweeping Cost Centers (/accounting/cost-centers)...",
+    "[2026-08-24T17:02:04.193Z] Sweeping Sales Report (/reports/sales)...",
+    "[2026-08-24T17:02:07.183Z] Sweeping Purchases Report (/reports/purchases)...",
+    "[2026-08-24T17:02:10.231Z] Sweeping Inventory Report (/reports/inventory)...",
+    "[2026-08-24T17:02:12.695Z] Sweeping Customer Ledger (/reports/customer-ledger)...",
+    "[2026-08-24T17:02:15.035Z] Sweeping Supplier Ledger (/reports/supplier-ledger)...",
+    "[2026-08-24T17:02:17.534Z] Sweeping Cash Book (/reports/cash-book)...",
+    "[2026-08-24T17:02:20.537Z] Sweeping Trial Balance (/reports/trial-balance)...",
+    "[2026-08-24T17:02:23.014Z] Sweeping Profit & Loss (/reports/profit-loss)...",
+    "[2026-08-24T17:02:25.053Z] FINDING [UXW2-007]: (High) Route /reports/profit-loss returns 404 Page Not Found [/reports/profit-loss]",
+    "[2026-08-24T17:02:25.053Z] Sweeping Balance Sheet (/reports/balance-sheet)...",
+    "[2026-08-24T17:02:28.778Z] Sweeping Stock Valuation (/reports/stock-valuation)...",
+    "[2026-08-24T17:02:31.738Z] Sweeping Books Health (/reports/books-health)...",
+    "[2026-08-24T17:02:36.265Z] Sweeping GSTR-1 Report (/reports/gstr1)...",
+    "[2026-08-24T17:02:40.412Z] Sweeping GSTR-3B Report (/reports/gstr3b)...",
+    "[2026-08-24T17:02:44.623Z] Sweeping GSTR-9 Report (/reports/gstr9)...",
+    "[2026-08-24T17:02:52.216Z] Sweeping GSTR-2B Report (/reports/gstr2b)...",
+    "[2026-08-24T17:02:54.613Z] Sweeping GST Health (/reports/gst-health)...",
+    "[2026-08-24T17:02:57.251Z] Sweeping Statutory Events (/reports/statutory-events)...",
+    "[2026-08-24T17:02:59.747Z] Sweeping Insights Hub (/insights)...",
+    "[2026-08-24T17:03:03.270Z] Sweeping Insights Alerts (/insights/alerts)...",
+    "[2026-08-24T17:03:05.515Z] Sweeping Business Health (/insights/health)...",
+    "[2026-08-24T17:03:09.576Z] Sweeping Cashflow Forecast (/insights/cashflow)...",
+    "[2026-08-24T17:03:11.896Z] Sweeping AI Assistant (/insights/assistant)...",
+    "[2026-08-24T17:03:14.742Z] Sweeping Units Settings (/settings/units)...",
+    "[2026-08-24T17:03:17.222Z] Sweeping Invoice Templates (/settings/templates)...",
+    "[2026-08-24T17:03:19.540Z] Sweeping User Management (/settings/users)...",
+    "[2026-08-24T17:03:22.044Z] Sweeping Data Import (/settings/import)...",
+    "[2026-08-24T17:03:24.593Z] Sweeping Backup & Export (/settings/backup)...",
+    "[2026-08-24T17:03:28.175Z] Sweeping Billing & Subscription (/settings/billing)...",
+    "[2026-08-24T17:03:30.527Z] Sweeping Bank Accounts (/settings/bank-accounts)...",
+    "[2026-08-24T17:03:32.586Z] Sweeping Payment Gateway (/settings/payment-gateway)...",
+    "[2026-08-24T17:03:35.160Z] Sweeping Price Lists (/settings/price-lists)...",
+    "[2026-08-24T17:03:37.501Z] Sweeping Item Settings (/settings/items)...",
+    "[2026-08-24T17:03:39.176Z] FINDING [UXW2-008]: (High) Route /settings/items returns 404 Page Not Found [/settings/items]",
+    "[2026-08-24T17:03:39.176Z] Sweeping Accounting Settings (/settings/accounting)...",
+    "[2026-08-24T17:03:41.525Z] Sweeping Tally Migration (/settings/tally)...",
+    "[2026-08-24T17:03:44.152Z] Sweeping AI Settings (/settings/ai)...",
+    "[2026-08-24T17:03:46.282Z] Testing Mobile Viewport (375x812)...",
+    "[2026-08-24T17:03:53.975Z] Testing 404 page handling..."
+  ]
+}

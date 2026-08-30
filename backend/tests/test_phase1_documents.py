@@ -47,7 +47,11 @@ def test_sales_debit_note_complete_and_cap(tenant_a):
         format="json",
     )
     assert dn.status_code == 201, dn.data
-    done = tenant_a.client.post(f"/api/v1/sales/debit-notes/{dn.data['id']}/complete/")
+    done = tenant_a.client.post(
+        f"/api/v1/sales/debit-notes/{dn.data['id']}/complete/",
+        {"confirm_additional_debit": True},
+        format="json",
+    )
     assert done.status_code == 200, done.data
     assert SalesDebitNote.objects.get(pk=dn.data["id"]).status == "COMPLETED"
 
@@ -206,7 +210,11 @@ def test_debit_note_and_challan_pdf_ready(tenant_a):
         format="json",
     )
     assert dn.status_code == 201, dn.data
-    assert tenant_a.client.post(f"/api/v1/sales/debit-notes/{dn.data['id']}/complete/").status_code == 200
+    assert tenant_a.client.post(
+        f"/api/v1/sales/debit-notes/{dn.data['id']}/complete/",
+        {"confirm_additional_debit": True},
+        format="json",
+    ).status_code == 200
     assert SalesDebitNote.objects.get(pk=dn.data["id"]).pdf_status == "READY"
 
     challan = tenant_a.client.post(

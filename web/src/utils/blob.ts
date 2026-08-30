@@ -5,8 +5,17 @@ export function triggerBlobDownload(blob: Blob, filename: string) {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    try {
+      document.body.removeChild(a);
+    } catch {
+      // ignore
+    }
+    URL.revokeObjectURL(url);
+  }, 10_000);
 }
 
 export function printBlob(blob: Blob) {
@@ -40,10 +49,13 @@ export function printBlob(blob: Blob) {
         triggerBlobDownload(blob, 'document.pdf');
       }
     };
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    }, 120000);
   }
-  window.setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 120000);
 }
 
 export function openBlobInTab(blob: Blob): () => void {

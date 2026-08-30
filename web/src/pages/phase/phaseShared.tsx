@@ -78,14 +78,16 @@ export function DataTable({
   columns,
   rows,
   empty,
+  emptyAction,
   actions,
 }: {
   columns: Array<{ key: string; label: string; money?: boolean; status?: boolean; bool?: boolean }>;
   rows: Row[];
   empty: string;
+  emptyAction?: ReactNode;
   actions?: (row: Row) => ReactNode;
 }) {
-  if (!rows.length) return <EmptyState description={empty} />;
+  if (!rows.length) return <EmptyState description={empty} action={emptyAction} />;
   return (
     <Paper variant="outlined" sx={{ overflow: 'auto' }}>
       <Table size="small">

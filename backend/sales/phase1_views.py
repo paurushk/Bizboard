@@ -3,6 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.exceptions import BusinessRuleError
+from core.idempotency import wrap_idempotent
 from core.permissions import (
     CanCancelDocuments,
     CanCreateSales,
@@ -80,14 +81,22 @@ class SalesCreditNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, 
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
-        note, warnings = SalesNotesService.complete_credit_note(self.get_object(), request.user)
-        if note.company.accounting_enabled:
-            from accounting.services import PostingService
+        def _run():
+            note, warnings = SalesNotesService.complete_credit_note(self.get_object(), request.user)
+            if note.company.accounting_enabled:
+                from accounting.services import PostingService
 
-            PostingService.post_note(note, source_type="SALES_CREDIT_NOTE", direction="SALES_CREDIT", user=request.user)
-        data = self.get_serializer(note).data
-        data["warnings"] = warnings
-        return Response(data)
+                PostingService.post_note(note, source_type="SALES_CREDIT_NOTE", direction="SALES_CREDIT", user=request.user)
+            data = self.get_serializer(note).data
+            data["warnings"] = warnings
+            return Response(data)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="sales_credit_note_complete",
+            build=_run,
+        )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -167,14 +176,28 @@ class SalesDebitNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, C
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
-        note, warnings = SalesNotesService.complete_debit_note(self.get_object(), request.user)
-        if note.company.accounting_enabled:
-            from accounting.services import PostingService
+        confirm = request.data.get("confirm_additional_debit") in (True, "true", "True", 1, "1")
 
-            PostingService.post_note(note, source_type="SALES_DEBIT_NOTE", direction="SALES_DEBIT", user=request.user)
-        data = self.get_serializer(note).data
-        data["warnings"] = warnings
-        return Response(data)
+        def _run():
+            note, warnings = SalesNotesService.complete_debit_note(
+                self.get_object(), request.user, confirm_additional_debit=confirm
+            )
+            if note.company.accounting_enabled:
+                from accounting.services import PostingService
+
+                PostingService.post_note(
+                    note, source_type="SALES_DEBIT_NOTE", direction="SALES_DEBIT", user=request.user
+                )
+            data = self.get_serializer(note).data
+            data["warnings"] = warnings
+            return Response(data)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="sales_debit_note_complete",
+            build=_run,
+        )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):

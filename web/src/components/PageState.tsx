@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react';
-import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { t } from '@/i18n';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 export function LoadingState({ label }: { label?: string }) {
   return (
@@ -54,13 +54,16 @@ export function EmptyState({
 export function ErrorState({
   message,
   onRetry,
+  error,
 }: {
   message?: string;
   onRetry?: () => void;
+  error?: unknown;
 }) {
   return (
-    <Alert
-      severity="error"
+    <HelpErrorAlert
+      message={message ?? t('common.error')}
+      error={error}
       action={
         onRetry ? (
           <Button color="inherit" size="small" onClick={onRetry}>
@@ -68,8 +71,6 @@ export function ErrorState({
           </Button>
         ) : undefined
       }
-    >
-      {message ?? t('common.error')}
-    </Alert>
+    />
   );
 }

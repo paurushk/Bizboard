@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import logging
 from decimal import Decimal
 
 from django.db.models import Sum
@@ -27,6 +28,7 @@ from .helpers import (
     build_upi_qr_png,
     format_money,
     format_qty,
+    pdf_esc,
     tax_breakup_by_rate,
 )
 from .styles import (
@@ -37,6 +39,8 @@ from .styles import (
     LINE,
     build_styles,
 )
+
+logger = logging.getLogger("bizboard.pdf")
 
 DEFAULT_TERMS = (
     "1. Goods once sold will not be taken back or exchanged.\n"
@@ -69,16 +73,16 @@ def _company_address(company) -> str:
 
 
 def _party_block(styles, title: str, name: str, address: str, gstin: str, phone: str) -> Table:
-    lines = [Paragraph(f"<b>{title}</b>", styles["section_head"])]
-    lines.append(Paragraph(name or "—", styles["body"]))
+    lines = [Paragraph(f"<b>{pdf_esc(title)}</b>", styles["section_head"])]
+    lines.append(Paragraph(pdf_esc(name) or "—", styles["body"]))
     if address:
         for part in address.split("\n"):
             if part.strip():
-                lines.append(Paragraph(part.strip(), styles["body_small"]))
+                lines.append(Paragraph(pdf_esc(part.strip()), styles["body_small"]))
     if gstin:
-        lines.append(Paragraph(f"GSTIN: {gstin}", styles["body_small"]))
+        lines.append(Paragraph(f"GSTIN: {pdf_esc(gstin)}", styles["body_small"]))
     if phone:
-        lines.append(Paragraph(f"Ph: {phone}", styles["body_small"]))
+        lines.append(Paragraph(f"Ph: {pdf_esc(phone)}", styles["body_small"]))
     inner = Table([[lines]], colWidths=[85 * mm])
     inner.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), GREY_HEADER),
@@ -139,11 +143,11 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             logo_img.hAlign = "LEFT"
             seller_bits.append(logo_img)
             seller_bits.append(Spacer(1, 1 * mm))
-        except Exception:
-            pass
-    seller_bits.append(Paragraph(company.name, styles["company_name"]))
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("Skipping invoice logo: %s", exc)
+    seller_bits.append(Paragraph(pdf_esc(company.name), styles["company_name"]))
     if company.gstin:
-        seller_bits.append(Paragraph(f"GSTIN: {company.gstin}", styles["meta"]))
+        seller_bits.append(Paragraph(f"GSTIN: {pdf_esc(company.gstin)}", styles["meta"]))
     if company.phone:
         seller_bits.append(Paragraph(f"Mobile: {company.phone}", styles["meta"]))
     addr = _company_address(company)
@@ -237,11 +241,11 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             total_amount += Decimal(item.line_total or 0)
             unit = (item.unit_name or "PCS").upper()
             item_cell = [
-                Paragraph(item.description or item.product.name, styles["td"]),
+                Paragraph(pdf_esc(item.description or item.product.name), styles["td"]),
             ]
             # Subtle second line with product name if description differs
             if item.description and item.description != item.product.name:
-                item_cell.append(Paragraph(item.product.name, styles["body_small"]))
+                item_cell.append(Paragraph(pdf_esc(item.product.name), styles["body_small"]))
             data.append([
                 Paragraph(str(idx), styles["td_center"]),
                 item_cell,
@@ -491,8 +495,8 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             sig_img.hAlign = "RIGHT"
             sign_flow.append(sig_img)
             sign_flow.append(Spacer(1, 1 * mm))
-        except Exception:
-            pass
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("Skipping invoice signature image: %s", exc)
     sign_flow.append(Paragraph("<b>Authorized Signatory</b>", styles["td_right"]))
     sign = Table(
         [[Paragraph("", styles["body"]), sign_flow]],

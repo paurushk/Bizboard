@@ -130,3 +130,18 @@ def test_bb_000730_idempotency_inflight_placeholder_conflict(tenant_a):
     assert isinstance(replayed, Response)
     assert replayed.status_code == 201
     assert replayed.data["id"] == 42
+
+
+def test_stale_inflight_idempotency_record_is_replaced(tenant_a):
+    company = tenant_a.company
+    scope = "sales_invoice_create"
+    key = "f3-stale-key"
+    first = begin_record(company=company, scope=scope, raw_key=key)
+    assert isinstance(first, IdempotencyRecord)
+    IdempotencyRecord.objects.filter(pk=first.pk).update(
+        created_at=timezone.now() - timedelta(minutes=16),
+    )
+    second = begin_record(company=company, scope=scope, raw_key=key)
+    assert isinstance(second, IdempotencyRecord)
+    assert second.pk != first.pk
+    assert not IdempotencyRecord.objects.filter(pk=first.pk).exists()

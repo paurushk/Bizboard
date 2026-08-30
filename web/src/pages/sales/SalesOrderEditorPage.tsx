@@ -37,8 +37,10 @@ import {
 } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
+import { preferredInvoiceType } from '@/onboarding/taxHints';
 import type { Customer, InvoiceType, Product } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
@@ -55,7 +57,8 @@ export function SalesOrderEditorPage() {
   const [loaded, setLoaded] = useState(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<number | ''>('');
-  const [invoiceType, setInvoiceType] = useState<InvoiceType>('GST');
+  const [invoiceType, setInvoiceType] = useState<InvoiceType>('NON_GST');
+  const [invoiceTypeTouched, setInvoiceTypeTouched] = useState(false);
   const [orderDate, setOrderDate] = useState(todayIso());
   const [expectedDelivery, setExpectedDelivery] = useState('');
   const [paymentTermsDays, setPaymentTermsDays] = useState(0);
@@ -65,8 +68,13 @@ export function SalesOrderEditorPage() {
   const [pendingQty, setPendingQty] = useState('1');
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  useEffect(() => {
+    if (isEdit || invoiceTypeTouched || !company.data) return;
+    setInvoiceType(preferredInvoiceType(company.data.registrationType));
+  }, [company.data, isEdit, invoiceTypeTouched]);
   const customers = useQuery({ queryKey: ['customers'], queryFn: () => listCustomers() });
-  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct });
+  const cf = useProductCfFilters();
+  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const existing = useQuery({
     queryKey: ['sales-orders', editId],
     queryFn: () => getSalesOrder(editId as number),
@@ -224,7 +232,7 @@ export function SalesOrderEditorPage() {
 
   if (isEdit && existing.isLoading) return <LoadingState />;
   if (isEdit && existing.isError) {
-    return <ErrorState message={getErrorMessage(existing.error)} onRetry={() => void existing.refetch()} />;
+    return <ErrorState message={getErrorMessage(existing.error)} error={existing.error} onRetry={() => void existing.refetch()} />;
   }
 
   return (
@@ -273,11 +281,14 @@ export function SalesOrderEditorPage() {
             select
             label={t('billing.invoiceType')}
             value={invoiceType}
-            onChange={(e) => setInvoiceType(e.target.value as InvoiceType)}
+            onChange={(e) => {
+              setInvoiceTypeTouched(true);
+              setInvoiceType(e.target.value as InvoiceType);
+            }}
             disabled={readOnly}
             sx={{ minWidth: 140 }}
           >
-            <MenuItem value="GST">GST</MenuItem>
+            {company.data?.registrationType === 'REGULAR' ? <MenuItem value="GST">GST</MenuItem> : null}
             <MenuItem value="NON_GST">Non-GST</MenuItem>
           </TextField>
           <TextField type="date" label={t('common.date')} value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={readOnly} InputLabelProps={{ shrink: true }} />
@@ -381,6 +392,8 @@ export function SalesOrderEditorPage() {
         </Paper>
 
         {!readOnly ? (
+          <Stack spacing={1}>
+            {cf.filterBar}
           <Stack direction="row" spacing={1} alignItems="center">
             <Autocomplete
               sx={{ flex: 1 }}
@@ -404,6 +417,7 @@ export function SalesOrderEditorPage() {
             />
             <TextField type="number" label={t('billing.qty')} value={pendingQty} onChange={(e) => setPendingQty(e.target.value)} sx={{ width: 100 }} inputProps={{ min: 1 }} />
             <Button variant="outlined" disabled={!pendingProduct} onClick={addLine}>{t('common.add')}</Button>
+          </Stack>
           </Stack>
         ) : null}
 

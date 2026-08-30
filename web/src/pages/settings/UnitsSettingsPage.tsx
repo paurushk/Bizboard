@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -26,6 +25,7 @@ import { t } from '@/i18n';
 import type { Unit } from '@/types/domain';
 import { useAuth } from '@/auth/AuthContext';
 import { canManageUsers } from '@/utils/permissions';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const emptyForm = { name: '', shortName: '', uqcCode: 'PCS' };
 
@@ -65,7 +65,7 @@ export function UnitsSettingsPage() {
   if (!canManageUsers(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
 
   return (
@@ -83,7 +83,7 @@ export function UnitsSettingsPage() {
           {t('common.add')}
         </Button>
       </Stack>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       {query.data?.length === 0 ? <EmptyState description="No units yet" /> : null}
       {query.data && query.data.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>

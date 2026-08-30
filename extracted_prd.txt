@@ -1,0 +1,1196 @@
+Product Requirements Document (PRD)
+One-Stop GST Billing & Business Management Platform
+Version: 1.0
+1. Product Vision
+Build a cloud-first Business Operating System for Indian MSMEs that simplifies business operations by integrating Billing, Purchases, Inventory, Accounting, GST Compliance, Payments, Manufacturing, and Business Insights into a single platform.
+The platform should be simple enough for a Kirana store and powerful enough for a growing manufacturer.
+2. Target Customers
+Retail Stores
+Wholesalers
+Distributors
+Manufacturers
+Traders
+Service Providers
+Freelancers
+SMEs
+3. Product Goals
+Fast GST-compliant billing
+End-to-end business management
+Real-time inventory control
+Automated accounting
+GST compliance
+Multi-device accessibility
+Business insights through dashboards
+Minimal learning curve
+4. Product Principles
+Business-first, not accounting-first
+Minimal clicks for daily operations
+Mobile-first experience
+Cloud with offline capability
+Automation over manual work
+Modular and scalable
+Regulatory compliant
+Affordable SaaS
+5. User Roles
+Role
+Responsibilities
+Owner/Admin
+Complete business management
+Manager
+Sales, Purchases, Inventory
+Sales Staff
+Billing & Customers
+Inventory Staff
+Stock Management
+Accountant
+Accounting & GST
+Auditor
+Read-only reports
+Role-based access should be configurable.
+6. Product Modules
+6.1 Company & Settings
+Features
+Company Profile
+GST Details
+PAN
+Financial Year
+Invoice Series
+Bank Accounts
+UPI QR
+Logo
+Branches
+Warehouses
+Tax Configuration
+Backup Settings
+6.2 Master Data
+Customer Management
+Customer Profile
+GSTIN
+Address
+Contact Details
+Credit Limit
+Payment Terms
+Outstanding Balance
+Sales History
+Supplier Management
+Supplier Profile
+GSTIN
+Bank Details
+Outstanding
+Purchase History
+Product Management
+SKU
+Barcode
+HSN/SAC
+GST Rate
+Category
+Brand
+Unit
+Purchase Price
+Selling Price
+Batch/Serial
+Reorder Level
+Other Masters
+Categories
+Brands
+Units
+Warehouses
+Tax Rates
+Payment Modes
+Expense Categories
+7. Sales Management
+Documents
+Quotation
+Sales Order
+Delivery Challan
+GST Invoice
+Retail Invoice
+Sales Return
+Credit Note
+Workflow
+Customer
+    ↓
+Quotation
+    ↓
+Sales Order
+    ↓
+Delivery Challan
+    ↓
+Invoice
+    ↓
+Payment
+    ↓
+Receipt
+    ↓
+Ledger & Inventory Update
+Features
+GST Billing
+Non-GST Billing
+POS Billing
+Barcode Billing
+Discounts & Offers
+Multiple Price Lists
+Customer Credit
+QR Payment
+Invoice Templates
+WhatsApp/Email/SMS Sharing
+Print Support
+8. Purchase Management
+Documents
+Purchase Order
+Goods Receipt (GRN)
+Purchase Invoice
+Purchase Return
+Debit Note
+Workflow
+Supplier
+    ↓
+Purchase Order
+    ↓
+Goods Receipt
+    ↓
+Purchase Invoice
+    ↓
+Payment
+    ↓
+Ledger & Inventory Update
+Features
+Supplier Credit
+Purchase History
+GST Purchase
+Bulk Purchase Import
+Vendor Price Tracking
+9. Inventory Management
+Features
+Real-time Stock
+Multi-Warehouse
+Batch Tracking
+Serial Number Tracking
+Expiry Management
+Stock Transfer
+Stock Adjustment
+Stock Verification
+Reorder Alerts
+Low Stock Alerts
+Negative Stock Control
+Workflow
+Purchase
+     ↓
+Warehouse
+     ↓
+Sales
+     ↓
+Inventory Update
+     ↓
+Reports
+10. Manufacturing (Professional Plan)
+Features
+Bill of Materials (BOM)
+Production Orders
+Raw Material Consumption
+Finished Goods
+Wastage Tracking
+Batch Production
+Production Costing
+Workflow
+BOM
+   ↓
+Production Order
+   ↓
+Material Consumption
+   ↓
+Finished Goods
+   ↓
+Inventory
+11. Accounting
+Features
+General Ledger
+Cash Book
+Bank Book
+Journal Entries
+Payment Voucher
+Receipt Voucher
+Contra Entries
+Expense Management
+Income Management
+Financial Reports
+Profit & Loss
+Balance Sheet
+Trial Balance
+Cash Flow
+Ledger Reports
+Outstanding Reports
+12. GST & Compliance
+Features
+GST Billing
+GST Calculation
+HSN Validation
+GSTIN Validation
+e-Invoice
+e-Way Bill
+GSTR-1
+GSTR-3B
+Tax Reports
+13. Payments
+Features
+Customer Collections
+Supplier Payments
+UPI
+Cash
+Bank Transfer
+Cheque
+Payment Links
+Aging Reports
+Automated Payment Reminders
+14. Reports & Dashboard
+Dashboard
+Display real-time business KPIs:
+Sales Today
+Monthly Revenue
+Purchase Summary
+Outstanding Receivables
+Outstanding Payables
+Cash & Bank Balance
+Inventory Value
+Low Stock Items
+Top Products
+Top Customers
+GST Liability
+Business Alerts
+Reports
+Sales
+Sales Register
+Customer Sales
+Product Sales
+Profitability
+Purchase
+Purchase Register
+Supplier Analysis
+Inventory
+Stock Summary
+Stock Ledger
+Batch Report
+Stock Aging
+Fast/Slow Moving Items
+Dead Stock
+Finance
+Ledger
+Trial Balance
+P&L
+Balance Sheet
+Cash Flow
+GST
+GSTR Reports
+Tax Summary
+15. Notifications & Automation
+Low Stock Alerts
+Payment Due Alerts
+GST Filing Reminders
+Subscription Renewal
+Daily Sales Summary
+Monthly Business Summary
+Backup Status
+Sync Failure Alerts
+16. Import & Export
+Import
+Customers
+Suppliers
+Products
+Opening Stock
+Opening Balances
+Export
+Excel
+CSV
+PDF
+17. Integrations
+Government
+GSTN
+e-Invoice
+e-Way Bill
+Payments
+UPI
+Payment Gateway
+Communication
+WhatsApp
+Email
+SMS
+Hardware
+Barcode Scanner
+Thermal Printer
+Label Printer
+Business
+Excel
+Tally Import/Export
+Public APIs/Webhooks
+18. AI Business Assistant (Future Ready)
+AI Invoice Search
+Natural Language Report Queries
+Sales Trend Analysis
+Inventory Forecasting
+Purchase Recommendations
+Cash Flow Forecasting
+Business Health Summary
+GST Filing Assistance
+19. Multi-Platform Support
+Android
+iOS
+Web
+Windows Desktop
+Capabilities
+Real-time Sync
+Offline Billing
+Auto Synchronization
+Conflict Resolution
+20. Administration
+Features
+User Management
+Role & Permissions
+Branch Management
+Warehouse Management
+Audit Logs
+Backup & Restore
+Subscription Management
+License Management
+Activity History
+21. End-to-End Business Flows
+Sales Cycle
+Customer
+    ↓
+Quotation
+    ↓
+Sales Order
+    ↓
+Delivery Challan
+    ↓
+GST Invoice
+    ↓
+Payment
+    ↓
+Accounting
+    ↓
+Reports
+Purchase Cycle
+Supplier
+    ↓
+Purchase Order
+    ↓
+Goods Receipt
+    ↓
+Purchase Invoice
+    ↓
+Payment
+    ↓
+Accounting
+Inventory Cycle
+Purchase
+    ↓
+Warehouse
+    ↓
+Stock Transfer
+    ↓
+Sales
+    ↓
+Inventory Reports
+Manufacturing Cycle
+Raw Material
+    ↓
+Production
+    ↓
+Finished Goods
+    ↓
+Inventory
+    ↓
+Sales
+Accounting Cycle
+Business Transactions
+        ↓
+Journal
+        ↓
+Ledger
+        ↓
+Trial Balance
+        ↓
+P&L
+        ↓
+Balance Sheet
+GST Compliance Cycle
+Invoice
+    ↓
+GST Calculation
+    ↓
+e-Invoice
+    ↓
+e-Way Bill
+    ↓
+GST Returns
+22. Subscription Plans
+Free
+GST Billing
+Product & Customer Masters
+Basic Inventory
+Basic Reports
+Mobile + Web
+Starter
+Sales
+Purchases
+Inventory
+Expenses
+GST Reports
+Barcode Billing
+Backup
+Professional
+Multi-User
+Multi-Warehouse
+Batch & Serial Tracking
+Advanced Reports
+Payment Reminders
+Desktop Application
+Enterprise
+Manufacturing
+Multi-Company
+API Access
+Custom Integrations
+Priority Support
+23. Non-Functional Requirements
+Performance
+App launch < 3 seconds
+Invoice generation < 10 seconds
+Search < 2 seconds
+Real-time synchronization
+High-volume transaction support
+Security
+SSL/TLS Encryption
+AES-256 Data Encryption
+Role-Based Access Control
+Audit Trail
+Daily Backups
+Reliability
+99.9% Uptime
+Offline Mode
+Auto Recovery
+Data Integrity
+Usability
+Learn billing within 10 minutes
+Mobile-first interface
+Regional language support
+Keyboard shortcuts
+Barcode-first workflow
+24. Success Metrics (KPIs)
+Product
+Monthly Active Businesses
+Daily Active Users
+Invoice Volume
+Feature Adoption
+Business
+Trial-to-Paid Conversion
+Monthly Recurring Revenue (MRR)
+Customer Retention
+Churn Rate
+Customer Experience
+App Rating > 4.5
+NPS > 50
+Support Resolution Time
+Average Invoice Creation Time
+25. Product Roadmap
+Phase 1 – Core Business
+Company & Masters
+Sales
+Purchases
+Inventory
+Accounting
+GST
+Dashboard
+Phase 2 – Business Growth
+Multi-Warehouse
+Manufacturing
+Mobile Apps
+Offline Mode
+Payment Automation
+Advanced Reports
+Phase 3 – Intelligence
+AI Business Assistant
+Forecasting
+OCR Invoice Import
+Business Analytics
+Open APIs & Marketplace
+Guiding Principle
+"One platform to run the entire business—from quotation to payment, purchase to inventory, accounting to GST compliance, with minimal manual effort and maximum business visibility."
+This PRD is intentionally concise yet comprehensive. It is organized around business workflows rather than isolated features, making it suitable as a foundation for UI/UX design, technical architecture, database design, API contracts, and implementation planning without introducing unnecessary complexity.
+I actually think you can simplify the MVP even further. Nearly 90% of MSMEs primarily use four workflows every day. Everything else (Accounting, GST returns, Manufacturing, CRM, etc.) is either derived automatically or added later.
+MVP PRD (Core Business Flows)
+Flow 1. Purchase Management
+Objective: Purchase goods and increase inventory.
+Workflow
+Supplier
+   │
+   ▼
+Purchase Order (Optional)
+   │
+   ▼
+Purchase Invoice
+   │
+   ▼
+Receive Goods
+   │
+   ▼
+Stock Updated
+   │
+   ▼
+Supplier Outstanding Updated
+   │
+   ▼
+Purchase Register
+Functional Requirements
+Add Supplier
+Purchase Invoice
+Purchase Return
+Supplier Credit
+GST Purchase
+Barcode Support
+Batch/Expiry (Optional)
+Multiple Payment Modes
+Attach Invoice PDF/Image
+Import Purchase (Excel)
+Automatic Actions
+Increase inventory
+Update supplier ledger
+Calculate GST input
+Update dashboard
+Flow 2. Sales & Invoice Generation
+Objective: Sell products quickly while generating professional invoices.
+Workflow
+Customer
+   │
+   ▼
+Select Products
+   │
+   ▼
+Apply Discount / Tax
+   │
+   ▼
+Generate GST Invoice
+   │
+   ▼
+Print / Share PDF
+   │
+   ▼
+Receive Payment
+   │
+   ▼
+Inventory Updated
+   │
+   ▼
+Customer Ledger Updated
+Functional Requirements
+Billing
+GST Invoice
+Retail Invoice
+Tax Invoice
+Estimate / Quotation
+Credit Note
+Sales Return
+Invoice Features
+A4 Invoice Printing
+Thermal Printer (58mm & 80mm)
+PDF Generation
+Company Logo
+UPI QR
+QR Code
+Barcode Billing
+Invoice Templates
+Auto Invoice Numbering
+Share Options
+WhatsApp
+Email
+PDF Download
+Print
+Payment Modes
+Cash
+UPI
+Card
+Bank Transfer
+Credit
+Automatic Actions
+Reduce stock
+Update customer outstanding
+Update sales register
+Update dashboard
+Flow 3. Inventory & Stock Management
+Objective: Maintain accurate inventory automatically.
+Workflow
+Purchase
+      │
+      ▼
+Stock Added
+      │
+      ▼
+Sales
+      │
+      ▼
+Stock Reduced
+      │
+      ▼
+Returns
+      │
+      ▼
+Stock Corrected
+      │
+      ▼
+Inventory Reports
+Functional Requirements
+Product Master
+SKU
+Barcode
+HSN
+GST
+Unit
+Purchase Price
+Selling Price
+Stock Management
+Current Stock
+Available Stock
+Reserved Stock (Future)
+Low Stock Alert
+Reorder Level
+Stock Adjustment
+Opening Stock
+Warehouse
+Single Warehouse (MVP)
+Multi-Warehouse (Future)
+Automatic Synchronization
+Whenever
+Purchase
+Sales
+Purchase Return
+Sales Return
+Manual Adjustment
+Inventory updates automatically.
+Reports
+Stock Summary
+Stock Ledger
+Low Stock
+Inventory Value
+Flow 4. Basic Reports & Dashboard
+Objective: Give business owners a daily snapshot of their business.
+Dashboard
+Sales
+Today's Sales
+Monthly Sales
+Invoice Count
+Purchase
+Today's Purchases
+Monthly Purchases
+Inventory
+Total Products
+Inventory Value
+Low Stock Items
+Finance
+Customer Outstanding
+Supplier Outstanding
+Cash Received
+Reports
+Sales
+Sales Register
+Customer Sales
+Product Sales
+Purchase
+Purchase Register
+Supplier Purchases
+Inventory
+Stock Summary
+Stock Ledger
+Low Stock Report
+Customer
+Outstanding
+Ledger
+Supplier
+Outstanding
+Ledger
+Export
+PDF
+Excel
+CSV
+Automatic Synchronization (Core Business Logic)
+This is the heart of the system.
+Action
+Stock
+Customer
+Supplier
+Reports
+Purchase Invoice
+✅ Increase
+—
+Outstanding ↑
+Purchase
+Purchase Return
+✅ Decrease
+—
+Outstanding ↓
+Purchase
+Sales Invoice
+✅ Decrease
+Outstanding ↑
+—
+Sales
+Sales Return
+✅ Increase
+Outstanding ↓
+—
+Sales
+Payment Received
+—
+Outstanding ↓
+—
+Dashboard
+Supplier Payment
+—
+—
+Outstanding ↓
+Dashboard
+Stock Adjustment
+Stock Updated
+—
+—
+Inventory
+MVP Navigation
+Dashboard
+Sales
+ ├── New Invoice
+ ├── Sales History
+ ├── Quotations
+ └── Customers
+Purchases
+ ├── New Purchase
+ ├── Purchase History
+ └── Suppliers
+Inventory
+ ├── Products
+ ├── Current Stock
+ ├── Stock Adjustment
+ └── Low Stock
+Reports
+ ├── Sales
+ ├── Purchases
+ ├── Inventory
+ ├── Customer Ledger
+ └── Supplier Ledger
+Settings
+ ├── Company
+ ├── GST
+ ├── Invoice Templates
+ ├── Users
+ └── Backup
+Why this scope?
+These four core flows cover the daily operations of most Indian MSMEs:
+Purchase Management – Procure goods and update stock.
+Sales & Invoice Generation – Create GST invoices, print on A4 or thermal printers, generate PDFs, and collect payments.
+Inventory & Stock Management – Keep inventory synchronized automatically across purchases, sales, returns, and adjustments.
+Basic Reports & Dashboard – Provide immediate visibility into sales, purchases, inventory, and outstanding balances.
+Technical Requirements Document (TRD)
+One-Stop GST Billing & Business Management Platform
+Version: 1.0
+1. Technical Objective
+Develop a cloud-first, scalable, secure, and modular Business Management Platform supporting Purchase, Sales, Inventory, and Reporting for Indian MSMEs.
+The architecture should be modular, API-first, and future-ready while remaining simple enough for rapid development and maintenance.
+2. High-Level Architecture
+                 Web Application
+                      │
+        ┌─────────────┴─────────────┐
+        │                           │
+ Android Application          Windows Desktop
+        │                           │
+        └─────────────┬─────────────┘
+                      │
+                 REST API Gateway
+                      │
+        ┌─────────────┼─────────────┐
+        │             │             │
+ Authentication   Business APIs   Reporting APIs
+        │             │             │
+        └─────────────┼─────────────┘
+                      │
+               Business Services
+        ┌────────┬────────┬────────┐
+        │        │        │        │
+     Sales   Purchase  Inventory  Reports
+                      │
+                 PostgreSQL
+                      │
+             File/Object Storage
+3. Technology Stack
+Frontend
+React.js
+TypeScript
+Vite
+Material UI / Ant Design
+Redux Toolkit
+React Query
+React Hook Form
+Mobile
+React Native
+Backend
+Python
+Django
+Django REST Framework
+Database
+PostgreSQL
+Cache
+Redis
+Background Jobs
+Celery
+Redis Broker
+File Storage
+Local Storage (Development)
+AWS S3 / Azure Blob (Production)
+Authentication
+JWT Authentication
+Refresh Tokens
+Deployment
+Docker
+Docker Compose
+Nginx
+Gunicorn
+Future
+Kubernetes
+4. Backend Modules
+Authentication
+Company
+Users
+Masters
+Customers
+Suppliers
+Products
+Purchases
+Sales
+Inventory
+Payments
+Reports
+Dashboard
+Notifications
+Settings
+Audit
+Each module should expose independent REST APIs.
+5. Core Modules
+Authentication
+Responsibilities
+Login
+Logout
+JWT
+Password Reset
+User Sessions
+Company
+Responsibilities
+Company Profile
+GST
+Financial Year
+Invoice Series
+Branch
+Warehouse
+Masters
+Responsibilities
+Customer
+Supplier
+Product
+Category
+Brand
+Units
+GST Rate
+Purchase
+Responsibilities
+Purchase Invoice
+Purchase Return
+Supplier Outstanding
+Sales
+Responsibilities
+Invoice
+Quotation
+Sales Return
+Customer Outstanding
+Inventory
+Responsibilities
+Stock
+Stock Movement
+Adjustment
+Stock Ledger
+Reports
+Responsibilities
+Sales Reports
+Purchase Reports
+Inventory Reports
+Dashboard Reports
+6. Database Design
+Core Tables
+users
+roles
+companies
+branches
+warehouses
+customers
+suppliers
+products
+categories
+units
+tax_rates
+purchase_invoices
+purchase_items
+sales_invoices
+sales_items
+stock_transactions
+payments
+customer_ledgers
+supplier_ledgers
+invoice_series
+audit_logs
+7. Business Flow
+Purchase
+Purchase Invoice
+↓
+Validate Supplier
+↓
+Save Purchase
+↓
+Save Purchase Items
+↓
+Increase Inventory
+↓
+Update Supplier Ledger
+↓
+Update Reports
+Sales
+Create Invoice
+↓
+Validate Customer
+↓
+Validate Stock
+↓
+Save Invoice
+↓
+Reduce Inventory
+↓
+Update Customer Ledger
+↓
+Generate PDF
+↓
+Share Invoice
+↓
+Update Dashboard
+Inventory
+Purchase
+↓
+Stock Increase
+↓
+Sales
+↓
+Stock Decrease
+↓
+Returns
+↓
+Stock Update
+↓
+Reports
+8. API Structure
+/api/auth/
+/api/company/
+/api/customers/
+/api/suppliers/
+/api/products/
+/api/purchases/
+/api/sales/
+/api/inventory/
+/api/payments/
+/api/reports/
+/api/dashboard/
+REST conventions
+GET
+POST
+PUT
+PATCH
+DELETE
+9. Invoice Engine
+Responsibilities
+Invoice Number Generation
+GST Calculation
+Discount Calculation
+PDF Generation
+QR Generation
+Barcode Support
+Print Formatting
+Supported Formats
+A4
+Thermal 58mm
+Thermal 80mm
+10. PDF Engine
+Responsibilities
+Generate
+GST Invoice
+Purchase Invoice
+Quotation
+Customer Statement
+Supplier Statement
+Features
+Company Logo
+QR Code
+UPI QR
+Signature
+Watermark
+11. Inventory Engine
+Responsibilities
+Automatically synchronize inventory.
+Events
+Purchase
+Stock
+Sales
+− Stock
+Purchase Return
+− Stock
+Sales Return
+Stock
+Adjustment
+± Stock
+Maintain
+Current Stock
+Opening Stock
+Closing Stock
+Stock Ledger
+12. Reporting Engine
+Reports
+Sales Register
+Purchase Register
+Stock Summary
+Stock Ledger
+Customer Ledger
+Supplier Ledger
+Outstanding
+Dashboard
+Export
+Excel
+PDF
+CSV
+13. Background Jobs
+Asynchronous Tasks
+PDF Generation
+WhatsApp Sharing
+Email Sending
+Daily Backup
+Daily Reports
+Notification Delivery
+14. Security
+JWT Authentication
+HTTPS
+Password Hashing
+RBAC
+Input Validation
+SQL Injection Protection
+XSS Protection
+CSRF Protection
+Audit Logging
+15. Performance
+Target
+API Response
+<300 ms
+Invoice Save
+<2 sec
+Invoice PDF
+<3 sec
+Dashboard
+<2 sec
+Search
+<500 ms
+16. Logging
+Maintain
+Application Logs
+API Logs
+Audit Logs
+Error Logs
+Performance Logs
+17. Error Handling
+Standard Response
+{
+  status,
+  message,
+  errors,
+  data
+}
+Centralized exception handling.
+18. Backup
+Daily
+Database Backup
+Weekly
+File Backup
+Monthly
+Archive
+19. Testing
+Unit Tests
+Integration Tests
+API Tests
+UI Tests
+Regression Tests
+UAT
+20. Deployment
+Development
+Docker Compose
+Testing
+Docker
+Production
+Docker
+Nginx
+Gunicorn
+PostgreSQL
+Redis
+Celery
+21. Future Ready
+Architecture should support future modules without redesign.
+Examples
+GST Portal Integration
+e-Invoice
+e-Way Bill
+Manufacturing
+Multi Warehouse
+CRM
+Mobile Offline Sync
+AI Assistant
+OCR Invoice Scanner
+Payment Gateway
+Accounting Module
+Marketplace Integrations
+22. Technical Principles
+Modular architecture with clear domain boundaries.
+REST-first APIs with consistent request/response contracts.
+Stateless backend services.
+Business rules centralized in the service layer.
+Database transactions for all inventory and financial updates.
+Inventory synchronization driven by business events (purchase, sale, return, adjustment).
+Asynchronous processing for long-running tasks (PDFs, notifications, backups).
+Role-based authorization enforced at both API and business-service layers.
+Audit logging for all create, update, delete, and financial operations.
+Configuration-driven settings (taxes, invoice numbering, templates) without code changes.
+Extensible architecture that supports future modules (GST integrations, accounting, manufacturing, AI) without breaking existing APIs.
+23. Deliverables
+Backend
+Django REST APIs
+PostgreSQL schema and migrations
+Business service layer
+Background job workers
+PDF generation service
+Authentication & authorization
+API documentation (OpenAPI/Swagger)
+Frontend
+Responsive React web application
+React Native mobile application
+Invoice printing (A4 and thermal)
+Dashboard and reporting screens
+Infrastructure
+Dockerized services
+CI/CD pipeline
+Logging and monitoring
+Automated backups
+Environment-based configuration
+Documentation
+API Specification
+Database Schema
+Deployment Guide
+User Manual
+Administrator Guide
+Test Plan & Test Cases
+Technical Philosophy
+Keep the architecture modular, event-driven, and API-first. Business operations (Purchase, Sales, Inventory) should be the source of truth, with inventory synchronization, ledgers, reports, and future accounting generated consistently from those business events rather than through duplicate data entry. This provides a maintainable foundation that can evolve into a full ERP without requiring architectural rewrites.

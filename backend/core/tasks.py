@@ -8,40 +8,43 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
-def send_email_notification(self, notification_id):
+def send_email_notification(self, notification_id, company_id=None):
     """BB-000530: Celery retries must not duplicate sends — SENT rows are skipped."""
+    from django.db import transaction
+
     from core.models import Notification
 
-    notification = Notification.objects.get(pk=notification_id)
-    if notification.status == Notification.Status.SENT:
-        logger.info("Email notification %s already sent; skipping retry", notification_id)
-        return
-    backend = (settings.EMAIL_BACKEND or "").lower()
-    env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
-    # Fail closed: never pretend email was sent via console in prod/staging.
-    if env in ("production", "staging") and "console" in backend:
-        notification.status = Notification.Status.FAILED
-        notification.error = "SMTP is not configured (console email backend forbidden)."
-        notification.save(update_fields=["status", "error"])
-        logger.error("Email notification %s blocked: console backend in %s", notification_id, env)
-        return
-    try:
-        send_mail(
-            subject=notification.subject or "Bizboard",
-            message=notification.body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[notification.recipient],
-            fail_silently=False,
-        )
-        notification.status = Notification.Status.SENT
-        notification.error = ""
-        notification.save(update_fields=["status", "error"])
-    except Exception as exc:  # pragma: no cover - depends on SMTP env
-        notification.status = Notification.Status.FAILED
-        notification.error = str(exc)
-        notification.save(update_fields=["status", "error"])
-        logger.exception("Email notification %s failed", notification_id)
-        raise
+    with transaction.atomic():
+        notification = Notification.objects.select_for_update().get(pk=notification_id)
+        if notification.status == Notification.Status.SENT:
+            logger.info("Email notification %s already sent; skipping retry", notification_id)
+            return
+        backend = (settings.EMAIL_BACKEND or "").lower()
+        env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
+        # Fail closed: never pretend email was sent via console in prod/staging.
+        if env in ("production", "staging") and "console" in backend:
+            notification.status = Notification.Status.FAILED
+            notification.error = "SMTP is not configured (console email backend forbidden)."
+            notification.save(update_fields=["status", "error"])
+            logger.error("Email notification %s blocked: console backend in %s", notification_id, env)
+            return
+        try:
+            send_mail(
+                subject=notification.subject or "Bizboard",
+                message=notification.body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[notification.recipient],
+                fail_silently=False,
+            )
+            notification.status = Notification.Status.SENT
+            notification.error = ""
+            notification.save(update_fields=["status", "error"])
+        except Exception as exc:  # pragma: no cover - depends on SMTP env
+            notification.status = Notification.Status.FAILED
+            notification.error = str(exc)
+            notification.save(update_fields=["status", "error"])
+            logger.exception("Email notification %s failed", notification_id)
+            raise
 
 
 BEAT_HEARTBEAT_KEY = "bizboard:celery_beat_heartbeat"
@@ -69,3 +72,28 @@ def celery_beat_heartbeat():
             client.set(BEAT_HEARTBEAT_KEY, epoch, ex=900)
         except Exception:  # noqa: BLE001 — cache write already succeeded
             logger.exception("Failed to write bare Redis beat heartbeat key")
+
+
+@shared_task
+def prune_help_events_task(days=180, company_id=None):
+    """Weekly retention: drop HelpEvent rows older than ``days`` (default 180).
+
+    ``company_id`` is accepted so Celery RLS prerun can set a GUC; prune then
+    raises ``app.help_staff_all`` so FORCE RLS does not hide other tenants.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from core.models import HelpEvent
+    from core.rls import set_help_staff_all
+
+    _ = company_id
+    set_help_staff_all(True)
+    try:
+        cutoff = timezone.now() - timedelta(days=max(1, int(days)))
+        deleted, _counts = HelpEvent.objects.filter(created_at__lt=cutoff).delete()
+        logger.info("prune_help_events_task deleted %s rows older than %s days", deleted, days)
+        return deleted
+    finally:
+        set_help_staff_all(False)

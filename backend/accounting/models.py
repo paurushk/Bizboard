@@ -178,4 +178,6 @@ class FixedAsset(CompanyScopedModel):
 
     @property
     def monthly_depreciation(self):
+        if not self.useful_life_months:
+            return Decimal("0.00")
         return (self.acquisition_cost / self.useful_life_months).quantize(Decimal("0.01"))

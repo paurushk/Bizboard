@@ -6,6 +6,8 @@ const config: CapacitorConfig = {
   webDir: '../web/dist',
   server: {
     androidScheme: 'https',
+    // Do not set server.url to a remote API in the packaged app.
+    // Capacitor iOS is not a supported shipping target.
   },
 };
 

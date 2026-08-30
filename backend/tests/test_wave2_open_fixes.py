@@ -247,7 +247,8 @@ def test_gstr3b_net_payable_excludes_provisional_itc(tenant_a):
 
     inv = PurchaseInvoice.objects.get(pk=pur["id"])
     inv.invoice_date = date(2026, 7, 5)
-    inv.save(update_fields=["invoice_date"])
+    inv.itc_eligibility = PurchaseInvoice.ItcEligibility.CLAIMABLE
+    inv.save(update_fields=["invoice_date", "itc_eligibility"])
     assert tenant_a.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/").status_code == 200
 
     payload = build_gstr3b(tenant_a.company, "2026-07")

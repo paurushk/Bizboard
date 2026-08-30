@@ -1,3 +1,4 @@
+from datetime import timedelta
 import secrets
 import uuid
 
@@ -10,7 +11,7 @@ from django.middleware.csrf import get_token
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.generics import RetrieveUpdateAPIView
-from rest_framework.exceptions import AuthenticationFailed, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -29,7 +30,7 @@ from core.permissions import HasCompany, IsOwner, get_company_user
 from core.services.audit import AuditService
 from core.services.sms import SmsProvider
 
-from .models import Company, CompanyGstin, CompanyUser, InviteJti, OtpChallenge, User
+from .models import Company, CompanyGstin, CompanyUser, InviteJti, OtpChallenge, PasswordResetJti, User
 from .otp_utils import hash_otp, normalize_e164, phone_lookup_values, verify_otp
 from .serializers import (
     CompanyGstinSerializer,
@@ -248,6 +249,8 @@ class RegisterView(APIView):
         company = Company.objects.create(
             name=data["company_name"],
             state=data.get("state", ""),
+            phone=data.get("phone", ""),
+            email=data.get("email", ""),
             registration_type=data.get("registration_type", Company.RegistrationType.UNREGISTERED),
             gstin=data.get("gstin", ""),
         )
@@ -284,11 +287,22 @@ class LoginView(TokenObtainPairView):
 
     def post(self, request, *args, **kwargs):
         email = request.data.get("email", "")
+        password = request.data.get("password", "")
         fail_key = _login_fail_key(email)
         # Per-account lockout — IP-based throttling alone (login scope) is
         # trivially bypassed by distributing attempts across many IPs.
         if cache.get(fail_key, 0) >= LOGIN_FAIL_LIMIT:
             raise TooManyLoginAttemptsError()
+        pending_user = User.objects.filter(email__iexact=email).first()
+        if pending_user and password and pending_user.check_password(password):
+            if not pending_user.company_memberships.filter(is_active=True).exists():
+                if pending_user.company_memberships.filter(is_active=False).exists():
+                    raise AuthenticationFailed(
+                        "Accept your invite to activate this account before signing in."
+                    )
+                raise PermissionDenied(
+                    "No active company membership. Ask an owner to invite you."
+                )
         try:
             response = super().post(request, *args, **kwargs)
         except AuthenticationFailed:
@@ -316,6 +330,11 @@ class LoginView(TokenObtainPairView):
                     if access:
                         _set_access_cookie(response, access)
                     _ensure_csrf_cookie(request)
+                else:
+                    response.data = {
+                        "detail": "No active company membership. Ask an owner to invite you."
+                    }
+                    response.status_code = status.HTTP_403_FORBIDDEN
         return response
 
 
@@ -480,8 +499,12 @@ class VerifyOtpView(APIView):
         user = User.objects.filter(phone__in=phone_lookup_values(phone), is_active=True).order_by("id").first()
         if not user:
             raise OtpExpiredError()
+        if not user.has_usable_password():
+            raise OtpExpiredError()
         _ensure_active_company(user)
         membership = _active_membership(user)
+        if membership is None:
+            raise OtpExpiredError()
         AuditService.log(
             company=membership.company if membership else None,
             user=user, action="LOGIN", entity_type="User", entity_id=user.id,
@@ -605,6 +628,9 @@ class CompanyDetailView(RetrieveUpdateAPIView):
 
     def perform_update(self, serializer):
         instance = serializer.save()
+        from payments.services import sync_company_bank_account
+
+        sync_company_bank_account(instance)
         AuditService.log(
             company=instance, user=self.request.user, action="UPDATE",
             entity_type="Company", entity_id=instance.id,
@@ -710,55 +736,56 @@ class AcceptInviteView(APIView):
             raise ValidationError({"token": "Invalid or expired invite token."}) from exc
         except signing.SignatureExpired as exc:
             raise ValidationError({"token": "Invite token has expired."}) from exc
-        membership = (
-            CompanyUser.objects.select_related("user", "company")
-            .filter(
-                pk=payload.get("mid"),
-                user_id=payload.get("uid"),
-                company_id=payload.get("cid"),
-            )
-            .first()
-        )
-        if not membership:
-            raise ValidationError({"token": "Invite is no longer valid."})
         jti = payload.get("jti")
         invite_row = None
-        if jti:
-            invite_row = InviteJti.objects.filter(jti=jti, membership=membership).first()
+        with transaction.atomic():
+            membership = (
+                CompanyUser.objects.select_for_update()
+                .select_related("user", "company")
+                .filter(
+                    pk=payload.get("mid"),
+                    user_id=payload.get("uid"),
+                    company_id=payload.get("cid"),
+                )
+                .first()
+            )
+            if not membership:
+                raise ValidationError({"token": "Invite is no longer valid."})
+            if not jti:
+                raise ValidationError({"token": "Invite token is missing a jti and cannot be accepted."})
+            invite_row = (
+                InviteJti.objects.select_for_update()
+                .filter(jti=jti, membership=membership)
+                .first()
+            )
             if invite_row is None or invite_row.is_consumed:
                 raise ValidationError({"token": "Invite token has already been used."})
             if invite_row.expires_at and invite_row.expires_at < timezone.now():
                 raise ValidationError({"token": "Invite token has expired."})
-        user = membership.user
-        if not user.has_usable_password():
-            if not new_password:
-                raise ValidationError({"new_password": "Password is required."})
-            try:
-                validate_password(new_password, user=user)
-            except Exception as exc:
-                raise ValidationError(
-                    {"new_password": list(exc.messages) if hasattr(exc, "messages") else str(exc)}
-                ) from exc
-            user.set_password(new_password)
-            user.save(update_fields=["password"])
-        elif new_password:
-            try:
-                validate_password(new_password, user=user)
-            except Exception as exc:
-                raise ValidationError(
-                    {"new_password": list(exc.messages) if hasattr(exc, "messages") else str(exc)}
-                ) from exc
-            user.set_password(new_password)
-            user.save(update_fields=["password"])
-        if not membership.is_active:
-            membership.is_active = True
-            membership.save(update_fields=["is_active", "updated_at"])
-        if invite_row is not None:
             invite_row.consumed_at = timezone.now()
             invite_row.save(update_fields=["consumed_at", "updated_at"])
-        if not user.active_company_id:
-            user.active_company_id = membership.company_id
-            user.save(update_fields=["active_company_id"])
+            user = membership.user
+            if not user.has_usable_password():
+                if not new_password:
+                    raise ValidationError({"new_password": "Password is required."})
+                try:
+                    validate_password(new_password, user=user)
+                except Exception as exc:
+                    raise ValidationError(
+                        {"new_password": list(exc.messages) if hasattr(exc, "messages") else str(exc)}
+                    ) from exc
+                user.set_password(new_password)
+                user.save(update_fields=["password"])
+            elif new_password:
+                raise ValidationError({
+                    "new_password": "This account already has a password. Sign in, then accept the invite, or use Forgot password."
+                })
+            if not membership.is_active:
+                membership.is_active = True
+                membership.save(update_fields=["is_active", "updated_at"])
+            if not user.active_company_id:
+                user.active_company_id = membership.company_id
+                user.save(update_fields=["active_company_id"])
         AuditService.log(
             company=membership.company,
             user=user,
@@ -767,13 +794,19 @@ class AcceptInviteView(APIView):
             entity_id=user.id,
             description="Invite accepted; membership activated",
         )
-        return Response(
-            {
-                "detail": "Invite accepted.",
-                "company_id": membership.company_id,
-            },
-            status=status.HTTP_200_OK,
-        )
+        tokens = _tokens_for_user(user)
+        payload = {
+            "detail": "Invite accepted.",
+            "company_id": membership.company_id,
+            "email": user.email,
+            "user": MeSerializer(membership).data,
+            "access": tokens["access"] if _access_in_json_body_allowed() else None,
+        }
+        response = Response(payload)
+        _set_refresh_cookie(response, tokens["refresh"])
+        _set_access_cookie(response, tokens["access"])
+        _ensure_csrf_cookie(request)
+        return response
 
 
 class LogoutAllView(APIView):
@@ -828,6 +861,15 @@ def _staff_invite_caps(data: dict) -> dict:
     }
 
 
+def _invite_caps(data: dict) -> dict:
+    """ACCOUNTANT/VIEWER use fixed presets; Sales Staff honors explicit false flags."""
+    role = data["role"]
+    role_defaults = CompanyUser.capability_defaults_for_role(role)
+    if role_defaults is not None and role != CompanyUser.Role.SALES_STAFF:
+        return role_defaults
+    return _staff_invite_caps(data)
+
+
 def _enforce_plan_seat_limit(company) -> None:
     """BB-000727: reject invite/create when active members >= plan.seat_limit."""
     from billing.services import subscription_for_company
@@ -867,11 +909,7 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
             if CompanyUser.objects.filter(company=company, user=existing_user).exists():
                 raise ValidationError({"email": "This user is already a member of this company."})
             role = data["role"]
-            role_defaults = CompanyUser.capability_defaults_for_role(role)
-            if role_defaults is not None:
-                caps = role_defaults
-            else:
-                caps = _staff_invite_caps(data)
+            caps = _invite_caps(data)
             membership = CompanyUser.objects.create(
                 company=company, user=existing_user, role=role, is_active=False, **caps,
             )
@@ -917,13 +955,9 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
             user.set_unusable_password()
             user.save(update_fields=["password"])
         role = data["role"]
-        role_defaults = CompanyUser.capability_defaults_for_role(role)
-        if role_defaults is not None:
-            caps = role_defaults
-        else:
-            caps = _staff_invite_caps(data)
+        caps = _invite_caps(data)
         membership = CompanyUser.objects.create(
-            company=company, user=user, role=role, **caps,
+            company=company, user=user, role=role, is_active=False, **caps,
         )
         AuditService.log(company=company, user=request.user, action="CREATE",
                          entity_type="CompanyUser", entity_id=membership.id)
@@ -1013,3 +1047,102 @@ class CompanyGstinViewSet(viewsets.ModelViewSet):
             company=company, user=self.request.user, action="DELETE",
             entity_type="CompanyGstin", entity_id=entity_id,
         )
+
+
+_PASSWORD_RESET_SALT = "bizboard.password-reset.v1"
+_PASSWORD_RESET_MAX_AGE = 60 * 60
+
+
+class RequestPasswordResetView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "password_reset"
+
+    def post(self, request):
+        identifier = (request.data.get("identifier") or request.data.get("email") or "").strip()
+        if identifier:
+            user = None
+            if "@" in identifier:
+                user = User.objects.filter(email__iexact=identifier, is_active=True).first()
+            else:
+                user = User.objects.filter(phone__in=phone_lookup_values(identifier), is_active=True).first()
+            if user is not None and user.has_usable_password():
+                jti = str(uuid.uuid4())
+                token = signing.dumps({"uid": user.pk, "jti": jti}, salt=_PASSWORD_RESET_SALT)
+                PasswordResetJti.objects.create(
+                    jti=jti,
+                    user=user,
+                    expires_at=timezone.now() + timedelta(seconds=_PASSWORD_RESET_MAX_AGE),
+                )
+                base = (getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+                env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
+                if not base:
+                    if env in ("production", "staging"):
+                        import logging
+
+                        logging.getLogger(__name__).error(
+                            "Password reset skipped: FRONTEND_URL is not configured."
+                        )
+                        return Response(
+                            {"detail": "If an account exists for that identifier, a reset link has been sent."}
+                        )
+                    base = "http://localhost:5173"
+                reset_url = f"{base}/reset-password?token={token}"
+                from django.core.mail import send_mail
+
+                send_mail(
+                    subject="Reset your BizBoard password",
+                    message=f"Use this link to reset your password (valid 1 hour):\n{reset_url}\n",
+                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@bizboard.local"),
+                    recipient_list=[user.email],
+                    fail_silently=env not in ("production", "staging"),
+                )
+        return Response(
+            {"detail": "If an account exists for that identifier, a reset link has been sent."}
+        )
+
+
+class ConfirmPasswordResetView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "password_reset_confirm"
+
+    def post(self, request):
+        token = (request.data.get("token") or "").strip()
+        new_password = request.data.get("new_password") or request.data.get("password") or ""
+        if not token:
+            raise ValidationError({"token": "Reset token is required."})
+        if not new_password:
+            raise ValidationError({"new_password": "Password is required."})
+        try:
+            payload = signing.loads(token, salt=_PASSWORD_RESET_SALT, max_age=_PASSWORD_RESET_MAX_AGE)
+        except signing.BadSignature:
+            raise ValidationError({"token": "Reset token is invalid or has expired."}) from None
+        user = User.objects.filter(pk=payload.get("uid"), is_active=True).first()
+        if user is None:
+            raise ValidationError({"token": "Reset token is invalid or has expired."})
+        jti = payload.get("jti")
+        with transaction.atomic():
+            reset_row = (
+                PasswordResetJti.objects.select_for_update()
+                .filter(jti=jti, user=user)
+                .first()
+                if jti
+                else None
+            )
+            if reset_row is None or reset_row.is_consumed:
+                raise ValidationError({"token": "Reset token is invalid or has expired."})
+            if reset_row.expires_at and reset_row.expires_at < timezone.now():
+                raise ValidationError({"token": "Reset token is invalid or has expired."})
+            try:
+                validate_password(new_password, user=user)
+            except Exception as exc:
+                raise ValidationError(
+                    {"new_password": list(exc.messages) if hasattr(exc, "messages") else str(exc)}
+                ) from exc
+            reset_row.consumed_at = timezone.now()
+            reset_row.save(update_fields=["consumed_at", "updated_at"])
+            user.set_password(new_password)
+            user.save(update_fields=["password"])
+            for tok in OutstandingToken.objects.filter(user=user):
+                BlacklistedToken.objects.get_or_create(token=tok)
+        return Response({"detail": "Password has been reset. You can sign in with the new password."})
+

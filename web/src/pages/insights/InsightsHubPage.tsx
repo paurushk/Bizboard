@@ -33,7 +33,7 @@ export function InsightsHubPage() {
 
   if (summary.isLoading) return <LoadingState />;
   if (summary.isError) {
-    return <ErrorState message={getErrorMessage(summary.error)} onRetry={() => void summary.refetch()} />;
+    return <ErrorState message={getErrorMessage(summary.error)} error={summary.error} onRetry={() => void summary.refetch()} />;
   }
 
   const kpis = summary.data!.kpis ?? {};

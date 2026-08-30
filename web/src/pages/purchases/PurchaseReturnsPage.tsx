@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -16,6 +16,7 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   completePurchaseReturn,
@@ -29,6 +30,7 @@ import {
   activeSourceLines,
   invoiceItemsToSourceLines,
   todayIso,
+  useDebouncedValue,
   type InvoiceSourceLine,
 } from '@/components/billing';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -36,21 +38,34 @@ import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { PurchaseInvoice } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
+import { canCreatePurchases } from '@/utils/permissions';
+import { useAuth } from '@/auth/AuthContext';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const PAGE_SIZE = 50;
 
 export function PurchaseReturnsPage() {
+  const { user } = useAuth();
+  const { writesBlocked } = useSubscriptionGate();
+  const canWrite = canCreatePurchases(user) && !writesBlocked;
   const qc = useQueryClient();
-  const [page] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [page, setPage] = useState(1);
   const query = useQuery({
     queryKey: ['purchase-returns', page],
     queryFn: () => listPurchaseReturnsPage({ page, pageSize: PAGE_SIZE }),
   });
+  const [purchaseSearch, setPurchaseSearch] = useState('');
+  const debouncedPurchaseSearch = useDebouncedValue(purchaseSearch, 250);
   const purchases = useQuery({
-    queryKey: ['purchases'],
+    queryKey: ['purchases', debouncedPurchaseSearch],
     queryFn: async () => {
-      const res = await listPurchasesPage({ pageSize: PAGE_SIZE });
+      const res = await listPurchasesPage({
+        q: debouncedPurchaseSearch.trim() || undefined,
+        pageSize: PAGE_SIZE,
+      });
       return res.results;
     },
   });
@@ -63,6 +78,14 @@ export function PurchaseReturnsPage() {
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get('create') !== '1') return;
+    setOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('create');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const onPurchasePick = async (pur: PurchaseInvoice | null) => {
     setPurchase(pur);
@@ -90,6 +113,7 @@ export function PurchaseReturnsPage() {
           quantity: l.quantity,
           unitPrice: l.unitPrice,
           gstRate: l.gstRate,
+          condition: l.condition || 'SELLABLE',
         })),
       });
       return completePurchaseReturn(draft.id);
@@ -111,15 +135,17 @@ export function PurchaseReturnsPage() {
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.purchaseReturns')}</Typography>
+        {canWrite ? (
         <Button variant="contained" onClick={() => setOpen(true)}>
           {t('phase1.newPurchaseReturn')}
         </Button>
+        ) : null}
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {returns.length === 0 && query.isSuccess ? <EmptyState /> : null}
       {returns.length > 0 ? (
@@ -153,8 +179,26 @@ export function PurchaseReturnsPage() {
           </Table>
         </Paper>
       ) : null}
+      {query.data && (query.data.next || page > 1) ? (
+        <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+          <Typography variant="body2" color="text.secondary">
+            {t('common.page')} {page}
+          </Typography>
+          <Button variant="outlined" size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            {t('common.previous')}
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            disabled={!query.data.next}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            {t('common.next')}
+          </Button>
+        </Stack>
+      ) : null}
 
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="md">
+      <Dialog open={open && canWrite} onClose={() => setOpen(false)} fullWidth maxWidth="md">
         <DialogTitle>New purchase return</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -162,8 +206,12 @@ export function PurchaseReturnsPage() {
               options={completed}
               getOptionLabel={(o) => `${o.number ?? o.id} · ${o.supplierName ?? ''}`}
               value={purchase}
+              inputValue={purchaseSearch}
+              onInputChange={(_, v) => setPurchaseSearch(v)}
               onChange={(_, v) => void onPurchasePick(v)}
-              renderInput={(params) => <TextField {...params} label="Original purchase" />}
+              loading={purchases.isLoading}
+              filterOptions={(x) => x}
+              renderInput={(params) => <TextField {...params} label="Original purchase" placeholder="Search by purchase # or supplier" />}
             />
             {lines.length > 0 ? (
               <InvoiceReturnLineTable lines={lines} onChange={setLines} />

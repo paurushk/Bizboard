@@ -43,27 +43,43 @@ def plan_modules_for_company(company) -> dict | None:
 def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, str]:
     """Create/update subscription. Returns (subscription, checkout_order_id)."""
     now = timezone.now()
-    stub_order = f"stub_order_{company.pk}_{plan.pk}_{int(now.timestamp())}"
     razorpay_key = (getattr(settings, "RAZORPAY_KEY_ID", "") or "").strip()
     razorpay_secret = (getattr(settings, "RAZORPAY_KEY_SECRET", "") or "").strip()
+    env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
+    if env in ("production", "staging") and not (razorpay_key and razorpay_secret and plan.razorpay_plan_id):
+        from core.exceptions import BusinessRuleError
 
-    # BB-000725: stay PENDING until Razorpay webhook (never ACTIVE on stub checkout).
-    defaults = {
-        "plan": plan,
-        "status": Subscription.Status.PENDING,
-        "current_period_end": None,
-        "trial_ends_at": None,
-    }
-    sub, _created = Subscription.objects.update_or_create(company=company, defaults=defaults)
+        raise BusinessRuleError("Razorpay is not configured; cannot start checkout.")
+    stub_order = f"stub_order_{company.pk}_{plan.pk}_{int(now.timestamp())}"
+
+    # Do not overwrite ACTIVE/TRIAL to PENDING — that write-blocks a paying tenant.
+    live = {Subscription.Status.ACTIVE, Subscription.Status.TRIAL}
+    sub = Subscription.objects.filter(company=company).first()
+    if sub is None:
+        # BB-000725: stay PENDING until Razorpay webhook (never ACTIVE on stub checkout).
+        sub = Subscription.objects.create(
+            company=company,
+            plan=plan,
+            status=Subscription.Status.PENDING,
+            current_period_end=None,
+            trial_ends_at=None,
+        )
+    else:
+        sub.plan = plan
+        if sub.status not in live:
+            sub.status = Subscription.Status.PENDING
+            sub.current_period_end = None
+            sub.trial_ends_at = None
+        sub.save(update_fields=["plan", "status", "current_period_end", "trial_ends_at", "updated_at"])
 
     checkout_order_id = stub_order
     if razorpay_key and razorpay_secret and plan.razorpay_plan_id:
         remote_id = _create_razorpay_subscription(plan, company)
         if remote_id:
             sub.razorpay_subscription_id = remote_id
-            sub.status = Subscription.Status.TRIAL
-            sub.trial_ends_at = now + timedelta(days=14)
-            sub.save(update_fields=["razorpay_subscription_id", "status", "trial_ends_at", "updated_at"])
+            if sub.status not in live:
+                sub.status = Subscription.Status.PENDING
+            sub.save(update_fields=["razorpay_subscription_id", "status", "updated_at"])
             checkout_order_id = remote_id
     return sub, checkout_order_id
 
@@ -97,12 +113,18 @@ def _create_razorpay_subscription(plan: Plan, company) -> str:
     try:
         with urlopen(req, timeout=15) as resp:  # noqa: S310 — fixed Razorpay HTTPS URL
             payload = json.loads(resp.read().decode("utf-8"))
-    except Exception:  # noqa: BLE001 — fall back to stub checkout
-        return ""
+    except Exception as exc:  # noqa: BLE001
+        from core.exceptions import BusinessRuleError
+
+        raise BusinessRuleError("Could not create Razorpay subscription. Try again or contact support.") from exc
     return str(payload.get("id") or "")
 
 
-def apply_razorpay_subscription_status(*, razorpay_subscription_id: str, rzp_status: str) -> Subscription | None:
+def apply_razorpay_subscription_status(
+    razorpay_subscription_id: str,
+    rzp_status: str,
+    current_end: Any = None,
+) -> Subscription | None:
     if not razorpay_subscription_id:
         return None
     sub = Subscription.objects.filter(razorpay_subscription_id=razorpay_subscription_id).first()
@@ -114,7 +136,13 @@ def apply_razorpay_subscription_status(*, razorpay_subscription_id: str, rzp_sta
     update_fields = ["status", "updated_at"]
     sub.status = mapped
     if mapped == Subscription.Status.ACTIVE:
-        sub.current_period_end = timezone.now() + timedelta(days=30)
+        if isinstance(current_end, (int, float)) and current_end > 0:
+            from datetime import datetime, timezone as dt_timezone
+            sub.current_period_end = datetime.fromtimestamp(current_end, tz=dt_timezone.utc)
+        elif hasattr(current_end, "year"):
+            sub.current_period_end = current_end
+        else:
+            sub.current_period_end = timezone.now() + timedelta(days=30)
         update_fields.append("current_period_end")
     sub.save(update_fields=update_fields)
     return sub
@@ -124,8 +152,10 @@ def _map_razorpay_status(rzp_status: str) -> str | None:
     status = (rzp_status or "").strip().lower()
     if status == "active":
         return Subscription.Status.ACTIVE
-    if status in {"halted", "paused", "pending"}:
+    if status in {"halted", "paused"}:
         return Subscription.Status.PAST_DUE
+    if status == "pending":
+        return None
     if status in {"cancelled", "completed", "expired"}:
         return Subscription.Status.SUSPENDED
     return None

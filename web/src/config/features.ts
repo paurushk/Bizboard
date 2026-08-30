@@ -58,6 +58,8 @@ export const features = {
 
   pos: import.meta.env.VITE_ENABLE_POS === 'true',
 
+  tds: import.meta.env.VITE_ENABLE_TDS === 'true',
+
   setupWizard: import.meta.env.VITE_ENABLE_SETUP_WIZARD === 'true',
 
   advancedPilot: pilotAdvanced,
@@ -160,8 +162,48 @@ export function isPosEnabled(): boolean {
 
 }
 
+export function isTdsEnabled(): boolean {
+
+  return resolveModuleFlag(features.tds, 'ENABLE_TDS');
+
+}
+
 export function isSetupWizardEnabled(): boolean {
   return resolveModuleFlag(features.setupWizard, 'ENABLE_SETUP_WIZARD');
+}
+
+/** Item custom fields utilization (columns, picker, filters). Default ON; company JSON can kill-switch. */
+export function isItemCustomFieldsV2Enabled(): boolean {
+  if (features.advancedPilot) return true;
+  const cached = getCachedFeatureFlags();
+  if (!cached) return true;
+  const value =
+    cached.item_custom_fields_v2 ?? cached.itemCustomFieldsV2 ?? cached.ITEM_CUSTOM_FIELDS_V2;
+  if (value === undefined) return true;
+  return Boolean(value);
+}
+
+/** Help v2 shell + Why? / HelpHint / prevention / search hits. Pre-GA default off. */
+export function isHelpV2Enabled(): boolean {
+  try {
+    // Playwright / local only — never honor this key in a production bundle.
+    if (
+      import.meta.env.DEV &&
+      typeof sessionStorage !== 'undefined' &&
+      sessionStorage.getItem('bizboard:e2eHelpV2') === '1'
+    ) {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  if (features.advancedPilot) return true;
+  const preload = import.meta.env.VITE_HELP_V2 === 'true';
+  const cached = getCachedFeatureFlags();
+  if (!cached) return preload;
+  const value = cached.helpV2 ?? cached.help_v2 ?? cached.HELP_V2;
+  if (value === undefined) return preload;
+  return Boolean(value);
 }
 
 

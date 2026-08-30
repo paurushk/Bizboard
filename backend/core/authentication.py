@@ -22,6 +22,11 @@ class CookieJWTAuthentication(JWTAuthentication):
         cookie_only = env in ("production", "staging")
         header = self.get_header(request)
         if header is not None and not cookie_only:
+            # R1-005: dev/test only. This Bearer path skips CSRF by design; it is
+            # unreachable in production/staging (cookie_only). A browser that
+            # sends BOTH a bearer header and cookies on a cross-site request in
+            # dev would bypass CSRF here — acceptable for local tooling, but do
+            # not relax `cookie_only` for any internet-facing environment.
             return super().authenticate(request)
         raw = request.COOKIES.get(getattr(settings, "JWT_ACCESS_COOKIE_NAME", "bb_access"))
         if not raw:

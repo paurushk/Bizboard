@@ -19,6 +19,7 @@ export type StoredUserProfile = {
   email: string;
   fullName: string;
   companyName?: string;
+  companyId?: number;
 };
 
 export function getAccessToken(): string | null {
@@ -75,7 +76,14 @@ export function setStoredUser(user: User | StoredUserProfile | null): void {
       id: user.id,
       email: user.email,
       fullName: 'fullName' in user ? user.fullName : (user as User).fullName,
-      companyName: 'companyName' in user ? (user as StoredUserProfile).companyName : undefined,
+      companyName:
+        'companyName' in user
+          ? (user as StoredUserProfile).companyName
+          : (user as User).company?.name,
+      companyId:
+        'companyId' in user
+          ? user.companyId
+          : (user as User).companyId ?? (user as User).company?.id,
     };
     localStorage.setItem(USER_KEY, JSON.stringify(profile));
   } catch {

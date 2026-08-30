@@ -3,6 +3,7 @@ from decimal import Decimal
 from rest_framework import serializers
 
 from core.exceptions import BusinessRuleError
+from core.help_codes import HelpCode
 from core.permissions import get_company_user
 from core.services.h9_amend import (
     assert_h9a_line_allowlist,
@@ -27,6 +28,7 @@ TOTAL_READONLY = [
     "subtotal", "discount_total", "taxable_total", "cgst_total", "sgst_total",
     "igst_total", "cess_total", "round_off", "grand_total",
 ]
+RCM_READONLY = ["rcm_taxable", "rcm_cgst", "rcm_sgst", "rcm_igst", "rcm_cess"]
 
 
 class CompanyScopedSerializerMixin:
@@ -45,6 +47,21 @@ class _BaseLineSerializer(serializers.ModelSerializer):
 
 
 class SalesItemSerializer(_BaseLineSerializer):
+    # Override the model field so DRF does not emit a generic `invalid` before
+    # `_validate_lines` — Why? needs HelpCode.INVALID_GST_RATE on create/edit.
+    gst_rate = serializers.DecimalField(max_digits=5, decimal_places=2, required=False)
+
+    def validate_gst_rate(self, value):
+        from core.validators import ALLOWED_GST_RATES
+
+        allowed = tuple(Decimal(r) for r in ALLOWED_GST_RATES)
+        if Decimal(str(value)) not in allowed:
+            raise BusinessRuleError(
+                f"Invalid GST rate {value}. Allowed: {', '.join(ALLOWED_GST_RATES)}%.",
+                code=HelpCode.INVALID_GST_RATE,
+            )
+        return value
+
     class Meta:
         model = SalesItem
         fields = [
@@ -52,8 +69,9 @@ class SalesItemSerializer(_BaseLineSerializer):
             "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
             "hsn_code", "mrp", "unit_name", "uqc_code", "unit_price_inclusive",
             "batch", "batch_no", "exp_date", "mfg_date", "serial_numbers",
+            "supply_nature",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "unit_name", "uqc_code"]
+        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "uqc_code"]
         extra_kwargs = {
             "unit_price": {"required": False},
             "gst_rate": {"required": False},
@@ -74,7 +92,8 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         fields = [
             "id", "number", "status", "invoice_type", "customer", "customer_name", "warehouse", "cost_center",
             "invoice_date", "due_date", "payment_terms_days",
-            "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off",
+            "additional_charges", "charges_hsn", "charges_gst_rate",
+            "invoice_discount", "invoice_discount_mode", "auto_round_off",
             "notes", "terms_text",
             "include_bank_details", "include_payment_qr", "include_terms",
             "signature",
@@ -84,7 +103,9 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "filing_party_gstin", "filing_place_of_supply", "price_mode",
             "transporter_name", "transporter_id", "vehicle_number", "transport_distance_km",
             "sub_supply_type", "trans_mode",
-            "supply_type", "company_gstin", "is_reverse_charge", "ecommerce_operator_gstin",
+            "supply_type", "company_gstin", "is_reverse_charge",
+            "rcm_taxable", "rcm_cgst", "rcm_sgst", "rcm_igst", "rcm_cess",
+            "ecommerce_operator_gstin",
             "tcs_section", "tcs_rate", "tcs_amount",
             "received", "balance", "is_opening_balance",
             "completed_at", "cancelled_at", "created_at", "updated_at",
@@ -94,12 +115,15 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
             "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
             "completed_at", "cancelled_at", "is_opening_balance",
-        ] + TOTAL_READONLY
+        ] + TOTAL_READONLY + RCM_READONLY
 
     def _receivable(self, obj):
         from decimal import Decimal
 
-        return Decimal(str(obj.grand_total or 0)) + Decimal(str(getattr(obj, "tcs_amount", 0) or 0))
+        extra = Decimal("0")
+        if not getattr(obj, "tcs_in_grand_total", False):
+            extra = Decimal(str(getattr(obj, "tcs_amount", 0) or 0))
+        return Decimal(str(obj.grand_total or 0)) + extra
 
     def get_balance(self, obj):
         from decimal import Decimal
@@ -112,20 +136,9 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             self.context["view"], "action", None
         ) == "list":
             return max(receivable - Decimal(str(allocated or 0)), Decimal("0"))
-        try:
-            from ledgers.services import LedgerService
+        from ledgers.services import LedgerService
 
-            return LedgerService.sales_invoice_outstanding(obj)
-        except Exception:
-            from django.db.models import Sum
-
-            from payments.models import PaymentAllocation
-
-            allocated = (
-                PaymentAllocation.objects.filter(sales_invoice=obj, reversed_at__isnull=True).aggregate(t=Sum("amount"))["t"]
-                or Decimal("0")
-            )
-            return max(receivable - allocated, Decimal("0"))
+        return LedgerService.sales_invoice_outstanding(obj)
 
     def get_received(self, obj):
         from decimal import Decimal
@@ -212,7 +225,10 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             raise BusinessRuleError("Cancelled/returned invoice cannot be edited.")
         if instance.status == SalesInvoice.Status.COMPLETED and "customer" in validated_data:
             if validated_data["customer"].pk != instance.customer_id:
-                raise BusinessRuleError("Cannot change customer on a completed invoice.")
+                raise BusinessRuleError(
+                    "Cannot change customer on a completed invoice.",
+                    code=HelpCode.COMPLETED_IMMUTABLE,
+                )
 
         items_data = validated_data.pop("items", serializers.empty)
         request = self.context["request"]
@@ -221,7 +237,8 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         confirm_amend = confirm_raw in (True, "true", "True", 1, "1")
 
         money_fields = {
-            "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off",
+            "additional_charges", "charges_hsn", "charges_gst_rate",
+            "invoice_discount", "invoice_discount_mode", "auto_round_off",
             "price_mode",
         }
         money_changing = bool(money_fields & set(validated_data.keys()))
@@ -243,12 +260,20 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             # Live e-Invoice IRN: amend would desync portal — cancel IRN or use CN/DN.
             einvoice_status = getattr(instance, "einvoice_status", None)
             irn = (getattr(instance, "irn", None) or "").strip()
-            if einvoice_status in (
+            live_irn = einvoice_status in (
                 SalesInvoice.EInvoiceStatus.GENERATED,
                 SalesInvoice.EInvoiceStatus.MANUAL_IRN,
-            ) or irn:
+            ) or (
+                irn
+                and einvoice_status
+                not in (
+                    SalesInvoice.EInvoiceStatus.CANCELLED,
+                    SalesInvoice.EInvoiceStatus.NONE,
+                )
+            )
+            if live_irn:
                 raise BusinessRuleError(
-                    "Cannot amend an invoice with a live e-Invoice IRN. "
+                    "Cannot amend an invoice with an e-Invoice IRN. "
                     "Cancel the IRN first, or issue a credit/debit note instead."
                 )
             cu = get_company_user(request)
@@ -368,19 +393,34 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
         fields = [
             "id", "number", "status", "invoice_type", "customer", "customer_name",
             "quotation_date", "valid_until", "notes", "items", "converted_invoice",
-            "created_at", "updated_at",
+            "converted_order", "created_at", "updated_at",
         ] + TOTAL_READONLY
-        read_only_fields = ["number", "status", "converted_invoice"] + TOTAL_READONLY
+        read_only_fields = ["number", "status", "converted_invoice", "converted_order"] + TOTAL_READONLY
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
         return customer
 
     def create(self, validated_data):
+        from django.db import transaction
+
+        from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
+
         items_data = validated_data.pop("items")
-        quotation = Quotation.objects.create(**validated_data)
-        SalesService.set_quotation_items(quotation, [dict(l) for l in items_data], self.context["request"].user)
-        return quotation
+        with transaction.atomic():
+            quotation = Quotation.objects.create(**validated_data)
+            if not quotation.number:
+                quotation.number = DocumentNumberService.next_number(
+                    quotation.company,
+                    "QUOTATION",
+                    gstin=resolve_series_gstin(quotation.company),
+                    on_date=quotation.quotation_date,
+                )
+                quotation.save(update_fields=["number"])
+            SalesService.set_quotation_items(
+                quotation, [dict(l) for l in items_data], self.context["request"].user
+            )
+            return quotation
 
     def update(self, instance, validated_data):
         from core.exceptions import BusinessRuleError
@@ -399,7 +439,7 @@ class SalesReturnItemSerializer(_BaseLineSerializer):
         model = SalesReturnItem
         fields = [
             "id", "product", "product_name", "description", "quantity",
-            "unit_price", "discount_percent", "gst_rate", "serial_numbers",
+            "unit_price", "discount_percent", "gst_rate", "serial_numbers", "condition",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}

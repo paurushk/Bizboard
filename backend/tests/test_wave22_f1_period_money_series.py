@@ -130,6 +130,8 @@ def test_bb_000736_cn_period_before_next_number(tenant_a):
     """Closed-period CN Complete must not allocate a document number."""
     soft_close_period(tenant_a.company, "2026-02", tenant_a.owner)
     invoice, customer, product = _complete_invoice(tenant_a, unit_price="200")
+    invoice.invoice_date = date(2026, 1, 15)
+    invoice.save(update_fields=["invoice_date"])
     note = SalesCreditNote.objects.create(
         company=tenant_a.company,
         customer=customer,

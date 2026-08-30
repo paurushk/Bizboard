@@ -72,7 +72,9 @@ class DocumentLineModel(models.Model):
         related_name="+",
     )
     description = models.CharField(max_length=255, blank=True)
-    quantity = models.DecimalField(max_digits=12, decimal_places=3)
+    quantity = models.DecimalField(
+        max_digits=12, decimal_places=3, validators=[MinValueValidator(Decimal("0.001"))]
+    )
     # BUG-211: previously unvalidated — a negative unit_price or a
     # discount_percent > 100 silently produced negative taxable/tax amounts
     # with no server-side rejection.
@@ -93,7 +95,10 @@ class DocumentLineModel(models.Model):
     sgst = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     igst = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     cess_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
-    # TAX-12: specific (per-unit) cess; when > 0 overrides percentage cess_rate.
+    # TAX-12 / R1-016: specific (per-unit) compensation cess. This is ADDED to
+    # any ad-valorem cess from `cess_rate` — it does NOT replace it (pan-masala /
+    # tobacco style "X% + ₹Y per unit"). See core.services.billing._apply_line_tax
+    # and reporting.gst_returns._rate_buckets, which must agree on this.
     cess_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     cess = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     line_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
@@ -298,6 +303,42 @@ class IdempotencyRecord(CompanyScopedModel):
                 fields=["company", "scope", "key"],
                 name="uniq_idempotency_company_scope_key",
             ),
+        ]
+
+
+class HelpEvent(CompanyScopedModel):
+    """First-party Help analytics (raw query text stays on-box)."""
+
+    name = models.CharField(max_length=64, db_index=True)
+    intent_id = models.CharField(max_length=64, blank=True)
+    source = models.CharField(max_length=32, blank=True)
+    state = models.CharField(max_length=24, blank=True)
+    screen = models.CharField(max_length=128, blank=True)
+    query = models.TextField(blank=True)
+    props = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["company", "name", "created_at"], name="help_evt_co_name_idx"),
+            models.Index(fields=["company", "intent_id", "created_at"], name="help_evt_co_intent_idx"),
+        ]
+
+
+class HelpFeedback(CompanyScopedModel):
+    """Capture-only 'still stuck' rows. No promise of a human reply."""
+
+    query = models.TextField(blank=True)
+    screen = models.CharField(max_length=128, blank=True)
+    role = models.CharField(max_length=32, blank=True)
+    intent_id = models.CharField(max_length=64, blank=True)
+    note = models.TextField(blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["company", "created_at"], name="help_fb_co_created_idx"),
         ]
 
 

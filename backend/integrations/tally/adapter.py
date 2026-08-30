@@ -53,27 +53,30 @@ def _read_xlsx_rows(file_bytes: bytes) -> list[dict[str, str]]:
     except ImportError as exc:
         raise BusinessRuleError("openpyxl is required for Excel uploads.") from exc
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
-    ws = wb.active
-    rows_iter = ws.iter_rows(values_only=True)
     try:
-        header = next(rows_iter)
-    except StopIteration:
-        raise BusinessRuleError("Excel sheet is empty.")
-    keys = [str(h or "").strip().lower() for h in header]
-    if not any(keys):
-        raise BusinessRuleError("Excel has no header row.")
-    out = []
-    for raw in rows_iter:
-        if raw is None or all(c is None or str(c).strip() == "" for c in raw):
-            continue
-        row = {}
-        for i, key in enumerate(keys):
-            if not key:
+        ws = wb.active
+        rows_iter = ws.iter_rows(values_only=True)
+        try:
+            header = next(rows_iter)
+        except StopIteration:
+            raise BusinessRuleError("Excel sheet is empty.")
+        keys = [str(h or "").strip().lower() for h in header]
+        if not any(keys):
+            raise BusinessRuleError("Excel has no header row.")
+        out = []
+        for raw in rows_iter:
+            if raw is None or all(c is None or str(c).strip() == "" for c in raw):
                 continue
-            val = raw[i] if i < len(raw) else ""
-            row[key] = "" if val is None else str(val).strip()
-        out.append(row)
-    return out
+            row = {}
+            for i, key in enumerate(keys):
+                if not key:
+                    continue
+                val = raw[i] if i < len(raw) else ""
+                row[key] = "" if val is None else str(val).strip()
+            out.append(row)
+        return out
+    finally:
+        wb.close()
 
 
 def _rows_from_upload(file_bytes: bytes, filename: str = "") -> list[dict[str, str]]:
@@ -183,6 +186,7 @@ def _create_opening_sales(company, user, customer: Customer, amount: Decimal, pr
         updated_by=user,
     )
     SalesItem.objects.create(
+        company=company,
         invoice=inv,
         product=product,
         description="Opening outstanding (Tally migration)",
@@ -239,6 +243,7 @@ def _create_opening_purchase(company, user, supplier: Supplier, amount: Decimal,
         updated_by=user,
     )
     PurchaseItem.objects.create(
+        company=company,
         invoice=inv,
         product=product,
         description="Opening outstanding (Tally migration)",
@@ -309,7 +314,10 @@ def _apply_name_sku_maps(base: dict, edits: dict | None) -> dict:
                     row["name"] = str(e["name"])[:200]
             # Explicitly keep monetary/qty fields from base (ignore client).
         out[key] = base_rows
-    out["errors"] = list(base.get("errors") or [])
+    if isinstance(edits, dict) and "errors" in edits:
+        out["errors"] = list(edits.get("errors") or [])
+    else:
+        out["errors"] = list(base.get("errors") or [])
     out["disclaimer"] = DISCLAIMER
     out["counts"] = {
         "customers": len(out.get("customers") or []),
@@ -528,15 +536,41 @@ def _xml_escape(text: str) -> str:
 
 def post_tally_xml(url: str, xml_body: str, *, timeout: int = 30) -> dict[str, Any]:
     """POST XML to Tally HTTP gateway — patch ``requests.post`` in tests."""
+    import ipaddress
+    from urllib.parse import urlparse
+
     import requests
+    from django.conf import settings
 
     if not url:
         raise BusinessRuleError("Tally URL is not configured.")
+    allowed = (getattr(settings, "TALLY_URL", "") or "").strip()
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise BusinessRuleError("Tally URL is invalid.")
+    host = parsed.hostname.lower()
+    allowed_host = urlparse(allowed).hostname.lower() if allowed else ""
+    try:
+        ip = ipaddress.ip_address(host)
+        is_loopback = ip.is_loopback
+    except ValueError:
+        is_loopback = (
+            host in {"localhost", "127.0.0.1", "::1"}
+            or host.endswith(".test")
+            or host.endswith(".localhost")
+            or getattr(settings, "DJANGO_ENV", "") == "test"
+        )
+    if allowed_host:
+        if host != allowed_host:
+            raise BusinessRuleError("Tally URL is not on the server allowlist.")
+    elif not is_loopback:
+        raise BusinessRuleError("Tally HTTP push is limited to localhost unless TALLY_URL is set.")
     resp = requests.post(
         url,
         data=xml_body.encode("utf-8"),
         headers={"Content-Type": "text/xml"},
         timeout=timeout,
+        allow_redirects=False,
     )
     return {
         "status_code": resp.status_code,
@@ -620,8 +654,13 @@ def push_masters_http(company, base_url: str | None = None) -> dict[str, Any]:
     return result
 
 
-def push_vouchers_http(company, base_url: str | None = None, *, date_from=None, date_to=None) -> dict[str, Any]:
-    """One-shot Tally sales-voucher XML dump (not live sync)."""
+def push_vouchers_http(
+    company,
+    date_from=None,
+    date_to=None,
+    base_url: str | None = None,
+) -> dict[str, Any]:
+    """One-shot Tally voucher XML dump (not live sync)."""
     from django.conf import settings
 
     url = (base_url or getattr(settings, "TALLY_URL", "") or "").strip()

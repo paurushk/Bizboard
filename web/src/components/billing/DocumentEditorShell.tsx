@@ -10,6 +10,10 @@ import KeyboardIcon from '@mui/icons-material/Keyboard';
 import SettingsIcon from '@mui/icons-material/Settings';
 import { Link as RouterLink } from 'react-router-dom';
 import { t } from '@/i18n';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { PreventionNote } from '@/pages/help/PreventionNote';
+import { isHelpV2Enabled } from '@/config/features';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import type { PrimarySaveAction } from '@/hooks/useBillingSaveFeedback';
 
 export interface DocumentEditorShellProps {
@@ -24,6 +28,9 @@ export interface DocumentEditorShellProps {
   backTo?: string | null;
   message?: string | null;
   error?: string | null;
+  errorSource?: unknown;
+  documentId?: string | number;
+  multiGodown?: boolean;
   warning?: string | null;
   infoBanner?: ReactNode;
   saving?: boolean;
@@ -54,6 +61,9 @@ export function DocumentEditorShell({
   backTo,
   message,
   error,
+  errorSource,
+  documentId,
+  multiGodown = false,
   warning,
   infoBanner,
   saving = false,
@@ -68,7 +78,9 @@ export function DocumentEditorShell({
   extraActions,
   children,
 }: DocumentEditorShellProps) {
+  const { writesBlocked } = useSubscriptionGate();
   const primaryDisabled =
+    writesBlocked ||
     saving ||
     (primarySave.mode === 'save'
       ? !canSave || primaryDisabledExtra
@@ -97,7 +109,7 @@ export function DocumentEditorShell({
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           {!hideShortcuts && onOpenShortcuts ? (
             <Tooltip title={t('billing.shortcuts')}>
-              <IconButton size="small" aria-label="shortcuts" onClick={onOpenShortcuts}>
+              <IconButton size="small" aria-label={t('a11y.shortcuts')} onClick={onOpenShortcuts}>
                 <KeyboardIcon />
               </IconButton>
             </Tooltip>
@@ -122,14 +134,14 @@ export function DocumentEditorShell({
           {!hideSaveAndNew && onSaveAndNew ? (
             <Button
               variant="outlined"
-              disabled={!canComplete || isEdit || saving}
+              disabled={writesBlocked || !canComplete || isEdit || saving}
               onClick={onSaveAndNew}
             >
               {t('billing.saveAndNew')}
             </Button>
           ) : null}
           {showDraftButton && onDraft ? (
-            <Button size="small" disabled={!canSave || saving} onClick={onDraft}>
+            <Button size="small" disabled={writesBlocked || !canSave || saving} onClick={onDraft}>
               {t('common.draft')}
             </Button>
           ) : null}
@@ -147,8 +159,13 @@ export function DocumentEditorShell({
           {message}
         </Alert>
       ) : null}
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? (
+        <HelpErrorAlert message={error} error={errorSource} invoiceId={documentId} />
+      ) : null}
       {warning ? <Alert severity="warning">{warning}</Alert> : null}
+      {isHelpV2Enabled() && primarySave.mode === 'complete' ? (
+        <PreventionNote intent="cannot-complete-invoice" slot="invoice-complete" multiGodown={multiGodown} />
+      ) : null}
       {infoBanner}
 
       <Box>{children}</Box>

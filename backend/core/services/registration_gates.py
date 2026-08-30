@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from accounts.models import Company
 from core.exceptions import BusinessRuleError
+from core.help_codes import HelpCode
 
 
 def assert_may_issue_gst_tax_invoice(company: Company, *, tax_enabled: bool) -> None:
@@ -14,11 +15,13 @@ def assert_may_issue_gst_tax_invoice(company: Company, *, tax_enabled: bool) -> 
     if rt == Company.RegistrationType.UNREGISTERED:
         raise BusinessRuleError(
             "Unregistered companies cannot issue GST/TAX invoices with CGST/SGST/IGST. "
-            "Use a non-GST bill type."
+            "Use a non-GST bill type.",
+            code=HelpCode.REGISTRATION_GATE,
         )
     if rt == Company.RegistrationType.COMPOSITION:
         raise BusinessRuleError(
             "Composition dealers cannot issue regular GST tax invoices. "
             "Use a Bill of Supply / non-GST document type. "
-            "CMP-08 / GSTR-4 aids are at /api/v1/reports/cmp08/ and /api/v1/reports/gstr4/."
+            "CMP-08 / GSTR-4 aids are at /api/v1/reports/cmp08/ and /api/v1/reports/gstr4/.",
+            code=HelpCode.REGISTRATION_GATE,
         )

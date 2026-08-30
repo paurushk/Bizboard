@@ -1,3 +1,11 @@
+## 2026-08-28 — Item custom fields v1
+
+Define → capture → import → store → display → search → filter → edit for item attributes (Text + List). Surfaces: Item Settings, Create/Edit Item, Items list + column picker + CSV, Current stock, POS finder, and product pickers on sales/purchase/stock docs. Import matches active key/label, snapshots defs at preview, and **merges** mapped custom columns on update-existing SKUs. Utilization is gated by `item_custom_fields_v2` (default on). Out of v1: invoice/PDF, GST, reports.
+
+Evidence: `backend/tests/test_item_custom_fields.py`, `web/e2e/item-custom-fields.spec.ts`. Plan: `docs/requirements/ITEM_CUSTOM_FIELDS.md`.
+
+---
+
 ## 2026-08-06 — Wave 22 Full Remediation (F0–F5)
 
 Closed all **64** Wave 22 Open issues `BB-000695`–`BB-000758`.

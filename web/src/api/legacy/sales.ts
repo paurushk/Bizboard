@@ -34,6 +34,7 @@ export async function createSalesInvoice(
     customer: number;
     invoiceType?: string;
     supplyType?: string;
+    priceMode?: string;
     invoiceDate?: string;
     dueDate?: string | null;
     paymentTermsDays?: number;
@@ -159,9 +160,15 @@ export async function markInvoiceEwayGenerated(
   return unwrapData<SalesInvoice>(data);
 }
 
-export async function cancelInvoiceEinvoice(id: number): Promise<SalesInvoice> {
+export async function cancelInvoiceEinvoice(
+  id: number,
+  payload?: { cnlRsn: string; cnlRem: string },
+): Promise<SalesInvoice> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/sales/invoices/${id}/cancel-einvoice/`);
+    const { data } = await apiClient.post(`/sales/invoices/${id}/cancel-einvoice/`, {
+      cnl_rsn: payload?.cnlRsn,
+      cnl_rem: payload?.cnlRem,
+    });
     return unwrapData<SalesInvoice>(data);
   }, { ...mockInvoices[0], id, einvoiceStatus: 'CANCELLED', irn: undefined, ackNo: undefined });
 }

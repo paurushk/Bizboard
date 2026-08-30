@@ -48,6 +48,11 @@ class SalesInvoice(DocumentTotalsModel):
         max_length=8, choices=SupplyType.choices, default=SupplyType.B2B, blank=True
     )
     is_reverse_charge = models.BooleanField(default=False)
+    rcm_taxable = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    rcm_cgst = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    rcm_sgst = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    rcm_igst = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    rcm_cess = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     ecommerce_operator_gstin = models.CharField(max_length=15, blank=True)
     invoice_date = models.DateField(default=timezone.localdate)
     due_date = models.DateField(null=True, blank=True)
@@ -57,6 +62,8 @@ class SalesInvoice(DocumentTotalsModel):
         BEFORE_TAX = "BEFORE_TAX", "Discount (reduces GST)"
 
     additional_charges = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    charges_hsn = models.CharField(max_length=8, blank=True)
+    charges_gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     invoice_discount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     invoice_discount_mode = models.CharField(
         max_length=12, choices=DiscountMode.choices, default=DiscountMode.AFTER_TAX
@@ -136,6 +143,8 @@ class SalesInvoice(DocumentTotalsModel):
     tcs_section = models.CharField(max_length=16, blank=True)
     tcs_rate = models.DecimalField(max_digits=6, decimal_places=3, default=0)
     tcs_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # True once complete() folded tcs_amount into grand_total (avoid ledger double-count).
+    tcs_in_grand_total = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-invoice_date", "-id"]
@@ -153,6 +162,12 @@ class SalesInvoice(DocumentTotalsModel):
 
 
 class SalesItem(DocumentLineModel):
+    class SupplyNature(models.TextChoices):
+        TAXABLE = "TAXABLE", "Taxable"
+        NIL = "NIL", "Nil rated"
+        EXEMPT = "EXEMPT", "Exempt"
+        NON_GST = "NON_GST", "Non-GST"
+
     invoice = models.ForeignKey(SalesInvoice, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="sales_items")
     batch = models.ForeignKey(
@@ -169,6 +184,9 @@ class SalesItem(DocumentLineModel):
     exp_date = models.DateField(null=True, blank=True)
     mfg_date = models.DateField(null=True, blank=True)
     serial_numbers = models.JSONField(default=list, blank=True)
+    supply_nature = models.CharField(
+        max_length=12, choices=SupplyNature.choices, default=SupplyNature.TAXABLE
+    )
 
 
 class Quotation(DocumentTotalsModel):
@@ -190,6 +208,9 @@ class Quotation(DocumentTotalsModel):
     notes = models.TextField(blank=True)
     converted_invoice = models.ForeignKey(
         SalesInvoice, null=True, blank=True, on_delete=models.SET_NULL, related_name="source_quotations"
+    )
+    converted_order = models.ForeignKey(
+        "SalesOrder", null=True, blank=True, on_delete=models.SET_NULL, related_name="source_quotations"
     )
 
     class Meta:
@@ -242,9 +263,14 @@ class SalesReturn(DocumentTotalsModel):
 
 
 class SalesReturnItem(DocumentLineModel):
+    class Condition(models.TextChoices):
+        SELLABLE = "SELLABLE", "Sellable"
+        DAMAGED = "DAMAGED", "Damaged"
+
     sales_return = models.ForeignKey(SalesReturn, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="sales_return_items")
     serial_numbers = models.JSONField(default=list, blank=True)
+    condition = models.CharField(max_length=16, choices=Condition.choices, default=Condition.SELLABLE)
 
 
 class NoteReason(models.TextChoices):
@@ -287,6 +313,10 @@ class SalesCreditNote(DocumentTotalsModel):
     )
     auto_round_off = models.BooleanField(default=True)
     additional_charges = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    charges_hsn = models.CharField(max_length=8, blank=True)
+    charges_gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    tcs_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    tcs_in_grand_total = models.BooleanField(default=False)
     filing_party_gstin = models.CharField(max_length=15, blank=True)
     filing_place_of_supply = models.CharField(max_length=64, blank=True)
     company_gstin = models.ForeignKey(
@@ -337,6 +367,11 @@ class SalesCreditNoteItem(DocumentLineModel):
     hsn_code = models.CharField(max_length=8, blank=True)
     unit_name = models.CharField(max_length=32, blank=True, default="PCS")
     uqc_code = models.CharField(max_length=8, blank=True)
+    supply_nature = models.CharField(
+        max_length=12,
+        choices=SalesItem.SupplyNature.choices,
+        default=SalesItem.SupplyNature.TAXABLE,
+    )
 
 
 class SalesDebitNote(DocumentTotalsModel):
@@ -362,6 +397,10 @@ class SalesDebitNote(DocumentTotalsModel):
     )
     auto_round_off = models.BooleanField(default=True)
     additional_charges = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    charges_hsn = models.CharField(max_length=8, blank=True)
+    charges_gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    tcs_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    tcs_in_grand_total = models.BooleanField(default=False)
     filing_party_gstin = models.CharField(max_length=15, blank=True)
     filing_place_of_supply = models.CharField(max_length=64, blank=True)
     company_gstin = models.ForeignKey(
@@ -412,6 +451,11 @@ class SalesDebitNoteItem(DocumentLineModel):
     hsn_code = models.CharField(max_length=8, blank=True)
     unit_name = models.CharField(max_length=32, blank=True, default="PCS")
     uqc_code = models.CharField(max_length=8, blank=True)
+    supply_nature = models.CharField(
+        max_length=12,
+        choices=SalesItem.SupplyNature.choices,
+        default=SalesItem.SupplyNature.TAXABLE,
+    )
 
 
 class SalesOrder(DocumentTotalsModel):

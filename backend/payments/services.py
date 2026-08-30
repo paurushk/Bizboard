@@ -8,11 +8,12 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from core.events import emit
 from core.exceptions import BusinessRuleError
+from core.help_codes import HelpCode
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,42 @@ from .models import (
     SupplierPaymentStatus,
 )
 from .upi import normalize_utr
+
+
+def sync_company_bank_account(company):
+    """Keep payments.BankAccount in sync with company bill-print bank details (E2E3-033)."""
+    from .models import BankAccountType
+
+    name = (company.bank_name or "").strip()
+    number = (company.bank_account or "").strip()
+    ifsc = (company.bank_ifsc or "").strip()
+    if not name and not number:
+        return None
+    display = name or "Company bank"
+    masked = (("X" * max(0, len(number) - 4)) + number[-4:]) if number else ""
+    existing = BankAccount.objects.filter(company=company).order_by("-is_default", "id").first()
+    if existing:
+        fields = []
+        if existing.name != display:
+            existing.name = display
+            fields.append("name")
+        if number and existing.account_number_masked != masked:
+            existing.account_number_masked = masked
+            fields.append("account_number_masked")
+        if ifsc and existing.ifsc != ifsc:
+            existing.ifsc = ifsc
+            fields.append("ifsc")
+        if fields:
+            existing.save(update_fields=fields)
+        return existing
+    return BankAccount.objects.create(
+        company=company,
+        name=display,
+        account_number_masked=masked,
+        ifsc=ifsc,
+        account_type=BankAccountType.CURRENT,
+        is_default=True,
+    )
 
 
 def _allocated_of_payment(payment_field, payment) -> Decimal:
@@ -102,7 +139,9 @@ def _check_utr_duplicate(*, company, utr: str, exclude_receipt_id=None, exclude_
     utr = normalize_utr(utr)
     if not utr:
         return None
-    qs = CustomerReceipt.objects.filter(company=company, utr=utr).exclude(status=ReceiptStatus.VOIDED)
+    qs = CustomerReceipt.objects.filter(company=company, utr=utr).exclude(
+        status__in=(ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED)
+    )
     if exclude_receipt_id:
         qs = qs.exclude(pk=exclude_receipt_id)
     if qs.exists():
@@ -145,7 +184,8 @@ class PaymentService:
         utr="",
         source=PaymentSource.MANUAL,
         gateway_payment=None,
-        warn_utr_duplicate=True,
+        warn_utr_duplicate=False,
+        bypass_period_gate=False,
     ):
         if Decimal(amount) <= 0:
             raise BusinessRuleError("Receipt amount must be greater than zero.")
@@ -155,14 +195,21 @@ class PaymentService:
 
         gate_date = receipt_date or timezone.localdate()
         # BB-000700: gate in service (bank import / gateway settle bypass HTTP views).
-        assert_period_allows_money_amend(company, gate_date)
+        # R3-001: a verified gateway settlement is money that has already moved —
+        # it must never be blocked by a closed period (would 500 the webhook and
+        # lose the record while the provider retries forever).
+        if not bypass_period_gate:
+            assert_period_allows_money_amend(company, gate_date)
         utr_n = normalize_utr((utr or reference) if mode in ("UPI", "BANK") else utr)
         if getattr(company, "require_payment_reference", False) and mode in ("UPI", "BANK") and not utr_n:
             raise BusinessRuleError("UTR / payment reference is required for UPI and Bank receipts.")
         if bank_account and bank_account.company_id != company.id:
             raise BusinessRuleError("Invalid bank account.")
-        _assert_utr_unique(company=company, utr=utr_n)
-        warn = _check_utr_duplicate(company=company, utr=utr_n) if warn_utr_duplicate else None
+        if warn_utr_duplicate:
+            warn = _check_utr_duplicate(company=company, utr=utr_n)
+        else:
+            _assert_utr_unique(company=company, utr=utr_n)
+            warn = None
 
         gstin_key = resolve_series_gstin(company)
         receipt = CustomerReceipt(
@@ -234,6 +281,20 @@ class PaymentService:
         tds_rt = Decimal(str(tds_rate or 0))
         if tds_amt < 0 or tds_rt < 0:
             raise BusinessRuleError("TDS rate/amount cannot be negative.")
+        if tds_amt > Decimal(str(amount)):
+            raise BusinessRuleError("TDS amount cannot exceed the payment amount.")
+        from purchases.models import PurchaseInvoice
+
+        if tds_amt > 0 and PurchaseInvoice.objects.filter(
+            company=company,
+            supplier=supplier,
+            tds_amount__gt=0,
+            status=PurchaseInvoice.Status.COMPLETED,
+        ).exists():
+            raise BusinessRuleError(
+                "This supplier already has invoices with TDS. Record TDS on the invoice only; "
+                "do not also set TDS on the payment."
+            )
         gstin_key = resolve_series_gstin(company)
         payment = SupplierPayment(
             company=company,
@@ -279,7 +340,10 @@ class PaymentService:
         if receipt.company_id != sales_invoice.company_id:
             raise BusinessRuleError("Receipt and invoice belong to different companies.")
         if receipt.customer_id != sales_invoice.customer_id:
-            raise BusinessRuleError("Receipt customer must match the invoice customer.")
+            raise BusinessRuleError(
+                "Receipt customer must match the invoice customer.",
+                code=HelpCode.ALLOCATION_PARTY_MISMATCH,
+            )
 
         receipt = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
         sales_invoice = SalesInvoice.objects.select_for_update().get(pk=sales_invoice.pk)
@@ -292,7 +356,8 @@ class PaymentService:
         unallocated = receipt.amount - _allocated_of_payment("receipt", receipt)
         if amount > unallocated:
             raise BusinessRuleError(
-                f"Allocation {amount} exceeds unallocated receipt amount {unallocated}."
+                f"Allocation {amount} exceeds unallocated receipt amount {unallocated}.",
+                code=HelpCode.ALLOCATION_EXCEEDS_UNALLOCATED,
             )
         open_outstanding = LedgerService.sales_invoice_outstanding(sales_invoice)
         if amount > open_outstanding:
@@ -345,6 +410,13 @@ class PaymentService:
             raise BusinessRuleError(
                 f"Allocation {amount} exceeds invoice open outstanding {open_outstanding}."
             )
+        inv_tds = Decimal(str(getattr(purchase_invoice, "tds_amount", 0) or 0))
+        pay_tds = Decimal(str(getattr(payment, "tds_amount", 0) or 0))
+        if inv_tds > 0 and pay_tds > 0:
+            raise BusinessRuleError(
+                "This purchase already recorded TDS. Allocate the net bank amount without "
+                "TDS on the supplier payment so TDS payable is not credited twice."
+            )
         alloc = PaymentAllocation.objects.create(
             company=payment.company,
             supplier_payment=payment,
@@ -396,12 +468,13 @@ class PaymentService:
         assert_period_allows_money_amend(rec.company, rec.receipt_date)
         for alloc in list(rec.allocations.select_for_update().filter(reversed_at__isnull=True)):
             PaymentService.reverse_allocation(allocation=alloc, user=user)
+        # R2-004: a void is a fresh event — reverse on today's date, not the
+        # original receipt date (which may sit in a soft-closed period).
         _reverse_money_document_journal(
             company=rec.company,
             source_type="CUSTOMER_RECEIPT",
             source_id=rec.id,
             user=user,
-            entry_date=rec.receipt_date,
         )
         note = (rec.notes or "").strip()
         void_note = f"VOIDED{(': ' + reason) if reason else ''}"
@@ -424,12 +497,12 @@ class PaymentService:
         assert_period_allows_money_amend(pay.company, pay.payment_date)
         for alloc in list(pay.allocations.select_for_update().filter(reversed_at__isnull=True)):
             PaymentService.reverse_allocation(allocation=alloc, user=user)
+        # R2-004: void reverses on today's date, not the original payment date.
         _reverse_money_document_journal(
             company=pay.company,
             source_type="SUPPLIER_PAYMENT",
             source_id=pay.id,
             user=user,
-            entry_date=pay.payment_date,
         )
         note = (pay.notes or "").strip()
         void_note = f"VOIDED{(': ' + reason) if reason else ''}"
@@ -481,6 +554,9 @@ class PaymentService:
         if amount <= 0:
             raise BusinessRuleError("Payment link amount must be greater than zero.")
         if sales_invoice:
+            from sales.models import SalesInvoice
+
+            sales_invoice = SalesInvoice.objects.select_for_update().get(pk=sales_invoice.pk)
             if sales_invoice.company_id != company.id:
                 raise BusinessRuleError("Invalid invoice.")
             if sales_invoice.status not in ("COMPLETED", "RETURNED"):
@@ -589,6 +665,18 @@ class PaymentService:
         link = PaymentLink.objects.select_for_update().get(pk=link.pk)
         if link.status == PaymentLinkStatus.PAID:
             raise BusinessRuleError("Cannot cancel a paid payment link.")
+        if link.provider_link_id and (link.provider or "") not in ("", "sandbox"):
+            creds = decrypt_gateway_credentials(
+                getattr(link.company, "payment_gateway_credentials_encrypted", "") or ""
+            )
+            adapter = get_adapter(link.provider, creds if creds else None, company_id=link.company_id)
+            cancel_fn = getattr(adapter, "cancel_payment_link", None)
+            if cancel_fn is None:
+                raise BusinessRuleError(
+                    f"Cannot cancel a live {link.provider} payment link from BizBoard. "
+                    "Deactivate it in the provider dashboard first."
+                )
+            cancel_fn(provider_link_id=link.provider_link_id)
         # PARTIALLY_PAID may cancel remaining collection window.
         link.status = PaymentLinkStatus.CANCELLED
         link.updated_by = user
@@ -650,6 +738,14 @@ class PaymentService:
                 if existing.status == GatewayPaymentStatus.CAPTURED:
                     return existing
         else:
+            # R3-008: a repeat (pre-capture) webhook that reports a different
+            # amount than the one we first recorded is worth a loud log line —
+            # the capture below still validates against link.amount.
+            if Decimal(str(existing.amount or 0)) != Decimal(str(amount or 0)):
+                logger.warning(
+                    "Gateway %s payment %s amount changed on repeat webhook: %s -> %s",
+                    provider, provider_payment_id, existing.amount, amount,
+                )
             existing.amount = amount
             existing.fee = fee
             existing.payment_link = payment_link or existing.payment_link
@@ -720,20 +816,39 @@ class PaymentService:
                 f"Captured amount {capture_amount} exceeds remaining link balance {remaining_on_link}."
             )
 
-        receipt = PaymentService.create_receipt(
-            company=company,
-            customer=link.customer,
-            amount=capture_amount,
-            mode="UPI",
-            reference=provider_payment_id,
-            utr=provider_payment_id[:64],
-            notes=f"Gateway {provider} capture",
-            user=user,
-            source=PaymentSource.PAYMENT_LINK,
-            gateway_payment=existing,
-            warn_utr_duplicate=False,
+        # R3-002: staff may have pre-recorded this exact payment manually (UTR ==
+        # provider id). Adopt that receipt rather than 500-ing on UTR uniqueness
+        # and letting the provider retry forever.
+        _utr = provider_payment_id[:64]
+        existing_receipt = (
+            CustomerReceipt.objects.filter(company=company, utr=_utr)
+            .exclude(status__in=(ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED))
+            .first()
         )
-        # Record capture even if allocation fails (savepoint isolates BusinessRuleError).
+        if existing_receipt is not None:
+            receipt = existing_receipt
+            if receipt.gateway_payment_id is None:
+                receipt.gateway_payment = existing
+                receipt.source = PaymentSource.PAYMENT_LINK
+                receipt.save(update_fields=["gateway_payment", "source", "updated_at"])
+        else:
+            receipt = PaymentService.create_receipt(
+                company=company,
+                customer=link.customer,
+                amount=capture_amount,
+                mode="UPI",
+                reference=provider_payment_id,
+                utr=_utr,
+                notes=f"Gateway {provider} capture",
+                user=user,
+                source=PaymentSource.PAYMENT_LINK,
+                gateway_payment=existing,
+                warn_utr_duplicate=False,
+                bypass_period_gate=True,  # R3-001
+            )
+        # Keep the receipt even if allocation fails; never mark the link PAID
+        # until the invoice is actually allocated (unallocated advance otherwise).
+        allocated_ok = True
         if link.sales_invoice_id:
             from ledgers.services import LedgerService
 
@@ -748,7 +863,10 @@ class PaymentService:
                             amount=alloc_amt,
                             user=user,
                         )
+                    elif outstanding > 0 and capture_amount > 0:
+                        allocated_ok = False
             except BusinessRuleError:
+                allocated_ok = False
                 logger.exception(
                     "Gateway payment %s captured but allocation failed for invoice %s",
                     provider_payment_id,
@@ -758,8 +876,8 @@ class PaymentService:
         existing.status = GatewayPaymentStatus.CAPTURED
         existing.save(update_fields=["status", "updated_at"])
         total_captured = Decimal(str(prior_captured)) + capture_amount
-        # BB-000392: PARTIALLY_PAID until fully collected.
-        if total_captured + Decimal("0.001") >= link.amount:
+        # BB-000392: PARTIALLY_PAID until fully collected AND allocated.
+        if total_captured + Decimal("0.001") >= link.amount and allocated_ok:
             link.status = PaymentLinkStatus.PAID
             link.paid_receipt = receipt
         else:
@@ -773,7 +891,7 @@ class PaymentService:
 
     @staticmethod
     @transaction.atomic
-    def refund_gateway_payment(*, gateway_payment, amount=None, user=None, reason=""):
+    def refund_gateway_payment(*, gateway_payment, amount=None, user=None, reason="", skip_gateway=False):
         """Full refund of a captured gateway payment: unwind allocations + reverse GL (no receipt delete)."""
         from accounting.models import JournalEntry
         from accounting.services import PostingService
@@ -787,18 +905,35 @@ class PaymentService:
             raise BusinessRuleError("Only captured gateway payments can be refunded.")
 
         refund_amount = Decimal(amount if amount is not None else gp.amount)
-        # Partial refunds are not supported yet — allocation/GL unwind must stay proportional.
-        if refund_amount != gp.amount:
-            raise BusinessRuleError("Only full refunds are supported. Omit amount or pass the full captured amount.")
         if refund_amount <= 0:
             raise BusinessRuleError("Invalid refund amount.")
+        # R3-003: a PARTIAL refund (usually provider-initiated) is not unwound
+        # through allocations / GL yet. Record it on the gateway payment and
+        # return quietly so the provider webhook 200s and stops retrying — the
+        # GATEWAY_REFUND_STUCK / partial-refund is surfaced for manual books
+        # reconciliation rather than lost.
+        if refund_amount != gp.amount:
+            raw = gp.raw_payload if isinstance(gp.raw_payload, dict) else {}
+            partials = list(raw.get("partial_refunds") or [])
+            partials.append({"amount": str(refund_amount), "reason": reason})
+            gp.raw_payload = {**raw, "partial_refunds": partials}
+            gp.save(update_fields=["raw_payload", "updated_at"])
+            logger.warning(
+                "Gateway %s payment %s: partial refund %s recorded but NOT unwound in "
+                "books — reconcile manually.",
+                gp.provider, gp.provider_payment_id, refund_amount,
+            )
+            emit(
+                "gateway_payment.partial_refund",
+                document=gp, user=user, event="gateway_payment.partial_refund",
+            )
+            return gp
 
         company = gp.company
         creds = decrypt_gateway_credentials(
             getattr(company, "payment_gateway_credentials_encrypted", "") or ""
         )
         adapter = get_adapter(gp.provider, creds if creds else None)
-        adapter.refund(provider_payment_id=gp.provider_payment_id, amount=refund_amount)
 
         receipts = list(CustomerReceipt.objects.filter(gateway_payment=gp).select_for_update())
         for receipt in receipts:
@@ -813,19 +948,8 @@ class PaymentService:
             receipt.save(update_fields=["notes", "status", "updated_by", "updated_at"])
 
             if getattr(company, "accounting_enabled", False):
-                entry = (
-                    JournalEntry.objects.filter(
-                        company=company,
-                        source_type="CUSTOMER_RECEIPT",
-                        source_id=receipt.id,
-                        purpose="CREATE",
-                        status=JournalEntry.Status.POSTED,
-                    )
-                    .select_for_update()
-                    .first()
-                )
-                if entry:
-                    PostingService.reverse(entry, user=user)
+                from accounting.services import PostingService
+                PostingService.post_receipt_refund(receipt, user=user)
 
         # BB-000458: reopen payment link so customer can re-pay after full refund.
         link = None
@@ -852,6 +976,27 @@ class PaymentService:
         raw = {**raw, "refund_amount": str(refund_amount), "refund_reason": reason}
         gp.raw_payload = raw
         gp.save(update_fields=["status", "raw_payload", "updated_by", "updated_at"])
+        provider_payment_id = gp.provider_payment_id
+
+        if not skip_gateway:
+            from .models import GatewayRefundOutbox, GatewayRefundOutboxStatus
+
+            outbox = GatewayRefundOutbox.objects.create(
+                company=company,
+                gateway_payment=gp,
+                provider_payment_id=provider_payment_id,
+                amount=refund_amount,
+                status=GatewayRefundOutboxStatus.PENDING,
+                created_by=user,
+                updated_by=user,
+            )
+
+            def _gateway_refund(oid=outbox.id):
+                from payments.tasks import execute_gateway_refund
+
+                execute_gateway_refund.delay(oid)
+
+            transaction.on_commit(_gateway_refund)
         emit("gateway_payment.refunded", document=gp, user=user, event="gateway_payment.refunded")
         return gp
 
@@ -883,6 +1028,22 @@ class PaymentService:
 
     @staticmethod
     def payment_health(*, company):
+        # R3-007: this "health strip" endpoint fans out into many aggregate
+        # queries (per-invoice outstanding × up to 50, bank aging, dup UTRs).
+        # Cache the whole result briefly so a dashboard refresh loop doesn't
+        # hammer the DB.
+        from django.core.cache import cache
+
+        cache_key = f"payment_health:{company.pk}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        result = PaymentService._payment_health_uncached(company=company)
+        cache.set(cache_key, result, 60)
+        return result
+
+    @staticmethod
+    def _payment_health_uncached(*, company):
         from datetime import timedelta
 
         from django.db.models import Count
@@ -902,6 +1063,7 @@ class PaymentService:
 
         dup_utrs = (
             CustomerReceipt.objects.filter(company=company)
+            .exclude(status__in=(ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED))
             .exclude(utr="")
             .values("utr")
             .annotate(c=Count("id"))
@@ -955,6 +1117,54 @@ class PaymentService:
                 aging["days_8_30"] += 1
             else:
                 aging["days_30_plus"] += 1
+
+        # R3-004: gateway refunds are recognised in the GL immediately and the
+        # actual bank refund is queued via GatewayRefundOutbox. Surface rows that
+        # are stuck so the books-vs-bank divergence is visible.
+        from .models import GatewayRefundOutbox, GatewayRefundOutboxStatus
+
+        failed_refunds = GatewayRefundOutbox.objects.filter(
+            company=company, status=GatewayRefundOutboxStatus.FAILED
+        ).count()
+        stale_pending = GatewayRefundOutbox.objects.filter(
+            company=company,
+            status=GatewayRefundOutboxStatus.PENDING,
+        ).filter(
+            Q(created_at__lt=timezone.now() - timedelta(hours=6)) | Q(attempts__gte=5)
+        ).count()
+        stuck_refunds = failed_refunds + stale_pending
+        if stuck_refunds:
+            alerts.append(
+                {
+                    "code": "GATEWAY_REFUND_STUCK",
+                    "severity": "critical",
+                    "message": (
+                        f"{stuck_refunds} gateway refund(s) are recorded in the books but not "
+                        "confirmed at the gateway — reconcile manually."
+                    ),
+                }
+            )
+
+        # R3-003: provider-initiated partial refunds are recorded but not unwound
+        # in the books — flag them for manual reconciliation.
+        partial_refunds = sum(
+            1
+            for raw in GatewayPayment.objects.filter(
+                company=company, status=GatewayPaymentStatus.CAPTURED
+            ).values_list("raw_payload", flat=True)
+            if isinstance(raw, dict) and raw.get("partial_refunds")
+        )
+        if partial_refunds:
+            alerts.append(
+                {
+                    "code": "GATEWAY_PARTIAL_REFUND_UNRECONCILED",
+                    "severity": "critical",
+                    "message": (
+                        f"{partial_refunds} gateway payment(s) have a partial refund that is "
+                        "not reflected in the books — post a manual credit note / adjustment."
+                    ),
+                }
+            )
 
         return {
             "alerts": alerts,

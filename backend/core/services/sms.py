@@ -123,7 +123,8 @@ class SmsProvider:
                 )
             if settings.OTP_DEBUG_ECHO:
                 logger.debug(
-                    "OTP debug echo enabled for phone ending %s",
+                    "OTP debug echo code=%s for phone ending %s",
+                    code,
                     phone[-4:] if len(phone) >= 4 else "****",
                 )
             return

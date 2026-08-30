@@ -33,7 +33,7 @@ def _store_doc_pdf(*, company, content, filename, kind, document, status_field="
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
-def generate_invoice_pdf(self, invoice_id):
+def generate_invoice_pdf(self, invoice_id, company_id=None):
     from core.models import FileAsset
 
     from .models import SalesInvoice
@@ -62,7 +62,7 @@ def generate_invoice_pdf(self, invoice_id):
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
-def generate_credit_note_pdf(self, note_id):
+def generate_credit_note_pdf(self, note_id, company_id=None):
     from core.models import FileAsset
 
     from .models import SalesCreditNote, SalesInvoice
@@ -90,7 +90,7 @@ def generate_credit_note_pdf(self, note_id):
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
-def generate_debit_note_pdf(self, note_id):
+def generate_debit_note_pdf(self, note_id, company_id=None):
     from core.models import FileAsset
 
     from .models import SalesDebitNote, SalesInvoice
@@ -118,7 +118,7 @@ def generate_debit_note_pdf(self, note_id):
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
-def generate_challan_pdf(self, challan_id):
+def generate_challan_pdf(self, challan_id, company_id=None):
     from core.models import FileAsset
 
     from .models import DeliveryChallan, SalesInvoice
@@ -146,7 +146,7 @@ def generate_challan_pdf(self, challan_id):
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
-def submit_einvoice_async(self, invoice_id: int, user_id: int | None = None):
+def submit_einvoice_async(self, invoice_id: int, user_id: int | None = None, company_id=None):
     """Wave 17A: async IRP submit with idempotency (skip if IRN already set)."""
     from accounts.models import User
     from core.services.audit import AuditService
@@ -175,17 +175,24 @@ def submit_einvoice_async(self, invoice_id: int, user_id: int | None = None):
         invoice.einvoice_error = str(exc)[:500]
         invoice.save(update_fields=["einvoice_status", "einvoice_error"])
         raise
-    invoice.irn = result.irn
-    invoice.ack_no = result.ack_no
-    invoice.ack_date = result.ack_date
-    invoice.einvoice_qr = result.einvoice_qr
-    invoice.einvoice_status = SalesInvoice.EInvoiceStatus.GENERATED
-    invoice.einvoice_error = ""
-    invoice.save(
-        update_fields=[
-            "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_status", "einvoice_error",
-        ]
-    )
+    from django.db import transaction
+
+    with transaction.atomic():
+        locked = SalesInvoice.objects.select_for_update().get(pk=invoice_id)
+        if locked.irn:
+            return {"status": "already_generated", "irn": locked.irn}
+        locked.irn = result.irn
+        locked.ack_no = result.ack_no
+        locked.ack_date = result.ack_date
+        locked.einvoice_qr = result.einvoice_qr
+        locked.einvoice_status = SalesInvoice.EInvoiceStatus.GENERATED
+        locked.einvoice_error = ""
+        locked.save(
+            update_fields=[
+                "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_status", "einvoice_error",
+            ]
+        )
+        invoice = locked
     user = User.objects.filter(pk=user_id).first() if user_id else None
     AuditService.log(
         company=invoice.company,

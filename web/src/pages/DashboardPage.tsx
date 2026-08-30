@@ -13,17 +13,17 @@ import Chip from '@mui/material/Chip';
 import { useQuery } from '@tanstack/react-query';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { getDashboard, getBusinessHealth, getCompany, getDailySummary, listBusinessAlerts, listLowStock, listProducts } from '@/api/resources';
+import { getDashboard, getBusinessHealth, getCompany, getDailySummary, listBusinessAlerts, listLowStock } from '@/api/resources';
 import { KpiStat, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { useAuth } from '@/auth/AuthContext';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
 import type { DashboardKpis } from '@/types/domain';
 import { canViewAiInsights } from '@/utils/permissions';
 import { formatMoney, toNumber } from '@/utils/money';
-import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
 import { shouldForceSetup } from '@/onboarding/shouldForceSetup';
 import { useState } from 'react';
 
@@ -36,6 +36,7 @@ function agingBucket(aging: NonNullable<DashboardKpis['receivablesAging']>, keys
 }
 
 export function DashboardPage() {
+  useLocale();
   const { user } = useAuth();
   const [inviteCtaDismissed, setInviteCtaDismissed] = useState(
     () => localStorage.getItem('bb_invite_cta_dismissed') === '1',
@@ -43,7 +44,6 @@ export function DashboardPage() {
   const showInsights = canViewAiInsights(user);
   const dashboard = useQuery({ queryKey: ['dashboard'], queryFn: getDashboard });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  const products = useQuery({ queryKey: ['products-count'], queryFn: () => listProducts() });
   const lowStock = useQuery({ queryKey: ['low-stock'], queryFn: listLowStock });
   const summary = useQuery({
     queryKey: ['insights-summary'],
@@ -71,11 +71,13 @@ export function DashboardPage() {
   if (dashboard.isLoading) return <LoadingState />;
   if (dashboard.isError) {
     return (
-      <ErrorState message={getErrorMessage(dashboard.error)} onRetry={() => void dashboard.refetch()} />
+      <ErrorState message={getErrorMessage(dashboard.error)} error={dashboard.error} onRetry={() => void dashboard.refetch()} />
     );
   }
 
   const data = dashboard.data!;
+  const productCount = data.productCount ?? data.product_count ?? 0;
+  const invoiceCount = data.invoiceCount ?? data.invoice_count ?? 0;
   const aging = data.receivablesAging;
   const agingBuckets = aging
     ? [
@@ -108,13 +110,13 @@ export function DashboardPage() {
       color={Number(health.data.score) >= 70 ? 'success' : Number(health.data.score) >= 45 ? 'warning' : 'error'}
       label={
         Number(health.data.score) >= 70
-          ? `Books look healthy · open Insights`
+          ? t('dashboard.healthHealthy')
           : Number(health.data.score) >= 45
-            ? `Needs attention · open Insights`
-            : `Action needed · open Insights`
+            ? t('dashboard.healthAttention')
+            : t('dashboard.healthAction')
       }
       title={`Health grade ${health.data.grade} · score ${health.data.score}${
-        health.data.limitedData ? ' · limited data' : ''
+        health.data.limitedData ? ` · ${t('dashboard.limitedData')}` : ''
       }`}
     />
   ) : null;
@@ -134,14 +136,14 @@ export function DashboardPage() {
 
       <OnboardingChecklist
         company={company.data}
-        productCount={products.data?.length ?? 0}
-        invoiceCount={data.recentInvoices?.length ?? 0}
+        productCount={productCount}
+        invoiceCount={invoiceCount}
       />
 
       {!inviteCtaDismissed &&
       user?.role === 'OWNER' &&
-      (products.data?.length ?? 0) > 0 &&
-      (data.recentInvoices?.length ?? 0) > 0 ? (
+      productCount > 0 &&
+      invoiceCount > 0 ? (
         <Alert
           severity="success"
           onClose={() => {
@@ -163,10 +165,12 @@ export function DashboardPage() {
                   {t('insights.todaySummary')}
                 </Typography>
                 <Typography variant="body2" sx={{ mt: 0.5 }}>
-                  Sales today {formatMoney(data.salesToday?.total)} (
-                  {data.salesToday?.count ?? 0} invoices). This month{' '}
-                  {formatMoney(data.salesThisMonth?.total)} (
-                  {data.salesThisMonth?.count ?? 0} invoices).
+                  {t('dashboard.salesTodayLine', {
+                    amount: formatMoney(data.salesToday?.total),
+                    count: data.salesToday?.count ?? 0,
+                    monthAmount: formatMoney(data.salesThisMonth?.total),
+                    monthCount: data.salesThisMonth?.count ?? 0,
+                  })}
                 </Typography>
               </Box>
             ) : (
@@ -270,7 +274,10 @@ export function DashboardPage() {
                   <TableCell>{inv.date}</TableCell>
                   <TableCell>{inv.customer ?? '—'}</TableCell>
                   <TableCell>
-                    <StatusChip tone={documentStatusTone(inv.status)} labelKey={statusLabelKey(inv.status)} />
+                    <StatusChip
+                      tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance))}
+                      labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance))}
+                    />
                   </TableCell>
                   <TableCell align="right">
                     <MoneyText value={inv.grandTotal} />
@@ -294,9 +301,9 @@ export function DashboardPage() {
         {lowStock.isLoading ? (
           <LoadingState />
         ) : lowStock.isError ? (
-          <ErrorState message={getErrorMessage(lowStock.error)} onRetry={() => void lowStock.refetch()} />
+          <ErrorState message={getErrorMessage(lowStock.error)} error={lowStock.error} onRetry={() => void lowStock.refetch()} />
         ) : (lowStock.data?.length ?? 0) === 0 ? (
-          <EmptyState description={t('empty.stock')} />
+          <EmptyState description={t('empty.stockHealthy')} />
         ) : (
           <Stack spacing={1}>
             {lowStock.data!.slice(0, 5).map((item) => (

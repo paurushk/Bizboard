@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.exceptions import BusinessRuleError
-from core.permissions import DenyViewerWrite, HasCompany, get_company_user
+from core.permissions import HasCompany, IsOwner, get_company_user
 from core.viewsets import CompanyScopedViewSet
 
 from .models import Bom, WorkOrder
@@ -16,7 +16,7 @@ from .services import cancel_work_order, complete_work_order, release_work_order
 class BomViewSet(CompanyScopedViewSet):
     queryset = Bom.objects.prefetch_related("lines__component").select_related("product")
     serializer_class = BomSerializer
-    permission_classes = [IsAuthenticated, HasCompany, DenyViewerWrite]
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
     audit_entity = "Bom"
 
     def initial(self, request, *args, **kwargs):
@@ -29,7 +29,7 @@ class WorkOrderViewSet(CompanyScopedViewSet):
         "component_lines__component"
     )
     serializer_class = WorkOrderSerializer
-    permission_classes = [IsAuthenticated, HasCompany, DenyViewerWrite]
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
     audit_entity = "WorkOrder"
 
     def initial(self, request, *args, **kwargs):

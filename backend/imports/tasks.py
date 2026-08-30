@@ -1,6 +1,10 @@
 """Async purchase/sales-bill extraction via configured LLM."""
 
+import logging
+
 from celery import shared_task
+
+logger = logging.getLogger("imports.extract")
 
 # Batch pages sent per LLM call — keeps a single request's payload bounded
 # even when a bill runs to dozens of pages (Bill Import Redesign Plan §7 Phase 3).
@@ -88,9 +92,10 @@ def _merge_extraction_payloads(payloads: list[dict]) -> dict:
 # BUG-306: cap total task runtime so a hung/slow LLM provider can't wedge a
 # worker (and the ImportJob) forever — soft limit raises inside the task so
 # the except below can still mark the job FAILED cleanly.
-# Two high-detail vision calls at 120s each need more than the original 180s.
-@shared_task(time_limit=360, soft_time_limit=330)
-def extract_purchase_bill_task(job_id: int):
+# Four SI-window vision calls (gpt-4o, high detail, table crops) need headroom
+# beyond a single 180s shot — still fail the job cleanly on the soft limit.
+@shared_task(time_limit=480, soft_time_limit=450)
+def extract_purchase_bill_task(job_id: int, company_id=None):
     from celery.exceptions import SoftTimeLimitExceeded
     from core.exceptions import BusinessRuleError
     from core.services.llm import extract_purchase_bill
@@ -120,6 +125,12 @@ def extract_purchase_bill_task(job_id: int):
             payload = _merge_extraction_payloads([extract_purchase_bill(batch) for batch in batches])
         else:
             payload = extract_purchase_bill(images)
+        logger.info(
+            "Bill extract job=%s lines=%s printed_line_count=%s",
+            job_id,
+            len(payload.get("lines") or []),
+            payload.get("printed_line_count"),
+        )
         BillImportService.apply_extraction(job, payload)
     except BusinessRuleError as exc:
         BillImportService.mark_failed(job, str(exc.detail if hasattr(exc, "detail") else exc))

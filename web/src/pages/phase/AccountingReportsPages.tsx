@@ -12,6 +12,7 @@ import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney, toNumber } from '@/utils/money';
+import { t } from '@/i18n';
 import { triggerBlobDownload } from '@/utils/blob';
 import {
   asRows,
@@ -23,9 +24,9 @@ import {
 export function ChartOfAccountsPage() {
   const query = useQuery({ queryKey: ['accounts'], queryFn: api.listAccounts });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
-    <PageShell title="Chart of accounts" subtitle="Seeded Indian SME CoA when accounting is enabled.">
+    <PageShell title={t('phase.chartOfAccounts')} subtitle={t('phase.chartOfAccountsSubtitle')}>
       <DataTable
         rows={asRows(query.data)}
         empty="No accounts — enable accounting in Settings."
@@ -82,7 +83,7 @@ function AccountingReportPage({
     }
   };
   if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState message={getErrorMessage(q.error)} onRetry={() => void q.refetch()} />;
+  if (q.isError) return <ErrorState message={getErrorMessage(q.error)} error={q.error} onRetry={() => void q.refetch()} />;
   const data = q.data as Row;
   // UXW2B-019: prefer an array shape defensively even if a report ever sends rows
   // grouped by type ({ ASSET: [...], ... }) instead of a flat list — .map() on a
@@ -204,7 +205,7 @@ function AccountingReportPage({
   );
 }
 
-export const TrialBalancePage = () => <AccountingReportPage title="Trial Balance" report="trial-balance" />;
-export const ProfitAndLossPage = () => <AccountingReportPage title="Profit & Loss" report="profit-and-loss" />;
-export const BalanceSheetPage = () => <AccountingReportPage title="Balance Sheet" report="balance-sheet" />;
-export const BooksHealthPage = () => <AccountingReportPage title="Books Health" report="books-health" />;
+export const TrialBalancePage = () => <AccountingReportPage title={t('phase.trialBalance')} report="trial-balance" />;
+export const ProfitAndLossPage = () => <AccountingReportPage title={t('phase.profitAndLoss')} report="profit-and-loss" />;
+export const BalanceSheetPage = () => <AccountingReportPage title={t('phase.balanceSheet')} report="balance-sheet" />;
+export const BooksHealthPage = () => <AccountingReportPage title={t('phase.booksHealth')} report="books-health" />;

@@ -196,6 +196,10 @@ class Product(CompanyScopedModel):
         ACTIVE = "ACTIVE"
         INACTIVE = "INACTIVE"
 
+    class ProductType(models.TextChoices):
+        GOODS = "GOODS", "Goods"
+        SERVICE = "SERVICE", "Service"
+
     name = models.CharField(max_length=255, db_index=True)
     sku = models.CharField(max_length=64, blank=True, db_index=True)
     barcode = models.CharField(max_length=64, blank=True, db_index=True)
@@ -210,9 +214,22 @@ class Product(CompanyScopedModel):
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     mrp = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    wholesale_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     reorder_level = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
+    product_type = models.CharField(
+        max_length=16, choices=ProductType.choices, default=ProductType.GOODS, db_index=True,
+    )
+    track_inventory = models.BooleanField(default=True)
     track_batch = models.BooleanField(default=False)
     track_serial = models.BooleanField(default=False)
+    selling_tax_inclusive = models.BooleanField(default=False)
+    purchase_tax_inclusive = models.BooleanField(default=False)
+    custom_fields = models.JSONField(default=dict, blank=True)
+    alternate_unit = models.ForeignKey(
+        Unit, null=True, blank=True, on_delete=models.SET_NULL, related_name="alternate_products",
+    )
+    conversion_rate = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("1"))
+    default_discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE)
 
     class Meta:
@@ -238,12 +255,30 @@ class Product(CompanyScopedModel):
         return self.name
 
     def is_referenced(self):
-        """True if the product appears on any document or stock movement."""
-        return (
-            self.stock_movements.exists()
-            or self.sales_items.exists()
-            or self.purchase_items.exists()
-        )
+        """True if the product appears on any document, order, challan, or stock movement."""
+        for rel in (
+            "stock_movements",
+            "sales_items",
+            "purchase_items",
+            "quotation_items",
+            "sales_order_items",
+            "delivery_challan_items",
+            "sales_credit_note_items",
+            "sales_debit_note_items",
+            "purchase_order_items",
+            "purchase_credit_note_items",
+            "purchase_debit_note_items",
+            "bom_items",
+            "bom_components",
+        ):
+            accessor = getattr(self, rel, None)
+            if accessor is not None:
+                try:
+                    if accessor.exists():
+                        return True
+                except Exception:
+                    pass
+        return False
 
 
 class PriceList(CompanyScopedModel):

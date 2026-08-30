@@ -15,6 +15,7 @@ type UseProductSearchOptions = {
   pageSize?: number;
   /** Keep a currently selected product in options even if outside the current page. */
   selected?: Product | null;
+  cf?: Record<string, string[]>;
 };
 
 /**
@@ -27,11 +28,12 @@ export function useProductSearch(opts: UseProductSearchOptions = {}) {
   const [productQuery, setProductQuery] = useState('');
   const debounced = useDebouncedValue(productQuery, 300);
   const q = debounced.trim();
-  const enabled = q.length >= minChars;
+  const hasCf = Boolean(opts.cf && Object.values(opts.cf).some((values) => values.length));
+  const enabled = q.length >= minChars || hasCf;
 
   const query = useQuery({
-    queryKey: ['product-search-page', q, pageSize],
-    queryFn: () => listProductsPage({ q, page: 1, pageSize }),
+    queryKey: ['product-search-page', q, pageSize, opts.cf],
+    queryFn: () => listProductsPage({ q: q || undefined, page: 1, pageSize, cf: opts.cf }),
     enabled,
   });
 

@@ -12,6 +12,8 @@ import * as api from '@/api/resources';
 import { todayIso } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
+import { t } from '@/i18n';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 export function FixedAssetsPage() {
   const qc = useQueryClient();
@@ -22,6 +24,7 @@ export function FixedAssetsPage() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [cost, setCost] = useState('');
+  const [error, setError] = useState('');
   const create = useMutation({
     mutationFn: () =>
       api.createFixedAsset({
@@ -32,19 +35,25 @@ export function FixedAssetsPage() {
       }),
     onSuccess: () => {
       setOpen(false);
+      setError('');
       void qc.invalidateQueries({ queryKey: ['fixed-assets'] });
     },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   const dispose = useMutation({
     mutationFn: (id: number) => api.disposeFixedAsset(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['fixed-assets'] }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['fixed-assets'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell
-      title="Fixed assets"
-      subtitle="Asset register with SLM depreciation support."
+      title={t('phase.fixedAssets')}
+      subtitle={t('phase.fixedAssetsSubtitle')}
       actions={
         <Button variant="contained" onClick={() => setOpen(true)}>
           Add asset
@@ -69,6 +78,7 @@ export function FixedAssetsPage() {
         <DialogTitle>Fixed asset</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            {error ? <HelpErrorAlert message={error} /> : null}
             <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} />
             <TextField label="Acquisition cost" type="number" value={cost} onChange={(e) => setCost(e.target.value)} />
           </Stack>

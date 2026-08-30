@@ -73,9 +73,10 @@ export async function register(payload: RegisterPayload): Promise<RegisterResult
     userId?: number;
     companyId?: number;
     detail?: string;
+    user?: User;
   }>(data);
-  // BB-000251: duplicate email returns 200 without tokens (non-enumerating).
-  if (!body.access) {
+  // BB-000251: duplicate email returns 200 without tokens or userId (non-enumerating).
+  if (!body.access && !body.userId && !body.user) {
     return {
       kind: 'pending',
       detail: body.detail || 'If this email can be registered, an account has been prepared.',
@@ -140,6 +141,25 @@ export async function logout(): Promise<void> {
   } catch {
     // ignore network errors on logout
   }
+}
+
+export async function requestPasswordReset(identifier: string): Promise<void> {
+  if (shouldUseMocks()) {
+    await delay(200);
+    return;
+  }
+  await apiClient.post('/auth/password/reset/', { identifier });
+}
+
+export async function confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+  if (shouldUseMocks()) {
+    await delay(200);
+    return;
+  }
+  await apiClient.post('/auth/password/reset/confirm/', {
+    token,
+    new_password: newPassword,
+  });
 }
 
 function delay(ms: number) {

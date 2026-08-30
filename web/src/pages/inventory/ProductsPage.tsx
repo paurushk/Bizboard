@@ -1,12 +1,7 @@
 import { useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
-import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Menu from '@mui/material/Menu';
@@ -19,98 +14,76 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import FormControlLabel from '@mui/material/FormControlLabel';
 import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import TableViewOutlinedIcon from '@mui/icons-material/TableViewOutlined';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { createOpeningStock, createProduct, listProductsPage, listStock, listWarehouses, updateProduct } from '@/api/resources';
+import { listProducts, listProductsPage, listStock } from '@/api/resources';
+import { ItemFormDialog } from '@/pages/inventory/ItemFormDialog';
 import { useAuth } from '@/auth/AuthContext';
+import { ColumnPicker } from '@/components/ColumnPicker';
+import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
+import { useCfFilters } from '@/hooks/useCfFilters';
+import { useColumnPrefs, type ColumnSpec } from '@/hooks/useColumnPrefs';
 import { t } from '@/i18n';
 import type { Product } from '@/types/domain';
-import { isValidHsnSac, normalizeGstRate } from '@/utils/gst';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canImport, isViewer } from '@/utils/permissions';
 import { productStatusTone, statusLabelKey } from '@/utils/status';
-import { isSetupWizardEnabled } from '@/config/features';
+import { isItemCustomFieldsV2Enabled, isSetupWizardEnabled } from '@/config/features';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { customFieldCell } from '@/pages/inventory/itemCustomFieldDefaults';
 
 const PAGE_SIZE = 50;
 
-const STANDARD_UNITS = [
-  'PCS',
-  'BOX',
-  'KG',
-  'MTR',
-  'LTR',
-  'NOS',
-  'PKT',
-  'SET',
-  'PAIR',
-  'DOZ',
-  'GMS',
-  'ROLL',
-  'BAG',
+const STANDARD_COLUMNS: ColumnSpec[] = [
+  { id: 'name', label: 'Name', group: 'standard', removable: false },
+  { id: 'sku', label: 'SKU', group: 'standard' },
+  { id: 'unit', label: 'Unit', group: 'standard' },
+  { id: 'price', label: 'Selling price', group: 'standard' },
+  { id: 'gst', label: 'GST %', group: 'standard' },
+  { id: 'stock', label: 'Stock', group: 'standard' },
+  { id: 'tracking', label: 'Tracking', group: 'standard' },
+  { id: 'status', label: 'Status', group: 'standard' },
 ];
 
-const GST_RATES = [
-  { value: '0', label: '0% (Exempt / Nil)' },
-  { value: '0.25', label: '0.25% (Precious Stones)' },
-  { value: '3', label: '3% (Gold / Silver)' },
-  { value: '5', label: '5%' },
-  { value: '12', label: '12%' },
-  { value: '18', label: '18% (Standard Goods & Services)' },
-  { value: '28', label: '28% (Luxury & Demerit)' },
-];
-
-const emptyForm: {
-  name: string;
-  sku: string;
-  unitName: string;
-  barcode: string;
-  hsnCode: string;
-  gstRate: string;
-  purchasePrice: string;
-  sellingPrice: string;
-  openingStock: string;
-  warehouseId: string;
-  reorderLevel: string;
-  trackBatch: boolean;
-  trackSerial: boolean;
-  status: 'ACTIVE' | 'INACTIVE';
-} = {
-  name: '',
-  sku: '',
-  unitName: 'PCS',
-  barcode: '',
-  hsnCode: '',
-  gstRate: '18',
-  purchasePrice: '0',
-  sellingPrice: '0',
-  openingStock: '0',
-  warehouseId: '',
-  reorderLevel: '0',
-  trackBatch: false,
-  trackSerial: false,
-  status: 'ACTIVE',
-};
+function csvEscape(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
 
 export function ProductsPage() {
-  const qc = useQueryClient();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const customDefs = useVisibleCustomFieldDefs();
+  const { value: cfFilters, onChange: setCfFilters } = useCfFilters();
+  const columns = useMemo<ColumnSpec[]>(
+    () => [
+      ...STANDARD_COLUMNS,
+      ...customDefs.map((def) => ({ id: `cf:${def.key}`, label: def.label, group: 'custom' as const })),
+    ],
+    [customDefs],
+  );
+  const prefs = useColumnPrefs('items', columns, user?.companyId, user?.id);
   const query = useQuery({
-    queryKey: ['products', page, search],
-    queryFn: () => listProductsPage({ page, pageSize: PAGE_SIZE, q: search || undefined }),
+    queryKey: ['products', page, debouncedSearch, cfFilters],
+    queryFn: () =>
+      listProductsPage({
+        page,
+        pageSize: PAGE_SIZE,
+        q: debouncedSearch || undefined,
+        cf: isItemCustomFieldsV2Enabled() ? cfFilters : undefined,
+      }),
   });
-  const stockQuery = useQuery({ queryKey: ['stock'], queryFn: listStock });
-  const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
+  const stockQuery = useQuery({ queryKey: ['stock'], queryFn: () => listStock() });
 
   const stockMap = useMemo(() => {
     const map = new Map<number, number>();
@@ -123,9 +96,8 @@ export function ProductsPage() {
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
-  const [form, setForm] = useState(emptyForm);
-  const [error, setError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [bulkAnchor, setBulkAnchor] = useState<null | HTMLElement>(null);
   const rows = query.data?.results ?? [];
   const canMutate = !!user && !isViewer(user.role);
@@ -133,63 +105,55 @@ export function ProductsPage() {
     isSetupWizardEnabled() &&
     user?.role === 'OWNER' &&
     !user.company?.onboarding?.activationDone;
+  const visibleCustom = customDefs.filter((def) => prefs.isVisible(`cf:${def.key}`));
 
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      if (form.hsnCode && !isValidHsnSac(form.hsnCode)) {
-        throw new Error('HSN/SAC must be 4, 6, or 8 digits');
-      }
-      const generatedSku = form.sku.trim() || `ITEM-${Date.now().toString(36).toUpperCase()}`;
-      const payload = {
-        name: form.name.trim(),
-        sku: generatedSku,
-        unitName: form.unitName,
-        barcode: form.barcode.trim() || undefined,
-        hsnCode: form.hsnCode.trim() || undefined,
-        gstRate: normalizeGstRate(Number(form.gstRate) || 0),
-        purchasePrice: Number(form.purchasePrice),
-        sellingPrice: Number(form.sellingPrice),
-        reorderLevel: Number(form.reorderLevel),
-        trackBatch: form.trackBatch,
-        trackSerial: form.trackSerial,
-        status: form.status,
-      };
-      if (editing) {
-        return updateProduct(editing.id, payload);
-      }
-      const created = await createProduct(payload);
-      const openingQty = Number(form.openingStock);
-      if (openingQty > 0 && created?.id) {
-        const whId = Number(form.warehouseId) || warehouses.data?.[0]?.id;
-        const purchaseCost = Number(form.purchasePrice) > 0 ? Number(form.purchasePrice) : undefined;
-        try {
-          await createOpeningStock({
-            product: created.id,
-            quantity: openingQty,
-            unit_cost: purchaseCost,
-            warehouse: whId || undefined,
-          });
-        } catch (stockErr) {
-          void qc.invalidateQueries({ queryKey: ['products'] });
-          void qc.invalidateQueries({ queryKey: ['products-count'] });
-          void qc.invalidateQueries({ queryKey: ['stock'] });
-          throw new Error(`Product created, but opening stock could not be recorded: ${getErrorMessage(stockErr)}`);
-        }
-      }
-      return created;
-    },
-    onSuccess: () => {
-      setOpen(false);
-      setEditing(null);
-      setForm(emptyForm);
-      setError(null);
-      setSaveOk(true);
-      void qc.invalidateQueries({ queryKey: ['products'] });
-      void qc.invalidateQueries({ queryKey: ['products-count'] });
-      void qc.invalidateQueries({ queryKey: ['stock'] });
-    },
-    onError: (err) => setError(getErrorMessage(err)),
-  });
+  const openCreate = () => {
+    setEditing(null);
+    setOpen(true);
+  };
+
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const cols = [
+        ...STANDARD_COLUMNS.filter((col) => prefs.isVisible(col.id)),
+        ...visibleCustom.map((def) => ({ id: `cf:${def.key}`, label: def.label })),
+      ];
+      const header = cols.map((col) => csvEscape(col.label)).join(',');
+      const exported = await listProducts({
+        q: search || undefined,
+        cf: isItemCustomFieldsV2Enabled() ? cfFilters : undefined,
+      });
+      const lines = exported.map((p) =>
+        cols
+          .map((col) => {
+            if (col.id === 'name') return p.name;
+            if (col.id === 'sku') return p.sku;
+            if (col.id === 'unit') return p.unitName || 'PCS';
+            if (col.id === 'price') return String(p.sellingPrice ?? '');
+            if (col.id === 'gst') return String(p.gstRate ?? '');
+            if (col.id === 'stock') return String(stockMap.get(p.id) ?? '');
+            if (col.id === 'tracking') {
+              return [p.trackBatch ? 'Batch' : '', p.trackSerial ? 'Serial' : ''].filter(Boolean).join(' ');
+            }
+            if (col.id === 'status') return p.status;
+            if (col.id.startsWith('cf:')) return customFieldCell(p.customFields, col.id.slice(3));
+            return '';
+          })
+          .map((value) => csvEscape(String(value)))
+          .join(','),
+      );
+      const blob = new Blob([`${header}\n${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'items.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <Stack spacing={2}>
@@ -197,7 +161,7 @@ export function ProductsPage() {
         <Typography variant="h4">{t('nav.products')}</Typography>
         <TextField
           size="small"
-          placeholder={`${t('common.search')} name or SKU`}
+          placeholder={t('customFields.searchHint')}
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -205,7 +169,15 @@ export function ProductsPage() {
           }}
           sx={{ minWidth: 220, flex: 1, maxWidth: 360 }}
         />
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {isItemCustomFieldsV2Enabled() ? (
+            <ColumnPicker columns={columns} isVisible={prefs.isVisible} toggle={prefs.toggle} reset={prefs.reset} />
+          ) : null}
+          {rows.length ? (
+            <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />} disabled={exporting} onClick={() => void exportCsv()}>
+              {t('customFields.exportCsv')}
+            </Button>
+          ) : null}
           {canImport(user) ? (
             <>
               <Button variant="outlined" onClick={(e) => setBulkAnchor(e.currentTarget)}>
@@ -250,20 +222,20 @@ export function ProductsPage() {
             </>
           ) : null}
           {canMutate ? (
-            <Button
-              variant="contained"
-              onClick={() => {
-                setEditing(null);
-                setForm(emptyForm);
-                setOpen(true);
-              }}
-            >
+            <Button variant="contained" onClick={openCreate}>
               {t('common.add')}
             </Button>
           ) : null}
         </Stack>
       </Stack>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      <CustomFieldFilterBar
+        defs={customDefs}
+        value={cfFilters}
+        onChange={(next) => {
+          setCfFilters(next);
+          setPage(1);
+        }}
+      />
       {saveOk ? (
         <Alert severity="success" onClose={() => setSaveOk(false)}>
           Product saved.
@@ -271,7 +243,7 @@ export function ProductsPage() {
       ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {rows.length === 0 && !query.isLoading && !query.isError ? (
         <EmptyState
@@ -284,14 +256,7 @@ export function ProductsPage() {
                 </Button>
               ) : null}
               {canMutate ? (
-                <Button
-                  variant={canContinueSetup ? 'outlined' : 'contained'}
-                  onClick={() => {
-                    setEditing(null);
-                    setForm(emptyForm);
-                    setOpen(true);
-                  }}
-                >
+                <Button variant={canContinueSetup ? 'outlined' : 'contained'} onClick={openCreate}>
                   {t('common.add')} {t('nav.products')}
                 </Button>
               ) : null}
@@ -304,14 +269,17 @@ export function ProductsPage() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>{t('common.name')}</TableCell>
-                <TableCell>{t('common.sku')}</TableCell>
-                <TableCell>{t('products.unit')}</TableCell>
-                <TableCell align="right">{t('products.sellingPrice')}</TableCell>
-                <TableCell align="right">GST %</TableCell>
-                <TableCell align="right">{t('billing.stockAvailable')}</TableCell>
-                <TableCell>Tracking</TableCell>
-                <TableCell>{t('common.status')}</TableCell>
+                {prefs.isVisible('name') ? <TableCell>{t('common.name')}</TableCell> : null}
+                {prefs.isVisible('sku') ? <TableCell>{t('common.sku')}</TableCell> : null}
+                {prefs.isVisible('unit') ? <TableCell>{t('products.unit')}</TableCell> : null}
+                {prefs.isVisible('price') ? <TableCell align="right">{t('products.sellingPrice')}</TableCell> : null}
+                {prefs.isVisible('gst') ? <TableCell align="right">GST %</TableCell> : null}
+                {prefs.isVisible('stock') ? <TableCell align="right">{t('billing.stockAvailable')}</TableCell> : null}
+                {prefs.isVisible('tracking') ? <TableCell>Tracking</TableCell> : null}
+                {visibleCustom.map((def) => (
+                  <TableCell key={def.key}>{def.label}</TableCell>
+                ))}
+                {prefs.isVisible('status') ? <TableCell>{t('common.status')}</TableCell> : null}
                 <TableCell />
               </TableRow>
             </TableHead>
@@ -319,67 +287,58 @@ export function ProductsPage() {
               {rows.map((p) => {
                 const stockQty = stockMap.get(p.id);
                 return (
-                <TableRow key={p.id}>
-                  <TableCell>{p.name}</TableCell>
-                  <TableCell>{p.sku}</TableCell>
-                  <TableCell>{p.unitName || 'PCS'}</TableCell>
-                  <TableCell align="right">{formatMoney(p.sellingPrice)}</TableCell>
-                  <TableCell align="right">{toNumber(p.gstRate)}%</TableCell>
-                  <TableCell align="right">
-                    {stockQty == null ? (
-                      '—'
-                    ) : (
-                      <Chip
-                        size="small"
-                        label={`${stockQty} ${p.unitName || 'PCS'}`}
-                        color={stockQty <= 0 ? 'error' : stockQty <= toNumber(p.reorderLevel) ? 'warning' : 'success'}
-                        variant="outlined"
-                        sx={{ fontWeight: 600 }}
-                      />
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {p.trackBatch ? <Chip size="small" label="Batch" sx={{ mr: 0.5 }} /> : null}
-                    {p.trackSerial ? <Chip size="small" label="Serial" /> : null}
-                    {!p.trackBatch && !p.trackSerial ? '—' : null}
-                  </TableCell>
-                  <TableCell>
-                    <StatusChip
-                      tone={productStatusTone(p.status)}
-                      labelKey={statusLabelKey(p.status)}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    {canMutate ? (
-                      <Button
-                        size="small"
-                        onClick={() => {
-                          setEditing(p);
-                          setForm({
-                            name: p.name,
-                            sku: p.sku,
-                            unitName: p.unitName || 'PCS',
-                            barcode: p.barcode ?? '',
-                            hsnCode: p.hsnCode ?? '',
-                            gstRate: String(p.gstRate),
-                            purchasePrice: String(p.purchasePrice),
-                            sellingPrice: String(p.sellingPrice),
-                            openingStock: '0',
-                            warehouseId: '',
-                            reorderLevel: String(p.reorderLevel),
-                            trackBatch: Boolean(p.trackBatch),
-                            trackSerial: Boolean(p.trackSerial),
-                            status: p.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
-                          });
-                          setOpen(true);
-                        }}
-                      >
-                        {t('common.edit')}
-                      </Button>
+                  <TableRow key={p.id}>
+                    {prefs.isVisible('name') ? <TableCell>{p.name}</TableCell> : null}
+                    {prefs.isVisible('sku') ? <TableCell>{p.sku}</TableCell> : null}
+                    {prefs.isVisible('unit') ? <TableCell>{p.unitName || 'PCS'}</TableCell> : null}
+                    {prefs.isVisible('price') ? <TableCell align="right">{formatMoney(p.sellingPrice)}</TableCell> : null}
+                    {prefs.isVisible('gst') ? <TableCell align="right">{toNumber(p.gstRate)}%</TableCell> : null}
+                    {prefs.isVisible('stock') ? (
+                      <TableCell align="right">
+                        {stockQty == null ? (
+                          '—'
+                        ) : (
+                          <Chip
+                            size="small"
+                            label={`${stockQty} ${p.unitName || 'PCS'}`}
+                            color={stockQty <= 0 ? 'error' : stockQty <= toNumber(p.reorderLevel) ? 'warning' : 'success'}
+                            variant="outlined"
+                            sx={{ fontWeight: 600 }}
+                          />
+                        )}
+                      </TableCell>
                     ) : null}
-                  </TableCell>
-                </TableRow>
-              );})}
+                    {prefs.isVisible('tracking') ? (
+                      <TableCell>
+                        {p.trackBatch ? <Chip size="small" label="Batch" sx={{ mr: 0.5 }} /> : null}
+                        {p.trackSerial ? <Chip size="small" label="Serial" /> : null}
+                        {!p.trackBatch && !p.trackSerial ? '—' : null}
+                      </TableCell>
+                    ) : null}
+                    {visibleCustom.map((def) => (
+                      <TableCell key={def.key}>{customFieldCell(p.customFields, def.key)}</TableCell>
+                    ))}
+                    {prefs.isVisible('status') ? (
+                      <TableCell>
+                        <StatusChip tone={productStatusTone(p.status)} labelKey={statusLabelKey(p.status)} />
+                      </TableCell>
+                    ) : null}
+                    <TableCell align="right">
+                      {canMutate ? (
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setEditing(p);
+                            setOpen(true);
+                          }}
+                        >
+                          {t('common.edit')}
+                        </Button>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </Paper>
@@ -404,222 +363,22 @@ export function ProductsPage() {
         </Stack>
       ) : null}
 
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>{editing ? t('common.edit') : t('common.create')} {t('nav.products')}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField
-              label={t('common.name')}
-              required
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              helperText={
-                !editing &&
-                form.name.trim() &&
-                rows.some(
-                  (p) => p.name.trim().toLowerCase() === form.name.trim().toLowerCase(),
-                )
-                  ? 'A product with this name already exists — check SKU carefully when billing'
-                  : undefined
-              }
-              error={
-                !editing &&
-                Boolean(form.name.trim()) &&
-                rows.some(
-                  (p) => p.name.trim().toLowerCase() === form.name.trim().toLowerCase(),
-                )
-              }
-            />
-            <Stack direction="row" spacing={2}>
-              <TextField
-                select
-                label={t('products.unit')}
-                value={form.unitName}
-                onChange={(e) => setForm((f) => ({ ...f, unitName: e.target.value }))}
-                sx={{ minWidth: 140 }}
-              >
-                {STANDARD_UNITS.map((u) => (
-                  <MenuItem key={u} value={u}>
-                    {u}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                select
-                label="GST Rate"
-                value={form.gstRate}
-                onChange={(e) => setForm((f) => ({ ...f, gstRate: e.target.value }))}
-                sx={{ flex: 1 }}
-              >
-                {GST_RATES.map((r) => (
-                  <MenuItem key={r.value} value={r.value}>
-                    {r.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Stack>
-            <Stack direction="row" spacing={2}>
-              <TextField
-                label={t('products.sellingPrice')}
-                helperText={t('products.sellingPriceHint')}
-                type="number"
-                inputProps={{ min: 0 }}
-                value={form.sellingPrice}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (!v.startsWith('-')) setForm((f) => ({ ...f, sellingPrice: v }));
-                }}
-                error={Number(form.sellingPrice) < 0}
-                sx={{ flex: 1 }}
-              />
-              <TextField
-                label={t('products.purchasePrice')}
-                helperText={t('products.purchasePriceHint')}
-                type="number"
-                inputProps={{ min: 0 }}
-                value={form.purchasePrice}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (!v.startsWith('-')) setForm((f) => ({ ...f, purchasePrice: v }));
-                }}
-                error={Number(form.purchasePrice) < 0}
-                sx={{ flex: 1 }}
-              />
-            </Stack>
-            {editing ? (
-              <Stack spacing={1} sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary">
-                  {t('billing.openingStockLocked')}
-                </Typography>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  component={RouterLink}
-                  to={`/inventory/adjustments?product=${editing.id}`}
-                  sx={{ alignSelf: 'flex-start' }}
-                >
-                  {t('billing.adjustStockLink')}
-                </Button>
-              </Stack>
-            ) : (
-              <Stack spacing={1.5}>
-                <TextField
-                  label={t('products.openingStock')}
-                  helperText={t('products.openingStockHint')}
-                  type="number"
-                  inputProps={{ min: 0 }}
-                  value={form.openingStock}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (!v.startsWith('-')) setForm((f) => ({ ...f, openingStock: v }));
-                  }}
-                />
-                <TextField
-                  select
-                  label={t('nav.warehouses')}
-                  value={form.warehouseId || String(warehouses.data?.[0]?.id ?? '')}
-                  onChange={(e) => setForm((f) => ({ ...f, warehouseId: e.target.value }))}
-                  helperText="Warehouse for opening stock"
-                >
-                  {(warehouses.data ?? []).map((w) => (
-                    <MenuItem key={w.id} value={String(w.id)}>
-                      {w.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Stack>
-            )}
-            <TextField
-              label={t('products.skuOptional')}
-              helperText={t('products.skuOptionalHint')}
-              value={form.sku}
-              onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))}
-            />
-            <TextField
-              label={t('common.barcode')}
-              value={form.barcode}
-              onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))}
-            />
-            <TextField
-              label="HSN / SAC Code"
-              value={form.hsnCode}
-              onChange={(e) => setForm((f) => ({ ...f, hsnCode: e.target.value }))}
-              error={Boolean(form.hsnCode) && !isValidHsnSac(form.hsnCode)}
-              helperText={
-                Boolean(form.hsnCode) && !isValidHsnSac(form.hsnCode)
-                  ? 'HSN/SAC must be 4, 6, or 8 digits'
-                  : undefined
-              }
-            />
-            <TextField
-              label={t('products.reorderLevel')}
-              helperText={t('products.reorderLevelHint')}
-              type="number"
-              inputProps={{ min: 0 }}
-              value={form.reorderLevel}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (!v.startsWith('-')) setForm((f) => ({ ...f, reorderLevel: v }));
-              }}
-              error={Number(form.reorderLevel) < 0}
-            />
-            <TextField
-              select
-              label={t('common.status')}
-              value={form.status}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, status: e.target.value as 'ACTIVE' | 'INACTIVE' }))
-              }
-            >
-              <MenuItem value="ACTIVE">ACTIVE</MenuItem>
-              <MenuItem value="INACTIVE">INACTIVE</MenuItem>
-            </TextField>
-            <Stack direction="row">
-              <FormControlLabel
-                control={<Checkbox checked={form.trackBatch} onChange={(e) => setForm((f) => ({ ...f, trackBatch: e.target.checked }))} />}
-                label={t('products.trackBatch')}
-              />
-              <FormControlLabel
-                control={<Checkbox checked={form.trackSerial} onChange={(e) => setForm((f) => ({ ...f, trackSerial: e.target.checked }))} />}
-                label={t('products.trackSerial')}
-              />
-            </Stack>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-          <Tooltip
-            title={
-              !form.name.trim()
-                ? 'Enter product name to save'
-                : Boolean(form.hsnCode) && !isValidHsnSac(form.hsnCode)
-                  ? 'Enter a valid HSN/SAC code (2-8 digits)'
-                  : Number(form.purchasePrice) < 0 || Number(form.sellingPrice) < 0
-                    ? 'Prices cannot be negative'
-                    : Number(form.reorderLevel) < 0
-                      ? 'Reorder level cannot be negative'
-                      : ''
-            }
-          >
-            <span>
-              <Button
-                variant="contained"
-                disabled={
-                  !form.name.trim() ||
-                  (Boolean(form.hsnCode) && !isValidHsnSac(form.hsnCode)) ||
-                  Number(form.purchasePrice) < 0 ||
-                  Number(form.sellingPrice) < 0 ||
-                  Number(form.reorderLevel) < 0 ||
-                  saveMutation.isPending
-                }
-                onClick={() => saveMutation.mutate()}
-              >
-                {t('common.save')}
-              </Button>
-            </span>
-          </Tooltip>
-        </DialogActions>
-      </Dialog>
+      <ItemFormDialog
+        open={open}
+        product={editing}
+        existingNames={rows.map((row) => row.name)}
+        onClose={() => {
+          setOpen(false);
+          setEditing(null);
+        }}
+        onSaved={(keepOpen) => {
+          setSaveOk(true);
+          if (!keepOpen) {
+            setOpen(false);
+            setEditing(null);
+          }
+        }}
+      />
     </Stack>
   );
 }

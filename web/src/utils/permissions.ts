@@ -78,6 +78,16 @@ export function canCreatePayments(user: User | null): boolean {
   return isOwner(user.role) || user.canCreatePayments === true;
 }
 
+/** Receipts / recon: payers or sales viewers. Purchase-only staff do not get cash surfaces. */
+export function canViewPaymentSurfaces(user: User | null): boolean {
+  return canCreatePayments(user) || canViewSalesSurfaces(user);
+}
+
+/** Bank recon is cash ops or financial reports — not sales-view-only. */
+export function canViewBankRecon(user: User | null): boolean {
+  return canCreatePayments(user) || canViewFinancialReports(user);
+}
+
 /** BB-000297: sales list/detail — not VIEWER; create-sales or financial reports. */
 export function canViewSalesSurfaces(user: User | null): boolean {
   if (!user || isViewer(user.role)) return false;

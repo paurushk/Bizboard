@@ -120,9 +120,9 @@ Genuinely unbuilt or must stay dark:
 - ONDC, DigiLocker, Aadhaar eSign (spikes only)
 - Busy / Zoho adapters
 - Full GSTR-9 **portal upload** (tables 4–8 are books/2B worksheets)
-- GSTR-2A / 2B **auto-claim** (file ingest + match shipped; live GSP dark)
+- GSTR-2A / 2B **auto-claim** (file ingest + match shipped; human CLAIMABLE board is Wave B-03 in the waves plan — do not auto-claim)
 - Second live gateway (Cashfree / PayU stay disabled)
-- Live e-Invoice / e-Way NIC (`BB-000624`, fail-closed)
+- Live e-Invoice / e-Way **NIC-direct** (`BB-000624`, fail-closed). **2026-08-30:** live **GSP** IRN + GSTR-1/3B GSP upload is the P0 track in `docs/roadmap/WAVES_0_ABCD_CURSOR_IMPLEMENTATION_PLAN.md` — still fail-closed until a named GSP and secrets exist; not a from-scratch NIC stack.
 - Manufacturing / Payroll / CRM — freeze enablement; do not extend
 - Account Aggregator **live bank feed** (HTTP FIU fail-closed without `FIU_BASE_URL`; keep flag off)
 
@@ -145,7 +145,7 @@ Razorpay Payment Links, warehouses/batch/WAVG-FIFO, books stack behind
 | Sign Phase 7 D6 reversal (`CompanyGstin`) | Stops a future rewrite | PM |
 | CA CoA codes (1200 AR, 2100 AP, 2210/2220/2230 output, 1310/1320/1330 input, 2300/1250 advances, 1600/1650 FA, 2261–2266 statutory, 2240–2280 RCM, 5300/5600/5700/5500) | Health + GL-outstanding depend on these | CA |
 | CA sample CN/DN PDFs; B2CL ₹2.5L; BUG-205 freight GST | GAP-004 + Phase 1 human DoD | CA |
-| GSP / gateway / WhatsApp KYC; Meta template approval; DPDP opt-in basis | Live 2.2 / 3.1 / 7.1 | PM + legal |
+| GSP / gateway / WhatsApp KYC; Meta template approval; DPDP opt-in basis | Live P0 / 3.1 / 7.1. **2026-08-30:** name owners in `WAVES_0_ABCD_CURSOR_IMPLEMENTATION_PLAN.md` P0 table by 2026-09-13 or P0 is RED | PM + legal |
 | Staging tenant + CA-PDF environment | Golden fixtures | Ops |
 | Bank CSV sample files (HDFC/ICICI/SBI placeholder) | 3.2 presets | Support |
 | LLM monthly cap and who pays | 6.4 budget | PM/finance |
@@ -172,7 +172,9 @@ Enablement only, demand-gated per flag
    (books, FIFO CA pack, WABA, POS UAT, serials)
    │
    ▼
-Genuinely unbuilt (charter required): PAN/UDYAM, 2A/2B, live NIC, Busy/Zoho, ONDC
+Genuinely unbuilt (charter required): PAN/UDYAM **certified** portal, 2A/2B **auto-claim**, live NIC-direct, Busy/Zoho, ONDC.
+
+**Cursor/Cloud ticket plans:** Waves 0–D + P0 → `docs/roadmap/WAVES_0_ABCD_CURSOR_IMPLEMENTATION_PLAN.md`. Post-pilot Waves E–L → `docs/roadmap/WAVES_E_TO_L_CURSOR_IMPLEMENTATION_PLAN.md`.
 ```
 
 Historical Phase-0→7 start gates in the canonical docs remain valid as

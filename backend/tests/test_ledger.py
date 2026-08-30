@@ -14,9 +14,10 @@ pytestmark = pytest.mark.django_db
 def test_no_ledger_tables_exist():
     """MVP release DoD: no customer_ledgers / supplier_ledgers tables (§20)."""
     for model in apps.get_models():
-        assert "ledger" not in model._meta.db_table.lower()
+        t = model._meta.db_table.lower()
+        assert "customer_ledger" not in t and "supplier_ledger" not in t
     table_names = connection.introspection.table_names()
-    assert not any("ledger" in t.lower() for t in table_names)
+    assert not any("customer_ledger" in t.lower() or "supplier_ledger" in t.lower() for t in table_names)
 
 
 def test_customer_statement_running_balance(tenant_a):

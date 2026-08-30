@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import re
 from typing import Any
 
 from django.conf import settings
 
 from core.exceptions import BusinessRuleError
+from core.services.bill_images import views_for_si_range
+
+logger = logging.getLogger("imports.extract")
 
 EXTRACT_PROMPT = """Extract purchase bill / tax invoice / rate-list line items from the attached document image(s).
 Return ONLY valid JSON (no markdown) with this exact shape:
@@ -52,6 +56,9 @@ Canonical fields:
   billed, Weight, Kg, Ltr. If several qty-like columns exist (Cases + Pcs, Box + Pack, Strips +
   Pcs), put the "loose / inner" count here (0 is valid — do not skip the row) and put the others
   in raw_columns. NEVER multiply or add columns yourself.
+  If the table has Cs / Cases / Cartons / Box, raw_columns must include that key on EVERY row
+  (use "0" when the cell is 0 — do not omit it). Handwritten ticks on Cs/Pcs are still the
+  printed digit underneath; do not copy Cs/Pcs/UPC from a neighbouring row.
 - unit_price ← Rate / Price / Pc Price / Basic Rate (per billed unit, BEFORE tax).
   If Rate is missing but a line amount and quantity are readable: unit_price = amount ÷ quantity.
   NEVER use Gross/Net/Tax/Scheme/Discount amounts as unit_price.
@@ -87,12 +94,24 @@ Rules:
 # Dense GST invoices (30–80 lines) need a large completion budget; 4096 truncates
 # mid-JSON and json_object mode then closes early at ~20 rows.
 EXTRACT_MAX_TOKENS = 16384
-EXTRACT_TIMEOUT_SECONDS = 120.0
-MAX_EXTRACT_CONTINUATIONS = 2
+EXTRACT_TIMEOUT_SECONDS = 90.0
+# gpt-4o-mini routinely emits ~20 lines and reports printed_line_count=20 even
+# when SI 21–30 are visible. Pull the table in SI windows instead.
+EXTRACT_CHUNK_SIZE = 15
+MAX_EXTRACT_CHUNKS = 4
+MIN_LINES_TO_PROBE_MORE = 8
 
 DEFAULT_MODELS = {
     "openai": "gpt-4o-mini",
     # DeepSeek chat has no vision — use a vision-capable model when provider=deepseek.
+    "deepseek": "deepseek-vl2",
+    "claude": "claude-sonnet-4-20250514",
+}
+
+# Bill photos are a different job than chat/insights — mini cannot read a
+# 30×19 DMS table on a WhatsApp JPEG. Override with LLM_BILL_MODEL.
+DEFAULT_BILL_MODELS = {
+    "openai": "gpt-4o",
     "deepseek": "deepseek-vl2",
     "claude": "claude-sonnet-4-20250514",
 }
@@ -119,6 +138,13 @@ def _model_for(provider: str) -> str:
     if override:
         return override
     return DEFAULT_MODELS.get(provider, DEFAULT_MODELS["openai"])
+
+
+def _bill_model_for(provider: str) -> str:
+    override = (getattr(settings, "LLM_BILL_MODEL", None) or "").strip()
+    if override:
+        return override
+    return DEFAULT_BILL_MODELS.get(provider, DEFAULT_BILL_MODELS["openai"])
 
 
 def _parse_json_content(text: str) -> dict[str, Any]:
@@ -301,6 +327,42 @@ def needs_extraction_continuation(payload: dict[str, Any], finish_reason: str | 
     return bool(expected) and got < expected
 
 
+def last_extracted_si(payload: dict[str, Any]) -> int:
+    """Highest SI on extracted lines, else the number of lines."""
+    max_si = 0
+    lines = payload.get("lines") or []
+    for line in lines:
+        si = _coerce_int(line.get("si"))
+        if si is not None:
+            max_si = max(max_si, si)
+    return max_si or len(lines)
+
+
+def should_probe_remaining_rows(payload: dict[str, Any], finish_reason: str | None) -> bool:
+    """Always ask for the next SI window once a photo extract looks truncated.
+
+    Mini (and even 4o with json_object) often returns exactly 20 rows and sets
+    printed_line_count to 20, so `needs_extraction_continuation` stays false.
+    """
+    if needs_extraction_continuation(payload, finish_reason):
+        return True
+    got = len(payload.get("lines") or [])
+    expected = expected_line_count(payload)
+    if got >= MIN_LINES_TO_PROBE_MORE and (not expected or expected <= got):
+        return True
+    return False
+
+
+def sort_extraction_lines_by_si(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the printed table order (SI) after chunked extracts are merged."""
+    def sort_key(item: tuple[int, dict[str, Any]]) -> tuple[int, int]:
+        index, line = item
+        si = _coerce_int(line.get("si"))
+        return (si if si is not None else index + 1, index)
+
+    return [line for _, line in sorted(enumerate(lines), key=sort_key)]
+
+
 def merge_extraction_line_payloads(first: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
     """Append continuation lines, skipping SI duplicates from the first batch."""
     merged = dict(first)
@@ -311,7 +373,7 @@ def merge_extraction_line_payloads(first: dict[str, Any], extra: dict[str, Any])
         if si and si in existing_sis:
             continue
         extra_lines.append(line)
-    merged["lines"] = list(first.get("lines") or []) + extra_lines
+    merged["lines"] = sort_extraction_lines_by_si(list(first.get("lines") or []) + extra_lines)
     merged_count = _coerce_printed_line_count(
         {"printed_line_count": extra.get("printed_line_count") or first.get("printed_line_count")},
         merged["lines"],
@@ -323,18 +385,32 @@ def merge_extraction_line_payloads(first: dict[str, Any], extra: dict[str, Any])
 
 
 def _continuation_prompt(payload: dict[str, Any]) -> str:
-    lines = payload.get("lines") or []
-    last = lines[-1] if lines else {}
-    last_si = last.get("si") or ""
-    last_name = last.get("name") or ""
-    expected = expected_line_count(payload) or "?"
+    start = last_extracted_si(payload) + 1
+    end = start + EXTRACT_CHUNK_SIZE - 1
+    return _si_range_prompt(start, end, payload)
+
+
+def _si_range_prompt(start: int, end: int, header: dict[str, Any] | None = None) -> str:
+    headers = ""
+    if header:
+        known = header.get("column_headers") or []
+        known_count = header.get("printed_line_count") or ""
+        if known or known_count:
+            headers = (
+                f"\nKnown column headers: {known}. "
+                f"Last SI reported so far: {known_count}.\n"
+            )
     return (
-        f"{EXTRACT_PROMPT}\n\n"
-        f"FOLLOW-UP: you previously returned {len(lines)} product rows but the bill's "
-        f"item table is numbered through SI {expected}. Last extracted row: SI {last_si} "
-        f"\"{last_name}\". Return JSON with the SAME shape containing ONLY the missing "
-        f"product lines AFTER that row, in SI order, through the last numbered row. "
-        f"Do not repeat earlier lines. Set printed_line_count to the last SI on the bill."
+        f"{EXTRACT_PROMPT}\n{headers}\n"
+        f"THIS CALL: extract ONLY product rows whose SI is between {start} and {end} "
+        f"inclusive, in order. If the table is unnumbered, extract the {start}th through "
+        f"{end}th product row (1-based). Do not return rows outside that window. "
+        f"Copy every extra pack/qty column (Cs, UPC, Boxes, Pack, Strips, …) into "
+        f"raw_columns digit-for-digit; quantity is the loose/Pcs/Qty column only. "
+        f"If a SI in this range is unreadable, still emit it with empty fields and low "
+        f"confidence — do not skip numbers. If the printed table ends before SI {end}, "
+        f"return the remaining real rows and stop. Set printed_line_count to the last "
+        f"SI visible on the whole bill (not just this window)."
     )
 
 
@@ -350,6 +426,7 @@ def _extract_openai_compatible(
     model: str,
     images: list[bytes],
     prompt: str = EXTRACT_PROMPT,
+    max_tokens: int = EXTRACT_MAX_TOKENS,
 ) -> tuple[dict[str, Any], str | None]:
     try:
         from openai import OpenAI
@@ -380,7 +457,7 @@ def _extract_openai_compatible(
         model=model,
         messages=[{"role": "user", "content": content}],
         temperature=0,
-        max_tokens=EXTRACT_MAX_TOKENS,
+        max_tokens=max_tokens,
         response_format={"type": "json_object"},
     )
     choice = response.choices[0]
@@ -395,6 +472,7 @@ def _extract_claude(
     model: str,
     images: list[bytes],
     prompt: str = EXTRACT_PROMPT,
+    max_tokens: int = EXTRACT_MAX_TOKENS,
 ) -> tuple[dict[str, Any], str | None]:
     try:
         import anthropic
@@ -419,7 +497,7 @@ def _extract_claude(
     response = client.messages.create(
         model=model,
         # Dense GST invoices often have 30–80 lines; 4096 truncates mid-JSON.
-        max_tokens=EXTRACT_MAX_TOKENS,
+        max_tokens=max_tokens,
         temperature=0,
         messages=[{"role": "user", "content": content}],
     )
@@ -432,56 +510,100 @@ def _extract_claude(
 
 
 def extract_purchase_bill(images: list[bytes]) -> dict[str, Any]:
-    """Extract structured purchase-bill lines from page images via configured LLM."""
+    """Extract structured purchase-bill lines from page images via configured LLM.
+
+    Dense GST photos are pulled in SI windows (1–15, 16–30, …) with a zoomed
+    crop of the matching table band. A single json_object call otherwise stops
+    around 20 rows even when max_tokens is large.
+    """
     if not images:
         raise BusinessRuleError("No images provided for extraction.")
 
     provider = _provider()
-    model = _model_for(provider)
+    model = _bill_model_for(provider)
 
-    def _call(prompt: str) -> tuple[dict[str, Any], str | None]:
+    def _call(
+        prompt: str,
+        call_images: list[bytes],
+        *,
+        max_tokens: int = EXTRACT_MAX_TOKENS,
+    ) -> tuple[dict[str, Any], str | None]:
         if provider == "openai":
             return _extract_openai_compatible(
                 api_key=getattr(settings, "OPENAI_API_KEY", "") or "",
                 base_url=None,
                 model=model,
-                images=images,
+                images=call_images,
                 prompt=prompt,
+                max_tokens=max_tokens,
             )
         if provider == "deepseek":
             return _extract_openai_compatible(
                 api_key=getattr(settings, "DEEPSEEK_API_KEY", "") or "",
                 base_url=getattr(settings, "DEEPSEEK_BASE_URL", None) or "https://api.deepseek.com",
                 model=model,
-                images=images,
+                images=call_images,
                 prompt=prompt,
+                max_tokens=max_tokens,
             )
         if provider == "claude":
             return _extract_claude(
                 api_key=getattr(settings, "ANTHROPIC_API_KEY", "") or "",
                 model=model,
-                images=images,
+                images=call_images,
                 prompt=prompt,
+                max_tokens=max_tokens,
             )
         raise BusinessRuleError(
             f"Unsupported LLM_PROVIDER '{provider}'. Use openai, deepseek, or claude."
         )
 
-    payload, finish_reason = _call(EXTRACT_PROMPT)
-    continuations = 0
-    while (
-        continuations < MAX_EXTRACT_CONTINUATIONS
-        and needs_extraction_continuation(payload, finish_reason)
-    ):
+    start = 1
+    payload: dict[str, Any] | None = None
+    finish_reason: str | None = None
+    split_cache: dict[int, dict[str, bytes]] = {}
+    for chunk_index in range(MAX_EXTRACT_CHUNKS):
+        end = start + EXTRACT_CHUNK_SIZE - 1
+        call_images = views_for_si_range(images, start=start, cache=split_cache)
+        prompt = _si_range_prompt(start, end, payload)
         try:
-            extra, finish_reason = _call(_continuation_prompt(payload))
-        except Exception:  # noqa: BLE001 — keep the first payload if the follow-up fails
+            extra, finish_reason = _call(prompt, call_images)
+        except Exception:
+            if payload is not None:
+                logger.exception("Bill extract chunk SI %s-%s failed; keeping prior rows", start, end)
+                break
+            raise
+        if payload is None:
+            payload = extra
+            payload["lines"] = sort_extraction_lines_by_si(list(payload.get("lines") or []))
+        else:
+            before = len(payload.get("lines") or [])
+            payload = merge_extraction_line_payloads(payload, extra)
+            if len(payload.get("lines") or []) <= before:
+                break
+        got = len(payload.get("lines") or [])
+        logger.info(
+            "Bill extract chunk %s SI %s-%s model=%s lines_so_far=%s printed_line_count=%s finish=%s",
+            chunk_index + 1, start, end, model, got,
+            payload.get("printed_line_count"), finish_reason,
+        )
+        next_start = last_extracted_si(payload) + 1
+        expected = expected_line_count(payload)
+        if expected and got >= expected and chunk_index > 0:
             break
-        before = len(payload.get("lines") or [])
-        payload = merge_extraction_line_payloads(payload, extra)
-        continuations += 1
-        if len(payload.get("lines") or []) <= before:
-            break
+        more_expected = bool(expected) and got < expected
+        more_window = len(extra.get("lines") or []) >= MIN_LINES_TO_PROBE_MORE
+        if chunk_index == 0 and should_probe_remaining_rows(payload, finish_reason):
+            start = next_start if next_start > start else start + EXTRACT_CHUNK_SIZE
+            continue
+        if more_expected or more_window:
+            start = next_start if next_start > start else start + EXTRACT_CHUNK_SIZE
+            continue
+        break
+
+    if payload is None:
+        raise BusinessRuleError("LLM returned no extraction payload.")
+    payload["lines"] = sort_extraction_lines_by_si(list(payload.get("lines") or []))
     return payload
 
 

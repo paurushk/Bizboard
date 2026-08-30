@@ -27,7 +27,7 @@ export function InsightsAlertsPage() {
       <DisclaimerBanner>{t('insights.disclaimer')}</DisclaimerBanner>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {!query.isLoading && (query.data?.length ?? 0) === 0 ? (
         <EmptyState description={t('insights.noAlerts')} />
@@ -59,7 +59,7 @@ export function InsightsAlertsPage() {
         </Paper>
       ) : null}
       {snooze.isError ? (
-        <ErrorState message={getErrorMessage(snooze.error)} />
+        <ErrorState message={getErrorMessage(snooze.error)} error={snooze.error} />
       ) : null}
       {snooze.isPending ? <Button disabled>…</Button> : null}
     </Stack>

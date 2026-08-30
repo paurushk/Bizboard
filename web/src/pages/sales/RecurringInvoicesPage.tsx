@@ -9,16 +9,25 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { useAuth } from '@/auth/AuthContext';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { useProductCfFilters } from '@/hooks/useProductCfFilters';
+import { t } from '@/i18n';
 import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
+import { canCreateSales } from '@/utils/permissions';
 
 export function RecurringInvoicesPage() {
+  const { user } = useAuth();
+  const { writesBlocked } = useSubscriptionGate();
+  const canWrite = canCreateSales(user) && !writesBlocked;
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ['recurring-schedules'],
     queryFn: async () => (await api.listRecurringSchedulesPage()).results,
   });
   const customers = useQuery({ queryKey: ['customers-mini'], queryFn: async () => (await api.listCustomersPage({ pageSize: 100 })).results });
-  const products = useQuery({ queryKey: ['products-mini'], queryFn: () => api.searchProducts('') });
+  const cf = useProductCfFilters();
+  const products = useQuery({ queryKey: ['products-mini', cf.cfFilters], queryFn: () => api.searchProducts('', { cf: cf.cfFilters }) });
   const [customer, setCustomer] = useState('');
   const [cadence, setCadence] = useState('MONTHLY');
   const [nextRunAt, setNextRunAt] = useState('');
@@ -62,49 +71,52 @@ export function RecurringInvoicesPage() {
     onError: (err) => setError(getErrorMessage(err)),
   });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
-    <PageShell title="Recurring invoices" subtitle="Templates spawn DRAFT sales invoices. Never auto-completes. Skips locked GST/accounting periods.">
+    <PageShell title={t('nav.recurringInvoices')} subtitle={t('recurring.subtitle')}>
       {error ? <Typography color="error" variant="body2" sx={{ mb: 1 }}>{error}</Typography> : null}
+      {canWrite ? (
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} flexWrap="wrap">
-          <TextField select size="small" label="Customer" value={customer} onChange={(e) => setCustomer(e.target.value)} sx={{ minWidth: 180 }}>
+          <TextField select size="small" label={t('billing.customer')} value={customer} onChange={(e) => setCustomer(e.target.value)} sx={{ minWidth: 180 }}>
             {(customers.data ?? []).map((c) => (
               <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
             ))}
           </TextField>
-          <TextField select size="small" label="Cadence" value={cadence} onChange={(e) => setCadence(e.target.value)} sx={{ minWidth: 140 }}>
-            <MenuItem value="MONTHLY">Monthly</MenuItem>
-            <MenuItem value="WEEKLY">Weekly</MenuItem>
+          <TextField select size="small" label={t('recurring.cadence')} value={cadence} onChange={(e) => setCadence(e.target.value)} sx={{ minWidth: 140 }}>
+            <MenuItem value="MONTHLY">{t('recurring.monthly')}</MenuItem>
+            <MenuItem value="WEEKLY">{t('recurring.weekly')}</MenuItem>
           </TextField>
-          <TextField size="small" type="datetime-local" label="Next run" InputLabelProps={{ shrink: true }} value={nextRunAt} onChange={(e) => setNextRunAt(e.target.value)} />
-          <TextField select size="small" label="Product" value={productId} onChange={(e) => setProductId(e.target.value)} sx={{ minWidth: 180 }}>
+          <TextField size="small" type="datetime-local" label={t('recurring.nextRun')} InputLabelProps={{ shrink: true }} value={nextRunAt} onChange={(e) => setNextRunAt(e.target.value)} />
+          {cf.filterBar}
+          <TextField select size="small" label={t('common.product')} value={productId} onChange={(e) => setProductId(e.target.value)} sx={{ minWidth: 180 }}>
             {(products.data ?? []).slice(0, 50).map((p) => (
               <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
             ))}
           </TextField>
-          <TextField size="small" label="Qty" value={qty} onChange={(e) => setQty(e.target.value)} sx={{ width: 80 }} />
-          <TextField size="small" label="Price" value={price} onChange={(e) => setPrice(e.target.value)} sx={{ width: 100 }} />
+          <TextField size="small" label={t('common.qty')} value={qty} onChange={(e) => setQty(e.target.value)} sx={{ width: 80 }} />
+          <TextField size="small" label={t('billing.priceShort')} value={price} onChange={(e) => setPrice(e.target.value)} sx={{ width: 100 }} />
           <Button variant="contained" disabled={!customer || !productId || !nextRunAt || create.isPending} onClick={() => create.mutate()}>
-            Save template
+            {t('recurring.saveTemplate')}
           </Button>
         </Stack>
         {create.isError ? <Typography color="error" variant="body2" sx={{ mt: 1 }}>{getErrorMessage(create.error)}</Typography> : null}
       </Paper>
+      ) : null}
       <DataTable
         rows={asRows(query.data)}
-        empty="No recurring schedules yet."
+        empty={t('recurring.empty')}
         columns={[
-          { key: 'customerName', label: 'Customer' },
-          { key: 'cadence', label: 'Cadence' },
-          { key: 'nextRunAt', label: 'Next run' },
-          { key: 'isActive', label: 'Active' },
+          { key: 'customerName', label: t('billing.customer') },
+          { key: 'cadence', label: t('recurring.cadence') },
+          { key: 'nextRunAt', label: t('recurring.nextRun') },
+          { key: 'isActive', label: t('status.ACTIVE') },
         ]}
         actions={(row) => (
           <Stack direction="row" spacing={1} justifyContent="flex-end">
-            <Button size="small" disabled={runNow.isPending} onClick={() => runNow.mutate(Number(row.id))}>Run now</Button>
-            {row.isActive !== false ? (
-              <Button size="small" color="warning" onClick={() => deactivate.mutate(Number(row.id))}>Deactivate</Button>
+            <Button size="small" disabled={!canWrite || runNow.isPending} onClick={() => runNow.mutate(Number(row.id))}>{t('recurring.runNow')}</Button>
+            {row.isActive !== false && canWrite ? (
+              <Button size="small" color="warning" onClick={() => deactivate.mutate(Number(row.id))}>{t('recurring.deactivate')}</Button>
             ) : null}
           </Stack>
         )}

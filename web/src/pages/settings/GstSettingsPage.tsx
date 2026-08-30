@@ -11,6 +11,8 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Controller, useForm } from 'react-hook-form';
 import { getErrorMessage } from '@/api/client';
+import { HelpHint } from '@/pages/help/HelpHint';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   createCompanyGstin,
   getCompany,
@@ -57,7 +59,26 @@ export function GstSettingsPage() {
   const [branchGstin, setBranchGstin] = useState('');
   const [branchState, setBranchState] = useState('');
   const [branchName, setBranchName] = useState('');
-  const { control, handleSubmit, reset, watch, formState, setError, clearErrors } = useForm<GstForm>();
+  const { control, handleSubmit, reset, watch, formState, setError, clearErrors } = useForm<GstForm>({
+    defaultValues: {
+      gstin: '',
+      pan: '',
+      udyam: '',
+      state: '',
+      registrationType: 'UNREGISTERED',
+      negativeStockPolicy: 'BLOCK',
+      assumeLocalStateForBlankParty: true,
+      einvoiceEnabled: false,
+      ewayEnabled: false,
+      ewayThresholdAmount: '50000',
+      aatoTurnover: '',
+      gspProvider: '',
+      gspClientId: '',
+      gspClientSecret: '',
+      gspUsername: '',
+      clearGspCredentials: false,
+    },
+  });
 
   useEffect(() => {
     if (query.data) {
@@ -144,6 +165,7 @@ export function GstSettingsPage() {
     return (
       <ErrorState
         message={getErrorMessage(query.error)}
+        error={query.error}
         onRetry={() => void query.refetch()}
       />
     );
@@ -159,7 +181,7 @@ export function GstSettingsPage() {
     >
       <Typography variant="h4">{t('nav.gst')}</Typography>
       {mutation.isSuccess ? <Alert severity="success">GST settings saved</Alert> : null}
-      {mutation.isError ? <Alert severity="error">{getErrorMessage(mutation.error)}</Alert> : null}
+      {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
       {verifyMutation.isSuccess ? (
         <Alert severity="info">
           GSTIN status: {verifyMutation.data?.status ?? 'Verified'} (
@@ -167,7 +189,7 @@ export function GstSettingsPage() {
         </Alert>
       ) : null}
       {verifyMutation.isError ? (
-        <Alert severity="error">{getErrorMessage(verifyMutation.error)}</Alert>
+        <HelpErrorAlert error={verifyMutation.error} />
       ) : null}
       <Paper sx={{ p: 3, maxWidth: 640 }}>
         <Stack spacing={2}>
@@ -178,23 +200,24 @@ export function GstSettingsPage() {
             name="gstin"
             control={control}
             render={({ field }) => (
-              <TextField
-                label="Primary GSTIN (15 characters)"
-                placeholder="07AAAAA0000A1Z5"
-                error={Boolean(formState.errors.gstin)}
-                helperText={
-                  formState.errors.gstin?.message ||
-                  String(company?.gstinVerificationStatus ?? 'Leave blank if unregistered / composite')
-                }
-                {...field}
-                onChange={(e) => {
-                  field.onChange(e);
-                  // UXW2-005: clear sticky invalid state when user edits GSTIN.
-                  if (formState.errors.gstin) {
-                    clearErrors('gstin');
+              <HelpHint intent="add-gstin" slot="gstin">
+                <TextField
+                  label="Primary GSTIN (15 characters)"
+                  placeholder="07AAAAA0000A1Z5"
+                  error={Boolean(formState.errors.gstin)}
+                  helperText={
+                    formState.errors.gstin?.message ||
+                    String(company?.gstinVerificationStatus ?? 'Leave blank if unregistered / composite')
                   }
-                }}
-              />
+                  {...field}
+                  onChange={(e) => {
+                    field.onChange(e);
+                    if (formState.errors.gstin) {
+                      clearErrors('gstin');
+                    }
+                  }}
+                />
+              </HelpHint>
             )}
           />
           <Button
@@ -226,7 +249,7 @@ export function GstSettingsPage() {
             Verify PAN
           </Button>
           {panVerifyMutation.isError ? (
-            <Alert severity="error">{getErrorMessage(panVerifyMutation.error)}</Alert>
+            <HelpErrorAlert error={panVerifyMutation.error} />
           ) : null}
           <Controller
             name="udyam"
@@ -249,7 +272,7 @@ export function GstSettingsPage() {
             Verify UDYAM
           </Button>
           {udyamVerifyMutation.isError ? (
-            <Alert severity="error">{getErrorMessage(udyamVerifyMutation.error)}</Alert>
+            <HelpErrorAlert error={udyamVerifyMutation.error} />
           ) : null}
           <Controller
             name="state"
@@ -260,11 +283,13 @@ export function GstSettingsPage() {
             name="registrationType"
             control={control}
             render={({ field }) => (
-              <TextField select label="GST Registration Type" {...field}>
-                <MenuItem value="REGULAR">Regular Taxpayer (Issues Tax Invoices with CGST/SGST/IGST)</MenuItem>
-                <MenuItem value="COMPOSITION">Composition Scheme (Issues Bill of Supply without Tax)</MenuItem>
-                <MenuItem value="UNREGISTERED">Unregistered / Exempt Business</MenuItem>
-              </TextField>
+              <HelpHint intent="registration-type" slot="registration-type-settings">
+                <TextField select label="GST Registration Type" {...field} value={field.value ?? 'UNREGISTERED'}>
+                  <MenuItem value="REGULAR">Regular Taxpayer (Issues Tax Invoices with CGST/SGST/IGST)</MenuItem>
+                  <MenuItem value="COMPOSITION">Composition Scheme (Issues Bill of Supply without Tax)</MenuItem>
+                  <MenuItem value="UNREGISTERED">Unregistered / Exempt Business</MenuItem>
+                </TextField>
+              </HelpHint>
             )}
           />
           <Controller
@@ -370,19 +395,42 @@ export function GstSettingsPage() {
           <Controller
             name="gspClientId"
             control={control}
-            render={({ field }) => <TextField label="Client ID" {...field} />}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                label="Client ID"
+                autoComplete="off"
+                name="gsp_client_id"
+                inputProps={{ autoComplete: 'off' }}
+              />
+            )}
           />
           <Controller
             name="gspClientSecret"
             control={control}
             render={({ field }) => (
-              <TextField label="Client Secret" type="password" {...field} />
+              <TextField
+                  {...field}
+                  label="Client Secret"
+                  type="password"
+                  autoComplete="new-password"
+                  name="gsp_client_secret"
+                  inputProps={{ autoComplete: 'new-password' }}
+                />
             )}
           />
           <Controller
             name="gspUsername"
             control={control}
-            render={({ field }) => <TextField label="Portal Username" {...field} />}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                label="Portal Username"
+                autoComplete="off"
+                name="gsp_portal_username"
+                inputProps={{ autoComplete: 'off' }}
+              />
+            )}
           />
           <Button type="submit" variant="contained" size="large" disabled={mutation.isPending}>
             {t('common.save')}

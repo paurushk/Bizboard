@@ -42,17 +42,20 @@ let csrfPromise: Promise<void> | null = null;
 // AuthContext boot, the refresh flow) used to race this on a fresh page load,
 // each seeing no cookie yet and firing its own GET — dedup to one in flight.
 // Still propagates failure to every awaiter, same as before.
-export async function ensureCsrfCookie(): Promise<void> {
-  if (readCsrfToken()) return;
+export async function ensureCsrfCookie(force = false): Promise<void> {
+  if (!force && readCsrfToken()) return;
   if (!csrfPromise) {
     csrfPromise = axios
-      .get(`${baseURL}/auth/csrf/`, { withCredentials: true })
+      .get(`${baseURL}/auth/csrf/`, { withCredentials: true, timeout: 15000 })
       .then(() => undefined)
       .finally(() => {
         csrfPromise = null;
       });
   }
   await csrfPromise;
+  if (!readCsrfToken()) {
+    throw new Error('CSRF token is unavailable. Refresh the page and try again.');
+  }
 }
 
 function applyCsrfHeader(config: InternalAxiosRequestConfig): void {
@@ -70,26 +73,31 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
   // BB-000602: cookie JWT requires CSRF on unsafe methods.
   const method = (config.method || 'get').toUpperCase();
   if (!['GET', 'HEAD', 'OPTIONS', 'TRACE'].includes(method)) {
-    if (!readCsrfToken()) {
-      try {
-        await ensureCsrfCookie();
-      } catch {
-        // Server will 403 if CSRF is required and still missing.
-      }
+    try {
+      await ensureCsrfCookie();
+    } catch {
+      await ensureCsrfCookie(true);
     }
     applyCsrfHeader(config);
   }
   const companyId = readActiveCompanyId();
   if (companyId) {
-    if (typeof config.headers.set === 'function') {
-      config.headers.set('X-Company-Id', companyId);
-    } else {
-      (config.headers as Record<string, unknown>)['X-Company-Id'] = companyId;
+    const hasHeader =
+      typeof config.headers.has === 'function'
+        ? config.headers.has('X-Company-Id')
+        : Boolean((config.headers as Record<string, unknown>)['X-Company-Id']);
+    if (!hasHeader) {
+      if (typeof config.headers.set === 'function') {
+        config.headers.set('X-Company-Id', companyId);
+      } else {
+        (config.headers as Record<string, unknown>)['X-Company-Id'] = companyId;
+      }
     }
   }
   if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
-    if (typeof config.headers.set === 'function') {
-      config.headers.set('Content-Type', false as unknown as string);
+    if (typeof config.headers.delete === 'function') {
+      config.headers.delete('Content-Type');
+      config.headers.delete('content-type');
     } else {
       delete (config.headers as Record<string, unknown>)['Content-Type'];
       delete (config.headers as Record<string, unknown>)['content-type'];
@@ -99,6 +107,17 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
 });
 
 let refreshPromise: Promise<string | null> | null = null;
+let activeRefreshNotifyOnFailure = false;
+
+function isCsrfFailure(error: AxiosError): boolean {
+  if (error.response?.status !== 403) return false;
+  const data = error.response.data;
+  const blob =
+    typeof data === 'string'
+      ? data
+      : JSON.stringify(data ?? '') + (error.message ?? '');
+  return /csrf/i.test(blob);
+}
 
 /** BB-000229: never attempt refresh-retry on credential / token endpoints. */
 function isAuthCredentialUrl(url?: string): boolean {
@@ -124,6 +143,7 @@ async function doRefresh(opts?: { notifyOnFailure?: boolean }): Promise<string |
       {},
       {
         withCredentials: true,
+        timeout: 15000,
         headers: csrf ? { 'X-CSRFToken': csrf } : undefined,
       },
     );
@@ -136,8 +156,12 @@ async function doRefresh(opts?: { notifyOnFailure?: boolean }): Promise<string |
     }
     return null;
   } catch {
+    // NOTE (R5-003, deferred): a transient network error here also logs the
+    // user out. Softening that contradicts the BUG-407 / P0-111 test which
+    // deliberately asserts "any refresh failure clears the session" — needs a
+    // product decision + test update before changing.
     clearTokens();
-    if (opts?.notifyOnFailure !== false) {
+    if (opts?.notifyOnFailure !== false || activeRefreshNotifyOnFailure) {
       window.dispatchEvent(new Event('bizboard:session-expired'));
     }
     return null;
@@ -156,9 +180,15 @@ export async function silentRefreshAccessToken(
   if (!opts?.force && Date.now() - lastRefreshSuccessTime < MIN_REFRESH_INTERVAL_MS) {
     return 'cookie';
   }
-  refreshPromise = refreshPromise ?? doRefresh(opts).finally(() => {
-    refreshPromise = null;
-  });
+  if (opts?.notifyOnFailure !== false) {
+    activeRefreshNotifyOnFailure = true;
+  }
+  if (!refreshPromise) {
+    refreshPromise = doRefresh(opts).finally(() => {
+      refreshPromise = null;
+      activeRefreshNotifyOnFailure = false;
+    });
+  }
   return refreshPromise;
 }
 
@@ -169,7 +199,25 @@ async function refreshAccessToken(): Promise<string | null> {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+    const original = error.config as InternalAxiosRequestConfig & {
+      _retry?: boolean;
+      _csrfRetry?: boolean;
+    };
+    if (
+      error.response?.status === 403 &&
+      original &&
+      !original._csrfRetry &&
+      isCsrfFailure(error)
+    ) {
+      original._csrfRetry = true;
+      try {
+        await ensureCsrfCookie(true);
+        applyCsrfHeader(original);
+        return apiClient(original);
+      } catch {
+        return Promise.reject(error);
+      }
+    }
     if (
       error.response?.status === 401 &&
       original &&
@@ -184,6 +232,21 @@ apiClient.interceptors.response.use(
       if (access) {
         // Cookie refreshed server-side; retry without Bearer.
         return apiClient(original);
+      }
+    }
+    // R5-004: the stored X-Company-Id disagrees with the server's active
+    // company (e.g. company switched in another tab). Surface it once so the
+    // app shell can re-sync / show a company picker instead of every call
+    // failing with a raw 409.
+    if (error.response?.status === 409) {
+      const body = error.response.data as
+        | { error?: { code?: string }; code?: string }
+        | undefined;
+      const code = body?.error?.code ?? body?.code;
+      if (code === 'company_context_conflict') {
+        window.dispatchEvent(
+          new CustomEvent('bizboard:company-context-conflict', { detail: { url: original?.url } }),
+        );
       }
     }
     return Promise.reject(error);
@@ -233,6 +296,20 @@ function friendlyAuthMessage(raw: string): string {
     return 'Email or password is incorrect.';
   }
   return raw;
+}
+
+export function getErrorCode(error: unknown): string | null {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as Record<string, unknown> | undefined;
+    const nested = data?.error;
+    if (nested && typeof nested === 'object' && nested !== null) {
+      const code = (nested as { code?: unknown }).code;
+      if (typeof code === 'string' && code.trim()) return code.trim();
+    }
+    if (typeof data?.code === 'string' && data.code.trim()) return data.code.trim();
+    if (error.response?.status === 403) return 'permission_denied';
+  }
+  return null;
 }
 
 export function getErrorMessage(error: unknown): string {

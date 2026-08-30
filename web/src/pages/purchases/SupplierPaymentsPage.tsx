@@ -32,12 +32,13 @@ import { todayIso } from '@/components/billing';
 import { t } from '@/i18n';
 import type { PaymentMode, PurchaseInvoice, Supplier } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const PAGE_SIZE = 50;
 
 export function SupplierPaymentsPage() {
   const qc = useQueryClient();
-  const [page] = useState(1);
+  const [page, setPage] = useState(1);
   const query = useQuery({
     queryKey: ['supplier-payments', page],
     queryFn: () => listSupplierPaymentsPage({ page, pageSize: PAGE_SIZE }),
@@ -125,10 +126,10 @@ export function SupplierPaymentsPage() {
         </Button>
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {payments.length === 0 && query.isSuccess ? (
         <EmptyState
@@ -186,6 +187,24 @@ export function SupplierPaymentsPage() {
             </TableBody>
           </Table>
         </Paper>
+      ) : null}
+      {query.data && (query.data.next || page > 1) ? (
+        <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+          <Typography variant="body2" color="text.secondary">
+            {t('common.page')} {page}
+          </Typography>
+          <Button variant="outlined" size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            {t('common.previous')}
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            disabled={!query.data.next}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            {t('common.next')}
+          </Button>
+        </Stack>
       ) : null}
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">

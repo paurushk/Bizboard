@@ -8,12 +8,23 @@ import { useAuth } from '@/auth/AuthContext';
 import { EmptyState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { filterNav, findFirstNavPath, isReallyReachable } from '@/navigation/menu';
+import { isOwner } from '@/utils/permissions';
 
 export function LimitedAccessLanding() {
   const { user } = useAuth();
   const location = useLocation();
   const [showWelcome, setShowWelcome] = useState(false);
   const firstPath = findFirstNavPath(user);
+  const owner = isOwner(user?.role ?? 'VIEWER');
+  const path = location.pathname;
+  const wantsAccounting =
+    path.includes('profit') ||
+    path.includes('trial-balance') ||
+    path.includes('balance-sheet') ||
+    path.includes('books-health') ||
+    path.startsWith('/accounting') ||
+    path.startsWith('/settings/accounting');
+  const wantsInsights = path.startsWith('/insights') || path.startsWith('/settings/ai');
   const nav = filterNav(user);
   const links = nav
     .flatMap((section) => {
@@ -44,10 +55,26 @@ export function LimitedAccessLanding() {
         </Alert>
       ) : null}
       <EmptyState
-        title={t('landing.limitedTitle')}
-        description={t('landing.limitedDescription')}
+        title={owner ? t('landing.ownerModuleTitle') : t('landing.limitedTitle')}
+        description={
+          owner
+            ? wantsAccounting
+              ? t('landing.ownerEnableAccounting')
+              : wantsInsights
+                ? t('landing.ownerEnableInsights')
+                : t('landing.ownerModuleDescription')
+            : t('landing.limitedDescription')
+        }
         action={
-          firstPath ? (
+          owner && wantsAccounting ? (
+            <Button component={RouterLink} to="/settings/accounting" variant="contained">
+              {t('landing.ownerOpenAccounting')}
+            </Button>
+          ) : owner && wantsInsights ? (
+            <Button component={RouterLink} to="/settings/ai" variant="contained">
+              {t('landing.ownerOpenInsights')}
+            </Button>
+          ) : firstPath ? (
             <Button component={RouterLink} to={firstPath} variant="contained">
               {t('landing.goToWorkspace')}
             </Button>

@@ -55,12 +55,16 @@ def fetch_live_transactions_for_consent(*, consent_id: str, fi_type: str) -> lis
     from core.exceptions import BusinessRuleError
 
     base = (getattr(settings, "FIU_BASE_URL", "") or "").rstrip("/")
+    api_key = (getattr(settings, "FIU_API_KEY", "") or "").strip()
     if not base:
         raise BusinessRuleError("Live AA ingest is fail-closed: FIU_BASE_URL is not configured.")
+    if not api_key:
+        raise BusinessRuleError("Live AA ingest is fail-closed: FIU_API_KEY is not configured.")
     try:
         req = urllib.request.Request(
             f"{base}/consents/{consent_id}/transactions?fi_type={fi_type}",
             method="GET",
+            headers={"Authorization": f"Bearer {api_key}"},
         )
         with urllib.request.urlopen(req, timeout=12) as resp:
             payload = json.loads(resp.read().decode("utf-8") or "{}")

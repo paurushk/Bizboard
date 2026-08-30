@@ -230,7 +230,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
   if (isEdit && existing.isLoading) return <LoadingState />;
   if (isEdit && existing.isError) {
     return (
-      <ErrorState message={getErrorMessage(existing.error)} onRetry={() => void existing.refetch()} />
+      <ErrorState message={getErrorMessage(existing.error)} error={existing.error} onRetry={() => void existing.refetch()} />
     );
   }
 

@@ -32,6 +32,7 @@ import {
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { PurchaseInvoice } from '@/types/domain';
@@ -128,14 +129,13 @@ export function PurchaseHistoryPage() {
         </Alert>
       ) : null}
       {error ? (
-        <Alert severity="error" onClose={() => setError(null)}>
-          {error}
-        </Alert>
+        <HelpErrorAlert message={error} onClose={() => setError(null)} />
       ) : null}
       {showLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState
           message={getErrorMessage(query.error)}
+          error={query.error}
           onRetry={() => void query.refetch()}
         />
       ) : null}
@@ -302,7 +302,7 @@ export function PurchaseHistoryPage() {
           onClick={() => {
             // BUG-520: same one-click-cancels-a-completed-document risk as
             // the sales history page.
-            if (active && window.confirm(`Cancel purchase ${purchaseNumberLabel(active)}? This cannot be undone.`)) {
+            if (active && window.confirm(t('history.confirmCancel', { label: purchaseNumberLabel(active) }))) {
               cancelMutation.mutate(active.id);
             }
             closeMenu();
@@ -316,7 +316,7 @@ export function PurchaseHistoryPage() {
         <MenuItem
           disabled={!active || active.status !== 'DRAFT'}
           onClick={() => {
-            if (active && window.confirm(`Delete draft ${purchaseNumberLabel(active)}? This cannot be undone.`)) {
+            if (active && window.confirm(t('history.confirmDeleteDraft', { label: purchaseNumberLabel(active) }))) {
               deleteMutation.mutate(active.id);
             }
             closeMenu();

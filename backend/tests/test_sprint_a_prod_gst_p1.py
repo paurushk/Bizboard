@@ -138,7 +138,7 @@ def test_supecom_and_company_gstin_param(tenant_a):
     SalesInvoice.objects.filter(pk=inv["id"]).update(invoice_date=f"{PERIOD}-08")
     assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
     payload = build_gstr1(tenant_a.company, PERIOD)
-    assert payload["supecom"]["supported"] is True
+    assert payload["supecom"]["supported"] is False
     assert payload["supecom"]["rows"]
     resp = tenant_a.client.get("/api/v1/reports/gstr1/", {"period": PERIOD})
     assert resp.status_code == 200

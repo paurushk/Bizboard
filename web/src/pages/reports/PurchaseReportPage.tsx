@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -18,6 +17,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
 import { canExport } from '@/utils/permissions';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 function downloadBlobUrl(url: string, filename: string) {
   const a = document.createElement('a');
@@ -103,11 +103,11 @@ export function PurchaseReportPage() {
         </Stack>
       </Stack>
       {exportMutation.isError ? (
-        <Alert severity="error">{getErrorMessage(exportMutation.error)}</Alert>
+        <HelpErrorAlert error={exportMutation.error} />
       ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.rows?.length === 0 ? <EmptyState description={t('empty.reports')} /> : null}
       {query.data && query.data.rows.length > 0 ? (

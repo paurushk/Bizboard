@@ -81,19 +81,13 @@ def test_sales_206c_0_1_percent_adds_tcs_receivable(books):
     je = JournalEntry.objects.get(
         company=books.company, source_type="SALES_INVOICE", source_id=draft["id"], purpose="COMPLETE",
     )
-    tcs_lines = [
-        (l.debit, l.credit)
-        for l in je.lines.filter(account__code="2266")
-    ]
-    ar_tcs = [
-        (l.debit, l.credit)
-        for l in je.lines.filter(account__code="1200")
-        if l.debit == Decimal("1.00")
-    ]
-    assert tcs_lines == [(Decimal("0.00"), Decimal("1.00"))] or any(c == Decimal("1.00") for _, c in tcs_lines)
-    assert ar_tcs or any(
-        l.debit == Decimal("1.00") and l.account.code == "1200" for l in je.lines.all()
-    )
+    tcs_credit = sum((l.credit for l in je.lines.filter(account__code="2266")), Decimal("0"))
+    ar_debit = sum((l.debit for l in je.lines.filter(account__code="1200")), Decimal("0"))
+    from sales.models import SalesInvoice
+    inv = SalesInvoice.objects.get(pk=draft["id"])
+    assert tcs_credit == inv.tcs_amount == Decimal("1.00")
+    assert inv.tcs_in_grand_total is True
+    assert ar_debit == inv.grand_total
 
 
 def test_tds_tcs_worksheets_csv_and_flag_gate(books):
@@ -146,6 +140,59 @@ def test_tds_tcs_worksheets_csv_and_flag_gate(books):
 
     with override_settings(ENABLE_TDS=False):
         gated = books.client.get("/api/v1/reports/tds-worksheet/", {"period": "2026-08"})
-        assert gated.status_code == 404
+        # Owner can still export after TDS/TCS has been posted (worksheet is a CA aid).
+        assert gated.status_code == 200
         gated2 = books.client.get("/api/v1/reports/tcs-worksheet/", {"period": "2026-08"})
-        assert gated2.status_code == 404
+        assert gated2.status_code == 200
+
+
+def test_tcs_complete_folds_grand_posts_gl_and_einvoice_othchrg(books):
+    from inventory.models import MovementType
+    from inventory.services import InventoryService
+    from sales.einvoice_payload import build_einvoice_payload
+    from sales.models import SalesInvoice
+
+    books.company.address = "12 MG Road"
+    books.company.city = "Bengaluru"
+    books.company.pincode = "560001"
+    books.company.state = "Karnataka"
+    books.company.gstin = "29ABCDE1234F1ZW"
+    books.company.save()
+    customer = make_customer(
+        books.company,
+        gstin="29AAAAA0000A1Z5",
+        state="Karnataka",
+        billing_address="14 Church Street, Bengaluru 560001",
+    )
+    product = make_product(books.company, purchase_price="80", selling_price="1000", gst_rate="18", hsn_code="1001")
+    InventoryService.post_movement(
+        company=books.company, product=product, movement_type=MovementType.OPENING_STOCK,
+        quantity=Decimal("10"), unit_cost=Decimal("80"), user=books.owner,
+    )
+    draft = create_draft_invoice(
+        books,
+        customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "1000", "gst_rate": "18"}],
+    )
+    books.client.patch(
+        f"/api/v1/sales/invoices/{draft['id']}/",
+        {"tcsSection": "206C", "tcsRate": "0.1"},
+        format="json",
+    )
+    done = books.client.post(f"/api/v1/sales/invoices/{draft['id']}/complete/")
+    assert done.status_code == 200, done.data
+    inv = SalesInvoice.objects.get(pk=draft["id"])
+    assert inv.tcs_in_grand_total is True
+    assert inv.tcs_amount > 0
+    assert inv.grand_total == inv.taxable_total + inv.cgst_total + inv.sgst_total + inv.igst_total + inv.tcs_amount
+    je = JournalEntry.objects.get(
+        company=books.company, source_type="SALES_INVOICE", source_id=inv.id, purpose="COMPLETE",
+    )
+    ar = sum((l.debit for l in je.lines.filter(account__code="1200")), Decimal("0"))
+    tcs_cr = sum((l.credit for l in je.lines.filter(account__code="2266")), Decimal("0"))
+    assert ar == inv.grand_total
+    assert tcs_cr == inv.tcs_amount
+    payload = build_einvoice_payload(inv)
+    assert Decimal(str(payload["ValDtls"]["OthChrg"])) == inv.tcs_amount + Decimal(str(inv.additional_charges or 0))
+    assert Decimal(str(payload["ValDtls"]["TotInvVal"])) == inv.grand_total
+

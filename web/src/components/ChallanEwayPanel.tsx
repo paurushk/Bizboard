@@ -19,6 +19,7 @@ import { isEinvoiceSubmitEnabled } from '@/config/features';
 import { t } from '@/i18n';
 import type { DeliveryChallan } from '@/types/domain';
 import { triggerBlobDownload } from '@/utils/blob';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 type Props = {
   challan: DeliveryChallan;
@@ -100,7 +101,7 @@ export function ChallanEwayPanel({ challan, onError, onMessage }: Props) {
         Sandbox submit is available for testing. Use Prepare to download JSON for manual portal
         filing, or Submit (sandbox) to simulate e-Way generation. {t('common.sandboxGstnBanner')}
       </Alert>
-      {challan.ewayError ? <Alert severity="error" sx={{ mb: 1 }}>{challan.ewayError}</Alert> : null}
+      {challan.ewayError ? <HelpErrorAlert message={challan.ewayError} sx={{ mb: 1 }} /> : null}
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
         <Button variant="outlined" size="small" disabled={prepareMutation.isPending} onClick={() => prepareMutation.mutate()}>
           Prepare payload

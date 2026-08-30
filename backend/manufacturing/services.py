@@ -27,6 +27,7 @@ def _snapshot_bom(wo):
         [
             WorkOrderLine(
                 work_order=wo,
+                company_id=wo.company_id,
                 component=line.component,
                 qty_per_unit=line.qty,
                 qty=line.qty * wo.qty,
@@ -49,12 +50,29 @@ def _issue_cost_total(wo) -> Decimal:
 
 
 def _issue_batches(wo, component, qty, line=None):
-    """BB-000723: explicit batch on WorkOrderLine or FEFO allocate."""
+    """BB-000723: explicit batch or lot_allocations on WorkOrderLine or FEFO allocate."""
     if not component.track_batch:
         return [(getattr(line, "batch", None) if line else None, qty)]
     batch = getattr(line, "batch", None) if line else None
     if batch is not None:
         return [(batch, qty)]
+
+    # Custom lot allocations specified by user
+    if line and getattr(line, "lot_allocations", None):
+        allocs = []
+        from inventory.models import BatchLot
+        for alloc in line.lot_allocations:
+            b_id = alloc.get("batch_id")
+            b_qty = Decimal(str(alloc.get("qty") or 0))
+            if b_id and b_qty > 0:
+                b_obj = BatchLot.objects.filter(company=wo.company, pk=b_id).first()
+                if b_obj:
+                    allocs.append((b_obj, b_qty))
+        if allocs:
+            tot = sum((q for _, q in allocs), Decimal("0"))
+            if tot >= Decimal(str(qty)):
+                return allocs
+
     remaining = Decimal(str(qty))
     allocations = []
     warehouse = wo.warehouse or InventoryService.default_warehouse(wo.company)
@@ -116,6 +134,22 @@ def release_work_order(wo, user):
                 lot_payload.append(
                     {"batch_id": batch.pk, "batch_no": batch.batch_no, "qty": str(take)}
                 )
+        if component.track_serial:
+            comp_serials = getattr(line, "serial_numbers", []) if line else []
+            if not comp_serials:
+                raise BusinessRuleError(
+                    f"Serial numbers are required to issue '{component.name}'."
+                )
+            SerialNumberService.transition(
+                company=wo.company,
+                product=component,
+                warehouse=warehouse,
+                numbers=comp_serials,
+                quantity=qty,
+                source=SerialNumber.Status.AVAILABLE,
+                target=SerialNumber.Status.SOLD,
+                user=user,
+            )
         if line is not None and lot_payload:
             line.lot_allocations = lot_payload
             updates = ["lot_allocations"]
@@ -156,6 +190,25 @@ def complete_work_order(wo, user):
         if wo.qty:
             unit_cost = (unit_cost / wo.qty).quantize(Decimal("0.0001"))
     fg = wo.bom.product
+    batch = getattr(wo, "batch", None)
+    if fg.track_batch and batch is None:
+        from inventory.models import BatchLot
+
+        batch_number = getattr(wo, "batch_no", None) or f"WO-{wo.id}"
+        batch, _ = BatchLot.objects.get_or_create(
+            company=wo.company,
+            product=fg,
+            batch_no=batch_number,
+            defaults={
+                "expiry_date": getattr(wo, "exp_date", None),
+                "manufacturing_date": getattr(wo, "mfg_date", None) or wo.completed_at or gate_date,
+                "mrp": getattr(fg, "selling_price", None),
+                "created_by": user,
+                "updated_by": user,
+            },
+        )
+        wo.batch = batch
+        wo.batch_no = batch_number
     # BB-000723: register FG serials when track_serial.
     if fg.track_serial:
         SerialNumberService.receive(
@@ -170,6 +223,7 @@ def complete_work_order(wo, user):
         company=wo.company,
         product=fg,
         warehouse=warehouse,
+        batch=batch,
         movement_type=MovementType.MANUFACTURE_RECEIPT,
         quantity=wo.qty,
         unit_cost=unit_cost,
@@ -180,11 +234,12 @@ def complete_work_order(wo, user):
     wo.status = WorkOrder.Status.COMPLETED
     wo.completed_at = wo.completed_at or gate_date
     wo.updated_by = user
-    wo.save(update_fields=["status", "completed_at", "updated_at", "updated_by"])
-    if wo.company.accounting_enabled:
+    wo.save(update_fields=["status", "completed_at", "batch", "batch_no", "updated_at", "updated_by"])
+    gl_amount = issue_cost if issue_cost > 0 else (unit_cost * Decimal(str(wo.qty or 0)))
+    if wo.company.accounting_enabled and gl_amount > 0:
         from accounting.services import PostingService
 
-        PostingService.post_work_order_complete(wo, issue_cost or (unit_cost * wo.qty), user=user)
+        PostingService.post_work_order_complete(wo, gl_amount, user=user)
     return wo
 
 

@@ -8,9 +8,11 @@ from .views import (
     OpeningStockView,
     SerialNumberViewSet,
     StockBalanceViewSet,
+    StockCountSessionViewSet,
     StockMovementViewSet,
     StockTransferViewSet,
     StockValuationReportView,
+    WarehouseReorderLevelViewSet,
     WarehouseViewSet,
     BatchLotViewSet,
 )
@@ -22,6 +24,8 @@ router.register("warehouses", WarehouseViewSet, basename="warehouses")
 router.register("transfers", StockTransferViewSet, basename="stock-transfers")
 router.register("batches", BatchLotViewSet, basename="batch-lots")
 router.register("serials", SerialNumberViewSet, basename="serial-numbers")
+router.register("reorder-levels", WarehouseReorderLevelViewSet, basename="warehouse-reorder-levels")
+router.register("stock-counts", StockCountSessionViewSet, basename="stock-counts")
 
 urlpatterns = [
     path("adjustments/", AdjustmentView.as_view(), name="stock-adjustments"),

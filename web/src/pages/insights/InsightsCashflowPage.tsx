@@ -27,7 +27,7 @@ export function InsightsCashflowPage() {
 
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
 
   const data = query.data!;

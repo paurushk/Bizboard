@@ -65,6 +65,7 @@ export interface AccountingAccount {
   isSystem?: boolean;
   isControl?: boolean;
   isActive?: boolean;
+  bankAccount?: number | null;
 }
 
 export interface JournalEntry {
@@ -73,7 +74,15 @@ export interface JournalEntry {
   entryDate: string;
   status: string;
   narration?: string;
-  lines: Array<{ id?: number; account: number; debit: string | number; credit: string | number; costCenter?: number | null }>;
+  lines: Array<{
+    id?: number;
+    account: number;
+    debit: string | number;
+    credit: string | number;
+    costCenter?: number | null;
+    bankStatementLine?: number | null;
+    reconciledAt?: string | null;
+  }>;
 }
 
 export type DocumentStatus = 'DRAFT' | 'COMPLETED' | 'CANCELLED' | 'RETURNED' | 'CONVERTED';
@@ -142,8 +151,17 @@ export interface User {
   canCreatePurchases?: boolean;
   canCreatePayments?: boolean;
   canPostJournals?: boolean;
+  isStaff?: boolean;
   companyId: number;
   company?: Company;
+}
+
+export interface ItemCustomFieldDef {
+  key: string;
+  label: string;
+  type?: 'text' | 'list';
+  options?: string[];
+  active?: boolean;
 }
 
 export interface Company {
@@ -165,6 +183,7 @@ export interface Company {
   fyStartMonth?: number;
   negativeStockPolicy: NegativeStockPolicy;
   invoiceTerms?: string;
+  priceMode?: PriceMode;
   assumeLocalStateForBlankParty?: boolean;
   isGstRegistered?: boolean;
   gstinVerificationStatus?: GstinVerificationStatus;
@@ -206,6 +225,7 @@ export interface Company {
     activationDone: boolean;
     started: boolean;
   };
+  itemCustomFieldDefs?: ItemCustomFieldDef[];
 }
 
 export interface Customer {
@@ -263,12 +283,24 @@ export interface Product {
   unit?: number | null;
   unitName?: string;
   gstRate: string | number;
+  cessRate?: string | number;
+  cessAmount?: string | number;
   purchasePrice: string | number;
   sellingPrice: string | number;
   mrp?: string | number;
+  wholesalePrice?: string | number;
   reorderLevel: string | number;
+  productType?: 'GOODS' | 'SERVICE';
+  trackInventory?: boolean;
   trackBatch?: boolean;
   trackSerial?: boolean;
+  sellingTaxInclusive?: boolean;
+  purchaseTaxInclusive?: boolean;
+  customFields?: Record<string, string>;
+  alternateUnitName?: string;
+  conversionRate?: string | number;
+  defaultDiscountPercent?: string | number;
+  hasMovements?: boolean;
   status: ProductStatus;
   onHand?: string | number;
   reserved?: string | number;
@@ -294,12 +326,15 @@ export interface LineItem {
   expDate?: string | null;
   mfgDate?: string | null;
   serialNumbers?: string[];
+  condition?: 'SELLABLE' | 'DAMAGED';
+  sourceItem?: number | null;
   taxableAmount?: string | number;
   cgst?: string | number;
   sgst?: string | number;
   igst?: string | number;
   cess?: string | number;
   lineTotal?: string | number;
+  supplyNature?: 'TAXABLE' | 'NIL' | 'EXEMPT' | 'NON_GST';
 }
 
 export interface DocumentTotals {
@@ -331,6 +366,8 @@ export interface SalesInvoice extends DocumentTotals {
   dueDate?: string | null;
   paymentTermsDays?: number;
   additionalCharges?: string | number;
+  chargesHsn?: string;
+  chargesGstRate?: string | number;
   invoiceDiscount?: string | number;
   invoiceDiscountMode?: 'AFTER_TAX' | 'BEFORE_TAX';
   autoRoundOff?: boolean;
@@ -671,6 +708,10 @@ export interface StockBalance {
   reserved: string | number;
   available: string | number;
   reorderLevel: string | number;
+  nearestExpiry?: string | null;
+  warehouseName?: string;
+  batchNo?: string;
+  customFields?: Record<string, string>;
 }
 
 export interface StockAdjustment {
@@ -683,9 +724,15 @@ export interface StockAdjustment {
 export interface OpeningStockInput {
   product: number;
   quantity: number;
+  unitCost?: number;
   unit_cost?: number;
   warehouse?: number;
   batch?: number;
+  batchNo?: string;
+  expiryDate?: string;
+  manufacturingDate?: string;
+  serialNumbers?: string[];
+  asOf?: string;
 }
 
 export interface LedgerEntry {
@@ -718,6 +765,10 @@ export interface DashboardKpis {
   cashPosition?: string | number;
   cash_position?: string | number;
   lowStockCount: number;
+  productCount?: number;
+  product_count?: number;
+  invoiceCount?: number;
+  invoice_count?: number;
   receivablesAging?: {
     current: string | number;
     days130?: string | number;
@@ -739,12 +790,13 @@ export interface DashboardKpis {
     date: string;
     status: string;
     grandTotal: string | number;
+    balance?: string | number;
   }>;
 }
 
 export interface SearchResult {
   id: number | string;
-  type: 'invoice' | 'customer' | 'product' | 'supplier';
+  type: 'invoice' | 'customer' | 'product' | 'supplier' | 'help';
   title: string;
   subtitle?: string;
   path: string;
@@ -759,10 +811,14 @@ export interface ImportPreviewRow {
 }
 
 export interface PurchaseBillLinePreview {
+  si?: string;
   name: string;
   sku?: string;
   hsnCode?: string;
   quantity: string;
+  pcs?: string;
+  cs?: string;
+  upc?: string;
   unitPrice: string;
   gstRate: string;
   mrp?: string;

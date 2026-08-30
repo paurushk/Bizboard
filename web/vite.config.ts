@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
 
-export default defineConfig(({ command }) => {
+export default defineConfig(({ command, mode }) => {
   if (command === 'build') {
     delete process.env.VITE_PILOT_ADVANCED;
     delete process.env.VITE_USE_MOCKS;
@@ -22,10 +22,16 @@ export default defineConfig(({ command }) => {
     throw new Error('VITE_PILOT_ADVANCED must not be enabled for production builds');
   }
 
+  const lockProdFlags = command === 'build' || mode === 'production';
+
   return {
     define: {
+      // Never honor PILOT_ADVANCED from a parent shell during `vite --mode e2e`.
       'import.meta.env.VITE_PILOT_ADVANCED': JSON.stringify('false'),
-      'import.meta.env.VITE_USE_MOCKS': JSON.stringify('false'),
+      // Production builds must not ship mocks. Dev / e2e read `.env` / `.env.e2e`.
+      ...(lockProdFlags
+        ? { 'import.meta.env.VITE_USE_MOCKS': JSON.stringify('false') }
+        : {}),
     },
     plugins: [
       react(),
@@ -39,7 +45,7 @@ export default defineConfig(({ command }) => {
           // when the network errors — handlerDidError returns offline.html.
           // UXW2-004: keep SPA navigateFallback for deep links; raise timeout so
           // slow networks are not misclassified as offline.
-          navigateFallback: '/index.html',
+          navigateFallback: '/offline.html',
           navigateFallbackDenylist: [/^\/api\//],
           runtimeCaching: [
             // BB-000738: never NetworkFirst-cache authenticated /api (no status-0 poison).

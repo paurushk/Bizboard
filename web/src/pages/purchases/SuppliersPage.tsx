@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
@@ -27,6 +26,7 @@ import type { Supplier } from '@/types/domain';
 import { isValidGstin, isValidIndianPhone } from '@/utils/gst';
 import { getStateFromGstin } from '@/utils/indianStates';
 import { formatMoney } from '@/utils/money';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const emptyForm = { name: '', phone: '', email: '', gstin: '', state: '', address: '' };
 
@@ -99,10 +99,10 @@ export function SuppliersPage() {
           {t('common.add')}
         </Button>
       </Stack>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.length === 0 ? (
         <EmptyState
@@ -117,7 +117,7 @@ export function SuppliersPage() {
                 setOpen(true);
               }}
             >
-              {t('common.add')} {t('nav.suppliers')}
+              {t('empty.addSupplier')}
             </Button>
           }
         />

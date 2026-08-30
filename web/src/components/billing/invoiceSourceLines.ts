@@ -15,6 +15,7 @@ export interface InvoiceSourceLine {
   cessRate: number;
   discountPercent: number;
   included: boolean;
+  condition?: 'SELLABLE' | 'DAMAGED';
 }
 
 export function invoiceItemsToSourceLines(items: LineItem[]): InvoiceSourceLine[] {
@@ -31,6 +32,7 @@ export function invoiceItemsToSourceLines(items: LineItem[]): InvoiceSourceLine[
     cessRate: toNumber(item.cessRate),
     discountPercent: toNumber(item.discountPercent),
     included: false,
+    condition: 'SELLABLE',
   }));
 }
 

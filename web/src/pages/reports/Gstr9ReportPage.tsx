@@ -87,7 +87,7 @@ export function Gstr9ReportPage() {
       ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError && !compositionBlocked ? (
-        <ErrorState message={queryErrorMessage} onRetry={() => void query.refetch()} />
+        <ErrorState message={queryErrorMessage} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data ? (
         <Paper variant="outlined" sx={{ p: 2 }}>

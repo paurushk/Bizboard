@@ -5,11 +5,13 @@ from io import BytesIO
 from unittest.mock import patch
 
 import pytest
+from kombu.exceptions import OperationalError
 from pypdf import PdfReader
 from reportlab.lib.units import mm
 
 from sales.models import SalesInvoice
 from sales.pdf import render_gst_tax_invoice, render_thermal_receipt
+from sales.tasks import generate_invoice_pdf
 from sales.pdf.helpers import amount_in_words, tax_breakup_by_rate
 from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
 
@@ -343,6 +345,37 @@ def test_complete_survives_pdf_failure(mock_pdf, tenant_a):
     status = tenant_a.client.get(f"/api/v1/sales/invoices/{inv['id']}/pdf-status/")
     assert status.data["pdf_status"] == "FAILED"
     mock_pdf.assert_called()
+
+
+def test_complete_survives_broker_connection_failure(tenant_a, settings, django_capture_on_commit_callbacks):
+    """A down Celery broker must not block or fail Complete."""
+    settings.CELERY_TASK_ALWAYS_EAGER = False
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "1", "unit_price": "100"},
+    ])
+
+    with patch.object(generate_invoice_pdf, "delay", side_effect=OperationalError("broker down")):
+        with django_capture_on_commit_callbacks(execute=True):
+            resp = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+
+    assert resp.status_code == 200, resp.data
+    assert resp.data["status"] == "COMPLETED"
+    invoice = SalesInvoice.objects.get(pk=inv["id"])
+    assert invoice.status == SalesInvoice.Status.COMPLETED
+    assert invoice.pdf_status == SalesInvoice.PdfStatus.QUEUED
+
+
+def test_regenerate_pdf_survives_broker_connection_failure(tenant_a):
+    data, _ = _complete(tenant_a)
+
+    with patch.object(generate_invoice_pdf, "delay", side_effect=OperationalError("broker down")):
+        resp = tenant_a.client.post(f"/api/v1/sales/invoices/{data['id']}/regenerate-pdf/")
+
+    assert resp.status_code == 200, resp.data
+    assert resp.data["pdf_status"] == "QUEUED"
 
 
 def test_retail_pdf_shows_tax_columns(tenant_a):

@@ -174,6 +174,26 @@ def test_bb_000683_payroll_journal_dated_period_month_end(tenant_a):
     assert str(entry.entry_date) == "2026-02-28"
 
 
+def test_cancel_pay_run_reverses_journal_and_reopens_draft(tenant_a):
+    tenant_a.company.accounting_enabled = True
+    tenant_a.company.save(update_fields=["accounting_enabled"])
+    Employee.objects.create(
+        company=tenant_a.company, name="Pat", code="S4E4", salary=Decimal("4000"),
+        created_by=tenant_a.owner, updated_by=tenant_a.owner,
+    )
+    created = tenant_a.client.post("/api/v1/payroll/pay-runs/", {"period": "2026-03"}, format="json")
+    run_id = _body(created)["id"]
+    assert tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/").status_code == 200
+    cancel_resp = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/cancel/")
+    assert cancel_resp.status_code == 200, cancel_resp.data
+    assert _body(cancel_resp)["status"] == "DRAFT"
+    # Check that original journal is marked REVERSED or a reversal entry was posted
+    entry = JournalEntry.objects.get(
+        company=tenant_a.company, source_type="PayRun", source_id=run_id, purpose="PAYROLL",
+    )
+    assert entry.status == JournalEntry.Status.REVERSED
+
+
 @override_settings(ENABLE_CRM=False)
 def test_bb_000582_crm_404_when_flag_off(tenant_a):
     resp = tenant_a.client.get("/api/v1/crm/leads/")

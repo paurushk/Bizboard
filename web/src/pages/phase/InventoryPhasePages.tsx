@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -14,9 +15,16 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
+import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { PreventionNote } from '@/pages/help/PreventionNote';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
+import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import type { Product } from '@/types/domain';
+import { t } from '@/i18n';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import {
   asRows,
   DataTable,
@@ -26,6 +34,7 @@ import {
 
 
 export function WarehousesPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['warehouses'], queryFn: api.listWarehouses });
   const [open, setOpen] = useState(false);
@@ -40,30 +49,60 @@ export function WarehousesPage() {
       void qc.invalidateQueries({ queryKey: ['warehouses'] });
     },
   });
+  const deactivate = useMutation({
+    mutationFn: (id: number) => api.updateWarehouse(id, { isActive: false }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['warehouses'] }),
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => api.deleteWarehouse(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['warehouses'] }),
+  });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell
-      title="Warehouses"
-      subtitle="Stock locations. Every company has one default warehouse."
+      title={t('phase.godowns')}
+      subtitle={t('phase.godownsSubtitle')}
       actions={
-        <Button variant="contained" onClick={() => setOpen(true)}>
-          Add warehouse
+        <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
+          Add godown
         </Button>
       }
     >
+      {(create.error || deactivate.error || remove.error) ? (
+        <HelpErrorAlert error={create.error || deactivate.error || remove.error} />
+      ) : null}
+      <PreventionNote intent="edit-completed-invoice" slot="delete-with-history" />
       <DataTable
         rows={asRows(query.data)}
-        empty="No warehouses."
+        empty="No godowns."
+        emptyAction={<HelpEmptyLink intent="stock-in-another-godown" />}
         columns={[
           { key: 'name', label: 'Name' },
           { key: 'code', label: 'Code' },
           { key: 'isDefault', label: 'Default', bool: true },
           { key: 'isActive', label: 'Active', bool: true },
         ]}
+        actions={(row) => (
+          <Stack direction="row" spacing={1} justifyContent="flex-end">
+            {row.isActive && !row.isDefault ? (
+              <Button size="small" onClick={() => deactivate.mutate(Number(row.id))} disabled={writesBlocked || deactivate.isPending}>
+                Deactivate
+              </Button>
+            ) : null}
+            {!row.isDefault ? (
+              <Button size="small" color="error" onClick={() => {
+                if (!window.confirm(t('phase.confirmDeleteGodown'))) return;
+                remove.mutate(Number(row.id));
+              }} disabled={writesBlocked || remove.isPending}>
+                Delete
+              </Button>
+            ) : null}
+          </Stack>
+        )}
       />
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>New warehouse</DialogTitle>
+        <DialogTitle>New godown</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} />
@@ -72,9 +111,9 @@ export function WarehousesPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Tooltip title={!name.trim() ? 'Enter warehouse name to save' : ''}>
+          <Tooltip title={!name.trim() ? 'Enter godown name to save' : ''}>
             <span>
-              <Button variant="contained" disabled={!name.trim() || create.isPending} onClick={() => create.mutate()}>
+              <Button variant="contained" disabled={writesBlocked || !name.trim() || create.isPending} onClick={() => create.mutate()}>
                 Save
               </Button>
             </span>
@@ -86,6 +125,7 @@ export function WarehousesPage() {
 }
 
 export function StockTransferPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['transfers'], queryFn: api.listTransfers });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: api.listWarehouses });
@@ -93,15 +133,20 @@ export function StockTransferPage() {
   const [fromWh, setFromWh] = useState('');
   const [toWh, setToWh] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const productSearch = useProductSearch({ activeOnly: true, selected: selectedProduct });
+  const [cfFilters, setCfFilters] = useState<Record<string, string[]>>({});
+  const customDefs = useVisibleCustomFieldDefs();
+  const productSearch = useProductSearch({ activeOnly: true, selected: selectedProduct, cf: cfFilters });
   const [batch, setBatch] = useState('');
   const [serials, setSerials] = useState('');
   const [qty, setQty] = useState('1');
   const trackSerial = Boolean(selectedProduct?.trackSerial);
   const [error, setError] = useState('');
   const create = useMutation({
-    mutationFn: () =>
-      api.createTransfer({
+    mutationFn: () => {
+      if (!fromWh || !toWh || fromWh === toWh) {
+        throw new Error('Choose a different destination godown');
+      }
+      return api.createTransfer({
         fromWarehouse: Number(fromWh),
         toWarehouse: Number(toWh),
         lines: [{
@@ -112,7 +157,8 @@ export function StockTransferPage() {
             ? { serialNumbers: serials.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean) }
             : {}),
         }],
-      }),
+      });
+    },
     onSuccess: () => {
       setOpen(false);
       setSelectedProduct(null);
@@ -136,13 +182,13 @@ export function StockTransferPage() {
     enabled: Boolean(selectedProduct?.id),
   });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell
-      title="Stock transfers"
-      subtitle="Move stock between warehouses with append-only TRANSFER_OUT / TRANSFER_IN movements."
+      title={t('phase.stockTransfers')}
+      subtitle={t('phase.stockTransfersSubtitle')}
       actions={
-        <Button variant="contained" onClick={() => setOpen(true)}>
+        <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
           New transfer
         </Button>
       }
@@ -172,11 +218,11 @@ export function StockTransferPage() {
         ]}
         actions={(r) =>
           r.status === 'DRAFT' ? (
-            <Button size="small" variant="contained" onClick={() => complete.mutate(Number(r.id))}>
+            <Button size="small" variant="contained" disabled={writesBlocked} onClick={() => complete.mutate(Number(r.id))}>
               Complete
             </Button>
           ) : r.status === 'COMPLETED' ? (
-            <Button size="small" color="error" onClick={() => cancel.mutate(Number(r.id))}>
+            <Button size="small" color="error" disabled={writesBlocked} onClick={() => cancel.mutate(Number(r.id))}>
               Cancel
             </Button>
           ) : null
@@ -186,20 +232,31 @@ export function StockTransferPage() {
         <DialogTitle>New stock transfer</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField select label="From warehouse" value={fromWh} onChange={(e) => setFromWh(e.target.value)}>
+            <TextField
+              select
+              label="From godown"
+              value={fromWh}
+              onChange={(e) => {
+                setFromWh(e.target.value);
+                if (toWh === e.target.value) setToWh('');
+              }}
+            >
               {(warehouses.data ?? []).map((w) => (
                 <MenuItem key={w.id} value={String(w.id)}>
                   {w.name}
                 </MenuItem>
               ))}
             </TextField>
-            <TextField select label="To warehouse" value={toWh} onChange={(e) => setToWh(e.target.value)}>
-              {(warehouses.data ?? []).map((w) => (
+            <TextField select label="To godown" value={toWh} onChange={(e) => setToWh(e.target.value)}>
+              {(warehouses.data ?? [])
+                .filter((w) => String(w.id) !== fromWh)
+                .map((w) => (
                 <MenuItem key={w.id} value={String(w.id)}>
                   {w.name}
                 </MenuItem>
               ))}
             </TextField>
+            <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
             <Autocomplete<Product>
               options={productSearch.options}
               loading={productSearch.isFetching}
@@ -241,14 +298,14 @@ export function StockTransferPage() {
                 helperText="Comma or newline separated; count must match quantity"
               />
             ) : null}
-            {error ? <Alert severity="error">{error}</Alert> : null}
+            {error ? <HelpErrorAlert message={error} /> : null}
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
-            disabled={!fromWh || !toWh || !selectedProduct || create.isPending}
+            disabled={writesBlocked || !fromWh || !toWh || fromWh === toWh || !selectedProduct || create.isPending}
             onClick={() => create.mutate()}
           >
             Create draft
@@ -260,39 +317,95 @@ export function StockTransferPage() {
 }
 
 export function ExpiryAlertsPage() {
+  const { writesBlocked } = useSubscriptionGate();
+  const qc = useQueryClient();
   const [days, setDays] = useState(30);
-  const query = useQuery({ queryKey: ['expiry-alerts', days], queryFn: () => api.getExpiryAlerts(days) });
+  const [warehouseId, setWarehouseId] = useState('');
+  const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: api.listWarehouses });
+  const query = useQuery({
+    queryKey: ['expiry-alerts', days, warehouseId],
+    queryFn: () => api.getExpiryAlerts(days, warehouseId ? Number(warehouseId) : undefined),
+  });
+  const writeOff = useMutation({
+    mutationFn: (row: Row) =>
+      api.writeOffExpiry({
+        product: Number(row.product),
+        warehouse: Number(row.warehouse) || undefined,
+        batch: Number(row.batch || row.id),
+        quantity: Number(row.onHand || row.quantity || 0),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['expiry-alerts'] });
+      void qc.invalidateQueries({ queryKey: ['stock'] });
+    },
+  });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell
-      title="Expiry alerts"
-      subtitle="Batch lots nearing or past expiry with remaining stock."
+      title={t('phase.expiryAlerts')}
+      subtitle={t('phase.expiryAlertsSubtitle')}
       actions={
-        <TextField select size="small" label="Horizon" value={days} onChange={(e) => setDays(Number(e.target.value))}>
-          {[30, 60, 90].map((d) => (
-            <MenuItem key={d} value={d}>
-              {d} days
-            </MenuItem>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {[7, 30, 60, 90].map((d) => (
+            <Chip
+              key={d}
+              label={`${d} days`}
+              color={days === d ? 'primary' : 'default'}
+              onClick={() => setDays(d)}
+              variant={days === d ? 'filled' : 'outlined'}
+            />
           ))}
-        </TextField>
+          <TextField
+            select
+            size="small"
+            label="Godown"
+            value={warehouseId}
+            onChange={(e) => setWarehouseId(e.target.value)}
+            sx={{ minWidth: 180 }}
+          >
+            <MenuItem value="">All godowns</MenuItem>
+            {(warehouses.data ?? []).map((warehouse) => (
+              <MenuItem key={warehouse.id} value={String(warehouse.id)}>
+                {warehouse.name}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Stack>
       }
     >
+      {writeOff.error ? <HelpErrorAlert error={writeOff.error} /> : null}
       <DataTable
         rows={asRows(query.data)}
         empty="No expiry risks in this horizon."
         columns={[
           { key: 'productName', label: 'Product' },
           { key: 'batchNo', label: 'Batch' },
+          { key: 'warehouseName', label: 'Godown' },
           { key: 'expiryDate', label: 'Expiry' },
-          { key: 'manufacturingDate', label: 'Mfg' },
+          { key: 'onHand', label: 'Remaining' },
+          { key: 'daysToExpiry', label: 'Days' },
         ]}
+        actions={(row) => (
+          <Button
+            size="small"
+            color="warning"
+            disabled={writesBlocked || writeOff.isPending || Number(row.onHand || 0) <= 0}
+            onClick={() => {
+              if (!window.confirm(t('inventory.confirmWriteoff'))) return;
+              writeOff.mutate(row);
+            }}
+          >
+            Write off
+          </Button>
+        )}
       />
     </PageShell>
   );
 }
 
 export function SerialsPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState('');
   const query = useQuery({
@@ -310,11 +423,11 @@ export function SerialsPage() {
     warehouse: r.warehouseName ?? r.warehouse ?? '—',
   }));
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell
-      title="Serial numbers"
-      subtitle="Serial tracking for products with track_serial enabled."
+      title={t('phase.serials')}
+      subtitle={t('phase.serialsSubtitle')}
       actions={
         <TextField
           select
@@ -339,7 +452,7 @@ export function SerialsPage() {
         columns={[
           { key: 'serialNumber', label: 'Serial' },
           { key: 'product', label: 'Product' },
-          { key: 'warehouse', label: 'Warehouse' },
+          { key: 'warehouse', label: 'Godown' },
           { key: 'status', label: 'Status', status: true },
         ]}
         actions={(row) => {
@@ -351,7 +464,7 @@ export function SerialsPage() {
                 Last: {status}
               </Typography>
               {target ? (
-                <Button size="small" onClick={() => transition.mutate({ id: Number(row.id), status: target })}>
+                <Button size="small" disabled={writesBlocked} onClick={() => transition.mutate({ id: Number(row.id), status: target })}>
                   Mark {target.toLowerCase()}
                 </Button>
               ) : null}
@@ -366,18 +479,19 @@ export function SerialsPage() {
 export function StockValuationPage() {
   const q = useQuery({ queryKey: ['stock-valuation'], queryFn: () => api.getStockValuation() });
   if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState message={getErrorMessage(q.error)} onRetry={() => void q.refetch()} />;
+  if (q.isError) return <ErrorState message={getErrorMessage(q.error)} error={q.error} onRetry={() => void q.refetch()} />;
   const data = q.data as Row;
   const items = ((data.items as Row[]) || []).map((r) => ({
     ...r,
     productName: r.productName || r.product_name || r.name,
+    warehouseName: r.warehouseName || r.warehouse_name,
     unitCost: r.unitCost ?? r.unit_cost ?? r.avgCost,
     value: r.value ?? r.stockValue,
     quantity: r.quantity ?? r.qty ?? r.onHand,
   }));
   return (
     <PageShell
-      title="Stock valuation"
+      title={t('phase.stockValuation')}
       subtitle={`Method: ${String(data.method || 'WAVG')} — WAVG blends remaining unit cost; FIFO consumes purchase layers in creation order for COGS (Wave 16/17).`}
     >
       <DataTable
@@ -385,6 +499,7 @@ export function StockValuationPage() {
         empty="No valuation rows."
         columns={[
           { key: 'productName', label: 'Product' },
+          { key: 'warehouseName', label: 'Godown' },
           { key: 'quantity', label: 'Qty' },
           { key: 'unitCost', label: 'Unit cost', money: true },
           { key: 'value', label: 'Value', money: true },
@@ -395,6 +510,7 @@ export function StockValuationPage() {
 }
 
 export function PriceListsPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['price-lists'], queryFn: api.listPriceLists });
   const [open, setOpen] = useState(false);
@@ -408,13 +524,13 @@ export function PriceListsPage() {
     },
   });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell
-      title="Price lists"
-      subtitle="Named rate cards assigned to customers at billing time."
+      title={t('phase.priceLists')}
+      subtitle={t('phase.priceListsSubtitle')}
       actions={
-        <Button variant="contained" onClick={() => setOpen(true)}>
+        <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
           New list
         </Button>
       }
@@ -438,7 +554,7 @@ export function PriceListsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={!name || create.isPending} onClick={() => create.mutate()}>
+          <Button variant="contained" disabled={writesBlocked || !name || create.isPending} onClick={() => create.mutate()}>
             Create
           </Button>
         </DialogActions>

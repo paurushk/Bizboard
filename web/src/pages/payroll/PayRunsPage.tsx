@@ -1,5 +1,4 @@
 import { Fragment, useState } from 'react';
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Collapse from '@mui/material/Collapse';
 import Dialog from '@mui/material/Dialog';
@@ -28,8 +27,10 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { formatMoney } from '@/utils/money';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const PAGE_SIZE = 50;
 
@@ -47,6 +48,7 @@ export function PayRunsPage() {
 }
 
 function PayRunsPageInner() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
@@ -100,14 +102,14 @@ function PayRunsPageInner() {
       <MvpModuleBanner module="payroll" />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.payRuns')}</Typography>
-        <Button variant="contained" onClick={openCreate}>
+        <Button variant="contained" onClick={openCreate} disabled={writesBlocked}>
           {t('common.add')}
         </Button>
       </Stack>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {rows.length === 0 && !query.isLoading && !query.isError ? (
         <EmptyState description={t('empty.payRuns')} />
@@ -142,13 +144,16 @@ function PayRunsPageInner() {
                     <TableCell align="right">
                       {run.status === 'DRAFT' ? (
                         <>
-                          <Button size="small" onClick={() => openEdit(run)}>
+                          <Button size="small" onClick={() => openEdit(run)} disabled={writesBlocked}>
                             {t('common.edit')}
                           </Button>
                           <Button
                             size="small"
-                            disabled={completeMutation.isPending}
-                            onClick={() => completeMutation.mutate(run.id)}
+                            disabled={writesBlocked || completeMutation.isPending}
+                            onClick={() => {
+                              if (!window.confirm(t('payroll.confirmComplete'))) return;
+                              completeMutation.mutate(run.id);
+                            }}
                           >
                             {t('common.complete')}
                           </Button>
@@ -236,7 +241,7 @@ function PayRunsPageInner() {
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={!period || saveMutation.isPending}
+            disabled={writesBlocked || !period || saveMutation.isPending}
             onClick={() => saveMutation.mutate()}
           >
             {t('common.save')}

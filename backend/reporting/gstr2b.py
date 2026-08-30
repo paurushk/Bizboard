@@ -1,7 +1,7 @@
-    """Wave 16D — GSTR-2B/2A file ingest match + composition return aids.
+"""Wave 16D — GSTR-2B/2A file ingest match + composition return aids.
 
-    Live GSP auto-claim stays dark. Upload `source=2A` or `2B` (default 2B).
-    """
+Live GSP auto-claim stays dark. Upload `source=2A` or `2B` (default 2B).
+"""
 
 from __future__ import annotations
 
@@ -58,6 +58,15 @@ def match_gstr2b_to_purchases(company, period: str, *, persist: bool = True) -> 
             if abs(_tax(inv) - row_tax) <= Decimal("1.00")
             and abs(Decimal(str(inv.taxable_total or 0)) - row_taxable) <= Decimal("1.00")
         ]
+        if row.invoice_date:
+            dated = [inv for inv in exact if inv.invoice_date == row.invoice_date]
+            fy_matched = [
+                inv
+                for inv in exact
+                if inv.invoice_date and inv.invoice_date.year == row.invoice_date.year
+            ]
+            exact = dated if dated else fy_matched
+        # Never MATCH on GSTIN+number alone — require unique amount (±₹1) and date/FY when present.
         if len(exact) == 1:
             status = Gstr2bIngest.MatchStatus.MATCHED
             inv = exact[0]
@@ -75,7 +84,7 @@ def match_gstr2b_to_purchases(company, period: str, *, persist: bool = True) -> 
     return {"period": period, "rows": len(rows), "matched": matched, "persisted": persist}
 
 
-def claimable_itc_from_2b(company, period: str) -> dict:
+def claimable_itc_from_2b(company, period: str, *, company_gstin_id=None) -> dict:
     """ITC amounts only from MATCHED 2B rows (feeds GSTR-3B)."""
     from purchases.models import PurchaseInvoice
 
@@ -84,10 +93,18 @@ def claimable_itc_from_2b(company, period: str) -> dict:
         period=period,
         match_status=Gstr2bIngest.MatchStatus.MATCHED,
         itc_eligibility=Gstr2bIngest.ItcEligibility.CLAIMABLE,
-        purchase_invoice__itc_eligibility=PurchaseInvoice.ItcEligibility.CLAIMABLE,
-        purchase_invoice__is_opening_balance=False,
-        purchase_invoice__is_reverse_charge=False,
+    ).exclude(
+        purchase_invoice__itc_eligibility__in=[
+            PurchaseInvoice.ItcEligibility.INELIGIBLE,
+            PurchaseInvoice.ItcEligibility.REVERSED,
+        ]
+    ).exclude(
+        purchase_invoice__is_opening_balance=True,
+    ).exclude(
+        purchase_invoice__is_reverse_charge=True,
     )
+    if company_gstin_id is not None:
+        qs = qs.filter(purchase_invoice__company_gstin_id=company_gstin_id)
     agg = qs.aggregate(
         cgst=Sum("cgst"),
         sgst=Sum("sgst"),
@@ -108,6 +125,7 @@ def claimable_itc_from_2b(company, period: str) -> dict:
 
 def build_cmp08(company, period: str) -> dict:
     """Composition CMP-08 quarterly aid (Wave 16D / BB-000623)."""
+    from purchases.models import PurchaseInvoice
     from sales.models import SalesCreditNote, SalesDebitNote, SalesInvoice
 
     year, month = period.split("-")
@@ -140,13 +158,44 @@ def build_cmp08(company, period: str) -> dict:
     )
     taxable -= sum((Decimal(str(n.taxable_total or 0)) for n in cns), Decimal("0"))
     taxable += sum((Decimal(str(n.taxable_total or 0)) for n in dns), Decimal("0"))
+    taxable = max(Decimal("0.00"), taxable)
+
+    # Inward supplies attracting reverse charge (Table 2)
+    rcm_purchases = PurchaseInvoice.objects.filter(
+        company=company,
+        status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+        invoice_date__year=y,
+        invoice_date__month__gte=q_start_m,
+        invoice_date__month__lt=q_start_m + 3,
+        is_reverse_charge=True,
+    )
+    inward_rcm_taxable = sum((Decimal(str(p.taxable_total or 0)) for p in rcm_purchases), Decimal("0"))
+    inward_rcm_tax = sum(
+        (
+            Decimal(str(p.rcm_cgst or 0))
+            + Decimal(str(p.rcm_sgst or 0))
+            + Decimal(str(p.rcm_igst or 0))
+            + Decimal(str(p.rcm_cess or 0))
+            for p in rcm_purchases
+        ),
+        Decimal("0"),
+    )
+
+    composition_rate = Decimal("0.01")
+    est_outward_tax = (taxable * composition_rate).quantize(Decimal("0.01"))
+    total_tax_payable = est_outward_tax + inward_rcm_tax
+
     return {
-        "version": "cmp08@1.0.1",
+        "version": "cmp08@1.1.0",
         "aid_kind": "composition_cmp08",
         "period": period,
         "quarter_start_month": q_start_m,
+        "table_1_outward_taxable": str(taxable),
+        "table_2_inward_rcm_taxable": str(inward_rcm_taxable),
+        "table_2_inward_rcm_tax": str(inward_rcm_tax),
+        "table_3_tax_payable": str(total_tax_payable),
         "outward_taxable": str(taxable),
-        "disclaimer": "CMP-08 aid — opening/non-GST excluded; CNs netted. Verify rates with CA.",
+        "disclaimer": "CMP-08 aid — opening/non-GST excluded; CNs netted; Table 2 RCM included. Verify rates with CA.",
     }
 
 
@@ -157,5 +206,61 @@ def build_gstr4(company, fy_label: str) -> dict:
         "aid_kind": "composition_gstr4",
         "fy": fy_label,
         "disclaimer": "GSTR-4 worksheet aid — not a portal-complete annual return.",
-        "tables": {},
+        "supported": False,
+        "tables": {
+            "4": {"note": "Table 4 (inward supplies) is not implemented."},
+            "5": {"note": "Table 5 (import of services / reverse charge) is not implemented."},
+            "6": {"note": "Table 6 (tax paid) is not implemented."},
+            "note": "GSTR-4 tables are not implemented — this is a composition worksheet stub, not a portal file.",
+        },
+    }
+
+
+def build_gstr8(company, period: str) -> dict:
+    """E-commerce operator GSTR-8 TCS return — honest stub, not an engine."""
+    return {
+        "version": "gstr8@1.0.0",
+        "aid_kind": "ecommerce_gstr8",
+        "period": period,
+        "supported": False,
+        "disclaimer": (
+            "GSTR-8 is the e-commerce operator TCS return. Bizboard does not implement "
+            "a portal-complete GSTR-8 engine. Use this payload only as a placeholder."
+        ),
+        "tables": {
+            "note": "GSTR-8 tables are not implemented — this is an honesty stub, not a portal file.",
+        },
+    }
+
+
+def build_gstr6(company, period: str) -> dict:
+    """ISD GSTR-6 — honest stub, not an engine."""
+    return {
+        "version": "gstr6@1.0.0",
+        "aid_kind": "isd_gstr6",
+        "period": period,
+        "supported": False,
+        "disclaimer": (
+            "GSTR-6 is the Input Service Distributor return. Bizboard does not implement "
+            "an ISD / GSTR-6 engine."
+        ),
+        "tables": {
+            "note": "GSTR-6 tables are not implemented — this is an honesty stub, not a portal file.",
+        },
+    }
+
+
+def build_gstr7(company, period: str) -> dict:
+    """TDS under GST GSTR-7 — honest stub, not an engine."""
+    return {
+        "version": "gstr7@1.0.0",
+        "aid_kind": "tds_gstr7",
+        "period": period,
+        "supported": False,
+        "disclaimer": (
+            "GSTR-7 is the GST TDS return. Bizboard does not implement a GSTR-7 engine."
+        ),
+        "tables": {
+            "note": "GSTR-7 tables are not implemented — this is an honesty stub, not a portal file.",
+        },
     }

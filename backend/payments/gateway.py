@@ -189,6 +189,9 @@ class SandboxAdapter:
     def refund(self, *, provider_payment_id: str, amount: Decimal) -> dict[str, Any]:
         return {"id": f"rfnd_sandbox_{secrets.token_hex(6)}", "payment_id": provider_payment_id, "amount": str(amount)}
 
+    def cancel_payment_link(self, *, provider_link_id: str) -> None:
+        return
+
 
 class RazorpayAdapter:
     name = "razorpay"
@@ -273,7 +276,7 @@ class RazorpayAdapter:
             "failed": "FAILED",
             "refunded": "REFUNDED",
         }
-        st = str(payment.get("status") or data.get("status") or "captured").lower()
+        st = str(payment.get("status") or data.get("status") or "").lower()
         fee_raw = payment.get("fee") or 0
         try:
             fee_paise = Decimal(str(fee_raw))
@@ -307,6 +310,27 @@ class RazorpayAdapter:
         if resp.status_code >= 400:
             raise BusinessRuleError(f"Razorpay refund failed (HTTP {resp.status_code}).")
         return resp.json()
+
+    def cancel_payment_link(self, *, provider_link_id: str) -> None:
+        if not self.key_id or not self.key_secret:
+            raise BusinessRuleError("Razorpay credentials are not configured.")
+        if not provider_link_id:
+            raise BusinessRuleError("Missing Razorpay payment link id.")
+        import base64
+
+        import requests
+
+        auth = base64.b64encode(f"{self.key_id}:{self.key_secret}".encode()).decode()
+        resp = requests.post(
+            f"https://api.razorpay.com/v1/payment_links/{provider_link_id}/cancel",
+            headers={"Authorization": f"Basic {auth}", "Content-Type": "application/json"},
+            timeout=30,
+        )
+        if resp.status_code >= 400:
+            raise BusinessRuleError(
+                f"Razorpay could not cancel payment link (HTTP {resp.status_code}). "
+                "Deactivate it in the Razorpay dashboard if it is already paid or expired."
+            )
 
 
 class CashfreeGateway:
@@ -359,6 +383,29 @@ class CashfreeGateway:
             raw=data,
         )
 
+    def cancel_payment_link(self, *, provider_link_id: str) -> None:
+        if not self.app_id or not self.secret_key:
+            raise BusinessRuleError("Cashfree credentials are not configured.")
+        if not provider_link_id:
+            raise BusinessRuleError("Missing Cashfree payment link id.")
+        import requests
+
+        resp = requests.post(
+            f"{self.api_base}/links/{provider_link_id}/cancel",
+            headers={
+                "x-client-id": self.app_id,
+                "x-client-secret": self.secret_key,
+                "x-api-version": "2023-08-01",
+                "Content-Type": "application/json",
+            },
+            timeout=30,
+        )
+        if resp.status_code >= 400:
+            raise BusinessRuleError(
+                f"Cashfree could not cancel payment link (HTTP {resp.status_code}). "
+                "Deactivate it in the Cashfree dashboard if needed."
+            )
+
     def verify_webhook(self, *, headers: dict[str, str], body: bytes) -> bool:
         sig = headers.get("x-webhook-signature") or headers.get("X-Webhook-Signature") or ""
         ts = headers.get("x-webhook-timestamp") or headers.get("X-Webhook-Timestamp") or ""
@@ -374,9 +421,12 @@ class CashfreeGateway:
         if age > 300:
             return False
         signed = ts + body.decode("utf-8")
-        expected = hmac.new(
+        digest = hmac.new(
             self.webhook_secret.encode(), signed.encode(), hashlib.sha256
-        ).hexdigest()
+        ).digest()
+        import base64
+
+        expected = base64.b64encode(digest).decode()
         return hmac.compare_digest(expected, sig)
 
     def parse_webhook(self, *, body: bytes) -> WebhookEvent | None:
@@ -384,7 +434,7 @@ class CashfreeGateway:
         link = data.get("data") or data
         amount_raw = link.get("link_amount") or link.get("order_amount") or link.get("amount") or "0"
         amount = Decimal(str(amount_raw)).quantize(Decimal("0.01"))
-        status_raw = str(link.get("link_status") or link.get("order_status") or "PAID").upper()
+        status_raw = str(link.get("link_status") or link.get("order_status") or "").upper()
         status_map = {"PAID": "CAPTURED", "SUCCESS": "CAPTURED", "FAILED": "FAILED", "REFUNDED": "REFUNDED"}
         return WebhookEvent(
             provider_payment_id=str(link.get("cf_payment_id") or link.get("payment_id") or ""),
@@ -427,9 +477,19 @@ class PayUGateway:
     def __init__(self, credentials: dict[str, Any]):
         self.merchant_key = (credentials.get("merchant_key") or credentials.get("key") or "").strip()
         self.merchant_salt = (credentials.get("merchant_salt") or credentials.get("salt") or "").strip()
-        self.api_base = (credentials.get("api_base") or "https://test.payu.in").rstrip("/")
+        from django.conf import settings
+
+        env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
+        default_base = "https://secure.payu.in" if env in ("production", "staging") else "https://test.payu.in"
+        self._explicit_api_base = bool((credentials.get("api_base") or "").strip())
+        self.api_base = (credentials.get("api_base") or default_base).rstrip("/")
 
     def create_payment_link(self, **kwargs) -> CreateLinkResult:
+        from django.conf import settings
+
+        env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
+        if env in ("production", "staging") and not self._explicit_api_base:
+            raise BusinessRuleError("PayU api_base is required in production (use https://secure.payu.in).")
         if not self.merchant_key or not self.merchant_salt:
             raise BusinessRuleError("PayU credentials are not configured.")
         amount = Decimal(kwargs["amount"]).quantize(Decimal("0.01"))
@@ -463,6 +523,12 @@ class PayUGateway:
         link_id = txnid
         short_url = resp.url if resp.url else f"{self.api_base}/_payment?txnid={txnid}"
         return CreateLinkResult(provider_link_id=link_id, short_url=short_url, raw={"payload": payload})
+
+    def cancel_payment_link(self, *, provider_link_id: str) -> None:
+        raise BusinessRuleError(
+            "PayU payment links cannot be cancelled from BizBoard. "
+            "Expire or deactivate the transaction in PayU first."
+        )
 
     def verify_webhook(self, *, headers: dict[str, str], body: bytes) -> bool:
         if not self.merchant_salt:

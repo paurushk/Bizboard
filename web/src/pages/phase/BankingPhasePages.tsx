@@ -17,6 +17,7 @@ import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -26,6 +27,10 @@ import { isValidIfsc } from '@/utils/gst';
 import { formatMoney, toNumber } from '@/utils/money';
 import { openShareUrl } from '@/utils/safeUrl';
 import { t } from '@/i18n';
+import { useAuth } from '@/auth/AuthContext';
+import { canCreatePayments } from '@/utils/permissions';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   asRows,
   DataTable,
@@ -36,6 +41,7 @@ import {
 
 
 export function BankAccountsPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['bank-accounts'], queryFn: api.listBankAccounts });
   const [open, setOpen] = useState(false);
@@ -64,20 +70,20 @@ export function BankAccountsPage() {
     onError: (e) => setError(getErrorMessage(e)),
   });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell
-      title="Bank accounts"
-      subtitle="Cash boxes and bank instruments used on receipts, payments, and reconciliation."
+      title={t('phase.bankAccounts')}
+      subtitle={t('phase.bankAccountsSubtitle')}
       actions={
-        <Button variant="contained" onClick={() => setOpen(true)}>
+        <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
           Add account
         </Button>
       }
     >
       <DataTable
         rows={asRows(query.data)}
-        empty="No bank accounts yet."
+        empty="No bank accounts yet. Save bank details in Company settings, or add an account here."
         columns={[
           { key: 'name', label: 'Name' },
           { key: 'accountType', label: 'Type' },
@@ -87,6 +93,11 @@ export function BankAccountsPage() {
           { key: 'isDefault', label: 'Default', bool: true },
         ]}
       />
+      {asRows(query.data).length === 0 ? (
+        <Button component={RouterLink} to="/settings/company#bank-section" sx={{ mt: 1, alignSelf: 'flex-start' }}>
+          Open company bank details
+        </Button>
+      ) : null}
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>New bank account</DialogTitle>
         <DialogContent>
@@ -100,14 +111,14 @@ export function BankAccountsPage() {
             <TextField label="Masked account no." value={form.accountNumberMasked} onChange={(e) => setForm({ ...form, accountNumberMasked: e.target.value })} />
             <TextField label="IFSC" value={form.ifsc} onChange={(e) => setForm({ ...form, ifsc: e.target.value })} />
             <FormControlLabel control={<Switch checked={form.isDefault} onChange={(e) => setForm({ ...form, isDefault: e.target.checked })} />} label="Default account" />
-            {error ? <Alert severity="error">{error}</Alert> : null}
+            {error ? <HelpErrorAlert message={error} /> : null}
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
           <Tooltip title={!form.name.trim() ? 'Enter bank account name to save' : ''}>
             <span>
-              <Button variant="contained" disabled={!form.name.trim() || create.isPending} onClick={() => create.mutate()}>
+              <Button variant="contained" disabled={writesBlocked || !form.name.trim() || create.isPending} onClick={() => create.mutate()}>
                 Save
               </Button>
             </span>
@@ -119,6 +130,7 @@ export function BankAccountsPage() {
 }
 
 export function PaymentGatewayPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['gateway-settings'], queryFn: api.getGatewaySettings });
   const [provider, setProvider] = useState('');
@@ -152,10 +164,10 @@ export function PaymentGatewayPage() {
     onError: (e) => setMsg(getErrorMessage(e)),
   });
   if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState message={getErrorMessage(q.error)} onRetry={() => void q.refetch()} />;
+  if (q.isError) return <ErrorState message={getErrorMessage(q.error)} error={q.error} onRetry={() => void q.refetch()} />;
   const webhooks = (q.data?.webhookPaths as Record<string, string>) || {};
   return (
-    <PageShell title="Payment gateway" subtitle="Razorpay is primary; Cashfree and PayU share the same adapter interface.">
+    <PageShell title={t('phase.paymentGateway')} subtitle={t('phase.paymentGatewaySubtitle')}>
       {msg ? <Alert severity={msg.includes('saved') ? 'success' : 'error'}>{msg}</Alert> : null}
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack spacing={2}>
@@ -187,7 +199,7 @@ export function PaymentGatewayPage() {
           </Alert>
           <TextField label="Key / App ID" value={keyId} onChange={(e) => setKeyId(e.target.value)} />
           <TextField label="Secret" type="password" value={keySecret} onChange={(e) => setKeySecret(e.target.value)} />
-          <Button variant="contained" disabled={m.isPending} onClick={() => m.mutate()}>
+          <Button variant="contained" disabled={writesBlocked || m.isPending} onClick={() => m.mutate()}>
             Save settings
           </Button>
           <Typography variant="subtitle2">Webhook URLs</Typography>
@@ -203,6 +215,7 @@ export function PaymentGatewayPage() {
 }
 
 export function PaymentLinksPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ['payment-links'],
@@ -283,18 +296,18 @@ export function PaymentLinksPage() {
     onError: (e) => setError(getErrorMessage(e)),
   });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell
-      title="Payment links"
-      subtitle="Shareable collection links that create receipts and allocate to invoices on capture."
+      title={t('phase.paymentLinks')}
+      subtitle={t('phase.paymentLinksSubtitle')}
       actions={
-        <Button variant="contained" onClick={() => setOpen(true)}>
+        <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
           Create link
         </Button>
       }
     >
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       <DataTable
         rows={asRows(query.data)}
         empty="No payment links yet."
@@ -313,16 +326,16 @@ export function PaymentLinksPage() {
             </Button>
             {r.status !== 'PAID' && r.status !== 'CANCELLED' && r.status !== 'EXPIRED' ? (
               <>
-                <Button size="small" onClick={() => setShareId(Number(r.id))}>
+                <Button size="small" disabled={writesBlocked} onClick={() => setShareId(Number(r.id))}>
                   Send
                 </Button>
-                <Button size="small" color="error" onClick={() => cancel.mutate(Number(r.id))}>
+                <Button size="small" color="error" disabled={writesBlocked} onClick={() => cancel.mutate(Number(r.id))}>
                   Cancel
                 </Button>
               </>
             ) : null}
             {r.status === 'PAID' ? (
-              <Button size="small" color="warning" disabled={refund.isPending} onClick={() => refund.mutate(Number(r.id))}>
+              <Button size="small" color="warning" disabled={writesBlocked || refund.isPending} onClick={() => refund.mutate(Number(r.id))}>
                 Refund
               </Button>
             ) : null}
@@ -369,7 +382,7 @@ export function PaymentLinksPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={create.isPending || (!invoice && !customer)} onClick={() => create.mutate()}>
+          <Button variant="contained" disabled={writesBlocked || create.isPending || (!invoice && !customer)} onClick={() => create.mutate()}>
             Create
           </Button>
         </DialogActions>
@@ -397,7 +410,7 @@ export function PaymentLinksPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShareId(null)}>Cancel</Button>
-          <Button variant="contained" disabled={!shareRecipient.trim() || share.isPending} onClick={() => share.mutate()}>
+          <Button variant="contained" disabled={writesBlocked || !shareRecipient.trim() || share.isPending} onClick={() => share.mutate()}>
             Send
           </Button>
         </DialogActions>
@@ -407,6 +420,7 @@ export function PaymentLinksPage() {
 }
 
 export function BankStatementsPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ['bank-statements'],
@@ -436,9 +450,9 @@ export function BankStatementsPage() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank-statements'] }),
   });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
-    <PageShell title="Bank statements" subtitle="Upload CSV → preview → commit, then match in reconciliation.">
+    <PageShell title={t('phase.bankStatements')} subtitle={t('phase.bankStatementsSubtitle')}>
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ md: 'center' }}>
           <TextField select label="Bank account" value={bank} onChange={(e) => setBank(e.target.value)} sx={{ minWidth: 220 }}>
@@ -454,15 +468,15 @@ export function BankStatementsPage() {
             <MenuItem value="icici">ICICI</MenuItem>
             <MenuItem value="sbi">SBI</MenuItem>
           </TextField>
-          <Button component="label" variant="outlined">
+          <Button component="label" variant="outlined" disabled={writesBlocked}>
             {file ? file.name : 'Choose CSV'}
             <input hidden type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </Button>
-          <Button variant="contained" disabled={!file || !bank || upload.isPending} onClick={() => upload.mutate()}>
+          <Button variant="contained" disabled={writesBlocked || !file || !bank || upload.isPending} onClick={() => upload.mutate()}>
             Upload
           </Button>
         </Stack>
-        {error ? <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert> : null}
+        {error ? <HelpErrorAlert message={error} sx={{ mt: 2 }} /> : null}
       </Paper>
       <DataTable
         rows={asRows(query.data)}
@@ -477,7 +491,7 @@ export function BankStatementsPage() {
         ]}
         actions={(r) =>
           r.status === 'PREVIEW' ? (
-            <Button size="small" variant="contained" onClick={() => commit.mutate(Number(r.id))}>
+            <Button size="small" variant="contained" disabled={writesBlocked} onClick={() => commit.mutate(Number(r.id))}>
               Commit
             </Button>
           ) : null
@@ -488,6 +502,9 @@ export function BankStatementsPage() {
 }
 
 export function BankReconPage() {
+  const { user } = useAuth();
+  const { writesBlocked } = useSubscriptionGate();
+  const canWrite = canCreatePayments(user) && !writesBlocked;
   const qc = useQueryClient();
   const customers = useQuery({ queryKey: ['customers'], queryFn: () => api.listCustomers() });
   const health = useQuery({ queryKey: ['payment-health'], queryFn: api.getPaymentHealth });
@@ -519,11 +536,11 @@ export function BankReconPage() {
     },
   });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   const rows = query.data ?? [];
   const aging = (health.data?.unmatchedAging as Record<string, number>) || {};
   return (
-    <PageShell title="Bank reconciliation" subtitle="Review suggestions. Ambiguous matches never auto-apply.">
+    <PageShell title={t('phase.bankRecon')} subtitle={t('phase.bankReconSubtitle')}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }}>
         {[
           ['0–7 days', aging.days_0_7 ?? aging.days07 ?? 0],
@@ -568,7 +585,7 @@ export function BankReconPage() {
                     </Box>
                     <Stack direction="row" spacing={1} alignItems="center">
                       <StatusChip value={line.matchStatus} />
-                      {Number(line.amount) > 0 ? (
+                      {Number(line.amount) > 0 && canWrite ? (
                         <Button size="small" variant="outlined" onClick={() => setCreateLine(line)}>
                           Create receipt
                         </Button>
@@ -584,6 +601,7 @@ export function BankReconPage() {
                         <Typography variant="body2" sx={{ flex: 1 }}>
                           {String(s.type)} {String(s.number)} · {String(s.party)} · {formatMoney(toNumber(s.amount as string | number))}
                         </Typography>
+                        {canWrite ? (
                         <Button
                           size="small"
                           variant="contained"
@@ -599,6 +617,7 @@ export function BankReconPage() {
                         >
                           Confirm
                         </Button>
+                        ) : null}
                       </Stack>
                     ))
                   )}
@@ -660,13 +679,13 @@ export function CashBookPage() {
   });
   const health = useQuery({ queryKey: ['payment-health'], queryFn: api.getPaymentHealth });
   if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState message={getErrorMessage(q.error)} onRetry={() => void q.refetch()} />;
+  if (q.isError) return <ErrorState message={getErrorMessage(q.error)} error={q.error} onRetry={() => void q.refetch()} />;
   const data = q.data as Row;
   const rows = (data.rows as Row[]) || [];
   return (
     <PageShell
-      title="Cash book"
-      subtitle="Actual recorded receipts and payments — not the Insights forecast."
+      title={t('phase.cashBook')}
+      subtitle={t('phase.cashBookSubtitle')}
       actions={
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <TextField type="date" size="small" label="From" InputLabelProps={{ shrink: true }} value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -696,7 +715,7 @@ export function CashBookPage() {
         </Stack>
       }
     >
-      {exportErr ? <Alert severity="error">{exportErr}</Alert> : null}
+      {exportErr ? <HelpErrorAlert message={exportErr} /> : null}
       {Array.isArray(health.data?.alerts) && (health.data.alerts as Row[]).length ? (
         <Alert severity="warning">
           Payment health: {String((health.data.summary as Row)?.critical ?? 0)} critical,{' '}

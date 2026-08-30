@@ -3,7 +3,12 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
@@ -24,6 +29,7 @@ import { isEinvoiceSubmitEnabled } from '@/config/features';
 import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 import { triggerBlobDownload } from '@/utils/blob';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 type Props = {
   invoice: SalesInvoice;
@@ -76,8 +82,11 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
   const [transportDistanceKm, setTransportDistanceKm] = useState(
     transport?.transportDistanceKm ?? String(invoice.transportDistanceKm ?? ''),
   );
-  const [lastEinvoicePayload, setLastEinvoicePayload] = useState<unknown>(null);
+  const [cnlRsn, setCnlRsn] = useState('1');
+  const [cnlRem, setCnlRem] = useState('');
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [lastEwayPayload, setLastEwayPayload] = useState<unknown>(null);
+  const [lastEinvoicePayload, setLastEinvoicePayload] = useState<unknown>(null);
 
   useEffect(() => {
     setIrn(invoice.irn ?? '');
@@ -128,9 +137,10 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
   });
 
   const cancelEinvoiceMutation = useMutation({
-    mutationFn: () => cancelInvoiceEinvoice(invoice.id),
+    mutationFn: () => cancelInvoiceEinvoice(invoice.id, { cnlRsn, cnlRem: cnlRem.trim() }),
     onSuccess: () => {
-      onMessage?.('e-Invoice cancelled');
+      onMessage?.(t('einvoice.cancelled'));
+      setCancelOpen(false);
       invalidate();
     },
     onError: (err) => onError?.(getErrorMessage(err)),
@@ -209,7 +219,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
               color={statusColor(invoice.einvoiceStatus)}
             />
           </Stack>
-          {invoice.einvoiceError ? <Alert severity="error" sx={{ mb: 1 }}>{invoice.einvoiceError}</Alert> : null}
+          {invoice.einvoiceError ? <HelpErrorAlert message={invoice.einvoiceError} sx={{ mb: 1 }} /> : null}
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
             <Button
               variant="outlined"
@@ -235,9 +245,9 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
                 color="warning"
                 size="small"
                 disabled={cancelEinvoiceMutation.isPending}
-                onClick={() => cancelEinvoiceMutation.mutate()}
+                onClick={() => setCancelOpen(true)}
               >
-                Cancel
+                {t('einvoice.cancel')}
               </Button>
             ) : null}
             {lastEinvoicePayload ? (
@@ -290,7 +300,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
               color={statusColor(invoice.ewayStatus)}
             />
           </Stack>
-          {invoice.ewayError ? <Alert severity="error" sx={{ mb: 1 }}>{invoice.ewayError}</Alert> : null}
+          {invoice.ewayError ? <HelpErrorAlert message={invoice.ewayError} sx={{ mb: 1 }} /> : null}
           {transportFromParent ? (
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               Vehicle: {resolvedTransport.vehicleNumber || '—'} · Transporter:{' '}
@@ -393,6 +403,42 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
           </Stack>
         </Box>
       </Stack>
+      <Dialog open={cancelOpen} onClose={() => setCancelOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>{t('einvoice.cancelTitle')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              select
+              label={t('einvoice.cancelReason')}
+              size="small"
+              value={cnlRsn}
+              onChange={(e) => setCnlRsn(e.target.value)}
+            >
+              <MenuItem value="1">{t('einvoice.cnl1')}</MenuItem>
+              <MenuItem value="2">{t('einvoice.cnl2')}</MenuItem>
+              <MenuItem value="3">{t('einvoice.cnl3')}</MenuItem>
+              <MenuItem value="4">{t('einvoice.cnl4')}</MenuItem>
+            </TextField>
+            <TextField
+              label={t('einvoice.cancelRemarks')}
+              size="small"
+              value={cnlRem}
+              onChange={(e) => setCnlRem(e.target.value)}
+              required
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCancelOpen(false)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={!cnlRem.trim() || cancelEinvoiceMutation.isPending}
+            onClick={() => cancelEinvoiceMutation.mutate()}
+          >
+            {t('einvoice.cancel')}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 }

@@ -64,4 +64,14 @@ describe('useBillingSaveFeedback', () => {
     expect(result.current.message).toBeNull();
     expect(result.current.error).toBeNull();
   });
+
+  it('flashError from an Error keeps the source for Why?', () => {
+    const { result } = renderHook(() => useBillingSaveFeedback());
+    const err = new Error('Insufficient stock');
+    act(() => {
+      result.current.flashError(err);
+    });
+    expect(result.current.error).toBe('Insufficient stock');
+    expect(result.current.errorSource).toBe(err);
+  });
 });

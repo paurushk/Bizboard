@@ -78,6 +78,12 @@ class BankAccountViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), CanViewPaymentSurfaces()]
         return super().get_permissions()
 
+    def get_queryset(self):
+        from payments.services import sync_company_bank_account
+
+        sync_company_bank_account(self.company)
+        return super().get_queryset()
+
     def perform_create(self, serializer):
         if serializer.validated_data.get("is_default"):
             BankAccount.objects.filter(company=self.company, is_default=True).update(is_default=False)

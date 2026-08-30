@@ -9,7 +9,6 @@ from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from inventory.models import StockBalance
 from ledgers.services import LedgerService
 from masters.models import Customer
 from payments.models import CustomerReceipt
@@ -104,30 +103,28 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
             payload={"ap_due_7d": str(ap_signal), "receipts_7d": str(recent_receipts)},
         ))
 
-    # Low stock fast movers
+    # Low stock fast movers — company-wide available vs product reorder
+    # unless a per-godown WarehouseReorderLevel override exists (E2E3-019).
+    from inventory.views import low_stock_alert_payload
+
     since = as_of - timedelta(days=14)
     sold_ids = set(
         SalesInvoice.objects.filter(
             company=company, status__in=OPEN_SALES, invoice_date__gte=since,
         ).values_list("items__product_id", flat=True).distinct()
     )
-    low = (
-        StockBalance.objects.filter(company=company, product_id__in=sold_ids)
-        .select_related("product")
-        .filter(product__reorder_level__gt=0)
-    )
-    for bal in low:
-        available = (bal.on_hand or Decimal("0")) - (bal.reserved or Decimal("0"))
-        if available <= (bal.product.reorder_level or Decimal("0")):
-            alerts.append(_alert(
-                "LOW_STOCK_FAST_MOVER",
-                "warning",
-                f"{bal.product.name} is below reorder and sold in the last 14 days.",
-                subject_key=f"product:{bal.product_id}",
-                document_type="product",
-                document_id=bal.product_id,
-                cta_path="/inventory/low-stock",
-            ))
+    for bal in low_stock_alert_payload(company):
+        if bal.product_id not in sold_ids:
+            continue
+        alerts.append(_alert(
+            "LOW_STOCK_FAST_MOVER",
+            "warning",
+            f"{bal.product.name} is below reorder and sold in the last 14 days.",
+            subject_key=f"product:{bal.product_id}",
+            document_type="product",
+            document_id=bal.product_id,
+            cta_path="/inventory/low-stock",
+        ))
 
     # No sales today
     sales_today = SalesInvoice.objects.filter(

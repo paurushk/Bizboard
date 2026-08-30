@@ -14,7 +14,9 @@ import * as api from '@/api/resources';
 import { todayIso } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney } from '@/utils/money';
+import { t } from '@/i18n';
 import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 export function JournalsPage() {
   const qc = useQueryClient();
@@ -63,11 +65,11 @@ export function JournalsPage() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['journals'] }),
   });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell
-      title="Journals"
-      subtitle="Manual vouchers. Posted lines are immutable — reverse with a contra entry."
+      title={t('phase.journals')}
+      subtitle={t('phase.journalsSubtitle')}
       actions={
         <Button variant="contained" onClick={() => setOpen(true)}>
           New voucher
@@ -148,7 +150,7 @@ export function JournalsPage() {
               Debit {formatMoney(totals.debit)} · Credit {formatMoney(totals.credit)}
               {totals.balanced ? ' · Balanced' : ' · Not balanced'}
             </Alert>
-            {error ? <Alert severity="error">{error}</Alert> : null}
+            {error ? <HelpErrorAlert message={error} /> : null}
           </Stack>
         </DialogContent>
         <DialogActions>

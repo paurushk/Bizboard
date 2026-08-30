@@ -9,6 +9,10 @@ export interface DraftLine {
   sku: string;
   hsnCode: string;
   unitName: string;
+  baseUnitName?: string;
+  alternateUnitName?: string;
+  conversionRate?: number;
+  sourceItemId?: number | null;
   batchNo: string;
   batch?: number | null;
   trackBatch?: boolean;
@@ -31,6 +35,7 @@ export interface DraftLine {
   cess: number;
   lineTotal: number;
   gross: number;
+  supplyNature?: 'TAXABLE' | 'NIL' | 'EXEMPT' | 'NON_GST';
 }
 
 export type DraftLinePriceField = 'sellingPrice' | 'purchasePrice';

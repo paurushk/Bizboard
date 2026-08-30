@@ -10,6 +10,8 @@ import {
   canManageUsers,
   canViewFinancialReports,
   canViewInventorySurfaces,
+  canViewBankRecon,
+  canViewPaymentSurfaces,
   canViewPurchaseSurfaces,
   canViewSalesSurfaces,
   isAccountant,
@@ -84,5 +86,58 @@ describe('permissions', () => {
     expect(canViewSalesSurfaces(viewer)).toBe(false);
     expect(canViewPurchaseSurfaces(viewer)).toBe(false);
     expect(canViewInventorySurfaces(viewer)).toBe(false);
+  });
+
+  it('canViewPaymentSurfaces follows create-payments or sales view, not purchase-only', () => {
+    expect(canViewPaymentSurfaces({ ...mockSalesUser, canCreatePayments: true })).toBe(true);
+    expect(
+      canViewPaymentSurfaces({
+        ...mockSalesUser,
+        canCreatePayments: false,
+        canCreateSales: true,
+        canViewFinancialReports: false,
+      }),
+    ).toBe(true);
+    expect(
+      canViewPaymentSurfaces({
+        ...mockSalesUser,
+        canCreatePayments: false,
+        canCreateSales: false,
+        canCreatePurchases: true,
+        canViewFinancialReports: false,
+      }),
+    ).toBe(false);
+    const viewer = {
+      ...mockSalesUser,
+      role: 'VIEWER' as const,
+      canCreatePayments: true,
+      canViewFinancialReports: true,
+    };
+    expect(canViewPaymentSurfaces(viewer)).toBe(false);
+  });
+
+  it('canViewBankRecon is create-payments or financial reports, not sales-view', () => {
+    expect(
+      canViewBankRecon({
+        ...mockSalesUser,
+        canCreatePayments: false,
+        canCreateSales: true,
+        canViewFinancialReports: false,
+      }),
+    ).toBe(false);
+    expect(
+      canViewBankRecon({
+        ...mockSalesUser,
+        canCreatePayments: true,
+        canViewFinancialReports: false,
+      }),
+    ).toBe(true);
+    expect(
+      canViewBankRecon({
+        ...mockSalesUser,
+        canCreatePayments: false,
+        canViewFinancialReports: true,
+      }),
+    ).toBe(true);
   });
 });

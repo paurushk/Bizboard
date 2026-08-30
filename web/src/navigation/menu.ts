@@ -7,6 +7,8 @@ import {
   isPayrollEnabled,
   isPosEnabled,
   isTallyEnabled,
+  isHelpV2Enabled,
+  isTdsEnabled,
 } from '@/config/features';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import type { User } from '@/types/domain';
@@ -26,6 +28,9 @@ import {
   canViewInventorySurfaces,
   canViewPurchaseSurfaces,
   canViewSalesSurfaces,
+  canViewPaymentSurfaces,
+  canViewBankRecon,
+  isOwner,
 } from '@/utils/permissions';
 
 export interface NavItem {
@@ -37,7 +42,7 @@ export interface NavItem {
 }
 
 function posVisible(user: User | null): boolean {
-  return isPosEnabled() && canCreateSales(user);
+  return (isPosEnabled() || isRuntimeFlagEnabled('ENABLE_POS')) && canCreateSales(user);
 }
 
 export const navigation: NavItem[] = [
@@ -71,14 +76,20 @@ export const navigation: NavItem[] = [
       // dead-ended into "Access denied" on click (and were listed as
       // "reachable" on the Forbidden landing page, which is what surfaced this).
       { id: 'sales-history', labelKey: 'nav.salesHistory', path: '/sales/history', visible: canViewSalesSurfaces },
-      { id: 'quotations', labelKey: 'nav.quotations', path: '/sales/quotations', visible: canCreateSales },
-      { id: 'receipts', labelKey: 'nav.receipts', path: '/sales/receipts', visible: canCreatePayments },
-      { id: 'sales-returns', labelKey: 'nav.salesReturns', path: '/sales/returns', visible: canCreateSales },
+      { id: 'quotations', labelKey: 'nav.quotations', path: '/sales/quotations', visible: canViewSalesSurfaces },
+      { id: 'receipts', labelKey: 'nav.receipts', path: '/sales/receipts', visible: canViewPaymentSurfaces },
+      {
+        id: 'sales-bill-upload',
+        labelKey: 'nav.uploadSalesBill',
+        path: '/sales/bill-upload',
+        visible: canImport,
+      },
+      { id: 'sales-returns', labelKey: 'nav.salesReturns', path: '/sales/returns', visible: canViewSalesSurfaces },
       { id: 'credit-notes', labelKey: 'nav.creditNotes', path: '/sales/credit-notes', visible: canViewSalesSurfaces },
       { id: 'debit-notes', labelKey: 'nav.debitNotes', path: '/sales/debit-notes', visible: canViewSalesSurfaces },
       { id: 'sales-orders', labelKey: 'nav.salesOrders', path: '/sales/orders', visible: canViewSalesSurfaces },
       { id: 'delivery-challans', labelKey: 'nav.deliveryChallans', path: '/sales/delivery-challans', visible: canViewSalesSurfaces },
-      { id: 'recurring-invoices', labelKey: 'nav.recurringInvoices', path: '/sales/recurring', visible: canCreateSales },
+      { id: 'recurring-invoices', labelKey: 'nav.recurringInvoices', path: '/sales/recurring', visible: canViewSalesSurfaces },
       { id: 'customers', labelKey: 'nav.customers', path: '/sales/customers', visible: canViewSalesSurfaces },
     ],
   },
@@ -102,7 +113,7 @@ export const navigation: NavItem[] = [
         path: '/purchases/payments',
         visible: canCreatePayments,
       },
-      { id: 'purchase-returns', labelKey: 'nav.purchaseReturns', path: '/purchases/returns', visible: canCreatePurchases },
+      { id: 'purchase-returns', labelKey: 'nav.purchaseReturns', path: '/purchases/returns', visible: canViewPurchaseSurfaces },
       { id: 'purchase-credit-notes', labelKey: 'nav.purchaseCreditNotes', path: '/purchases/credit-notes', visible: canViewPurchaseSurfaces },
       { id: 'purchase-debit-notes', labelKey: 'nav.purchaseDebitNotes', path: '/purchases/debit-notes', visible: canViewPurchaseSurfaces },
       { id: 'purchase-orders', labelKey: 'nav.purchaseOrders', path: '/purchases/orders', visible: canViewPurchaseSurfaces },
@@ -112,12 +123,12 @@ export const navigation: NavItem[] = [
   {
     id: 'payments',
     labelKey: 'nav.payments',
-    visible: canCreatePayments,
+    visible: canViewPaymentSurfaces,
     children: [
-      { id: 'payment-links', labelKey: 'nav.paymentLinks', path: '/payments/links' },
-      { id: 'bank-statements', labelKey: 'nav.bankStatements', path: '/payments/statements' },
-      { id: 'payment-recon', labelKey: 'nav.bankReconciliation', path: '/payments/reconciliation' },
-      { id: 'cash-book-payments', labelKey: 'nav.cashBook', path: '/reports/cash-book' },
+      { id: 'payment-links', labelKey: 'nav.paymentLinks', path: '/payments/links', visible: canCreatePayments },
+      { id: 'bank-statements', labelKey: 'nav.bankStatements', path: '/payments/statements', visible: canCreatePayments },
+      { id: 'payment-recon', labelKey: 'nav.bankReconciliation', path: '/payments/reconciliation', visible: canViewBankRecon },
+      { id: 'cash-book-payments', labelKey: 'nav.cashBook', path: '/reports/cash-book', visible: canViewFinancialReports },
     ],
   },
   {
@@ -140,6 +151,7 @@ export const navigation: NavItem[] = [
       },
       { id: 'low-stock', labelKey: 'nav.lowStock', path: '/inventory/low-stock', visible: canViewInventorySurfaces },
       { id: 'warehouses', labelKey: 'nav.warehouses', path: '/inventory/warehouses', visible: canAdjustInventory },
+      { id: 'stock-counts', labelKey: 'nav.stockCounts', path: '/inventory/stock-counts', visible: canAdjustInventory },
       { id: 'stock-transfers', labelKey: 'nav.stockTransfers', path: '/inventory/transfers', visible: canAdjustInventory },
       { id: 'expiry-alerts', labelKey: 'nav.expiryAlerts', path: '/inventory/expiry-alerts', visible: canViewInventorySurfaces },
       { id: 'serials', labelKey: 'nav.serials', path: '/inventory/serials', visible: canAdjustInventory },
@@ -198,6 +210,24 @@ export const navigation: NavItem[] = [
         visible: () => isGstrReportsEnabled(),
       },
       {
+        id: 'report-gstr6',
+        labelKey: 'nav.gstr6',
+        path: '/reports/gstr6',
+        visible: () => false,
+      },
+      {
+        id: 'report-gstr7',
+        labelKey: 'nav.gstr7',
+        path: '/reports/gstr7',
+        visible: () => false,
+      },
+      {
+        id: 'report-gstr8',
+        labelKey: 'nav.gstr8',
+        path: '/reports/gstr8',
+        visible: () => false,
+      },
+      {
         id: 'report-gstr9',
         labelKey: 'nav.gstr9',
         path: '/reports/gstr9',
@@ -224,7 +254,7 @@ export const navigation: NavItem[] = [
         id: 'report-tds-tcs',
         labelKey: 'nav.tdsTcs',
         path: '/reports/tds-tcs',
-        visible: () => isRuntimeFlagEnabled('ENABLE_TDS'),
+        visible: () => isTdsEnabled(),
       },
       { id: 'cash-book', labelKey: 'nav.cashBook', path: '/reports/cash-book' },
       { id: 'stock-valuation', labelKey: 'nav.stockValuation', path: '/reports/stock-valuation' },
@@ -312,9 +342,22 @@ export const navigation: NavItem[] = [
         visible: canManageGst,
       },
       {
+        id: 'help-health',
+        labelKey: 'nav.helpHealth',
+        path: '/settings/help',
+        visible: (user) =>
+          Boolean(user && (isOwner(user.role) || user.isStaff) && isHelpV2Enabled()),
+      },
+      {
         id: 'units',
         labelKey: 'nav.units',
         path: '/settings/units',
+        visible: canManageUsers,
+      },
+      {
+        id: 'item-settings',
+        labelKey: 'nav.itemSettings',
+        path: '/settings/items',
         visible: canManageUsers,
       },
       {
@@ -365,6 +408,7 @@ export const navigation: NavItem[] = [
       { id: 'accounting-recon', labelKey: 'nav.bankReconciliation', path: '/accounting/bank-reconciliation' },
     ],
   },
+  { id: 'help', labelKey: 'nav.help', path: '/help' },
 ];
 
 export function filterNav(user: User | null): NavItem[] {
@@ -379,17 +423,21 @@ export function filterNav(user: User | null): NavItem[] {
     .filter((item) => !item.children || item.children.length > 0);
 }
 
-// UXW2B-015: many leaf nav items (Sales History, Credit/Debit Notes, Sales/Purchase
-// Orders, Delivery Challans, …) have no per-item `visible` guard in `navigation`
-// above — they rely on the *route* guard (RoleRoute in App.tsx) to actually block
-// access. `filterNav` alone isn't enough to know a path really works; reproduce
-// the relevant route guards here too so this never points at a page that
-// immediately bounces the user back to this same landing.
 export function isReallyReachable(user: User | null, path: string): boolean {
-  if (path === '/') return canViewFinancialReports(user);
-  if (path.startsWith('/sales/') || path === '/pos') return canViewSalesSurfaces(user);
-  if (path.startsWith('/purchases/')) return canViewPurchaseSurfaces(user);
-  return true;
+  if (path === '/pos' && posVisible(user)) return true;
+  const nav = filterNav(user);
+  for (const item of nav) {
+    if (item.path && pathMatches(item.path, path)) return true;
+    if (item.children?.some((child) => child.path && pathMatches(child.path, path))) return true;
+  }
+  return false;
+}
+
+function pathMatches(navPath: string, path: string): boolean {
+  const clean = path.split('?')[0];
+  if (navPath === clean) return true;
+  if (navPath !== '/' && clean.startsWith(`${navPath}/`)) return true;
+  return false;
 }
 
 /** First sidebar path the user can open (BB-000528 limited-role landing). */

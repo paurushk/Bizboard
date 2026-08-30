@@ -13,6 +13,12 @@ on:
         description: "Also push :latest tags"
         required: false
         default: "false"
+      # R5-009: a manual dispatch bypasses the automatic "CI succeeded on this
+      # SHA" gate. Require the operator to explicitly attest CI is green.
+      confirm_ci_green:
+        description: "Type 'yes' to confirm CI has passed for this SHA"
+        required: true
+        default: "no"
 
 permissions:
   contents: read
@@ -31,6 +37,11 @@ jobs:
         run: |
           test "${{ github.event.workflow_run.conclusion }}" = "success"
           echo "CI SHA=${{ github.event.workflow_run.head_sha }} ok"
+      - name: Require CI attestation on manual dispatch
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          test "${{ github.event.inputs.confirm_ci_green }}" = "yes" \
+            || { echo "::error::Set confirm_ci_green=yes only after CI has passed for this SHA."; exit 1; }
       # BB-000749: seed dummy .env before compose.prod config (match CI docker job).
       - name: Compose env for CD
         run: |
@@ -76,9 +87,15 @@ jobs:
       - name: Build and push Web
         run: |
           docker build \
-            --build-arg VITE_ENABLE_ACCOUNTING=false \
+            --build-arg VITE_ENABLE_ACCOUNTING=true \
             --build-arg VITE_ENABLE_AI=false \
             --build-arg VITE_ENABLE_TALLY=false \
+            --build-arg VITE_ENABLE_GSTR=true \
+            --build-arg VITE_ENABLE_EINVOICE_SUBMIT=true \
+            --build-arg VITE_ENABLE_POS=true \
+            --build-arg VITE_ENABLE_MANUFACTURING=false \
+            --build-arg VITE_ENABLE_PAYROLL=false \
+            --build-arg VITE_ENABLE_CRM=false \
             -t "${{ steps.meta.outputs.prefix }}/bizboard-web:${{ steps.meta.outputs.sha }}" ./web
           docker push "${{ steps.meta.outputs.prefix }}/bizboard-web:${{ steps.meta.outputs.sha }}"
           if [ "${{ github.event.inputs.push_latest || 'false' }}" = "true" ]; then

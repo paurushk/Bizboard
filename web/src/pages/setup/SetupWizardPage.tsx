@@ -21,6 +21,7 @@ import {
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { PreventionNote } from '@/pages/help/PreventionNote';
 import {
   completeSalesInvoice,
   createCustomer,
@@ -40,6 +41,7 @@ import { t } from '@/i18n';
 import { trackOnboardingEvent } from '@/onboarding/analytics';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
 import type { RegistrationType } from '@/types/domain';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const STEP_KEYS = ['tax', 'shop', 'payments', 'catalog', 'first_bill'] as const;
 type StepKey = (typeof STEP_KEYS)[number];
@@ -63,6 +65,7 @@ export function SetupWizardPage() {
   const requestedStep = searchParams.get('step');
   const companyQuery = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const productsQuery = useQuery({ queryKey: ['setup-products'], queryFn: () => listProducts() });
+  const lastCreatedProductId = useRef<number | null>(null);
   const startedRef = useRef(false);
   const [activeStep, setActiveStep] = useState(() => stepIndex(requestedStep));
   const [busy, setBusy] = useState(false);
@@ -105,8 +108,9 @@ export function SetupWizardPage() {
   useEffect(() => {
     if (!company || startedRef.current || company.onboarding?.started) return;
     startedRef.current = true;
-    void updateCompany({ markOnboardingStarted: true }).catch(() => {
+    void updateCompany({ markOnboardingStarted: true }).catch((err) => {
       startedRef.current = false;
+      setError(getErrorMessage(err));
     });
   }, [company]);
 
@@ -119,7 +123,7 @@ export function SetupWizardPage() {
     return <Box minHeight="100vh" display="grid" sx={{ placeItems: 'center' }}><CircularProgress /></Box>;
   }
   if (companyQuery.isError || !company) {
-    return <Box p={3}><Alert severity="error">{getErrorMessage(companyQuery.error)}</Alert></Box>;
+    return <Box p={3}><HelpErrorAlert error={companyQuery.error} /></Box>;
   }
 
   const moveTo = (next: number) => {
@@ -206,6 +210,7 @@ export function SetupWizardPage() {
         reorderLevel: 0,
         status: 'ACTIVE',
       });
+      lastCreatedProductId.current = created.id;
       if (Number(product.openingQty) > 0) {
         await createOpeningStock({ product: created.id, quantity: Number(product.openingQty) });
       }
@@ -244,7 +249,10 @@ export function SetupWizardPage() {
   const createFirstBill = () =>
     void run(async () => {
       const latestProducts = await listProducts();
-      const firstProduct = latestProducts[0];
+      const firstProduct =
+        latestProducts.find((item) => item.id === lastCreatedProductId.current) ??
+        latestProducts[latestProducts.length - 1] ??
+        latestProducts[0];
       if (!firstProduct) throw new Error(t('setup.errors.catalogRequired'));
       const customers = await listCustomers();
       const customer =
@@ -310,12 +318,13 @@ export function SetupWizardPage() {
           <Stack spacing={2.5}>
             <Typography variant="h4">{labels[activeStep]}</Typography>
             <Typography color="text.secondary">{t(`setup.descriptions.${STEP_KEYS[activeStep]}`)}</Typography>
-            {error ? <Alert severity="error">{error}</Alert> : null}
+            {error ? <HelpErrorAlert message={error} /> : null}
 
             {activeStep === 0 ? (
               <>
                 <FormControl>
                   <FormLabel>{t('setup.registrationType')}</FormLabel>
+                  <PreventionNote intent="registration-type" slot="signup-registration-type" />
                   <RadioGroup value={registrationType} onChange={(e) => setRegistrationType(e.target.value as RegistrationType)}>
                     <FormControlLabel value="UNREGISTERED" control={<Radio />} label={t('setup.unregistered')} />
                     <FormControlLabel value="REGULAR" control={<Radio />} label={t('setup.regular')} />

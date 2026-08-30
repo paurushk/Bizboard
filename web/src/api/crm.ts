@@ -61,11 +61,15 @@ export async function updateLead(id: number, payload: Partial<Lead>): Promise<Le
   return unwrapData<Lead>(data);
 }
 
-export async function convertLead(id: number, won = false): Promise<LeadConvertResult> {
-  const { data } = await apiClient.post(`${BASE}/leads/${id}/convert/`, {}, {
-    params: won ? { won: 1 } : undefined,
-    headers: idempotencyHeaders(),
-  });
+export async function convertLead(
+  id: number,
+  opts: { won?: boolean; amount?: number | string } = {},
+): Promise<LeadConvertResult> {
+  const { data } = await apiClient.post(
+    `${BASE}/leads/${id}/convert/`,
+    { won: opts.won ? 1 : 0, amount: opts.amount ?? 0 },
+    { headers: idempotencyHeaders() },
+  );
   return unwrapData<LeadConvertResult>(data);
 }
 

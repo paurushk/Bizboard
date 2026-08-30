@@ -151,15 +151,22 @@ def build_export_payload(company) -> dict[str, Any]:
     from reporting.models import Gstr2bIngest
     from sales.models import SalesInvoice, SalesItem
     from accounts.models import CompanyGstin
+    from inventory.models import Warehouse, BatchLot, StockMovement, StockBalance, SerialNumber, InventoryCostLayer
 
     company_profile = _row_dict(company, extra_exclude=COMPANY_SKIP_FIELDS)
     gstins = _rows(CompanyGstin.objects.filter(company=company).order_by("id"))
+    warehouses = _rows(Warehouse.objects.filter(company=company).order_by("id"))
     customers = _rows(Customer.objects.filter(company=company).order_by("id"), extra_exclude={"price_list_id"})
     suppliers = _rows(Supplier.objects.filter(company=company).order_by("id"))
     products = _rows(
         Product.objects.filter(company=company).order_by("id"),
         extra_exclude={"category_id", "brand_id", "unit_id"},
     )
+    batch_lots = _rows(BatchLot.objects.filter(company=company).order_by("id"))
+    stock_balances = _rows(StockBalance.objects.filter(company=company).order_by("id"))
+    stock_movements = _rows(StockMovement.objects.filter(company=company).order_by("id"))
+    serial_numbers = _rows(SerialNumber.objects.filter(company=company).order_by("id"))
+    inventory_cost_layers = _rows(InventoryCostLayer.objects.filter(company=company).order_by("id"))
     sales_invoices = _rows(
         SalesInvoice.objects.filter(company=company).order_by("id"),
         extra_exclude={"warehouse_id", "cost_center_id", "signature_id", "pdf_file_id"},
@@ -233,9 +240,15 @@ def build_export_payload(company) -> dict[str, Any]:
         "source_company_name": company.name,
         "company": company_profile,
         "gstins": gstins,
+        "warehouses": warehouses,
         "customers": customers,
         "suppliers": suppliers,
         "products": products,
+        "batch_lots": batch_lots,
+        "stock_balances": stock_balances,
+        "stock_movements": stock_movements,
+        "serial_numbers": serial_numbers,
+        "inventory_cost_layers": inventory_cost_layers,
         "sales_invoices": sales_invoices,
         "sales_items": sales_items,
         "purchase_invoices": purchase_invoices,
@@ -265,9 +278,15 @@ def encrypt_export_zip(payload: dict[str, Any]) -> bytes:
         json_sections = (
             "company",
             "gstins",
+            "warehouses",
             "customers",
             "suppliers",
             "products",
+            "batch_lots",
+            "stock_balances",
+            "stock_movements",
+            "serial_numbers",
+            "inventory_cost_layers",
             "sales_invoices",
             "sales_items",
             "purchase_invoices",
@@ -331,6 +350,12 @@ def decrypt_export_zip(blob: bytes, *, company_id: int | None = None) -> dict[st
             "customers": _load("customers.json") or [],
             "suppliers": _load("suppliers.json") or [],
             "products": _load("products.json") or [],
+            "warehouses": _load("warehouses.json") or [],
+            "batch_lots": _load("batch_lots.json") or [],
+            "stock_balances": _load("stock_balances.json") or [],
+            "stock_movements": _load("stock_movements.json") or [],
+            "serial_numbers": _load("serial_numbers.json") or [],
+            "inventory_cost_layers": _load("inventory_cost_layers.json") or [],
             "sales_invoices": _load("sales_invoices.json") or [],
             "sales_items": _load("sales_items.json") or [],
             "purchase_invoices": _load("purchase_invoices.json") or [],
@@ -408,15 +433,31 @@ def _copy_model_fields(model, row: dict, *, skip: set[str], remap: dict[str, int
 def wipe_logical_tenant_rows(company) -> None:
     """Delete business rows on a company so destroy-in-place restore can reload."""
     from accounting.models import Account, JournalEntry, JournalLine
+    from accounts.models import CompanyGstin
     from core.models import FileAsset
+    from imports.models import ImportJob
     from inventory.models import BatchLot, InventoryCostLayer, SerialNumber, StockBalance, StockMovement
     from masters.models import Customer, Product, Supplier
     from payments.models import CustomerReceipt, PaymentAllocation, SupplierPayment
-    from purchases.models import PurchaseInvoice
+    from purchases.models import (
+        PurchaseCreditNote,
+        PurchaseDebitNote,
+        PurchaseInvoice,
+        PurchaseOrder,
+        PurchaseReturn,
+    )
     from reporting.models import Gstr2bIngest
-    from sales.models import SalesInvoice
-    from accounts.models import CompanyGstin
+    from sales.models import (
+        DeliveryChallan,
+        Quotation,
+        SalesCreditNote,
+        SalesDebitNote,
+        SalesInvoice,
+        SalesOrder,
+        SalesReturn,
+    )
 
+    ImportJob.objects.filter(company=company).delete()
     PaymentAllocation.objects.filter(company=company).delete()
     JournalLine.objects.filter(company=company).delete()
     JournalEntry.objects.filter(company=company).update(reversed_entry=None)
@@ -424,7 +465,17 @@ def wipe_logical_tenant_rows(company) -> None:
     Gstr2bIngest.objects.filter(company=company).delete()
     CustomerReceipt.objects.filter(company=company).delete()
     SupplierPayment.objects.filter(company=company).delete()
+    Quotation.objects.filter(company=company).delete()
+    SalesOrder.objects.filter(company=company).delete()
+    DeliveryChallan.objects.filter(company=company).delete()
+    SalesCreditNote.objects.filter(company=company).delete()
+    SalesDebitNote.objects.filter(company=company).delete()
+    SalesReturn.objects.filter(company=company).delete()
     SalesInvoice.objects.filter(company=company).delete()
+    PurchaseOrder.objects.filter(company=company).delete()
+    PurchaseCreditNote.objects.filter(company=company).delete()
+    PurchaseDebitNote.objects.filter(company=company).delete()
+    PurchaseReturn.objects.filter(company=company).delete()
     PurchaseInvoice.objects.filter(company=company).delete()
     InventoryCostLayer.objects.filter(company=company).delete()
     StockMovement.objects.filter(company=company).delete()
@@ -462,6 +513,7 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
     from reporting.models import Gstr2bIngest
     from sales.models import SalesInvoice, SalesItem
     from accounts.models import CompanyGstin
+    from inventory.models import Warehouse, BatchLot, StockMovement, StockBalance, SerialNumber, InventoryCostLayer
 
     profile = payload.get("company") or {}
     _apply_company_profile(target_company, profile)
@@ -476,6 +528,27 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         )
         obj = CompanyGstin.objects.create(company=target_company, **kwargs)
         gstin_map[row.get("id")] = obj.pk
+
+    warehouse_map: dict[Any, int] = {}
+    default_wh = Warehouse.objects.filter(company=target_company, is_default=True).first()
+    if default_wh:
+        warehouse_map["default"] = default_wh.pk
+    for row in payload.get("warehouses") or []:
+        kwargs = _copy_model_fields(
+            Warehouse,
+            row,
+            skip={"id", "company_id"},
+            remap={},
+        )
+        if default_wh and kwargs.get("is_default"):
+            warehouse_map[row.get("id")] = default_wh.pk
+            continue
+        existing = Warehouse.objects.filter(company=target_company, code=kwargs.get("code")).first()
+        if existing:
+            warehouse_map[row.get("id")] = existing.pk
+        else:
+            obj = Warehouse.objects.create(company=target_company, **kwargs)
+            warehouse_map[row.get("id")] = obj.pk
 
     customer_map: dict[Any, int] = {}
     for row in payload.get("customers") or []:
@@ -509,6 +582,19 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         )
         obj = Product.objects.create(company=target_company, created_by=owner, updated_by=owner, **kwargs)
         product_map[row.get("id")] = obj.pk
+
+    batch_map: dict[Any, int] = {}
+    for row in payload.get("batch_lots") or []:
+        kwargs = _copy_model_fields(
+            BatchLot,
+            row,
+            skip={"id", "company_id"},
+            remap={"product_id": product_map},
+        )
+        if not kwargs.get("product_id"):
+            continue
+        obj = BatchLot.objects.create(company=target_company, **kwargs)
+        batch_map[row.get("id")] = obj.pk
 
     sales_map: dict[Any, int] = {}
     for row in payload.get("sales_invoices") or []:
@@ -660,6 +746,66 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         if not kwargs.get("entry_id") or not kwargs.get("account_id"):
             continue
         JournalLine.objects.create(company=target_company, **kwargs)
+
+    for row in payload.get("stock_movements") or []:
+        kwargs = _copy_model_fields(
+            StockMovement,
+            row,
+            skip={"id", "company_id", "created_by_id"},
+            remap={
+                "warehouse_id": warehouse_map,
+                "product_id": product_map,
+                "batch_id": batch_map,
+            },
+        )
+        if not kwargs.get("warehouse_id") or not kwargs.get("product_id"):
+            continue
+        StockMovement.objects.create(company=target_company, created_by=owner, **kwargs)
+
+    for row in payload.get("stock_balances") or []:
+        kwargs = _copy_model_fields(
+            StockBalance,
+            row,
+            skip={"id", "company_id"},
+            remap={
+                "warehouse_id": warehouse_map,
+                "product_id": product_map,
+                "batch_id": batch_map,
+            },
+        )
+        if not kwargs.get("warehouse_id") or not kwargs.get("product_id"):
+            continue
+        StockBalance.objects.create(company=target_company, **kwargs)
+
+    for row in payload.get("serial_numbers") or []:
+        kwargs = _copy_model_fields(
+            SerialNumber,
+            row,
+            skip={"id", "company_id"},
+            remap={
+                "warehouse_id": warehouse_map,
+                "product_id": product_map,
+                "batch_id": batch_map,
+            },
+        )
+        if not kwargs.get("warehouse_id") or not kwargs.get("product_id"):
+            continue
+        SerialNumber.objects.create(company=target_company, **kwargs)
+
+    for row in payload.get("inventory_cost_layers") or []:
+        kwargs = _copy_model_fields(
+            InventoryCostLayer,
+            row,
+            skip={"id", "company_id"},
+            remap={
+                "warehouse_id": warehouse_map,
+                "product_id": product_map,
+                "batch_id": batch_map,
+            },
+        )
+        if not kwargs.get("warehouse_id") or not kwargs.get("product_id"):
+            continue
+        InventoryCostLayer.objects.create(company=target_company, **kwargs)
 
     for row in payload.get("gstr2b") or []:
         kwargs = _copy_model_fields(

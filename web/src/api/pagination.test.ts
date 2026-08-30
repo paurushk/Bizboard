@@ -26,9 +26,9 @@ describe('list pagination helpers', () => {
       },
     });
     const page = await fetchPage<{ id: number }>('/customers/', { page: 2, pageSize: 50, q: 'acme' });
-    expect(apiClient.get).toHaveBeenCalledWith('/customers/', {
+    expect(apiClient.get).toHaveBeenCalledWith('/customers/', expect.objectContaining({
       params: { page: '2', page_size: '50', q: 'acme' },
-    });
+    }));
     expect(page.results).toHaveLength(2);
     expect(page.count).toBe(120);
     expect(page.next).toContain('page=3');

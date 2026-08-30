@@ -19,6 +19,7 @@ export type DocumentTotals = {
   cgstTotal: number;
   sgstTotal: number;
   igstTotal: number;
+  cessTotal?: number;
   roundOff: number;
   grandTotal: number;
 };
@@ -50,6 +51,10 @@ export function DocumentTaxSummary({
   totalLabel,
   additionalCharges,
   onAdditionalChargesChange,
+  chargesHsn,
+  onChargesHsnChange,
+  chargesGstRate,
+  onChargesGstRateChange,
   invoiceDiscount,
   onInvoiceDiscountChange,
   invoiceDiscountMode,
@@ -60,6 +65,7 @@ export function DocumentTaxSummary({
   partyRole = 'customer',
   isCompletedEdit,
   canAmendMoney,
+  blockAfterTaxDiscount = false,
   extraAlerts,
   children,
 }: {
@@ -68,6 +74,10 @@ export function DocumentTaxSummary({
   totalLabel?: string;
   additionalCharges: number;
   onAdditionalChargesChange: (n: number) => void;
+  chargesHsn?: string;
+  onChargesHsnChange?: (v: string) => void;
+  chargesGstRate?: number;
+  onChargesGstRateChange?: (n: number) => void;
   invoiceDiscount: number;
   onInvoiceDiscountChange: (n: number) => void;
   invoiceDiscountMode: InvoiceDiscountMode;
@@ -78,6 +88,10 @@ export function DocumentTaxSummary({
   partyRole?: 'customer' | 'supplier';
   isCompletedEdit: boolean;
   canAmendMoney: boolean;
+  /** R5-001: the backend blocks AFTER_TAX invoice discount on B2B GST invoices
+   *  (sales/services.py). Disable the option so the preview never diverges from
+   *  what Complete will accept. */
+  blockAfterTaxDiscount?: boolean;
   extraAlerts?: ReactNode;
   children?: ReactNode;
 }) {
@@ -88,19 +102,43 @@ export function DocumentTaxSummary({
         <SummaryRow
           label={`+ ${t('billing.additionalCharges')}`}
           value={
-            <NumericField
-              value={additionalCharges}
-              onValueChange={onAdditionalChargesChange}
-              min={0}
-              decimals={2}
-              fullWidth={false}
-              disabled={isCompletedEdit && !canAmendMoney}
-              helperText={t('billing.additionalChargesHint')}
-              InputProps={{
-                startAdornment: <InputAdornment position="start">₹</InputAdornment>,
-              }}
-              sx={{ maxWidth: 140 }}
-            />
+            <Stack spacing={0.75} alignItems="flex-end">
+              <NumericField
+                value={additionalCharges}
+                onValueChange={onAdditionalChargesChange}
+                min={0}
+                decimals={2}
+                fullWidth={false}
+                disabled={isCompletedEdit && !canAmendMoney}
+                helperText={t('billing.additionalChargesHint')}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                }}
+                sx={{ maxWidth: 140 }}
+              />
+              {onChargesHsnChange && additionalCharges > 0 ? (
+                <Stack direction="row" spacing={1}>
+                  <CompactField
+                    label={t('billing.chargesHsn')}
+                    size="small"
+                    value={chargesHsn ?? ''}
+                    onChange={(e) => onChargesHsnChange(e.target.value)}
+                    disabled={isCompletedEdit && !canAmendMoney}
+                    sx={{ width: 110 }}
+                  />
+                  <NumericField
+                    label={t('billing.chargesGstRate')}
+                    value={chargesGstRate ?? 0}
+                    onValueChange={(n) => onChargesGstRateChange?.(n)}
+                    min={0}
+                    decimals={2}
+                    fullWidth={false}
+                    disabled={isCompletedEdit && !canAmendMoney}
+                    sx={{ width: 100 }}
+                  />
+                </Stack>
+              ) : null}
+            </Stack>
           }
         />
         <SummaryRow label={t('billing.taxableAmount')} value={formatMoney(totals.taxableTotal)} />
@@ -112,6 +150,9 @@ export function DocumentTaxSummary({
         ) : null}
         {totals.igstTotal > 0 ? (
           <SummaryRow label={t('billing.igst')} value={formatMoney(totals.igstTotal)} />
+        ) : null}
+        {typeof totals.cessTotal === 'number' && totals.cessTotal > 0 ? (
+          <SummaryRow label="Cess" value={formatMoney(totals.cessTotal)} />
         ) : null}
         {totals.igstTotal > 0 ? (
           <Typography variant="caption" color="text.secondary">
@@ -133,7 +174,9 @@ export function DocumentTaxSummary({
                 disabled={isCompletedEdit && !canAmendMoney}
                 sx={{ minWidth: 180 }}
               >
-                <MenuItem value="AFTER_TAX">{t('billing.invoiceDiscountAfterTax')}</MenuItem>
+                <MenuItem value="AFTER_TAX" disabled={blockAfterTaxDiscount}>
+                  {t('billing.invoiceDiscountAfterTax')}
+                </MenuItem>
                 <MenuItem value="BEFORE_TAX">{t('billing.invoiceDiscountBeforeTax')}</MenuItem>
               </CompactField>
               <NumericField
@@ -151,6 +194,11 @@ export function DocumentTaxSummary({
             </Stack>
           }
         />
+        {blockAfterTaxDiscount ? (
+          <Typography variant="caption" color="text.secondary">
+            {t('billing.invoiceDiscountAfterTaxBlockedB2b')}
+          </Typography>
+        ) : null}
         {!posKnown ? (
           <Alert severity="warning" sx={{ mt: 1 }}>
             {partyRole === 'supplier'

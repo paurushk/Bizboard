@@ -139,7 +139,11 @@ function readLocal(companyId: number, userId: number): OutboxDraft[] {
 }
 
 function writeLocal(companyId: number, userId: number, drafts: OutboxDraft[]): void {
-  localStorage.setItem(lsKey(companyId, userId), JSON.stringify(drafts));
+  try {
+    localStorage.setItem(lsKey(companyId, userId), JSON.stringify(drafts));
+  } catch {
+    // Storage quota exceeded or disabled
+  }
 }
 
 function migrateV1IfNeeded(companyId: number, userId: number): OutboxDraft[] {
@@ -148,26 +152,31 @@ function migrateV1IfNeeded(companyId: number, userId: number): OutboxDraft[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as InvoiceDraft;
     if (parsed.version !== 1 || !Array.isArray(parsed.lines)) return [];
-    localStorage.removeItem(v1Key(companyId, userId));
-    return [
-      {
-        version: 2,
-        id: parsed.idempotencyKey,
-        companyId,
-        userId,
-        kind: 'pos',
-        idempotencyKey: parsed.idempotencyKey,
-        savedAt: parsed.savedAt,
-        payload: {
-          customer: parsed.customerId,
-          items: parsed.lines,
-          paymentMode: parsed.paymentMode,
-        },
-        customerId: parsed.customerId,
+    const idempotencyKey = parsed.idempotencyKey || newIdempotencyKey();
+    const migrated: OutboxDraft = {
+      version: 2,
+      id: `${scopeKey(companyId, userId)}:${idempotencyKey}`,
+      companyId,
+      userId,
+      kind: 'pos',
+      idempotencyKey,
+      savedAt: parsed.savedAt || new Date().toISOString(),
+      payload: {
+        customer: parsed.customerId,
+        items: parsed.lines,
         paymentMode: parsed.paymentMode,
-        lines: parsed.lines,
       },
-    ];
+      customerId: parsed.customerId,
+      paymentMode: parsed.paymentMode,
+      lines: parsed.lines,
+    };
+    const existing = readLocal(companyId, userId).filter((d) => d.idempotencyKey !== idempotencyKey);
+    writeLocal(companyId, userId, [...existing, migrated]);
+    if (idbAvailable()) {
+      void idbPut(migrated).catch(() => undefined);
+    }
+    localStorage.removeItem(v1Key(companyId, userId));
+    return [migrated];
   } catch {
     return [];
   }
@@ -175,29 +184,24 @@ function migrateV1IfNeeded(companyId: number, userId: number): OutboxDraft[] {
 
 export async function listDrafts(companyId: number, userId: number): Promise<OutboxDraft[]> {
   const migrated = migrateV1IfNeeded(companyId, userId);
+  const local = readLocal(companyId, userId);
+  let idb: OutboxDraft[] = [];
   if (idbAvailable()) {
     try {
-      const all = await idbGetAll();
-      const scoped = all.filter((d) => d.companyId === companyId && d.userId === userId);
-      if (migrated.length) {
-        for (const draft of migrated) await idbPut(draft);
-        return [...scoped, ...migrated.filter((m) => !scoped.some((s) => s.id === m.id))];
-      }
-      return scoped;
+      idb = (await idbGetAll()).filter((d) => d.companyId === companyId && d.userId === userId);
     } catch {
-      // fall through to localStorage
+      idb = [];
     }
   }
-  const local = readLocal(companyId, userId);
-  if (migrated.length) {
-    const merged = [...local];
-    for (const draft of migrated) {
-      if (!merged.some((d) => d.id === draft.id)) merged.push(draft);
-    }
-    writeLocal(companyId, userId, merged);
-    return merged;
+  const byId = new Map<string, OutboxDraft>();
+  for (const draft of local) byId.set(draft.id, draft);
+  for (const draft of idb) byId.set(draft.id, draft);
+  for (const draft of migrated) {
+    if (!byId.has(draft.id)) byId.set(draft.id, draft);
   }
-  return local;
+  return [...byId.values()].sort(
+    (a, b) => new Date(a.savedAt).getTime() - new Date(b.savedAt).getTime(),
+  );
 }
 
 export async function enqueueDraft(
@@ -229,16 +233,15 @@ export async function enqueueDraft(
     lines: input.lines,
   };
 
+  const existing = readLocal(companyId, userId).filter((d) => d.idempotencyKey !== idempotencyKey);
+  writeLocal(companyId, userId, [...existing, draft]);
   if (idbAvailable()) {
     try {
       await idbPut(draft);
-      return draft;
     } catch {
-      // fall through
+      // local already written
     }
   }
-  const existing = readLocal(companyId, userId).filter((d) => d.idempotencyKey !== idempotencyKey);
-  writeLocal(companyId, userId, [...existing, draft]);
   return draft;
 }
 
@@ -281,7 +284,9 @@ export async function flushOutbox(
   sendFn: (draft: OutboxDraft) => Promise<void>,
   filter?: (draft: OutboxDraft) => boolean,
 ): Promise<{ flushed: number; failed: number; errors: string[] }> {
-  const drafts = (await listDrafts(companyId, userId)).filter((d) => (filter ? filter(d) : true));
+  const drafts = (await listDrafts(companyId, userId)).filter(
+    (d) => isFlushableDraft(d) && (filter ? filter(d) : true),
+  );
   let flushed = 0;
   let failed = 0;
   const errors: string[] = [];
@@ -345,22 +350,36 @@ export function loadInvoiceDraft(companyId: number, userId: number): InvoiceDraf
   };
 }
 
-export function clearInvoiceDraft(companyId: number, userId: number): void {
-  const local = readLocal(companyId, userId);
-  writeLocal(
-    companyId,
-    userId,
-    local.filter((d) => d.kind !== 'pos'),
-  );
-  localStorage.removeItem(v1Key(companyId, userId));
-  void listDrafts(companyId, userId).then((drafts) =>
-    Promise.all(
-      drafts.filter((d) => d.kind === 'pos').map((d) => removeDraft(companyId, userId, d.idempotencyKey)),
-    ),
-  );
+export async function loadInvoiceDraftAsync(
+  companyId: number,
+  userId: number,
+): Promise<InvoiceDraft | null> {
+  const drafts = await listDrafts(companyId, userId);
+  const pos = [...drafts].reverse().find((d) => d.kind === 'pos');
+  if (!pos || !pos.lines || pos.customerId == null || !pos.paymentMode) return null;
+  return {
+    version: 1,
+    customerId: pos.customerId,
+    lines: pos.lines,
+    paymentMode: pos.paymentMode,
+    idempotencyKey: pos.idempotencyKey,
+    savedAt: pos.savedAt,
+  };
 }
 
-/** FE-08: lightweight purchase editor draft (autosave / restore). */
+export async function clearInvoiceDraft(companyId: number, userId: number): Promise<void> {
+  const drafts = await listDrafts(companyId, userId);
+  await Promise.all(
+    drafts.filter((d) => d.kind === 'pos').map((d) => removeDraft(companyId, userId, d.idempotencyKey)),
+  );
+  localStorage.removeItem(v1Key(companyId, userId));
+}
+
+export const PURCHASE_AUTOSAVE_KEY = 'purchase-editor-draft';
+
+export function isFlushableDraft(draft: OutboxDraft): boolean {
+  return draft.idempotencyKey !== PURCHASE_AUTOSAVE_KEY;
+}
 export async function savePurchaseDraft(
   companyId: number,
   userId: number,
@@ -370,7 +389,7 @@ export async function savePurchaseDraft(
   return enqueueDraft(companyId, userId, {
     kind: 'purchase',
     payload,
-    idempotencyKey: idempotencyKey || 'purchase-editor-draft',
+    idempotencyKey: idempotencyKey || PURCHASE_AUTOSAVE_KEY,
   });
 }
 
@@ -379,13 +398,9 @@ export async function loadPurchaseDraft(
   userId: number,
 ): Promise<OutboxDraft | null> {
   const drafts = await listDrafts(companyId, userId);
-  const purchase = [...drafts].reverse().find((d) => d.kind === 'purchase');
-  return purchase ?? null;
+  return drafts.find((d) => d.kind === 'purchase' && d.idempotencyKey === PURCHASE_AUTOSAVE_KEY) ?? null;
 }
 
 export async function clearPurchaseDraft(companyId: number, userId: number): Promise<void> {
-  const drafts = await listDrafts(companyId, userId);
-  await Promise.all(
-    drafts.filter((d) => d.kind === 'purchase').map((d) => removeDraft(companyId, userId, d.idempotencyKey)),
-  );
+  await removeDraft(companyId, userId, PURCHASE_AUTOSAVE_KEY);
 }

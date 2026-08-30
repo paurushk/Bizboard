@@ -57,6 +57,7 @@ def test_payu_adapter_exists_and_fail_closed_without_credentials():
     assert "not configured" in str(exc.value).lower()
 
 
+@override_settings(ENABLE_CASHFREE=True)
 def test_get_adapter_registers_cashfree_class():
     adapter = get_adapter("cashfree", {"app_id": "", "secret_key": ""})
     assert adapter.name == "cashfree"
@@ -128,7 +129,18 @@ def test_switch_company_multi_membership(tenant_a, tenant_b):
     assert user.active_company_id == tenant_b.company.id
 
 
-@override_settings(ENABLE_MANUFACTURING=True, ENABLE_PAYROLL=False, ENABLE_CRM=False)
+@override_settings(ENABLE_MANUFACTURING=True, ENABLE_PAYROLL=True, ENABLE_CRM=True)
+def test_feature_flags_dark_modules_require_company_opt_in(tenant_a):
+    tenant_a.company.feature_flags = {"ENABLE_CRM": True}
+    tenant_a.company.save(update_fields=["feature_flags"])
+    resp = tenant_a.client.get("/api/v1/feature-flags/")
+    assert resp.status_code == 200
+    assert resp.data["ENABLE_MANUFACTURING"] is False
+    assert resp.data["ENABLE_PAYROLL"] is False
+    assert resp.data["ENABLE_CRM"] is True
+
+
+@override_settings(ENABLE_MANUFACTURING=True, ENABLE_PAYROLL=False, ENABLE_CRM=True)
 def test_feature_flags_endpoint(tenant_a):
     tenant_a.company.feature_flags = {"ENABLE_CRM": True, "ENABLE_MANUFACTURING": False}
     tenant_a.company.save(update_fields=["feature_flags"])
@@ -138,6 +150,7 @@ def test_feature_flags_endpoint(tenant_a):
     assert resp.data["ENABLE_MANUFACTURING"] is False
     assert resp.data["ENABLE_PAYROLL"] is False
     assert resp.data["ENABLE_CRM"] is True
+    assert resp.data["item_custom_fields_v2"] is True
 
 
 def test_feature_flags_anonymous_ok():
@@ -145,4 +158,6 @@ def test_feature_flags_anonymous_ok():
 
     resp = APIClient().get("/api/v1/feature-flags/")
     assert resp.status_code == 200
-    assert "ENABLE_MANUFACTURING" in resp.data
+    assert "ENABLE_SETUP_WIZARD" in resp.data
+    assert "ENABLE_MANUFACTURING" not in resp.data
+    assert "ENABLE_PAYROLL" not in resp.data

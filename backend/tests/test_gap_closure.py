@@ -58,8 +58,8 @@ def test_dashboard_receivables_match_ledger_service(tenant_a):
     assert Decimal(str(dash.data["receivables"])) == expected
 
 
-def test_b2cl_threshold_is_two_and_a_half_lakh():
-    assert B2CL_THRESHOLD == Decimal("250000")
+def test_b2cl_threshold_is_one_lakh_from_aug_2024():
+    assert B2CL_THRESHOLD == Decimal("100000")
 
 
 def test_b2cl_classifies_above_new_threshold(tenant_a):

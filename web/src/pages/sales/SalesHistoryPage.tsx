@@ -36,13 +36,15 @@ import {
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { formatMoney } from '@/utils/money';
 import { canCreateSales } from '@/utils/permissions';
-import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
 import { isSetupWizardEnabled } from '@/config/features';
 
 const PAGE_SIZE = 50;
@@ -164,15 +166,14 @@ export function SalesHistoryPage() {
         </Alert>
       ) : null}
       {error ? (
-        <Alert severity="error" onClose={() => setError(null)}>
-          {error}
-        </Alert>
+        <HelpErrorAlert message={error} onClose={() => setError(null)} />
       ) : null}
 
       {showLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState
           message={getErrorMessage(query.error)}
+          error={query.error}
           onRetry={() => void query.refetch()}
         />
       ) : null}
@@ -180,18 +181,20 @@ export function SalesHistoryPage() {
         <EmptyState
           description={t('empty.invoices')}
           action={
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-              {canContinueSetup ? (
-                <Button component={RouterLink} to="/setup?step=first_bill" variant="contained">
-                  {t('setup.continueSetup')}
-                </Button>
-              ) : null}
-              {allowCreate ? (
-                <Button component={RouterLink} to="/sales/new" variant={canContinueSetup ? 'outlined' : 'contained'}>
-                  {t('nav.newInvoice')}
-                </Button>
-              ) : null}
-            </Stack>
+            <HelpEmptyLink intent="cannot-complete-invoice">
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                {canContinueSetup ? (
+                  <Button component={RouterLink} to="/setup?step=first_bill" variant="contained">
+                    {t('setup.continueSetup')}
+                  </Button>
+                ) : null}
+                {allowCreate ? (
+                  <Button component={RouterLink} to="/sales/new" variant={canContinueSetup ? 'outlined' : 'contained'}>
+                    {t('nav.newInvoice')}
+                  </Button>
+                ) : null}
+              </Stack>
+            </HelpEmptyLink>
           }
         />
       ) : null}
@@ -218,8 +221,12 @@ export function SalesHistoryPage() {
                   in normal flow — without these leading/trailing spacer rows they'd always
                   render right after the header, so scrolling past the first screenful showed
                   blank space instead of the (correctly computed) later rows. */}
-              {virtualRows.length > 0 ? (
-                <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden>
+              {virtualRows.length > 0 && virtualRows[0].start > 0 ? (
+                <TableRow
+                  style={{ height: virtualRows[0].start, padding: 0, border: 0 }}
+                  aria-hidden
+                  role="presentation"
+                >
                   <TableCell style={{ padding: 0, border: 0 }} colSpan={6} />
                 </TableRow>
               ) : null}
@@ -242,8 +249,8 @@ export function SalesHistoryPage() {
                   <TableCell>{inv.customerName ?? '—'}</TableCell>
                   <TableCell>
                     <StatusChip
-                      tone={documentStatusTone(inv.status)}
-                      labelKey={statusLabelKey(inv.status)}
+                      tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance))}
+                      labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance))}
                     />
                   </TableCell>
                   <TableCell align="right">{formatMoney(inv.grandTotal)}</TableCell>
@@ -263,7 +270,8 @@ export function SalesHistoryPage() {
                 </TableRow>
                 );
               })}
-              {virtualRows.length > 0 ? (
+              {virtualRows.length > 0 &&
+              Math.max(0, rows.length * 52 - virtualRows[virtualRows.length - 1].end) > 0 ? (
                 <TableRow
                   style={{
                     height: Math.max(0, rows.length * 52 - virtualRows[virtualRows.length - 1].end),
@@ -271,6 +279,7 @@ export function SalesHistoryPage() {
                     border: 0,
                   }}
                   aria-hidden
+                  role="presentation"
                 >
                   <TableCell style={{ padding: 0, border: 0 }} colSpan={6} />
                 </TableRow>
@@ -388,7 +397,7 @@ export function SalesHistoryPage() {
               closeMenu();
               // BUG-520: a single mis-click on this menu used to cancel a
               // completed, potentially already-shared GST invoice.
-              if (window.confirm(`Cancel invoice ${label}? This cannot be undone.`)) {
+              if (window.confirm(t('history.confirmCancel', { label }))) {
                 cancelMutation.mutate(id);
               }
             }}
@@ -407,7 +416,7 @@ export function SalesHistoryPage() {
               const id = active.id;
               const label = invoiceNumberLabel(active);
               closeMenu();
-              if (window.confirm(`Delete draft ${label}? This cannot be undone.`)) {
+              if (window.confirm(t('history.confirmDeleteDraft', { label }))) {
                 deleteMutation.mutate(id);
               }
             }}

@@ -10,8 +10,8 @@ import {
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import * as authApi from '@/api/auth';
-import { shouldUseMocks, silentRefreshAccessToken } from '@/api/client';
-import { fetchFeatureFlags } from '@/config/featureFlags';
+import { ACTIVE_COMPANY_STORAGE_KEY, shouldUseMocks, silentRefreshAccessToken } from '@/api/client';
+import { clearFeatureFlagsCache, fetchFeatureFlags } from '@/config/featureFlags';
 import {
   clearSession,
   getAccessToken,
@@ -31,6 +31,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   loginWithOtp: (phone: string, code: string) => Promise<void>;
   register: (payload: authApi.RegisterPayload) => Promise<'session' | 'pending'>;
+  setSession: (nextUser: User, access: string) => Promise<void>;
   logout: () => Promise<void>;
   usingMockSession: boolean;
 }
@@ -53,6 +54,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
     setAuthReady(true);
   }, []);
+
+  const setSession = useCallback(
+    async (nextUser: User, access: string) => {
+      applySession(nextUser, access);
+      await fetchFeatureFlags(true);
+    },
+    [applySession],
+  );
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -79,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return 'pending';
       }
       applySession(result.user, result.tokens.access);
+      await fetchFeatureFlags(true);
       return 'session';
     },
     [applySession],
@@ -96,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     await clearBizboardPwaCaches();
+    clearFeatureFlagsCache();
     clearSession();
     setUser(null);
     setUsingMockSession(false);
@@ -105,6 +116,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // BUG-407: force logged-out state when refresh fails.
   useEffect(() => {
     const onSessionExpired = () => {
+      const stored = getStoredUser();
+      const companyId = stored?.companyId;
+      const userId = stored?.id;
+      clearFeatureFlagsCache();
+      if (companyId && userId) {
+        void clearAllDrafts(companyId, userId).catch(() => {
+          // best-effort wipe
+        });
+      }
       void clearBizboardPwaCaches();
       clearSession();
       setUser(null);
@@ -112,7 +132,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthReady(true);
     };
     window.addEventListener('bizboard:session-expired', onSessionExpired);
-    return () => window.removeEventListener('bizboard:session-expired', onSessionExpired);
+
+    // R5-004: the stored active-company id no longer matches the server's
+    // active company (usually a company switch in another tab). Drop the stale
+    // header value and reload so the app re-resolves the company from /auth/me
+    // instead of every request 409-ing.
+    const onCompanyConflict = () => {
+      try {
+        localStorage.removeItem(ACTIVE_COMPANY_STORAGE_KEY);
+      } catch {
+        // ignore storage errors
+      }
+      window.location.reload();
+    };
+    window.addEventListener('bizboard:company-context-conflict', onCompanyConflict);
+
+    return () => {
+      window.removeEventListener('bizboard:session-expired', onSessionExpired);
+      window.removeEventListener('bizboard:company-context-conflict', onCompanyConflict);
+    };
   }, []);
 
   // UXW2-002: proactive sliding refresh so long invoice forms do not dump to /login
@@ -235,10 +273,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       loginWithOtp,
       register,
+      setSession,
       logout,
       usingMockSession,
     }),
-    [user, authReady, login, loginWithOtp, register, logout, usingMockSession],
+    [user, authReady, login, loginWithOtp, register, setSession, logout, usingMockSession],
   );
 
   if (!authReady) {

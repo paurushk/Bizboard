@@ -34,7 +34,7 @@ class NotificationService:
                 notification.save(update_fields=["status", "error"])
                 return notification
 
-            send_email_notification.delay(notification.id)
+            send_email_notification.delay(notification.id, company_id=company.id)
             # In eager mode (dev/test) the task has already updated the row.
             notification.refresh_from_db()
         elif channel == Notification.Channel.WHATSAPP:

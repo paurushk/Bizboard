@@ -5,7 +5,15 @@ import pytest
 from rest_framework.test import APIClient
 
 from accounts.models import Company, CompanyUser, User
+from django.core.cache import cache
 from masters.models import Customer, Product, Supplier
+
+
+@pytest.fixture(autouse=True)
+def clear_cache_before_each_test():
+    cache.clear()
+    yield
+    cache.clear()
 
 
 def make_tenant(slug, state="Karnataka"):
@@ -16,7 +24,7 @@ def make_tenant(slug, state="Karnataka"):
     staff = User.objects.create_user(
         email=f"staff@{slug}.test", password="StrongPass123!", full_name=f"{slug} staff",
     )
-    company = Company.objects.create(name=f"{slug} Traders", state=state)
+    company = Company.objects.create(name=f"{slug} Traders", state=state, ai_features_enabled=True)
     CompanyUser.objects.create(
         company=company, user=owner, role=CompanyUser.Role.OWNER,
         can_manage_inventory=True, can_import=True,

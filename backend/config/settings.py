@@ -11,6 +11,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
+from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -47,6 +48,7 @@ _KNOWN_PLACEHOLDER_SECRETS = {
     "replace-with-a-long-random-secret",
     "replace-with-long-random-secret-at-least-32-chars",
     "change-me-in-production",
+    "dev-only-change-me-long-random-secret-key-32chars",
 }
 
 ALLOWED_HOSTS = [
@@ -147,11 +149,11 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "billing.middleware.SubscriptionWriteGateMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "core.middleware.RequestIdMiddleware",
     "core.middleware.PostgresRlsMiddleware",
+    "billing.middleware.SubscriptionWriteGateMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -200,7 +202,11 @@ AUTH_USER_MODEL = "accounts.User"
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    # R1-004: 10-char floor for an app that handles money (Django default is 8).
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 10},
+    },
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
     # BB-000497: local breached-password snippet; full HIBP k-anonymity is ops-owned.
@@ -270,10 +276,17 @@ REST_FRAMEWORK = {
         "gst_reports": "30/min",
         "heavy_reports": "60/min",
         "search": "60/min",
+        "help_events": "30/min",
+        "help_feedback": "20/min",
+        "password_reset": "5/min",
+        "password_reset_confirm": "20/min",
     },
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "JSON_UNDERSCOREIZE": {
         "no_underscore_before_number": True,
+        # Nested keys in this map are product field identifiers (brandCode), not
+        # API field names. Recursing would turn them into brand_code and 400.
+        "ignore_fields": ("custom_fields", "customFields"),
     },
 }
 
@@ -320,12 +333,6 @@ FRONTEND_URL = (os.environ.get("FRONTEND_URL") or "").rstrip("/") or (
 
 _cors_regex_env = os.environ.get("CORS_ALLOWED_ORIGIN_REGEXES", "")
 CORS_ALLOWED_ORIGIN_REGEXES = [r.strip() for r in _cors_regex_env.split(",") if r.strip()]
-for host in ALLOWED_HOSTS:
-    if host.startswith("."):
-        domain = re.escape(host.lstrip("."))
-        pattern = rf"^https?://([^/]+\.)?{domain}(:\d+)?$"
-        if pattern not in CORS_ALLOWED_ORIGIN_REGEXES:
-            CORS_ALLOWED_ORIGIN_REGEXES.append(pattern)
 # BB-000258 / BB-000352: HMAC secret for sandbox payment webhooks.
 SANDBOX_WEBHOOK_SECRET = (os.environ.get("SANDBOX_WEBHOOK_SECRET") or "").strip()
 # BB-000318: sandbox provider is forbidden in production/staging (no settlement path).
@@ -366,10 +373,23 @@ else:
     }
 CELERY_BROKER_URL = REDIS_URL or "redis://localhost:6379/0"
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
-from celery.schedules import crontab
 
 CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_TASK_ALWAYS_EAGER", "0") == "1"
 CELERY_TASK_EAGER_PROPAGATES = True
+# A down broker must fail fast instead of blocking Complete on the OS TCP timeout.
+CELERY_BROKER_CONNECTION_TIMEOUT = 2
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_CONNECTION_MAX_RETRIES = 1
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    "socket_connect_timeout": 2,
+    "socket_timeout": 2,
+}
+CELERY_TASK_PUBLISH_RETRY_POLICY = {
+    "max_retries": 1,
+    "interval_start": 0,
+    "interval_step": 0.2,
+    "interval_max": 0.2,
+}
 # BB-000234: explicit timezone for beat (Django TIME_ZONE is Asia/Kolkata).
 # BB-000377: default beat TZ to Asia/Kolkata (matches Django TIME_ZONE).
 CELERY_TIMEZONE = os.environ.get("CELERY_TIMEZONE", "Asia/Kolkata")
@@ -396,6 +416,14 @@ CELERY_BEAT_SCHEDULE = {
     "sales-recurring-invoices": {
         "task": "sales.tasks.generate_recurring_invoices_task",
         "schedule": crontab(minute=15),
+    },
+    "payments-gateway-refund-outbox": {
+        "task": "payments.tasks.retry_pending_gateway_refunds",
+        "schedule": crontab(minute="*/5"),
+    },
+    "help-prune-events": {
+        "task": "core.tasks.prune_help_events_task",
+        "schedule": crontab(hour=3, minute=15, day_of_week=0),
     },
 }
 AI_MONTHLY_TOKEN_BUDGET_DEFAULT = int(os.environ.get("AI_MONTHLY_TOKEN_BUDGET_DEFAULT", "100000"))
@@ -428,6 +456,7 @@ SMS_PROVIDER = (os.environ.get("SMS_PROVIDER") or "console").strip().lower()
 ENABLE_API_DOCS = os.environ.get("ENABLE_API_DOCS", "1" if DEBUG else "0") == "1"
 # Tally HTTP gateway URL for XML push adapter (optional).
 TALLY_URL = os.environ.get("TALLY_URL", "")
+METRICS_TOKEN = os.environ.get("METRICS_TOKEN", "")
 # BB-000208: admin off by default outside DEBUG.
 ADMIN_ENABLED = os.environ.get("ADMIN_ENABLED", "1" if DEBUG else "0") == "1"
 # BB-000625: credentials always on; CORS_ALLOW_ALL_ORIGINS is wired and rejected with cookies.
@@ -467,13 +496,8 @@ if DJANGO_ENV in ("production", "staging") and CSRF_TRUSTED_ORIGINS:
 if not CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
 
-# Auto-add wildcard CSRF trusted origins for wildcard/subdomain hosts in ALLOWED_HOSTS (e.g. .trycloudflare.com -> https://*.trycloudflare.com)
-for host in ALLOWED_HOSTS:
-    if host.startswith("."):
-        for scheme in ("https://*", "http://*"):
-            origin = f"{scheme}{host}"
-            if origin not in CSRF_TRUSTED_ORIGINS:
-                CSRF_TRUSTED_ORIGINS.append(origin)
+# Do not expand ALLOWED_HOSTS ".host" into CSRF/CORS wildcards — that would
+# trust every subdomain of a tunnel/host suffix. Set CSRF_TRUSTED_ORIGINS explicitly.
 
 # Trust X-Forwarded-Proto from reverse proxy (nginx / load balancer / Cloudflare tunnel)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -527,6 +551,9 @@ DEEPSEEK_API_KEY = _env_value("DEEPSEEK_API_KEY")
 DEEPSEEK_BASE_URL = _env_value("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 ANTHROPIC_API_KEY = _env_value("ANTHROPIC_API_KEY")
 LLM_MODEL = _env_value("LLM_MODEL")
+# Vision extract for purchase/sales bills. Unset → gpt-4o (mini cannot read
+# 30×19 DMS photos). Chat/insights still use LLM_MODEL / gpt-4o-mini.
+LLM_BILL_MODEL = _env_value("LLM_BILL_MODEL")
 # Soft cap: pages actually rasterized/sent for extraction (batched in groups —
 # see imports/tasks.py). Hard cap: reject outright, this is essentially never
 # a genuine bill past this length (Bill Import Redesign Plan §7 Phase 3).
@@ -585,6 +612,10 @@ if _require_dedicated_secrets:
             f"DJANGO_ENV={DJANGO_ENV} "
             "(do not rely on SECRET_KEY-derived Fernet keys)."
         )
+    if GSP_FERNET_KEY.strip().rstrip("=").replace("A", "") == "":
+        raise ImproperlyConfigured(
+            "GSP_FERNET_KEY must not be the all-A placeholder from .env.example."
+        )
 
 # Optional Sentry (BB-000047 / BB-000360 / Wave 16A)
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
@@ -625,6 +656,7 @@ GSP_SANDBOX_BASE_URL = (os.environ.get("GSP_SANDBOX_BASE_URL") or "").rstrip("/"
 IDENTITY_PROVIDER = (os.environ.get("IDENTITY_PROVIDER") or "null").strip().lower()
 IDENTITY_SANDBOX_BASE_URL = (os.environ.get("IDENTITY_SANDBOX_BASE_URL") or "").rstrip("/")
 FIU_BASE_URL = (os.environ.get("FIU_BASE_URL") or "").rstrip("/")
+FIU_API_KEY = (os.environ.get("FIU_API_KEY") or "").strip()
 
 # Optional ClamAV host for media scan (compose profile clamav)
 CLAMAV_HOST = os.environ.get("CLAMAV_HOST", "").strip()
@@ -652,6 +684,8 @@ ENABLE_CASHFREE = os.environ.get("ENABLE_CASHFREE", "0") == "1"
 ENABLE_PAYU = os.environ.get("ENABLE_PAYU", "0") == "1"
 ENABLE_POS = os.environ.get("ENABLE_POS", "0") == "1"
 ENABLE_SETUP_WIZARD = os.environ.get("ENABLE_SETUP_WIZARD", "0") == "1"
+# Comma-separated company ids that always get Help v2 (internal / pilot).
+HELP_V2_COMPANY_ALLOWLIST = os.environ.get("HELP_V2_COMPANY_ALLOWLIST", "")
 # BB-000741: GSTR / Tally can unlock UI when VITE bake-off is false (CD).
 ENABLE_GSTR = os.environ.get("ENABLE_GSTR", "0") == "1"
 ENABLE_TALLY = os.environ.get("ENABLE_TALLY", "0") == "1"

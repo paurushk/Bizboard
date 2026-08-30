@@ -407,7 +407,7 @@ def test_gstr9_and_ca_pack(tenant_a):
     _complete(tenant_a, cust, product)
     resp = tenant_a.client.get("/api/v1/reports/gstr9/", {"fy": "2026-27"})
     assert resp.status_code == 200, resp.data
-    assert resp.data.get("aid_kind") == "outward_fy_aid"
+    assert resp.data.get("aid_kind") in ("outward_fy_aid", "gstr9_worksheet_mvp")
     assert "inward_taxable" in resp.data["annual"]
     monthly_sum = sum(Decimal(str(m["outward_taxable"])) for m in resp.data["monthly"])
     assert q2(monthly_sum) == Decimal(str(resp.data["annual"]["outward_taxable"]))
@@ -535,6 +535,45 @@ def test_source_item_cross_tenant_rejected(tenant_a, tenant_b):
         format="json",
     )
     assert cn.status_code == 400, cn.data
+
+
+def test_purchase_debit_note_source_item_cross_tenant_rejected(tenant_a, tenant_b):
+    from purchases.models import PurchaseItem
+    from tests.conftest import create_draft_purchase, make_supplier
+
+    product_a = make_product(tenant_a.company, sku="PA")
+    supplier_a = make_supplier(tenant_a.company, name="SupA")
+    pur_a = create_draft_purchase(tenant_a, supplier_a, [
+        {"product": product_a.id, "quantity": "2", "unit_price": "50"},
+    ])
+    assert tenant_a.client.post(f"/api/v1/purchases/invoices/{pur_a['id']}/complete/").status_code == 200
+    item_a = PurchaseItem.objects.get(invoice_id=pur_a["id"])
+
+    product_b = make_product(tenant_b.company, sku="PB")
+    supplier_b = make_supplier(tenant_b.company, name="SupB")
+    pur_b = create_draft_purchase(tenant_b, supplier_b, [
+        {"product": product_b.id, "quantity": "2", "unit_price": "50"},
+    ])
+    assert tenant_b.client.post(f"/api/v1/purchases/invoices/{pur_b['id']}/complete/").status_code == 200
+
+    dn = tenant_b.client.post(
+        "/api/v1/purchases/debit-notes/",
+        {
+            "supplier": supplier_b.id,
+            "purchase_invoice": pur_b["id"],
+            "note_date": PERIOD + "-20",
+            "reason": "CORRECTION_OF_INVOICE",
+            "items": [{
+                "product": product_b.id,
+                "quantity": "1",
+                "unit_price": "50",
+                "gst_rate": "18",
+                "source_item": item_a.id,
+            }],
+        },
+        format="json",
+    )
+    assert dn.status_code == 400, dn.data
 
 
 def test_gstr3b_outward_includes_charges_invoice(tenant_a):

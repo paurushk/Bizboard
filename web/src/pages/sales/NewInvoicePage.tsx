@@ -22,7 +22,7 @@ import Typography from '@mui/material/Typography';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import Alert from '@mui/material/Alert';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   completeSalesInvoice,
   createAllocation,
@@ -38,6 +38,7 @@ import {
   listBatches,
   listCostCenters,
   listPriceLists,
+  listProductsPage,
   listSalesInvoicesPage,
   listStock,
   listWarehouses,
@@ -52,15 +53,18 @@ import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import {
   enqueueDraft,
   listDrafts,
-  OUTBOX_PLAINTEXT_WARNING,
   OUTBOX_WARNING_DISMISS_KEY,
 } from '@/offline/invoiceDraftCache';
 import { isValidHsnSac } from '@/utils/gst';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
 import { canCreateSales } from '@/utils/permissions';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
+import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { DocumentTaxSummary } from '@/components/DocumentTaxSummary';
 import { t } from '@/i18n';
+import { preferredInvoiceType } from '@/onboarding/taxHints';
 import type { Customer, InvoiceType, PaymentMode, PriceMode, Product, SalesInvoice } from '@/types/domain';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
 import {
@@ -88,6 +92,8 @@ import {
   type DraftLine,
 } from '@/components/billing';
 import { InvoicePartyPanel } from '@/pages/sales/invoice/InvoicePartyPanel';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { HelpHint } from '@/pages/help/HelpHint';
 import { makeInvoiceLine } from '@/pages/sales/invoice/makeInvoiceLine';
 import { useInvoiceOffline } from '@/pages/sales/invoice/useInvoiceOffline';
 
@@ -98,6 +104,10 @@ export function NewInvoicePage() {
   const editId = editIdParam ? Number(editIdParam) : null;
   const isEdit = Number.isFinite(editId) && (editId as number) > 0;
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromBillUpload = Boolean(
+    (location.state as { fromBillUpload?: boolean } | null)?.fromBillUpload,
+  );
   const qc = useQueryClient();
   const { user } = useAuth();
   const isOwner = user?.role === 'OWNER';
@@ -108,10 +118,13 @@ export function NewInvoicePage() {
 
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [productQuery, setProductQuery] = useState('');
+  const [cfFilters, setCfFilters] = useState<Record<string, string[]>>({});
+  const customDefs = useVisibleCustomFieldDefs();
   const debouncedProductQuery = useDebouncedValue(productQuery, 300);
   const {
     message,
     error,
+    errorSource,
     setError,
     clearFeedback,
     flashSaveAndNew,
@@ -139,7 +152,8 @@ export function NewInvoicePage() {
   const [warehouseId, setWarehouseId] = useState<number | ''>('');
   const [companyGstinId, setCompanyGstinId] = useState<number | ''>('');
   const [costCenterId, setCostCenterId] = useState<number | ''>('');
-  const [invoiceType, setInvoiceType] = useState<InvoiceType>('GST');
+  const [invoiceType, setInvoiceType] = useState<InvoiceType>('NON_GST');
+  const [invoiceTypeTouched, setInvoiceTypeTouched] = useState(false);
   const [supplyType, setSupplyType] = useState<import('@/types/domain').SupplyType>('B2B');
   const [isReverseCharge, setIsReverseCharge] = useState(false);
   const [confirmSalesRcm, setConfirmSalesRcm] = useState(false);
@@ -170,6 +184,8 @@ export function NewInvoicePage() {
   const [tcsAmount, setTcsAmount] = useState(0);
 
   const [additionalCharges, setAdditionalCharges] = useState(0);
+  const [chargesHsn, setChargesHsn] = useState('');
+  const [chargesGstRate, setChargesGstRate] = useState(0);
   const [invoiceDiscount, setInvoiceDiscount] = useState(0);
   const [invoiceDiscountMode, setInvoiceDiscountMode] = useState<InvoiceDiscountMode>('AFTER_TAX');
   const [autoRoundOff, setAutoRoundOff] = useState(true);
@@ -187,6 +203,7 @@ export function NewInvoicePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [itemDialogError, setItemDialogError] = useState<string | null>(null);
+  const [itemDialogErrorSource, setItemDialogErrorSource] = useState<unknown>(null);
   const [itemForm, setItemForm] = useState({
     name: '',
     sku: '',
@@ -220,6 +237,10 @@ export function NewInvoicePage() {
   }, [companyId, userId, outboxBanner]);
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  useEffect(() => {
+    if (isEdit || invoiceTypeTouched || !company.data) return;
+    setInvoiceType(preferredInvoiceType(company.data.registrationType));
+  }, [company.data, isEdit, invoiceTypeTouched]);
   const customers = useQuery({
     queryKey: ['customers-search', debouncedCustomerQuery],
     queryFn: () => listCustomersPage({ q: debouncedCustomerQuery, pageSize: 50 }),
@@ -232,7 +253,11 @@ export function NewInvoicePage() {
   });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
   const companyGstins = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
-  const costCenters = useQuery({ queryKey: ['cost-centers'], queryFn: listCostCenters });
+  const costCenters = useQuery({
+    queryKey: ['cost-centers'],
+    queryFn: listCostCenters,
+    enabled: Boolean(company.data?.accountingEnabled),
+  });
   const priceLists = useQuery({ queryKey: ['price-lists'], queryFn: listPriceLists });
   const batches = useQuery({ queryKey: ['batches'], queryFn: () => listBatches() });
   const series = useQuery({
@@ -245,14 +270,18 @@ export function NewInvoicePage() {
     queryFn: () => getSalesInvoice(editId as number),
     enabled: isEdit,
   });
+  const productCatalog = useQuery({
+    queryKey: ['product-picker', cfFilters],
+    queryFn: () => listProductsPage({ page: 1, pageSize: 50, cf: cfFilters }),
+  });
   const products = useQuery({
-    queryKey: ['product-search', debouncedProductQuery],
-    queryFn: () => searchProducts(debouncedProductQuery),
+    queryKey: ['product-search', debouncedProductQuery, cfFilters],
+    queryFn: () => searchProducts(debouncedProductQuery, { cf: cfFilters }),
     enabled: debouncedProductQuery.length >= 1,
   });
   const stockBalances = useQuery({
     queryKey: ['stock'],
-    queryFn: listStock,
+    queryFn: () => listStock(),
     staleTime: 60_000,
   });
   const availableByProduct = useMemo(() => {
@@ -325,6 +354,8 @@ export function NewInvoicePage() {
     setShowBank(Boolean(inv.includeBankDetails));
     setShowQr(Boolean(inv.includePaymentQr));
     setAdditionalCharges(toNumber(inv.additionalCharges));
+    setChargesHsn(inv.chargesHsn ?? '');
+    setChargesGstRate(toNumber(inv.chargesGstRate));
     setInvoiceDiscount(toNumber(inv.invoiceDiscount));
     setInvoiceDiscountMode((inv.invoiceDiscountMode as InvoiceDiscountMode) || 'AFTER_TAX');
     setTcsSection(inv.tcsSection ?? '');
@@ -365,6 +396,7 @@ export function NewInvoicePage() {
               unitPriceInclusive: unitPrice,
               discountPercent,
               gstRate,
+              cessRate,
             }).exclusiveUnitPrice
           : unitPrice;
       const tax = calculateLineTax({
@@ -386,6 +418,9 @@ export function NewInvoicePage() {
         sku: '',
         hsnCode: item.hsnCode ?? '',
         unitName: item.unitName ?? 'PCS',
+        baseUnitName: (products.data ?? []).find((p) => p.id === item.product)?.unitName ?? 'PCS',
+        alternateUnitName: (products.data ?? []).find((p) => p.id === item.product)?.alternateUnitName,
+        conversionRate: toNumber((products.data ?? []).find((p) => p.id === item.product)?.conversionRate) || 1,
         batchNo: item.batchNo ?? '',
         batch: item.batch ?? null,
         trackBatch: Boolean(
@@ -403,6 +438,7 @@ export function NewInvoicePage() {
         unitPrice,
         gstRate,
         cessRate,
+        supplyNature: item.supplyNature ?? 'TAXABLE',
         ...tax,
       };
     });
@@ -456,7 +492,14 @@ export function NewInvoicePage() {
   const lineTaxes = useMemo(
     () =>
       lines.map((l) => {
-        const gstRate = invoiceType === 'NON_GST' ? 0 : l.gstRate;
+        const nature = (l.supplyNature ?? 'TAXABLE').toUpperCase();
+        const gstRate =
+          invoiceType === 'NON_GST' ||
+          supplyType === 'EXPWOP' ||
+          supplyType === 'SEZWOP' ||
+          nature !== 'TAXABLE'
+            ? 0
+            : l.gstRate;
         let unitPrice = l.unitPrice;
         if (priceMode === 'INCLUSIVE' && gstRate > 0) {
           unitPrice = extractExclusiveFromInclusiveLine({
@@ -464,6 +507,7 @@ export function NewInvoicePage() {
             unitPriceInclusive: l.unitPrice,
             discountPercent: l.discountPercent,
             gstRate,
+            cessRate: invoiceType === 'NON_GST' ? 0 : l.cessRate ?? 0,
           }).exclusiveUnitPrice;
           return calculateLineTax({
             quantity: l.quantity,
@@ -483,7 +527,7 @@ export function NewInvoicePage() {
           intraState,
         });
       }),
-    [lines, intraState, invoiceType, priceMode],
+    [lines, intraState, invoiceType, priceMode, supplyType],
   );
 
   const totals = useMemo(
@@ -491,18 +535,37 @@ export function NewInvoicePage() {
       calculateInvoiceTotals(
         lineTaxes.map((l, i) => ({
           ...l,
-          gstRate: invoiceType === 'NON_GST' ? 0 : lines[i]?.gstRate ?? 0,
-          cessRate: invoiceType === 'NON_GST' ? 0 : lines[i]?.cessRate ?? 0,
+          gstRate:
+            invoiceType === 'NON_GST' ||
+            supplyType === 'EXPWOP' ||
+            supplyType === 'SEZWOP' ||
+            (lines[i]?.supplyNature ?? 'TAXABLE') !== 'TAXABLE'
+              ? 0
+              : lines[i]?.gstRate ?? 0,
+          cessRate:
+            invoiceType === 'NON_GST' || supplyType === 'EXPWOP' || supplyType === 'SEZWOP'
+              ? 0
+              : lines[i]?.cessRate ?? 0,
+          // R5-002: on inclusive pricing the exclusive line gross would make the
+          // on-screen Subtotal disagree with the printed total — feed the
+          // inclusive gross so it reconciles.
+          inclusiveGross:
+            priceMode === 'INCLUSIVE'
+              ? roundMoney((lines[i]?.quantity ?? 0) * (lines[i]?.unitPrice ?? 0))
+              : undefined,
           intraState,
         })),
         {
           additionalCharges,
+          chargesHsn,
+          chargesGstRate,
           invoiceDiscount,
           applyRoundOff: autoRoundOff,
           invoiceDiscountMode,
+          intraState,
         },
       ),
-    [lineTaxes, lines, additionalCharges, invoiceDiscount, autoRoundOff, invoiceDiscountMode, intraState, invoiceType],
+    [lineTaxes, lines, additionalCharges, chargesHsn, chargesGstRate, invoiceDiscount, autoRoundOff, invoiceDiscountMode, intraState, invoiceType, supplyType, priceMode],
   );
 
   const posKnown =
@@ -510,6 +573,16 @@ export function NewInvoicePage() {
     !company.data?.isGstRegistered ||
     company.data?.assumeLocalStateForBlankParty ||
     placeOfSupplyKnown(selectedCustomer?.state, selectedCustomer?.gstin);
+
+  // R5-001: the backend blocks an AFTER_TAX invoice discount on B2B GST
+  // invoices — keep the form in sync so the preview total matches Complete.
+  const blockAfterTaxDiscount =
+    invoiceType !== 'NON_GST' && Boolean((selectedCustomer?.gstin || '').trim());
+  useEffect(() => {
+    if (blockAfterTaxDiscount && invoiceDiscountMode === 'AFTER_TAX') {
+      setInvoiceDiscountMode('BEFORE_TAX');
+    }
+  }, [blockAfterTaxDiscount, invoiceDiscountMode]);
 
   const balance = roundMoney(Math.max(0, totals.grandTotal - amountReceived));
 
@@ -544,7 +617,8 @@ export function NewInvoicePage() {
     setCustomerId('');
     setWarehouseId(warehouses.data?.find((warehouse) => warehouse.isDefault)?.id ?? '');
     setCostCenterId('');
-    setInvoiceType('GST');
+    setInvoiceType(preferredInvoiceType(company.data?.registrationType));
+    setInvoiceTypeTouched(false);
     setPriceMode('EXCLUSIVE');
     setInvoiceDate(todayIso());
     setPaymentTermsDays(30);
@@ -554,6 +628,8 @@ export function NewInvoicePage() {
     setShowBank(false);
     setShowQr(false);
     setAdditionalCharges(0);
+    setChargesHsn('');
+    setChargesGstRate(0);
     setInvoiceDiscount(0);
     setInvoiceDiscountMode('AFTER_TAX');
     setAmountReceived(0);
@@ -577,6 +653,8 @@ export function NewInvoicePage() {
     dueDate,
     paymentTermsDays,
     additionalCharges,
+    chargesHsn: chargesHsn.trim() || undefined,
+    chargesGstRate: chargesGstRate || undefined,
     invoiceDiscount,
     invoiceDiscountMode,
     autoRoundOff,
@@ -598,15 +676,20 @@ export function NewInvoicePage() {
       unitPriceInclusive: priceMode === 'INCLUSIVE' ? l.unitPrice : undefined,
       discountPercent: l.discountPercent,
       gstRate:
-        invoiceType === 'NON_GST' || supplyType === 'EXPWOP' || supplyType === 'SEZWOP'
+        invoiceType === 'NON_GST' ||
+        supplyType === 'EXPWOP' ||
+        supplyType === 'SEZWOP' ||
+        (l.supplyNature ?? 'TAXABLE') !== 'TAXABLE'
           ? 0
           : l.gstRate,
       cessRate:
         invoiceType === 'NON_GST' || supplyType === 'EXPWOP' || supplyType === 'SEZWOP'
           ? 0
           : l.cessRate ?? 0,
+      supplyNature: l.supplyNature ?? 'TAXABLE',
       batch: l.batch ?? undefined,
       batchNo: l.batchNo || undefined,
+      unitName: l.unitName || undefined,
       expDate: l.expDate || null,
       mfgDate: l.mfgDate || null,
       ...(l.trackSerial && l.serialNumbersText?.trim()
@@ -638,7 +721,11 @@ export function NewInvoicePage() {
         if (!companyId || !userId) return;
         await enqueueDraft(companyId, userId, {
           kind: 'invoice',
-          payload: payload as Record<string, unknown>,
+          payload: {
+            ...(payload as Record<string, unknown>),
+            ...(editingStatus ? { status: editingStatus } : {}),
+            ...(editingStatus === 'COMPLETED' ? { confirmAmend: true } : {}),
+          },
           idempotencyKey: key,
           invoiceId: isEdit && editId ? editId : null,
         });
@@ -720,7 +807,7 @@ export function NewInvoicePage() {
       flashWarning(paymentWarning ?? null);
       void qc.invalidateQueries({ queryKey: ['sales-invoice-number-series'] });
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoice.id] });
-      const label = invoice.number?.trim() ? invoice.number : `Draft #${invoice.id}`;
+      const label = invoice.number?.trim() ? invoice.number : `#${invoice.id}`;
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
         flashSaveAndNew(`Invoice ${label} saved — start the next one`, paymentWarning);
@@ -749,14 +836,13 @@ export function NewInvoicePage() {
         replace: true,
         state: {
           message: flash,
-          ...(paymentWarning ? { paymentWarning } : {}),
         },
       });
     },
     onError: (err) => {
       const msg = getErrorMessage(err);
       if (msg === t('billing.savedOffline')) return;
-      flashError(msg);
+      flashError(err);
     },
   });
 
@@ -790,7 +876,10 @@ export function NewInvoicePage() {
         gstRate: '18',
       });
     },
-    onError: (err) => setItemDialogError(getErrorMessage(err)),
+    onError: (err) => {
+      setItemDialogError(getErrorMessage(err));
+      setItemDialogErrorSource(err);
+    },
   });
 
   const addProduct = (product: Product | null) => {
@@ -864,6 +953,14 @@ export function NewInvoicePage() {
   useEffect(() => {
     // Wave 18D (BB-000182): billing keyboard shortcuts — see README Wave 18 note.
     const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest('[role=dialog]') ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
       const meta = e.ctrlKey || e.metaKey;
       if (meta && e.key.toLowerCase() === 's' && !e.shiftKey) {
         e.preventDefault();
@@ -907,6 +1004,7 @@ export function NewInvoicePage() {
     return (
       <ErrorState
         message={getErrorMessage(existingInvoice.error)}
+        error={existingInvoice.error}
         onRetry={() => void existingInvoice.refetch()}
       />
     );
@@ -925,8 +1023,15 @@ export function NewInvoicePage() {
       backTo={isEdit ? `/sales/history/${editId}` : null}
       message={message ?? outboxBanner}
       error={error}
+      errorSource={errorSource}
+      documentId={isEdit ? editId ?? undefined : undefined}
+      multiGodown={(warehouses.data?.length ?? 0) > 1}
       warning={
-        isEdit && editingStatus === 'COMPLETED' ? t('billing.editingCompletedWarning') : null
+        fromBillUpload
+          ? t('billUpload.reviewOnEditDisclaimerSales')
+          : isEdit && editingStatus === 'COMPLETED'
+            ? t('billing.editingCompletedWarning')
+            : null
       }
       infoBanner={creditLimitBanner}
       saving={saveMutation.isPending}
@@ -937,6 +1042,7 @@ export function NewInvoicePage() {
       onOpenSettings={() => setSettingsOpen(true)}
     >
       <Stack spacing={2}>
+      <UnsavedChangesGuard when={lines.length > 0} />
       {offline || hasOutboxItems || Boolean(outboxBanner) ? (
         !hideOutboxWarn || offline ? (
           <Alert
@@ -950,7 +1056,7 @@ export function NewInvoicePage() {
                   }
             }
           >
-            {OUTBOX_PLAINTEXT_WARNING}
+            {t('billing.outboxPlaintextWarning')}
           </Alert>
         ) : null
       ) : null}
@@ -1019,30 +1125,39 @@ export function NewInvoicePage() {
                 select
                 label={t('billing.invoiceType')}
                 value={invoiceType}
-                onChange={(e) => setInvoiceType(e.target.value as InvoiceType)}
+                onChange={(e) => {
+                  setInvoiceTypeTouched(true);
+                  setInvoiceType(e.target.value as InvoiceType);
+                }}
                 sx={{ minWidth: 140 }}
               >
-                <MenuItem value="GST">GST Invoice</MenuItem>
-                <MenuItem value="TAX">Tax Invoice</MenuItem>
-                <MenuItem value="RETAIL">Retail Invoice</MenuItem>
+                {company.data?.registrationType === 'REGULAR' ? (
+                  <>
+                    <MenuItem value="GST">GST Invoice</MenuItem>
+                    <MenuItem value="TAX">Tax Invoice</MenuItem>
+                    <MenuItem value="RETAIL">Retail Invoice</MenuItem>
+                  </>
+                ) : null}
                 <MenuItem value="NON_GST">Non-GST Invoice</MenuItem>
               </CompactField>
               {invoiceType !== 'NON_GST' ? (
-                <CompactField
-                  select
-                  label="Price mode"
-                  value={priceMode}
-                  onChange={(e) => setPriceMode(e.target.value as PriceMode)}
-                  disabled={isCompletedEdit && !canAmendMoney}
-                  sx={{ minWidth: 140 }}
-                >
-                  <MenuItem value="EXCLUSIVE">Tax exclusive</MenuItem>
-                  <MenuItem value="INCLUSIVE">Tax inclusive</MenuItem>
-                </CompactField>
+                <HelpHint intent="wrong-gst-on-invoice" slot="tax-inclusive">
+                  <CompactField
+                    select
+                    label="Price mode"
+                    value={priceMode}
+                    onChange={(e) => setPriceMode(e.target.value as PriceMode)}
+                    disabled={isCompletedEdit && !canAmendMoney}
+                    sx={{ minWidth: 140 }}
+                  >
+                    <MenuItem value="EXCLUSIVE">Tax exclusive</MenuItem>
+                    <MenuItem value="INCLUSIVE">Tax inclusive</MenuItem>
+                  </CompactField>
+                </HelpHint>
               ) : null}
               <CompactField
                 select
-                label="Warehouse"
+                label={t('nav.warehouses')}
                 value={warehouseId}
                 onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : '')}
                 sx={{ minWidth: 140 }}
@@ -1218,14 +1333,18 @@ export function NewInvoicePage() {
 
       <Paper sx={{ overflow: 'auto' }}>
         {stockShortfalls.length > 0 && !isCompletedEdit ? (
-          <Alert severity="error" sx={{ m: 2 }}>
-            Insufficient stock (policy BLOCK). Reduce quantity or add stock before Complete:
+          <HelpErrorAlert
+            sx={{ m: 2 }}
+            message="Insufficient stock (policy BLOCK). Reduce quantity or add stock before Complete:"
+            code="insufficient_stock"
+            invoiceId={isEdit ? editId ?? undefined : undefined}
+          >
             {stockShortfalls.map((s) => (
               <Typography key={s.name} variant="body2" component="span" display="block">
                 {s.name}: available {s.available}, required {s.required}.
               </Typography>
             ))}
-          </Alert>
+          </HelpErrorAlert>
         ) : null}
         <DraftLineTable
           lines={lines}
@@ -1236,6 +1355,7 @@ export function NewInvoicePage() {
           deleteDisabled={isCompletedEdit}
           showBatchSlot={showBatchCols || lines.some((line) => line.trackBatch)}
           showSerialSlot={lines.some((line) => line.trackSerial)}
+          showSupplyNature={invoiceType !== 'NON_GST'}
           onUpdate={updateLine}
           onDelete={(key) => setLines((prev) => prev.filter((x) => x.key !== key))}
           onFocusAdd={() => barcodeRef.current?.focus()}
@@ -1313,10 +1433,15 @@ export function NewInvoicePage() {
               gap: 2,
             }}
           >
-            <Autocomplete<Product>
+            <Stack spacing={1} sx={{ flex: 1 }}>
+              <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
+              <Autocomplete<Product>
               sx={{ flex: 1 }}
-              options={(products.data ?? []).filter((p) => p.status === 'ACTIVE')}
-              loading={products.isFetching}
+              options={(
+                (debouncedProductQuery.length >= 1 ? products.data : productCatalog.data?.results) ?? []
+              ).filter((p) => p.status === 'ACTIVE')}
+              loading={products.isFetching || productCatalog.isFetching}
+              noOptionsText={t('common.noResults')}
               inputValue={productQuery}
               onInputChange={(_, v, reason) => {
                 if (reason === 'input' || reason === 'clear') setProductQuery(v);
@@ -1336,6 +1461,7 @@ export function NewInvoicePage() {
                 />
               )}
             />
+            </Stack>
             <Link
               component="button"
               type="button"
@@ -1514,10 +1640,15 @@ export function NewInvoicePage() {
           totals={totals}
           additionalCharges={additionalCharges}
           onAdditionalChargesChange={setAdditionalCharges}
+          chargesHsn={chargesHsn}
+          onChargesHsnChange={setChargesHsn}
+          chargesGstRate={chargesGstRate}
+          onChargesGstRateChange={setChargesGstRate}
           invoiceDiscount={invoiceDiscount}
           onInvoiceDiscountChange={setInvoiceDiscount}
           invoiceDiscountMode={invoiceDiscountMode}
           onInvoiceDiscountModeChange={setInvoiceDiscountMode}
+          blockAfterTaxDiscount={blockAfterTaxDiscount}
           autoRoundOff={autoRoundOff}
           onAutoRoundOffChange={setAutoRoundOff}
           posKnown={posKnown}
@@ -1669,7 +1800,9 @@ export function NewInvoicePage() {
         <DialogTitle>{t('billing.createItem')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            {itemDialogError ? <Alert severity="error">{itemDialogError}</Alert> : null}
+            {itemDialogError ? (
+              <HelpErrorAlert message={itemDialogError} error={itemDialogErrorSource} />
+            ) : null}
             <TextField
               required
               label={t('common.name')}

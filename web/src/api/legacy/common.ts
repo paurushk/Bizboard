@@ -47,7 +47,9 @@ export function asPageResult<T>(body: Paginated<T> | T[] | null | undefined): Pa
 export type PageParams = {
   page?: number;
   pageSize?: number;
-  [key: string]: string | number | boolean | undefined | null;
+  q?: string;
+  cf?: Record<string, string[]>;
+  [key: string]: string | number | boolean | string[] | Record<string, string[]> | undefined | null;
 };
 
 export interface InvoiceNumberSeries {
@@ -58,30 +60,44 @@ export interface InvoiceNumberSeries {
   preview: string;
 }
 
-export function toQueryParams(params?: PageParams): Record<string, string> | undefined {
+export function flattenQueryParams(params?: PageParams): Record<string, string | string[]> | undefined {
   if (!params) return undefined;
-  const out: Record<string, string> = {};
+  const out: Record<string, string | string[]> = {};
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || value === '') continue;
     if (key === 'pageSize') {
       out.page_size = String(value);
       continue;
     }
-    out[key] = String(value);
+    if (key === 'cf' && typeof value === 'object' && !Array.isArray(value)) {
+      for (const [field, items] of Object.entries(value as Record<string, string[]>)) {
+        const cleaned = (items ?? []).map(String).filter(Boolean);
+        if (cleaned.length) out[`cf.${field}`] = cleaned;
+      }
+      continue;
+    }
+    out[key] = Array.isArray(value) ? value.map(String) : String(value);
   }
   return Object.keys(out).length ? out : undefined;
 }
 
+export function toQueryParams(params?: PageParams): Record<string, string | string[]> | undefined {
+  return flattenQueryParams(params);
+}
+
 /** Page-number pagination helper (DRF PageNumberPagination). */
 export async function fetchPage<T>(path: string, params?: PageParams): Promise<PageResult<T>> {
-  const { data } = await apiClient.get(path, { params: toQueryParams(params) });
+  const { data } = await apiClient.get(path, {
+    params: toQueryParams(params),
+    paramsSerializer: { indexes: null },
+  });
   return asPageResult(unwrapData<Paginated<T> | T[]>(data));
 }
 
 /** Fetch first page + optional cursor for load-more UIs. */
 export async function listPage<T>(
   path: string,
-  params?: Record<string, string>,
+  params?: PageParams,
 ): Promise<{ results: T[]; next: string | null }> {
   const page = await fetchPage<T>(path, params);
   return { results: page.results, next: page.next };
@@ -100,7 +116,11 @@ export async function fetchNextPage<T>(nextUrl: string): Promise<{ results: T[];
     allowedOrigins.add('http://localhost:8000');
     allowedOrigins.add('http://localhost');
     allowedOrigins.add('http://127.0.0.1');
-    if (!allowedOrigins.has(u.origin)) {
+
+    const currentHost = window.location.hostname;
+    const isSameRootDomain = currentHost && (u.hostname === currentHost || u.hostname.endsWith(`.${currentHost}`));
+
+    if (!allowedOrigins.has(u.origin) && !isSameRootDomain) {
       throw new Error('Blocked pagination next URL from unexpected host');
     }
     path = u.pathname.replace(/^\/api\/v1/, '') + u.search;
@@ -126,23 +146,18 @@ export async function fetchMoneyListFirstPage<T>(
 
 export async function fetchAllPagesMasters<T>(
   path: string,
-  params?: Record<string, string>,
+  params?: PageParams,
 ): Promise<T[]> {
   const first = await listPage<T>(path, params);
   let results = first.results;
   let next = first.next;
-  const MAX_PAGES = 50;
+  const MAX_PAGES = 500;
   let guard = 0;
   while (next && guard < MAX_PAGES) {
     const page = await fetchNextPage<T>(next);
     results = results.concat(page.results);
     next = page.next;
     guard += 1;
-  }
-  if (next) {
-    throw new Error(
-      `Too many pages for ${path} (cap ${MAX_PAGES}). Use server search or paginated list.`,
-    );
   }
   return results;
 }

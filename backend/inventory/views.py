@@ -1,5 +1,8 @@
+from decimal import Decimal
+
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, OuterRef, Subquery
+from django.db.models.functions import Coalesce
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
@@ -19,18 +22,72 @@ from core.viewsets import CompanyScopedViewSet
 from core.services.audit import AuditService
 from masters.models import Product
 
-from .models import BatchLot, MovementType, SerialNumber, StockBalance, StockMovement, StockTransfer, Warehouse
+from .models import (
+    BatchLot, MovementType, SerialNumber, StockBalance, StockCountSession,
+    StockMovement, StockTransfer, Warehouse, WarehouseReorderLevel,
+)
 from .serializers import (
     AdjustmentSerializer,
     OpeningStockSerializer,
     StockBalanceSerializer,
+    StockCountSessionSerializer,
     StockMovementSerializer,
     BatchLotSerializer,
     SerialNumberSerializer,
     StockTransferSerializer,
+    WarehouseReorderLevelSerializer,
     WarehouseSerializer,
 )
 from .services import InventoryService, InventoryValuationService, StockTransferService
+
+
+def _effective_reorder_annotation():
+    warehouse_reorder = WarehouseReorderLevel.objects.filter(
+        company_id=OuterRef("company_id"),
+        warehouse_id=OuterRef("warehouse_id"),
+        product_id=OuterRef("product_id"),
+    ).values("reorder_level")[:1]
+    return Coalesce(Subquery(warehouse_reorder), F("product__reorder_level"))
+
+
+def low_stock_alert_payload(company):
+    """Company-wide low stock unless a per-godown reorder override exists (E2E3-019)."""
+    from collections import defaultdict
+
+    override_keys = set(
+        WarehouseReorderLevel.objects.filter(company=company).values_list(
+            "product_id", "warehouse_id"
+        )
+    )
+    balances = list(
+        StockBalance.objects.select_related("product", "warehouse")
+        .filter(company=company, product__status="ACTIVE")
+        .annotate(
+            _available=F("on_hand") - F("reserved"),
+            _reorder=_effective_reorder_annotation(),
+        )
+    )
+    totals = defaultdict(lambda: Decimal("0"))
+    for row in balances:
+        totals[row.product_id] += row._available
+
+    items = []
+    seen = set()
+    for row in balances:
+        key = (row.product_id, row.warehouse_id)
+        if key in override_keys:
+            if row._available <= row._reorder:
+                items.append(row)
+            continue
+        if row.product_id in seen:
+            continue
+        seen.add(row.product_id)
+        reorder = row.product.reorder_level or Decimal("0")
+        if totals[row.product_id] <= reorder:
+            row.on_hand = totals[row.product_id]
+            row.reserved = Decimal("0")
+            items.append(row)
+    return items
 
 
 class StockBalanceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -41,15 +98,30 @@ class StockBalanceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
 
     def get_queryset(self):
         qs = self.queryset.filter(company=get_company_user(self.request).company)
+        from django.db.models import Q
+        from masters.custom_fields import active_defs, apply_cf_filters, build_search_q
+
         if self.request.query_params.get("low_stock") == "1":
-            # INV-08: reorder alerts use available (on_hand - reserved).
-            qs = qs.annotate(_available=F("on_hand") - F("reserved")).filter(
-                _available__lte=F("product__reorder_level")
-            )
+            qs = qs.annotate(
+                _available=F("on_hand") - F("reserved"),
+                _reorder=_effective_reorder_annotation(),
+            ).filter(_available__lte=F("_reorder"))
         if warehouse := self.request.query_params.get("warehouse"):
             qs = qs.filter(warehouse_id=warehouse)
         if product := self.request.query_params.get("product"):
             qs = qs.filter(product_id=product)
+        company = get_company_user(self.request).company
+        defs = active_defs(company)
+        q = self.request.query_params.get("search") or self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(
+                Q(product__name__icontains=q)
+                | Q(product__sku__icontains=q)
+                | Q(product__barcode__icontains=q)
+                | Q(product__hsn_code__icontains=q)
+                | build_search_q(q, defs, prefix="product__")
+            )
+        qs = apply_cf_filters(qs, self.request.query_params, defs, prefix="product__")
         return qs
 
 
@@ -125,32 +197,39 @@ class OpeningStockView(APIView):
         serializer.is_valid(raise_exception=True)
         company = get_company_user(request).company
         product = get_object_or_404(Product, pk=serializer.validated_data["product"], company=company)
-        warehouse_id = serializer.validated_data.get("warehouse")
+        data = serializer.validated_data
+        quantity = data.get("quantity")
+        serials = data.get("serial_numbers") or []
+        if quantity is None:
+            quantity = Decimal(len(serials))
+        warehouse_id = data.get("warehouse")
         if warehouse_id is not None:
             warehouse = Warehouse.objects.filter(pk=warehouse_id, company=company).first()
             if warehouse is None:
                 raise BusinessRuleError("Invalid warehouse for this company.")
         else:
             warehouse = None
-        batch_id = serializer.validated_data.get("batch")
+        batch_id = data.get("batch")
         if batch_id is not None:
-            batch = BatchLot.objects.filter(pk=batch_id, company=company).first()
+            batch = BatchLot.objects.filter(pk=batch_id, company=company, product=product).first()
             if batch is None:
-                raise BusinessRuleError("Invalid batch for this company.")
+                raise BusinessRuleError("Invalid batch for this product.")
         else:
             batch = None
-        # BB-000705: movement + GL post as one atomic unit.
         with transaction.atomic():
-            movement = InventoryService.post_movement(
+            movement = InventoryService.post_opening(
                 company=company,
                 product=product,
-                movement_type=MovementType.OPENING_STOCK,
-                quantity=serializer.validated_data["quantity"],
-                unit_cost=serializer.validated_data.get("unit_cost"),
-                reference_type="opening_stock",
-                user=request.user,
+                quantity=quantity,
+                unit_cost=data.get("unit_cost"),
                 warehouse=warehouse,
                 batch=batch,
+                batch_no=data.get("batch_no") or "",
+                expiry_date=data.get("expiry_date"),
+                manufacturing_date=data.get("manufacturing_date"),
+                serial_numbers=serials,
+                as_of=data.get("as_of"),
+                user=request.user,
             )
             if company.accounting_enabled:
                 from accounting.services import PostingService
@@ -167,17 +246,9 @@ class LowStockAlertsView(APIView):
 
     def get(self, request):
         company = get_company_user(request).company
-        balances = (
-            StockBalance.objects.select_related("product")
-            .annotate(_available=F("on_hand") - F("reserved"))
-            .filter(
-                company=company,
-                product__status="ACTIVE",
-                _available__lte=F("product__reorder_level"),
-            )
-        )
+        balances = low_stock_alert_payload(company)
         return Response({
-            "count": balances.count(),
+            "count": len(balances),
             "items": StockBalanceSerializer(balances, many=True).data,
         })
 
@@ -199,6 +270,21 @@ class WarehouseViewSet(CompanyScopedViewSet):
             serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user, is_default=True)
         else:
             super().perform_create(serializer)
+
+    def perform_update(self, serializer):
+        from .item_stock import assert_can_deactivate_warehouse
+
+        instance = self.get_object()
+        becoming_inactive = serializer.validated_data.get("is_active") is False and instance.is_active
+        if becoming_inactive:
+            assert_can_deactivate_warehouse(instance)
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        from .item_stock import assert_can_delete_warehouse
+
+        assert_can_delete_warehouse(instance)
+        super().perform_destroy(instance)
 
 
 class StockTransferViewSet(CompanyScopedViewSet):
@@ -260,17 +346,53 @@ class SerialNumberViewSet(CompanyScopedViewSet):
 class ExpiryAlertsView(APIView):
     permission_classes = [IsAuthenticated, HasCompany, CanViewInventorySurfaces]
 
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticated(), HasCompany(), CanManageInventory()]
+        return [IsAuthenticated(), HasCompany(), CanViewInventorySurfaces()]
+
     def get(self, request):
         company = get_company_user(request).company
         days = int(request.query_params.get("days", 30))
-        from django.utils import timezone
-        from datetime import timedelta
-        lots = BatchLot.objects.filter(
-            company=company, expiry_date__isnull=False,
-            expiry_date__lte=timezone.localdate() + timedelta(days=days),
-            stock_balances__on_hand__gt=0,
-        ).distinct()
-        return Response({"count": lots.count(), "items": BatchLotSerializer(lots, many=True).data})
+        warehouse_id = request.query_params.get("warehouse")
+        from .item_stock import expiry_horizon_rows, record_expiry_bands
+
+        rows = expiry_horizon_rows(company, days=days, warehouse_id=warehouse_id)
+        record_expiry_bands(company, rows)
+        return Response({"count": len(rows), "items": rows})
+
+    def post(self, request):
+        """Write off remaining qty of an expired/near-expiry lot as ADJUSTMENT / EXPIRED."""
+        from .item_stock import remaining_qty
+
+        company = get_company_user(request).company
+        product = get_object_or_404(Product, pk=request.data.get("product"), company=company)
+        warehouse = Warehouse.objects.filter(pk=request.data.get("warehouse"), company=company).first()
+        if warehouse is None:
+            raise BusinessRuleError("Godown is required for expiry write-off.")
+        batch = BatchLot.objects.filter(pk=request.data.get("batch"), company=company, product=product).first()
+        if batch is None:
+            raise BusinessRuleError("Invalid batch for this product.")
+        qty = Decimal(str(request.data.get("quantity") or 0))
+        if qty <= 0:
+            raise BusinessRuleError("Write-off quantity must be greater than zero.")
+        on_hand = remaining_qty(company, product, warehouse=warehouse, batch=batch)
+        if qty > on_hand:
+            raise BusinessRuleError(
+                f"Cannot write off {qty} — only {on_hand} remains on this lot at this godown."
+            )
+        movement = InventoryService.post_movement(
+            company=company,
+            product=product,
+            movement_type=MovementType.ADJUSTMENT,
+            quantity=-qty,
+            reason="EXPIRED",
+            reference_type="expiry_write_off",
+            user=request.user,
+            warehouse=warehouse,
+            batch=batch,
+        )
+        return Response(StockMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
 
 
 class StockValuationReportView(APIView):
@@ -285,3 +407,72 @@ class StockValuationReportView(APIView):
             warehouse=warehouse,
         )
         return Response({"method": request.query_params.get("method") or company.inventory_valuation_method, "items": rows})
+
+
+class WarehouseReorderLevelViewSet(CompanyScopedViewSet):
+    queryset = WarehouseReorderLevel.objects.select_related("warehouse", "product")
+    serializer_class = WarehouseReorderLevelSerializer
+    permission_classes = [IsAuthenticated, HasCompany, CanManageInventory]
+
+
+class StockCountSessionViewSet(CompanyScopedViewSet):
+    queryset = StockCountSession.objects.select_related("warehouse").prefetch_related("lines__product", "lines__batch")
+    serializer_class = StockCountSessionSerializer
+    permission_classes = [IsAuthenticated, HasCompany, CanManageInventory]
+
+    @action(detail=True, methods=["post"])
+    def post(self, request, pk=None):
+        from django.utils import timezone
+
+        with transaction.atomic():
+            session = get_object_or_404(self.get_queryset().select_for_update(), pk=pk)
+            if session.status == StockCountSession.Status.POSTED:
+                raise BusinessRuleError("This count is already posted.")
+            if session.status == StockCountSession.Status.CANCELLED:
+                raise BusinessRuleError("A cancelled count cannot be posted.")
+            if session.status != StockCountSession.Status.COUNTED:
+                raise BusinessRuleError("Save the count before posting.")
+            if session.lines.filter(counted_qty__isnull=True).exists():
+                raise BusinessRuleError("Save all counted quantities before posting.")
+            from .item_stock import remaining_qty
+
+            lines = list(session.lines.select_related("product", "batch"))
+            for line in lines:
+                if line.counted_qty is None:
+                    continue
+                if line.product.company_id != session.company_id:
+                    raise BusinessRuleError("Invalid product on stock count line.")
+                system_qty = remaining_qty(
+                    session.company, line.product, warehouse=session.warehouse, batch=line.batch,
+                    unbatched_only=line.batch_id is None,
+                )
+                variance = line.counted_qty - system_qty
+                if variance == 0:
+                    continue
+                InventoryService.post_movement(
+                    company=session.company,
+                    product=line.product,
+                    movement_type=MovementType.ADJUSTMENT,
+                    quantity=variance,
+                    reason="STOCK_COUNT",
+                    reference_type="stock_count",
+                    reference_id=session.pk,
+                    user=request.user,
+                    warehouse=session.warehouse,
+                    batch=line.batch,
+                )
+            session.status = StockCountSession.Status.POSTED
+            session.posted_at = timezone.now()
+            session.save(update_fields=["status", "posted_at"])
+        return Response(self.get_serializer(session).data)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        session = self.get_object()
+        if session.status == StockCountSession.Status.POSTED:
+            raise BusinessRuleError("A posted count cannot be cancelled.")
+        if session.status == StockCountSession.Status.CANCELLED:
+            return Response(self.get_serializer(session).data)
+        session.status = StockCountSession.Status.CANCELLED
+        session.save(update_fields=["status"])
+        return Response(self.get_serializer(session).data)

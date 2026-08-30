@@ -5,6 +5,8 @@ Invoice Service — shared tax/discount/rounding math used by sales & purchases
 
 from decimal import ROUND_HALF_UP, Decimal
 
+from core.exceptions import BusinessRuleError
+
 TWO_PLACES = Decimal("0.01")
 RUPEE = Decimal("1")
 
@@ -191,14 +193,13 @@ def _apply_line_tax(item, taxable: Decimal, rate: Decimal, *, tax_enabled: bool,
         item.igst = q2(tax)
     item.taxable_amount = taxable
     cess_rate = Decimal(str(getattr(item, "cess_rate", 0) or 0))
-    # TAX-12: specific per-unit cess_amount wins over ad-valorem cess_rate.
     cess_specific = Decimal(str(getattr(item, "cess_amount", 0) or 0))
     if hasattr(item, "cess"):
-        if tax_enabled and cess_specific > 0:
+        if tax_enabled:
             qty = Decimal(str(getattr(item, "quantity", 0) or 0))
-            item.cess = q2(qty * cess_specific)
-        elif tax_enabled and cess_rate:
-            item.cess = q2(taxable * cess_rate / Decimal("100"))
+            ad_valorem = q2(taxable * cess_rate / Decimal("100")) if cess_rate else Decimal("0.00")
+            specific = q2(qty * cess_specific) if cess_specific > 0 else Decimal("0.00")
+            item.cess = q2(ad_valorem + specific)
         else:
             item.cess = Decimal("0.00")
         item.line_total = q2(taxable + item.cgst + item.sgst + item.igst + item.cess)
@@ -213,11 +214,13 @@ def extract_exclusive_from_inclusive_line(
     discount_percent: Decimal,
     gst_rate: Decimal,
     cess_rate: Decimal = Decimal("0"),
+    cess_amount: Decimal = Decimal("0"),
 ) -> tuple[Decimal, Decimal]:
     """
     Tax-inclusive → exclusive: discount on inclusive gross, extract tax once
     from discounted inclusive net. Returns (exclusive_unit_price, taxable).
     BB-000611: denominator includes cess so MRP embedding GST+cess extracts once.
+    Specific per-unit cess_amount is peeled off the inclusive net before the rate extract.
     """
     qty = Decimal(quantity)
     if qty <= 0:
@@ -225,6 +228,9 @@ def extract_exclusive_from_inclusive_line(
     line_gross_inclusive = q2(qty * Decimal(unit_price_inclusive))
     discount_amt = q2(line_gross_inclusive * Decimal(discount_percent) / Decimal("100"))
     net_inclusive = q2(line_gross_inclusive - discount_amt)
+    specific = q2(qty * Decimal(str(cess_amount or 0)))
+    if specific > 0:
+        net_inclusive = q2(max(Decimal("0.00"), net_inclusive - specific))
     rate = Decimal(gst_rate) + Decimal(str(cess_rate or 0))
     if rate > 0:
         taxable = q2(net_inclusive * Decimal("100") / (Decimal("100") + rate))
@@ -262,6 +268,7 @@ def apply_inclusive_prices_to_items(items, *, price_mode: str) -> list[Decimal]:
             discount_percent=original_discount,
             gst_rate=Decimal(item.gst_rate or 0),
             cess_rate=Decimal(str(getattr(item, "cess_rate", 0) or 0)),
+            cess_amount=Decimal(str(getattr(item, "cess_amount", 0) or 0)),
         )
         item.unit_price = exclusive_unit
         # Prefer extractor taxable for §3.3 paise fidelity when exclusive pipeline
@@ -310,6 +317,12 @@ def apply_rcm_memo_after_tax(document, items) -> None:
     if mode == DISCOUNT_BEFORE_TAX:
         raw_total = taxable + charges
     else:
+        # R1-019: reject an invoice-level discount larger than the payable value.
+        if discount > taxable + charges:
+            raise BusinessRuleError(
+                f"Invoice discount {discount} exceeds the invoice value "
+                f"{q2(taxable + charges)}."
+            )
         raw_total = taxable + charges - discount
     if raw_total < 0:
         raw_total = Decimal("0")
@@ -360,15 +373,36 @@ def compute_document_totals(
             # inclusive gross) — surface the stashed amount so discount_total
             # isn't silently reported as zero for inclusive-priced lines.
             discount = q2(Decimal(str(getattr(item, "_inclusive_discount_amount", 0) or 0)))
+            # R1-018: document.subtotal must reflect the tax-inclusive gross the
+            # customer sees (Σ qty×MRP), not the post-extraction exclusive gross —
+            # otherwise Subtotal − Discount + Tax will not foot to Grand Total on
+            # inclusive-priced documents. `_billing_gross` stays exclusive for the
+            # PDF/serializer contract.
+            _incl_unit = Decimal(str(getattr(item, "unit_price_inclusive", None) or 0))
+            line_subtotal = (
+                q2(Decimal(item.quantity) * _incl_unit) if _incl_unit > 0 else gross
+            )
         else:
             gross = q2(Decimal(item.quantity) * Decimal(item.unit_price))
             discount = q2(gross * Decimal(item.discount_percent) / Decimal("100"))
             taxable = q2(gross - discount)
+            line_subtotal = gross
         taxables.append(taxable)
-        subtotal += gross
+        subtotal += line_subtotal
         line_discount_total += discount
-        # stash rate for second pass
-        item._billing_rate = Decimal(item.gst_rate) if tax_enabled else Decimal("0")  # noqa: SLF001
+        nature = (getattr(item, "supply_nature", None) or "TAXABLE").upper()
+        if nature in ("NIL", "EXEMPT", "NON_GST"):
+            if hasattr(item, "gst_rate"):
+                item.gst_rate = Decimal("0")
+            # R1-017: NIL / EXEMPT / NON_GST supplies never attract compensation
+            # cess — clear any stray line cess so it cannot leak into cess_total.
+            if hasattr(item, "cess_rate"):
+                item.cess_rate = Decimal("0")
+            if hasattr(item, "cess_amount"):
+                item.cess_amount = Decimal("0")
+            item._billing_rate = Decimal("0")  # noqa: SLF001
+        else:
+            item._billing_rate = Decimal(item.gst_rate) if tax_enabled else Decimal("0")  # noqa: SLF001
         item._billing_gross = gross  # noqa: SLF001
         item._billing_line_discount = discount  # noqa: SLF001
 
@@ -402,14 +436,36 @@ def compute_document_totals(
         taxable_sum = sum(taxables, Decimal("0"))
         if taxable_sum > 0:
             remaining = min(inv_discount, taxable_sum)
+            # First pass: proportional share, clamped to each line's own taxable.
             allocated = Decimal("0")
-            for i in range(len(adjusted) - 1):
+            for i in range(len(adjusted)):
                 share = q2(taxables[i] / taxable_sum * remaining)
                 share = min(share, adjusted[i])
                 adjusted[i] = q2(adjusted[i] - share)
                 allocated += share
-            last = q2(remaining - allocated)
-            adjusted[-1] = q2(max(Decimal("0"), adjusted[-1] - last))
+            # R1-020: any residual (rounding + lines clamped to zero) is spread
+            # across the lines that still have headroom, instead of being dumped
+            # on the last line and silently lost when that line clamps to zero.
+            residual = q2(remaining - allocated)
+            guard = 0
+            while residual > Decimal("0") and guard < len(adjusted) + 2:
+                guard += 1
+                headroom = [i for i in range(len(adjusted)) if adjusted[i] > 0]
+                if not headroom:
+                    break
+                per = q2(residual / Decimal(len(headroom)))
+                if per <= 0:
+                    for i in headroom:
+                        if residual <= 0:
+                            break
+                        take = min(Decimal("0.01"), adjusted[i], residual)
+                        adjusted[i] = q2(adjusted[i] - take)
+                        residual = q2(residual - take)
+                    break
+                for i in headroom:
+                    take = min(per, adjusted[i], residual)
+                    adjusted[i] = q2(adjusted[i] - take)
+                    residual = q2(residual - take)
         else:
             adjusted = [Decimal("0.00") for _ in adjusted]
 
@@ -433,14 +489,32 @@ def compute_document_totals(
         igst_total += item.igst
         cess_total += Decimal(str(getattr(item, "cess", 0) or 0))
 
-    # P0-209 / B11 pilot scope: additional charges are non-taxable
-    # (freight/packing out of GST scope for Phase 0). PDF + FE label them
-    # as such; do not add blended GST on charges here.
+    from core.services.charges import charge_line
+
+    charge = charge_line(document, intra_state=intra_state) if tax_enabled else None
+    if charge is not None:
+        taxable_total += charge.taxable_amount
+        cgst_total += charge.cgst
+        sgst_total += charge.sgst
+        igst_total += charge.igst
+        charges_in_grand = Decimal("0")
+    else:
+        charges_in_grand = charges
 
     if mode == DISCOUNT_BEFORE_TAX:
-        raw_total = taxable_total + cgst_total + sgst_total + igst_total + cess_total + charges
+        raw_total = taxable_total + cgst_total + sgst_total + igst_total + cess_total + charges_in_grand
     else:
-        raw_total = taxable_total + cgst_total + sgst_total + igst_total + cess_total + charges - inv_discount
+        # R1-019: a data-entry error where the invoice-level discount exceeds the
+        # invoice value must be rejected, not silently swallowed into a ₹0 total.
+        pre_discount = (
+            taxable_total + cgst_total + sgst_total + igst_total + cess_total + charges_in_grand
+        )
+        if inv_discount > pre_discount:
+            raise BusinessRuleError(
+                f"Invoice discount {q2(inv_discount)} exceeds the invoice value "
+                f"{q2(pre_discount)}."
+            )
+        raw_total = pre_discount - inv_discount
 
     if raw_total < 0:
         raw_total = Decimal("0")
@@ -457,7 +531,10 @@ def compute_document_totals(
         document.invoice_discount_mode = mode
 
     document.subtotal = q2(subtotal)
-    document.discount_total = q2(line_discount_total + inv_discount)
+    if mode == DISCOUNT_BEFORE_TAX:
+        document.discount_total = q2(line_discount_total)
+    else:
+        document.discount_total = q2(line_discount_total + inv_discount)
     document.taxable_total = q2(taxable_total)
     document.cgst_total = q2(cgst_total)
     document.sgst_total = q2(sgst_total)

@@ -27,6 +27,7 @@ import { t } from '@/i18n';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canCancelDocuments } from '@/utils/permissions';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 export function PurchaseDetailPage() {
   const { user } = useAuth();
@@ -67,7 +68,7 @@ export function PurchaseDetailPage() {
 
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
   if (!query.data) return <EmptyState />;
 
@@ -110,7 +111,7 @@ export function PurchaseDetailPage() {
       </Stack>
 
       {message ? <Alert severity="success">{message}</Alert> : null}
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
 
       <Paper
         elevation={0}
@@ -149,7 +150,7 @@ export function PurchaseDetailPage() {
               variant="outlined"
               disabled={cancelMutation.isPending}
               onClick={() => {
-                if (window.confirm(`Cancel purchase ${inv.number ?? inv.id}? This cannot be undone.`)) {
+                if (window.confirm(t('history.confirmCancel', { label: inv.number ?? inv.id }))) {
                   cancelMutation.mutate();
                 }
               }}

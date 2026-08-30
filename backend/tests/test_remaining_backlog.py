@@ -40,6 +40,8 @@ def test_gstr9_table_8_is_worksheet_not_stub(tenant_a):
         invoice_number="PIN-1",
         taxable_value=Decimal("1000"),
         igst=Decimal("180"),
+        match_status=Gstr2bIngest.MatchStatus.MATCHED,
+        itc_eligibility=Gstr2bIngest.ItcEligibility.CLAIMABLE,
         raw={"source": "2B"},
     )
     payload = build_gstr9(tenant_a.company, "2026-27")
@@ -55,6 +57,15 @@ def test_gstr1_supecom_has_table_15_buckets(tenant_a):
     assert supecom["table"] == "15"
     assert "15A" in supecom and "15B" in supecom
     assert isinstance(supecom["15A"], list)
+
+
+def test_gstr8_is_honest_stub(tenant_a):
+    from reporting.gstr2b import build_gstr8
+
+    payload = build_gstr8(tenant_a.company, "2026-08")
+    assert payload["supported"] is False
+    assert "not implement" in payload["disclaimer"].lower() or "stub" in payload["disclaimer"].lower()
+
 
 
 def test_gstn_json_mapper_is_not_a_portal_file(tenant_a):

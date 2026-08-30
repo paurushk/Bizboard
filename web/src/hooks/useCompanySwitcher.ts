@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ACTIVE_COMPANY_STORAGE_KEY, apiClient, unwrapData } from '@/api/client';
+import { ACTIVE_COMPANY_STORAGE_KEY, apiClient, getErrorMessage, unwrapData } from '@/api/client';
 import { setAccessToken } from '@/auth/session';
 import type { User } from '@/types/domain';
 
@@ -37,24 +37,29 @@ export function useCompanySwitcher(onSwitched?: (user: User) => void) {
   const qc = useQueryClient();
   const [memberships, setMemberships] = useState<CompanyMembership[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data } = await apiClient.get('/auth/memberships/');
     const rows = unwrapData<
       Array<{
-        company_id: number;
-        company_name: string;
+        companyId?: number;
+        company_id?: number;
+        companyName?: string;
+        company_name?: string;
         role: string;
-        is_active_selection: boolean;
+        isActiveSelection?: boolean;
+        is_active_selection?: boolean;
       }>
     >(data);
     const mapped = rows.map((r) => ({
-      companyId: r.company_id,
-      companyName: r.company_name,
+      companyId: Number(r.companyId ?? r.company_id),
+      companyName: String(r.companyName ?? r.company_name ?? ''),
       role: r.role,
-      isActiveSelection: r.is_active_selection,
+      isActiveSelection: Boolean(r.isActiveSelection ?? r.is_active_selection),
     }));
     setMemberships(mapped);
+    setError(null);
     const active = mapped.find((m) => m.isActiveSelection);
     if (active) {
       persistActiveCompanyId(active.companyId);
@@ -62,7 +67,7 @@ export function useCompanySwitcher(onSwitched?: (user: User) => void) {
   }, []);
 
   useEffect(() => {
-    void refresh().catch(() => setMemberships([]));
+    void refresh().catch((err) => setError(getErrorMessage(err)));
   }, [refresh]);
 
   const switchCompany = useCallback(
@@ -93,6 +98,7 @@ export function useCompanySwitcher(onSwitched?: (user: User) => void) {
     memberships,
     hasMultiple: memberships.length > 1,
     loading,
+    error,
     switchCompany,
     refresh,
   };

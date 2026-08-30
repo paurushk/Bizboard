@@ -43,6 +43,13 @@ export function isAllowedPaymentUrl(url: string): boolean {
     return (
       hostAllowed(host, 'rzp.io', '.rzp.io') ||
       hostAllowed(host, 'razorpay.com', '.razorpay.com') ||
+      hostAllowed(host, 'cashfree.com', '.cashfree.com') ||
+      hostAllowed(host, 'cashfree.in', '.cashfree.in') ||
+      hostAllowed(host, 'payu.in', '.payu.in') ||
+      hostAllowed(host, 'payu.com', '.payu.com') ||
+      hostAllowed(host, 'phonepe.com', '.phonepe.com') ||
+      hostAllowed(host, 'paytm.com', '.paytm.com') ||
+      hostAllowed(host, 'easebuzz.in', '.easebuzz.in') ||
       host === 'api.razorpay.com' ||
       host === 'localhost' ||
       host.endsWith('.bizboard.local')

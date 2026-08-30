@@ -27,27 +27,27 @@ export function CustomerLedgerPage() {
   const [dateTo, setDateTo] = useState('');
 
   const ledger = useQuery({
-    queryKey: ['customer-ledger', customer?.id],
-    queryFn: () => getCustomerLedger(customer!.id),
+    queryKey: ['customer-ledger', customer?.id, dateFrom, dateTo],
+    queryFn: () =>
+      getCustomerLedger(customer!.id, {
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+      }),
     enabled: Boolean(customer?.id),
   });
 
-  const filteredEntries = useMemo(() => {
-    const entries = ledger.data?.entries ?? [];
-    return entries.filter((e) => {
-      if (dateFrom && e.date < dateFrom) return false;
-      if (dateTo && e.date > dateTo) return false;
-      return true;
-    });
-  }, [ledger.data?.entries, dateFrom, dateTo]);
+  const filteredEntries = useMemo(() => ledger.data?.entries ?? [], [ledger.data?.entries]);
 
   const handleWhatsAppShare = () => {
     if (!customer || !ledger.data) return;
-    const phone = (customer.phone ?? '').replace(/\D/g, '');
+    let formattedPhone = (customer.phone ?? '').replace(/\D/g, '');
+    if (formattedPhone.length === 10) {
+      formattedPhone = `91${formattedPhone}`;
+    }
     const text = encodeURIComponent(
       `Hello ${customer.name},\nYour account statement from our shop:\nTotal Outstanding Balance: ₹${ledger.data.outstanding}\nThank you for your business!`,
     );
-    const url = phone ? `https://wa.me/91${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+    const url = formattedPhone ? `https://wa.me/${formattedPhone}?text=${text}` : `https://wa.me/?text=${text}`;
     openShareUrl(url);
   };
 
@@ -116,7 +116,7 @@ export function CustomerLedgerPage() {
       {!customer ? <EmptyState description="Select a customer to view ledger transactions and outstanding balance." /> : null}
       {customer && ledger.isLoading ? <LoadingState /> : null}
       {ledger.isError ? (
-        <ErrorState message={ledger.error.message} onRetry={() => void ledger.refetch()} />
+        <ErrorState message={ledger.error.message} error={ledger.error} onRetry={() => void ledger.refetch()} />
       ) : null}
       {ledger.data ? (
         <>

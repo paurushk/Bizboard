@@ -78,10 +78,10 @@ def test_products_import(tenant_a):
         b"Bad Rate,BAD-1,17,10,3401\n"
     )
     job = _upload(tenant_a, "products", csv_content).data
-    # 17% is not a valid GST rate — commit skips it? No: validation catches numeric only.
     resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
-    assert resp.status_code == 200
-    assert Product.objects.filter(company=tenant_a.company, sku="SOAP-1").exists()
+    assert resp.status_code == 400
+    assert not Product.objects.filter(company=tenant_a.company, sku="SOAP-1").exists()
+    assert not Product.objects.filter(company=tenant_a.company, sku="BAD-1").exists()
 
 
 def test_missing_required_column_rejected(tenant_a):
@@ -109,6 +109,35 @@ def test_products_import_with_unit_and_opening_stock(tenant_a):
     from inventory.models import StockBalance
     balance = StockBalance.objects.get(company=tenant_a.company, product=product)
     assert balance.on_hand == Decimal("50")
+
+
+def test_products_import_zero_opening_stock_is_catalog_only(tenant_a):
+    csv_content = (
+        b"name,sku,gst_rate,selling_price,opening_stock,unit_cost\n"
+        b"Catalog Only,CAT-0,0,80,0,40\n"
+        b"Negative Qty,NEG-1,0,80,-1,40\n"
+    )
+    job = _upload(tenant_a, "products", csv_content).data
+    assert job["valid_rows"] == 1
+    assert job["error_rows"] == 1
+    assert any("opening_stock must be >= 0" in err for err in job["errors"][0]["errors"])
+
+    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp.status_code == 400
+
+    csv_ok = (
+        b"name,sku,gst_rate,selling_price,opening_stock,unit_cost\n"
+        b"Catalog Only,CAT-0,0,80,0,40\n"
+    )
+    job_ok = _upload(tenant_a, "products", csv_ok).data
+    assert job_ok["valid_rows"] == 1
+    assert job_ok["error_rows"] == 0
+    resp = tenant_a.client.post(f"/api/v1/imports/{job_ok['id']}/commit/")
+    assert resp.status_code == 200
+    assert resp.data["created"] == 1
+    product = Product.objects.get(company=tenant_a.company, sku="CAT-0")
+    from inventory.models import StockBalance
+    assert not StockBalance.objects.filter(company=tenant_a.company, product=product).exists()
 
 
 def test_opening_stock_validation_edge_cases(tenant_a):
@@ -141,6 +170,75 @@ def test_opening_stock_flags_already_recorded_opening(tenant_a):
     assert job["valid_rows"] == 0
     assert job["error_rows"] == 1
     assert any("opening stock already recorded" in err for err in job["errors"][0]["errors"])
+
+
+def test_opening_stock_import_requires_serials_for_tracked_product(tenant_a):
+    make_product(tenant_a.company, sku="SER-OS", track_serial=True)
+    csv_content = b"sku,quantity,unit_cost\nSER-OS,2,500\n"
+    job = _upload(tenant_a, "opening_stock", csv_content).data
+    assert job["valid_rows"] == 0
+    assert job["error_rows"] == 1
+    assert any(
+        "Serial numbers are required for serial-tracked opening stock." in err
+        for err in job["errors"][0]["errors"]
+    )
+
+
+def test_opening_stock_import_posts_serials(tenant_a):
+    make_product(tenant_a.company, sku="SER-OS2", track_serial=True)
+    csv_content = b'sku,quantity,unit_cost,serial_no\nSER-OS2,2,500,"SN-A,SN-B"\n'
+    job = _upload(tenant_a, "opening_stock", csv_content).data
+    assert job["valid_rows"] == 1, job
+    assert job["error_rows"] == 0
+    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp.status_code == 200, resp.data
+    from inventory.models import SerialNumber, StockBalance
+
+    product = Product.objects.get(company=tenant_a.company, sku="SER-OS2")
+    assert StockBalance.objects.get(company=tenant_a.company, product=product).on_hand == Decimal("2")
+    numbers = set(
+        SerialNumber.objects.filter(company=tenant_a.company, product=product).values_list(
+            "serial_number", flat=True
+        )
+    )
+    assert numbers == {"SN-A", "SN-B"}
+
+
+def test_products_import_serial_opening_requires_serials(tenant_a):
+    csv_content = (
+        b"name,sku,gst_rate,selling_price,track_serial,opening_stock,unit_cost\n"
+        b"Phone,PH-SN,18,12000,yes,2,8000\n"
+    )
+    job = _upload(tenant_a, "products", csv_content).data
+    assert job["valid_rows"] == 0
+    assert job["error_rows"] == 1
+    assert any(
+        "Serial numbers are required for serial-tracked opening stock." in err
+        for err in job["errors"][0]["errors"]
+    )
+
+
+def test_products_import_serial_opening_with_serials(tenant_a):
+    csv_content = (
+        b"name,sku,gst_rate,selling_price,track_serial,opening_stock,unit_cost,serial_no\n"
+        b'Phone,PH-SN2,18,12000,yes,2,8000,"IMEI-1,IMEI-2"\n'
+    )
+    job = _upload(tenant_a, "products", csv_content).data
+    assert job["valid_rows"] == 1, job
+    assert job["error_rows"] == 0
+    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp.status_code == 200, resp.data
+    from inventory.models import SerialNumber, StockBalance
+
+    product = Product.objects.get(company=tenant_a.company, sku="PH-SN2")
+    assert product.track_serial is True
+    assert StockBalance.objects.get(company=tenant_a.company, product=product).on_hand == Decimal("2")
+    numbers = set(
+        SerialNumber.objects.filter(company=tenant_a.company, product=product).values_list(
+            "serial_number", flat=True
+        )
+    )
+    assert numbers == {"IMEI-1", "IMEI-2"}
 
 
 def test_fuzzy_headers_product_name_and_item_code(tenant_a):

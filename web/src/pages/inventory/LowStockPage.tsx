@@ -24,7 +24,7 @@ export function LowStockPage() {
       <Typography variant="h4">{t('nav.lowStock')}</Typography>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.length === 0 ? <EmptyState description="All items are well stocked above reorder levels." /> : null}
       {query.data && query.data.length > 0 ? (

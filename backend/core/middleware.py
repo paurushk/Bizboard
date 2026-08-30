@@ -93,26 +93,39 @@ class PostgresRlsMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if getattr(settings, "POSTGRES_RLS_ENABLED", False):
-            if not getattr(getattr(request, "user", None), "is_authenticated", False):
-                try:
-                    from core.authentication import CookieJWTAuthentication
+        if not getattr(settings, "POSTGRES_RLS_ENABLED", False):
+            return self.get_response(request)
 
-                    result = CookieJWTAuthentication().authenticate(request)
-                    if result is not None:
-                        request.user, request.auth = result
-                except Exception:  # noqa: BLE001 — unauthenticated requests continue
-                    pass
-            company_id = None
+        from core.rls import set_help_staff_all, set_rls_company
+
+        if not getattr(getattr(request, "user", None), "is_authenticated", False):
             try:
-                from core.permissions import get_company_user
+                from core.authentication import CookieJWTAuthentication
 
-                cu = get_company_user(request)
-                if cu is not None:
-                    company_id = cu.company_id
+                result = CookieJWTAuthentication().authenticate(request)
+                if result is not None:
+                    request.user, request.auth = result
+            except Exception:  # noqa: BLE001 — unauthenticated requests continue
+                pass
+        company_id = None
+        try:
+            from core.permissions import get_company_user
+
+            cu = get_company_user(request)
+            if cu is not None:
+                company_id = cu.company_id
+        except Exception:  # noqa: BLE001
+            company_id = None
+
+        set_rls_company(company_id)
+        try:
+            return self.get_response(request)
+        finally:
+            # R1-009: a pooled connection must never carry this request's
+            # app.company_id into the next request that reuses it (which might
+            # be unauthenticated or a different tenant). Clear it, fail closed.
+            try:
+                set_rls_company(None)
+                set_help_staff_all(False)
             except Exception:  # noqa: BLE001
-                company_id = None
-            from core.rls import set_rls_company
-
-            set_rls_company(company_id)
-        return self.get_response(request)
+                pass

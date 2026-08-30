@@ -1,6 +1,7 @@
 """Shared helpers for document complete / place-of-supply guards."""
 
 from core.exceptions import BusinessRuleError
+from core.help_codes import HelpCode
 from core.services.billing import extract_state_code, is_intra_state, place_of_supply_known
 
 EXPORT_SEZ_SUPPLY_TYPES = frozenset({"SEZWP", "SEZWOP", "EXPWP", "EXPWOP", "DEXP"})
@@ -57,11 +58,12 @@ def assert_place_of_supply_for_gst(
     # BB-000063: place_of_supply_known uses GSTIN digits + state-name→code map.
     if place_of_supply_known(party_state=party_state, party_gstin=party_gstin):
         return
-    if getattr(company, "assume_local_state_for_blank_party", False):
+    if not (party_state or "").strip() and getattr(company, "assume_local_state_for_blank_party", False):
         return
     raise BusinessRuleError(
         "Customer/supplier state or GSTIN is required for GST invoices. "
-        "Add place of supply, or enable 'Assume local state for blank party' in GST settings."
+        "Add place of supply, or enable 'Assume local state for blank party' in GST settings.",
+        code=HelpCode.PLACE_OF_SUPPLY_UNRESOLVED,
     )
 
 

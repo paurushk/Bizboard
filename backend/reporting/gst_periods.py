@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
+from core.help_codes import HelpCode
 
 from .models import GstReturnPeriod
 
@@ -88,7 +89,8 @@ def assert_period_allows_money_amend(company, doc_date, *, allow_soft_closed=Fal
         gst_blocking.append(GstReturnPeriod.Status.SOFT_CLOSED)
     if gst_period is not None and gst_period.status in gst_blocking:
         raise BusinessRuleError(
-            f"Cannot amend money fields: GST period {period} is {gst_period.status}."
+            f"Cannot amend money fields: GST period {period} is {gst_period.status}.",
+            code=HelpCode.CLOSED_PERIOD,
         )
 
     from accounting.models import AccountingPeriod
@@ -104,5 +106,6 @@ def assert_period_allows_money_amend(company, doc_date, *, allow_soft_closed=Fal
     ).first()
     if blocking is not None:
         raise BusinessRuleError(
-            f"Cannot amend money fields: accounting period covering {doc_date} is {blocking.status}."
+            f"Cannot amend money fields: accounting period covering {doc_date} is {blocking.status}.",
+            code=HelpCode.CLOSED_PERIOD,
         )

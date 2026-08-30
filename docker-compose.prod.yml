@@ -5,7 +5,9 @@
 # digests in deploy manifests (not mutable :sha tags alone), e.g.:
 #   image: ghcr.io/org/bizboard-api@sha256:<digest from GHCR>
 # Verify beat heartbeat key `bizboard:celery_beat_heartbeat` is fresh (<180s);
-# run one-shot `migrate` before rolling api.
+# run one-shot `migrate` before rolling api:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile migrate run --rm migrate
+# CSRF_COOKIE_SECURE is True when DJANGO_ENV=production — require HTTPS at the edge.
 services:
   migrate:
     profiles: ["migrate"]
@@ -37,6 +39,12 @@ services:
       gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout 120
     # Prefer digest-pinned images in real deploy (example):
     # image: ghcr.io/org/bizboard-api@sha256:...
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/?ready=1')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
   worker:
     env_file:
       - path: .env

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -18,8 +18,9 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   amendInvoiceFilingIdentity,
   cancelSalesInvoice,
@@ -50,13 +51,15 @@ import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canCancelDocuments } from '@/utils/permissions';
 import { isAllowedPaymentUrl, isAllowedShareUrl, openShareUrl } from '@/utils/safeUrl';
-import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
 
 export function InvoiceDetailPage() {
   const { user } = useAuth();
   const { id } = useParams();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const invoiceId = Number(id);
+  const invoiceIdValid = Number.isFinite(invoiceId) && invoiceId > 0;
   const qc = useQueryClient();
   const [sharePhone, setSharePhone] = useState('');
   const [shareEmail, setShareEmail] = useState('');
@@ -73,11 +76,19 @@ export function InvoiceDetailPage() {
   const [error, setError] = useState<string | null>(
     () => (location.state as { paymentWarning?: string } | null)?.paymentWarning ?? null,
   );
+  const [errorSource, setErrorSource] = useState<unknown>(null);
+  const cancelBtnRef = useRef<HTMLButtonElement>(null);
+  const helpCancel = searchParams.get('helpAction') === 'cancel';
+
+  const captureError = (err: unknown) => {
+    setError(getErrorMessage(err));
+    setErrorSource(err);
+  };
 
   const query = useQuery({
     queryKey: ['sales-invoice', invoiceId],
     queryFn: () => getSalesInvoice(invoiceId),
-    enabled: Number.isFinite(invoiceId),
+    enabled: invoiceIdValid,
   });
 
   const customers = useQuery({
@@ -96,6 +107,12 @@ export function InvoiceDetailPage() {
   }, [query.data]);
 
   useEffect(() => {
+    if (!helpCancel) return;
+    cancelBtnRef.current?.focus();
+    cancelBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [helpCancel, query.data?.status]);
+
+  useEffect(() => {
     if (prefilled || !query.data) return;
     const customer = (customers.data ?? []).find((c) => c.id === query.data.customer);
     if (customer?.phone) setSharePhone(customer.phone);
@@ -106,19 +123,19 @@ export function InvoiceDetailPage() {
   const completeMutation = useMutation({
     mutationFn: () => completeSalesInvoice(invoiceId),
     onSuccess: () => {
-      setMessage('Invoice completed');
+      setMessage(t('billing.invoiceCompleted'));
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => captureError(err),
   });
 
   const cancelMutation = useMutation({
     mutationFn: () => cancelSalesInvoice(invoiceId),
     onSuccess: () => {
-      setMessage('Invoice cancelled');
+      setMessage(t('billing.invoiceCancelled'));
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => captureError(err),
   });
 
   const [shareLink, setShareLink] = useState<string | null>(null);
@@ -131,10 +148,8 @@ export function InvoiceDetailPage() {
   const paymentLinks = useQuery({
     queryKey: ['payment-links', invoiceId],
     queryFn: async () => {
-      const page = await listPaymentLinksPage({ pageSize: 50 });
-      return page.results.filter(
-        (l) => l.salesInvoice === invoiceId || Number(l.salesInvoice) === invoiceId,
-      );
+      const page = await listPaymentLinksPage({ pageSize: 50, sales_invoice: invoiceId });
+      return page.results;
     },
     enabled: Number.isFinite(invoiceId) && (query.data?.status === 'COMPLETED' || query.data?.status === 'RETURNED'),
   });
@@ -148,11 +163,11 @@ export function InvoiceDetailPage() {
   const unallocateMutation = useMutation({
     mutationFn: (allocationId: number) => unallocatePayment(allocationId),
     onSuccess: () => {
-      setMessage('Payment unallocated');
+      setMessage(t('billing.paymentUnallocated'));
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
       void qc.invalidateQueries({ queryKey: ['invoice-allocations', invoiceId] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => captureError(err),
   });
 
   const transportForPanel = useMemo(
@@ -220,6 +235,7 @@ export function InvoiceDetailPage() {
         if (mode === 'cloud' && res.status === 'SENT') {
           setMessage(t('common.whatsappCloudSent'));
           setError(null);
+          setErrorSource(null);
         } else if (res.error) {
           // BB-000743: Cloud attempted but fell back to wa.me — never silent.
           setError(res.error || t('common.whatsappFallbackWarn'));
@@ -227,6 +243,7 @@ export function InvoiceDetailPage() {
         } else {
           setMessage(t('common.whatsappLinkHint'));
           setError(null);
+          setErrorSource(null);
         }
       } else {
         setMessage(res.shareLink ? `Share ready` : `Share ${res.status}`);
@@ -248,7 +265,7 @@ export function InvoiceDetailPage() {
         }
       }
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => captureError(err),
   });
 
   const whatsappButtonHint = isRuntimeFlagEnabled('ENABLE_WHATSAPP_CLOUD')
@@ -267,7 +284,7 @@ export function InvoiceDetailPage() {
       setMessage('Transport details saved');
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => captureError(err),
   });
 
   const amendMutation = useMutation({
@@ -283,7 +300,7 @@ export function InvoiceDetailPage() {
       setAmendReason('');
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => captureError(err),
   });
 
   const downloadCopy = useCallback(
@@ -294,6 +311,7 @@ export function InvoiceDetailPage() {
         triggerBlobDownload(blob, `${base}_${copy.toLowerCase()}.pdf`);
       } catch (err) {
         setError(getErrorMessage(err));
+        setErrorSource(err);
       }
     },
     [invoiceId, query.data?.number],
@@ -305,6 +323,7 @@ export function InvoiceDetailPage() {
       printBlob(blob);
     } catch (err) {
       setError(getErrorMessage(err));
+      setErrorSource(err);
     }
   }, [invoiceId]);
 
@@ -315,14 +334,18 @@ export function InvoiceDetailPage() {
         printBlob(blob);
       } catch (err) {
         setError(getErrorMessage(err));
+        setErrorSource(err);
       }
     },
     [invoiceId],
   );
 
+  if (!invoiceIdValid) {
+    return <ErrorState message={t('billing.invalidInvoice')} />;
+  }
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
   if (!query.data) return <EmptyState />;
 
@@ -343,11 +366,14 @@ export function InvoiceDetailPage() {
         spacing={1}
       >
         <Box>
-          <Typography variant="h4" sx={{ fontFamily: '"IBM Plex Sans", sans-serif' }}>
+          <Typography variant="h4">
             {inv.number?.trim() ? inv.number : `Draft #${inv.id}`}
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: 'wrap' }}>
-            <StatusChip tone={documentStatusTone(inv.status)} labelKey={statusLabelKey(inv.status)} />
+            <StatusChip
+              tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance))}
+              labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance))}
+            />
             <Chip size="small" label={inv.invoiceType} variant="outlined" />
             <Typography variant="body2" color="text.secondary">
               {inv.invoiceDate}
@@ -366,9 +392,7 @@ export function InvoiceDetailPage() {
         </Alert>
       ) : null}
       {error ? (
-        <Alert severity="error" role="alert" aria-live="assertive">
-          {error}
-        </Alert>
+        <HelpErrorAlert message={error} error={errorSource} invoiceId={invoiceId} />
       ) : null}
 
       <Paper
@@ -404,13 +428,15 @@ export function InvoiceDetailPage() {
           ) : null}
           {inv.status === 'COMPLETED' && canCancelDocuments(user) ? (
             <Button
+              ref={cancelBtnRef}
+              id="invoice-cancel"
               color="error"
-              variant="outlined"
+              variant={helpCancel ? 'contained' : 'outlined'}
               disabled={cancelMutation.isPending}
               onClick={() => {
                 // BUG-520: a single mis-click used to cancel a completed,
                 // potentially already-shared GST invoice with no recovery.
-                if (window.confirm(`Cancel invoice ${inv.number ?? inv.id}? This cannot be undone.`)) {
+                if (window.confirm(t('history.confirmCancel', { label: inv.number ?? inv.id }))) {
                   cancelMutation.mutate();
                 }
               }}
@@ -525,7 +551,11 @@ export function InvoiceDetailPage() {
                           size="small"
                           color="warning"
                           disabled={unallocateMutation.isPending}
-                          onClick={() => unallocateMutation.mutate(row.id)}
+                          onClick={() => {
+                            if (window.confirm(t('billing.confirmUnallocate'))) {
+                              unallocateMutation.mutate(row.id);
+                            }
+                          }}
                         >
                           Unallocate
                         </Button>
@@ -548,7 +578,7 @@ export function InvoiceDetailPage() {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
               Amount-locked QR for outstanding {formatMoney(inv.balance ?? inv.grandTotal)}.
             </Typography>
-            {upiError ? <Alert severity="error" sx={{ mb: 1 }}>{upiError}</Alert> : null}
+            {upiError ? <HelpErrorAlert message={upiError} sx={{ mb: 1 }} /> : null}
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
               <Button
                 variant="contained"

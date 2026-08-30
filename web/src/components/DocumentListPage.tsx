@@ -84,7 +84,7 @@ export function DocumentListPage({
         ) : null}
       </Stack>
       {loading ? <LoadingState /> : null}
-      {error ? <ErrorState message={String(error)} onRetry={onRetry} /> : null}
+      {error ? <ErrorState message={String(error)} error={error} onRetry={onRetry} /> : null}
       {!loading && !error && rows?.length === 0 ? <EmptyState /> : null}
       {rows && rows.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>

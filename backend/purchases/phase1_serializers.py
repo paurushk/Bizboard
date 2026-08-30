@@ -27,10 +27,10 @@ class PurchaseCreditNoteItemSerializer(_Line):
         model = PurchaseCreditNoteItem
         fields = [
             "id", "product", "product_name", "description", "quantity",
-            "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
+            "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount", "source_item",
             "hsn_code", "unit_name", "uqc_code",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY + ["hsn_code", "unit_name", "uqc_code"]
+        read_only_fields = LINE_READONLY + ["hsn_code", "uqc_code"]
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
 
 
@@ -84,10 +84,10 @@ class PurchaseDebitNoteItemSerializer(_Line):
         model = PurchaseDebitNoteItem
         fields = [
             "id", "product", "product_name", "description", "quantity",
-            "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
+            "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount", "source_item",
             "hsn_code", "unit_name", "uqc_code",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY + ["hsn_code", "unit_name", "uqc_code"]
+        read_only_fields = LINE_READONLY + ["hsn_code", "uqc_code"]
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
 
 

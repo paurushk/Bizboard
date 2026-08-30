@@ -11,9 +11,15 @@ When accounting is off: documents + allocations remain the source of truth
 
 from decimal import Decimal
 
-from django.db.models import Prefetch, Sum
+from django.db.models import Case, DecimalField, F, Prefetch, Sum, Value, When
 
-from payments.models import CustomerReceipt, PaymentAllocation, ReceiptStatus, SupplierPayment
+from payments.models import (
+    CustomerReceipt,
+    PaymentAllocation,
+    ReceiptStatus,
+    SupplierPayment,
+    SupplierPaymentStatus,
+)
 from purchases.models import (
     PurchaseCreditNote,
     PurchaseDebitNote,
@@ -58,6 +64,22 @@ def _resolve_source_number(source_type: str, source_id: int | None) -> str | Non
     return model.objects.filter(pk=source_id).values_list("number", flat=True).first()
 
 
+def _resolve_source_numbers(pairs) -> dict:
+    """R2-019: batch-resolve {(source_type, source_id): number} in one query
+    per model instead of one query per statement line (N+1)."""
+    by_type: dict[str, set] = {}
+    for source_type, source_id in pairs:
+        if source_id is None or source_type not in _SOURCE_NUMBER_MODELS:
+            continue
+        by_type.setdefault(source_type, set()).add(source_id)
+    out: dict = {}
+    for source_type, ids in by_type.items():
+        model = _SOURCE_NUMBER_MODELS[source_type]
+        for pk, number in model.objects.filter(pk__in=ids).values_list("pk", "number"):
+            out[(source_type, pk)] = number
+    return out
+
+
 def _prefetched_alloc_total(parent, related_name="allocations") -> Decimal:
     """Sum allocation amounts from a Prefetch cache (avoids N+1)."""
     cached = getattr(parent, "_prefetched_objects_cache", {}).get(related_name)
@@ -68,7 +90,9 @@ def _prefetched_alloc_total(parent, related_name="allocations") -> Decimal:
 
 _ALLOC_PREFETCH = Prefetch(
     "allocations",
-    queryset=PaymentAllocation.objects.only("id", "amount", "receipt_id", "supplier_payment_id"),
+    queryset=PaymentAllocation.objects.filter(reversed_at__isnull=True).only(
+        "id", "amount", "receipt_id", "supplier_payment_id"
+    ),
 )
 
 OPEN_SALES_STATUSES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
@@ -99,7 +123,9 @@ class LedgerService:
             "grand_total",
         )
         allocated = _sum(PaymentAllocation.objects.filter(sales_invoice=invoice, reversed_at__isnull=True))
-        tcs = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
+        tcs = Decimal("0")
+        if not getattr(invoice, "tcs_in_grand_total", False):
+            tcs = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
         # BB-000097/288: never report negative open receivable.
         return max(Decimal("0"), invoice.grand_total + tcs - credit_notes + debit_notes - allocated)
 
@@ -194,8 +220,14 @@ class LedgerService:
 
     @staticmethod
     def customer_outstanding(company, customer) -> Decimal:
+        """Gross open receivable. R2-021: this does NOT net unallocated advances
+        — a prepaid customer with open invoices still shows the invoice figure.
+        Use customer_exposure_for_credit_limit() for the advance-netted number,
+        and show 'advance on account' separately in the UI."""
         if getattr(company, "accounting_enabled", False):
-            # AR asset 1200: debit increases receivable.
+            # AR asset 1200: debit increases receivable. R2-018: floored at 0 for
+            # this per-party figure; control_balances() exposes the un-floored
+            # GL net for trial-balance reconciliation.
             return max(Decimal("0"), LedgerService._party_account_net(
                 company, account_code="1200", customer=customer
             ))
@@ -207,7 +239,10 @@ class LedgerService:
             "grand_total",
         ) + _sum(
             SalesInvoice.objects.filter(
-                company=company, customer=customer, status__in=OPEN_SALES_STATUSES
+                company=company,
+                customer=customer,
+                status__in=OPEN_SALES_STATUSES,
+                tcs_in_grand_total=False,
             ),
             "tcs_amount",
         )
@@ -228,6 +263,7 @@ class LedgerService:
                 company=company,
                 sales_invoice__customer=customer,
                 receipt__isnull=False,
+                supplier_payment__isnull=True,  # R2-020: AR side only
                 reversed_at__isnull=True,
             )
         )
@@ -259,7 +295,16 @@ class LedgerService:
         invoices = dict(
             SalesInvoice.objects.filter(company=company, status__in=OPEN_SALES_STATUSES)
             .values("customer_id")
-            .annotate(total=Sum("grand_total") + Sum("tcs_amount"))
+            .annotate(
+                total=Sum("grand_total")
+                + Sum(
+                    Case(
+                        When(tcs_in_grand_total=True, then=Value(Decimal("0"))),
+                        default=F("tcs_amount"),
+                        output_field=DecimalField(max_digits=14, decimal_places=2),
+                    )
+                )
+            )
             .values_list("customer_id", "total")
         )
         credit_notes = dict(
@@ -276,7 +321,10 @@ class LedgerService:
         )
         allocated = dict(
             PaymentAllocation.objects.filter(
-                company=company, receipt__isnull=False, reversed_at__isnull=True
+                company=company,
+                receipt__isnull=False,
+                supplier_payment__isnull=True,  # R2-020
+                reversed_at__isnull=True,
             )
             .values("sales_invoice__customer_id")
             .annotate(total=Sum("amount"))
@@ -296,12 +344,16 @@ class LedgerService:
 
     @staticmethod
     def company_receivables(company) -> Decimal:
-        """Company-wide AR — single source for dashboards (GAP-002)."""
+        """Company-wide AR for dashboards (GAP-002). R2-018: this sums the
+        per-party figures which are each floored at 0, so it will read HIGHER
+        than the 1200 control-account balance whenever a customer is in credit.
+        For GL reconciliation use BooksHealthService.control_balances()['ar']."""
         return sum(LedgerService.bulk_customer_outstanding(company).values(), Decimal("0"))
 
     @staticmethod
     def company_payables(company) -> Decimal:
-        """Company-wide AP — single source for dashboards (GAP-002)."""
+        """Company-wide AP for dashboards (GAP-002). R2-018: see
+        company_receivables — floored per-party; reconcile via control_balances()."""
         return sum(LedgerService.bulk_supplier_outstanding(company).values(), Decimal("0"))
 
     @staticmethod
@@ -310,7 +362,7 @@ class LedgerService:
         if getattr(company, "accounting_enabled", False):
             return LedgerService._gl_party_statement(
                 company,
-                account_code="1200",
+                account_codes=["1200", "2300"],
                 customer=customer,
                 date_from=date_from,
                 date_to=date_to,
@@ -325,7 +377,12 @@ class LedgerService:
                 "type": "SALES_INVOICE",
                 "number": inv.number,
                 "reference_id": inv.pk,
-                "debit": inv.grand_total,
+                "debit": inv.grand_total
+                + (
+                    Decimal("0")
+                    if getattr(inv, "tcs_in_grand_total", False)
+                    else Decimal(str(getattr(inv, "tcs_amount", 0) or 0))
+                ),
                 "credit": Decimal("0"),
             })
         # Sales returns are stock-only for AR; credit notes carry the value relief.
@@ -388,7 +445,8 @@ class LedgerService:
     def _gl_party_statement(
         company,
         *,
-        account_code: str,
+        account_code: str | None = None,
+        account_codes: list[str] | None = None,
         customer=None,
         supplier=None,
         date_from=None,
@@ -398,16 +456,22 @@ class LedgerService:
         """Build statement lines from posted JournalLine rows tagged to party."""
         from accounting.models import JournalEntry, JournalLine
 
+        codes = list(account_codes) if account_codes else [account_code] if account_code else []
         qs = JournalLine.objects.filter(
             entry__company=company,
             entry__status=JournalEntry.Status.POSTED,
-            account__code=account_code,
+            account__code__in=codes,
         ).select_related("entry", "account")
         if customer is not None:
             qs = qs.filter(customer=customer)
         if supplier is not None:
             qs = qs.filter(supplier=supplier)
         lines = list(qs.order_by("entry__entry_date", "id"))
+        # R2-019: resolve every source document number up front (one query per
+        # model) instead of one query per statement line.
+        source_numbers = _resolve_source_numbers(
+            (line.entry.source_type or "JOURNAL", line.entry.source_id) for line in lines
+        )
         entries = []
         for line in lines:
             d = Decimal(str(line.debit or 0))
@@ -416,7 +480,7 @@ class LedgerService:
             # UXW2B-005: show the source invoice/bill/receipt number a shopkeeper
             # actually recognizes; fall back to the internal JV number only when
             # there's no customer-facing document (manual journals, FY close, …).
-            doc_number = _resolve_source_number(source_type, line.entry.source_id)
+            doc_number = source_numbers.get((source_type, line.entry.source_id))
             entries.append({
                 "date": line.entry.entry_date,
                 "type": source_type,
@@ -502,6 +566,7 @@ class LedgerService:
                 company=company,
                 purchase_invoice__supplier=supplier,
                 supplier_payment__isnull=False,
+                receipt__isnull=True,  # R2-020: AP side only
                 reversed_at__isnull=True,
             )
         )
@@ -567,7 +632,10 @@ class LedgerService:
         )
         allocated = dict(
             PaymentAllocation.objects.filter(
-                company=company, supplier_payment__isnull=False, reversed_at__isnull=True
+                company=company,
+                supplier_payment__isnull=False,
+                receipt__isnull=True,  # R2-020
+                reversed_at__isnull=True,
             )
             .values("purchase_invoice__supplier_id")
             .annotate(total=Sum("amount"))
@@ -591,7 +659,7 @@ class LedgerService:
         if getattr(company, "accounting_enabled", False):
             return LedgerService._gl_party_statement(
                 company,
-                account_code="2100",
+                account_codes=["2100", "1250"],
                 supplier=supplier,
                 date_from=date_from,
                 date_to=date_to,
@@ -603,12 +671,14 @@ class LedgerService:
             supplier=supplier,
             status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
         ).select_related("supplier"):
+            tds = Decimal(str(getattr(inv, "tds_amount", 0) or 0))
+            net_credit = max(Decimal("0"), inv.grand_total - tds)
             entries.append({
                 "date": inv.invoice_date,
                 "type": "PURCHASE_INVOICE",
                 "number": inv.number,
                 "reference_id": inv.pk,
-                "credit": inv.grand_total,
+                "credit": net_credit,
                 "debit": Decimal("0"),
             })
         # BB-000323: skip return rows already relieved via an auto CN so the
@@ -648,7 +718,7 @@ class LedgerService:
                 "debit": Decimal("0"),
             })
         for payment in SupplierPayment.objects.filter(
-            company=company, supplier=supplier
+            company=company, supplier=supplier, status=SupplierPaymentStatus.POSTED
         ).select_related("supplier").prefetch_related(_ALLOC_PREFETCH):
             allocated = _prefetched_alloc_total(payment)
             unallocated = payment.amount - allocated

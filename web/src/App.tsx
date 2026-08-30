@@ -5,14 +5,20 @@ import { useAuth } from '@/auth/AuthContext';
 import {
   isAccountingFeatureEnabled,
   isAiInsightsEnabled,
+  isCrmEnabled,
   isGstrReportsEnabled,
+  isManufacturingEnabled,
+  isPayrollEnabled,
   isPosEnabled,
   isTallyEnabled,
+  isTdsEnabled,
 } from '@/config/features';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { AppShell } from '@/layouts/AppShell';
 import { LoginPage } from '@/pages/LoginPage';
 import { RegisterPage } from '@/pages/RegisterPage';
+import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
+import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { AcceptInvitePage } from '@/pages/AcceptInvitePage';
 import { HomePage } from '@/pages/HomePage';
 import { LimitedAccessLanding } from '@/pages/LimitedAccessLanding';
@@ -33,6 +39,9 @@ import {
   canViewInventorySurfaces,
   canViewPurchaseSurfaces,
   canViewSalesSurfaces,
+  canViewPaymentSurfaces,
+  canViewBankRecon,
+  isOwner,
 } from '@/utils/permissions';
 import type { User } from '@/types/domain';
 
@@ -76,6 +85,9 @@ const CustomerLedgerPage = lazy(() => import('@/pages/reports/CustomerLedgerPage
 const SupplierLedgerPage = lazy(() => import('@/pages/reports/SupplierLedgerPage').then((m) => ({ default: m.SupplierLedgerPage })));
 const Gstr1ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr1ReportPage })));
 const Gstr3bReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr3bReportPage })));
+const Gstr6ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr6ReportPage })));
+const Gstr7ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr7ReportPage })));
+const Gstr8ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr8ReportPage })));
 const Gstr9ReportPage = lazy(() => import('@/pages/reports/Gstr9ReportPage').then((m) => ({ default: m.Gstr9ReportPage })));
 const GstHealthPage = lazy(() => import('@/pages/reports/GstHealthPage').then((m) => ({ default: m.GstHealthPage })));
 const Gstr2bPage = lazy(() => import('@/pages/reports/Gstr2bPage').then((m) => ({ default: m.Gstr2bPage })));
@@ -104,9 +116,11 @@ const CashBookPage = lazy(() => import('@/pages/reports/CashBookPage').then((m) 
 const WarehousesPage = lazy(() => import('@/pages/inventory/WarehousesPage').then((m) => ({ default: m.WarehousesPage })));
 const StockTransferPage = lazy(() => import('@/pages/inventory/StockTransferPage').then((m) => ({ default: m.StockTransferPage })));
 const ExpiryAlertsPage = lazy(() => import('@/pages/inventory/ExpiryAlertsPage').then((m) => ({ default: m.ExpiryAlertsPage })));
+const StockCountPage = lazy(() => import('@/pages/inventory/StockCountPage').then((m) => ({ default: m.StockCountPage })));
 const SerialsPage = lazy(() => import('@/pages/inventory/SerialsPage').then((m) => ({ default: m.SerialsPage })));
 const StockValuationPage = lazy(() => import('@/pages/reports/StockValuationPage').then((m) => ({ default: m.StockValuationPage })));
 const PriceListsPage = lazy(() => import('@/pages/settings/PriceListsPage').then((m) => ({ default: m.PriceListsPage })));
+const ItemSettingsPage = lazy(() => import('@/pages/settings/ItemSettingsPage').then((m) => ({ default: m.ItemSettingsPage })));
 const AccountingSettingsPage = lazy(() => import('@/pages/settings/AccountingSettingsPage').then((m) => ({ default: m.AccountingSettingsPage })));
 const ChartOfAccountsPage = lazy(() => import('@/pages/accounting/ChartOfAccountsPage').then((m) => ({ default: m.ChartOfAccountsPage })));
 const JournalsPage = lazy(() => import('@/pages/accounting/JournalsPage').then((m) => ({ default: m.JournalsPage })));
@@ -138,7 +152,12 @@ const OpportunitiesPage = lazy(() =>
   import('@/pages/crm/OpportunitiesPage').then((m) => ({ default: m.OpportunitiesPage })),
 );
 const PosPage = lazy(() => import('@/pages/pos/PosPage').then((m) => ({ default: m.PosPage })));
+const OfflineOutboxPage = lazy(() =>
+  import('@/pages/offline/OfflineOutboxPage').then((m) => ({ default: m.OfflineOutboxPage })),
+);
 const SetupWizardPage = lazy(() => import('@/pages/setup/SetupWizardPage').then((m) => ({ default: m.SetupWizardPage })));
+const HelpPage = lazy(() => import('@/pages/help/HelpPage').then((m) => ({ default: m.HelpPage })));
+const HelpHealthPage = lazy(() => import('@/pages/help/HelpHealthPage').then((m) => ({ default: m.HelpHealthPage })));
 
 function RouteFallback() {
   return (
@@ -177,6 +196,11 @@ function RoleRoute({
   return <Outlet />;
 }
 
+function allowHelpHealth(user: User | null): boolean {
+  if (!user) return false;
+  return isOwner(user.role) || Boolean(user.isStaff);
+}
+
 function allowAiInsights(user: User | null): boolean {
   return isAiInsightsEnabled() && canViewAiInsights(user);
 }
@@ -189,6 +213,22 @@ function allowGstrReports(user: User | null): boolean {
   return isGstrReportsEnabled() && canViewFinancialReports(user);
 }
 
+function allowTdsReports(user: User | null): boolean {
+  return isTdsEnabled() && canViewFinancialReports(user);
+}
+
+function allowManufacturing(user: User | null): boolean {
+  return canManageUsers(user) && isManufacturingEnabled();
+}
+
+function allowPayroll(user: User | null): boolean {
+  return canManageUsers(user) && isPayrollEnabled();
+}
+
+function allowCrm(user: User | null): boolean {
+  return canManageUsers(user) && isCrmEnabled();
+}
+
 function allowAccounting(user: User | null): boolean {
   return (
     isAccountingFeatureEnabled() &&
@@ -198,11 +238,11 @@ function allowAccounting(user: User | null): boolean {
 }
 
 function allowAccountingSettings(user: User | null): boolean {
-  return isAccountingFeatureEnabled() && canManageUsers(user);
+  return canManageUsers(user);
 }
 
 function allowAiSettings(user: User | null): boolean {
-  return isAiInsightsEnabled() && canManageUsers(user);
+  return canManageUsers(user);
 }
 
 function allowTally(user: User | null): boolean {
@@ -265,6 +305,8 @@ export function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/invite" element={<AcceptInvitePage />} />
         <Route path="/pay/:token" element={<PublicPayPage />} />
         <Route element={<ProtectedRoute />}>
@@ -272,7 +314,18 @@ export function App() {
             <Route path="setup" element={<SetupWizardPage />} />
           </Route>
           <Route element={<AppShell />}>
+            <Route path="reports/profit-loss" element={<Navigate to="/reports/profit-and-loss" replace />} />
+            <Route path="accounting/chart-of-accounts" element={<Navigate to="/accounting/accounts" replace />} />
+            <Route path="accounting/bank-recon" element={<Navigate to="/accounting/bank-reconciliation" replace />} />
+            <Route path="sales/quotations/new" element={<Navigate to="/sales/quotations?create=1" replace />} />
+            <Route path="sales/returns/new" element={<Navigate to="/sales/returns?create=1" replace />} />
+            <Route path="purchases/returns/new" element={<Navigate to="/purchases/returns?create=1" replace />} />
             <Route index element={<HomePage />} />
+            <Route path="offline-outbox" element={<OfflineOutboxPage />} />
+            <Route path="help" element={<HelpPage />} />
+            <Route element={<RoleRoute allow={allowHelpHealth} />}>
+              <Route path="settings/help" element={<HelpHealthPage />} />
+            </Route>
             <Route element={<RoleRoute allow={allowAiInsights} />}>
               <Route path="insights" element={<InsightsHubPage />} />
               <Route path="insights/alerts" element={<InsightsAlertsPage />} />
@@ -288,6 +341,7 @@ export function App() {
             </Route>
             <Route element={<RoleRoute allow={canImport} />}>
               <Route path="sales/bill-upload" element={<SalesBillUploadPage />} />
+              <Route path="sales/upload" element={<Navigate to="/sales/bill-upload" replace />} />
             </Route>
             <Route element={<RoleRoute allow={allowPos} />}>
               <Route path="pos" element={<PosPage />} />
@@ -302,59 +356,70 @@ export function App() {
               <Route path="sales/recurring" element={<RecurringInvoicesPage />} />
               <Route path="sales/customers" element={<CustomersPage />} />
             </Route>
-            {/* BB-000480: list surfaces use view ACL; create/edit stay on canCreateSales. */}
+            {/* BB-000480: list & detail surfaces use view ACL; create stay on canCreateSales. */}
             <Route element={<RoleRoute allow={canViewSalesSurfaces} />}>
               <Route path="sales/quotations" element={<QuotationsPage />} />
               <Route path="sales/returns" element={<SalesReturnsPage />} />
+              <Route path="sales/credit-notes/:id" element={<CreditNoteEditor />} />
+              <Route path="sales/debit-notes/:id" element={<DebitNoteEditor />} />
+              <Route path="sales/orders/:id" element={<SalesOrderEditor />} />
+              <Route path="sales/delivery-challans/:id" element={<DeliveryChallanEditor />} />
             </Route>
             <Route element={<RoleRoute allow={canCreateSales} />}>
               <Route path="sales/credit-notes/new" element={<CreditNoteEditor />} />
-              <Route path="sales/credit-notes/:id" element={<CreditNoteEditor />} />
               <Route path="sales/debit-notes/new" element={<DebitNoteEditor />} />
-              <Route path="sales/debit-notes/:id" element={<DebitNoteEditor />} />
               <Route path="sales/orders/new" element={<SalesOrderEditor />} />
-              <Route path="sales/orders/:id" element={<SalesOrderEditor />} />
               <Route path="sales/delivery-challans/new" element={<DeliveryChallanEditor />} />
-              <Route path="sales/delivery-challans/:id" element={<DeliveryChallanEditor />} />
+            </Route>
+            <Route element={<RoleRoute allow={canViewPaymentSurfaces} />}>
+              <Route path="sales/receipts" element={<ReceiptsPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={canViewBankRecon} />}>
+              <Route path="payments/reconciliation" element={<BankReconPage />} />
+              <Route path="payments/recon" element={<Navigate to="/payments/reconciliation" replace />} />
             </Route>
             <Route element={<RoleRoute allow={canCreatePayments} />}>
-              <Route path="sales/receipts" element={<ReceiptsPage />} />
               <Route path="purchases/payments" element={<SupplierPaymentsPage />} />
               <Route path="payments/links" element={<PaymentLinksPage />} />
               <Route path="payments/statements" element={<BankStatementsPage />} />
-              <Route path="payments/reconciliation" element={<BankReconPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={canViewPurchaseSurfaces} />}>
+              <Route path="purchases/returns" element={<PurchaseReturnsPage />} />
             </Route>
             <Route element={<RoleRoute allow={canCreatePurchases} />}>
               <Route path="purchases/new" element={<PurchaseInvoiceEditor />} />
               <Route path="purchases/history/:id/edit" element={<PurchaseInvoiceEditor />} />
-              <Route path="purchases/returns" element={<PurchaseReturnsPage />} />
               <Route path="purchases/credit-notes/new" element={<PurchaseCreditNoteEditor />} />
-              <Route path="purchases/credit-notes/:id" element={<PurchaseCreditNoteEditor />} />
               <Route path="purchases/debit-notes/new" element={<PurchaseDebitNoteEditor />} />
-              <Route path="purchases/debit-notes/:id" element={<PurchaseDebitNoteEditor />} />
               <Route path="purchases/orders/new" element={<PurchaseOrderEditor />} />
-              <Route path="purchases/orders/:id" element={<PurchaseOrderEditor />} />
             </Route>
             <Route element={<RoleRoute allow={canViewPurchaseSurfaces} />}>
               <Route path="purchases/history" element={<PurchaseHistoryPage />} />
               <Route path="purchases/history/:id" element={<PurchaseDetailPage />} />
               <Route path="purchases/credit-notes" element={<PurchaseCreditNotesPage />} />
+              <Route path="purchases/credit-notes/:id" element={<PurchaseCreditNoteEditor />} />
               <Route path="purchases/debit-notes" element={<PurchaseDebitNotesPage />} />
+              <Route path="purchases/debit-notes/:id" element={<PurchaseDebitNoteEditor />} />
               <Route path="purchases/orders" element={<PurchaseOrdersPage />} />
+              <Route path="purchases/orders/:id" element={<PurchaseOrderEditor />} />
               <Route path="purchases/suppliers" element={<SuppliersPage />} />
             </Route>
             <Route element={<RoleRoute allow={canImport} />}>
               <Route path="purchases/bill-upload" element={<PurchaseBillUploadPage />} />
+              <Route path="purchases/upload" element={<Navigate to="/purchases/bill-upload" replace />} />
             </Route>
             <Route element={<RoleRoute allow={canViewInventorySurfaces} />}>
               <Route path="inventory/products" element={<ProductsPage />} />
               <Route path="inventory/stock" element={<CurrentStockPage />} />
               <Route path="inventory/low-stock" element={<LowStockPage />} />
               <Route path="inventory/expiry-alerts" element={<ExpiryAlertsPage />} />
+              <Route path="inventory/expiry" element={<Navigate to="/inventory/expiry-alerts" replace />} />
             </Route>
             <Route element={<RoleRoute allow={canAdjustInventory} />}>
               <Route path="inventory/adjustments" element={<StockAdjustmentPage />} />
               <Route path="inventory/warehouses" element={<WarehousesPage />} />
+              <Route path="inventory/stock-counts" element={<StockCountPage />} />
+              <Route path="inventory/count" element={<Navigate to="/inventory/stock-counts" replace />} />
               <Route path="inventory/transfers" element={<StockTransferPage />} />
               <Route path="inventory/serials" element={<SerialsPage />} />
             </Route>
@@ -367,6 +432,8 @@ export function App() {
               <Route path="reports/statutory-events" element={<StatutoryEventsPage />} />
               <Route path="reports/cash-book" element={<CashBookPage />} />
               <Route path="reports/stock-valuation" element={<StockValuationPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowTdsReports} />}>
               <Route path="reports/tds-tcs" element={<TdsTcsReportsPage />} />
             </Route>
             <Route element={<RoleRoute allow={allowAccounting} />}>
@@ -378,6 +445,9 @@ export function App() {
             <Route element={<RoleRoute allow={allowGstrReports} />}>
               <Route path="reports/gstr1" element={<Gstr1ReportPage />} />
               <Route path="reports/gstr3b" element={<Gstr3bReportPage />} />
+              <Route path="reports/gstr6" element={<Gstr6ReportPage />} />
+              <Route path="reports/gstr7" element={<Gstr7ReportPage />} />
+              <Route path="reports/gstr8" element={<Gstr8ReportPage />} />
               <Route path="reports/gstr9" element={<Gstr9ReportPage />} />
               <Route path="reports/gstr2b" element={<Gstr2bPage />} />
               <Route path="reports/gst-health" element={<GstHealthPage />} />
@@ -386,6 +456,7 @@ export function App() {
               <Route element={<RoleRoute allow={canManageUsers} />}>
                 <Route path="settings/company" element={<CompanySettingsPage />} />
                 <Route path="settings/units" element={<UnitsSettingsPage />} />
+                <Route path="settings/items" element={<ItemSettingsPage />} />
                 <Route path="settings/templates" element={<InvoiceTemplatesPage />} />
                 <Route path="settings/users" element={<UsersSettingsPage />} />
                 <Route path="settings/bank-accounts" element={<BankAccountsPage />} />
@@ -414,20 +485,23 @@ export function App() {
             </Route>
             <Route element={<RoleRoute allow={allowAccounting} />}>
               <Route path="accounting/accounts" element={<ChartOfAccountsPage />} />
-              <Route path="accounting/chart-of-accounts" element={<Navigate to="/accounting/accounts" replace />} />
               <Route path="accounting/journals" element={<JournalsPage />} />
               <Route path="accounting/bank-reconciliation" element={<AccountingBankReconPage />} />
               <Route path="accounting/cost-centers" element={<CostCentersPage />} />
               <Route path="accounting/fixed-assets" element={<FixedAssetsPage />} />
               <Route path="accounting/periods" element={<PeriodsPage />} />
             </Route>
-            <Route element={<RoleRoute allow={canManageUsers} />}>
+            <Route element={<RoleRoute allow={allowManufacturing} />}>
               <Route path="manufacturing" element={<Navigate to="/manufacturing/boms" replace />} />
               <Route path="manufacturing/boms" element={<BomsPage />} />
               <Route path="manufacturing/work-orders" element={<WorkOrdersPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowPayroll} />}>
               <Route path="payroll" element={<Navigate to="/payroll/employees" replace />} />
               <Route path="payroll/employees" element={<EmployeesPage />} />
               <Route path="payroll/pay-runs" element={<PayRunsPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowCrm} />}>
               <Route path="crm" element={<Navigate to="/crm/leads" replace />} />
               <Route path="crm/leads" element={<LeadsPage />} />
               <Route path="crm/opportunities" element={<OpportunitiesPage />} />

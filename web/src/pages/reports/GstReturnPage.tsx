@@ -14,6 +14,7 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canExport } from '@/utils/permissions';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 type GstReturnKind = 'gstr1' | 'gstr3b';
 
@@ -182,7 +183,7 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
       ) : null}
 
       {exportMutation.isError ? (
-        <Alert severity="error">{getErrorMessage(exportMutation.error)}</Alert>
+        <HelpErrorAlert error={exportMutation.error} />
       ) : null}
       {compositionBlocked ? (
         <Alert severity="warning">
@@ -192,7 +193,7 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
       ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError && !compositionBlocked ? (
-        <ErrorState message={queryErrorMessage} onRetry={() => void query.refetch()} />
+        <ErrorState message={queryErrorMessage} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
 
       {query.data && outward ? (
@@ -203,9 +204,20 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
                 const outwardRec = outward as Record<string, string | number>;
                 const itcData = ((query.data?.itc ?? query.data?.inwardSupplies ?? {}) as Record<string, string | number>);
                 const totalTaxLiability = toNumber(outwardRec.cgst ?? 0) + toNumber(outwardRec.sgst ?? 0) + toNumber(outwardRec.igst ?? 0);
-                const totalItc = toNumber(itcData.cgst ?? itcData.available_cgst ?? itcData.availableCgst ?? 0) +
-                  toNumber(itcData.sgst ?? itcData.available_sgst ?? itcData.availableSgst ?? 0) +
-                  toNumber(itcData.igst ?? itcData.available_igst ?? itcData.availableIgst ?? 0);
+                // R4-004: prefer the backend's recommended claimable ITC
+                // (min(books, GSTR-2B matched) per head) when it is provided —
+                // that is the amount safe to actually claim.
+                const rec = (itcData.recommendedClaimable ?? itcData.recommended_claimable) as unknown as
+                  | Record<string, string | number>
+                  | undefined;
+                const recTotal = rec
+                  ? toNumber(rec.cgst ?? 0) + toNumber(rec.sgst ?? 0) + toNumber(rec.igst ?? 0)
+                  : null;
+                const totalItc = recTotal != null
+                  ? recTotal
+                  : toNumber(itcData.cgst ?? itcData.available_cgst ?? itcData.availableCgst ?? 0) +
+                    toNumber(itcData.sgst ?? itcData.available_sgst ?? itcData.availableSgst ?? 0) +
+                    toNumber(itcData.igst ?? itcData.available_igst ?? itcData.availableIgst ?? 0);
                 const netGstPayable = Math.max(0, totalTaxLiability - totalItc);
 
                 return (
@@ -227,6 +239,14 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
                     <Typography variant="body2" color="text.secondary">
                       Tax collected on Sales ({formatMoney(totalTaxLiability)}) − ITC from Purchases ({formatMoney(totalItc)})
                     </Typography>
+                    {rec ? (
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                        ITC basis: {String(rec.basis ?? 'books')}
+                        {String(rec.basis ?? '') === 'min(books, gstr2b_matched)'
+                          ? ' — the lower of your books and GSTR-2B matched'
+                          : ' — provisional until GSTR-2B match'}
+                      </Typography>
+                    ) : null}
                   </Paper>
                 );
               })()
@@ -289,4 +309,55 @@ export function Gstr1ReportPage() {
 
 export function Gstr3bReportPage() {
   return <GstReturnPage kind="gstr3b" />;
+}
+
+function GstStubPage({ kind }: { kind: 'gstr6' | 'gstr7' | 'gstr8' }) {
+  const [period, setPeriod] = useState(currentPeriod());
+  const title =
+    kind === 'gstr6' ? t('nav.gstr6') : kind === 'gstr7' ? t('nav.gstr7') : t('nav.gstr8');
+  const query = useQuery({
+    queryKey: ['gst-return', kind, period],
+    queryFn: () => getGstReturn(kind, { period }),
+  });
+  return (
+    <Stack spacing={2}>
+      <Typography variant="h4">{title}</Typography>
+      <TextField
+        type="month"
+        size="small"
+        label={t('reports.period')}
+        InputLabelProps={{ shrink: true }}
+        value={period}
+        onChange={(e) => setPeriod(e.target.value)}
+        sx={{ maxWidth: 220 }}
+      />
+      <Alert severity="warning">
+        <Typography fontWeight={600}>{t('gstHonesty.stubTitle')}</Typography>
+        <Typography variant="body2">{t('gstHonesty.stubBody')}</Typography>
+      </Alert>
+      {query.isLoading ? <LoadingState /> : null}
+      {query.isError ? (
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
+      ) : null}
+      {query.data ? (
+        <Paper sx={{ p: 2, overflow: 'auto' }}>
+          <Typography variant="body2" component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap' }}>
+            {JSON.stringify(query.data, null, 2)}
+          </Typography>
+        </Paper>
+      ) : null}
+    </Stack>
+  );
+}
+
+export function Gstr6ReportPage() {
+  return <GstStubPage kind="gstr6" />;
+}
+
+export function Gstr7ReportPage() {
+  return <GstStubPage kind="gstr7" />;
+}
+
+export function Gstr8ReportPage() {
+  return <GstStubPage kind="gstr8" />;
 }

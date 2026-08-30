@@ -1,0 +1,51 @@
+{
+  "codes": [
+    "insufficient_stock",
+    "inactive_product",
+    "blocked_customer",
+    "completed_immutable",
+    "registration_gate",
+    "place_of_supply_unresolved",
+    "credit_limit_exceeded",
+    "closed_period",
+    "company_gstin_required",
+    "sales_rcm_unconfirmed",
+    "invalid_gst_rate",
+    "allocation_exceeds_unallocated",
+    "allocation_party_mismatch",
+    "import_invalid_rows",
+    "pdf_or_share_unavailable",
+    "permission_denied"
+  ],
+  "errorCodeToIntent": {
+    "insufficient_stock": "stock-in-another-godown",
+    "inactive_product": "sell-blocked",
+    "blocked_customer": "sell-blocked",
+    "completed_immutable": "edit-completed-invoice",
+    "registration_gate": "cannot-complete-invoice",
+    "place_of_supply_unresolved": "cannot-complete-invoice",
+    "credit_limit_exceeded": "cannot-complete-invoice",
+    "closed_period": "cannot-complete-invoice",
+    "company_gstin_required": "add-gstin",
+    "sales_rcm_unconfirmed": "cannot-complete-invoice",
+    "invalid_gst_rate": "wrong-gst-on-invoice",
+    "allocation_exceeds_unallocated": "payment-wont-allocate",
+    "allocation_party_mismatch": "payment-wont-allocate",
+    "import_invalid_rows": "import-row-errors",
+    "pdf_or_share_unavailable": "pdf-or-share-unavailable",
+    "permission_denied": "login-cant-do-this"
+  },
+  "errorCodeToLeaf": {
+    "inactive_product": "inactive",
+    "blocked_customer": "blocked-party",
+    "registration_gate": "reg",
+    "place_of_supply_unresolved": "pos",
+    "credit_limit_exceeded": "credit",
+    "sales_rcm_unconfirmed": "rcm",
+    "closed_period": "period",
+    "invalid_gst_rate": "rate",
+    "allocation_exceeds_unallocated": "amount",
+    "allocation_party_mismatch": "party",
+    "import_invalid_rows": "one-bad-row"
+  }
+}

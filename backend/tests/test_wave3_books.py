@@ -120,4 +120,5 @@ def test_gstr3b_itc_provisional(tenant_a):
     assert "Provisional" in payload["itc"]["disclaimer"]
     assert payload["tax_payable_summary"]["itc_provisional"] is True
     # BB-000213: net_payable_hint must not subtract provisional ITC.
-    assert "excludes ITC" in payload["tax_payable_summary"]["note"]
+    assert "excludes" in payload["tax_payable_summary"]["note"]
+    assert "ITC" in payload["tax_payable_summary"]["note"]

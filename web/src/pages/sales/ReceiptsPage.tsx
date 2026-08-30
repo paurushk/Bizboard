@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
+import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
@@ -19,6 +20,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   createAllocation,
   createReceipt,
@@ -30,12 +32,18 @@ import {
 } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useAuth } from '@/auth/AuthContext';
 import { t } from '@/i18n';
 import { todayIso } from '@/components/billing';
 import type { Customer, PaymentMode, SalesInvoice } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
+import { canCreatePayments } from '@/utils/permissions';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 
 export function ReceiptsPage() {
+  const { user } = useAuth();
+  const { writesBlocked } = useSubscriptionGate();
+  const canWrite = canCreatePayments(user) && !writesBlocked;
   const qc = useQueryClient();
   const [customerQuery, setCustomerQuery] = useState('');
   const debouncedCustomerQuery = useDebouncedValue(customerQuery, 300);
@@ -50,11 +58,14 @@ export function ReceiptsPage() {
   const [utr, setUtr] = useState('');
   const [bankAccount, setBankAccount] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [errorSource, setErrorSource] = useState<unknown>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  const [page, setPage] = useState(1);
+
   const query = useQuery({
-    queryKey: ['receipts', 1],
-    queryFn: () => listReceiptsPage({ page: 1, pageSize: 50 }),
+    queryKey: ['receipts', page],
+    queryFn: () => listReceiptsPage({ page, pageSize: 50 }),
   });
   const customers = useQuery({
     queryKey: ['customers-search', debouncedCustomerQuery],
@@ -90,10 +101,20 @@ export function ReceiptsPage() {
         bankAccount: bankAccount ? Number(bankAccount) : undefined,
       });
       if (invoice && Number(allocAmount) > 0) {
+        const alloc = Number(allocAmount);
+        const maxAlloc = Math.min(
+          receiptAmount,
+          toNumber(invoice.balance ?? invoice.grandTotal),
+        );
+        if (!(alloc > 0) || alloc > maxAlloc + 0.001) {
+          throw new Error(
+            `Allocation must be between 0.01 and ${maxAlloc.toFixed(2)}`,
+          );
+        }
         await createAllocation({
           receipt: receipt.id,
           salesInvoice: invoice.id,
-          amount: Number(allocAmount),
+          amount: alloc,
         });
       }
       return receipt;
@@ -110,9 +131,13 @@ export function ReceiptsPage() {
       setUtr('');
       setBankAccount('');
       setError(null);
+      setErrorSource(null);
       void qc.invalidateQueries({ queryKey: ['receipts'] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => {
+      setError(getErrorMessage(err));
+      setErrorSource(err);
+    },
   });
 
   const voidMutation = useMutation({
@@ -122,7 +147,10 @@ export function ReceiptsPage() {
       void qc.invalidateQueries({ queryKey: ['receipts'] });
       void qc.invalidateQueries({ queryKey: ['sales-invoices-open'] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => {
+      setError(getErrorMessage(err));
+      setErrorSource(err);
+    },
   });
 
   const receipts = query.data?.results ?? [];
@@ -139,35 +167,41 @@ export function ReceiptsPage() {
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.receipts')}</Typography>
-        <Button
-          variant="contained"
-          onClick={() => {
-            setError(null);
-            setOpen(true);
-          }}
-        >
-          {t('phase1.newReceipt')}
-        </Button>
+        {canWrite ? (
+          <Button
+            variant="contained"
+            onClick={() => {
+              setError(null);
+      setErrorSource(null);
+              setOpen(true);
+            }}
+          >
+            {t('phase1.newReceipt')}
+          </Button>
+        ) : null}
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} error={errorSource} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data && receipts.length === 0 ? (
         <EmptyState
           description="Record payments received from customers."
           action={
-            <Button
-              variant="contained"
-              onClick={() => {
-                setError(null);
-                setOpen(true);
-              }}
-            >
-              {t('phase1.newReceipt')}
-            </Button>
+            canWrite ? (
+              <Button
+                variant="contained"
+                onClick={() => {
+                  setError(null);
+      setErrorSource(null);
+                  setOpen(true);
+                }}
+              >
+                {t('phase1.newReceipt')}
+              </Button>
+            ) : undefined
           }
         />
       ) : null}
@@ -179,11 +213,11 @@ export function ReceiptsPage() {
                 <TableCell>{t('common.number')}</TableCell>
                 <TableCell>{t('common.date')}</TableCell>
                 <TableCell>{t('billing.customer')}</TableCell>
-                <TableCell>Mode</TableCell>
-                <TableCell>Source</TableCell>
+                <TableCell>{t('receipts.mode')}</TableCell>
+                <TableCell>{t('receipts.source')}</TableCell>
                 <TableCell>UTR / Bank</TableCell>
                 <TableCell align="right">{t('common.amount')}</TableCell>
-                <TableCell align="right">Allocated</TableCell>
+                <TableCell align="right">{t('receipts.allocated')}</TableCell>
                 <TableCell />
               </TableRow>
             </TableHead>
@@ -220,7 +254,7 @@ export function ReceiptsPage() {
                     <TableCell align="right">
                       {r.status && r.status !== 'POSTED' ? (
                         <Chip size="small" label={r.status} />
-                      ) : r.source === 'GATEWAY' ? null : (
+                      ) : r.source === 'GATEWAY' ? null : canWrite ? (
                         <Button
                           size="small"
                           color="warning"
@@ -231,25 +265,46 @@ export function ReceiptsPage() {
                             }
                           }}
                         >
-                          Void
+                          {t('billing.voidAction')}
                         </Button>
-                      )}
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 );
               })}
             </TableBody>
           </Table>
+          <Box display="flex" justifyContent="space-between" alignItems="center" p={2}>
+            <Typography variant="body2" color="text.secondary">
+              {t('common.page')} {page}
+            </Typography>
+            <Box display="flex" gap={1}>
+              <Button
+                size="small"
+                disabled={page <= 1 || query.isFetching}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                {t('common.previous')}
+              </Button>
+              <Button
+                size="small"
+                disabled={!query.data?.next || query.isFetching}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                {t('common.next')}
+              </Button>
+            </Box>
+          </Box>
         </Paper>
       ) : null}
 
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={open && canWrite} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Record Customer Payment (Payment In)</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {/* UXW2B-011: the Save error was only ever rendered on the page behind this
                 modal Dialog, so a failed save looked exactly like a silently-dead button. */}
-            {error ? <Alert severity="error">{error}</Alert> : null}
+            {error ? <HelpErrorAlert message={error} error={errorSource} /> : null}
             <Autocomplete
               options={customers.data?.results ?? []}
               getOptionLabel={(o) => `${o.name}${o.phone ? ` (${o.phone})` : ''}`}

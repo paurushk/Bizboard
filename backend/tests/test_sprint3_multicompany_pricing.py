@@ -78,7 +78,9 @@ def test_bb_000657_server_resolves_price_list(tenant_a):
     customer = make_customer(tenant_a.company)
     customer.price_list = price_list
     customer.save(update_fields=["price_list"])
-    created = tenant_a.client.post(
+    from accounts.models import CompanyUser
+    CompanyUser.objects.filter(company=tenant_a.company, user=tenant_a.staff).update(can_create_sales=True)
+    created = tenant_a.staff_client.post(
         "/api/v1/sales/invoices/",
         {
             "customer": customer.id,

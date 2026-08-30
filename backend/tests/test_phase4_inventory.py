@@ -42,6 +42,69 @@ def test_transfer_conserves_stock_between_warehouses(tenant_a):
     assert InventoryService.available_quantity(tenant_a.company, product, destination) == Decimal("0")
 
 
+def test_wavg_transfer_carries_unit_cost_and_product_name(tenant_a):
+    product = make_product(tenant_a.company, sku="WAVG-TRF")
+    source = InventoryService.default_warehouse(tenant_a.company)
+    dest = Warehouse.objects.create(company=tenant_a.company, name="Dest", code="DEST")
+    InventoryService.post_movement(
+        company=tenant_a.company, warehouse=source, product=product,
+        movement_type=MovementType.PURCHASE, quantity="10", unit_cost="50", user=tenant_a.owner,
+    )
+    transfer = StockTransfer.objects.create(
+        company=tenant_a.company, from_warehouse=source, to_warehouse=dest,
+    )
+    StockTransferLine.objects.create(transfer=transfer, product=product, quantity="4")
+    StockTransferService.complete(transfer, tenant_a.owner)
+    dest_rows = InventoryValuationService.valuation(
+        tenant_a.company, warehouse=dest, product=product,
+    )
+    assert dest_rows
+    assert dest_rows[0]["value"] == Decimal("200")
+    assert dest_rows[0]["unit_cost"] == Decimal("50")
+    assert dest_rows[0]["product_name"] == product.name
+    summary = tenant_a.client.get("/api/v1/reports/inventory-summary/")
+    assert summary.status_code == 200
+    dest_report = [
+        row for row in summary.data.get("rows") or []
+        if row.get("warehouse_id") == dest.id or row.get("warehouse") == dest.name
+    ]
+    assert dest_report
+    assert Decimal(str(dest_report[0]["stock_value"])) == Decimal("200.00")
+
+
+def test_legacy_zero_cost_transfer_in_uses_sibling_wavg(tenant_a):
+    """Pre-fix TRANSFER_IN rows with unit_cost 0 still value dest qty at source WAVG."""
+    product = make_product(tenant_a.company, sku="LEGACY-TRF")
+    source = InventoryService.default_warehouse(tenant_a.company)
+    dest = Warehouse.objects.create(company=tenant_a.company, name="Dest-Zero", code="DEST0")
+    InventoryService.post_movement(
+        company=tenant_a.company, warehouse=source, product=product,
+        movement_type=MovementType.PURCHASE, quantity="10", unit_cost="50", user=tenant_a.owner,
+    )
+    InventoryService.post_movement(
+        company=tenant_a.company, warehouse=source, product=product,
+        movement_type=MovementType.TRANSFER_OUT, quantity="4", unit_cost="0", user=tenant_a.owner,
+    )
+    InventoryService.post_movement(
+        company=tenant_a.company, warehouse=dest, product=product,
+        movement_type=MovementType.TRANSFER_IN, quantity="4", unit_cost="0", user=tenant_a.owner,
+    )
+    dest_rows = InventoryValuationService.valuation(
+        tenant_a.company, warehouse=dest, product=product,
+    )
+    assert dest_rows
+    assert dest_rows[0]["qty"] == Decimal("4")
+    assert dest_rows[0]["unit_cost"] == Decimal("50")
+    assert dest_rows[0]["value"] == Decimal("200")
+    summary = tenant_a.client.get("/api/v1/reports/inventory-summary/")
+    dest_report = [
+        row for row in summary.data.get("rows") or []
+        if row.get("warehouse_id") == dest.id or row.get("warehouse") == dest.name
+    ]
+    assert dest_report
+    assert Decimal(str(dest_report[0]["stock_value"])) == Decimal("200.00")
+
+
 def test_fefo_orders_earliest_expiry_first(tenant_a):
     product = make_product(tenant_a.company, track_batch=True)
     warehouse = InventoryService.default_warehouse(tenant_a.company)

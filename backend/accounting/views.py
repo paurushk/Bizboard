@@ -146,8 +146,18 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
             cost_center = line.get("cost_center")
             if cost_center is not None and cost_center.company_id != self.company.id:
                 raise BusinessRuleError("Cost center must belong to this company.")
+        number = (serializer.validated_data.get("number") or "").strip()
+        if not number:
+            from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
+
+            number = DocumentNumberService.next_number(
+                self.company,
+                "JOURNAL_ENTRY",
+                gstin=resolve_series_gstin(self.company),
+                on_date=serializer.validated_data.get("entry_date"),
+            )
         entry = JournalEntry.objects.create(company=self.company, status=JournalEntry.Status.DRAFT,
-            number=serializer.validated_data.get("number", ""), entry_date=serializer.validated_data.get("entry_date"),
+            number=number, entry_date=serializer.validated_data.get("entry_date"),
             narration=serializer.validated_data.get("narration", ""), created_by=request.user, updated_by=request.user)
         JournalLine.objects.bulk_create([
             JournalLine(company=entry.company, entry=entry, **line) for line in lines

@@ -19,10 +19,12 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -70,8 +72,8 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      # BB-000218/294: readiness — DB + cache + Celery workers (see HealthView ?ready=1).
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/?ready=1')"]
+      # Liveness only — nginx should not wait on Celery (omit ?ready=1).
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -97,7 +99,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # Dockerfile HEALTHCHECK hits :8000/api/v1/health/ — worker has no gunicorn.
+    # Worker has no gunicorn; compose healthcheck uses the Celery broker.
     healthcheck:
       test:
         [
@@ -132,8 +134,10 @@ services:
     healthcheck:
       test:
         [
-          "CMD-SHELL",
-          "python -c \"from config.celery import app; app.broker_connection().ensure_connection(max_retries=1)\"",
+          "CMD",
+          "python",
+          "-c",
+          "import os,redis,time; r=redis.from_url(os.environ['REDIS_URL']); raw=r.get('bizboard:celery_beat_heartbeat'); assert raw, 'beat heartbeat missing'; ts=float(raw.decode() if isinstance(raw,bytes) else raw); assert time.time()-ts < 180, 'beat heartbeat stale'",
         ]
       interval: 30s
       timeout: 10s
@@ -191,14 +195,14 @@ services:
       context: ./web
       args:
         VITE_ENABLE_ACCOUNTING: ${VITE_ENABLE_ACCOUNTING:-true}
-        VITE_ENABLE_AI: ${VITE_ENABLE_AI:-true}
-        VITE_ENABLE_TALLY: ${VITE_ENABLE_TALLY:-true}
+        VITE_ENABLE_AI: ${VITE_ENABLE_AI:-false}
+        VITE_ENABLE_TALLY: ${VITE_ENABLE_TALLY:-false}
         VITE_ENABLE_GSTR: ${VITE_ENABLE_GSTR:-true}
         VITE_ENABLE_EINVOICE_SUBMIT: ${VITE_ENABLE_EINVOICE_SUBMIT:-true}
         VITE_ENABLE_POS: ${VITE_ENABLE_POS:-true}
-        VITE_ENABLE_MANUFACTURING: ${VITE_ENABLE_MANUFACTURING:-true}
-        VITE_ENABLE_PAYROLL: ${VITE_ENABLE_PAYROLL:-true}
-        VITE_ENABLE_CRM: ${VITE_ENABLE_CRM:-true}
+        VITE_ENABLE_MANUFACTURING: ${VITE_ENABLE_MANUFACTURING:-false}
+        VITE_ENABLE_PAYROLL: ${VITE_ENABLE_PAYROLL:-false}
+        VITE_ENABLE_CRM: ${VITE_ENABLE_CRM:-false}
     restart: unless-stopped
     depends_on:
       - api

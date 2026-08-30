@@ -25,7 +25,7 @@ export function InsightsHealthPage() {
 
   if (health.isLoading) return <LoadingState />;
   if (health.isError) {
-    return <ErrorState message={getErrorMessage(health.error)} onRetry={() => void health.refetch()} />;
+    return <ErrorState message={getErrorMessage(health.error)} error={health.error} onRetry={() => void health.refetch()} />;
   }
 
   const data = health.data!;

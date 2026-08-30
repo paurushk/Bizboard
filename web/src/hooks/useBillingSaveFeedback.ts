@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { getErrorMessage } from '@/api/client';
 
 /**
  * Shared billing flash state for New Invoice / New Purchase.
@@ -37,30 +38,45 @@ export function primarySaveAction(opts: {
 
 export function useBillingSaveFeedback() {
   const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorState] = useState<string | null>(null);
+  const [errorSource, setErrorSource] = useState<unknown>(null);
+
+  const setError = useCallback((value: string | null) => {
+    setErrorState(value);
+    if (value == null) setErrorSource(null);
+  }, []);
 
   const clearFeedback = useCallback(() => {
     setMessage(null);
-    setError(null);
+    setErrorState(null);
+    setErrorSource(null);
   }, []);
 
   /** Success flash for Save & New — intentionally survives a following form reset. */
   const flashSaveAndNew = useCallback((successMessage: string, warning?: string | null) => {
     setMessage(successMessage);
-    setError(warning ?? null);
+    setErrorState(warning ?? null);
+    setErrorSource(null);
   }, []);
 
-  const flashError = useCallback((err: string) => {
-    setError(err);
+  const flashError = useCallback((err: string | unknown) => {
+    if (typeof err === 'string') {
+      setErrorState(err);
+      setErrorSource(null);
+    } else {
+      setErrorState(getErrorMessage(err));
+      setErrorSource(err);
+    }
   }, []);
 
   const flashWarning = useCallback((warning: string | null) => {
-    setError(warning);
+    setErrorState(warning);
   }, []);
 
   return {
     message,
     error,
+    errorSource,
     setMessage,
     setError,
     clearFeedback,

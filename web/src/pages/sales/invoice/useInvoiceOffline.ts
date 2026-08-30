@@ -25,7 +25,12 @@ export function useInvoiceOffline(
         userId,
         async (draft) => {
           if (draft.invoiceId) {
-            await updateSalesInvoice(draft.invoiceId, draft.payload as never);
+            const payload = { ...(draft.payload as Record<string, unknown>) };
+            const status = String(payload.status ?? '').toUpperCase();
+            if (status === 'COMPLETED') {
+              throw new Error(t('billing.offlineAmendRequiresConfirm'));
+            }
+            await updateSalesInvoice(draft.invoiceId, payload as never);
           } else {
             await createSalesInvoice(draft.payload as never, { idempotencyKey: draft.idempotencyKey });
           }

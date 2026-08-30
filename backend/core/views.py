@@ -1,3 +1,5 @@
+import hmac
+
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
@@ -275,18 +277,26 @@ class StatutoryDocumentEventViewSet(mixins.ListModelMixin, viewsets.GenericViewS
 class FeatureFlagsView(APIView):
     """GET /api/v1/feature-flags/ — runtime flags for FE boot.
 
-    Anonymous callers receive env defaults (no 401 on login/register).
-    Authenticated callers receive the same plus company overrides.
+    Anonymous callers receive a public subset. Authenticated callers receive
+    env flags plus company overrides.
     """
 
     permission_classes = [AllowAny]
+
+    _PUBLIC_FLAG_KEYS = ("ENABLE_SETUP_WIZARD",)
 
     def get(self, request):
         from core.services.feature_flags import build_feature_flags
 
         cu = get_company_user(request) if request.user and request.user.is_authenticated else None
         company = cu.company if cu is not None else None
-        return Response(build_feature_flags(company=company))
+        flags = build_feature_flags(
+            company=company,
+            user=request.user if request.user and request.user.is_authenticated else None,
+        )
+        if cu is None:
+            flags = {k: bool(flags.get(k)) for k in self._PUBLIC_FLAG_KEYS}
+        return Response(flags)
 
 
 class MetricsView(APIView):
@@ -296,6 +306,22 @@ class MetricsView(APIView):
     authentication_classes = []
 
     def get(self, request):
+        token = (getattr(settings, "METRICS_TOKEN", "") or "").strip()
+        env = (getattr(settings, "DJANGO_ENV", "") or "").strip().lower()
+        # R1-003: never serve an unauthenticated metrics endpoint in
+        # production/staging — if no token is configured, the endpoint does
+        # not exist as far as the outside world is concerned.
+        if not token and env in ("production", "staging"):
+            return HttpResponse(status=404)
+        if token:
+            auth = request.headers.get("Authorization", "")
+            provided = auth[7:] if auth.startswith("Bearer ") else ""
+            try:
+                matched = bool(provided) and hmac.compare_digest(provided, token)
+            except (TypeError, ValueError):
+                matched = False
+            if not matched:
+                return HttpResponse(status=401)
         body = (
             "# HELP bizboard_http_requests_total Total HTTP requests handled by this process.\n"
             "# TYPE bizboard_http_requests_total counter\n"

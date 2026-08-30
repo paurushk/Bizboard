@@ -290,6 +290,8 @@ def test_quotation_convert_preserves_lines(tenant_a):
         "items": [{"product": product.id, "quantity": "4", "unit_price": "150"}],
     }, format="json")
     assert quote.status_code == 201, quote.data
+    assert quote.data["number"]
+    assert str(quote.data["number"]).startswith("QTN")
 
     resp = tenant_a.client.post(f"/api/v1/sales/quotations/{quote.data['id']}/convert/")
     assert resp.status_code == 200

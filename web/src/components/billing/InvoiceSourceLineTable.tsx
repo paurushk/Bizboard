@@ -7,6 +7,7 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Checkbox from '@mui/material/Checkbox';
+import MenuItem from '@mui/material/MenuItem';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import Button from '@mui/material/Button';
@@ -191,6 +192,7 @@ export function InvoiceReturnLineTable({
           <TableRow>
             {!readOnly ? <TableCell padding="checkbox" /> : null}
             <TableCell>{t('nav.products')}</TableCell>
+            <TableCell>Condition</TableCell>
             <TableCell align="right">{t('billing.qty')}</TableCell>
             <TableCell align="right">{t('billing.priceShort')}</TableCell>
           </TableRow>
@@ -207,6 +209,24 @@ export function InvoiceReturnLineTable({
                 </TableCell>
               ) : null}
               <TableCell>{line.productName}</TableCell>
+              <TableCell>
+                {readOnly || !line.included ? (
+                  line.condition === 'DAMAGED' ? 'Damaged' : 'Sellable'
+                ) : (
+                  <TextField
+                    select
+                    size="small"
+                    value={line.condition || 'SELLABLE'}
+                    onChange={(e) =>
+                      updateLine(line.key, { condition: e.target.value as 'SELLABLE' | 'DAMAGED' })
+                    }
+                    sx={{ minWidth: 120 }}
+                  >
+                    <MenuItem value="SELLABLE">Sellable</MenuItem>
+                    <MenuItem value="DAMAGED">Damaged</MenuItem>
+                  </TextField>
+                )}
+              </TableCell>
               <TableCell align="right">
                 {readOnly || !line.included ? (
                   line.included ? line.quantity : '—'

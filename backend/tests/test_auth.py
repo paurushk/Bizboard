@@ -49,6 +49,24 @@ def test_register_creates_user_company_and_owner_membership():
     assert me.data["company"].get("gstin", "") in ("", None)
 
 
+def test_register_copies_phone_to_company():
+    """E2E3-006 — register mobile is copied onto Company.phone."""
+    from accounts.models import Company, User
+
+    client = APIClient()
+    resp = client.post("/api/v1/auth/register/", {
+        "company_name": "Phone Mart",
+        "email": "phoneboss@phonemart.test",
+        "password": "StrongPass123!",
+        "state": "Maharashtra",
+        "phone": "9876543210",
+    }, format="json")
+    assert resp.status_code == 200
+    user = User.objects.get(email="phoneboss@phonemart.test")
+    company = Company.objects.get(memberships__user=user)
+    assert company.phone == "9876543210"
+
+
 def test_register_existing_email_same_shape_no_tokens():
     """BB-000349 — duplicate and new share identical body shape (all null tokens/ids)."""
     client = APIClient()
@@ -451,3 +469,30 @@ def test_docs_view_accessible_to_owner_not_staff(tenant_a):
 
     staff_resp = tenant_a.staff_client.get("/api/v1/docs/")
     assert staff_resp.status_code == 403
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_password_reset_token_is_single_use(tenant_a):
+    from django.core import mail
+
+    client = APIClient()
+    requested = client.post(
+        "/api/v1/auth/password/reset/",
+        {"email": tenant_a.owner.email},
+        format="json",
+    )
+    assert requested.status_code == 200
+    assert mail.outbox
+    token = mail.outbox[0].body.split("token=")[1].split()[0]
+    first = client.post(
+        "/api/v1/auth/password/reset/confirm/",
+        {"token": token, "new_password": "NewStrongPass123!"},
+        format="json",
+    )
+    assert first.status_code == 200, first.data
+    second = client.post(
+        "/api/v1/auth/password/reset/confirm/",
+        {"token": token, "new_password": "AnotherStrongPass123!"},
+        format="json",
+    )
+    assert second.status_code == 400

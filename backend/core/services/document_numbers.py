@@ -31,6 +31,7 @@ DEFAULT_PREFIXES = {
     "PURCHASE_ORDER": "PO",
     "DELIVERY_CHALLAN": "DC",
     "JOURNAL_ENTRY": "JV",
+    "STOCK_TRANSFER": "TRF",
 }
 
 
@@ -62,6 +63,22 @@ def _gstin_key(gstin) -> str:
     if hasattr(gstin, "gstin"):
         return (gstin.gstin or "").strip().upper()
     return str(gstin or "").strip().upper()
+
+
+def series_identity(company, stamp=None, on_date=None):
+    """R1-013: resolve (gstin_key, fy_label, on_date) for a document series from a
+    single company-level policy (Company.doc_number_scope), so FY/GSTIN scoping
+    no longer depends on whether a call site passed `gstin=`.
+
+    COMPANY  → ("", "", None)  — one series per doc type (legacy).
+    GSTIN_FY → (<gstin>, <FY>, on_date) — per filing GSTIN + financial year.
+    """
+    scope = getattr(company, "doc_number_scope", "COMPANY") or "COMPANY"
+    if scope != "GSTIN_FY":
+        return "", "", None
+    gstin_key = resolve_series_gstin(company, stamp)
+    fy = fy_label_for(company, on_date)
+    return (gstin_key or ""), fy, on_date
 
 
 def resolve_series_gstin(company, stamp=None):
@@ -119,6 +136,11 @@ class DocumentNumberService:
 
     @staticmethod
     def _queryset_for(company, doc_type: str):
+        # R1-025: plain lazy imports (module-level would be circular). The two
+        # accounting/inventory models get the same treatment as the rest — no
+        # __import__() special-casing.
+        from accounting.models import JournalEntry
+        from inventory.models import StockTransfer
         from payments.models import CustomerReceipt, SupplierPayment
         from purchases.models import (
             PurchaseCreditNote,
@@ -152,9 +174,8 @@ class DocumentNumberService:
             "SALES_ORDER": SalesOrder.objects.filter(company=company).exclude(number=""),
             "PURCHASE_ORDER": PurchaseOrder.objects.filter(company=company).exclude(number=""),
             "DELIVERY_CHALLAN": DeliveryChallan.objects.filter(company=company).exclude(number=""),
-            "JOURNAL_ENTRY": __import__("accounting.models", fromlist=["JournalEntry"]).JournalEntry.objects.filter(
-                company=company
-            ).exclude(number=""),
+            "JOURNAL_ENTRY": JournalEntry.objects.filter(company=company).exclude(number=""),
+            "STOCK_TRANSFER": StockTransfer.objects.filter(company=company).exclude(number=""),
         }
         return mapping.get(doc_type)
 

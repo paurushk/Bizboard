@@ -1,11 +1,14 @@
 from decimal import Decimal
+import logging
 
 from django.db.models import F, Sum
 
 from .models import Account, JournalEntry, JournalLine
 
+logger = logging.getLogger(__name__)
 
-def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=None):
+
+def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=None, exclude_fy_close=False, exclude_fy_close_after=None):
     qs = JournalLine.objects.filter(entry__company=company, entry__status=JournalEntry.Status.POSTED).select_related("account")
     if as_of:
         qs = qs.filter(entry__entry_date__lte=as_of)
@@ -15,6 +18,10 @@ def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=
         qs = qs.filter(entry__entry_date__lte=date_to)
     if cost_center:
         qs = qs.filter(cost_center_id=cost_center)
+    if exclude_fy_close:
+        qs = qs.exclude(entry__purpose="FY_CLOSE")
+    elif exclude_fy_close_after:
+        qs = qs.exclude(entry__purpose="FY_CLOSE", entry__entry_date__gte=exclude_fy_close_after)
     totals = {}
     # BB-000529 / UXW2B-018: alias the account__* FK lookups to clean single-underscore
     # names. djangorestframework_camel_case's camelize() only converts "_x" -> "X" when a
@@ -44,8 +51,9 @@ def trial_balance(company, as_of=None):
             "balanced": total_debit == total_credit}
 
 
-def _indian_fy_bounds(as_of):
-    """BB-000433: Indian financial year Apr 1 – Mar 31 containing as_of."""
+def _indian_fy_bounds(as_of, company=None):
+    """Financial year containing as_of, using company.fy_start_month (default April)."""
+    from calendar import monthrange
     from datetime import date
 
     if as_of is None:
@@ -53,23 +61,33 @@ def _indian_fy_bounds(as_of):
 
         as_of = timezone.localdate()
     if isinstance(as_of, str):
-        as_of = date.fromisoformat(str(as_of)[:10])
-    if as_of.month >= 4:
-        start = date(as_of.year, 4, 1)
-        end = date(as_of.year + 1, 3, 31)
+        try:
+            as_of = date.fromisoformat(str(as_of)[:10])
+        except (ValueError, TypeError):
+            from django.utils import timezone
+
+            as_of = timezone.localdate()
+    start_month = int(getattr(company, "fy_start_month", None) or 4) if company is not None else 4
+    if start_month < 1 or start_month > 12:
+        start_month = 4
+    start_year = as_of.year if as_of.month >= start_month else as_of.year - 1
+    start = date(start_year, start_month, 1)
+    if start_month == 1:
+        end = date(start_year, 12, 31)
     else:
-        start = date(as_of.year - 1, 4, 1)
-        end = date(as_of.year, 3, 31)
+        end_year = start_year + 1
+        end_month = start_month - 1
+        end = date(end_year, end_month, monthrange(end_year, end_month)[1])
     return start, end
 
 
 def profit_and_loss(company, date_from=None, date_to=None, cost_center=None):
     # BB-000433: default P&L to current FY when dates omitted.
     if date_from is None and date_to is not None:
-        date_from, _ = _indian_fy_bounds(date_to)
+        date_from, _ = _indian_fy_bounds(date_to, company)
     elif date_from is None and date_to is None:
-        date_from, date_to = _indian_fy_bounds(None)
-    rows = [row for row in _balances(company, date_from=date_from, date_to=date_to, cost_center=cost_center)
+        date_from, date_to = _indian_fy_bounds(None, company)
+    rows = [row for row in _balances(company, date_from=date_from, date_to=date_to, cost_center=cost_center, exclude_fy_close=True)
             if row["account_type"] in (Account.Type.INCOME, Account.Type.EXPENSE)]
     income = sum((-row["balance"] for row in rows if row["account_type"] == Account.Type.INCOME), Decimal("0"))
     expenses = sum((row["balance"] for row in rows if row["account_type"] == Account.Type.EXPENSE), Decimal("0"))
@@ -78,7 +96,8 @@ def profit_and_loss(company, date_from=None, date_to=None, cost_center=None):
 
 
 def balance_sheet(company, as_of=None, cost_center=None):
-    rows = _balances(company, as_of=as_of, cost_center=cost_center)
+    fy_from, fy_to = _indian_fy_bounds(as_of, company)
+    rows = _balances(company, as_of=as_of, cost_center=cost_center, exclude_fy_close_after=fy_from)
     by_type = {t: [] for t in Account.Type.values}
     for row in rows:
         if row["account_type"] in by_type:
@@ -87,7 +106,6 @@ def balance_sheet(company, as_of=None, cost_center=None):
     liabilities = sum((-r["balance"] for r in by_type[Account.Type.LIABILITY]), Decimal("0"))
     equity = sum((-r["balance"] for r in by_type[Account.Type.EQUITY]), Decimal("0"))
     # BB-000433: current earnings = P&L for FY containing as_of (not all-time).
-    fy_from, fy_to = _indian_fy_bounds(as_of)
     pl = profit_and_loss(
         company, date_from=fy_from, date_to=as_of or fy_to, cost_center=cost_center,
     )["net_profit"]
@@ -104,7 +122,8 @@ def balance_sheet(company, as_of=None, cost_center=None):
 
         val_rows = InventoryValuationService.valuation(company, as_of=as_of)
         inventory_valuation = sum((Decimal(str(r.get("value") or 0)) for r in val_rows), Decimal("0"))
-    except Exception:
+    except (TypeError, ValueError, ArithmeticError, AttributeError, KeyError) as exc:
+        logger.warning("inventory valuation failed for company %s: %s", getattr(company, "pk", None), exc)
         inventory_valuation = inventory_gl
     inventory_source = "valuation_engine" if inventory_valuation or inventory_gl else "gl_1400_approximation"
     if not inventory_valuation and inventory_gl:
@@ -140,13 +159,13 @@ def balance_sheet(company, as_of=None, cost_center=None):
 
 
 def cash_flow(company, date_from=None, date_to=None, cost_center=None):
-    """Direct cash flow statement derived from Cash (1110) & Bank (1120) movements."""
+    """Direct cash flow statement derived from Cash (1100) & Bank (1500) movements."""
     if date_from is None and date_to is not None:
-        date_from, _ = _indian_fy_bounds(date_to)
+        date_from, _ = _indian_fy_bounds(date_to, company)
     elif date_from is None and date_to is None:
-        date_from, date_to = _indian_fy_bounds(None)
+        date_from, date_to = _indian_fy_bounds(None, company)
 
-    cash_accounts = Account.objects.filter(company=company, code__in=["1110", "1120"])
+    cash_accounts = Account.objects.filter(company=company, code__in=["1100", "1500"])
     qs = JournalLine.objects.filter(
         entry__company=company,
         entry__status=JournalEntry.Status.POSTED,
@@ -203,6 +222,12 @@ def cash_flow(company, date_from=None, date_to=None, cost_center=None):
             "net": net_financing,
         },
         "net_cash_flow": net_change,
+        "aid_kind": "cash_movement",
+        "disclaimer": (
+            "Cash-movement aid from Cash (1100) and Bank (1500) GL lines — "
+            "not a Schedule III / Ind AS cash-flow statement. "
+            "Unclassified source types are treated as operating."
+        ),
     }
 
 
@@ -253,7 +278,10 @@ def close_financial_year(company, fy_end, user=None):
     from .services import BooksHealthService, PostingService, seed_chart_of_accounts
 
     if isinstance(fy_end, str):
-        fy_end = date_cls.fromisoformat(fy_end)
+        try:
+            fy_end = date_cls.fromisoformat(fy_end[:10])
+        except (ValueError, TypeError):
+            raise BusinessRuleError("Invalid financial year end date (expected YYYY-MM-DD).")
     fy_start, fy_end = fy_bounds_for_end(company, fy_end)
     source_id = _fy_close_source_id(fy_end)
 
@@ -302,6 +330,23 @@ def close_financial_year(company, fy_end, user=None):
             "Financial-year close blocked: draft sales or purchase invoices exist in this FY."
         )
 
+    from manufacturing.models import WorkOrder
+
+    if WorkOrder.objects.filter(company=company, status=WorkOrder.Status.RELEASED).exists():
+        raise BusinessRuleError(
+            "Financial-year close blocked: OPEN_WIP — released work orders exist. Complete or cancel them first."
+        )
+    wip = JournalLine.objects.filter(
+        entry__company=company,
+        entry__status=JournalEntry.Status.POSTED,
+        account__code="1450",
+    ).aggregate(d=Sum("debit"), c=Sum("credit"))
+    wip_net = (wip["d"] or Decimal("0")) - (wip["c"] or Decimal("0"))
+    if wip_net != 0:
+        raise BusinessRuleError(
+            f"Financial-year close blocked: OPEN_WIP — WIP GL 1450 net is {wip_net}."
+        )
+
     if not company.accounting_enabled:
         raise BusinessRuleError("Accounting is not enabled for this company.")
 
@@ -314,7 +359,7 @@ def close_financial_year(company, fy_end, user=None):
         entry__entry_date__gte=fy_start,
         entry__entry_date__lte=fy_end,
         account__type__in=(Account.Type.INCOME, Account.Type.EXPENSE),
-    ).exclude(entry__source_type="JOURNAL_REVERSAL").exclude(entry__purpose="FY_CLOSE")
+    ).exclude(entry__purpose="FY_CLOSE")
 
     lines = []
     re_debit = Decimal("0")
@@ -337,10 +382,11 @@ def close_financial_year(company, fy_end, user=None):
     entry = None
     with transaction.atomic():
         if lines:
-            if re_debit:
-                lines.append({"account": retained, "debit": re_debit})
-            if re_credit:
-                lines.append({"account": retained, "credit": re_credit})
+            net_re = re_debit - re_credit
+            if net_re > 0:
+                lines.append({"account": retained, "debit": net_re})
+            elif net_re < 0:
+                lines.append({"account": retained, "credit": -net_re})
             entry = PostingService.post(
                 company=company,
                 source_type="FY_CLOSE",

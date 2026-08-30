@@ -6,10 +6,10 @@ Compliant with statutory GST invoicing rules (Rule 46 / Rule 54 of CGST Rules 20
 from __future__ import annotations
 
 import io
+import logging
 from collections import defaultdict
 from decimal import Decimal
 
-from django.db.models import Sum
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
@@ -25,8 +25,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from payments.models import PaymentAllocation
-from sales.pdf.helpers import amount_in_words, format_money, format_qty
+from sales.pdf.helpers import amount_in_words, format_money, format_qty, pdf_esc
 from sales.pdf.styles import (
     BLACK,
     GREY_HEADER,
@@ -34,6 +33,8 @@ from sales.pdf.styles import (
     LINE,
     build_styles,
 )
+
+logger = logging.getLogger("bizboard.pdf")
 
 
 def _company_address(company) -> str:
@@ -45,8 +46,8 @@ def _company_address(company) -> str:
 
 
 def _party_block(styles, title: str, name: str, address: str, gstin: str, phone: str, state: str = "", state_code: str = "") -> Table:
-    lines = [Paragraph(f"<b>{title}</b>", styles["section_head"])]
-    lines.append(Paragraph(f"<b>{name or '—'}</b>", styles["body"]))
+    lines = [Paragraph(f"<b>{pdf_esc(title)}</b>", styles["section_head"])]
+    lines.append(Paragraph(f"<b>{pdf_esc(name) or '—'}</b>", styles["body"]))
     if address:
         for part in address.split("\n"):
             if part.strip():
@@ -170,6 +171,8 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
     if copy not in ("ORIGINAL", "DUPLICATE"):
         copy = "ORIGINAL"
 
+    from ledgers.services import LedgerService
+
     company = invoice.company
     supplier = invoice.supplier
     items = list(invoice.items.select_related("product", "product__unit").all())
@@ -178,11 +181,7 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
     from core.services.place_of_supply import party_intra_state
     intra_state = party_intra_state(company, supplier.state, supplier.gstin or "")
 
-    allocated = (
-        PaymentAllocation.objects.filter(purchase_invoice=invoice, reversed_at__isnull=True).aggregate(t=Sum("amount"))["t"]
-        or Decimal("0")
-    )
-    balance = max(invoice.grand_total - allocated, Decimal("0"))
+    balance = LedgerService.purchase_invoice_outstanding(invoice)
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -207,11 +206,11 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
             logo_img.hAlign = "LEFT"
             buyer_bits.append(logo_img)
             buyer_bits.append(Spacer(1, 1 * mm))
-        except Exception:
-            pass
-    buyer_bits.append(Paragraph(f"<b>{company.name}</b>", styles["company_name"]))
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("Skipping purchase PDF logo: %s", exc)
+    buyer_bits.append(Paragraph(f"<b>{pdf_esc(company.name)}</b>", styles["company_name"]))
     if company.gstin:
-        buyer_bits.append(Paragraph(f"<b>GSTIN:</b> {company.gstin}", styles["meta"]))
+        buyer_bits.append(Paragraph(f"<b>GSTIN:</b> {pdf_esc(company.gstin)}", styles["meta"]))
     if company.phone:
         buyer_bits.append(Paragraph(f"<b>Phone:</b> {company.phone}", styles["meta"]))
     addr = _company_address(company)
@@ -316,9 +315,9 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
         total_amount += line_tot
 
         unit = (getattr(item, "unit_name", None) or getattr(item.product.unit, "short_name", None) or "PCS").upper()
-        item_cell = [Paragraph(f"<b>{item.description or item.product.name}</b>", styles["td"])]
+        item_cell = [Paragraph(f"<b>{pdf_esc(item.description or item.product.name)}</b>", styles["td"])]
         if item.description and item.description != item.product.name:
-            item_cell.append(Paragraph(item.product.name, styles["body_small"]))
+            item_cell.append(Paragraph(pdf_esc(item.product.name), styles["body_small"]))
         if getattr(item, "batch_no", ""):
             item_cell.append(Paragraph(f"Batch: {item.batch_no}", styles["body_small"]))
 
@@ -549,7 +548,7 @@ def render_gst_purchase_order(order) -> bytes:
         unit = (getattr(item, "unit_name", None) or getattr(item.product.unit, "short_name", None) or "PCS").upper()
         data.append([
             Paragraph(str(idx), styles["td_center"]),
-            Paragraph(f"<b>{item.description or item.product.name}</b>", styles["td"]),
+            Paragraph(f"<b>{pdf_esc(item.description or item.product.name)}</b>", styles["td"]),
             Paragraph(getattr(item, "hsn_code", None) or getattr(item.product, "hsn_code", None) or "—", styles["td_center"]),
             Paragraph(f"{format_qty(qty)} {unit}", styles["td_center"]),
             Paragraph(format_money(rate), styles["td_right"]),

@@ -16,6 +16,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { canManageUsers } from '@/utils/permissions';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const LAYOUT_LEGEND = [
   'Seller header with GSTIN, phone, and address',
@@ -58,7 +59,7 @@ export function InvoiceTemplatesPage() {
   if (!allowed) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
   if (!query.data) return <EmptyState />;
 
@@ -66,7 +67,7 @@ export function InvoiceTemplatesPage() {
     <Stack spacing={2}>
       <Typography variant="h4">{t('nav.invoiceTemplates')}</Typography>
       {message ? <Alert severity="success">{message}</Alert> : null}
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
 
       <Paper
         sx={{

@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
@@ -31,6 +30,7 @@ import { t } from '@/i18n';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
 import { formatMoney } from '@/utils/money';
 import { customerStatusTone, statusLabelKey } from '@/utils/status';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const PAGE_SIZE = 50;
 const EMP_STATUSES = ['ACTIVE', 'INACTIVE'] as const;
@@ -130,10 +130,10 @@ function EmployeesPageInner() {
           {t('common.add')}
         </Button>
       </Stack>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {rows.length === 0 && !query.isLoading && !query.isError ? (
         <EmptyState description={t('empty.employees')} />
@@ -166,7 +166,16 @@ function EmployeesPageInner() {
                     <Button size="small" onClick={() => openEdit(emp)}>
                       {t('common.edit')}
                     </Button>
-                    <Button size="small" onClick={() => toggleMutation.mutate(emp)}>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        const ok = window.confirm(
+                          emp.status === 'ACTIVE' ? t('common.confirmDeactivate') : t('common.confirmActivate'),
+                        );
+                        if (!ok) return;
+                        toggleMutation.mutate(emp);
+                      }}
+                    >
                       {emp.status === 'ACTIVE' ? t('common.deactivate') : t('common.activate')}
                     </Button>
                   </TableCell>

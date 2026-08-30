@@ -27,6 +27,7 @@ from .models import GstReturnPeriod, GstReturnSnapshot
 from .gst_returns_sections import (
     accumulate_hsn_line,
     append_b2_outward_rows,
+    apply_after_tax_header_discount,
     build_note_rate_rows,
     new_hsn_buckets,
 )
@@ -35,9 +36,23 @@ BUILDER_VERSION_GSTR1 = "gstr1@2.0.0"
 BUILDER_VERSION_GSTR3B = "gstr3b@2.2.0"
 BUILDER_VERSION_GSTR9 = "gstr9@2.2.0"
 
-# Notification 12/2024-CT: interstate B2C large threshold ₹1,00,000 from 1 Aug 2024.
-# GAP-004: B2CL is inter-state unregistered supplies above ₹2.5 lakh (post-2021).
-B2CL_THRESHOLD = Decimal("250000")
+# Notification 12/2024-CT: interstate B2C large (B2CL) threshold ₹1,00,000 from 1 Aug 2024.
+# Invoices dated before that date still use the prior ₹2.5 lakh cut.
+B2CL_THRESHOLD = Decimal("100000")
+B2CL_THRESHOLD_BEFORE_2024_08_01 = Decimal("250000")
+B2CL_THRESHOLD_CHANGE_DATE = date(2024, 8, 1)
+
+
+def b2cl_threshold_for(invoice_date) -> Decimal:
+    if invoice_date is None:
+        return B2CL_THRESHOLD
+    if hasattr(invoice_date, "date") and not isinstance(invoice_date, date):
+        invoice_date = invoice_date.date()
+    if invoice_date < B2CL_THRESHOLD_CHANGE_DATE:
+        return B2CL_THRESHOLD_BEFORE_2024_08_01
+    return B2CL_THRESHOLD
+
+
 GST_INVOICE_TYPES = {
     SalesInvoice.InvoiceType.GST,
     SalesInvoice.InvoiceType.TAX,
@@ -72,16 +87,23 @@ def _sum_fields(rows: list[dict], *keys: str) -> dict[str, str]:
 
 
 def _party_pos(company, party_state: str, party_gstin: str, *, filing_pos: str = "") -> str:
-    if (filing_pos or "").strip():
-        return filing_pos.strip()
+    overlay = (filing_pos or "").strip()
+    if overlay:
+        mapped = extract_state_code(overlay)
+        if mapped:
+            return mapped
     code = extract_state_code(party_gstin)
     if code:
         return code
-    state = (party_state or "").strip()
-    if state:
-        return state
+    mapped = extract_state_code(party_state)
+    if mapped:
+        return mapped
     if company.assume_local_state_for_blank_party:
-        return extract_state_code(company.gstin) or (company.state or "").strip() or "NA"
+        return (
+            extract_state_code(company.gstin)
+            or extract_state_code(company.state)
+            or "NA"
+        )
     return "NA"
 
 
@@ -103,7 +125,10 @@ def _filing_pos(invoice: SalesInvoice, company) -> str:
 
 
 def _is_b2b(party_gstin: str) -> bool:
-    return bool((party_gstin or "").strip())
+    # R4-006: only a 15-char GSTIN with a recognised state code routes a supply
+    # to the B2B table — stray free-text left in the GSTIN field must not.
+    g = (party_gstin or "").strip()
+    return len(g) == 15 and extract_state_code(g) is not None
 
 
 def _inter_state(company, party_state: str, party_gstin: str, *, seller_gstin: str = "", seller_state: str = "") -> bool:
@@ -119,6 +144,7 @@ def invoice_value_mismatch(invoice) -> bool:
     """
     True when grand_total cannot equal taxable + taxes + charges ± round-off/discount.
     BB-000621: additional_charges must not silently drop invoices from GSTR sections.
+    BB-000361: AFTER_TAX discount causes GST value mismatch for B2B.
     """
     taxable = Decimal(str(invoice.taxable_total or 0))
     tax = (
@@ -131,14 +157,31 @@ def invoice_value_mismatch(invoice) -> bool:
     charges = Decimal(str(getattr(invoice, "additional_charges", 0) or 0))
     discount = Decimal(str(getattr(invoice, "invoice_discount", 0) or 0))
     mode = getattr(invoice, "invoice_discount_mode", "AFTER_TAX")
-    if discount != 0 and mode == "AFTER_TAX":
-        return True
-    expected = q2(taxable + tax + round_off + charges)
+
+    if discount != 0 and str(mode).upper() == "AFTER_TAX":
+        party_gstin = (
+            (getattr(invoice, "filing_party_gstin", None) or "")
+            or (getattr(getattr(invoice, "customer", None), "gstin", None) or "")
+        ).strip()
+        # B2B AFTER_TAX is a GSTN identity break (Complete already blocks it).
+        # B2C cash discount is allowed — reconcile expected = taxable+tax+charges−discount.
+        if party_gstin:
+            return True
+
+    expected = q2(taxable + tax + round_off)
+    from core.services.charges import charges_are_taxable
+
+    if not charges_are_taxable(invoice):
+        expected = q2(expected + charges)
+    if discount != 0 and str(mode).upper() == "AFTER_TAX":
+        expected = q2(expected - discount)
+    if getattr(invoice, "tcs_in_grand_total", False):
+        expected = q2(expected + Decimal(str(getattr(invoice, "tcs_amount", 0) or 0)))
     grand = q2(Decimal(str(invoice.grand_total or 0)))
     return expected != grand
 
 
-def _rate_buckets(items) -> dict[Decimal, dict]:
+def _rate_buckets(items, invoice=None) -> dict[Decimal, dict]:
     buckets: dict[Decimal, dict] = defaultdict(
         lambda: {
             "taxable_value": Decimal("0"),
@@ -148,13 +191,45 @@ def _rate_buckets(items) -> dict[Decimal, dict]:
             "cess": Decimal("0"),
         }
     )
+    restore_rcm = bool(invoice and getattr(invoice, "is_reverse_charge", False))
+    rcm_igst = Decimal(str(getattr(invoice, "rcm_igst", 0) or 0)) if invoice else Decimal("0")
+    intra = rcm_igst == 0
     for item in items:
+        nature = (getattr(item, "supply_nature", None) or "TAXABLE").upper()
+        if nature in ("NIL", "EXEMPT", "NON_GST"):
+            continue
         rate = Decimal(str(item.gst_rate or 0))
-        buckets[rate]["taxable_value"] += Decimal(str(item.taxable_amount or 0))
-        buckets[rate]["cgst"] += Decimal(str(item.cgst or 0))
-        buckets[rate]["sgst"] += Decimal(str(item.sgst or 0))
-        buckets[rate]["igst"] += Decimal(str(item.igst or 0))
-        buckets[rate]["cess"] += Decimal(str(getattr(item, "cess", 0) or 0))
+        taxable = Decimal(str(item.taxable_amount or 0))
+        cgst = Decimal(str(item.cgst or 0))
+        sgst = Decimal(str(item.sgst or 0))
+        igst = Decimal(str(item.igst or 0))
+        cess = Decimal(str(getattr(item, "cess", 0) or 0))
+        if restore_rcm and cgst + sgst + igst == 0 and rate > 0:
+            from core.services.billing import q2
+
+            tax = q2(taxable * rate / Decimal("100"))
+            if intra:
+                half = q2(tax / 2)
+                cgst, sgst, igst = half, q2(tax) - half, Decimal("0")
+            else:
+                cgst, sgst, igst = Decimal("0"), Decimal("0"), tax
+            # R1-016 / R4-001: rebuild cess from BOTH the ad-valorem rate and the
+            # specific per-unit amount (they are additive — see core.models
+            # DocumentLineModel.cess_amount), matching _apply_line_tax.
+            if cess == 0:
+                cess_rate = Decimal(str(getattr(item, "cess_rate", 0) or 0))
+                cess_specific = Decimal(str(getattr(item, "cess_amount", 0) or 0))
+                qty = Decimal(str(getattr(item, "quantity", 0) or 0))
+                ad_valorem = (
+                    q2(taxable * cess_rate / Decimal("100")) if cess_rate > 0 else Decimal("0")
+                )
+                specific = q2(qty * cess_specific) if cess_specific > 0 else Decimal("0")
+                cess = q2(ad_valorem + specific)
+        buckets[rate]["taxable_value"] += taxable
+        buckets[rate]["cgst"] += cgst
+        buckets[rate]["sgst"] += sgst
+        buckets[rate]["igst"] += igst
+        buckets[rate]["cess"] += cess
     return buckets
 
 
@@ -363,7 +438,12 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         }
     )
     hsn_buckets = new_hsn_buckets()
-    nil_bucket = {"taxable_value": Decimal("0")}
+    nil_bucket = {
+        "taxable_value": Decimal("0"),
+        "nil_rated": Decimal("0"),
+        "exempt": Decimal("0"),
+        "non_gst": Decimal("0"),
+    }
     supecom_rows: list[dict] = []
 
     for inv in invoices:
@@ -405,6 +485,38 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
             })
             # Exclude from GSTN-shaped sections; HSN/UQC issues already recorded above.
             continue
+
+        # R4-002: an unresolvable place of supply ("NA") would produce a GSTN
+        # JSON the portal rejects — surface it as a blocking issue and keep the
+        # invoice out of the section buckets rather than emitting "NA" rows.
+        if _filing_pos(inv, company) == "NA":
+            issues.append({
+                "code": "PLACE_OF_SUPPLY_UNRESOLVED",
+                "severity": "critical",
+                "document_type": "sales_invoice",
+                "document_id": inv.id,
+                "number": inv.number,
+                "message": (
+                    "Place of supply could not be resolved to a GST state code — "
+                    "set the customer's GSTIN or a valid state before filing."
+                ),
+            })
+            continue
+        charges = Decimal(str(getattr(inv, "additional_charges", 0) or 0))
+        from core.services.charges import charges_are_taxable
+
+        if charges > 0 and not charges_are_taxable(inv):
+            issues.append({
+                "code": "ADDITIONAL_CHARGES_NONTAXABLE",
+                "severity": "warning",
+                "document_type": "sales_invoice",
+                "document_id": inv.id,
+                "number": inv.number,
+                "message": (
+                    f"Additional charges of {charges} are treated as non-taxable. "
+                    "Set charges HSN and GST rate if freight/packing should carry GST."
+                ),
+            })
         # Missing HSN is recorded as an issue above — still include the invoice in
         # B2 sections so the worksheet remains useful for remediation.
         ecom = (getattr(inv, "ecommerce_operator_gstin", None) or "").strip()
@@ -419,15 +531,38 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
                 "section": "15A" if party_gstin else "15B",
                 "party_gstin": party_gstin,
             })
-            # Still accumulate HSN for SUPECOM lines; only skip B2 section routing.
-            for item in items:
-                accumulate_hsn_line(hsn_buckets, item)
-            continue
+            # Table 15 is an extra aid. SUPECOM invoices still belong in B2 / 3.1(a).
 
-        buckets = _rate_buckets(items)
+        from core.services.charges import charge_line as _charge_line
+
+        stamp = getattr(inv, "company_gstin", None)
+        intra = not _inter_state(
+            company,
+            _filing_pos(inv, company),
+            _filing_gstin(inv),
+            seller_gstin=(stamp.gstin if stamp is not None else "") or "",
+            seller_state=(stamp.state if stamp is not None else "") or "",
+        )
+        ch = _charge_line(inv, intra_state=intra)
+        if ch is not None:
+            items = list(items) + [ch]
+        buckets = _rate_buckets(items, invoice=inv)
+        for item in items:
+            nature = (getattr(item, "supply_nature", None) or "TAXABLE").upper()
+            amt = Decimal(str(getattr(item, "taxable_amount", 0) or 0))
+            if nature == "NIL":
+                nil_bucket["nil_rated"] += amt
+                nil_bucket["taxable_value"] += amt
+            elif nature == "EXEMPT":
+                nil_bucket["exempt"] += amt
+                nil_bucket["taxable_value"] += amt
+            elif nature == "NON_GST":
+                nil_bucket["non_gst"] += amt
+                nil_bucket["taxable_value"] += amt
 
         for item in items:
             accumulate_hsn_line(hsn_buckets, item)
+        apply_after_tax_header_discount(hsn_buckets, inv, items)
 
         append_b2_outward_rows(
             company=company,
@@ -440,6 +575,7 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
             exp=exp,
             sez=sez,
             nil_bucket=nil_bucket,
+            issues=issues,
         )
 
     cdnr: list[dict] = []
@@ -511,15 +647,52 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
     )
     if stamp_id is not None:
         cancelled_qs = cancelled_qs.filter(company_gstin_id=stamp_id)
-    cancelled_inv = cancelled_qs.count()
+    cancelled_invoices = list(cancelled_qs)
+    cancelled_inv = len(cancelled_invoices)
 
+    supecom_invoices = [
+        inv
+        for inv in invoices
+        if (getattr(inv, "ecommerce_operator_gstin", None) or "").strip()
+    ]
+    doc_invoices = list(invoices)
+    cancelled_cn_qs = SalesCreditNote.objects.filter(
+        company=company,
+        status=SalesCreditNote.Status.CANCELLED,
+        note_date__gte=date_from,
+        note_date__lte=date_to,
+    )
+    cancelled_dn_qs = SalesDebitNote.objects.filter(
+        company=company,
+        status=SalesDebitNote.Status.CANCELLED,
+        note_date__gte=date_from,
+        note_date__lte=date_to,
+    )
+    if stamp_id is not None:
+        cancelled_cn_qs = cancelled_cn_qs.filter(company_gstin_id=stamp_id)
+        cancelled_dn_qs = cancelled_dn_qs.filter(company_gstin_id=stamp_id)
+    cancelled_credit_notes = list(cancelled_cn_qs)
+    cancelled_debit_notes = list(cancelled_dn_qs)
     docs = {
-        "invoices_issued": len(invoices),
+        "invoices_issued": len(doc_invoices),
         "invoices_cancelled": cancelled_inv,
         "credit_notes_issued": len(credit_notes),
         "debit_notes_issued": len(debit_notes),
+        "credit_notes_cancelled": len(cancelled_credit_notes),
+        "debit_notes_cancelled": len(cancelled_debit_notes),
+        "supecom_table15": len(supecom_invoices),
     }
-    doc_table = _gstr1_doc_table(company, date_from, date_to, invoices, cancelled_inv, credit_notes, debit_notes)
+    doc_table = _gstr1_doc_table(
+        company,
+        date_from,
+        date_to,
+        doc_invoices,
+        cancelled_invoices,
+        credit_notes,
+        debit_notes,
+        cancelled_credit_notes,
+        cancelled_debit_notes,
+    )
     at_table = _gstr1_at_table(company, date_from, date_to, company_gstin_id=stamp_id)
     atadj_table = _gstr1_atadj_table(company, date_from, date_to, company_gstin_id=stamp_id)
     txpd_table = _gstr1_txpd_table(company, date_from, date_to, company_gstin_id=stamp_id)
@@ -530,7 +703,6 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         inv for inv in invoices
         if not invoice_value_mismatch(inv)
         and not getattr(inv, "is_reverse_charge", False)
-        and not (getattr(inv, "ecommerce_operator_gstin", None) or "").strip()  # BB-000707 SUPECOM
     ]
     # BB-000361: notes must be gated the same way — a mismatched note is
     # already excluded from cdnr/cdnur above, so it must not still move totals.
@@ -615,6 +787,16 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         "cdnur": _sum_fields(cdnur, "taxable_value", "cgst", "sgst", "igst", "cess"),
     }
 
+    from accounts.models import CompanyGstin
+
+    stamp_gstin = company.gstin or ""
+    stamp_state = company.state or ""
+    if stamp_id:
+        stamp_row = CompanyGstin.objects.filter(pk=stamp_id).values("gstin", "state").first()
+        if stamp_row:
+            stamp_gstin = stamp_row.get("gstin") or stamp_gstin
+            stamp_state = stamp_row.get("state") or stamp_state
+
     return {
         "return_type": "GSTR-1",
         "builder_version": BUILDER_VERSION_GSTR1,
@@ -624,8 +806,8 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         "company_gstin_id": stamp_id,
         "company": {
             "name": company.name,
-            "gstin": company.gstin or "",
-            "state": company.state or "",
+            "gstin": stamp_gstin,
+            "state": stamp_state,
         },
         "b2b": sorted(b2b, key=lambda r: (r["invoice_date"], r["invoice_number"], r["rate"])),
         "b2cl": sorted(b2cl, key=lambda r: (r["invoice_date"], r["invoice_number"], r["rate"])),
@@ -637,13 +819,13 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         "hsn": hsn,
         "nil": {
             "taxable_value": _money(nil_bucket["taxable_value"]),
-            "nil_rated": _money(nil_bucket["taxable_value"]),
-            "exempt": "0.00",
-            "non_gst": "0.00",
-            "aid_kind": "nil_unsplit",
+            "nil_rated": _money(nil_bucket["nil_rated"]),
+            "exempt": _money(nil_bucket["exempt"]),
+            "non_gst": _money(nil_bucket["non_gst"]),
+            "aid_kind": "nil_split" if nil_bucket["taxable_value"] else "nil_unsplit",
             "note": (
-                "0% GST line taxable (including mixed-rate invoices) accumulates here as "
-                "nil-rated aid — exempt vs zero-rated vs non-GST is not split (BB-000621 / GSTR-08)."
+                "Nil / exempt / non-GST use line supply_nature. 0% TAXABLE lines still "
+                "accumulate as nil-rated aid."
             ),
         },
         "amendments": amendments,
@@ -653,14 +835,16 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         "atadj": atadj_table,
         "txpd": txpd_table,
         "supecom": {
-            "supported": bool(supecom_rows),
+            "supported": False,
             "table": "15",
             "15A": [r for r in supecom_rows if r.get("section") == "15A"],
             "15B": [r for r in supecom_rows if r.get("section") == "15B"],
             "rows": supecom_rows,
             "note": (
-                "Table 15 aid: 15A = supplies through e-commerce to registered buyers; "
-                "15B = unregistered. Do not file SUPECOM from this worksheet without CA review."
+                "Table 15 aid only — not a portal-complete SUPECOM engine. "
+                "15A = supplies through e-commerce to registered buyers; 15B = unregistered. "
+                "These invoices are also included in B2 / 3.1(a). Do not file Table 15 from this "
+                "worksheet without CA review."
             ),
         },
         "totals": totals,
@@ -669,53 +853,73 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
     }
 
 
-def _gstr1_doc_table(company, date_from, date_to, invoices, cancelled_inv, credit_notes, debit_notes) -> list[dict]:
+def _gstr1_doc_table(
+    company,
+    date_from,
+    date_to,
+    invoices,
+    cancelled_invoices,
+    credit_notes,
+    debit_notes,
+    cancelled_credit_notes=None,
+    cancelled_debit_notes=None,
+) -> list[dict]:
     """GSTR-1 DOC: invoice series summary (prefix from document number)."""
     from collections import defaultdict
 
     series: dict[str, dict] = defaultdict(lambda: {"from": "", "to": "", "total": 0, "cancelled": 0})
+
+    def _prefix(num: str) -> str:
+        return "".join(ch for ch in (num or "") if not ch.isdigit()) or "INV"
+
     for inv in invoices:
         num = inv.number or ""
-        prefix = "".join(ch for ch in num if not ch.isdigit()) or "INV"
+        prefix = _prefix(num)
         bucket = series[prefix]
         bucket["total"] += 1
         if not bucket["from"] or num < bucket["from"]:
             bucket["from"] = num
         if not bucket["to"] or num > bucket["to"]:
             bucket["to"] = num
+    for inv in cancelled_invoices:
+        num = inv.number or ""
+        prefix = _prefix(num)
+        bucket = series[prefix]
+        bucket["total"] += 1
+        bucket["cancelled"] += 1
+        if num and (not bucket["from"] or num < bucket["from"]):
+            bucket["from"] = num
+        if num and (not bucket["to"] or num > bucket["to"]):
+            bucket["to"] = num
+    cancelled_credit_notes = cancelled_credit_notes or []
+    cancelled_debit_notes = cancelled_debit_notes or []
+    cancelled_cn = len(cancelled_credit_notes)
+    cancelled_dn = len(cancelled_debit_notes)
     rows = [
         {
             "nature": "Invoices for outward supply",
             "sr_from": vals["from"],
             "sr_to": vals["to"],
             "total_number": vals["total"],
-            "cancelled": 0,
+            "cancelled": vals["cancelled"],
             "series": prefix,
         }
         for prefix, vals in sorted(series.items())
     ]
     rows.append({
-        "nature": "Cancelled invoices",
-        "sr_from": "",
-        "sr_to": "",
-        "total_number": cancelled_inv,
-        "cancelled": cancelled_inv,
-        "series": "",
-    })
-    rows.append({
         "nature": "Credit notes",
         "sr_from": "",
         "sr_to": "",
-        "total_number": len(credit_notes),
-        "cancelled": 0,
+        "total_number": len(credit_notes) + cancelled_cn,
+        "cancelled": cancelled_cn,
         "series": "",
     })
     rows.append({
         "nature": "Debit notes",
         "sr_from": "",
         "sr_to": "",
-        "total_number": len(debit_notes),
-        "cancelled": 0,
+        "total_number": len(debit_notes) + cancelled_dn,
+        "cancelled": cancelled_dn,
         "series": "",
     })
     return rows
@@ -822,7 +1026,7 @@ def _gstr1_txpd_table(company, date_from, date_to, *, company_gstin_id=None) -> 
     if not at_rows:
         return [{
             "aid_kind": "txpd_none",
-            "supported": True,
+            "supported": False,
             "note": "No unallocated advances in period — TXPD is nil for this aid.",
         }]
     return [
@@ -900,12 +1104,12 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
     itc_eligible = [
         p
         for p in non_rcm
-        if (getattr(p, "itc_eligibility", "UNREVIEWED") or "UNREVIEWED") == "CLAIMABLE"
+        if getattr(p, "itc_eligibility", "") == PurchaseInvoice.ItcEligibility.CLAIMABLE
     ]
 
     def _note_claimable(note) -> bool:
         inv = getattr(note, "purchase_invoice", None)
-        return inv is not None and (getattr(inv, "itc_eligibility", "UNREVIEWED") or "UNREVIEWED") == "CLAIMABLE"
+        return inv is not None and getattr(inv, "itc_eligibility", "") == PurchaseInvoice.ItcEligibility.CLAIMABLE
 
     inward_taxable = sum((inv.taxable_total for inv in non_rcm), Decimal("0"))
     inward_cgst = sum((inv.cgst_total for inv in itc_eligible), Decimal("0"))
@@ -940,18 +1144,30 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
     rcm_cess = sum((Decimal(str(getattr(p, "rcm_cess", 0) or 0)) for p in rcm), Decimal("0"))
     # BB-000336: RCM credit/debit notes reduce/increase the RCM liability itself
     # (3.1(d)) — they must never net into the non-RCM ITC block above.
+    # R4-005: on an RCM note the memoised rcm_* fields are authoritative. Only
+    # fall back to cess_total when the note carries no RCM memo at all (legacy),
+    # never on a stale non-zero cess_total sitting beside a real rcm memo.
+    def _rcm_cess(note):
+        memo = any(
+            Decimal(str(getattr(note, f, 0) or 0)) != 0
+            for f in ("rcm_taxable", "rcm_cgst", "rcm_sgst", "rcm_igst", "rcm_cess")
+        )
+        if memo:
+            return Decimal(str(getattr(note, "rcm_cess", 0) or 0))
+        return Decimal(str(getattr(note, "cess_total", 0) or 0))
+
     for note in purchase_cns_rcm:
         rcm_taxable -= Decimal(str(getattr(note, "rcm_taxable", None) or note.taxable_total or 0))
         rcm_cgst -= Decimal(str(getattr(note, "rcm_cgst", 0) or 0))
         rcm_sgst -= Decimal(str(getattr(note, "rcm_sgst", 0) or 0))
         rcm_igst -= Decimal(str(getattr(note, "rcm_igst", 0) or 0))
-        rcm_cess -= Decimal(str(getattr(note, "rcm_cess", 0) or getattr(note, "cess_total", 0) or 0))
+        rcm_cess -= _rcm_cess(note)
     for note in purchase_dns_rcm:
         rcm_taxable += Decimal(str(getattr(note, "rcm_taxable", None) or note.taxable_total or 0))
         rcm_cgst += Decimal(str(getattr(note, "rcm_cgst", 0) or 0))
         rcm_sgst += Decimal(str(getattr(note, "rcm_sgst", 0) or 0))
         rcm_igst += Decimal(str(getattr(note, "rcm_igst", 0) or 0))
-        rcm_cess += Decimal(str(getattr(note, "rcm_cess", 0) or getattr(note, "cess_total", 0) or 0))
+        rcm_cess += _rcm_cess(note)
 
     outward = gstr1["totals"]
     itc_available = {
@@ -1005,16 +1221,11 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
     # Wave 16D: claimable ITC only from matched GSTR-2B rows.
     from reporting.gstr2b import claimable_itc_from_2b
 
-    itc_2b = claimable_itc_from_2b(company, period)
+    itc_2b = claimable_itc_from_2b(company, period, company_gstin_id=stamp_id)
     from reporting.models import Gstr2bIngest
 
     has_2b_rows = Gstr2bIngest.objects.filter(company=company, period=period).exists()
-    has_2b = has_2b_rows and (
-        Decimal(str(itc_2b.get("cgst") or 0))
-        + Decimal(str(itc_2b.get("sgst") or 0))
-        + Decimal(str(itc_2b.get("igst") or 0))
-        + Decimal(str(itc_2b.get("cess") or 0))
-    ) > 0
+    has_2b = has_2b_rows
     itc_block = {
         "provisional": not has_2b,
         "claimable": has_2b,
@@ -1032,9 +1243,35 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
         },
         "rcm_provisional": rcm_itc_provisional,
         "manual_review": manual_review,
+        # R4-004: the safe amount to actually claim is the lower of books ITC and
+        # 2B-matched ITC per head — surface it explicitly rather than leaving the
+        # "which number do I use" decision entirely to the UI.
+        "recommended_claimable": (
+            {
+                "igst": _money(min(inward_igst, itc_2b["igst"])),
+                "cgst": _money(min(inward_cgst, itc_2b["cgst"])),
+                "sgst": _money(min(inward_sgst, itc_2b["sgst"])),
+                "cess": _money(min(inward_cess, Decimal(str(itc_2b.get("cess") or 0)))),
+                "basis": "min(books, gstr2b_matched)",
+            }
+            if has_2b
+            else {
+                "igst": _money(inward_igst),
+                "cgst": _money(inward_cgst),
+                "sgst": _money(inward_sgst),
+                "cess": _money(inward_cess),
+                "basis": "books_provisional",
+            }
+        ),
         "note": (
             "ITC claimable only after GSTR-2B match (Wave 16D). "
             "Books provisional ITC is informational until matched."
+            if not has_2b
+            else "ITC claimable from matched GSTR-2B rows."
+        ),
+        "disclaimer": (
+            "Provisional ITC: claimable only after GSTR-2B match. "
+            "Books ITC is informational until matched."
             if not has_2b
             else "ITC claimable from matched GSTR-2B rows."
         ),
@@ -1065,6 +1302,8 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
     b_note_sgst = Decimal("0")
     b_note_cess = Decimal("0")
     for row in gstr1.get("cdnr") or []:
+        if str(row.get("rchrg") or "N").upper() == "Y":
+            continue
         sign = Decimal("-1") if row.get("note_kind") == "CREDIT" else Decimal("1")
         a_note_taxable += sign * Decimal(str(row.get("taxable_value") or 0))
         a_note_igst += sign * Decimal(str(row.get("igst") or 0))
@@ -1072,6 +1311,8 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
         a_note_sgst += sign * Decimal(str(row.get("sgst") or 0))
         a_note_cess += sign * Decimal(str(row.get("cess") or 0))
     for row in gstr1.get("cdnur") or []:
+        if str(row.get("rchrg") or "N").upper() == "Y":
+            continue
         sign = Decimal("-1") if row.get("note_kind") == "CREDIT" else Decimal("1")
         supply = (row.get("supply_type") or "").upper()
         bucket_taxable = sign * Decimal(str(row.get("taxable_value") or 0))
@@ -1092,23 +1333,33 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
             a_note_sgst += bucket_sgst
             a_note_cess += bucket_cess
 
-    # (a) taxable other than zero-rated: B2B/B2CL/B2CS ± non-export notes
+    # (a) taxable other than zero-rated: B2B/B2CL/B2CS ± non-export notes.
+    # Outward RCM supplies are included in taxable turnover, while taxes (CGST/SGST/IGST/Cess)
+    # exclude RCM because liability is paid by the recipient under section 9(3).
+    def _non_rcm_sum(rows, key: str) -> Decimal:
+        total = Decimal("0")
+        for row in rows or []:
+            if str(row.get("rchrg") or "N").upper() == "Y":
+                continue
+            total += Decimal(str(row.get(key) or 0))
+        return total
+
     a_taxable_value = (
-        _sec_money(b2b_t, "taxable_value")
+        _non_rcm_sum(gstr1.get("b2b"), "taxable_value")
         + _sec_money(b2cl_t, "taxable_value")
         + _sec_money(b2cs_t, "taxable_value")
         + a_note_taxable
     )
     a_igst = (
-        _sec_money(b2b_t, "igst")
+        _non_rcm_sum(gstr1.get("b2b"), "igst")
         + _sec_money(b2cl_t, "igst")
         + _sec_money(b2cs_t, "igst")
         + a_note_igst
     )
-    a_cgst = _sec_money(b2b_t, "cgst") + _sec_money(b2cs_t, "cgst") + a_note_cgst
-    a_sgst = _sec_money(b2b_t, "sgst") + _sec_money(b2cs_t, "sgst") + a_note_sgst
+    a_cgst = _non_rcm_sum(gstr1.get("b2b"), "cgst") + _sec_money(b2cs_t, "cgst") + a_note_cgst
+    a_sgst = _non_rcm_sum(gstr1.get("b2b"), "sgst") + _sec_money(b2cs_t, "sgst") + a_note_sgst
     a_cess = (
-        _sec_money(b2b_t, "cess")
+        _non_rcm_sum(gstr1.get("b2b"), "cess")
         + _sec_money(b2cl_t, "cess")
         + _sec_money(b2cs_t, "cess")
         + a_note_cess
@@ -1124,8 +1375,10 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
     b_cess = _sec_money(exp_t, "cess") + _sec_money(sez_t, "cess") + b_note_cess
 
     # (c) nil-rated / exempt
-    c_taxable_value = Decimal(str(nil_payload.get("taxable_value") or 0))
-    # (d) non-GST outward
+    c_taxable_value = Decimal(str(nil_payload.get("nil_rated") or 0)) + Decimal(
+        str(nil_payload.get("exempt") or 0)
+    )
+    # (e) non-GST outward
     d_taxable_value = Decimal(str(nil_payload.get("non_gst") or 0))
 
     # Table 3.2 — inter-state supplies made to unregistered persons (B2CL + IGST B2CS).
@@ -1190,6 +1443,10 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
                 "cgst": "0.00",
                 "sgst": "0.00",
                 "cess": "0.00",
+                "note": (
+                    "3.1(c) = line supply_nature NIL + EXEMPT, plus 0% TAXABLE aid. "
+                    "3.1(e) uses NON_GST lines."
+                ),
             },
             "d_non_gst": {
                 "label": "3.1(e) Non-GST outward supplies",
@@ -1236,6 +1493,7 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
             "txpd": gstr1.get("txpd") or [],
             "at": gstr1.get("at") or [],
             "atadj": gstr1.get("atadj") or [],
+            "fileable": False,
             "note": (
                 "TXPD aid is copied from GSTR-1 unallocated advances (AT). "
                 "Tax rate is unknown — do not file as GSTN TXPD without CA rate split."
@@ -1369,6 +1627,7 @@ def build_gstr9(company, fy_label: str, *, company_gstin=None) -> dict:
             Decimal(str(totals.get("outward_cgst", "0")))
             + Decimal(str(totals.get("outward_sgst", "0")))
             + Decimal(str(totals.get("outward_igst", "0")))
+            + Decimal(str(totals.get("outward_cess", "0")))
         )
         outward_taxable += ot
         outward_tax += tax
@@ -1391,7 +1650,15 @@ def build_gstr9(company, fy_label: str, *, company_gstin=None) -> dict:
             itc6_cess += Decimal(str(getattr(inv, "cess_total", 0) or 0))
         from reporting.models import Gstr2bIngest
 
-        for row in Gstr2bIngest.objects.filter(company=company, period=period):
+        itc8_qs = Gstr2bIngest.objects.filter(
+            company=company,
+            period=period,
+            match_status=Gstr2bIngest.MatchStatus.MATCHED,
+            itc_eligibility=Gstr2bIngest.ItcEligibility.CLAIMABLE,
+        )
+        if stamp_id is not None:
+            itc8_qs = itc8_qs.filter(purchase_invoice__company_gstin_id=stamp_id)
+        for row in itc8_qs:
             itc8a_tax += (
                 Decimal(str(row.cgst or 0))
                 + Decimal(str(row.sgst or 0))
@@ -1450,7 +1717,7 @@ def build_gstr9(company, fy_label: str, *, company_gstin=None) -> dict:
 
     return {
         "return_type": "GSTR-9",
-        "aid_kind": "outward_fy_aid",
+        "aid_kind": "gstr9_worksheet_mvp",
         "title": "GSTR-9 worksheet aid (tables 4–8 + HSN 17/18)",
         "builder_version": BUILDER_VERSION_GSTR9,
         "fy": fy_label,
@@ -1515,7 +1782,7 @@ def build_gstr9(company, fy_label: str, *, company_gstin=None) -> dict:
                 "imports_igst": _money(itc8_import),
                 "tax": _money(itc8a_tax + itc8_import),
                 "note": (
-                    "Table 8 worksheet: 2B ingest vs claimable books ITC for the FY, plus "
+                    "Table 8 worksheet: MATCHED+CLAIMABLE 2B ingest vs claimable books ITC for the FY, plus "
                     "IGST on purchases without supplier GSTIN (import-like). Not GSTR-2A live."
                 ),
             },

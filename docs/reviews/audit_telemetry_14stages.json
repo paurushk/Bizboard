@@ -1,0 +1,132 @@
+{
+  "findings": [],
+  "consoleErrors": [
+    {
+      "stage": "Stage 1",
+      "url": "http://localhost/login",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "stage": "Stage 1",
+      "url": "http://localhost/register",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "stage": "Stage 1",
+      "url": "http://localhost/forgot-password",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "stage": "Stage 2",
+      "url": "http://localhost/login",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "stage": "Stage 13",
+      "url": "http://localhost/login",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "stage": "Stage 13",
+      "url": "http://localhost/login",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "stage": "Stage 13",
+      "url": "http://localhost/settings/company",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "stage": "Stage 13",
+      "url": "http://localhost/accounting/journals",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "stage": "Stage 14",
+      "url": "http://localhost/login",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    }
+  ],
+  "networkErrors": [
+    {
+      "stage": "Stage 1",
+      "url": "http://localhost/api/v1/auth/refresh/",
+      "status": 401,
+      "method": "POST",
+      "page": "http://localhost/login"
+    },
+    {
+      "stage": "Stage 1",
+      "url": "http://localhost/api/v1/auth/refresh/",
+      "status": 401,
+      "method": "POST",
+      "page": "http://localhost/register"
+    },
+    {
+      "stage": "Stage 1",
+      "url": "http://localhost/api/v1/auth/refresh/",
+      "status": 401,
+      "method": "POST",
+      "page": "http://localhost/forgot-password"
+    },
+    {
+      "stage": "Stage 2",
+      "url": "http://localhost/api/v1/auth/refresh/",
+      "status": 401,
+      "method": "POST",
+      "page": "http://localhost/login"
+    },
+    {
+      "stage": "Stage 13",
+      "url": "http://localhost/api/v1/auth/refresh/",
+      "status": 401,
+      "method": "POST",
+      "page": "http://localhost/login"
+    },
+    {
+      "stage": "Stage 13",
+      "url": "http://localhost/api/v1/auth/login/",
+      "status": 401,
+      "method": "POST",
+      "page": "http://localhost/login"
+    },
+    {
+      "stage": "Stage 13",
+      "url": "http://localhost/api/v1/auth/refresh/",
+      "status": 401,
+      "method": "POST",
+      "page": "http://localhost/settings/company"
+    },
+    {
+      "stage": "Stage 13",
+      "url": "http://localhost/api/v1/auth/refresh/",
+      "status": 401,
+      "method": "POST",
+      "page": "http://localhost/accounting/journals"
+    },
+    {
+      "stage": "Stage 14",
+      "url": "http://localhost/api/v1/auth/refresh/",
+      "status": 401,
+      "method": "POST",
+      "page": "http://localhost/login"
+    }
+  ],
+  "stageLogs": [
+    "[2026-08-24T18:02:42.599Z] [Stage 1] Testing unauthenticated pages (Login, Register, Forgot Password)...",
+    "[2026-08-24T18:02:51.694Z] [Stage 2] Logging in as Owner and inspecting Dashboard...",
+    "[2026-08-24T18:03:05.933Z] [Stage 2] Dashboard banner: None, Card Area: Today's sales\n\n₹0.00",
+    "[2026-08-24T18:03:05.934Z] [Stage 3] Executing Sales Loop (Customers, Quotes, Orders, Challans, Invoice, Receipts)...",
+    "[2026-08-24T18:03:35.108Z] [Stage 4] Executing Purchases Loop (Suppliers, POs, Bills, Debit Notes)...",
+    "[2026-08-24T18:03:45.708Z] [Stage 5] Testing Payment Links, Public Pay Page, Bank Statements...",
+    "[2026-08-24T18:03:48.850Z] [Stage 6] Testing Inventory Products, Stock, Adjustments, Warehouses...",
+    "[2026-08-24T18:04:01.433Z] [Stage 7] Testing Financial & GST Reports...",
+    "[2026-08-24T18:04:38.107Z] [Stage 8] Testing POS interface and cart...",
+    "[2026-08-24T18:04:41.128Z] [Stage 9] Testing Settings modules...",
+    "[2026-08-24T18:05:10.950Z] [Stage 10] Testing Accounting (CoA, Journals, Cost Centers)...",
+    "[2026-08-24T18:05:18.218Z] [Stage 11] Testing Insights Hub, Alerts, Health, Cashflow, Assistant...",
+    "[2026-08-24T18:05:30.118Z] [Stage 12] Testing Manufacturing, Payroll, CRM...",
+    "[2026-08-24T18:05:35.904Z] [Stage 13] Testing RBAC with Sales Staff account...",
+    "[2026-08-24T18:06:01.798Z] [Stage 14] Testing Mobile (375x812), 404 handler, and unauthenticated deep-links..."
+  ]
+}

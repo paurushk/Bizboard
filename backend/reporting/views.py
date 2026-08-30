@@ -35,6 +35,21 @@ from .serializers import Gstr2bIngestSerializer
 from .services import ReportService
 
 
+def _tds_worksheets_readable(company) -> bool:
+    """Owner may export worksheets when TDS is enabled or TDS/TCS was already posted."""
+    if build_feature_flags(company=company).get("ENABLE_TDS"):
+        return True
+    from payments.models import SupplierPayment
+    from purchases.models import PurchaseInvoice
+    from sales.models import SalesInvoice
+
+    return (
+        PurchaseInvoice.objects.filter(company=company, tds_amount__gt=0).exists()
+        or SalesInvoice.objects.filter(company=company, tcs_amount__gt=0).exists()
+        or SupplierPayment.objects.filter(company=company, tds_amount__gt=0).exists()
+    )
+
+
 def _parse_date(value):
     if not value:
         return None
@@ -645,6 +660,51 @@ class Gstr4View(BaseReportView):
         return Response(build_gstr4(self.company, fy))
 
 
+class Gstr8View(BaseReportView):
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "gst_reports"
+
+    def get(self, request):
+        from reporting.gstr2b import build_gstr8
+
+        assert_gstr_enabled(self.company)
+        period = request.query_params.get("period")
+        if not period:
+            raise BusinessRuleError("Query parameter 'period' is required (YYYY-MM).")
+        parse_period(period)
+        return Response(build_gstr8(self.company, period))
+
+
+class Gstr6View(BaseReportView):
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "gst_reports"
+
+    def get(self, request):
+        from reporting.gstr2b import build_gstr6
+
+        assert_gstr_enabled(self.company)
+        period = request.query_params.get("period")
+        if not period:
+            raise BusinessRuleError("Query parameter 'period' is required (YYYY-MM).")
+        parse_period(period)
+        return Response(build_gstr6(self.company, period))
+
+
+class Gstr7View(BaseReportView):
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "gst_reports"
+
+    def get(self, request):
+        from reporting.gstr2b import build_gstr7
+
+        assert_gstr_enabled(self.company)
+        period = request.query_params.get("period")
+        if not period:
+            raise BusinessRuleError("Query parameter 'period' is required (YYYY-MM).")
+        parse_period(period)
+        return Response(build_gstr7(self.company, period))
+
+
 class GstFilingSandboxView(BaseReportView):
     """Wave 17B: sandbox HTTP upload_gstr1 / fetch_gstr2b when GSP_HTTP_SANDBOX=1.
 
@@ -689,7 +749,7 @@ class TdsWorksheetView(APIView):
 
     def get(self, request):
         company = get_company_user(request).company
-        if not build_feature_flags(company=company).get("ENABLE_TDS"):
+        if not _tds_worksheets_readable(company):
             raise Http404()
         period = request.query_params.get("period")
         if not period:
@@ -705,9 +765,11 @@ class TdsWorksheetView(APIView):
         buffer = io.StringIO()
         fieldnames = [
             "date", "invoice", "supplier", "supplier_gstin", "section", "rate",
-            "taxable", "grand_total", "tds_amount", "net_payable",
+            "taxable", "grand_total", "tds_amount", "net_payable", "source",
         ]
-        writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+        # extrasaction="ignore": a compliance export must never 500 because a
+        # row helper grew an extra key.
+        writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerow({"date": "# 26Q worksheet aid — not a live IT portal upload", "invoice": ""})
         writer.writerows(rows)
@@ -723,7 +785,7 @@ class TcsWorksheetView(APIView):
 
     def get(self, request):
         company = get_company_user(request).company
-        if not build_feature_flags(company=company).get("ENABLE_TDS"):
+        if not _tds_worksheets_readable(company):
             raise Http404()
         period = request.query_params.get("period")
         if not period:
@@ -739,9 +801,9 @@ class TcsWorksheetView(APIView):
         buffer = io.StringIO()
         fieldnames = [
             "date", "invoice", "customer", "customer_gstin", "section", "rate",
-            "taxable", "grand_total", "tcs_amount", "receivable",
+            "taxable", "grand_total", "tcs_amount", "receivable", "source",
         ]
-        writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+        writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerow({"date": "# 27EQ worksheet aid — not a live IT portal upload", "invoice": ""})
         writer.writerows(rows)

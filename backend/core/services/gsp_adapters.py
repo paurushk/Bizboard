@@ -58,7 +58,7 @@ class EwayResult:
 @runtime_checkable
 class IrpAdapter(Protocol):
     def submit(self, payload: dict) -> IrnResult: ...
-    def cancel(self, irn: str) -> dict: ...
+    def cancel(self, irn: str, cnl_rsn: str = "1", cnl_rem: str = "Cancelled") -> dict: ...
 
 
 @runtime_checkable
@@ -376,8 +376,8 @@ class SandboxIrpAdapter:
             raw={"provider": "sandbox", "irn": irn},
         )
 
-    def cancel(self, irn: str) -> dict:
-        return {"provider": "sandbox", "cancelled": True, "irn": irn}
+    def cancel(self, irn: str, cnl_rsn: str = "1", cnl_rem: str = "Cancelled") -> dict:
+        return {"provider": "sandbox", "cancelled": True, "irn": irn, "CnlRsn": cnl_rsn, "CnlRem": cnl_rem}
 
 
 class SandboxEwayAdapter:
@@ -433,10 +433,14 @@ class HttpSandboxIrpAdapter:
         raw = _http_json("POST", f"{self.base}/irp/invoice", payload)
         return irn_result_from_provider_response(raw)
 
-    def cancel(self, irn: str) -> dict:
+    def cancel(self, irn: str, cnl_rsn: str = "1", cnl_rem: str = "Cancelled") -> dict:
         if not self.base:
-            return SandboxIrpAdapter().cancel(irn)
-        return _http_json("POST", f"{self.base}/irp/cancel", {"irn": irn})
+            return SandboxIrpAdapter().cancel(irn, cnl_rsn=cnl_rsn, cnl_rem=cnl_rem)
+        return _http_json(
+            "POST",
+            f"{self.base}/irp/cancel",
+            {"irn": irn, "CnlRsn": cnl_rsn, "CnlRem": cnl_rem},
+        )
 
 
 class HttpSandboxEwayAdapter:
@@ -501,14 +505,14 @@ class LiveIrpAdapter:
         raw = _http_json("POST", _live_irp_url(base, "submit", provider), wrapped, headers=headers)
         return irn_result_from_provider_response(raw)
 
-    def cancel(self, irn: str) -> dict:
+    def cancel(self, irn: str, cnl_rsn: str = "1", cnl_rem: str = "Cancelled") -> dict:
         base = self._base()
         headers = self._headers()
         provider = resolve_gsp_provider(self.company)
         return _http_json(
             "POST",
             _live_irp_url(base, "cancel", provider),
-            {"irn": irn},
+            {"irn": irn, "CnlRsn": cnl_rsn, "CnlRem": cnl_rem},
             headers=headers,
         )
 

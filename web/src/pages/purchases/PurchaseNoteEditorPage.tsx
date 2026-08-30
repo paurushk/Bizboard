@@ -34,6 +34,7 @@ import {
 import {
   DocumentEditorShell,
   NoteReasonSelect,
+  NumericField,
   SimpleTotalsPanel,
   makeLine,
   primarySaveAction,
@@ -43,6 +44,7 @@ import {
 } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
 import type { NoteReason, Product, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, Supplier } from '@/types/domain';
@@ -80,7 +82,8 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
   const purchases = useQuery({ queryKey: ['purchases'], queryFn: () => listPurchases({ status: 'COMPLETED' }) });
-  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct });
+  const cf = useProductCfFilters();
+  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const existing = useQuery({
     queryKey: [queryKey, editId],
     queryFn: () => (isCredit ? getPurchaseCreditNote(editId as number) : getPurchaseDebitNote(editId as number)),
@@ -129,7 +132,8 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
           description: '',
           sku: '',
           hsnCode: '',
-          unitName: 'PCS',
+          unitName: item.unitName ?? 'PCS',
+          sourceItemId: item.sourceItem ?? item.id,
           batchNo: '',
           expDate: '',
           mfgDate: '',
@@ -169,7 +173,8 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
           description: '',
           sku: '',
           hsnCode: '',
-          unitName: 'PCS',
+          unitName: item.unitName ?? 'PCS',
+          sourceItemId: item.id,
           batchNo: '',
           expDate: '',
           mfgDate: '',
@@ -229,6 +234,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
       unitPrice: l.unitPrice,
       gstRate: l.gstRate,
       cessRate: l.cessRate ?? 0,
+      sourceItem: l.sourceItemId ?? null,
     })),
   });
 
@@ -263,7 +269,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
 
   if (isEdit && existing.isLoading) return <LoadingState />;
   if (isEdit && existing.isError) {
-    return <ErrorState message={getErrorMessage(existing.error)} onRetry={() => void existing.refetch()} />;
+    return <ErrorState message={getErrorMessage(existing.error)} error={existing.error} onRetry={() => void existing.refetch()} />;
   }
 
   const completedPurchases = (purchases.data ?? []).filter((p) => p.status === 'COMPLETED');
@@ -337,8 +343,38 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
               {lines.map((l) => (
                 <TableRow key={l.key}>
                   <TableCell>{l.productName}</TableCell>
-                  <TableCell align="right">{l.quantity}</TableCell>
-                  <TableCell align="right">{l.unitPrice}</TableCell>
+                  <TableCell align="right">
+                    {!readOnly ? (
+                      <NumericField
+                        size="small"
+                        value={l.quantity}
+                        onValueChange={(v: number) =>
+                          setLines((prev) =>
+                            prev.map((x) => (x.key === l.key ? { ...x, quantity: v } : x)),
+                          )
+                        }
+                        sx={{ width: 100 }}
+                      />
+                    ) : (
+                      l.quantity
+                    )}
+                  </TableCell>
+                  <TableCell align="right">
+                    {!readOnly ? (
+                      <NumericField
+                        size="small"
+                        value={l.unitPrice}
+                        onValueChange={(v: number) =>
+                          setLines((prev) =>
+                            prev.map((x) => (x.key === l.key ? { ...x, unitPrice: v } : x)),
+                          )
+                        }
+                        sx={{ width: 120 }}
+                      />
+                    ) : (
+                      l.unitPrice
+                    )}
+                  </TableCell>
                   {!readOnly ? (
                     <TableCell align="right">
                       <IconButton size="small" onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}>
@@ -352,6 +388,8 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
           </Table>
         </Paper>
         {!readOnly ? (
+          <Stack spacing={1}>
+            {cf.filterBar}
           <Stack direction="row" spacing={1} alignItems="center">
             <Autocomplete
               sx={{ flex: 1 }}
@@ -375,6 +413,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
             />
             <TextField type="number" label={t('billing.qty')} value={pendingQty} onChange={(e) => setPendingQty(e.target.value)} sx={{ width: 100 }} />
             <Button variant="outlined" disabled={!pendingProduct} onClick={addLine}>{t('common.add')}</Button>
+          </Stack>
           </Stack>
         ) : null}
         <SimpleTotalsPanel totals={totals} />

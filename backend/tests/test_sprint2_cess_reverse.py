@@ -48,6 +48,7 @@ def test_bb_000600_purchase_complete_posts_input_cess(tenant_a):
         supplier,
         [{"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "18", "cess_rate": "1"}],
     )
+    tenant_a.client.patch(f"/api/v1/purchases/invoices/{draft['id']}/", {"itc_eligibility": "CLAIMABLE"}, format="json")
     done = tenant_a.client.post(f"/api/v1/purchases/invoices/{draft['id']}/complete/")
     assert done.status_code == 200, done.data
     entry = JournalEntry.objects.get(

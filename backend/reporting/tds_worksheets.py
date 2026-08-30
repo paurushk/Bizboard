@@ -54,6 +54,36 @@ def tds_worksheet_rows(company, period: str) -> list[dict]:
             "net_payable": str(
                 (inv.grand_total or Decimal("0")) - (inv.tds_amount or Decimal("0"))
             ),
+            "source": "purchase_invoice",
+        })
+    from payments.models import SupplierPayment, SupplierPaymentStatus
+
+    pay_qs = (
+        SupplierPayment.objects.filter(
+            company=company,
+            payment_date__gte=start,
+            payment_date__lte=end,
+            status=SupplierPaymentStatus.POSTED,
+        )
+        .filter(Q(tds_amount__gt=0) | ~Q(tds_section=""))
+        .select_related("supplier")
+        .order_by("payment_date", "id")
+    )
+    for pay in pay_qs:
+        rows.append({
+            "date": pay.payment_date.isoformat(),
+            "invoice": pay.number or "",
+            "supplier": pay.supplier.name,
+            "supplier_gstin": getattr(pay.supplier, "gstin", "") or "",
+            "section": pay.tds_section or "",
+            "rate": str(pay.tds_rate or Decimal("0")),
+            "taxable": str(pay.amount or Decimal("0")),
+            "grand_total": str(pay.amount or Decimal("0")),
+            "tds_amount": str(pay.tds_amount or Decimal("0")),
+            "net_payable": str(
+                (pay.amount or Decimal("0")) - (pay.tds_amount or Decimal("0"))
+            ),
+            "source": "supplier_payment",
         })
     return rows
 
@@ -84,7 +114,12 @@ def tcs_worksheet_rows(company, period: str) -> list[dict]:
             "grand_total": str(inv.grand_total or Decimal("0")),
             "tcs_amount": str(inv.tcs_amount or Decimal("0")),
             "receivable": str(
-                (inv.grand_total or Decimal("0")) + (inv.tcs_amount or Decimal("0"))
+                (inv.grand_total or Decimal("0"))
+                + (
+                    Decimal("0")
+                    if getattr(inv, "tcs_in_grand_total", False)
+                    else (inv.tcs_amount or Decimal("0"))
+                )
             ),
         })
     return rows

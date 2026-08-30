@@ -110,7 +110,22 @@ export const mockCompany: Company = {
     activationDone: true,
     started: true,
   },
+  itemCustomFieldDefs: [
+    {
+      key: 'brandForm',
+      label: 'Brand form',
+      type: 'list',
+      active: true,
+      options: ['Strip', 'Bottle', 'Tube'],
+    },
+    { key: 'color', label: 'Color', type: 'text', active: true },
+    { key: 'brandCode', label: 'Brand code', type: 'text', active: true },
+  ],
 };
+
+mockUser.company = mockCompany;
+mockSalesUser.company = mockCompany;
+mockViewerUser.company = mockCompany;
 
 export const mockCustomers: Customer[] = [
   {
@@ -157,6 +172,7 @@ export const mockProducts: Product[] = [
     reorderLevel: 10,
     status: 'ACTIVE',
     available: 40,
+    customFields: { brandForm: 'Strip', color: 'Red', brandCode: 'TEA' },
   },
   {
     id: 2,
@@ -171,6 +187,7 @@ export const mockProducts: Product[] = [
     reorderLevel: 20,
     status: 'ACTIVE',
     available: 15,
+    customFields: { brandForm: 'Bottle', color: 'Gold', brandCode: 'OIL' },
   },
   {
     id: 3,
@@ -301,6 +318,7 @@ export const mockStock: StockBalance[] = mockProducts.map((p, i) => ({
   reserved: 0,
   available: Number(p.available ?? 0),
   reorderLevel: Number(p.reorderLevel),
+  customFields: p.customFields,
 }));
 
 export const mockDashboard: DashboardKpis = {
@@ -310,6 +328,8 @@ export const mockDashboard: DashboardKpis = {
   receivables: 12500,
   payables: 12000,
   lowStockCount: 1,
+  productCount: 8,
+  invoiceCount: 12,
 };
 
 export const mockSearchResults: SearchResult[] = [

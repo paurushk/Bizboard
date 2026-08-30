@@ -1,6 +1,7 @@
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
+import { t } from '@/i18n';
 import { MoneyText } from './MoneyText';
 
 export function KpiStat({
@@ -29,7 +30,7 @@ export function KpiStat({
           color="warning.main"
           sx={{ position: 'absolute', top: 6, right: 8 }}
         >
-          Limited data
+          {t('dashboard.limitedData')}
         </Typography>
       ) : null}
       <Typography variant="body2" color="text.secondary">

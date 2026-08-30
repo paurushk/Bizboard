@@ -2,7 +2,7 @@ import inspect
 import os
 
 from celery import Celery
-from celery.signals import task_prerun
+from celery.signals import task_postrun, task_prerun
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
@@ -24,7 +24,42 @@ _DOC_ID_KEYS = (
 
 
 def _company_id_from_document(key: str, pk) -> int | None:
-    """Resolve company_id from a document PK — only when kwargs lack company_id."""
+    """Resolve company_id from document key if caller only passed document PK."""
+    if not pk:
+        return None
+    try:
+        if key in ("invoice_id", "sales_invoice_id"):
+            from sales.models import SalesInvoice
+
+            return SalesInvoice.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+        if key in ("purchase_id", "purchase_invoice_id"):
+            from purchases.models import PurchaseInvoice
+
+            return (
+                PurchaseInvoice.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+            )
+        if key == "note_id":
+            from sales.models import SalesCreditNote, SalesDebitNote
+
+            cid = SalesCreditNote.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+            if cid is not None:
+                return cid
+            return SalesDebitNote.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+        if key == "challan_id":
+            from sales.models import DeliveryChallan
+
+            return DeliveryChallan.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+        if key == "notification_id":
+            from core.models import Notification
+
+            return Notification.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _company_id_from_document_disabled(key: str, pk) -> int | None:
+    """Kept for tests that patch the old lookup; production never calls this."""
     try:
         if key in ("invoice_id", "sales_invoice_id"):
             from sales.models import SalesInvoice
@@ -95,3 +130,10 @@ def set_rls_company_for_task(sender=None, task_id=None, task=None, args=None, kw
     from core.rls import set_rls_company
 
     set_rls_company(company_id)
+
+
+@task_postrun.connect
+def clear_rls_company_for_task(sender=None, task_id=None, task=None, args=None, kwargs=None, retval=None, **_extras):
+    from core.rls import set_rls_company
+
+    set_rls_company(None)

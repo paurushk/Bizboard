@@ -3,9 +3,12 @@ import { mockCompany } from '@/mocks/data';
 import type { Company, LedgerStatement, ReportResponse, BusinessHealth, BusinessHealthSnapshot } from '@/types/domain';
 import { withMocks } from './common';
 
-export async function getCustomerLedger(customerId: number | string): Promise<LedgerStatement> {
+export async function getCustomerLedger(
+  customerId: number | string,
+  params?: { date_from?: string; date_to?: string },
+): Promise<LedgerStatement> {
   return withMocks(async () => {
-    const { data } = await apiClient.get(`/ledgers/customers/${customerId}/`);
+    const { data } = await apiClient.get(`/ledgers/customers/${customerId}/`, { params });
     return unwrapData<LedgerStatement>(data);
   }, {
     customerId: Number(customerId),
@@ -32,9 +35,12 @@ export async function getCustomerLedger(customerId: number | string): Promise<Le
   });
 }
 
-export async function getSupplierLedger(supplierId: number | string): Promise<LedgerStatement> {
+export async function getSupplierLedger(
+  supplierId: number | string,
+  params?: { date_from?: string; date_to?: string },
+): Promise<LedgerStatement> {
   return withMocks(async () => {
-    const { data } = await apiClient.get(`/ledgers/suppliers/${supplierId}/`);
+    const { data } = await apiClient.get(`/ledgers/suppliers/${supplierId}/`, { params });
     return unwrapData<LedgerStatement>(data);
   }, {
     supplierId: Number(supplierId),
@@ -93,7 +99,7 @@ export async function getInventorySummary(): Promise<ReportResponse> {
 }
 
 export async function getGstReturn(
-  kind: 'gstr1' | 'gstr3b',
+  kind: 'gstr1' | 'gstr3b' | 'gstr6' | 'gstr7' | 'gstr8',
   params: { period: string; persist?: boolean; companyGstin?: string | number },
 ): Promise<Record<string, unknown>> {
   return withMocks(async () => {
@@ -281,6 +287,15 @@ export async function downloadAccountingReport(
     responseType: 'blob',
     transformResponse: [(d) => d],
   });
+  if (response.data instanceof Blob && response.data.type?.includes('application/json')) {
+    const text = await response.data.text();
+    try {
+      const parsed = JSON.parse(text);
+      throw new Error(parsed.detail || parsed.message || 'Report download failed');
+    } catch (e) {
+      if (e instanceof Error && e.message !== 'Report download failed') throw e;
+    }
+  }
   const blob =
     response.data instanceof Blob
       ? response.data

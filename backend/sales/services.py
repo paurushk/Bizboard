@@ -4,12 +4,12 @@ from collections import defaultdict
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum
 from django.utils import timezone
 
 from core.events import emit
 from core.exceptions import BusinessRuleError
-from core.services.billing import compute_document_totals
+from core.help_codes import HelpCode
+from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals
 from core.services.place_of_supply import (
     assert_place_of_supply_for_gst,
     is_export_or_sez_supply,
@@ -17,7 +17,7 @@ from core.services.place_of_supply import (
     resolve_place_of_supply_code,
 )
 from core.services.registration_gates import assert_may_issue_gst_tax_invoice
-from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
+from core.services.document_numbers import DocumentNumberService
 from inventory.models import BatchLot, MovementType, SerialNumber, StockMovement
 from inventory.services import InventoryService, InventoryValuationService, SerialNumberService
 from ledgers.services import LedgerService
@@ -54,16 +54,52 @@ def _validate_lines(items_data, company, *, check_active=True):
         # Allowed slab set (0–28); reject non-slab overrides like 17%.
         if gst_rate not in allowed_gst:
             raise BusinessRuleError(
-                f"Invalid GST rate {gst_rate}. Allowed: {', '.join(ALLOWED_GST_RATES)}%."
+                f"Invalid GST rate {gst_rate}. Allowed: {', '.join(ALLOWED_GST_RATES)}%.",
+                code=HelpCode.INVALID_GST_RATE,
             )
         product = line["product"]
         if product.company_id != company.id:
             raise BusinessRuleError("Invalid product reference.")
         if check_active and product.status != Product.Status.ACTIVE:
-            raise BusinessRuleError(f"Cannot sell inactive product '{product.name}'.")
+            raise BusinessRuleError(
+                f"Cannot sell inactive product '{product.name}'.",
+                code=HelpCode.INACTIVE_PRODUCT,
+            )
 
 
-def _resolve_source_item(line, company_id):
+def apply_tcs_fold(invoice) -> None:
+    """Recompute TCS on consideration (taxable + GST) and fold into grand_total.
+
+    206C(1H) is levied on sale consideration. Unfold any prior fold first so
+    amend / complete is idempotent and credit-limit sees the TCS-inclusive total.
+    """
+    two = Decimal("0.01")
+    prior = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
+    if getattr(invoice, "tcs_in_grand_total", False) and prior:
+        invoice.grand_total = (Decimal(str(invoice.grand_total or 0)) - prior).quantize(two)
+        invoice.tcs_in_grand_total = False
+    tcs_rate = Decimal(str(getattr(invoice, "tcs_rate", 0) or 0))
+    if tcs_rate > 0:
+        consideration = (
+            Decimal(str(invoice.taxable_total or 0))
+            + Decimal(str(invoice.cgst_total or 0))
+            + Decimal(str(invoice.sgst_total or 0))
+            + Decimal(str(invoice.igst_total or 0))
+            + Decimal(str(getattr(invoice, "cess_total", 0) or 0))
+        )
+        invoice.tcs_amount = (consideration * tcs_rate / Decimal("100")).quantize(two)
+    elif prior > 0:
+        invoice.tcs_amount = prior
+    else:
+        invoice.tcs_amount = Decimal("0")
+    if invoice.tcs_amount:
+        invoice.grand_total = (Decimal(str(invoice.grand_total or 0)) + invoice.tcs_amount).quantize(two)
+        invoice.tcs_in_grand_total = True
+    else:
+        invoice.tcs_in_grand_total = False
+
+
+def _resolve_source_item(line, company_id, invoice_id=None):
     """Resolve and tenant-check a CN/DN source SalesItem, or return None."""
     source_item = line.get("source_item")
     if source_item is None and line.get("source_item_id") is not None:
@@ -72,7 +108,7 @@ def _resolve_source_item(line, company_id):
         return None
     if isinstance(source_item, (int, str)):
         try:
-            return SalesItem.objects.get(
+            item = SalesItem.objects.get(
                 pk=int(source_item),
                 invoice__company_id=company_id,
             )
@@ -80,6 +116,9 @@ def _resolve_source_item(line, company_id):
             raise BusinessRuleError(
                 "source_item does not belong to this company."
             ) from exc
+        if invoice_id is not None and item.invoice_id != invoice_id:
+            raise BusinessRuleError("source_item does not belong to this invoice.")
+        return item
     if getattr(source_item, "invoice_id", None) is not None:
         if not SalesItem.objects.filter(
             pk=source_item.pk, invoice__company_id=company_id
@@ -87,6 +126,8 @@ def _resolve_source_item(line, company_id):
             raise BusinessRuleError(
                 "source_item does not belong to this company."
             )
+        if invoice_id is not None and source_item.invoice_id != invoice_id:
+            raise BusinessRuleError("source_item does not belong to this invoice.")
     return source_item
 
 
@@ -105,15 +146,33 @@ def _build_items(model_cls, parent_field, parent, items_data):
 
         source_item = None
         if model_cls in (SalesCreditNoteItem, SalesDebitNoteItem):
-            source_item = _resolve_source_item(line, parent.company_id)
+            source_item = _resolve_source_item(
+                line, parent.company_id, invoice_id=getattr(parent, "sales_invoice_id", None)
+            )
+            if source_item is None and getattr(parent, "sales_invoice_id", None):
+                matches = list(
+                    SalesItem.objects.filter(
+                        invoice_id=parent.sales_invoice_id, product=product
+                    )
+                )
+                if len(matches) == 1:
+                    source_item = matches[0]
+                else:
+                    raise BusinessRuleError(
+                        "GST credit/debit note lines must reference a source invoice item "
+                        "(source_item) so rates match the original invoice."
+                    )
 
         if source_item is not None:
-            # CN/DN lines must inherit rate/tax from the linked invoice line.
-            unit_price = source_item.unit_price
-            discount_percent = source_item.discount_percent
+            # GST rate always comes from the linked invoice line.
             gst_rate = source_item.gst_rate
             cess_rate = getattr(source_item, "cess_rate", None) or Decimal("0")
             cess_amount = getattr(source_item, "cess_amount", None) or Decimal("0")
+            discount_percent = source_item.discount_percent
+            if model_cls in (SalesDebitNoteItem, SalesCreditNoteItem) and line.get("unit_price") is not None:
+                unit_price = Decimal(str(line["unit_price"]))
+            else:
+                unit_price = source_item.unit_price
         else:
             unit_price = resolve_unit_price(
                 customer=getattr(parent, "customer", None),
@@ -138,6 +197,14 @@ def _build_items(model_cls, parent_field, parent, items_data):
             "cess_rate": cess_rate,
             "cess_amount": cess_amount,
         }
+        if model_cls in (SalesItem, SalesCreditNoteItem, SalesDebitNoteItem):
+            nature = line.get("supply_nature")
+            if source_item is not None:
+                nature = getattr(source_item, "supply_nature", None) or nature
+            nature = (nature or "TAXABLE").upper()
+            if nature in ("NIL", "EXEMPT", "NON_GST"):
+                kwargs["gst_rate"] = Decimal("0")
+            kwargs["supply_nature"] = nature if nature in ("TAXABLE", "NIL", "EXEMPT", "NON_GST") else "TAXABLE"
 
         # Snapshot HSN/UQC onto GST filing lines (invoice + CN/DN).
         if model_cls in (SalesItem, SalesCreditNoteItem, SalesDebitNoteItem):
@@ -170,6 +237,7 @@ def _build_items(model_cls, parent_field, parent, items_data):
         # BB-000340: SalesReturnItem is not in the GST snapshot tuple — serials must still persist.
         if model_cls is SalesReturnItem:
             kwargs["serial_numbers"] = line.get("serial_numbers") or []
+            kwargs["condition"] = line.get("condition") or SalesReturnItem.Condition.SELLABLE
         items.append(model_cls(**kwargs))
     return items
 
@@ -237,6 +305,12 @@ def _update_items_in_place(invoice: SalesInvoice, items_data):
         old.unit_price = unit_price
         old.discount_percent = line.get("discount_percent", old.discount_percent)
         old.gst_rate = line.get("gst_rate", old.gst_rate)
+        if "supply_nature" in line or hasattr(old, "supply_nature"):
+            nature = (line.get("supply_nature") or getattr(old, "supply_nature", None) or "TAXABLE").upper()
+            if nature in ("NIL", "EXEMPT", "NON_GST"):
+                old.gst_rate = Decimal("0")
+            if hasattr(old, "supply_nature"):
+                old.supply_nature = nature if nature in ("TAXABLE", "NIL", "EXEMPT", "NON_GST") else "TAXABLE"
         old.cess_rate = line.get("cess_rate", getattr(old, "cess_rate", Decimal("0")))
         if hasattr(old, "cess_amount"):
             old.cess_amount = line.get("cess_amount", getattr(old, "cess_amount", Decimal("0")))
@@ -262,8 +336,11 @@ class SalesService:
     @staticmethod
     def _sale_batches(invoice, item):
         """Resolve an explicit batch or allocate the issue across FEFO lots."""
+        from inventory.item_stock import base_quantity
+
+        qty = base_quantity(item.product, item.quantity, getattr(item, "unit_name", None))
         if not item.product.track_batch:
-            return [(getattr(item, "batch", None), item.quantity)]
+            return [(getattr(item, "batch", None), qty)]
         batch = getattr(item, "batch", None)
         batch_id = getattr(item, "batch_id", None)
         batch_no = getattr(item, "batch_no", "") or ""
@@ -279,9 +356,9 @@ class SalesService:
                     f"Unknown batch '{batch_no}' for '{item.product.name}'."
                 ) from exc
         if batch_id or batch is not None:
-            return [(batch or item.batch, item.quantity)]
+            return [(batch or item.batch, qty)]
 
-        remaining = item.quantity
+        remaining = qty
         allocations = []
         warehouse = getattr(invoice, "warehouse", None)
         for lot in InventoryValuationService.fefo_batches(
@@ -306,11 +383,9 @@ class SalesService:
             else:
                 item.save(update_fields=["batch"])
         if remaining > 0:
-            if invoice.company.negative_stock_policy == "BLOCK":
-                raise BusinessRuleError(
-                    f"Insufficient batched stock for '{item.product.name}': {remaining} unavailable."
-                )
-            allocations.append((allocations[0][0], remaining))
+            raise BusinessRuleError(
+                f"Insufficient batched stock for '{item.product.name}': {remaining} unavailable."
+            )
         return allocations
 
     @staticmethod
@@ -396,6 +471,8 @@ class SalesService:
             auto_round_off=invoice.auto_round_off,
             invoice_discount_mode=getattr(invoice, "invoice_discount_mode", None),
         )
+        apply_rcm_memo_after_tax(invoice, items)
+        apply_tcs_fold(invoice)
         if adjust_stock:
             for item in items:
                 item.save()
@@ -425,12 +502,16 @@ class SalesService:
                         user=user,
                     )
                 else:
+                    restore_cost = InventoryValuationService.unit_cost(
+                        invoice.company, product, warehouse=invoice.warehouse
+                    )
                     InventoryService.post_movement(
                         company=invoice.company,
                         warehouse=invoice.warehouse,
                         product=product,
                         movement_type=MovementType.ADJUSTMENT,
                         quantity=-delta,
+                        unit_cost=restore_cost,
                         reference_type="sales_invoice_edit",
                         reference_id=invoice.pk,
                         reason=f"Edit of {invoice.number or invoice.pk}",
@@ -463,10 +544,13 @@ class SalesService:
             from .tasks import generate_invoice_pdf
 
             invoice_id = invoice.pk
+            company_id = invoice.company_id
             if django_settings.CELERY_TASK_ALWAYS_EAGER:
-                generate_invoice_pdf.delay(invoice_id)
+                generate_invoice_pdf.delay(invoice_id, company_id=company_id)
             else:
-                transaction.on_commit(lambda: generate_invoice_pdf.delay(invoice_id))
+                transaction.on_commit(
+                    lambda: generate_invoice_pdf.delay(invoice_id, company_id=company_id)
+                )
             return invoice
 
         invoice.updated_by = user
@@ -491,7 +575,8 @@ class SalesService:
             )
             if len(active) > 1:
                 raise BusinessRuleError(
-                    "company_gstin is required when multiple GSTINs are active."
+                    "company_gstin is required when multiple GSTINs are active.",
+                    code=HelpCode.COMPANY_GSTIN_REQUIRED,
                 )
             if len(active) == 1:
                 invoice.company_gstin = active[0]
@@ -499,7 +584,10 @@ class SalesService:
         if invoice.status != SalesInvoice.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete an invoice in status {invoice.status}.")
         if invoice.customer.status == Customer.Status.BLOCKED:
-            raise BusinessRuleError("Cannot create an invoice for a blocked customer.")
+            raise BusinessRuleError(
+                "Cannot create an invoice for a blocked customer.",
+                code=HelpCode.BLOCKED_CUSTOMER,
+            )
         items = list(invoice.items.select_related("product", "batch"))
         if not items:
             raise BusinessRuleError("Cannot complete an invoice without line items.")
@@ -515,6 +603,51 @@ class SalesService:
                 "TALLY_OPENING notes are not accepted. Opening invoices must be imported via Tally adapter."
             )
         is_tally_opening = bool(getattr(invoice, "is_opening_balance", False))
+
+        # R2-001 / R2-010: line taxes were computed in set_items against
+        # company.state (the stamp is usually unset on a draft). Now that a
+        # filing GSTIN is stamped, if its state flips the intra/inter
+        # determination, the persisted CGST/SGST-vs-IGST split is wrong — recompute
+        # the totals against the actual seller GSTIN before anything else uses them.
+        _stamp = invoice.company_gstin
+        if _stamp is not None and tax_enabled and not is_tally_opening:
+            _lines_intra = sum((Decimal(str(it.cgst or 0)) for it in items), Decimal("0")) > 0
+            _lines_inter = sum((Decimal(str(it.igst or 0)) for it in items), Decimal("0")) > 0
+            if _lines_intra or _lines_inter:
+                _intra_now = party_intra_state(
+                    invoice.company,
+                    invoice.customer.state,
+                    invoice.customer.gstin or "",
+                    seller_state=getattr(_stamp, "state", None) or "",
+                    seller_gstin=getattr(_stamp, "gstin", None) or "",
+                )
+                if _intra_now != _lines_intra:
+                    compute_document_totals(
+                        invoice, items,
+                        tax_enabled=tax_enabled,
+                        intra_state=_intra_now,
+                        additional_charges=invoice.additional_charges,
+                        invoice_discount=invoice.invoice_discount,
+                        auto_round_off=invoice.auto_round_off,
+                        invoice_discount_mode=getattr(invoice, "invoice_discount_mode", None),
+                    )
+                    SalesItem.objects.bulk_update(
+                        items,
+                        ["taxable_amount", "cgst", "sgst", "igst", "cess", "line_total"],
+                    )
+
+        tax_left = (
+            Decimal(str(invoice.cgst_total or 0))
+            + Decimal(str(invoice.sgst_total or 0))
+            + Decimal(str(invoice.igst_total or 0))
+            + Decimal(str(getattr(invoice, "cess_total", 0) or 0))
+        )
+        if invoice.is_reverse_charge and tax_left > 0:
+            apply_rcm_memo_after_tax(invoice, items)
+            SalesItem.objects.bulk_update(
+                items, ["cgst", "sgst", "igst", "cess", "line_total"]
+            )
+        apply_tcs_fold(invoice)
         customer = Customer.objects.select_for_update().get(pk=invoice.customer_id)
         limit = customer.credit_limit or Decimal("0")
         if limit > 0 and not is_tally_opening:
@@ -525,7 +658,8 @@ class SalesService:
             if projected > limit:
                 raise BusinessRuleError(
                     f"Credit limit exceeded. Exposure {exposure} + invoice "
-                    f"{invoice.grand_total} > limit {limit}."
+                    f"{invoice.grand_total} > limit {limit}.",
+                    code=HelpCode.CREDIT_LIMIT_EXCEEDED,
                 )
 
         assert_place_of_supply_for_gst(
@@ -575,7 +709,8 @@ class SalesService:
         if invoice.is_reverse_charge and not confirm_sales_rcm:
             raise BusinessRuleError(
                 "Sales reverse charge must be explicitly confirmed "
-                "(confirm_sales_rcm=true) before Complete."
+                "(confirm_sales_rcm=true) before Complete.",
+                code=HelpCode.SALES_RCM_UNCONFIRMED,
             )
 
         warnings = []
@@ -602,14 +737,17 @@ class SalesService:
                     "may be insufficient for current AATO / GSTR Table 12."
                 )
             if (
-                invoice.invoice_type == SalesInvoice.InvoiceType.GST
+                invoice.invoice_type in GST_INVOICE_TYPES
                 and (customer.gstin or "").strip()
                 and (invoice.additional_charges or Decimal("0")) != 0
             ):
-                warnings.append(
-                    "B2B GST invoice has additional charges outside taxable value — "
-                    "invoice value may not reconcile for GSTR (INVOICE_VALUE_MISMATCH)."
-                )
+                from core.services.charges import charges_are_taxable
+
+                if not charges_are_taxable(invoice):
+                    warnings.append(
+                        "B2B GST invoice has additional charges outside taxable value — "
+                        "set charges HSN and GST rate, or invoice value may not reconcile for GSTR."
+                    )
             # TAX-10: soft warning when taxable invoice meets e-Way threshold without e-Way.
             eway_threshold = getattr(invoice.company, "eway_threshold_amount", None) or Decimal(
                 "50000"
@@ -629,11 +767,39 @@ class SalesService:
         stock_from_challan = DeliveryChallan.objects.filter(
             converted_invoice=invoice, stock_posted=True
         ).exists()
+        if stock_from_challan:
+            from sales.models import DeliveryChallanItem
+
+            challan_ids = DeliveryChallan.objects.filter(
+                converted_invoice=invoice, stock_posted=True
+            ).values_list("pk", flat=True)
+            posted = defaultdict(Decimal)
+            for row in DeliveryChallanItem.objects.filter(challan_id__in=challan_ids):
+                serials = tuple(
+                    sorted(str(s).strip() for s in (row.serial_numbers or []) if str(s).strip())
+                )
+                posted[(row.product_id, serials)] += Decimal(str(row.quantity or 0))
+            inv_qty = defaultdict(Decimal)
+            for item in items:
+                serials = tuple(
+                    sorted(str(s).strip() for s in (getattr(item, "serial_numbers", None) or []) if str(s).strip())
+                )
+                inv_qty[(item.product_id, serials)] += Decimal(str(item.quantity or 0))
+            if set(posted.keys()) != set(inv_qty.keys()) or any(
+                posted[key] != inv_qty[key] for key in inv_qty
+            ):
+                raise BusinessRuleError(
+                    "Linked delivery challan stock quantities do not match this invoice "
+                    "(product and serials). Adjust lines or unlink the challan before completing."
+                )
         # Aggregate per product for the negative-stock check.
         required = defaultdict(Decimal)
         for item in items:
             if item.product.status != Product.Status.ACTIVE:
-                raise BusinessRuleError(f"Cannot sell inactive product '{item.product.name}'.")
+                raise BusinessRuleError(
+                    f"Cannot sell inactive product '{item.product.name}'.",
+                    code=HelpCode.INACTIVE_PRODUCT,
+                )
             if item.quantity <= 0:
                 raise BusinessRuleError("Quantity on each line must be greater than zero.")
             required[item.product] += item.quantity
@@ -656,12 +822,16 @@ class SalesService:
             ) or CompanyGstin.objects.filter(company=invoice.company, is_active=True).order_by("id").first()
             if stamp is not None:
                 invoice.company_gstin = stamp
-        series_gstin = resolve_series_gstin(invoice.company, stamp)
+        # R1-013: series scoping comes from the company policy, not from whether
+        # a gstin happened to resolve here.
+        from core.services.document_numbers import series_identity
+
+        _gk, _fy, _on = series_identity(invoice.company, stamp, invoice.invoice_date)
         invoice.number = invoice.number or DocumentNumberService.next_number(
             invoice.company,
             "SALES_INVOICE",
-            gstin=series_gstin,
-            on_date=invoice.invoice_date if series_gstin else None,
+            gstin=_gk or None,
+            on_date=_on,
         )
         if not (invoice.filing_party_gstin or "").strip():
             invoice.filing_party_gstin = (invoice.customer.gstin or "").strip().upper()
@@ -683,6 +853,7 @@ class SalesService:
                     "Indian state/UT). Set the customer's GSTIN or a valid state before completing."
                 )
             invoice.filing_place_of_supply = resolved_code or (invoice.customer.state or "").strip()
+        apply_tcs_fold(invoice)
         invoice.status = SalesInvoice.Status.COMPLETED
         invoice.completed_at = timezone.now()
         invoice.pdf_status = (
@@ -696,7 +867,7 @@ class SalesService:
         cogs_total = Decimal("0")
         if not is_tally_opening:
             cogs_total = CogsService.post_sale_stock_and_cogs(
-                invoice, items, user, stock_from_challan=stock_from_challan
+                invoice, items, user, stock_from_challan=stock_from_challan, warnings=warnings
             )
         # BB-000699: period gate must abort atomic Complete (no except-pass swallow).
         if not is_tally_opening:
@@ -741,7 +912,17 @@ class SalesService:
         if invoice.status == SalesInvoice.Status.CANCELLED:
             raise BusinessRuleError("Invoice is already cancelled.")
         if invoice.returns.filter(status=SalesReturn.Status.COMPLETED).exists():
+            # Fully returned invoices are status RETURNED and always have completed
+            # returns, so they never reach stock restore below.
             raise BusinessRuleError("Cannot cancel an invoice with completed returns.")
+        # R2-005: a DRAFT / in-progress return would be orphaned against a
+        # cancelled invoice — make the user clear it first.
+        if invoice.returns.exclude(
+            status__in=(SalesReturn.Status.COMPLETED, SalesReturn.Status.CANCELLED)
+        ).exists():
+            raise BusinessRuleError(
+                "Cancel or delete the draft sales return(s) against this invoice first."
+            )
         if invoice.allocations.filter(reversed_at__isnull=True).exists():
             # BUG-722: cancelling a paid/partially-paid invoice would leave
             # payment allocations pointing at a document that's no longer
@@ -760,7 +941,10 @@ class SalesService:
                     company=invoice.company, source_type="SALES_INVOICE", source_id=invoice.id,
                     status=JournalEntry.Status.POSTED,
                 ):
-                    PostingService.reverse(entry, user, invoice.invoice_date)
+                    # R2-004: reversal is a fresh event — post it on the
+                    # cancellation date (current open period), never back-date
+                    # into the original (possibly soft-closed) period.
+                    PostingService.reverse(entry, user)
             # Restore only if this invoice posted SALE movements (skip when stock
             # was already issued on a linked delivery challan).
             posted_sale = StockMovement.objects.filter(
@@ -904,7 +1088,11 @@ class SalesService:
             quotation, items,
             tax_enabled=_tax_enabled(quotation.invoice_type),
             intra_state=party_intra_state(
-                quotation.company, quotation.customer.state, quotation.customer.gstin or ""
+                quotation.company,
+                quotation.customer.state,
+                quotation.customer.gstin or "",
+                seller_state=quotation.company.state or "",
+                seller_gstin=quotation.company.gstin or "",
             ),
         )
         QuotationItem.objects.bulk_create(items)
@@ -938,14 +1126,26 @@ class SalesService:
             created_by=user,
             updated_by=user,
         )
+        # R2-003: carry the full line tax classification across — cess, supply
+        # nature and inclusive-price fields were being dropped, silently turning
+        # an inclusive / cess-bearing / exempt quotation into a plain exclusive
+        # taxable invoice.
         items_data = [
             {
                 "product": item.product, "description": item.description,
                 "quantity": item.quantity, "unit_price": item.unit_price,
                 "discount_percent": item.discount_percent, "gst_rate": item.gst_rate,
+                "cess_rate": getattr(item, "cess_rate", Decimal("0")),
+                "cess_amount": getattr(item, "cess_amount", Decimal("0")),
+                "supply_nature": getattr(item, "supply_nature", None),
+                "hsn_code": getattr(item, "hsn_code", "") or "",
+                "unit_price_inclusive": getattr(item, "unit_price_inclusive", None),
             }
             for item in quotation.items.select_related("product")
         ]
+        if getattr(quotation, "price_mode", None) and hasattr(invoice, "price_mode"):
+            invoice.price_mode = quotation.price_mode
+            invoice.save(update_fields=["price_mode"])
         SalesService.set_items(invoice, items_data, user)
         quotation.status = Quotation.Status.CONVERTED
         quotation.converted_invoice = invoice
@@ -982,6 +1182,7 @@ class SalesService:
             created_by=user,
             updated_by=user,
         )
+        # R2-003: keep cess / supply nature / inclusive fields on conversion.
         items_data = [
             {
                 "product": item.product,
@@ -990,11 +1191,20 @@ class SalesService:
                 "unit_price": item.unit_price,
                 "discount_percent": item.discount_percent,
                 "gst_rate": item.gst_rate,
+                "cess_rate": getattr(item, "cess_rate", Decimal("0")),
+                "cess_amount": getattr(item, "cess_amount", Decimal("0")),
+                "supply_nature": getattr(item, "supply_nature", None),
+                "hsn_code": getattr(item, "hsn_code", "") or "",
+                "unit_price_inclusive": getattr(item, "unit_price_inclusive", None),
             }
             for item in quotation.items.select_related("product")
         ]
+        if getattr(quotation, "price_mode", None) and hasattr(order, "price_mode"):
+            order.price_mode = quotation.price_mode
+            order.save(update_fields=["price_mode"])
         SalesNotesService.set_order_items(order, items_data, user)
         quotation.status = Quotation.Status.CONVERTED
+        quotation.converted_order = order
         quotation.updated_by = user
         quotation.save()
         return order

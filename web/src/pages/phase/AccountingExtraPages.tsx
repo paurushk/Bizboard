@@ -1,18 +1,23 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { formatMoney, toNumber } from '@/utils/money';
+import { t } from '@/i18n';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   asRows,
   DataTable,
@@ -45,7 +50,7 @@ export function AccountingSettingsPage() {
     onError: (e) => setMsg(getErrorMessage(e)),
   });
   return (
-    <PageShell title="Accounting" subtitle="Opt-in light books. Documents remain the source of truth.">
+    <PageShell title={t('phase.accounting')} subtitle={t('phase.accountingSubtitle')}>
       {msg ? <Alert severity="info">{msg}</Alert> : null}
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack spacing={2}>
@@ -104,34 +109,176 @@ export function AccountingSettingsPage() {
 export function AccountingBankReconPage() {
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['accounting-bank-recon'], queryFn: api.listAccountingBankReconSessions });
+  const accounts = useQuery({ queryKey: ['accounts'], queryFn: api.listAccounts });
+  const statements = useQuery({
+    queryKey: ['bank-statements'],
+    queryFn: async () => (await api.listBankStatementsPage()).results,
+  });
+  const journals = useQuery({
+    queryKey: ['journals'],
+    queryFn: async () => (await api.listJournalsPage({ pageSize: 100 })).results,
+  });
   const [account, setAccount] = useState('');
   const [statement, setStatement] = useState('');
   const [session, setSession] = useState('');
   const [journalLine, setJournalLine] = useState('');
   const [bankLine, setBankLine] = useState('');
+  const [error, setError] = useState('');
+  const statementDetail = useQuery({
+    queryKey: ['bank-statement', statement],
+    queryFn: () => api.getBankStatement(Number(statement)),
+    enabled: Boolean(statement),
+  });
+  const cashBankAccounts = useMemo(() => {
+    const all = accounts.data ?? [];
+    const preferred = all.filter((a) => {
+      const hay = `${a.code} ${a.name}`;
+      return Boolean(a.bankAccount) || /^(11|12)/.test(a.code) || /cash|bank/i.test(hay);
+    });
+    return preferred.length ? preferred : all.filter((a) => a.type === 'ASSET');
+  }, [accounts.data]);
+  const unmatchedGl = useMemo(() => {
+    if (!account) return [];
+    return (journals.data ?? []).flatMap((entry) => {
+      if (entry.status !== 'POSTED') return [];
+      return (entry.lines ?? []).filter((line) => {
+        const lineAccount = String(line.account);
+        return lineAccount === account && !line.bankStatementLine && !line.reconciledAt;
+      }).map((line) => ({
+        ...line,
+        label: `${entry.number || entry.id} · ${entry.entryDate} · Dr ${formatMoney(toNumber(line.debit))} / Cr ${formatMoney(toNumber(line.credit))}`,
+      }));
+    });
+  }, [journals.data, account]);
+  const unmatchedBank = useMemo(() => {
+    const lines = (statementDetail.data?.lines as Row[] | undefined) ?? [];
+    return lines.filter((line) => String(line.matchStatus ?? line.match_status ?? 'UNMATCHED') !== 'MATCHED');
+  }, [statementDetail.data]);
   const create = useMutation({
     mutationFn: () => api.createAccountingBankReconSession({ account: Number(account), statement: Number(statement) }),
-    onSuccess: () => { setAccount(''); setStatement(''); void qc.invalidateQueries({ queryKey: ['accounting-bank-recon'] }); },
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['accounting-bank-recon'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   const match = useMutation({
     mutationFn: () => api.matchAccountingBankRecon(Number(session), { journalLine: Number(journalLine), bankStatementLine: Number(bankLine) }),
-    onSuccess: () => { setJournalLine(''); setBankLine(''); void qc.invalidateQueries({ queryKey: ['accounting-bank-recon'] }); },
+    onSuccess: () => {
+      setJournalLine('');
+      setBankLine('');
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['accounting-bank-recon'] });
+      void qc.invalidateQueries({ queryKey: ['journals'] });
+      void qc.invalidateQueries({ queryKey: ['bank-statement', statement] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
+  const statementRows = statements.data ?? [];
   return (
-    <PageShell title="GL bank reconciliation" subtitle="Clears GL bank lines against Phase 3 statement lines.">
+    <PageShell title={t('phase.glRecon')} subtitle={t('phase.glReconSubtitle')}>
+      {!statementRows.length ? (
+        <Alert severity="info" action={
+          <Button color="inherit" size="small" component={RouterLink} to="/payments/statements">
+            Open bank statements
+          </Button>
+        }>
+          No bank statements yet. Upload and commit a statement first, then pick it here.
+        </Alert>
+      ) : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-          <TextField label="GL account ID" size="small" value={account} onChange={(e) => setAccount(e.target.value)} />
-          <TextField label="Statement ID" size="small" value={statement} onChange={(e) => setStatement(e.target.value)} />
-          <Button variant="contained" disabled={!account || !statement || create.isPending} onClick={() => create.mutate()}>Create session</Button>
+          <TextField
+            select
+            label="GL account"
+            size="small"
+            value={account}
+            onChange={(e) => { setAccount(e.target.value); setJournalLine(''); }}
+            sx={{ minWidth: 240, flex: 1 }}
+          >
+            <MenuItem value="">Select account</MenuItem>
+            {cashBankAccounts.map((a) => (
+              <MenuItem key={a.id} value={String(a.id)}>
+                {a.code} — {a.name}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
+            label="Bank statement"
+            size="small"
+            value={statement}
+            onChange={(e) => { setStatement(e.target.value); setBankLine(''); }}
+            sx={{ minWidth: 240, flex: 1 }}
+            disabled={!statementRows.length}
+          >
+            <MenuItem value="">Select statement</MenuItem>
+            {statementRows.map((row) => (
+              <MenuItem key={String(row.id)} value={String(row.id)}>
+                {String(row.sourceFilename || row.source_filename || `Statement #${row.id}`)}
+                {row.periodStart || row.period_start ? ` · ${String(row.periodStart || row.period_start)}` : ''}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Button variant="contained" disabled={!account || !statement || create.isPending} onClick={() => create.mutate()}>
+            Create session
+          </Button>
         </Stack>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 2 }}>
-          <TextField label="Session ID" size="small" value={session} onChange={(e) => setSession(e.target.value)} />
-          <TextField label="Journal line ID" size="small" value={journalLine} onChange={(e) => setJournalLine(e.target.value)} />
-          <TextField label="Bank statement line ID" size="small" value={bankLine} onChange={(e) => setBankLine(e.target.value)} />
-          <Button variant="outlined" disabled={!session || !journalLine || !bankLine || match.isPending} onClick={() => match.mutate()}>Match lines</Button>
+          <TextField
+            select
+            label="Session"
+            size="small"
+            value={session}
+            onChange={(e) => setSession(e.target.value)}
+            sx={{ minWidth: 160 }}
+          >
+            <MenuItem value="">Select session</MenuItem>
+            {asRows(query.data).map((row) => (
+              <MenuItem key={String(row.id)} value={String(row.id)}>
+                #{String(row.id)} · {String(row.status || 'OPEN')}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
+            label="Journal line"
+            size="small"
+            value={journalLine}
+            onChange={(e) => setJournalLine(e.target.value)}
+            sx={{ minWidth: 240, flex: 1 }}
+            disabled={!account}
+          >
+            <MenuItem value="">{account ? 'Select journal line' : 'Pick a GL account first'}</MenuItem>
+            {unmatchedGl.map((line) => (
+              <MenuItem key={String(line.id)} value={String(line.id)}>
+                {line.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
+            label="Statement line"
+            size="small"
+            value={bankLine}
+            onChange={(e) => setBankLine(e.target.value)}
+            sx={{ minWidth: 240, flex: 1 }}
+            disabled={!statement}
+          >
+            <MenuItem value="">{statement ? 'Select statement line' : 'Pick a statement first'}</MenuItem>
+            {unmatchedBank.map((line) => (
+              <MenuItem key={String(line.id)} value={String(line.id)}>
+                {String(line.txnDate || line.txn_date || '')} · {formatMoney(toNumber((line.amount as string | number) ?? 0))}
+                {line.narration ? ` · ${String(line.narration).slice(0, 40)}` : ''}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Button variant="outlined" disabled={!session || !journalLine || !bankLine || match.isPending} onClick={() => match.mutate()}>
+            Match lines
+          </Button>
         </Stack>
       </Paper>
       <DataTable
@@ -163,11 +310,11 @@ export function CostCentersPage() {
     },
   });
   if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell
-      title="Cost centers"
-      subtitle="Optional dimension for P&L slicing."
+      title={t('phase.costCenters')}
+      subtitle={t('phase.costCentersSubtitle')}
       actions={
         <Button variant="contained" onClick={() => setOpen(true)}>
           Add

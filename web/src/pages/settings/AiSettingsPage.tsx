@@ -16,6 +16,7 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { canManageUsers } from '@/utils/permissions';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 type AiForm = {
   aiFeaturesEnabled: boolean;
@@ -70,7 +71,7 @@ export function AiSettingsPage() {
   if (!canManageUsers(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
 
   return (
@@ -83,7 +84,7 @@ export function AiSettingsPage() {
       <PageHeader title={t('nav.aiSettings')} subtitle={t('insights.settingsSubtitle')} />
       <DisclaimerBanner>{t('insights.disclaimer')}</DisclaimerBanner>
       {mutation.isSuccess ? <Alert severity="success">{t('insights.settingsSaved')}</Alert> : null}
-      {mutation.isError ? <Alert severity="error">{getErrorMessage(mutation.error)}</Alert> : null}
+      {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack spacing={2}>

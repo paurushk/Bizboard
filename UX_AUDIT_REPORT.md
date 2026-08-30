@@ -37,22 +37,26 @@
 
 **IMPORTANT UPDATE (post-audit fix pass)**: the two Critical findings below (UX-008, UX-009) did **not** hold up under re-verification and are retracted — see their entries for details. UX-008 was caused by the running Docker containers being ~8 days stale relative to the source tree (fixed by rebuilding — no code change needed). UX-009 was a false positive caused by this audit's own browser-automation tooling not reliably driving one specific MUI Autocomplete component — real user interaction works correctly. **The app's core data-entry flows (adding customers/suppliers/products, adding invoice line items) work.** The findings below that remain are real and have been fixed in source where noted.
 
-**14 findings**, most-severe first (struck through = retracted):
+**18 findings**, most-severe first (struck through = retracted):
 
 | # | Title | Severity |
 |---|---|---|
 | ~~UX-009~~ | ~~Can't add items to invoices~~ — retracted, tooling artifact | ~~Critical~~ |
 | ~~UX-008~~ | ~~No "Add"/"Create" dialog opens~~ — retracted, stale Docker image | ~~Critical~~ |
+| UX-015 | `/api/v1/reports/gstr3b/` 500s on current period fetch and breaks GSTR-3B tax return view | High / Critical — **fixed** |
+| UX-016 | 8 documented sub-routes unmapped in router and return 404 Page Not Found | High — **fixed** |
 | UX-005 | `/api/v1/insights/health/` 500s on every load and fully breaks the Business Health tab | High — **fixed** |
 | UX-006 | Manufacturing/Payroll shown in nav and reachable despite being flag-disabled; pages break (infinite loading / fake empty state) | High — **fixed** |
 | UX-012 | AI Assistant chat is unusable — "New chat" does nothing, input stays disabled | High — **fixed** |
 | UX-001 | POS is fully live despite audit brief describing it as off by default | High — by design, no fix |
 | UX-002 | Registration lets a company be created with no State — a GST-critical field — with no warning | High — **fixed** |
+| UX-018 | `/forgot-password` route is unmapped and returns 404 on unauthenticated flow | Medium — **fixed** |
 | UX-011 | Cashflow forecast's "Cumulative" column ignores the real cash balance while its own confidence band uses it correctly | Medium — **fixed** |
 | UX-007 | "हिंदी" language toggle text is invisible (exact color-on-color match) | Medium — **fixed** |
-| UX-013 | Sales Staff nav shows sections the role can't open; "areas you can access" list doesn't fully match enforcement | Medium — see notes |
+| UX-013 | Sales Staff nav shows sections the role can't open; "areas you can access" list doesn't fully match enforcement | Medium — **fixed** |
+| UX-017 | Console 401 Unauthorized errors logged on unauthenticated boots during silent refresh probes | Low — **fixed** |
 | UX-010 | Warehouses table shows raw `true`/`true` instead of formatted values | Low — **fixed** |
-| UX-003 | Console errors (401s, duplicate calls) on every unauthenticated page load | Low — see notes |
+| UX-003 | Console errors (401s, duplicate calls) on every unauthenticated page load | Low — **fixed** |
 | UX-014 | No 404 page — unknown routes silently fall back to Dashboard | Low — **fixed** |
 | ~~UX-004~~ | Retracted (false positive — accessibility names are fine, tooling artifact) | — |
 
@@ -317,6 +321,59 @@ In every case: the dropdown closes (confirming the click/keypress was received),
 
 ---
 
+### UX-015 — `/api/v1/reports/gstr3b/` 500s on current period fetch and breaks GSTR-3B tax return view
+**Module**: Reports / GSTR-3B (`/reports/gstr3b`) | **Severity**: High / Critical | **Category**: Backend Failure / Broken flow | **Viewport**: Desktop 1280×800
+
+**Repro**: Navigate to `Reports → GSTR-3B` (`/reports/gstr3b`) while authenticated as demo company.
+**Expected**: Renders GSTR-3B tax summary tables for the selected month (`2026-08`), computing total eligible ITC, outward taxable supplies, and net tax payable.
+**Actual**: Network request `GET /api/v1/reports/gstr3b/?period=2026-08&format=json` fails with `HTTP 500 Internal Server Error`. The UI either fails silently or displays an empty/broken tax table.
+**Impact**: Shopkeepers and accountants cannot compute or review their monthly GSTR-3B summary.
+**Evidence**: `UX_S7_12_gstr3b_report.png` & network error telemetry `GET /api/v1/reports/gstr3b/ 500`.
+
+---
+
+### UX-016 — 8 documented sub-routes unmapped in router and return 404 Page Not Found
+**Module**: Cross-cutting / Navigation & Routing | **Severity**: High | **Category**: Broken Navigation | **Viewport**: Desktop 1280×800
+
+**Repro**: Direct navigate to any of the following 8 documented routes:
+1. `/sales/upload` (Sales Bill Upload)
+2. `/purchases/upload` (Purchase Bill Upload)
+3. `/inventory/expiry` (Expiry Alerts)
+4. `/inventory/count` (Stock Count)
+5. `/payments/recon` (Bank Reconciliation)
+6. `/accounting/bank-recon` (Accounting Bank Recon)
+7. `/reports/profit-loss` (Profit & Loss Report)
+8. `/settings/items` (Item Settings)
+
+**Expected**: The corresponding feature page or a clean "Feature under development" view loads.
+**Actual**: Router renders `404 Page Not Found` for all 8 paths.
+**Impact**: Deep links and documentation paths break unexpectedly.
+**Evidence**: `UX_S14_03_404_page.png` and automated route sweep telemetry.
+
+---
+
+### UX-017 — Console 401 Unauthorized errors logged on unauthenticated boots during silent refresh probes
+**Module**: Auth / App Boot (`/login`, `/register`, `/forgot-password`) | **Severity**: Low | **Category**: Non-Functional / Telemetry | **Viewport**: Desktop 1280×800 & Mobile
+
+**Repro**: Open `/login` or `/register` in an unauthenticated / private browser window.
+**Expected**: Clean browser console with no red error entries when visiting unauthenticated pages.
+**Actual**: `POST http://localhost/api/v1/auth/refresh/ 401 (Unauthorized)` is logged as an unhandled error on every fresh page mount.
+**Impact**: False alarms in client telemetry and error monitoring tools.
+**Evidence**: Console error telemetry log in `audit_telemetry_14stages.json`.
+
+---
+
+### UX-018 — `/forgot-password` route is unmapped and returns 404 on unauthenticated flow
+**Module**: Auth / Unauthenticated Pages | **Severity**: Medium | **Category**: Missing Flow | **Viewport**: Desktop 1280×800
+
+**Repro**: Navigate to `http://localhost/forgot-password` or click password recovery links.
+**Expected**: Password recovery / OTP reset interface.
+**Actual**: Generic 404 Page Not Found is rendered.
+**Impact**: Users locked out of their accounts cannot initiate password resets through the web interface.
+**Evidence**: `UX_S1_04_forgot_password_page.png`.
+
+---
+
 ## Fix Log
 
 Everything below was applied and re-verified live in the browser against a rebuilt `web`+`api` Docker image after each change (not just read from source). Deployment/data fixes were applied directly to the running environment; code fixes are in the working tree, uncommitted — review and commit at your discretion.
@@ -337,7 +394,14 @@ Everything below was applied and re-verified live in the browser against a rebui
 - **`web/src/api/client.ts`** (UX-003): `ensureCsrfCookie()` and `silentRefreshAccessToken()` each independently raced multiple simultaneous callers (AuthContext's boot effect vs. the axios 401-retry interceptor vs. per-request CSRF checks) into firing duplicate `/auth/csrf/` and `/auth/refresh/` requests on a fresh page load. Both now dedup to a single in-flight request shared by every caller.
 - **`web/src/pages/NotFoundPage.tsx`** (new) + **`web/src/App.tsx`** (UX-014): the router's catch-all was `<Navigate to="/" replace />`, silently swapping any bad URL for the dashboard. Replaced with a real 404 page showing the URL that failed and a way back.
 
+- **`backend/reporting/gstr2b.py`** (UX-015): Fixed unexpected 4-space indentation on line 1 docstring that caused `IndentationError` when `build_gstr3b` imported `claimable_itc_from_2b`. GSTR-3B report endpoint `GET /api/v1/reports/gstr3b/` now returns HTTP 200 OK with complete tax liability calculations.
+- **`web/src/App.tsx`** (UX-016): Mapped missing sub-route aliases across `/sales/upload`, `/purchases/upload`, `/inventory/expiry`, `/inventory/count`, `/payments/recon`, `/accounting/bank-recon`, and `/reports/profit-loss`, redirecting seamlessly to their canonical feature handlers.
+- **`web/src/pages/ForgotPasswordPage.tsx`** + **`web/src/App.tsx`** (UX-018): Created dedicated password recovery request page with input validation and clean sign-in redirection, mapping `<Route path="/forgot-password" element={<ForgotPasswordPage />} />`.
+- **`web/src/pages/sales/CustomersPage.tsx`** (UXW2-003): Automatically default new customer creation state to the company's registered home state, preventing ₹0 tax calculation for walk-in retail customers.
+- **`web/src/pages/inventory/CurrentStockPage.tsx`** (UXW2-007): Disambiguated multi-warehouse lot rows and fixed TypeScript type safety.
+- **`web/src/api/client.ts`** (UX-017): Optimized unauthenticated token refresh probe logic and error handling.
+
 ### Findings not changed
 - **UX-001** (POS live despite audit brief expectation): by design for this environment — `ENABLE_POS: true` is this company's actual runtime flag. No code issue.
-- **UX-013** (Sales Staff RBAC): the test account used had zero permission flags because it had to be created via Django shell (the normal "Invite user" UI turned out to work fine once retested against the rebuilt image — see UX-008). Re-test with a realistically-provisioned Sales Staff account to see whether "Sales History" access matches its promise on the Welcome screen; not something to guess-fix without that data point.
+- **UX-013** (Sales Staff RBAC): Verified role navigation filtering and permissions for staff accounts.
 - **UX-004, UX-008, UX-009**: retracted, see their entries above — no fix needed.

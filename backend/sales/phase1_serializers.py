@@ -22,9 +22,9 @@ class SalesCreditNoteItemSerializer(_BaseLineSerializer):
         fields = [
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount", "source_item",
-            "hsn_code", "unit_name", "uqc_code",
+            "hsn_code", "unit_name", "uqc_code", "supply_nature",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY + ["hsn_code", "unit_name", "uqc_code"]
+        read_only_fields = LINE_READONLY + ["hsn_code", "uqc_code"]
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
 
 
@@ -39,7 +39,8 @@ class SalesCreditNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             "id", "number", "status", "customer", "customer_name", "sales_invoice",
             "invoice_number", "note_date", "reason", "reason_detail",
             "invoice_discount", "invoice_discount_mode", "auto_round_off",
-            "additional_charges", "filing_party_gstin", "filing_place_of_supply",
+            "additional_charges", "charges_hsn", "charges_gst_rate", "tcs_amount",
+            "filing_party_gstin", "filing_place_of_supply",
             "company_gstin", "notes",
             "items", "pdf_status", "completed_at", "cancelled_at",
             "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_status", "einvoice_error",
@@ -48,6 +49,7 @@ class SalesCreditNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         read_only_fields = [
             "number", "status", "pdf_status", "completed_at", "cancelled_at",
             "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_status", "einvoice_error",
+            "tcs_amount",
         ] + TOTAL_READONLY
 
     def validate_customer(self, customer):
@@ -57,6 +59,15 @@ class SalesCreditNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelS
     def validate_sales_invoice(self, invoice):
         self.check_company_ref(invoice, "sales_invoice")
         return invoice
+
+    def validate(self, attrs):
+        customer = attrs.get("customer") or getattr(self.instance, "customer", None)
+        invoice = attrs.get("sales_invoice") or getattr(self.instance, "sales_invoice", None)
+        if customer is not None and invoice is not None and customer.pk != invoice.customer_id:
+            raise serializers.ValidationError(
+                {"customer": "Customer must match the linked sales invoice."}
+            )
+        return attrs
 
     def create(self, validated_data):
         items_data = validated_data.pop("items")
@@ -96,9 +107,9 @@ class SalesDebitNoteItemSerializer(_BaseLineSerializer):
         fields = [
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount", "source_item",
-            "hsn_code", "unit_name", "uqc_code",
+            "hsn_code", "unit_name", "uqc_code", "supply_nature",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY + ["hsn_code", "unit_name", "uqc_code"]
+        read_only_fields = LINE_READONLY + ["hsn_code", "uqc_code"]
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
 
 
@@ -113,7 +124,8 @@ class SalesDebitNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelSe
             "id", "number", "status", "customer", "customer_name", "sales_invoice",
             "invoice_number", "note_date", "reason", "reason_detail",
             "invoice_discount", "invoice_discount_mode", "auto_round_off",
-            "additional_charges", "filing_party_gstin", "filing_place_of_supply",
+            "additional_charges", "charges_hsn", "charges_gst_rate", "tcs_amount",
+            "filing_party_gstin", "filing_place_of_supply",
             "company_gstin", "notes",
             "items", "pdf_status", "completed_at", "cancelled_at",
             "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_status", "einvoice_error",
@@ -122,6 +134,7 @@ class SalesDebitNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelSe
         read_only_fields = [
             "number", "status", "pdf_status", "completed_at", "cancelled_at",
             "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_status", "einvoice_error",
+            "tcs_amount",
         ] + TOTAL_READONLY
 
     def validate_customer(self, customer):
@@ -131,6 +144,15 @@ class SalesDebitNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelSe
     def validate_sales_invoice(self, invoice):
         self.check_company_ref(invoice, "sales_invoice")
         return invoice
+
+    def validate(self, attrs):
+        customer = attrs.get("customer") or getattr(self.instance, "customer", None)
+        invoice = attrs.get("sales_invoice") or getattr(self.instance, "sales_invoice", None)
+        if customer is not None and invoice is not None and customer.pk != invoice.customer_id:
+            raise serializers.ValidationError(
+                {"customer": "Customer must match the linked sales invoice."}
+            )
+        return attrs
 
     def create(self, validated_data):
         items_data = validated_data.pop("items")

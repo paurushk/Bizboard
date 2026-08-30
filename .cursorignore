@@ -1,0 +1,31 @@
+﻿# Keep Cursor indexing, search, and file-watch off generated/local trees.
+# These folders are a common cause of extension-host stalls on this machine.
+
+# Node / frontend
+web/node_modules/
+web/dist/
+web/coverage/
+web/test-results/
+web/playwright-report/
+mobile/node_modules/
+mobile/ios/
+
+# Python
+backend/.venv/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+backend/staticfiles/
+backend/media/
+backend/test_media/
+backend/db.sqlite3
+
+# Agent / local artifacts
+.claude/worktrees/
+.tmp_*/
+.tmp_*
+*.log
+
+# Audit screenshot dumps (large binaries, not source)
+docs/reviews/screenshots*/

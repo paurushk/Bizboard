@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { requestOtp } from '@/api/auth';
 import { getErrorMessage } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { PasswordField } from '@/components/PasswordField';
 import { t } from '@/i18n';
 import { formatOtpHint, isOtpLoginEnabled } from '@/pages/loginOtp';
 
@@ -33,9 +34,8 @@ function safeNextPath(raw: string | null): string {
   return decoded;
 }
 
-const passwordSchema = z.object({
+const emailSchema = z.object({
   email: z.string().trim().email('Enter a valid email'),
-  password: z.string().min(1, 'Password is required'),
 });
 
 const otpSchema = z.object({
@@ -43,7 +43,7 @@ const otpSchema = z.object({
   code: z.string().trim().min(4, 'Enter the OTP code'),
 });
 
-type PasswordForm = z.infer<typeof passwordSchema>;
+type EmailForm = z.infer<typeof emailSchema>;
 type OtpForm = z.infer<typeof otpSchema>;
 
 export function LoginPage() {
@@ -58,13 +58,14 @@ export function LoginPage() {
   const otpEnabled = isOtpLoginEnabled();
   const [tab, setTab] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [otpHint, setOtpHint] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [otpRequesting, setOtpRequesting] = useState(false);
 
-  const passwordForm = useForm<PasswordForm>({
-    resolver: zodResolver(passwordSchema),
-    defaultValues: { email: prefillEmail, password: '' },
+  const passwordForm = useForm<EmailForm>({
+    resolver: zodResolver(emailSchema),
+    defaultValues: { email: prefillEmail },
   });
 
   useEffect(() => {
@@ -79,18 +80,30 @@ export function LoginPage() {
 
   if (isAuthenticated) return <Navigate to={nextPath} replace />;
 
-  const onPasswordLogin = passwordForm.handleSubmit(async (values) => {
+  const submitPasswordLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const email = String(data.get('email') ?? '');
+    const password = String(data.get('password') ?? '');
+    passwordForm.setValue('email', email, { shouldValidate: false });
+    const emailOk = await passwordForm.trigger('email');
+    if (!password) {
+      setPasswordError('Password is required');
+      return;
+    }
+    setPasswordError(null);
+    if (!emailOk) return;
     setIsSubmitting(true);
     setError(null);
     try {
-      await login(values.email, values.password);
+      await login(email.trim(), password);
       navigate(nextPath, { replace: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
-  });
+  };
 
   const onRequestOtp = async () => {
     setError(null);
@@ -136,7 +149,9 @@ export function LoginPage() {
         <Stack spacing={2}>
           <Typography variant="h4">{t('app.name')}</Typography>
           <Typography color="text.secondary">{t('auth.loginTitle')}</Typography>
-          {searchParams.get('registered') === '1' ? (
+          {searchParams.get('registered') === 'pending' ? (
+            <Alert severity="info">{t('auth.registerPending')}</Alert>
+          ) : searchParams.get('registered') === '1' ? (
             <Alert severity="success">{t('auth.registerSuccess')}</Alert>
           ) : null}
           {searchParams.get('invited') === '1' ? (
@@ -152,21 +167,22 @@ export function LoginPage() {
           {otpEnabled && otpHint ? <Alert severity="info">{otpHint}</Alert> : null}
 
           {!otpEnabled || tab === 0 ? (
-            <Stack spacing={2} component="form" onSubmit={onPasswordLogin}>
+            <Stack spacing={2} component="form" onSubmit={submitPasswordLogin} noValidate>
               <TextField
                 label={t('auth.email')}
                 type="email"
+                autoComplete="username"
                 error={Boolean(passwordForm.formState.errors.email)}
                 helperText={passwordForm.formState.errors.email?.message}
                 {...passwordForm.register('email')}
               />
-              <TextField
+              <PasswordField
+                name="password"
                 label={t('auth.password')}
-                type="password"
+                autoComplete="current-password"
                 autoFocus={Boolean(prefillEmail)}
-                error={Boolean(passwordForm.formState.errors.password)}
-                helperText={passwordForm.formState.errors.password?.message}
-                {...passwordForm.register('password')}
+                error={Boolean(passwordError)}
+                helperText={passwordError}
               />
               <Button type="submit" variant="contained" disabled={isSubmitting}>
                 {t('auth.login')}
@@ -206,7 +222,11 @@ export function LoginPage() {
             </Link>
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            {t('auth.forgotPassword')}
+            <Link component={RouterLink} to="/forgot-password">
+              {t('auth.forgotPassword')}
+            </Link>
+            {' — '}
+            {t('auth.forgotPasswordStaffHint')}
           </Typography>
         </Stack>
       </Paper>

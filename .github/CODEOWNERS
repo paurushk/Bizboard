@@ -1,0 +1,11 @@
+# Help & Resolution — review these paths (see docs/help/CONTRIBUTING.md).
+# GitHub user is paurushk (github.com/paurushk/Bizboard), not @paurush.
+
+web/src/pages/help/** @paurushk
+web/src/navigation/menu.ts @paurushk
+web/src/i18n/en.ts @paurushk
+web/src/i18n/hi.ts @paurushk
+backend/core/help_codes.py @paurushk
+backend/core/help_views.py @paurushk
+backend/core/exceptions.py @paurushk
+backend/core/services/feature_flags.py @paurushk

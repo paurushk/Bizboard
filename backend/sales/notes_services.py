@@ -115,6 +115,9 @@ class SalesNotesService:
             raise BusinessRuleError(f"Cannot complete credit note in status {note.status}.")
         if not note.items.exists():
             raise BusinessRuleError("Cannot complete a credit note without line items.")
+        from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
+
+        assert_period_allows_money_amend(note.company, note.note_date)
         inv = note.sales_invoice
         if inv.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
             raise BusinessRuleError("Credit notes require a completed source invoice.")
@@ -122,18 +125,11 @@ class SalesNotesService:
             raise BusinessRuleError(
                 "Credit note date cannot be before the original invoice date."
             )
-        # BB-000043: block manual SALES_RETURN CNs when a completed return already exists
-        # (auto-CN from complete_return links sales_return FK and is allowed).
-        if (
-            note.reason == NoteReason.SALES_RETURN
-            and note.sales_return_id is None
-            and SalesReturn.objects.filter(
-                sales_invoice=inv, status=SalesReturn.Status.COMPLETED
-            ).exists()
-        ):
+        # SALES_RETURN CNs must be the auto-CN from SalesReturn.complete (stock lives there).
+        if note.reason == NoteReason.SALES_RETURN and note.sales_return_id is None:
             raise BusinessRuleError(
-                "A completed sales return already exists for this invoice. "
-                "AR relief is via the auto credit note from the return."
+                "Credit notes with reason SALES_RETURN must be linked to a completed sales return. "
+                "Stock is restored on the return, not on a standalone credit note."
             )
         assert_place_of_supply_for_gst(
             company=note.company,
@@ -146,6 +142,25 @@ class SalesNotesService:
             raise BusinessRuleError(
                 f"Credit note {note.grand_total} exceeds remaining invoiced value {max_cn}."
             )
+        for item in note.items.select_related("source_item"):
+            src = item.source_item
+            if src is None:
+                continue
+            prior = (
+                SalesCreditNoteItem.objects.filter(
+                    credit_note__sales_invoice=inv,
+                    credit_note__status=SalesCreditNote.Status.COMPLETED,
+                    source_item=src,
+                )
+                .exclude(credit_note_id=note.pk)
+                .aggregate(s=Sum("quantity"))["s"]
+                or Decimal("0")
+            )
+            if item.quantity + prior > src.quantity:
+                raise BusinessRuleError(
+                    f"Credit quantity {item.quantity} exceeds remaining qty "
+                    f"{src.quantity - prior} on source line {src.pk}."
+                )
         warnings = []
         tax_on = _tax_enabled(inv.invoice_type)
         if tax_on:
@@ -166,10 +181,6 @@ class SalesNotesService:
                         "(30 Nov following the FY of the original invoice)."
                     )
         # BB-000736: period assert BEFORE next_number / status flip.
-        # BB-000699: no except-pass around period helpers.
-        from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
-
-        assert_period_allows_money_amend(note.company, note.note_date)
         if not note.filing_place_of_supply:
             note.filing_place_of_supply = inv.filing_place_of_supply or inv.customer.state or ""
         if not note.filing_party_gstin:
@@ -205,6 +216,9 @@ class SalesNotesService:
         note = SalesCreditNote.objects.select_for_update().get(pk=note.pk)
         if note.status != SalesCreditNote.Status.COMPLETED:
             raise BusinessRuleError("Only completed credit notes can be cancelled.")
+        from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
+
+        assert_period_allows_money_amend(note.company, note.note_date)
         if note.company.accounting_enabled:
             from accounting.models import JournalEntry
             from accounting.services import PostingService
@@ -216,6 +230,7 @@ class SalesNotesService:
         note.cancelled_at = timezone.now()
         note.updated_by = user
         note.save()
+        mark_period_dirty_if_snapshotted(note.company, note.note_date)
         return note
 
     # ---------- Debit notes ----------
@@ -251,7 +266,7 @@ class SalesNotesService:
 
     @staticmethod
     @transaction.atomic
-    def complete_debit_note(note: SalesDebitNote, user):
+    def complete_debit_note(note: SalesDebitNote, user, *, confirm_additional_debit: bool = False):
         note = SalesDebitNote.objects.select_for_update().get(pk=note.pk)
         if note.status != SalesDebitNote.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete debit note in status {note.status}.")
@@ -285,11 +300,17 @@ class SalesNotesService:
             ).aggregate(total=Sum("grand_total"))["total"]
             or Decimal("0")
         )
-        headroom = inv.grand_total - prior_dns + prior_cns
-        if note.grand_total > headroom:
+        # DNs may reverse CNs. Extra debit (price increase) needs confirm_additional_debit.
+        cn_headroom = prior_cns - prior_dns
+        extra = note.grand_total - max(cn_headroom, Decimal("0"))
+        if extra > 0 and not confirm_additional_debit:
             raise BusinessRuleError(
-                f"Debit note {note.grand_total} exceeds remaining headroom {headroom} "
-                f"(invoice {inv.grand_total} − prior DNs {prior_dns} + CNs {prior_cns})."
+                f"Debit note {note.grand_total} exceeds credit-note headroom {max(cn_headroom, Decimal('0'))}. "
+                "Pass confirm_additional_debit=true to bill an additional amount on the original invoice."
+            )
+        if extra > Decimal(str(inv.grand_total or 0)):
+            raise BusinessRuleError(
+                f"Additional debit {extra} exceeds original invoice value {inv.grand_total}."
             )
         warnings = []
         if _tax_enabled(inv.invoice_type):
@@ -336,6 +357,9 @@ class SalesNotesService:
         note = SalesDebitNote.objects.select_for_update().get(pk=note.pk)
         if note.status != SalesDebitNote.Status.COMPLETED:
             raise BusinessRuleError("Only completed debit notes can be cancelled.")
+        from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
+
+        assert_period_allows_money_amend(note.company, note.note_date)
         if note.company.accounting_enabled:
             from accounting.models import JournalEntry
             from accounting.services import PostingService
@@ -347,6 +371,7 @@ class SalesNotesService:
         note.cancelled_at = timezone.now()
         note.updated_by = user
         note.save()
+        mark_period_dirty_if_snapshotted(note.company, note.note_date)
         return note
 
     # ---------- Sales orders ----------
@@ -486,6 +511,16 @@ class SalesNotesService:
                 gstin=resolve_series_gstin(order.company),
                 on_date=order.order_date,
             )
+        live_challan = (
+            DeliveryChallan.objects.filter(sales_order=order)
+            .exclude(status=DeliveryChallan.Status.CANCELLED)
+            .exists()
+        )
+        if live_challan:
+            raise BusinessRuleError("This sales order already has a delivery challan.")
+        if order.status == SalesOrder.Status.CONFIRMED:
+            order.status = SalesOrder.Status.CONVERTED
+            order.save(update_fields=["status"])
         challan = DeliveryChallan.objects.create(
             company=order.company,
             customer=order.customer,
@@ -511,6 +546,9 @@ class SalesNotesService:
             for item in order.items.select_related("product")
         ]
         SalesNotesService.set_challan_items(challan, items_data, user)
+        order.status = SalesOrder.Status.CONVERTED
+        order.updated_by = user
+        order.save(update_fields=["status", "updated_by", "updated_at"])
         return challan
 
     @staticmethod
@@ -543,11 +581,31 @@ class SalesNotesService:
         _validate_lines(items_data, challan.company, check_active=True)
         challan.items.all().delete()
         items = _build_items(DeliveryChallanItem, "challan", challan, items_data)
+        from accounts.models import Company, CompanyGstin
+
+        stamp = getattr(challan, "company_gstin", None)
+        gstin = (getattr(stamp, "gstin", None) or "").strip() if stamp is not None else ""
+        if not gstin:
+            gstin = (getattr(challan.company, "gstin", None) or "").strip()
+        if not gstin:
+            active = (
+                CompanyGstin.objects.filter(company=challan.company, is_active=True)
+                .exclude(gstin="")
+                .order_by("-is_primary", "id")
+                .first()
+            )
+            gstin = (getattr(active, "gstin", None) or "").strip() if active else ""
+        reg = getattr(challan.company, "registration_type", None)
+        tax_enabled = bool(gstin) and reg == Company.RegistrationType.REGULAR
         compute_document_totals(
             challan,
             items,
-            tax_enabled=False,
-            intra_state=True,
+            tax_enabled=tax_enabled,
+            intra_state=party_intra_state(
+                challan.company,
+                getattr(challan.customer, "state", None) or "",
+                getattr(challan.customer, "gstin", None) or "",
+            ),
             auto_round_off=True,
             additional_charges=Decimal("0"),
         )
@@ -626,6 +684,12 @@ class SalesNotesService:
         challan.stock_posted = stock_posted
         challan.updated_by = user
         challan.save()
+        if challan.sales_order:
+            warehouse = challan.sales_order.warehouse or InventoryService.default_warehouse(challan.company)
+            for item in challan.sales_order.items.select_related("product"):
+                InventoryService.release_reservation(
+                    challan.company, warehouse, item.product, item.quantity, user
+                )
         emit("document.completed", document=challan, user=user, event="delivery_challan.completed")
         emit("delivery_challan.completed", document=challan, user=user)
         return challan
@@ -682,6 +746,11 @@ class SalesNotesService:
         challan.converted_invoice = invoice
         challan.updated_by = user
         challan.save(update_fields=["converted_invoice", "updated_by", "updated_at"])
+        order = challan.sales_order
+        if order is not None and order.converted_invoice_id is None:
+            order.converted_invoice = invoice
+            order.updated_by = user
+            order.save(update_fields=["converted_invoice", "updated_by", "updated_at"])
         return invoice
 
     @staticmethod
@@ -742,4 +811,22 @@ class SalesNotesService:
         challan.cancelled_at = timezone.now()
         challan.updated_by = user
         challan.save()
+        order = challan.sales_order
+        if (
+            order is not None
+            and order.status == SalesOrder.Status.CONVERTED
+            and order.converted_invoice_id is None
+            and not DeliveryChallan.objects.filter(sales_order=order)
+            .exclude(pk=challan.pk)
+            .exclude(status=DeliveryChallan.Status.CANCELLED)
+            .exists()
+        ):
+            warehouse = order.warehouse or InventoryService.default_warehouse(order.company)
+            for item in order.items.select_related("product"):
+                InventoryService.reserve_stock(
+                    order.company, warehouse, item.product, item.quantity, user
+                )
+            order.status = SalesOrder.Status.CONFIRMED
+            order.updated_by = user
+            order.save(update_fields=["status", "updated_by", "updated_at"])
         return challan

@@ -58,7 +58,10 @@ def test_bb_000652_intra_b2c_cn_nets_b2cs_not_cdnur(tenant_a):
     payload = build_gstr1(tenant_a.company, PERIOD)
     assert payload["cdnur"] == []
     assert payload["cdnr"] == []
-    assert any(Decimal(str(r["taxable_value"])) < Decimal(str(inv["taxable_total"])) for r in payload["b2cs"]) or payload["b2cs"]
+    # CN inherits invoice rates; a full-qty CN nets B2CS to empty/zero.
+    assert payload["b2cs"] == [] or any(
+        Decimal(str(r["taxable_value"])) < Decimal(str(inv["taxable_total"])) for r in payload["b2cs"]
+    )
 
 
 def test_bb_000652_b2cl_note_goes_cdnur(tenant_a):

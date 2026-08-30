@@ -110,7 +110,8 @@ class CustomerReceipt(CompanyScopedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["company", "utr"],
-                condition=~models.Q(utr="") & ~models.Q(status=ReceiptStatus.VOIDED),
+                condition=~models.Q(utr="")
+                & ~models.Q(status__in=[ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED]),
                 name="uniq_receipt_utr_per_company",
             ),
         ]
@@ -366,3 +367,32 @@ class ReconMatch(CompanyScopedModel):
 
     class Meta:
         ordering = ["-matched_at"]
+
+
+class GatewayRefundOutboxStatus(models.TextChoices):
+    PENDING = "PENDING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class GatewayRefundOutbox(CompanyScopedModel):
+    """Retry queue for gateway refunds after books have already been unwound."""
+
+    gateway_payment = models.ForeignKey(
+        GatewayPayment, on_delete=models.CASCADE, related_name="refund_outbox"
+    )
+    provider_payment_id = models.CharField(max_length=128)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    status = models.CharField(
+        max_length=16,
+        choices=GatewayRefundOutboxStatus.choices,
+        default=GatewayRefundOutboxStatus.PENDING,
+        db_index=True,
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_error = models.TextField(blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-id"]
+        indexes = [models.Index(fields=["company", "status", "next_attempt_at"])]

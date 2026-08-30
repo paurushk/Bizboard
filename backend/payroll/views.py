@@ -4,19 +4,21 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.exceptions import BusinessRuleError
-from core.permissions import DenyViewerWrite, HasCompany, get_company_user
+from core.permissions import HasCompany, IsOwner, get_company_user
 from core.viewsets import CompanyScopedViewSet
 
-from .models import Employee, PayRun
+from decimal import Decimal, InvalidOperation
+
+from .models import Employee, PayRun, PaySlip
 from .permissions import assert_payroll_enabled
 from .serializers import EmployeeSerializer, PayRunSerializer
-from .services import complete_pay_run
+from .services import cancel_pay_run, complete_pay_run
 
 
 class EmployeeViewSet(CompanyScopedViewSet):
     queryset = Employee.objects.all()
     serializer_class = EmployeeSerializer
-    permission_classes = [IsAuthenticated, HasCompany, DenyViewerWrite]
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
     audit_entity = "Employee"
 
     def initial(self, request, *args, **kwargs):
@@ -27,7 +29,7 @@ class EmployeeViewSet(CompanyScopedViewSet):
 class PayRunViewSet(CompanyScopedViewSet):
     queryset = PayRun.objects.prefetch_related("slips__employee")
     serializer_class = PayRunSerializer
-    permission_classes = [IsAuthenticated, HasCompany, DenyViewerWrite]
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
     audit_entity = "PayRun"
 
     def initial(self, request, *args, **kwargs):
@@ -44,6 +46,53 @@ class PayRunViewSet(CompanyScopedViewSet):
             raise BusinessRuleError("Completed pay runs cannot be deleted.")
         super().perform_destroy(instance)
 
+    @action(detail=True, methods=["post"], url_path="lop")
+    def lop(self, request, pk=None):
+        """R4-008: set loss-of-pay / partial-month paid days on a DRAFT run.
+
+        Body: {"entries": [{"employee": <id>, "paid_days": <n>}, ...]}.
+        Creates/updates a placeholder PaySlip carrying `paid_days`; complete()
+        then prorates the gross and statutory dues for those employees.
+        """
+        pay_run = self.get_object()
+        if pay_run.status != PayRun.Status.DRAFT:
+            return Response(
+                {"detail": "Loss-of-pay can only be set on a draft pay run."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        entries = request.data.get("entries")
+        if not isinstance(entries, list) or not entries:
+            return Response(
+                {"detail": "entries must be a non-empty list of {employee, paid_days}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        company = get_company_user(request).company
+        for row in entries:
+            try:
+                emp = Employee.objects.get(pk=row.get("employee"), company=company)
+            except (Employee.DoesNotExist, TypeError, ValueError):
+                return Response(
+                    {"detail": f"Invalid employee {row.get('employee')!r}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                paid = Decimal(str(row.get("paid_days")))
+            except (InvalidOperation, TypeError):
+                return Response(
+                    {"detail": "paid_days must be a number."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if paid < 0:
+                return Response({"detail": "paid_days cannot be negative."}, status=status.HTTP_400_BAD_REQUEST)
+            PaySlip.objects.update_or_create(
+                pay_run=pay_run,
+                company=company,
+                employee=emp,
+                defaults={"paid_days": paid, "gross": Decimal("0"), "net": Decimal("0")},
+            )
+        pay_run = PayRun.objects.prefetch_related("slips__employee").get(pk=pay_run.pk)
+        return Response(self.get_serializer(pay_run).data)
+
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
         pay_run = self.get_object()
@@ -52,6 +101,16 @@ class PayRunViewSet(CompanyScopedViewSet):
             pay_from_cash = pay_from_cash.lower() not in ("0", "false", "no")
         try:
             pay_run = complete_pay_run(pay_run, request.user, pay_from_cash=pay_from_cash)
+        except BusinessRuleError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        pay_run = PayRun.objects.prefetch_related("slips__employee").get(pk=pay_run.pk)
+        return Response(self.get_serializer(pay_run).data)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        pay_run = self.get_object()
+        try:
+            pay_run = cancel_pay_run(pay_run, request.user)
         except BusinessRuleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         pay_run = PayRun.objects.prefetch_related("slips__employee").get(pk=pay_run.pk)

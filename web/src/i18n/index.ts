@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { en, type MessageTree } from './en';
 import { hi } from './hi';
 
@@ -34,7 +35,7 @@ export function t(key: string, vars?: Record<string, string | number>): string {
   let value = getByPath(catalog, key) ?? getByPath(en, key) ?? key;
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
-      value = value.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+      value = value.replaceAll(`{${k}}`, () => String(v));
     }
   }
   return value;
@@ -45,7 +46,11 @@ export function setLocale(next: string) {
   if (resolved === locale) return;
   locale = resolved;
   if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    try {
+      localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    } catch {
+      // Storage quota or restricted environment
+    }
   }
   listeners.forEach((fn) => fn());
 }
@@ -60,6 +65,13 @@ export function subscribeLocale(listener: LocaleListener): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+/** Re-render the calling component when the locale changes (E2E3-034). */
+export function useLocale(): string {
+  const [, setTick] = useState(0);
+  useEffect(() => subscribeLocale(() => setTick((n) => n + 1)), []);
+  return locale;
 }
 
 export { en };

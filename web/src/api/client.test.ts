@@ -1,6 +1,6 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiClient, getErrorMessage } from '@/api/client';
+import { apiClient, getErrorCode, getErrorMessage } from '@/api/client';
 import { clearSession, getAccessToken, getRefreshToken, setAccessToken } from '@/auth/session';
 
 describe('getErrorMessage', () => {
@@ -49,6 +49,29 @@ describe('getErrorMessage', () => {
   it('falls back for plain errors', () => {
     expect(getErrorMessage(new Error('boom'))).toBe('boom');
     expect(getErrorMessage('plain')).toBe('plain');
+  });
+});
+
+describe('getErrorCode', () => {
+  it('reads code from the Bizboard error envelope', () => {
+    const err = new axios.AxiosError('Request failed with status code 400');
+    err.response = {
+      data: {
+        success: false,
+        error: { code: 'insufficient_stock', message: 'No stock' },
+      },
+    } as never;
+    expect(getErrorCode(err)).toBe('insufficient_stock');
+  });
+
+  it('maps HTTP 403 to permission_denied', () => {
+    const err = new axios.AxiosError('Request failed with status code 403');
+    err.response = { status: 403, data: {} } as never;
+    expect(getErrorCode(err)).toBe('permission_denied');
+  });
+
+  it('returns null when unmapped', () => {
+    expect(getErrorCode(new Error('boom'))).toBeNull();
   });
 });
 

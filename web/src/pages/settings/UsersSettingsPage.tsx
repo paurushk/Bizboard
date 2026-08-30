@@ -26,6 +26,7 @@ import { StatusChip } from '@/components/StatusChip';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { t } from '@/i18n';
 import { canManageUsers } from '@/utils/permissions';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const emptyInviteForm = {
   email: '',
@@ -166,10 +167,10 @@ export function UsersSettingsPage() {
           {t('common.invite')}
         </Button>
       </Stack>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.length === 0 ? <EmptyState /> : null}
       {query.data && query.data.length > 0 ? (

@@ -7,6 +7,7 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
+from core.help_codes import HelpCode
 
 from .models import (
     MOVEMENT_SIGN, BatchLot, InventoryCostLayer, MovementType, StockBalance,
@@ -24,7 +25,7 @@ class InventoryService:
         # data migration runs. The uniqueness constraint protects normal use.
         warehouse, _ = Warehouse.objects.get_or_create(
             company=company, code="DEFAULT",
-            defaults={"name": "Default Warehouse", "is_default": True},
+            defaults={"name": "Default Godown", "is_default": True},
         )
         if not warehouse.is_default:
             warehouse.is_default = True
@@ -54,6 +55,15 @@ class InventoryService:
         warehouse = warehouse or InventoryService.default_warehouse(company)
         if warehouse.company_id != company.id:
             raise BusinessRuleError("Warehouse does not belong to this company.")
+        if getattr(product, "company_id", None) not in (None, company.id):
+            raise BusinessRuleError("Product does not belong to this company.")
+        from .item_stock import tracks_inventory
+
+        if not tracks_inventory(product):
+            raise BusinessRuleError("Stock cannot be posted for a service or non-stock item.")
+        inbound = Decimal(quantity) > 0 if movement_type == MovementType.ADJUSTMENT else MOVEMENT_SIGN.get(movement_type, 0) > 0
+        if inbound and not warehouse.is_active:
+            raise BusinessRuleError(f"Godown '{warehouse.name}' is inactive and cannot receive stock.")
         if batch is not None:
             if batch.company_id != company.id or batch.product_id != product.id:
                 raise BusinessRuleError("Batch does not belong to this product and company.")
@@ -68,23 +78,6 @@ class InventoryService:
                 raise BusinessRuleError("Movement quantity must be greater than zero.")
             delta = quantity * MOVEMENT_SIGN[movement_type]
 
-        if movement_type == MovementType.OPENING_STOCK:
-            # BUG-312 / BB-000660: opening is unique per warehouse+product+batch
-            # (second lot of the same SKU must be allowed).
-            # Voided imports set reference_type=import_voided so a clean re-open is allowed.
-            already_has_opening = StockMovement.objects.filter(
-                company=company,
-                warehouse=warehouse,
-                product=product,
-                batch=batch,
-                movement_type=MovementType.OPENING_STOCK,
-            ).exclude(reference_type="import_voided").exists()
-            if already_has_opening:
-                raise BusinessRuleError(
-                    f"Opening stock has already been recorded for '{product.name}'"
-                    + (f" batch '{batch.batch_no}'." if batch is not None else ".")
-                )
-
         with transaction.atomic():
             try:
                 balance, _ = StockBalance.objects.get_or_create(
@@ -96,6 +89,21 @@ class InventoryService:
                     company=company, warehouse=warehouse, product=product, batch=batch
                 )
             balance = StockBalance.objects.select_for_update().get(pk=balance.pk)
+
+            if movement_type == MovementType.OPENING_STOCK:
+                # Unique per warehouse+product+batch; re-check after the balance lock.
+                already_has_opening = StockMovement.objects.filter(
+                    company=company,
+                    warehouse=warehouse,
+                    product=product,
+                    batch=batch,
+                    movement_type=MovementType.OPENING_STOCK,
+                ).exclude(reference_type="import_voided").exists()
+                if already_has_opening:
+                    raise BusinessRuleError(
+                        f"Opening stock has already been recorded for '{product.name}'"
+                        + (f" batch '{batch.batch_no}'." if batch is not None else ".")
+                    )
 
             if delta < 0 and not skip_negative_check:
                 if batch and company.block_expired_stock and batch.expiry_date and batch.expiry_date < timezone.localdate():
@@ -136,6 +144,78 @@ class InventoryService:
         return movement
 
     @staticmethod
+    def post_opening(*, company, product, quantity, unit_cost=None, warehouse=None, batch=None,
+                     batch_no="", expiry_date=None, manufacturing_date=None, serial_numbers=None,
+                     as_of=None, user=None, reference_type="opening_stock", reference_id=""):
+        """Validate and post one OPENING_STOCK row (lot/serial aware)."""
+        from .item_stock import (
+            get_or_create_batch,
+            lot_is_expired,
+            opening_unit_cost,
+            resolve_warehouse,
+            tracks_inventory,
+            validate_opening_as_of,
+        )
+
+        if not tracks_inventory(product):
+            raise BusinessRuleError("Service and non-stock items cannot have opening stock.")
+        quantity = Decimal(str(quantity))
+        if quantity <= 0:
+            raise BusinessRuleError("Opening quantity must be greater than zero.")
+        warehouse = resolve_warehouse(company, getattr(warehouse, "pk", warehouse))
+        as_of = validate_opening_as_of(company, as_of, expiry_date)
+        if isinstance(batch, int) or (isinstance(batch, str) and str(batch).isdigit()):
+            from .models import BatchLot
+
+            resolved = BatchLot.objects.filter(
+                pk=int(batch), company=company, product=product
+            ).first()
+            if resolved is None:
+                raise BusinessRuleError("Invalid batch for this product.")
+            batch = resolved
+        if product.track_batch:
+            if batch is None:
+                batch = get_or_create_batch(
+                    company=company, product=product, batch_no=batch_no,
+                    expiry_date=expiry_date, manufacturing_date=manufacturing_date, user=user,
+                )
+            if not batch.expiry_date:
+                raise BusinessRuleError("Expiry date is required for batch-tracked opening stock.")
+            if lot_is_expired(batch, as_of):
+                raise BusinessRuleError("Expired lots cannot be posted as opening stock.")
+        elif batch_no or expiry_date:
+            raise BusinessRuleError("Batch and expiry are only allowed when batch tracking is on.")
+        serials = [str(s).strip() for s in (serial_numbers or []) if str(s).strip()]
+        if product.track_serial:
+            if not serials:
+                raise BusinessRuleError("Serial numbers are required for serial-tracked opening stock.")
+            if Decimal(len(serials)) != quantity:
+                raise BusinessRuleError("Opening quantity must equal the number of serials.")
+        elif serials:
+            raise BusinessRuleError("Serial numbers are only allowed when serial tracking is on.")
+        cost = opening_unit_cost(product, unit_cost)
+        with transaction.atomic():
+            movement = InventoryService.post_movement(
+                company=company,
+                product=product,
+                movement_type=MovementType.OPENING_STOCK,
+                quantity=quantity,
+                unit_cost=cost,
+                reference_type=reference_type,
+                reference_id=reference_id,
+                reason=f"Opening as of {as_of.isoformat()}",
+                user=user,
+                warehouse=warehouse,
+                batch=batch,
+            )
+            if serials:
+                SerialNumberService.receive(
+                    company=company, product=product, warehouse=warehouse,
+                    numbers=serials, quantity=quantity, user=user,
+                )
+        return movement
+
+    @staticmethod
     def post_opening_movements_batch(*, company, items, reference_type="", reference_id="", user=None):
         """
         Bulk-write OPENING_STOCK movements + balance/FIFO updates.
@@ -146,43 +226,70 @@ class InventoryService:
         """
         if not items:
             return []
+        from .item_stock import opening_unit_cost, tracks_inventory
+
         warehouse = InventoryService.default_warehouse(company)
         product_ids = []
         prepared = []
         for item in items:
             product = item["product"]
+            if not tracks_inventory(product):
+                raise BusinessRuleError(
+                    f"Service and non-stock items cannot have opening stock ('{product.name}')."
+                )
             quantity = Decimal(item["quantity"])
             if quantity <= 0:
                 raise BusinessRuleError("Movement quantity must be greater than zero.")
             if product.track_batch:
                 raise BusinessRuleError(f"A batch is required for tracked product '{product.name}'.")
+            if product.track_serial:
+                raise BusinessRuleError("Serial numbers are required for serial-tracked opening stock.")
             product_ids.append(product.pk)
-            prepared.append((product, quantity, item.get("unit_cost")))
-
-        already = set(
-            StockMovement.objects.filter(
-                company=company,
-                warehouse=warehouse,
-                product_id__in=product_ids,
-                batch__isnull=True,
-                movement_type=MovementType.OPENING_STOCK,
-            )
-            .exclude(reference_type="import_voided")
-            .values_list("product_id", flat=True)
-        )
-        if already:
-            names = {
-                p.pk: p.name
-                for p in (item["product"] for item in items)
-                if p.pk in already
-            }
-            first = names.get(next(iter(already)), "product")
-            raise BusinessRuleError(
-                f"Opening stock has already been recorded for '{first}'."
-            )
+            prepared.append((product, quantity, opening_unit_cost(product, item.get("unit_cost"))))
 
         with transaction.atomic():
             now = timezone.now()
+            # R2-026: two concurrent opening-stock imports of a brand-new product
+            # (no StockBalance row yet) could both pass the one-shot check and
+            # both write OPENING_STOCK. Lock the Product rows — which always
+            # exist — so those imports serialise here.
+            from masters.models import Product as _Product
+
+            list(
+                _Product.objects.select_for_update()
+                .filter(pk__in=sorted(product_ids))
+                .values_list("pk", flat=True)
+            )
+            existing = {
+                b.product_id: b
+                for b in StockBalance.objects.select_for_update().filter(
+                    company=company,
+                    warehouse=warehouse,
+                    product_id__in=product_ids,
+                    batch__isnull=True,
+                )
+            }
+            already = set(
+                StockMovement.objects.filter(
+                    company=company,
+                    warehouse=warehouse,
+                    product_id__in=product_ids,
+                    batch__isnull=True,
+                    movement_type=MovementType.OPENING_STOCK,
+                )
+                .exclude(reference_type="import_voided")
+                .values_list("product_id", flat=True)
+            )
+            if already:
+                names = {
+                    p.pk: p.name
+                    for p in (item["product"] for item in items)
+                    if p.pk in already
+                }
+                first = names.get(next(iter(already)), "product")
+                raise BusinessRuleError(
+                    f"Opening stock has already been recorded for '{first}'."
+                )
             movements = [
                 StockMovement(
                     company=company,
@@ -200,16 +307,6 @@ class InventoryService:
                 for product, quantity, unit_cost in prepared
             ]
             created = StockMovement.objects.bulk_create(movements, batch_size=500)
-
-            existing = {
-                b.product_id: b
-                for b in StockBalance.objects.select_for_update().filter(
-                    company=company,
-                    warehouse=warehouse,
-                    product_id__in=product_ids,
-                    batch__isnull=True,
-                )
-            }
             to_create, to_update = [], []
             for (product, quantity, _cost), _movement in zip(prepared, created):
                 balance = existing.get(product.pk)
@@ -297,6 +394,9 @@ class InventoryService:
         # (caller invokes retire_source_layers) — do not peel FIFO-oldest.
         if delta < 0 and (movement.reference_type or "") in (
             "purchase_invoice_cancel",
+            "purchase_invoice_edit",
+            "purchase_return",
+            "purchase_return_damaged",
             "stock_transfer_cancel",
             "work_order_cancel",
         ):
@@ -327,10 +427,30 @@ class InventoryService:
                 peels.append({"layer_id": layer.pk, "qty": str(take), "unit_cost": str(layer.unit_cost)})
                 remaining -= take
             if remaining > 0:
-                raise BusinessRuleError(
-                    f"Insufficient FIFO cost layers for '{product.name}' "
-                    f"(short {remaining})."
-                )
+                # R2-025: NegativeStockPolicy only has BLOCK / WARN ("ALLOW" was
+                # dead). Under WARN, cost the shortfall at the best available
+                # basis: last known layer cost, else product-level WAVG, else the
+                # master purchase price — never a silent ₹0.
+                if company.negative_stock_policy != "BLOCK":
+                    fallback_cost = Decimal("0")
+                    if peels:
+                        fallback_cost = Decimal(str(peels[-1].get("unit_cost") or 0))
+                    if fallback_cost <= 0:
+                        fallback_cost = Decimal(str(
+                            InventoryValuationService.unit_cost(
+                                company, product, warehouse=warehouse, batch=batch
+                            ) or 0
+                        ))
+                    if fallback_cost <= 0:
+                        fallback_cost = Decimal(str(product.purchase_price or 0))
+                    cost_total += remaining * fallback_cost
+                    peels.append({"layer_id": None, "qty": str(remaining), "unit_cost": str(fallback_cost)})
+                    remaining = Decimal("0")
+                else:
+                    raise BusinessRuleError(
+                        f"Insufficient FIFO cost layers for '{product.name}' "
+                        f"(short {remaining})."
+                    )
             # Stamp movement with weighted layer cost for this issue.
             # Use QuerySet.update to honor StockMovement append-only save() guard.
             if need > 0:
@@ -344,6 +464,11 @@ class InventoryService:
         """BB-000601: put peeled qty back on the original layers (no new inbound layer)."""
         from .models import InventoryCostLayer
 
+        if outbound_movement is None:
+            return
+        method = getattr(outbound_movement.company, "inventory_valuation_method", "WAVG") or "WAVG"
+        if method != "FIFO":
+            return
         peels = outbound_movement.layer_peels or []
         if peels:
             for peel in peels:
@@ -379,6 +504,11 @@ class InventoryService:
         """BB-000718: reduce/retire layers created by a specific inbound movement."""
         from .models import InventoryCostLayer
 
+        if source_movement is None:
+            return
+        method = getattr(source_movement.company, "inventory_valuation_method", "WAVG") or "WAVG"
+        if method != "FIFO":
+            return
         need = Decimal(str(quantity))
         if need <= 0:
             return
@@ -415,16 +545,51 @@ class InventoryService:
         return on_hand - reserved
 
     @staticmethod
+    def _stock_in_other_warehouses(company, product, warehouse):
+        """[(godown name, available qty)] for every OTHER godown holding this product."""
+        rows = (
+            StockBalance.objects.filter(company=company, product=product)
+            .exclude(warehouse=warehouse)
+            .values("warehouse__name")
+            .annotate(on_hand=Sum("on_hand"), reserved=Sum("reserved"))
+        )
+        out = []
+        for row in rows:
+            qty = (row["on_hand"] or Decimal("0")) - (row["reserved"] or Decimal("0"))
+            if qty > 0:
+                out.append((row["warehouse__name"], qty))
+        out.sort(key=lambda pair: pair[1], reverse=True)
+        return out
+
+    @staticmethod
     def check_negative_stock(company, product, required_qty, warehouse=None, batch=None):
         """Negative-stock policy on available qty (on_hand - reserved)."""
+        required = Decimal(required_qty)
         available = InventoryService.available_quantity(company, product, warehouse, batch)
-        if available < Decimal(required_qty):
-            if company.negative_stock_policy == "BLOCK":
-                raise BusinessRuleError(
-                    f"Insufficient stock for '{product.name}': available {available}, required {required_qty}."
-                )
-            return f"Stock for '{product.name}' will go negative (available {available})."
-        return None
+        if available >= required:
+            return None
+
+        where = f" in godown '{warehouse.name}'" if warehouse is not None else ""
+        # The Products list shows a company-wide available total, so a per-godown
+        # shortfall here looks like a contradiction. Point the user at the godown
+        # that actually holds the stock instead of just reporting "available 0".
+        elsewhere = ""
+        if warehouse is not None and batch is None:
+            other = InventoryService._stock_in_other_warehouses(company, product, warehouse)
+            if other:
+                listed = ", ".join(f"{name}: {qty}" for name, qty in other)
+                elsewhere = f" Available in other godowns — {listed}."
+
+        if company.negative_stock_policy == "BLOCK":
+            raise BusinessRuleError(
+                f"Insufficient stock for '{product.name}'{where}: "
+                f"available {available}, required {required}.{elsewhere}",
+                code=HelpCode.INSUFFICIENT_STOCK,
+            )
+        return (
+            f"Stock for '{product.name}'{where} will go negative (available {available})."
+            + elsewhere
+        )
 
     @staticmethod
     @transaction.atomic
@@ -458,12 +623,22 @@ class InventoryService:
                     f"Insufficient batched stock for '{product.name}': available short {remaining}."
                 )
             if remaining > 0:
-                # WARN path: reserve remainder on first FEFO lot or unbatched.
-                lots = list(InventoryValuationService.fefo_batches(company, product, warehouse))
-                InventoryService.reserve_stock(
-                    company, warehouse, product, remaining, user=user,
-                    batch=lots[0] if lots else None,
-                )
+                try:
+                    ub, _ = StockBalance.objects.get_or_create(
+                        company=company, warehouse=warehouse, product=product, batch=None
+                    )
+                except IntegrityError:
+                    ub = StockBalance.objects.get(
+                        company=company, warehouse=warehouse, product=product, batch=None
+                    )
+                ub = StockBalance.objects.select_for_update().get(pk=ub.pk)
+                available = ub.on_hand - ub.reserved
+                take = min(remaining, max(available, Decimal("0")))
+                if take > 0:
+                    ub.reserved = ub.reserved + take
+                    if ub.reserved > ub.on_hand:
+                        ub.reserved = max(ub.on_hand, Decimal("0"))
+                    ub.save(update_fields=["reserved"])
             return None
 
         try:
@@ -480,7 +655,10 @@ class InventoryService:
             raise BusinessRuleError(
                 f"Insufficient stock for '{product.name}': available {available}, required {qty}."
             )
-        balance.reserved = balance.reserved + qty
+        take = min(qty, max(available, Decimal("0")))
+        if take <= 0:
+            return balance
+        balance.reserved = balance.reserved + take
         balance.save(update_fields=["reserved"])
         return balance
 
@@ -580,7 +758,7 @@ class InventoryService:
                 reserved = Decimal("0")  # unbatched row holds none when FEFO used
         elif so_qty > 0 and batch is None:
             reserved = so_qty
-        balance.reserved = reserved
+        balance.reserved = min(max(reserved, Decimal("0")), max(balance.on_hand, Decimal("0")))
         balance.save(update_fields=["on_hand", "reserved"])
         return balance
 
@@ -616,6 +794,8 @@ class InventoryService:
             )
             if not unit_cost:
                 unit_cost = Decimal(str(bal.product.purchase_price or 0))
+            if unit_cost <= 0:
+                continue
             InventoryCostLayer.objects.create(
                 company=company,
                 warehouse=bal.warehouse,
@@ -710,18 +890,27 @@ class StockTransferService:
                     company=transfer.company, product=line.product,
                     serial_number__in=line.serial_numbers,
                 ).update(warehouse=transfer.to_warehouse, updated_by=user)
+            cost = InventoryValuationService.unit_cost(
+                transfer.company, line.product,
+                warehouse=transfer.from_warehouse, batch=line.batch,
+            )
             out_move = InventoryService.post_movement(
                 company=transfer.company, warehouse=transfer.from_warehouse,
                 product=line.product, batch=line.batch, movement_type=MovementType.TRANSFER_OUT,
-                quantity=line.quantity, reference_type="stock_transfer", reference_id=transfer.pk, user=user,
+                quantity=line.quantity, unit_cost=cost,
+                reference_type="stock_transfer", reference_id=transfer.pk, user=user,
             )
             InventoryService.post_movement(
                 company=transfer.company, warehouse=transfer.to_warehouse,
                 product=line.product, batch=line.batch, movement_type=MovementType.TRANSFER_IN,
-                quantity=line.quantity, unit_cost=out_move.unit_cost,
+                quantity=line.quantity, unit_cost=out_move.unit_cost or cost,
                 reference_type="stock_transfer", reference_id=transfer.pk, user=user,
             )
-        transfer.number = transfer.number or f"TRF-{transfer.pk:05d}"
+        if not transfer.number:
+            from core.services.document_numbers import DocumentNumberService
+            transfer.number = DocumentNumberService.next_number(
+                transfer.company, "STOCK_TRANSFER"
+            )
         transfer.status = StockTransfer.Status.COMPLETED
         transfer.completed_at = timezone.now()
         transfer.updated_by = user
@@ -735,6 +924,8 @@ class StockTransferService:
         if transfer.status == StockTransfer.Status.CANCELLED:
             raise BusinessRuleError("Transfer is already cancelled.")
         if transfer.status == StockTransfer.Status.COMPLETED:
+            used_out_ids: set[int] = set()
+            used_in_ids: set[int] = set()
             for line in transfer.lines.select_related("product", "batch"):
                 if line.product.track_serial:
                     SerialNumberService.transition(
@@ -746,7 +937,7 @@ class StockTransferService:
                         company=transfer.company, product=line.product,
                         serial_number__in=line.serial_numbers,
                     ).update(warehouse=transfer.from_warehouse, updated_by=user)
-                # BB-000719: restore original TRANSFER_OUT peels; retire dest TRANSFER_IN layer.
+                # Match movements 1:1 — do not reuse the same TRANSFER_OUT/IN for duplicate product+batch lines.
                 out_move = (
                     StockMovement.objects.filter(
                         company=transfer.company,
@@ -757,6 +948,7 @@ class StockTransferService:
                         reference_type="stock_transfer",
                         reference_id=str(transfer.pk),
                     )
+                    .exclude(id__in=used_out_ids)
                     .order_by("id")
                     .first()
                 )
@@ -770,9 +962,17 @@ class StockTransferService:
                         reference_type="stock_transfer",
                         reference_id=str(transfer.pk),
                     )
+                    .exclude(id__in=used_in_ids)
                     .order_by("id")
                     .first()
                 )
+                if out_move is None or in_move is None:
+                    raise BusinessRuleError(
+                        "Cannot cancel transfer: expected stock movements are missing. "
+                        "Do not invent unbatched restore layers."
+                    )
+                used_out_ids.add(out_move.id)
+                used_in_ids.add(in_move.id)
                 inbound = InventoryService.post_movement(
                     company=transfer.company, warehouse=transfer.from_warehouse,
                     product=line.product, batch=line.batch, movement_type=MovementType.ADJUSTMENT,
@@ -801,8 +1001,8 @@ class StockTransferService:
 class InventoryValuationService:
     """Replay-only inventory valuation; historical movements remain immutable.
 
-    Honesty (BB-000062 / BB-000465): WAVG only. FIFO is not offered on Company
-    and must not be used for COGS/valuation until a perpetual FIFO ledger ships.
+    Honesty: WAVG is the default. FIFO peels perpetual cost layers when
+    company.inventory_valuation_method is FIFO (see _apply_cost_layers).
     """
 
     @staticmethod
@@ -816,7 +1016,7 @@ class InventoryValuationService:
             raise BusinessRuleError(
                 f"Unsupported inventory valuation method '{method}'. Use WAVG or FIFO."
             )
-        movements = StockMovement.objects.filter(company=company).select_related("product", "batch")
+        movements = StockMovement.objects.filter(company=company).select_related("product", "batch", "warehouse")
         if as_of:
             movements = movements.filter(created_at__date__lte=as_of)
         if warehouse:
@@ -825,13 +1025,16 @@ class InventoryValuationService:
             movements = movements.filter(product=product)
         movements = movements.order_by("created_at", "id")
         state = {}
+        zero_cost_transfer_in = set()
         for move in movements:
             key = (move.warehouse_id, move.product_id, move.batch_id)
             entry = state.setdefault(
                 key,
                 {
                     "warehouse": move.warehouse_id,
+                    "warehouse_name": getattr(move.warehouse, "name", None),
                     "product": move.product_id,
+                    "product_name": move.product.name if move.product_id else None,
                     "batch": move.batch_id,
                     "qty": Decimal("0"),
                     "value": Decimal("0"),
@@ -844,6 +1047,8 @@ class InventoryValuationService:
                 entry["qty"] += qty
                 entry["value"] += qty * cost
                 entry["layers"].append([qty, cost])
+                if move.movement_type == MovementType.TRANSFER_IN and cost == 0:
+                    zero_cost_transfer_in.add(key)
             elif qty < 0:
                 issue = -qty
                 if method == "FIFO":
@@ -862,6 +1067,44 @@ class InventoryValuationService:
                     average = entry["value"] / entry["qty"] if entry["qty"] else Decimal("0")
                     entry["value"] -= issue * average
                 entry["qty"] -= issue
+        # Legacy transfers posted unit_cost 0 on TRANSFER_IN. Report remaining
+        # dest qty at sibling-warehouse WAVG so stock value is not silently 0.
+        if zero_cost_transfer_in:
+            need = [
+                (key, row)
+                for key, row in state.items()
+                if key in zero_cost_transfer_in and row["qty"] > 0 and row["value"] == 0
+            ]
+            if need and warehouse is not None:
+                full = InventoryValuationService.valuation(
+                    company, as_of=as_of, method=method, warehouse=None, product=product,
+                )
+                full_by_key = {
+                    (row["warehouse"], row["product"], row["batch"]): row for row in full
+                }
+                for key, row in need:
+                    healed = full_by_key.get(key)
+                    if healed is not None:
+                        row["value"] = healed["value"]
+            elif need:
+                by_product = {}
+                for key, row in state.items():
+                    by_product.setdefault(row["product"], []).append((key, row))
+                for items in by_product.values():
+                    sibling_qty = sum(
+                        (r["qty"] for k, r in items if r["qty"] > 0 and r["value"] > 0),
+                        Decimal("0"),
+                    )
+                    sibling_val = sum(
+                        (r["value"] for k, r in items if r["qty"] > 0 and r["value"] > 0),
+                        Decimal("0"),
+                    )
+                    if sibling_qty <= 0:
+                        continue
+                    avg = sibling_val / sibling_qty
+                    for key, row in items:
+                        if key in zero_cost_transfer_in and row["qty"] > 0 and row["value"] == 0:
+                            row["value"] = row["qty"] * avg
         return [
             {**row, "unit_cost": (row["value"] / row["qty"] if row["qty"] else Decimal("0"))}
             for row in state.values()
@@ -869,17 +1112,48 @@ class InventoryValuationService:
 
     @classmethod
     def unit_cost(cls, company, product, warehouse=None, batch=None):
+        # R2-022 (perf follow-up, NOT done here): this replays every StockMovement
+        # for the product via valuation(). A materialised running-cost cache is
+        # the fix, but it must be threaded through every post_movement path
+        # (issue / receive / adjust / cancel / transfer / FIFO peel) with its own
+        # test pass — cramming it risks a silent inventory-valuation bug. Left as
+        # a dedicated follow-up; the system is correct, just O(movements) here.
         rows = cls.valuation(company, warehouse=warehouse, product=product)
         if batch is not None:
             batch_id = getattr(batch, "pk", batch)
             matched = [row for row in rows if row.get("batch") == batch_id]
             if matched:
                 return matched[0]["unit_cost"]
-        return rows[0]["unit_cost"] if rows else Decimal("0")
+        if not rows:
+            return Decimal("0")
+        # R2-024: qty-weighted average across all rows that hold stock — not
+        # rows[0], which (in dict order) can be a zeroed-out / qty-0 batch row
+        # and would report ₹0 while other rows hold real stock at real cost.
+        pos = [r for r in rows if Decimal(str(r.get("qty") or 0)) > 0]
+        if pos:
+            total_qty = sum((Decimal(str(r["qty"])) for r in pos), Decimal("0"))
+            total_val = sum((Decimal(str(r.get("value") or 0)) for r in pos), Decimal("0"))
+            if total_qty > 0:
+                return total_val / total_qty
+        for r in rows:
+            if Decimal(str(r.get("unit_cost") or 0)) > 0:
+                return r["unit_cost"]
+        return rows[0]["unit_cost"]
 
     @staticmethod
     def fefo_batches(company, product, warehouse=None):
+        from django.db.models import F
+
+        from .item_stock import business_date, lot_is_expired
+
         qs = BatchLot.objects.filter(company=company, product=product, stock_balances__on_hand__gt=0)
         if warehouse:
             qs = qs.filter(stock_balances__warehouse=warehouse)
-        return qs.order_by("expiry_date", "created_at").distinct()
+        if getattr(company, "block_expired_stock", True):
+            qs = qs.exclude(expiry_date__lt=business_date(company))
+        return qs.order_by(
+            F("expiry_date").asc(nulls_last=True),
+            F("manufacturing_date").asc(nulls_last=True),
+            "batch_no",
+            "id",
+        ).distinct()

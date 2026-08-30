@@ -1,4 +1,4 @@
-from django.http import StreamingHttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -10,15 +10,28 @@ from django.db import transaction
 
 from core.exceptions import BusinessRuleError
 from core.csv_utils import csv_safe
-from core.idempotency import get_record, release_record, replay_record, store_record, begin_record
+from core.idempotency import (
+    begin_record,
+    get_record,
+    release_record,
+    replay_record,
+    store_record,
+)
 from core.models import FileAsset
-from core.permissions import CanImport, HasCompany, get_company_user
+from core.permissions import CanImport, HasCompany, IsOwner, get_company_user
 from core.services.files import FileService
 from masters.models import Customer, Supplier
 
 from .models import ImportJob
 from .serializers import ImportJobSerializer
-from .services import BillImportService, ImportService
+from .services import (
+    BillImportService,
+    ImportService,
+    OPENING_LOTS_COLUMNS,
+    OPENING_SERIALS_COLUMNS,
+    products_item_columns,
+    products_template_csv,
+)
 
 BILL_IMAGE_PDF_TYPES = {
     "application/pdf",
@@ -79,7 +92,7 @@ class ImportJobViewSet(
 
         raw_key = (request.headers.get("Idempotency-Key") or "").strip()
         claimed = None
-        if raw_key:
+        if raw_key and kind not in ImportJob.BILL_KINDS:
             claimed = begin_record(
                 company=self.company, scope="import_job_create", raw_key=raw_key
             )
@@ -99,20 +112,21 @@ class ImportJobViewSet(
                     raise BusinessRuleError(
                         "Bill must be a PDF, image, CSV, or XLSX export from your supplier's system."
                     )
-                asset = FileService.store_upload(
-                    company=self.company, uploaded_file=uploaded,
-                    kind=FileAsset.Kind.IMPORT, user=request.user,
-                )
-                job = ImportJob.objects.create(
-                    company=self.company, kind=kind, file=asset, supplier=supplier, customer=customer,
-                    created_by=request.user, updated_by=request.user,
-                )
-                if is_structured:
-                    BillImportService.parse_structured_file(job)
-                else:
-                    BillImportService.start_extraction(job)
-                job.refresh_from_db()
-                response = Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
+                with transaction.atomic():
+                    asset = FileService.store_upload(
+                        company=self.company, uploaded_file=uploaded,
+                        kind=FileAsset.Kind.IMPORT, user=request.user,
+                    )
+                    job = ImportJob.objects.create(
+                        company=self.company, kind=kind, file=asset, supplier=supplier, customer=customer,
+                        created_by=request.user, updated_by=request.user,
+                    )
+                    if is_structured:
+                        BillImportService.parse_structured_file(job)
+                    else:
+                        BillImportService.start_extraction(job)
+                    job.refresh_from_db()
+                    response = Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
             else:
                 # Master CSV/XLSX: atomic so a validate failure leaves no orphan job/asset.
                 with transaction.atomic():
@@ -127,7 +141,7 @@ class ImportJobViewSet(
                     ImportService.validate(job)
                 response = Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
 
-            if raw_key:
+            if raw_key and kind not in ImportJob.BILL_KINDS:
                 store_record(
                     company=self.company,
                     scope="import_job_create",
@@ -138,7 +152,7 @@ class ImportJobViewSet(
                 created_ok = True
             return response
         finally:
-            if raw_key and claimed is not None and not isinstance(claimed, Response) and not created_ok:
+            if raw_key and kind not in ImportJob.BILL_KINDS and claimed is not None and not isinstance(claimed, Response) and not created_ok:
                 release_record(company=self.company, scope="import_job_create", raw_key=raw_key)
     @action(detail=True, methods=["post"], url_path="retry-extract")
     def retry_extract(self, request, pk=None):
@@ -211,6 +225,8 @@ class ImportJobViewSet(
     @action(detail=True, methods=["post"], url_path="void")
     def void_import(self, request, pk=None):
         """Owner recovery: reverse a committed PRODUCTS/OPENING_STOCK import."""
+        if not IsOwner().has_permission(request, self):
+            raise BusinessRuleError("Owner role required to void an import.")
         job = self.get_object()
         ImportService.void(job, request.user)
         job.refresh_from_db()
@@ -219,6 +235,8 @@ class ImportJobViewSet(
     @action(detail=True, methods=["post"], url_path="void-rows")
     def void_rows(self, request, pk=None):
         """Reverse opening-stock (and product cleanup) for specific SKUs only."""
+        if not IsOwner().has_permission(request, self):
+            raise BusinessRuleError("Owner role required to void import rows.")
         job = self.get_object()
         skus = request.data.get("skus") or []
         if not isinstance(skus, list):
@@ -261,3 +279,48 @@ class ImportJobViewSet(
             response["Content-Disposition"] = f'attachment; filename="{filename}"'
             return response
         return Response({"errors": job.errors, "error_rows": job.error_rows})
+
+    @action(detail=False, methods=["get"], url_path="template")
+    def template(self, request):
+        """Download the PRODUCTS template (xlsx with extra sheets, or CSV with the same item columns)."""
+        kind = (request.query_params.get("kind") or "PRODUCTS").upper()
+        if kind != "PRODUCTS":
+            raise BusinessRuleError("An item template is currently published for PRODUCTS only.")
+        company = get_company_user(request).company
+        as_fmt = (request.query_params.get("as") or "").strip().lower()
+        item_columns = products_item_columns(company)
+        if as_fmt == "csv":
+            response = HttpResponse(products_template_csv(company), content_type="text/csv")
+            response["Content-Disposition"] = 'attachment; filename="products_template.csv"'
+            return response
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        items = workbook.active
+        items.title = "items"
+        items.append(list(item_columns))
+        items.append([""] * len(item_columns))
+        items.freeze_panes = "A2"
+        lots = workbook.create_sheet("opening_lots")
+        lots.append(list(OPENING_LOTS_COLUMNS))
+        lots.freeze_panes = "A2"
+        serials = workbook.create_sheet("opening_serials")
+        serials.append(list(OPENING_SERIALS_COLUMNS))
+        serials.freeze_panes = "A2"
+        notes = workbook.create_sheet("notes")
+        notes.append(["Item import notes"])
+        notes.append(["Only name is required. Other columns match Create Item: Basic, Stock, Pricing, Custom."])
+        notes.append(["product_type: Goods or Service. Service rows cannot have opening stock, godown, batch, or serials."])
+        notes.append(["opening_stock on this sheet posts to the default godown unless godown is filled."])
+        notes.append(["track_batch Yes (or batch_no + expiry_date) posts a lot. Use opening_lots for multiple godowns/lots per SKU."])
+        notes.append(["track_serial Yes with opening stock requires serial_no (comma-separated) or an opening_serials sheet. Quantity must equal the number of serials."])
+        notes.append(["Blank godown uses the company default. Unknown godown names fail the whole job."])
+        notes.append(["Custom field columns use the labels from Item Settings. Only active fields are included."])
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = 'attachment; filename="products_import_template.xlsx"'
+        return response

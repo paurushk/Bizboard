@@ -110,6 +110,8 @@ export async function listBankStatements(params?: Record<string, string>): Promi
 export async function listBankStatementsPage(params?: PageParams): Promise<PageResult<Record<string, unknown>>> {
   return fetchPage<Record<string, unknown>>('/payments/statements/', params);
 }
+export const getBankStatement = (id: number) =>
+  apiClient.get(`/payments/statements/${id}/`).then(({ data }) => unwrapData<Record<string, unknown>>(data));
 export const uploadBankStatement = (form: FormData) => apiClient.post('/payments/statements/upload/', form).then(({ data }) => unwrapData(data));
 export const commitBankStatement = (id: number) => apiClient.post(`/payments/statements/${id}/commit/`).then(({ data }) => unwrapData(data));
 export const listRecon = () =>

@@ -72,20 +72,33 @@ TAX_PATTERNS = re.compile(
     re.I,
 )
 
+TAX_OUTPUT_ADVICE = re.compile(
+    r"\b("
+    r"how\s+much\s+(gst|tax)|what\s+(gst|tax)\s+rate|should\s+i\s+charge|"
+    r"file\s*(gst|gstr|return)|claim\s*itc|avail\s*itc|"
+    r"gst\s*calculation|calculate\s*gst|applicable\s+(gst|tax|rate)|"
+    r"what\s+rate|which\s+rate|charge\s+gst|tax\s*rate\s*advice|"
+    r"gstr-?[123]|gst\s*portal|filing\s*due"
+    r")\b",
+    re.I,
+)
+
 _INDIRECT_TAX_HINTS = re.compile(
     r"(sold to|ship(?:ped)? to|deliver(?:ed)? to|pos\b|place of supply|"
     r"pune|mumbai|delhi|chennai|kolkata|bengaluru|bangalore|hyderabad|"
     r"maharashtra|karnataka|tamil nadu|gujarat|rajasthan|kerala|"
-    r"\bhsn\b|\bsac\b|soap|fmcg|rate)",
+    r"\bhsn\b|\bsac\b|soap|fmcg)",
     re.I,
 )
 
 
 def _looks_like_tax_question(text: str) -> bool:
     blob = text or ""
+    lowered = blob.lower()
+    if "growth" in lowered or "churn" in lowered:
+        return False
     if TAX_PATTERNS.search(blob):
         return True
-    lowered = blob.lower()
     asks_rate = bool(re.search(r"\b(rate|%|percent|gst|tax|hsn|sac)\b", lowered))
     has_geo_or_sku = bool(_INDIRECT_TAX_HINTS.search(blob))
     return asks_rate and has_geo_or_sku
@@ -223,7 +236,7 @@ class ToolExecutor:
         sales = (
             SalesInvoice.objects.filter(
                 company=self.company,
-                status=SalesInvoice.Status.COMPLETED,
+                status__in=(SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED),
                 invoice_date__gte=start,
                 invoice_date__lte=end,
             ).aggregate(total=Coalesce(Sum("grand_total"), Decimal("0")))["total"]
@@ -553,7 +566,7 @@ def _run_llm_tools(company, content: str) -> tuple[str, list, dict | None, str, 
 def _scrub_tax_output(text: str) -> str:
     """Remove tax-advice phrases; escalate to full refusal if tax intent remains."""
     cleaned = TAX_OUTPUT_STRIP.sub("", text or "").strip()
-    if TAX_PATTERNS.search(cleaned):
+    if TAX_OUTPUT_ADVICE.search(cleaned):
         return TAX_REFUSAL
     return cleaned or TAX_REFUSAL
 
@@ -594,7 +607,7 @@ def run_assistant_turn(company, user, thread: AssistantThread, content: str) -> 
             reply, citations, proposed, model_name = _run_rules_fallback(company, content)
             tokens_out = max(1, len(reply) // 4)
         # BB-000409 / BB-000488: scrub model/rules output that still emits tax advice.
-        if TAX_PATTERNS.search(reply or ""):
+        if TAX_OUTPUT_ADVICE.search(reply or ""):
             reply = TAX_REFUSAL
             proposed = None
             citations = [{"path": "/reports/gst-health", "label": "GST Health"}]

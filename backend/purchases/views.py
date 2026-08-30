@@ -1,6 +1,5 @@
 import io
 
-from django.core.cache import cache
 from django.db.models import DecimalField, OuterRef, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import FileResponse
@@ -10,7 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.exceptions import BusinessRuleError
-from core.idempotency import get_record, replay_record, store_record
+from core.idempotency import wrap_idempotent
 from core.permissions import (
     CanCancelDocuments,
     CanCreatePurchases,
@@ -18,7 +17,7 @@ from core.permissions import (
     HasCompany,
     IsOwner,
 )
-from core.services.document_numbers import DocumentNumberService
+from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 from core.viewsets import CompanyScopedViewSet
 from payments.models import PaymentAllocation
 
@@ -26,38 +25,22 @@ from .models import PurchaseInvoice, PurchaseReturn
 from .serializers import PurchaseInvoiceSerializer, PurchaseReturnSerializer
 from .services import PurchaseService
 
-_PURCHASE_IDEMPOTENCY_TTL = 60 * 60 * 24  # 24h
-
 
 class PurchaseInvoiceViewSet(CompanyScopedViewSet):
     queryset = PurchaseInvoice.objects.select_related("supplier").prefetch_related("items__product")
     serializer_class = PurchaseInvoiceSerializer
 
     def create(self, request, *args, **kwargs):
-        """BB-000189 / BB-000283: Idempotency-Key → cache lookup by company + key (24h)."""
-        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
-        cache_key = None
-        if raw_key:
-            cache_key = f"purchase_invoice_idempotency:{self.company.id}:{raw_key}"
-            prior_id = cache.get(cache_key)
-            if prior_id is not None:
-                try:
-                    invoice = self.get_queryset().get(pk=prior_id)
-                except PurchaseInvoice.DoesNotExist:
-                    cache.delete(cache_key)
-                else:
-                    serializer = self.get_serializer(invoice)
-                    return Response(serializer.data, status=status.HTTP_200_OK)
+        """Durable Idempotency-Key with begin-of-request placeholder (same as sales)."""
+        def _run():
+            return super(PurchaseInvoiceViewSet, self).create(request, *args, **kwargs)
 
-        response = super().create(request, *args, **kwargs)
-        if cache_key is not None and response.status_code == status.HTTP_201_CREATED:
-            data = getattr(response, "data", None) or {}
-            if isinstance(data, dict) and isinstance(data.get("success"), bool) and "data" in data:
-                data = data.get("data") or {}
-            created_id = data.get("id") if isinstance(data, dict) else None
-            if created_id is not None:
-                cache.set(cache_key, created_id, _PURCHASE_IDEMPOTENCY_TTL)
-        return response
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="purchase_invoice_create",
+            build=_run,
+        )
 
     def get_permissions(self):
         action = getattr(self, "action", None)
@@ -108,8 +91,9 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
     def number_series(self, request):
         company = self.company
+        gstin = resolve_series_gstin(company)
         if request.method == "GET":
-            return Response(DocumentNumberService.peek(company, "PURCHASE_INVOICE"))
+            return Response(DocumentNumberService.peek(company, "PURCHASE_INVOICE", gstin=gstin))
         try:
             data = DocumentNumberService.configure(
                 company,
@@ -117,6 +101,7 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
                 prefix=request.data.get("prefix"),
                 next_number=request.data.get("next_number"),
                 padding=request.data.get("padding"),
+                gstin=gstin,
             )
         except ValueError as exc:
             raise BusinessRuleError(str(exc)) from exc
@@ -124,35 +109,29 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
-        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
-        if raw_key:
-            existing = get_record(company=self.company, scope="purchase_invoice_complete", raw_key=raw_key)
-            if existing is not None:
-                return replay_record(existing)
-        confirm_no_rcm = str(request.data.get("confirm_no_rcm") or "").lower() in (
-            "true", "1", "yes",
-        )
-        confirm_duplicate_bill = str(
-            request.data.get("confirm_duplicate_bill") or ""
-        ).lower() in ("true", "1", "yes")
-        invoice, warnings = PurchaseService.complete(
-            self.get_object(),
-            request.user,
-            confirm_no_rcm=confirm_no_rcm,
-            confirm_duplicate_bill=confirm_duplicate_bill,
-        )
-        data = self.get_serializer(invoice).data
-        data["warnings"] = warnings
-        response = Response(data)
-        if raw_key:
-            store_record(
-                company=self.company,
-                scope="purchase_invoice_complete",
-                raw_key=raw_key,
-                response=response,
-                resource_id=str(invoice.pk),
+        def _run():
+            confirm_no_rcm = str(request.data.get("confirm_no_rcm") or "").lower() in (
+                "true", "1", "yes",
             )
-        return response
+            confirm_duplicate_bill = str(
+                request.data.get("confirm_duplicate_bill") or ""
+            ).lower() in ("true", "1", "yes")
+            invoice, warnings = PurchaseService.complete(
+                self.get_object(),
+                request.user,
+                confirm_no_rcm=confirm_no_rcm,
+                confirm_duplicate_bill=confirm_duplicate_bill,
+            )
+            data = self.get_serializer(invoice).data
+            data["warnings"] = warnings
+            return Response(data)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="purchase_invoice_complete",
+            build=_run,
+        )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):

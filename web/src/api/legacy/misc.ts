@@ -79,7 +79,7 @@ export async function uploadImport(
     if (extra?.customerId != null) {
       form.append('customer_id', String(extra.customerId));
     }
-    const key = extra?.idempotencyKey ?? `import-upload-${kind}-${file.name}-${file.size}-${file.lastModified}`;
+    const key = extra?.idempotencyKey ?? newIdempotencyKey();
     // Let the browser set multipart boundary — do not force Content-Type.
     const { data } = await apiClient.post('/imports/', form, {
       headers: {
@@ -285,6 +285,31 @@ export async function downloadImportErrorsCsv(id: number | string, kind: string)
   const a = document.createElement('a');
   a.href = url;
   a.download = `${kind.toLowerCase()}_import_errors.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadImportTemplate(kind = 'PRODUCTS', format: 'xlsx' | 'csv' = 'xlsx'): Promise<void> {
+  const response = await apiClient.get('/imports/template/', {
+    params: { kind, as: format === 'csv' ? 'csv' : undefined },
+    responseType: 'blob',
+    timeout: IMPORT_TIMEOUT_MS,
+    transformResponse: [(d) => d],
+  });
+  const blob =
+    response.data instanceof Blob
+      ? response.data
+      : new Blob([response.data as BlobPart], {
+          type:
+            format === 'csv'
+              ? 'text/csv;charset=utf-8'
+              : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download =
+    format === 'csv' ? `${kind.toLowerCase()}_template.csv` : `${kind.toLowerCase()}_import_template.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }

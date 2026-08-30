@@ -13,6 +13,8 @@ import { Navigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { createStockAdjustment, listStock, listWarehouses } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
+import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
 import type { Product } from '@/types/domain';
@@ -21,6 +23,7 @@ import { toNumber } from '@/utils/money';
 
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 interface FormValues {
   product: number | '';
@@ -45,9 +48,11 @@ export function StockAdjustmentPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const productSearch = useProductSearch({ selected: selectedProduct });
+  const [cfFilters, setCfFilters] = useState<Record<string, string[]>>({});
+  const customDefs = useVisibleCustomFieldDefs();
+  const productSearch = useProductSearch({ selected: selectedProduct, cf: cfFilters });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
-  const stockQuery = useQuery({ queryKey: ['stock'], queryFn: listStock });
+  const stockQuery = useQuery({ queryKey: ['stock'], queryFn: () => listStock() });
   const { control, handleSubmit, reset, setValue, watch } = useForm<FormValues>({
     defaultValues: {
       product: '',
@@ -118,19 +123,22 @@ export function StockAdjustmentPage() {
     <Stack
       spacing={2}
       component="form"
+      noValidate
       onSubmit={handleSubmit((values) => mutation.mutate(values))}
     >
       <Typography variant="h4">{t('nav.stockAdjustment')}</Typography>
       {message ? <Alert severity="success">{message}</Alert> : null}
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       <Paper sx={{ p: 2.5, maxWidth: 540 }}>
         <Stack spacing={2.5}>
           <Controller
             name="product"
             control={control}
-            rules={{ required: true }}
-            render={({ field }) => (
-              <Autocomplete<Product>
+            rules={{ required: 'Select a product' }}
+            render={({ field, fieldState }) => (
+              <Stack spacing={1}>
+                <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
+                <Autocomplete<Product>
                 options={productSearch.options}
                 loading={productSearch.isFetching}
                 filterOptions={(opts) => opts}
@@ -147,21 +155,27 @@ export function StockAdjustmentPage() {
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    required
                     label={t('nav.products')}
-                    helperText={productSearch.helperText}
+                    error={Boolean(fieldState.error)}
+                    helperText={fieldState.error?.message || productSearch.helperText}
                   />
                 )}
               />
+              </Stack>
             )}
           />
           <Controller
             name="warehouse"
             control={control}
             render={({ field }) => (
-              <TextField select label="Warehouse" value={field.value} onChange={field.onChange}>
+              <TextField
+                select
+                label={t('nav.warehouses')}
+                value={field.value === '' ? '' : String(field.value)}
+                onChange={(e) => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
+              >
                 {(warehouses.data ?? []).filter((w) => w.isActive !== false).map((w) => (
-                  <MenuItem key={w.id} value={w.id}>
+                  <MenuItem key={w.id} value={String(w.id)}>
                     {w.name}
                     {w.isDefault ? ' (default)' : ''}
                   </MenuItem>

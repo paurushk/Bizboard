@@ -22,7 +22,7 @@ import Typography from '@mui/material/Typography';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import Alert from '@mui/material/Alert';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   completePurchase,
   createAllocation,
@@ -38,6 +38,7 @@ import {
   listPurchasesPage,
   listBatches,
   listCostCenters,
+  listProductsPage,
   searchProducts,
   listStock,
   listWarehouses,
@@ -46,21 +47,27 @@ import {
   updateSupplier,
   uploadFile,
 } from '@/api/resources';
-import { getErrorMessage, newIdempotencyKey } from '@/api/client';
+import { getErrorMessage, isNetworkError, newIdempotencyKey } from '@/api/client';
+import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
+import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { isValidGstin, isValidHsnSac } from '@/utils/gst';
 import { useAuth } from '@/auth/AuthContext';
 import {
   clearPurchaseDraft,
+  enqueueDraft,
   loadPurchaseDraft,
-  OUTBOX_PLAINTEXT_WARNING,
   OUTBOX_WARNING_DISMISS_KEY,
   savePurchaseDraft,
 } from '@/offline/invoiceDraftCache';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { usePurchaseOffline } from '@/pages/purchases/usePurchaseOffline';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { DocumentTaxSummary } from '@/components/DocumentTaxSummary';
 import { PartySelectPanel } from '@/components/PartySelectPanel';
 import { StateSelect } from '@/components/StateSelect';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { t } from '@/i18n';
+import { preferredInvoiceType } from '@/onboarding/taxHints';
 import type { PaymentMode, PriceMode, Product, PurchaseInvoice, PurchaseType } from '@/types/domain';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
@@ -110,6 +117,10 @@ export function NewPurchasePage() {
   const editId = editIdParam ? Number(editIdParam) : null;
   const isEdit = Number.isFinite(editId) && (editId as number) > 0;
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromBillUpload = Boolean(
+    (location.state as { fromBillUpload?: boolean } | null)?.fromBillUpload,
+  );
   const qc = useQueryClient();
   const barcodeRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -122,6 +133,7 @@ export function NewPurchasePage() {
     payload: Record<string, unknown>;
   } | null>(null);
   const [hasLocalDraft, setHasLocalDraft] = useState(false);
+  const [outboxBanner, setOutboxBanner] = useState<string | null>(null);
   const [hideOutboxWarn, setHideOutboxWarn] = useState(
     () =>
       typeof localStorage !== 'undefined' &&
@@ -130,10 +142,13 @@ export function NewPurchasePage() {
 
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [productQuery, setProductQuery] = useState('');
+  const [cfFilters, setCfFilters] = useState<Record<string, string[]>>({});
+  const customDefs = useVisibleCustomFieldDefs();
   const debouncedProductQuery = useDebouncedValue(productQuery, 300);
   const {
     message,
     error,
+    errorSource,
     setError,
     clearFeedback,
     flashSaveAndNew,
@@ -149,7 +164,8 @@ export function NewPurchasePage() {
   const debouncedSupplierQuery = useDebouncedValue(supplierQuery, 300);
   const [warehouseId, setWarehouseId] = useState<number | ''>('');
   const [costCenterId, setCostCenterId] = useState<number | ''>('');
-  const [purchaseType, setPurchaseType] = useState<PurchaseType>('GST');
+  const [purchaseType, setPurchaseType] = useState<PurchaseType>('NON_GST');
+  const [purchaseTypeTouched, setPurchaseTypeTouched] = useState(false);
   const [priceMode, setPriceMode] = useState<PriceMode>('EXCLUSIVE');
   const [isReverseCharge, setIsReverseCharge] = useState(false);
   const [itcEligibility, setItcEligibility] = useState<'CLAIMABLE' | 'INELIGIBLE' | 'REVERSED'>('CLAIMABLE');
@@ -196,6 +212,7 @@ export function NewPurchasePage() {
   const [partyDialogOpen, setPartyDialogOpen] = useState(false);
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [itemDialogError, setItemDialogError] = useState<string | null>(null);
+  const [itemDialogErrorSource, setItemDialogErrorSource] = useState<unknown>(null);
   const [partyForm, setPartyForm] = useState<{
     id?: number;
     name: string;
@@ -216,6 +233,10 @@ export function NewPurchasePage() {
   const [signatureId, setSignatureId] = useState<number | null>(null);
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  useEffect(() => {
+    if (isEdit || purchaseTypeTouched || !company.data) return;
+    setPurchaseType(preferredInvoiceType(company.data.registrationType));
+  }, [company.data, isEdit, purchaseTypeTouched]);
   const suppliers = useQuery({
     queryKey: ['suppliers-search', debouncedSupplierQuery],
     queryFn: () => listSuppliersPage({ q: debouncedSupplierQuery, pageSize: 50 }),
@@ -227,7 +248,11 @@ export function NewPurchasePage() {
     enabled: Boolean(supplierId),
   });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
-  const costCenters = useQuery({ queryKey: ['cost-centers'], queryFn: listCostCenters });
+  const costCenters = useQuery({
+    queryKey: ['cost-centers'],
+    queryFn: listCostCenters,
+    enabled: Boolean(company.data?.accountingEnabled),
+  });
   const batches = useQuery({ queryKey: ['batches'], queryFn: () => listBatches() });
   const series = useQuery({
     queryKey: ['purchase-invoice-number-series'],
@@ -239,14 +264,18 @@ export function NewPurchasePage() {
     queryFn: () => getPurchase(editId as number),
     enabled: isEdit,
   });
+  const productCatalog = useQuery({
+    queryKey: ['product-picker', cfFilters],
+    queryFn: () => listProductsPage({ page: 1, pageSize: 50, cf: cfFilters }),
+  });
   const products = useQuery({
-    queryKey: ['product-search', debouncedProductQuery],
-    queryFn: () => searchProducts(debouncedProductQuery),
+    queryKey: ['product-search', debouncedProductQuery, cfFilters],
+    queryFn: () => searchProducts(debouncedProductQuery, { cf: cfFilters }),
     enabled: debouncedProductQuery.length >= 1,
   });
   const stockBalances = useQuery({
     queryKey: ['stock'],
-    queryFn: listStock,
+    queryFn: () => listStock(),
     staleTime: 60_000,
   });
   const availableByProduct = useMemo(() => {
@@ -263,6 +292,8 @@ export function NewPurchasePage() {
     setPrefix(series.data.prefix);
     setNextNumber(series.data.nextNumber);
   }, [series.data, isEdit]);
+
+  usePurchaseOffline(companyId, userId, setOutboxBanner);
 
   useEffect(() => {
     const onOnline = () => setOffline(false);
@@ -403,6 +434,7 @@ export function NewPurchasePage() {
               unitPriceInclusive: unitPrice,
               discountPercent,
               gstRate,
+              cessRate,
             }).exclusiveUnitPrice
           : unitPrice;
       const tax = calculateLineTax({
@@ -424,6 +456,9 @@ export function NewPurchasePage() {
         sku: '',
         hsnCode: item.hsnCode ?? '',
         unitName: item.unitName ?? 'PCS',
+        baseUnitName: (products.data ?? []).find((p) => p.id === item.product)?.unitName ?? 'PCS',
+        alternateUnitName: (products.data ?? []).find((p) => p.id === item.product)?.alternateUnitName,
+        conversionRate: toNumber((products.data ?? []).find((p) => p.id === item.product)?.conversionRate) || 1,
         batchNo: item.batchNo ?? '',
         batch: item.batch ?? null,
         trackBatch: Boolean(
@@ -498,6 +533,7 @@ export function NewPurchasePage() {
             unitPriceInclusive: l.unitPrice,
             discountPercent: l.discountPercent,
             gstRate,
+            cessRate: purchaseType === 'NON_GST' ? 0 : l.cessRate ?? 0,
           }).exclusiveUnitPrice;
           return calculateLineTax({
             quantity: l.quantity,
@@ -593,7 +629,8 @@ export function NewPurchasePage() {
     setSupplierId('');
     setWarehouseId(warehouses.data?.find((warehouse) => warehouse.isDefault)?.id ?? '');
     setCostCenterId('');
-    setPurchaseType('GST');
+    setPurchaseType(preferredInvoiceType(company.data?.registrationType));
+    setPurchaseTypeTouched(false);
     setPriceMode('EXCLUSIVE');
     setIsReverseCharge(false);
     setItcEligibility('CLAIMABLE');
@@ -674,6 +711,7 @@ export function NewPurchasePage() {
       cessRate: purchaseType === 'NON_GST' ? 0 : l.cessRate ?? 0,
       batch: l.batch ?? undefined,
       batchNo: l.batchNo || undefined,
+      unitName: l.unitName || undefined,
       expDate: l.expDate || null,
       mfgDate: l.mfgDate || null,
       ...(l.trackSerial && l.serialNumbersText?.trim()
@@ -698,6 +736,21 @@ export function NewPurchasePage() {
       setIdempotencyKey(key);
       let invoice: PurchaseInvoice;
       let completeWarning: string | null = null;
+      const queueOffline = async () => {
+        if (!companyId || !userId) return;
+        await enqueueDraft(companyId, userId, {
+          kind: 'purchase',
+          payload: {
+            ...(payload as Record<string, unknown>),
+            ...(editingStatus ? { status: editingStatus } : {}),
+            ...(editingStatus === 'COMPLETED' ? { confirmAmend: true } : {}),
+          },
+          idempotencyKey: key,
+          invoiceId: isEdit && editId ? editId : null,
+        });
+        setOutboxBanner(t('billing.savedOffline'));
+      };
+      try {
       if (isEdit && editId) {
         // H9-A: completed purchases need Owner + confirm_amend for money-field edits.
         if (editingStatus === 'COMPLETED') {
@@ -730,6 +783,13 @@ export function NewPurchasePage() {
             completeWarning = getErrorMessage(err);
           }
         }
+      }
+      } catch (err) {
+        if (isNetworkError(err) || !navigator.onLine) {
+          await queueOffline();
+          throw new Error(t('billing.savedOffline'));
+        }
+        throw err;
       }
 
       let paymentWarning: string | null = completeWarning;
@@ -764,7 +824,7 @@ export function NewPurchasePage() {
       if (companyId && userId) {
         void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
       }
-      const label = invoice.number?.trim() ? invoice.number : `Draft #${invoice.id}`;
+      const label = invoice.number?.trim() ? invoice.number : `#${invoice.id}`;
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
         flashSaveAndNew(`Purchase ${label} saved — start the next one`, paymentWarning);
@@ -793,11 +853,10 @@ export function NewPurchasePage() {
         replace: true,
         state: {
           message: flash,
-          ...(paymentWarning ? { paymentWarning } : {}),
         },
       });
     },
-    onError: (err) => flashError(getErrorMessage(err)),
+    onError: (err) => flashError(err),
   });
 
   const partyMutation = useMutation({
@@ -872,7 +931,10 @@ export function NewPurchasePage() {
         gstRate: '18',
       });
     },
-    onError: (err) => setItemDialogError(getErrorMessage(err)),
+    onError: (err) => {
+      setItemDialogError(getErrorMessage(err));
+      setItemDialogErrorSource(err);
+    },
   });
 
   const addProduct = (product: Product | null) => {
@@ -920,7 +982,6 @@ export function NewPurchasePage() {
   };
 
   useEffect(() => {
-    // BUG-513: same guard as NewInvoicePage.
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (lines.length === 0) return;
       e.preventDefault();
@@ -930,26 +991,6 @@ export function NewPurchasePage() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [lines.length]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const meta = e.ctrlKey || e.metaKey;
-      if (meta && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        if (!saveMutation.isPending) saveMutation.mutate('complete');
-      }
-      if (meta && e.key === 'Enter') {
-        e.preventDefault();
-        if (!saveMutation.isPending) saveMutation.mutate('complete_new');
-      }
-      if (e.key === 'F2') {
-        e.preventDefault();
-        barcodeRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [saveMutation.isPending, saveMutation.mutate]);
-
   const activeSuppliers = (suppliers.data?.results ?? []).filter(
     (c) => c.isActive !== false && (c as unknown as { is_active?: boolean }).is_active !== false,
   );
@@ -958,6 +999,43 @@ export function NewPurchasePage() {
   const primarySave = primarySaveAction({ isEdit, editingStatus });
   const isCompletedEdit = editingStatus === 'COMPLETED';
   const canAmendMoney = isCompletedEdit && isOwner;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest('[role=dialog]') ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      const meta = e.ctrlKey || e.metaKey;
+      if (meta && e.key.toLowerCase() === 's' && !e.shiftKey) {
+        e.preventDefault();
+        if (!saveMutation.isPending) saveMutation.mutate('draft');
+        return;
+      }
+      if (meta && e.key === 'Enter' && !e.shiftKey && canComplete) {
+        e.preventDefault();
+        if (!saveMutation.isPending) {
+          saveMutation.mutate(primarySave.mode === 'complete' ? 'complete' : 'complete_new');
+        }
+        return;
+      }
+      if (meta && e.shiftKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        barcodeRef.current?.focus();
+        return;
+      }
+      if (e.key === 'F2') {
+        e.preventDefault();
+        barcodeRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canComplete, primarySave.mode, saveMutation.isPending, saveMutation.mutate]);
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;
@@ -982,10 +1060,17 @@ export function NewPurchasePage() {
       isEdit={isEdit}
       showDraftButton={!isEdit || editingStatus === 'DRAFT'}
       backTo={isEdit ? '/purchases/history' : null}
-      message={message}
+      message={message ?? outboxBanner}
       error={error}
+      errorSource={errorSource}
+      documentId={isEdit ? editId ?? undefined : undefined}
+      multiGodown={(warehouses.data?.length ?? 0) > 1}
       warning={
-        isEdit && editingStatus === 'COMPLETED' ? t('billing.editingCompletedWarning') : null
+        fromBillUpload
+          ? t('billUpload.reviewOnEditDisclaimer')
+          : isEdit && editingStatus === 'COMPLETED'
+            ? t('billing.editingCompletedWarning')
+            : null
       }
       saving={saveMutation.isPending}
       onPrimarySave={() => saveMutation.mutate(primarySave.mode)}
@@ -1008,6 +1093,7 @@ export function NewPurchasePage() {
       }
     >
       <Stack spacing={2}>
+      <UnsavedChangesGuard when={lines.length > 0} />
       {pendingDraft ? (
         <Alert
           severity="info"
@@ -1048,7 +1134,7 @@ export function NewPurchasePage() {
                 }
           }
         >
-          {OUTBOX_PLAINTEXT_WARNING}
+          {t('billing.outboxPlaintextWarning')}
         </Alert>
       ) : null}
       <Paper sx={{ p: 2 }}>
@@ -1106,7 +1192,7 @@ export function NewPurchasePage() {
             </Stack>
             <CompactField
               select
-              label="Warehouse"
+              label={t('nav.warehouses')}
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : '')}
             >
@@ -1141,9 +1227,14 @@ export function NewPurchasePage() {
                 select
                 label={t('billing.purchaseType')}
                 value={purchaseType}
-                onChange={(e) => setPurchaseType(e.target.value as PurchaseType)}
+                onChange={(e) => {
+                  setPurchaseTypeTouched(true);
+                  setPurchaseType(e.target.value as PurchaseType);
+                }}
               >
-                <MenuItem value="GST">GST</MenuItem>
+                {company.data?.registrationType === 'REGULAR' ? (
+                  <MenuItem value="GST">GST</MenuItem>
+                ) : null}
                 <MenuItem value="NON_GST">Non-GST</MenuItem>
               </CompactField>
               {purchaseType === 'GST' ? (
@@ -1254,6 +1345,7 @@ export function NewPurchasePage() {
           lines={lines}
           taxes={lineTaxes}
           showCess={purchaseType !== 'NON_GST'}
+          showMrpSavings={false}
           qtyDisabled={isCompletedEdit}
           moneyDisabled={isCompletedEdit && !canAmendMoney}
           deleteDisabled={isCompletedEdit}
@@ -1336,10 +1428,15 @@ export function NewPurchasePage() {
               gap: 2,
             }}
           >
-            <Autocomplete<Product>
+            <Stack spacing={1} sx={{ flex: 1 }}>
+              <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
+              <Autocomplete<Product>
               sx={{ flex: 1 }}
-              options={(products.data ?? []).filter((p) => p.status === 'ACTIVE')}
-              loading={products.isFetching}
+              options={(
+                (debouncedProductQuery.length >= 1 ? products.data : productCatalog.data?.results) ?? []
+              ).filter((p) => p.status === 'ACTIVE')}
+              loading={products.isFetching || productCatalog.isFetching}
+              noOptionsText={t('common.noResults')}
               inputValue={productQuery}
               onInputChange={(_, v, reason) => {
                 if (reason === 'input' || reason === 'clear') setProductQuery(v);
@@ -1359,6 +1456,7 @@ export function NewPurchasePage() {
                 />
               )}
             />
+            </Stack>
             <Link
               component="button"
               type="button"
@@ -1750,7 +1848,9 @@ export function NewPurchasePage() {
         <DialogTitle>{t('billing.createItem')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            {itemDialogError ? <Alert severity="error">{itemDialogError}</Alert> : null}
+            {itemDialogError ? (
+              <HelpErrorAlert message={itemDialogError} error={itemDialogErrorSource} />
+            ) : null}
             <TextField
               required
               label={t('common.name')}

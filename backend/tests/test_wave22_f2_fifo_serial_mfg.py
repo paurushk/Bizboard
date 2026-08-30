@@ -254,7 +254,10 @@ def test_bb_000722_purchase_return_requires_and_scraps_serials(tenant_a):
 
     assert tenant_a.client.post(f"/api/v1/purchases/returns/{ret_id}/complete/").status_code == 200
 
-    assert SerialNumber.objects.get(serial_number="PR-SN-1").status == SerialNumber.Status.SCRAPPED
+    # A SELLABLE purchase return sends the unit back to the supplier — it is
+    # RETURNED, not SCRAPPED (only condition=DAMAGED scraps). See
+    # PurchaseService.complete_return.
+    assert SerialNumber.objects.get(serial_number="PR-SN-1").status == SerialNumber.Status.RETURNED
 
 
 

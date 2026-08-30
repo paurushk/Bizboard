@@ -20,6 +20,15 @@ def accumulate_hsn_line(hsn_buckets: dict, item, *, sign: Decimal = Decimal("1")
     hsn_buckets[key]["cess"] += sign * Decimal(str(getattr(item, "cess", 0) or 0))
 
 
+def apply_after_tax_header_discount(hsn_buckets: dict, invoice, items) -> None:
+    """AFTER_TAX cash discount must not reduce GSTR Table 12 taxable value.
+
+    GST taxable is determined before cash discount. Subtracting the discount from
+    HSN taxable while leaving GST unscaled understates Table 12. Intentionally a no-op.
+    """
+    return
+
+
 def _supply_type_of(inv) -> str:
     st = (getattr(inv, "supply_type", None) or "").strip().upper()
     if st and st != "B2B":
@@ -74,10 +83,11 @@ def append_b2_outward_rows(
     exp: list | None = None,
     sez: list | None = None,
     nil_bucket: dict | None = None,
+    issues: list | None = None,
 ) -> None:
     """Classify one outward invoice into B2B / B2CL / B2CS / EXP / SEZ / nil."""
     from .gst_returns import (
-        B2CL_THRESHOLD,
+        b2cl_threshold_for,
         _filing_gstin,
         _filing_pos,
         _inter_state,
@@ -96,10 +106,14 @@ def append_b2_outward_rows(
     if nil_bucket is not None and buckets:
         if not has_nonzero:
             for vals in buckets.values():
-                nil_bucket["taxable_value"] += vals["taxable_value"]
+                amt = vals["taxable_value"]
+                nil_bucket["taxable_value"] += amt
+                nil_bucket["nil_rated"] = nil_bucket.get("nil_rated", Decimal("0")) + amt
             return
         for rate in [r for r in buckets if Decimal(str(r)) == 0]:
-            nil_bucket["taxable_value"] += buckets[rate]["taxable_value"]
+            amt = buckets[rate]["taxable_value"]
+            nil_bucket["taxable_value"] += amt
+            nil_bucket["nil_rated"] = nil_bucket.get("nil_rated", Decimal("0")) + amt
             del buckets[rate]
 
     ctin = _filing_gstin(inv)
@@ -123,6 +137,19 @@ def append_b2_outward_rows(
             })
         return
 
+    pos_unresolved = not (pos or "").strip() or str(pos).strip().upper() in ("NA", "N/A")
+    if pos_unresolved and not getattr(company, "assume_local_state_for_blank_party", False):
+        if issues is not None:
+            issues.append({
+                "code": "POS_UNRESOLVED",
+                "severity": "critical",
+                "document_type": "sales_invoice",
+                "document_id": inv.id,
+                "number": inv.number,
+                "message": "Place of supply could not be resolved; invoice excluded from B2CL/B2CS.",
+            })
+        return
+
     stamp = getattr(inv, "company_gstin", None)
     inter = _inter_state(
         company,
@@ -131,7 +158,7 @@ def append_b2_outward_rows(
         seller_gstin=(stamp.gstin if stamp is not None else "") or "",
         seller_state=(stamp.state if stamp is not None else "") or "",
     )
-    if inter and inv.grand_total > B2CL_THRESHOLD:
+    if inter and inv.grand_total > b2cl_threshold_for(getattr(inv, "invoice_date", None)):
         for rate, vals in sorted(buckets.items()):
             b2cl.append({
                 "invoice_number": inv.number,
@@ -169,7 +196,7 @@ def build_note_rate_rows(
 ) -> None:
     """Append CDNR/CDNUR/B2CS rate rows for one credit/debit note."""
     from .gst_returns import (
-        B2CL_THRESHOLD,
+        b2cl_threshold_for,
         _filing_gstin,
         _filing_pos,
         _inter_state,
@@ -200,7 +227,7 @@ def build_note_rate_rows(
     for item in items:
         accumulate_hsn_line(hsn_buckets, item, sign=sign)
 
-    buckets = _rate_buckets(items)
+    buckets = _rate_buckets(items, invoice=inv)
     sign = Decimal("-1") if note_kind == "CREDIT" else Decimal("1")
     # Export/SEZ notes must follow the same supply-type detection as invoices —
     # never fall through into B2CS.
@@ -238,7 +265,7 @@ def build_note_rate_rows(
             seller_state=(stamp.state if stamp is not None else "") or "",
         )
         inv_value = Decimal(str(getattr(inv, "grand_total", 0) or 0))
-        if inter and inv_value > B2CL_THRESHOLD:
+        if inter and inv_value > b2cl_threshold_for(getattr(inv, "invoice_date", None)):
             target = cdnur
         else:
             if b2cs_buckets is not None:
@@ -251,6 +278,7 @@ def build_note_rate_rows(
                     b2cs_buckets[key]["cess"] += sign * vals.get("cess", Decimal("0"))
                 return
             target = cdnur
+    rchrg = "Y" if getattr(inv, "is_reverse_charge", False) else "N"
     for rate, vals in sorted(buckets.items()):
         target.append({
             "note_kind": note_kind,
@@ -268,6 +296,7 @@ def build_note_rate_rows(
             "igst": _money(vals["igst"]),
             "cess": _money(vals.get("cess", Decimal("0"))),
             "note_value": _money(note.grand_total),
+            "rchrg": rchrg,
         })
 
 

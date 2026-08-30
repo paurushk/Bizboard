@@ -23,6 +23,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 function currentPeriod(): string {
   const now = new Date();
@@ -32,11 +33,12 @@ function currentPeriod(): string {
 export function Gstr2bPage() {
   const qc = useQueryClient();
   const [period, setPeriod] = useState(currentPeriod());
+  const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
 
   const query = useQuery({
-    queryKey: ['gstr2b', period],
-    queryFn: () => listGstr2bPage({ period, page: 1, pageSize: 50 }),
+    queryKey: ['gstr2b', period, page],
+    queryFn: () => listGstr2bPage({ period, page, pageSize: 50 }),
   });
 
   const matchMutation = useMutation({
@@ -60,12 +62,15 @@ export function Gstr2bPage() {
       <Alert severity="info">
         Matched 2B rows marked Ineligible or Reversed are excluded from GSTR-3B claimable ITC.
       </Alert>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       <Stack direction="row" spacing={2} alignItems="center">
         <TextField
           label="Period"
           value={period}
-          onChange={(e) => setPeriod(e.target.value)}
+          onChange={(e) => {
+            setPeriod(e.target.value);
+            setPage(1);
+          }}
           size="small"
           sx={{ width: 140 }}
         />
@@ -75,7 +80,7 @@ export function Gstr2bPage() {
       </Stack>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {!query.isLoading && rows.length === 0 ? <EmptyState /> : null}
       {rows.length > 0 ? (
@@ -151,6 +156,27 @@ export function Gstr2bPage() {
             )}
           </VirtualizedTable>
         </Paper>
+      ) : null}
+      {query.data && (query.data.next || page > 1) ? (
+        <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+          <Button
+            size="small"
+            disabled={page <= 1 || query.isFetching}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            {t('common.previous')}
+          </Button>
+          <Typography variant="body2" color="text.secondary">
+            {t('common.page')} {page}
+          </Typography>
+          <Button
+            size="small"
+            disabled={!query.data.next || query.isFetching}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            {t('common.next')}
+          </Button>
+        </Stack>
       ) : null}
     </Stack>
   );

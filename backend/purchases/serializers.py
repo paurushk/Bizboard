@@ -35,7 +35,7 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
             "hsn_code", "mrp", "unit_name", "uqc_code", "unit_price_inclusive",
             "batch", "batch_no", "exp_date", "mfg_date", "serial_numbers",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "unit_name", "uqc_code"]
+        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "uqc_code"]
         extra_kwargs = {
             "unit_price": {"required": False},
             "gst_rate": {"required": False},
@@ -91,20 +91,9 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             self.context["view"], "action", None
         ) == "list":
             return max(payable - Decimal(str(allocated or 0)), Decimal("0"))
-        try:
-            from ledgers.services import LedgerService
+        from ledgers.services import LedgerService
 
-            return LedgerService.purchase_invoice_outstanding(obj)
-        except Exception:
-            from django.db.models import Sum
-
-            from payments.models import PaymentAllocation
-
-            allocated = (
-                PaymentAllocation.objects.filter(purchase_invoice=obj, reversed_at__isnull=True).aggregate(t=Sum("amount"))["t"]
-                or Decimal("0")
-            )
-            return max(payable - allocated, Decimal("0"))
+        return LedgerService.purchase_invoice_outstanding(obj)
 
     def get_paid(self, obj):
         from decimal import Decimal
@@ -189,8 +178,8 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             lines_prices_unchanged,
         )
 
-        if instance.status == PurchaseInvoice.Status.CANCELLED:
-            raise BusinessRuleError("Cancelled purchase cannot be edited.")
+        if instance.status in (PurchaseInvoice.Status.CANCELLED, PurchaseInvoice.Status.RETURNED):
+            raise BusinessRuleError("Cancelled/returned purchase cannot be edited.")
         if instance.status == PurchaseInvoice.Status.COMPLETED and "supplier" in validated_data:
             if validated_data["supplier"].pk != instance.supplier_id:
                 raise BusinessRuleError("Cannot change supplier on a completed purchase.")
@@ -203,7 +192,7 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
 
         money_fields = {
             "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off",
-            "price_mode", "is_reverse_charge",
+            "price_mode", "is_reverse_charge", "itc_eligibility",
         }
         money_changing = bool(money_fields & set(validated_data.keys()))
         items_in_request = items_data is not serializers.empty
@@ -253,10 +242,16 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         instance = super().update(instance, validated_data)
         user = self.context["request"].user
 
+        from purchases.services import assert_claimable_itc_allowed, assert_invoice_tds_exclusive
+
+        assert_invoice_tds_exclusive(instance)
+        assert_claimable_itc_allowed(instance)
+
         if instance.status == PurchaseInvoice.Status.COMPLETED:
             if needs_amend:
                 payload = prepared if prepared is not None else existing_lines_as_items_data(instance.items)
                 PurchaseService.set_items(instance, payload, user)
+                instance.refresh_from_db()
                 PurchaseService.restamp_fifo_layers_for_price_amend(instance)
                 # H9: reverse prior COMPLETE journals and re-post at amended totals.
                 if instance.company.accounting_enabled:
@@ -294,7 +289,7 @@ class PurchaseReturnItemSerializer(serializers.ModelSerializer):
         fields = [
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate",
-            "batch", "serial_numbers",
+            "batch", "serial_numbers", "condition",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY
         extra_kwargs = {
@@ -302,6 +297,7 @@ class PurchaseReturnItemSerializer(serializers.ModelSerializer):
             "gst_rate": {"required": False},
             "batch": {"required": False, "allow_null": True},
             "serial_numbers": {"required": False},
+            "condition": {"required": False},
         }
 
 
@@ -326,6 +322,15 @@ class PurchaseReturnSerializer(CompanyScopedSerializerMixin, serializers.ModelSe
         if invoice is not None:
             self.check_company_ref(invoice, "purchase_invoice")
         return invoice
+
+    def validate(self, attrs):
+        supplier = attrs.get("supplier") or getattr(self.instance, "supplier", None)
+        invoice = attrs.get("purchase_invoice") or getattr(self.instance, "purchase_invoice", None)
+        if supplier is not None and invoice is not None and supplier.pk != invoice.supplier_id:
+            raise serializers.ValidationError(
+                {"supplier": "Supplier must match the linked purchase bill."}
+            )
+        return attrs
 
     def create(self, validated_data):
         items_data = validated_data.pop("items")

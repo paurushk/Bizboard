@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -28,11 +27,13 @@ import {
   type WorkOrder,
 } from '@/api/manufacturing';
 import { listWarehouses } from '@/api/resources';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const PAGE_SIZE = 50;
 
@@ -59,6 +60,9 @@ function WorkOrdersPageInner() {
   const [editing, setEditing] = useState<WorkOrder | null>(null);
   const [form, setForm] = useState<WoForm>(emptyForm);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{ action: 'release' | 'complete' | 'cancel'; id: number } | null>(
+    null,
+  );
 
   const query = useQuery({
     queryKey: ['work-orders', page],
@@ -147,10 +151,10 @@ function WorkOrdersPageInner() {
           {t('common.add')}
         </Button>
       </Stack>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {rows.length === 0 && !query.isLoading && !query.isError ? (
         <EmptyState description={t('empty.workOrders')} />
@@ -192,7 +196,7 @@ function WorkOrdersPageInner() {
                         <Button
                           size="small"
                           disabled={releaseMutation.isPending}
-                          onClick={() => releaseMutation.mutate(wo.id)}
+                          onClick={() => setConfirm({ action: 'release', id: wo.id })}
                         >
                           {t('erp.release')}
                         </Button>
@@ -203,7 +207,7 @@ function WorkOrdersPageInner() {
                         <Button
                           size="small"
                           disabled={completeMutation.isPending}
-                          onClick={() => completeMutation.mutate(wo.id)}
+                          onClick={() => setConfirm({ action: 'complete', id: wo.id })}
                         >
                           {t('common.complete')}
                         </Button>
@@ -211,7 +215,7 @@ function WorkOrdersPageInner() {
                           size="small"
                           color="warning"
                           disabled={cancelMutation.isPending}
-                          onClick={() => cancelMutation.mutate(wo.id)}
+                          onClick={() => setConfirm({ action: 'cancel', id: wo.id })}
                         >
                           {t('common.cancel')}
                         </Button>
@@ -222,7 +226,7 @@ function WorkOrdersPageInner() {
                         size="small"
                         color="warning"
                         disabled={cancelMutation.isPending}
-                        onClick={() => cancelMutation.mutate(wo.id)}
+                        onClick={() => setConfirm({ action: 'cancel', id: wo.id })}
                       >
                         {t('common.cancel')}
                       </Button>
@@ -309,6 +313,32 @@ function WorkOrdersPageInner() {
           </Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={Boolean(confirm)}
+        title={
+          confirm?.action === 'release'
+            ? t('erp.release')
+            : confirm?.action === 'complete'
+              ? t('common.complete')
+              : t('common.cancel')
+        }
+        body={
+          confirm?.action === 'release'
+            ? t('erp.confirmReleaseWo')
+            : confirm?.action === 'complete'
+              ? t('erp.confirmCompleteWo')
+              : t('erp.confirmCancelWo')
+        }
+        confirmColor={confirm?.action === 'cancel' ? 'warning' : 'primary'}
+        onClose={() => setConfirm(null)}
+        onConfirm={() => {
+          if (!confirm) return;
+          if (confirm.action === 'release') releaseMutation.mutate(confirm.id);
+          else if (confirm.action === 'complete') completeMutation.mutate(confirm.id);
+          else cancelMutation.mutate(confirm.id);
+          setConfirm(null);
+        }}
+      />
     </Stack>
   );
 }

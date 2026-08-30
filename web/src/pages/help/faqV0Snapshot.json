@@ -1,0 +1,32 @@
+[
+  {
+    "id": "unit-conversion-rate",
+    "category": "Items & Units",
+    "question": "How do I set the conversion rate between a base unit and an alternate unit?",
+    "keywords": ["carton", "pieces", "pcs", "box", "uom", "unit of measure", "alternate unit", "conversion"]
+  },
+  {
+    "id": "base-vs-alternate-unit",
+    "category": "Items & Units",
+    "question": "What is the difference between the base unit and the alternate unit?",
+    "keywords": ["secondary unit", "billing unit", "stock unit"]
+  },
+  {
+    "id": "unit-field-blank-on-edit",
+    "category": "Items & Units",
+    "question": "Why is the Unit of Measure field blank or greyed out when I edit an item?",
+    "keywords": ["disabled", "locked", "cannot change unit", "imported item unit"]
+  },
+  {
+    "id": "stock-shows-but-insufficient",
+    "category": "Stock & Godowns",
+    "question": "The Products list shows stock available, but billing says \"insufficient stock\". Why?",
+    "keywords": ["available 0", "godown", "warehouse", "negative stock", "complete invoice"]
+  },
+  {
+    "id": "reserved-vs-on-hand",
+    "category": "Stock & Godowns",
+    "question": "What does \"available\" stock mean versus \"on hand\"?",
+    "keywords": ["reserved", "allocated", "draft invoice stock"]
+  }
+]

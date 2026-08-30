@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from core.permissions import DenyViewerWrite, HasCompany, get_company_user
+from core.permissions import CanCreateSales, HasCompany, get_company_user
 from core.viewsets import CompanyScopedViewSet
 
 from .models import Lead, LeadActivity, Opportunity
@@ -23,7 +23,7 @@ def _truthy(value) -> bool:
 class LeadViewSet(CompanyScopedViewSet):
     queryset = Lead.objects.all()
     serializer_class = LeadSerializer
-    permission_classes = [IsAuthenticated, HasCompany, DenyViewerWrite]
+    permission_classes = [IsAuthenticated, HasCompany, CanCreateSales]
     audit_entity = "Lead"
 
     def initial(self, request, *args, **kwargs):
@@ -34,7 +34,8 @@ class LeadViewSet(CompanyScopedViewSet):
     def convert(self, request, pk=None):
         lead = self.get_object()
         won = _truthy(request.query_params.get("won")) or _truthy(request.data.get("won"))
-        lead, opportunity, _customer = convert_lead(lead, request.user, won=won)
+        amount = request.data.get("amount")
+        lead, opportunity, _customer = convert_lead(lead, request.user, won=won, amount=amount)
         return Response(
             {
                 "lead": LeadSerializer(lead, context={"request": request}).data,
@@ -54,7 +55,6 @@ class LeadViewSet(CompanyScopedViewSet):
             lead=lead,
             company=lead.company,
             created_by=request.user,
-            updated_by=request.user,
         )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -62,7 +62,7 @@ class LeadViewSet(CompanyScopedViewSet):
 class OpportunityViewSet(CompanyScopedViewSet):
     queryset = Opportunity.objects.select_related("lead")
     serializer_class = OpportunitySerializer
-    permission_classes = [IsAuthenticated, HasCompany, DenyViewerWrite]
+    permission_classes = [IsAuthenticated, HasCompany, CanCreateSales]
     audit_entity = "Opportunity"
 
     def initial(self, request, *args, **kwargs):

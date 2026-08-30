@@ -245,6 +245,33 @@ def test_cash_tight_relative_silent(tenant_a):
 
 
 @pytest.mark.django_db
+def test_low_stock_fast_mover_uses_company_wide_qty(tenant_a):
+    """One godown at reorder must not alert when company on-hand is healthy."""
+    from inventory.models import MovementType, Warehouse
+    from inventory.services import InventoryService
+    from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
+
+    product = make_product(tenant_a.company, sku="LSFM-1", reorder_level="10")
+    dest = Warehouse.objects.create(company=tenant_a.company, name="G2", code="G2LS")
+    add_stock(tenant_a, product, "100", unit_cost="50")
+    InventoryService.post_movement(
+        company=tenant_a.company, warehouse=dest, product=product,
+        movement_type=MovementType.PURCHASE, quantity="10", unit_cost="50",
+        user=tenant_a.owner,
+    )
+    customer = make_customer(tenant_a.company)
+    draft = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+        invoice_type="NON_GST",
+    )
+    resp = tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/complete/")
+    assert resp.status_code == 200
+    codes = {a["code"] for a in build_business_alerts(tenant_a.company)}
+    assert "LOW_STOCK_FAST_MOVER" not in codes
+
+
+@pytest.mark.django_db
 def test_cashflow_get_does_not_persist(tenant_a):
     from insights.models import CashflowForecastRun
 

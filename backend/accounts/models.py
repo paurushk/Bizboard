@@ -157,6 +157,20 @@ class Company(TimeStampedModel):
     stock_on_delivery_challan = models.BooleanField(default=False)
     # Phase 5 — light accounting
     accounting_enabled = models.BooleanField(default=False)
+    # R3-017: effective date for opening-balance journals (opening stock, opening
+    # AR/AP). Falls back to the current FY start when unset.
+    books_start_date = models.DateField(null=True, blank=True)
+    # R1-013: how document number series are partitioned. COMPANY = one series
+    # per doc type (legacy default). GSTIN_FY = a separate series per filing
+    # GSTIN and financial year (Rule 46 style). Decided once at company level so
+    # it never depends on whether a call site happened to pass a gstin.
+    class DocNumberScope(models.TextChoices):
+        COMPANY = "COMPANY"
+        GSTIN_FY = "GSTIN_FY"
+
+    doc_number_scope = models.CharField(
+        max_length=16, choices=DocNumberScope.choices, default=DocNumberScope.COMPANY
+    )
     # Wave 17G — per-company runtime feature overrides (merged with env flags at API)
     feature_flags = models.JSONField(default=dict, blank=True)
     # BB-000671: ops escape hatch — treat SaaS subscription as active/compliant.
@@ -169,6 +183,8 @@ class Company(TimeStampedModel):
     # Example: [{"min": "15000.01", "max": null, "amount": "200"}]
     # Or keyed by state: {"Karnataka": [{"min": "15000.01", "max": null, "amount": "200"}]}
     payroll_pt_slabs = models.JSONField(default=list, blank=True)
+    # Extra keys shown on the item form Custom tab (Brand code / form by default).
+    item_custom_field_defs = models.JSONField(default=list, blank=True)
 
     class Meta:
         verbose_name_plural = "companies"
@@ -260,6 +276,20 @@ class CompanyUser(TimeStampedModel):
                 "can_create_payments": False,
                 "can_post_journals": False,
             }
+        if role == cls.Role.SALES_STAFF:
+            return {
+                "can_manage_inventory": False,
+                "can_import": False,
+                "can_cancel_documents": False,
+                "can_view_financial_reports": False,
+                "can_export": False,
+                "can_view_ai_insights": False,
+                "can_use_ai_assistant": False,
+                "can_create_sales": True,
+                "can_create_purchases": False,
+                "can_create_payments": True,
+                "can_post_journals": False,
+            }
         return None
     can_manage_inventory = models.BooleanField(default=False)
     can_import = models.BooleanField(default=False)
@@ -294,6 +324,19 @@ class InviteJti(TimeStampedModel):
     membership = models.ForeignKey(
         "accounts.CompanyUser", on_delete=models.CASCADE, related_name="invite_jtis",
     )
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def is_consumed(self):
+        return self.consumed_at is not None
+
+
+class PasswordResetJti(TimeStampedModel):
+    """Single-use password-reset tokens (mirrors InviteJti)."""
+
+    jti = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey("User", on_delete=models.CASCADE, related_name="password_reset_jtis")
     expires_at = models.DateTimeField()
     consumed_at = models.DateTimeField(null=True, blank=True)
 

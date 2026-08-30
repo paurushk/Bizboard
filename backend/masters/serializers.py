@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from core.serializers import CompanyPrimaryKeyRelatedField
@@ -92,14 +94,19 @@ class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
     brand_name = serializers.CharField(source="brand.name", read_only=True)
     unit_name = serializers.CharField(source="unit.short_name", read_only=True)
+    alternate_unit_name = serializers.CharField(source="alternate_unit.short_name", read_only=True)
+    has_movements = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Product
         fields = [
             "id", "name", "sku", "barcode", "hsn_code", "description",
             "category", "category_name", "brand", "brand_name", "unit", "unit_name",
-            "gst_rate", "purchase_price", "selling_price", "mrp",
-            "reorder_level", "track_batch", "track_serial", "status", "created_at", "updated_at",
+            "gst_rate", "purchase_price", "selling_price", "mrp", "wholesale_price",
+            "reorder_level", "product_type", "track_inventory",
+            "track_batch", "track_serial", "selling_tax_inclusive", "purchase_tax_inclusive",
+            "custom_fields", "alternate_unit", "alternate_unit_name", "conversion_rate",
+            "default_discount_percent", "has_movements", "status", "created_at", "updated_at",
         ]
 
     def _check_company(self, attrs):
@@ -109,7 +116,7 @@ class ProductSerializer(serializers.ModelSerializer):
         from core.permissions import get_company_user
 
         company = get_company_user(request).company
-        for field in ("category", "brand", "unit"):
+        for field in ("category", "brand", "unit", "alternate_unit"):
             obj = attrs.get(field)
             if obj is not None and obj.company_id != company.id:
                 raise serializers.ValidationError({field: "Invalid reference."})
@@ -119,7 +126,9 @@ class ProductSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if not request:
             return attrs
+        from core.exceptions import BusinessRuleError
         from core.permissions import get_company_user
+        from inventory.item_stock import apply_product_type_matrix, assert_tracking_unlocked
 
         company = get_company_user(request).company
         raw = self.initial_data.get("unit_name") or self.initial_data.get("unitName")
@@ -131,7 +140,63 @@ class ProductSerializer(serializers.ModelSerializer):
                     company=company, short_name=short, name=short, uqc_code=short[:8],
                 )
             attrs["unit"] = unit
+        alt_raw = self.initial_data.get("alternate_unit_name") or self.initial_data.get("alternateUnitName")
+        if alt_raw and not attrs.get("alternate_unit"):
+            alt_short = str(alt_raw).strip().upper()
+            if alt_short:
+                alt = Unit.objects.filter(company=company, short_name__iexact=alt_short).first()
+                if alt is None:
+                    alt = Unit.objects.create(
+                        company=company, short_name=alt_short, name=alt_short, uqc_code=alt_short[:8],
+                    )
+                attrs["alternate_unit"] = alt
+        try:
+            assert_tracking_unlocked(self.instance, attrs)
+            attrs = apply_product_type_matrix(attrs, self.instance)
+        except BusinessRuleError as exc:
+            raise serializers.ValidationError(exc.detail)
+        rate = attrs.get("conversion_rate", getattr(self.instance, "conversion_rate", None))
+        if rate is not None and Decimal(str(rate)) <= 0:
+            raise serializers.ValidationError({"conversion_rate": "Must be greater than zero."})
+        current_unit = attrs.get("unit", getattr(self.instance, "unit", None))
+        if attrs.get("alternate_unit") and attrs.get("alternate_unit") == current_unit:
+            raise serializers.ValidationError({"alternate_unit": "Alternate unit must differ from the base unit."})
         return attrs
+
+    def validate_custom_fields(self, value):
+        from core.permissions import get_company_user
+        from masters.custom_fields import coerce_values, defs_for_company, omit_empty
+
+        request = self.context.get("request")
+        if not request:
+            return omit_empty(value)
+        company = get_company_user(request).company
+        existing = getattr(self.instance, "custom_fields", None) if self.instance else {}
+        return coerce_values(value, defs_for_company(company), existing)
+
+    def _active_custom_field_defs(self):
+        cached = getattr(self, "_cached_cf_defs", None)
+        if cached is not None:
+            return cached
+        request = self.context.get("request")
+        defs = None
+        if request:
+            from core.permissions import get_company_user
+            from masters.custom_fields import defs_for_company
+
+            try:
+                defs = defs_for_company(get_company_user(request).company)
+            except Exception:
+                defs = []
+        self._cached_cf_defs = defs
+        return defs
+
+    def to_representation(self, instance):
+        from masters.custom_fields import surface_values
+
+        data = super().to_representation(instance)
+        data["custom_fields"] = surface_values(getattr(instance, "custom_fields", None), self._active_custom_field_defs())
+        return data
 
 
 class PriceListItemSerializer(serializers.ModelSerializer):

@@ -10,6 +10,7 @@ import TextField from '@mui/material/TextField';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createCustomer, listCustomersPage, updateCustomer } from '@/api/resources';
 import { getErrorMessage } from '@/api/client';
+import { HelpHint } from '@/pages/help/HelpHint';
 import { PartySelectPanel } from '@/components/PartySelectPanel';
 import { StateSelect } from '@/components/StateSelect';
 import { t } from '@/i18n';
@@ -184,16 +185,20 @@ export function InvoicePartyPanel({
             <Alert severity="warning" sx={{ py: 0 }}>
               {t('billing.placeOfSupplyRequired')}
             </Alert>
-            <StateSelect
-              value={posForm.state}
-              onChange={(state) => setPosForm((f) => ({ ...f, state }))}
-            />
-            <TextField
-              label="GSTIN"
-              value={posForm.gstin}
-              onChange={(e) => setPosForm((f) => ({ ...f, gstin: e.target.value }))}
-              fullWidth
-            />
+            <HelpHint intent="cannot-complete-invoice" slot="place-of-supply">
+              <StateSelect
+                value={posForm.state}
+                onChange={(state) => setPosForm((f) => ({ ...f, state }))}
+              />
+            </HelpHint>
+            <HelpHint intent="add-gstin" slot="gstin">
+              <TextField
+                label="GSTIN"
+                value={posForm.gstin}
+                onChange={(e) => setPosForm((f) => ({ ...f, gstin: e.target.value }))}
+                fullWidth
+              />
+            </HelpHint>
             <Button
               variant="contained"
               size="small"
@@ -228,15 +233,19 @@ export function InvoicePartyPanel({
               value={partyForm.phone}
               onChange={(e) => setPartyForm((f) => ({ ...f, phone: e.target.value }))}
             />
-            <TextField
-              label="GSTIN"
-              value={partyForm.gstin}
-              onChange={(e) => setPartyForm((f) => ({ ...f, gstin: e.target.value }))}
-            />
-            <StateSelect
-              value={partyForm.state}
-              onChange={(state) => setPartyForm((f) => ({ ...f, state }))}
-            />
+            <HelpHint intent="add-gstin" slot="gstin">
+              <TextField
+                label="GSTIN"
+                value={partyForm.gstin}
+                onChange={(e) => setPartyForm((f) => ({ ...f, gstin: e.target.value }))}
+              />
+            </HelpHint>
+            <HelpHint intent="cannot-complete-invoice" slot="place-of-supply">
+              <StateSelect
+                value={partyForm.state}
+                onChange={(state) => setPartyForm((f) => ({ ...f, state }))}
+              />
+            </HelpHint>
           </Stack>
         </DialogContent>
         <DialogActions>

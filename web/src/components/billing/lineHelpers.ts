@@ -30,11 +30,12 @@ export function makeLine(
   const unitPrice = toNumber(
     priceField === 'purchasePrice' ? product.purchasePrice : product.sellingPrice,
   );
+  const cessRate = toNumber(product.cessRate);
   const tax = calculateLineTax({
     quantity,
     unitPrice,
     gstRate: toNumber(product.gstRate),
-    cessRate: 0,
+    cessRate,
     intraState,
   });
   return {
@@ -45,6 +46,9 @@ export function makeLine(
     sku: product.sku,
     hsnCode: product.hsnCode ?? '',
     unitName: product.unitName ?? 'PCS',
+    baseUnitName: product.unitName ?? 'PCS',
+    alternateUnitName: product.alternateUnitName,
+    conversionRate: toNumber(product.conversionRate) || 1,
     batchNo: '',
     batch: null,
     trackBatch: product.trackBatch,
@@ -56,7 +60,8 @@ export function makeLine(
     quantity,
     unitPrice,
     gstRate: toNumber(product.gstRate),
-    cessRate: 0,
+    cessRate,
+    supplyNature: 'TAXABLE',
     ...tax,
   };
 }
@@ -67,6 +72,8 @@ export function recomputeLine(
   patch: Partial<DraftLine> = {},
 ): DraftLine {
   const next = { ...line, ...patch };
+  const nature = (next.supplyNature ?? 'TAXABLE').toUpperCase();
+  if (nature !== 'TAXABLE') next.gstRate = 0;
   const tax = calculateLineTax({
     quantity: next.quantity,
     unitPrice: next.unitPrice,
@@ -79,6 +86,21 @@ export function recomputeLine(
     ...next,
     ...tax,
   };
+}
+
+export function unitSwitchPatch(line: DraftLine, nextUnit: string): Partial<DraftLine> {
+  const rate = Number(line.conversionRate) || 1;
+  const base = line.baseUnitName || 'PCS';
+  const alt = line.alternateUnitName;
+  let unitPrice = line.unitPrice;
+  if (alt && rate > 0 && line.unitName !== nextUnit) {
+    if (line.unitName === base && nextUnit === alt) {
+      unitPrice = roundMoney(line.unitPrice * rate);
+    } else if (line.unitName === alt && nextUnit === base) {
+      unitPrice = roundMoney(line.unitPrice / rate);
+    }
+  }
+  return { unitName: nextUnit, unitPrice };
 }
 
 export function applyDiscountAmountPatch(

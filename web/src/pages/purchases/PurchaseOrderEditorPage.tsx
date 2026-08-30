@@ -37,8 +37,10 @@ import {
 } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
+import { preferredInvoiceType } from '@/onboarding/taxHints';
 import type { Product, PurchaseType, Supplier } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
@@ -55,7 +57,8 @@ export function PurchaseOrderEditorPage() {
   const [loaded, setLoaded] = useState(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState<number | ''>('');
-  const [purchaseType, setPurchaseType] = useState<PurchaseType>('GST');
+  const [purchaseType, setPurchaseType] = useState<PurchaseType>('NON_GST');
+  const [purchaseTypeTouched, setPurchaseTypeTouched] = useState(false);
   const [orderDate, setOrderDate] = useState(todayIso());
   const [expectedDelivery, setExpectedDelivery] = useState('');
   const [notes, setNotes] = useState('');
@@ -64,8 +67,13 @@ export function PurchaseOrderEditorPage() {
   const [pendingQty, setPendingQty] = useState('1');
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  useEffect(() => {
+    if (isEdit || purchaseTypeTouched || !company.data) return;
+    setPurchaseType(preferredInvoiceType(company.data.registrationType));
+  }, [company.data, isEdit, purchaseTypeTouched]);
   const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
-  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct });
+  const cf = useProductCfFilters();
+  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const existing = useQuery({
     queryKey: ['purchase-orders', editId],
     queryFn: () => getPurchaseOrder(editId as number),
@@ -214,7 +222,7 @@ export function PurchaseOrderEditorPage() {
 
   if (isEdit && existing.isLoading) return <LoadingState />;
   if (isEdit && existing.isError) {
-    return <ErrorState message={getErrorMessage(existing.error)} onRetry={() => void existing.refetch()} />;
+    return <ErrorState message={getErrorMessage(existing.error)} error={existing.error} onRetry={() => void existing.refetch()} />;
   }
 
   return (
@@ -259,8 +267,18 @@ export function PurchaseOrderEditorPage() {
           renderInput={(params) => <TextField {...params} label={t('billing.supplier')} required />}
         />
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-          <TextField select label={t('billing.purchaseType')} value={purchaseType} onChange={(e) => setPurchaseType(e.target.value as PurchaseType)} disabled={readOnly} sx={{ minWidth: 140 }}>
-            <MenuItem value="GST">GST</MenuItem>
+          <TextField
+            select
+            label={t('billing.purchaseType')}
+            value={purchaseType}
+            onChange={(e) => {
+              setPurchaseTypeTouched(true);
+              setPurchaseType(e.target.value as PurchaseType);
+            }}
+            disabled={readOnly}
+            sx={{ minWidth: 140 }}
+          >
+            {company.data?.registrationType === 'REGULAR' ? <MenuItem value="GST">GST</MenuItem> : null}
             <MenuItem value="NON_GST">Non-GST</MenuItem>
           </TextField>
           <TextField type="date" label={t('common.date')} value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={readOnly} InputLabelProps={{ shrink: true }} />
@@ -363,6 +381,8 @@ export function PurchaseOrderEditorPage() {
           </Table>
         </Paper>
         {!readOnly ? (
+          <Stack spacing={1}>
+            {cf.filterBar}
           <Stack direction="row" spacing={1} alignItems="center">
             <Autocomplete
               sx={{ flex: 1 }}
@@ -386,6 +406,7 @@ export function PurchaseOrderEditorPage() {
             />
             <TextField type="number" label={t('billing.qty')} value={pendingQty} onChange={(e) => setPendingQty(e.target.value)} sx={{ width: 100 }} />
             <Button variant="outlined" disabled={!pendingProduct} onClick={addLine}>{t('common.add')}</Button>
+          </Stack>
           </Stack>
         ) : null}
         <SimpleTotalsPanel totals={totals} />

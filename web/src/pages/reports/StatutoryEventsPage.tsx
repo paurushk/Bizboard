@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -85,7 +86,7 @@ export function StatutoryEventsPage() {
       </Stack>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {!query.isLoading && rows.length === 0 ? <EmptyState /> : null}
       {rows.length > 0 ? (
@@ -144,10 +145,24 @@ export function StatutoryEventsPage() {
         </Paper>
       ) : null}
       {query.data && (query.data.next || page > 1) ? (
-        <Stack direction="row" spacing={1} justifyContent="flex-end">
+        <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+          <Button
+            size="small"
+            disabled={page <= 1 || query.isFetching}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            {t('common.previous')}
+          </Button>
           <Typography variant="body2" color="text.secondary">
             {t('common.page')} {page}
           </Typography>
+          <Button
+            size="small"
+            disabled={!query.data.next || query.isFetching}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            {t('common.next')}
+          </Button>
         </Stack>
       ) : null}
     </Stack>

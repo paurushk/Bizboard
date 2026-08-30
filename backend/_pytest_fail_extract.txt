@@ -1,0 +1,95 @@
+﻿================================== FAILURES ===================================
+______________ test_purchase_tax_calculated_from_supplier_state _______________
+    assert resp.status_code == 201, resp.data
+E   AssertionError: {'error': {'code': 'server_error', 'details': None, 'message': 'An unexpected error occurred.'}, 'success': False}
+E   assert 500 == 201
+E    +  where 500 = <Response status_code=500, "application/json">.status_code
+ERROR django.request Internal Server Error: /api/v1/purchases/invoices/
+    assert resp.status_code == 201, resp.data
+E   AssertionError: {'error': {'code': 'server_error', 'details': None, 'message': 'An unexpected error occurred.'}, 'success': False}
+E   assert 500 == 201
+E    +  where 500 = <Response status_code=500, "application/json">.status_code
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[5e59f7d0-2d30-4133-92fa-524ad2ab875f] succeeded in 0.125s: None
+ERROR django.request Internal Server Error: /api/v1/purchases/invoices/
+_____________ test_bb_000668_destroy_in_place_requires_typed_name _____________
+    assert resp.status_code == 201, resp.data
+E   AssertionError: {'error': {'code': 'server_error', 'details': None, 'message': 'An unexpected error occurred.'}, 'success': False}
+E   assert 500 == 201
+E    +  where 500 = <Response status_code=500, "application/json">.status_code
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[8fc45668-b182-4af4-9c95-489fe9cab2a4] succeeded in 0.18800000002374873s: None
+ERROR django.request Internal Server Error: /api/v1/purchases/invoices/
+    assert resp.status_code == 201, resp.data
+E   AssertionError: {'error': {'code': 'server_error', 'details': None, 'message': 'An unexpected error occurred.'}, 'success': False}
+E   assert 500 == 201
+E    +  where 500 = <Response status_code=500, "application/json">.status_code
+ERROR django.request Internal Server Error: /api/v1/purchases/invoices/
+E   AssertionError: assert 'gstr9_worksheet_mvp' == 'outward_fy_aid'
+E     
+E     - outward_fy_aid
+E     + gstr9_worksheet_mvp
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[d29a3ff0-9c59-461e-b523-cf6da04ae655] succeeded in 0.5780000000377186s: None
+    assert created.status_code == 201, created.data
+E   AssertionError: {'error': {'code': 'server_error', 'details': None, 'message': 'An unexpected error occurred.'}, 'success': False}
+E   assert 500 == 201
+E    +  where 500 = <Response status_code=500, "application/json">.status_code
+ERROR django.request Internal Server Error: /api/v1/purchases/invoices/
+    assert created.status_code == 201, created.data
+E   AssertionError: {'error': {'code': 'server_error', 'details': None, 'message': 'An unexpected error occurred.'}, 'success': False}
+E   assert 500 == 201
+E    +  where 500 = <Response status_code=500, "application/json">.status_code
+ERROR django.request Internal Server Error: /api/v1/purchases/invoices/
+E   assert 0 >= 2
+E    +  where 0 = len([])
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[69b295fc-1b58-49e7-a7ff-8e55969144df] succeeded in 0.3279999999795109s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[7db1f720-a251-465e-9be2-614f56441c73] succeeded in 0.375s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[1e19930f-c086-451c-a016-6a81b812f81a] succeeded in 0.5s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[6c1d4cdf-d592-4401-874d-e135bdbcd968] succeeded in 1.9059999999590218s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[b648d517-f230-4068-b22c-95f4e59d7917] succeeded in 0.5629999999655411s: None
+INFO celery.app.trace Task sales.tasks.generate_credit_note_pdf[88c9ea58-b6d5-4dca-be3d-ae49eacf7a19] succeeded in 0.2970000000204891s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[f5d8c30a-78ae-4a30-9004-a659d58534f7] succeeded in 0.7179999999934807s: None
+E   assert 0 < 0
+E    +  where 0 = len([])
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[ab900a6a-bf84-48e9-8d5e-cf7e25bfbc7e] succeeded in 0.8899999999557622s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[fa90557d-934c-4bbd-ad46-1434247289cb] succeeded in 0.6089999999967404s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[4f5ba09b-a168-47ff-875b-8edef47e4141] succeeded in 0.18699999997625127s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[4ae73490-88f8-40c3-a787-ec1495c80680] succeeded in 0.5150000000139698s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[de5d858f-98d1-4227-885c-e95969ccd66d] succeeded in 0.3279999999795109s: None
+INFO celery.app.trace Task sales.tasks.generate_credit_note_pdf[a57be80e-5026-4618-85c2-611180a986cf] succeeded in 0.3899999999557622s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[8827014b-9339-422a-8a39-7e832ff930b6] succeeded in 0.21799999999348074s: None
+________________ test_gstr3b_excludes_opening_balance_purchase ________________
+    assert resp.status_code == 201, resp.data
+E   AssertionError: {'error': {'code': 'server_error', 'details': None, 'message': 'An unexpected error occurred.'}, 'success': False}
+E   assert 500 == 201
+E    +  where 500 = <Response status_code=500, "application/json">.status_code
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[f99e3de6-6994-4bec-b73f-304e1c94e879] succeeded in 0.28200000000651926s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[717ac78d-02ff-4701-aadd-e29974406d2a] succeeded in 0.3440000000409782s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[ad452b08-be79-4369-b3fd-686733cfc122] succeeded in 0.7029999999795109s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[3d04a027-a200-4631-a559-44673c66b904] succeeded in 0.34399999998277053s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[39384b3e-ec60-477b-83fa-6de143d22ec0] succeeded in 0.34399999998277053s: None
+INFO celery.app.trace Task sales.tasks.generate_credit_note_pdf[9810aef5-21e1-4f7c-b738-5662450c172a] succeeded in 0.125s: None
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[6f3c2dcd-f9eb-4eb8-985b-93c8045faab0] succeeded in 0.34299999999348074s: None
+ERROR django.request Internal Server Error: /api/v1/purchases/invoices/
+    raise EinvoiceValidationError(
+E   sales.einvoice_payload.EinvoiceValidationError: CompanyGstin stamp address, pincode, and state are required (HO fallback disabled).
+INFO celery.app.trace Task sales.tasks.generate_invoice_pdf[b2cf2b58-758f-4df8-9133-065e60e5784c] succeeded in 0.7970000000204891s: None
+    assert resp.status_code == 400
+E   assert 201 == 400
+E    +  where 201 = <Response status_code=201, "application/json">.status_code
+___________ test_logout_blacklists_refresh_token_and_prevents_reuse ___________
+    assert logout_resp.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = <Response status_code=401, "application/json">.status_code
+=========================== short test summary info ===========================
+FAILED tests/test_tax_calc.py::test_purchase_tax_calculated_from_supplier_state
+FAILED tests/test_sprint_d_tenant_export.py::test_bb_000668_export_restore_sandbox_totals_match
+FAILED tests/test_sprint_d_tenant_export.py::test_bb_000668_destroy_in_place_requires_typed_name
+FAILED tests/test_phase2_gst.py::test_rcm_purchase_memo - AssertionError: {'e...
+FAILED tests/test_phase2_gst.py::test_gstr9_and_ca_pack - AssertionError: ass...
+FAILED tests/test_phase2_gst.py::test_completed_rcm_toggle_off_clears_rcm_fields
+FAILED tests/test_phase2_gst.py::test_completed_rcm_toggle_recomputation - As...
+FAILED tests/test_gst_returns.py::test_gstr1_json_shape_and_totals - assert 0...
+FAILED tests/test_gst_returns.py::test_gstr1_excludes_opening_balance_invoices
+FAILED tests/test_gst_returns.py::test_gstr3b_excludes_opening_balance_purchase
+FAILED tests/test_sprint2_cn_einvoice.py::test_bb_000639_seller_gstin_from_stamp
+FAILED tests/test_auth.py::test_cannot_attach_existing_user_to_company_without_consent
+FAILED tests/test_auth.py::test_logout_blacklists_refresh_token_and_prevents_reuse

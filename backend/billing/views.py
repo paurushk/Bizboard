@@ -87,15 +87,17 @@ class PortalView(APIView):
     def get(self, request):
         cu = get_company_user(request)
         sub = subscription_for_company(cu.company)
-        return Response(
-            {
-                "subscription": SubscriptionSerializer(sub).data if sub else None,
-                "plans": PlanSerializer(Plan.objects.filter(is_active=True), many=True).data,
-                "portal_url": None,
-                "billing_override_active": cu.company.billing_override_active,
-                "seat_limit": sub.plan.seat_limit if sub else None,
-            }
-        )
+        payload = {
+            "subscription": SubscriptionSerializer(sub).data if sub else None,
+            "plans": PlanSerializer(Plan.objects.filter(is_active=True), many=True).data,
+            "billing_override_active": cu.company.billing_override_active,
+            "seat_limit": sub.plan.seat_limit if sub else None,
+        }
+        # Hosted customer portal is not wired; omit rather than always-None.
+        portal = (getattr(settings, "RAZORPAY_CUSTOMER_PORTAL_URL", "") or "").strip()
+        if portal:
+            payload["portal_url"] = portal
+        return Response(payload)
 
 
 class RazorpayWebhookView(APIView):
@@ -120,7 +122,7 @@ class RazorpayWebhookView(APIView):
         else:
             env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
             test_header = request.META.get(TEST_WEBHOOK_HEADER) or request.headers.get("X-Bizboard-Test-Webhook")
-            if env not in {"test"} and not getattr(settings, "DEBUG", False):
+            if env not in {"test"}:
                 return Response(
                     {"detail": "RAZORPAY_WEBHOOK_SECRET is required."},
                     status=status.HTTP_403_FORBIDDEN,
@@ -144,6 +146,7 @@ class RazorpayWebhookView(APIView):
         sub = apply_razorpay_subscription_status(
             razorpay_subscription_id=rzp_id,
             rzp_status=rzp_status,
+            current_end=entity.get("current_end"),
         )
         if sub is not None:
             AuditService.log(

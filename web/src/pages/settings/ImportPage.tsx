@@ -21,9 +21,13 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { useMutation } from '@tanstack/react-query';
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
 import { getErrorMessage, newIdempotencyKey } from '@/api/client';
-import { commitImport, downloadImportErrorsCsv, uploadImport, voidImport, voidImportRows } from '@/api/resources';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
+import { HelpWhyLink } from '@/pages/help/HelpWhyLink';
+import { commitImport, downloadImportErrorsCsv, downloadImportTemplate, uploadImport, voidImport, voidImportRows } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { StatusChip } from '@/components/StatusChip';
+import { EmptyState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import type { ImportJob, ImportKind } from '@/types/domain';
@@ -41,12 +45,30 @@ const REQUIRED_COLUMNS: Record<Exclude<ImportKind, 'PURCHASE_BILL' | 'SALES_BILL
   OPENING_STOCK: ['sku', 'quantity'],
 };
 
+const PRODUCT_ITEM_COLUMNS = [
+  'name', 'sku', 'barcode', 'hsn_code', 'description', 'category', 'unit',
+  'alternate_unit', 'conversion_rate', 'gst_rate', 'purchase_price',
+  'purchase_tax_inclusive', 'selling_price', 'selling_tax_inclusive', 'mrp',
+  'wholesale_price', 'default_discount_percent', 'reorder_level', 'product_type',
+  'track_inventory', 'track_batch', 'track_serial', 'godown', 'opening_stock',
+  'unit_cost', 'batch_no', 'expiry_date', 'manufacturing_date', 'as_of', 'serial_no',
+  'brand_code', 'brand_form', 'sub_brand_form',
+] as const;
+
+const PRODUCT_ITEM_SAMPLES = [
+  Array.from({ length: PRODUCT_ITEM_COLUMNS.length }, () => ''),
+];
+
+function toCsv(headers: readonly string[], rows: string[][]): string {
+  const lines = [headers.join(','), ...rows.map((row) => row.join(','))];
+  return `${lines.join('\n')}\n`;
+}
+
 const CSV_TEMPLATES: Record<Exclude<ImportKind, 'PURCHASE_BILL' | 'SALES_BILL'>, string> = {
-  PRODUCTS:
-    'name,sku,barcode,hsn_code,gst_rate,purchase_price,selling_price,reorder_level,unit,opening_stock\nSoap,SOAP-1,,3401,18,40,55,5,PCS,25\nPlain Bar,BAR-2,,,,,,,\n',
+  PRODUCTS: toCsv(PRODUCT_ITEM_COLUMNS, PRODUCT_ITEM_SAMPLES),
   CUSTOMERS: 'name,phone,email,gstin,state,address\nRavi Stores,9800000001,,,Karnataka,\nWalk-in Customer,,,,,\n',
   SUPPLIERS: 'name,phone,email,gstin,state,address\nMega Suppliers,9800000002,,,Karnataka,\nLocal Vendor,,,,,\n',
-  OPENING_STOCK: 'sku,quantity,unit_cost\nSOAP-1,25,40\nBAR-2,10,\n',
+  OPENING_STOCK: 'sku,quantity,unit_cost,serial_no\nSOAP-1,25,40,\nBAR-2,10,\n',
 };
 
 const PREVIEW_CAP = 50;
@@ -63,14 +85,26 @@ async function stableUploadKey(file: File, kind: string): Promise<string> {
   return `import-upload-${kind}-${file.name}-${file.size}-${file.lastModified}`;
 }
 
-function downloadTemplate(kind: Exclude<ImportKind, 'PURCHASE_BILL' | 'SALES_BILL'>) {
-  const blob = new Blob([CSV_TEMPLATES[kind]], { type: 'text/csv;charset=utf-8' });
+function saveCsv(filename: string, content: string) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${kind.toLowerCase()}_template.csv`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadCsvTemplate(kind: Exclude<ImportKind, 'PURCHASE_BILL' | 'SALES_BILL'>) {
+  if (kind === 'PRODUCTS') {
+    saveCsv('products_import_template.csv', CSV_TEMPLATES.PRODUCTS);
+    return;
+  }
+  saveCsv(`${kind.toLowerCase()}_template.csv`, CSV_TEMPLATES[kind]);
+}
+
+async function downloadXlsxTemplate(kind: Exclude<ImportKind, 'PURCHASE_BILL' | 'SALES_BILL'>) {
+  await downloadImportTemplate(kind, 'xlsx');
 }
 
 function rowSku(row: Record<string, unknown>): string {
@@ -147,6 +181,7 @@ export function ImportPage() {
   const [job, setJob] = useState<ImportJob | null>(null);
   const [activeStep, setActiveStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [errorSource, setErrorSource] = useState<unknown>(null);
   const [commitKey, setCommitKey] = useState(() => newIdempotencyKey());
   const [uploadKey, setUploadKey] = useState('');
   const [commitElapsed, setCommitElapsed] = useState(0);
@@ -180,9 +215,13 @@ export function ImportPage() {
       setJob(data);
       setActiveStep(1);
       setError(null);
+      setErrorSource(null);
       setCommitKey(newIdempotencyKey());
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => {
+      setError(getErrorMessage(err));
+      setErrorSource(err);
+    },
   });
 
   const commitMutation = useMutation({
@@ -196,11 +235,15 @@ export function ImportPage() {
       }
       setActiveStep(2);
       setError(null);
+      setErrorSource(null);
       if (returnPath?.startsWith('/') && !returnPath.startsWith('//')) {
         navigate(returnPath, { replace: true });
       }
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => {
+      setError(getErrorMessage(err));
+      setErrorSource(err);
+    },
   });
 
   useEffect(() => {
@@ -223,8 +266,12 @@ export function ImportPage() {
     onSuccess: (data) => {
       setJob(data);
       setError(null);
+      setErrorSource(null);
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => {
+      setError(getErrorMessage(err));
+      setErrorSource(err);
+    },
   });
 
   const voidRowMutation = useMutation({
@@ -235,6 +282,7 @@ export function ImportPage() {
     onSuccess: (data) => {
       setJob(data);
       setError(null);
+      setErrorSource(null);
       setVoidingSku(null);
     },
     onError: (err) => {
@@ -288,7 +336,14 @@ export function ImportPage() {
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">{t('import.title')}</Typography>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap spacing={1}>
+        <Typography variant="h4">{t('import.title')}</Typography>
+        {returnPath?.startsWith('/') && !returnPath.startsWith('//') ? (
+          <Button component={RouterLink} to={returnPath} variant="outlined">
+            {t('import.backToSetup')}
+          </Button>
+        ) : null}
+      </Stack>
       <Button
         component={RouterLink}
         to="/purchases/bill-upload"
@@ -297,7 +352,7 @@ export function ImportPage() {
       >
         {t('import.billUploadLink')}
       </Button>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} error={errorSource} /> : null}
       {voidBlocked ? (
         <Alert
           severity="warning"
@@ -354,8 +409,24 @@ export function ImportPage() {
                 <Typography variant="body2">• {t('import.fieldTipsPrices')}</Typography>
                 <Typography variant="body2">• {t('import.fieldTipsGstRate')}</Typography>
                 <Typography variant="body2">• {t('import.fieldTipsReorder')}</Typography>
+                <Typography variant="body2">• {t('import.fieldTipsOpeningLots')}</Typography>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all' }}>
+                  {PRODUCT_ITEM_COLUMNS.join(', ')}
+                </Typography>
               </Stack>
             </Alert>
+          ) : null}
+          {kind === 'OPENING_STOCK' ? (
+            <Alert severity="info" icon={<InfoOutlinedIcon fontSize="inherit" />} sx={{ mt: 1 }}>
+              <Typography variant="body2">{t('import.fieldTipsOpeningSerials')}</Typography>
+            </Alert>
+          ) : null}
+
+          {!job ? (
+            <EmptyState
+              description={t('import.csvOnlyHint')}
+              action={<HelpEmptyLink intent="import-row-errors" />}
+            />
           ) : null}
 
           <Stack direction="row" spacing={1} flexWrap="wrap">
@@ -370,9 +441,17 @@ export function ImportPage() {
             </Button>
             <Button
               variant="text"
-              onClick={() => downloadTemplate(kind as Exclude<ImportKind, 'PURCHASE_BILL' | 'SALES_BILL'>)}
+              onClick={() => downloadCsvTemplate(kind as Exclude<ImportKind, 'PURCHASE_BILL' | 'SALES_BILL'>)}
             >
-              {t('import.downloadTemplate')}
+              {t('import.downloadCsv')}
+            </Button>
+            <Button
+              variant="text"
+              onClick={() =>
+                void downloadXlsxTemplate(kind as Exclude<ImportKind, 'PURCHASE_BILL' | 'SALES_BILL'>)
+              }
+            >
+              {t('import.downloadXlsx')}
             </Button>
           </Stack>
           {file ? <Typography variant="body2">Selected: {file.name}</Typography> : null}
@@ -476,6 +555,7 @@ export function ImportPage() {
 
                 <Alert severity="error">
                   {t('import.validationErrorsHint')}
+                  <HelpWhyLink code="import_invalid_rows" message={t('import.validationErrorsHint')} />
                 </Alert>
 
                 {shownErrors.length > 0 ? (

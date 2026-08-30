@@ -12,7 +12,12 @@ from .services import LedgerService
 
 
 def _parse_date(value):
-    return date.fromisoformat(value) if value else None
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value).strip()[:10])
+    except (ValueError, TypeError):
+        return None
 
 
 class CustomerLedgerListView(APIView):

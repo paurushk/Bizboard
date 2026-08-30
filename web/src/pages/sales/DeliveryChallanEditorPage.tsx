@@ -37,6 +37,7 @@ import {
   type DraftLine,
 } from '@/components/billing';
 import { ChallanEwayPanel } from '@/components/ChallanEwayPanel';
+import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { PdfStatusPoller } from '@/components/PdfStatusPoller';
@@ -70,7 +71,8 @@ export function DeliveryChallanEditorPage() {
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const customers = useQuery({ queryKey: ['customers'], queryFn: () => listCustomers() });
-  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct });
+  const cf = useProductCfFilters();
+  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const orders = useQuery({ queryKey: ['sales-orders'], queryFn: () => listSalesOrders() });
   const existing = useQuery({
     queryKey: ['delivery-challans', editId],
@@ -252,7 +254,7 @@ export function DeliveryChallanEditorPage() {
 
   if (isEdit && existing.isLoading) return <LoadingState />;
   if (isEdit && existing.isError) {
-    return <ErrorState message={getErrorMessage(existing.error)} onRetry={() => void existing.refetch()} />;
+    return <ErrorState message={getErrorMessage(existing.error)} error={existing.error} onRetry={() => void existing.refetch()} />;
   }
 
   return (
@@ -393,6 +395,8 @@ export function DeliveryChallanEditorPage() {
           </Table>
         </Paper>
         {!readOnly ? (
+          <Stack spacing={1}>
+            {cf.filterBar}
           <Stack direction="row" spacing={1} alignItems="center">
             <Autocomplete
               sx={{ flex: 1 }}
@@ -416,6 +420,7 @@ export function DeliveryChallanEditorPage() {
             />
             <TextField type="number" label={t('billing.qty')} value={pendingQty} onChange={(e) => setPendingQty(e.target.value)} sx={{ width: 100 }} />
             <Button variant="outlined" disabled={!pendingProduct} onClick={addLine}>{t('common.add')}</Button>
+          </Stack>
           </Stack>
         ) : null}
         <SimpleTotalsPanel totals={totals} />

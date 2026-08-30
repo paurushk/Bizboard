@@ -7,6 +7,11 @@ from core.validators import validate_upi_vpa
 
 from .models import Company, CompanyGstin, CompanyUser, User
 
+def _item_custom_field_defs(value):
+    from masters.custom_fields import normalize_stored_defs
+
+    return normalize_stored_defs(value if isinstance(value, list) else [])
+
 # Capability flags that VIEWER must not hold (BB-000227).
 _VIEWER_FORBIDDEN_CAPS = (
     "can_manage_inventory",
@@ -31,6 +36,10 @@ _ACCOUNTANT_FORBIDDEN_CAPS = (
     "can_create_sales",
 )
 
+_SALES_STAFF_FORBIDDEN_CAPS = (
+    "can_post_journals",
+)
+
 
 def _assert_role_capability_invariants(role, caps: dict) -> None:
     """Reject illegal role/capability combinations (BB-000227)."""
@@ -39,6 +48,8 @@ def _assert_role_capability_invariants(role, caps: dict) -> None:
         forbidden = _VIEWER_FORBIDDEN_CAPS
     elif role == CompanyUser.Role.ACCOUNTANT:
         forbidden = _ACCOUNTANT_FORBIDDEN_CAPS
+    elif role == CompanyUser.Role.SALES_STAFF:
+        forbidden = _SALES_STAFF_FORBIDDEN_CAPS
     for field in forbidden:
         if caps.get(field) is True:
             raise serializers.ValidationError(
@@ -119,6 +130,7 @@ class CompanySerializer(serializers.ModelSerializer):
             "auto_match_bank_exact", "inventory_valuation_method", "block_expired_stock",
             "stock_on_delivery_challan", "accounting_enabled",
             "payroll_pt_slabs",
+            "item_custom_field_defs",
             # BB-000715: Owner-readable feature flags (platform/admin write optional elsewhere).
             "feature_flags",
             "onboarding_dismissed_at", "tax_profile_confirmed_at", "onboarding_started_at",
@@ -150,6 +162,11 @@ class CompanySerializer(serializers.ModelSerializer):
         from .onboarding import derive_onboarding
 
         return derive_onboarding(obj)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["item_custom_field_defs"] = _item_custom_field_defs(data.get("item_custom_field_defs"))
+        return data
 
     def _check_file_asset_company(self, asset):
         if asset is None:
@@ -187,6 +204,16 @@ class CompanySerializer(serializers.ModelSerializer):
     def validate_udyam(self, value):
         return (value or "").strip().upper()
 
+    def validate_item_custom_field_defs(self, value):
+        from masters.custom_fields import validate_definitions
+
+        if value is not None and not isinstance(value, list):
+            raise serializers.ValidationError("Must be a list of key/label objects.")
+        existing = []
+        if self.instance is not None:
+            existing = self.instance.item_custom_field_defs or []
+        return validate_definitions(existing, value)
+
     def validate(self, attrs):
         from django.core.exceptions import ValidationError as DjangoValidationError
 
@@ -202,7 +229,10 @@ class CompanySerializer(serializers.ModelSerializer):
         if registration_type == Company.RegistrationType.UNREGISTERED:
             attrs["gstin"] = ""
         elif (
-            registration_type == Company.RegistrationType.REGULAR
+            registration_type in (
+                Company.RegistrationType.REGULAR,
+                Company.RegistrationType.COMPOSITION,
+            )
             and (
                 "registration_type" in attrs
                 or "gstin" in attrs
@@ -211,7 +241,7 @@ class CompanySerializer(serializers.ModelSerializer):
         ):
             if len(gstin) != 15:
                 raise serializers.ValidationError(
-                    {"gstin": "A valid 15-character GSTIN is required for REGULAR registration."}
+                    {"gstin": "A valid 15-character GSTIN is required for REGULAR or COMPOSITION registration."}
                 )
             try:
                 validate_gstin(gstin)
@@ -272,12 +302,19 @@ class CompanySerializerStaff(serializers.ModelSerializer):
             "aato_turnover", "accounting_enabled",
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "ai_features_enabled",
+            "item_custom_field_defs",
         ]
         read_only_fields = [
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "einvoice_enabled", "eway_enabled", "eway_threshold_amount", "aato_turnover",
             "ai_features_enabled", "accounting_enabled",
+            "item_custom_field_defs",
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["item_custom_field_defs"] = _item_custom_field_defs(data.get("item_custom_field_defs"))
+        return data
 
 
 class CompanyUserSerializer(serializers.ModelSerializer):
@@ -376,6 +413,7 @@ class MeSerializer(serializers.Serializer):
     can_create_purchases = serializers.BooleanField()
     can_create_payments = serializers.BooleanField()
     can_post_journals = serializers.BooleanField()
+    is_staff = serializers.BooleanField(source="user.is_staff", read_only=True)
     company_id = serializers.IntegerField(source="company.id")
     company = serializers.SerializerMethodField()
 

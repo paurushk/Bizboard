@@ -72,6 +72,20 @@ def test_bank_account_crud(tenant_a):
     assert listed.status_code == 200
 
 
+def test_company_bank_syncs_into_bank_accounts_list(tenant_a):
+    company = tenant_a.company
+    company.bank_name = "HDFC"
+    company.bank_account = "123456789012"
+    company.bank_ifsc = "HDFC0001234"
+    company.save(update_fields=["bank_name", "bank_account", "bank_ifsc"])
+    listed = tenant_a.client.get("/api/v1/payments/bank-accounts/")
+    assert listed.status_code == 200
+    rows = listed.data.get("results") if isinstance(listed.data, dict) else listed.data
+    names = [row.get("name") for row in rows]
+    assert "HDFC" in names
+    assert BankAccount.objects.filter(company=company).exists()
+
+
 def test_receipt_with_utr_and_bank_account(tenant_a):
     customer = make_customer(tenant_a.company)
     ba = BankAccount.objects.create(company=tenant_a.company, name="Cash", is_default=True)

@@ -1,0 +1,10 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-dev",
+      "url": "http://localhost:5180",
+      "port": 5180
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Link from '@mui/material/Link';
@@ -20,6 +21,7 @@ import {
 import { DisclaimerBanner, PageHeader } from '@/components/insights';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
+import { isHelpV2Enabled } from '@/config/features';
 import { isAllowedShareUrl } from '@/utils/safeUrl';
 
 export function InsightsAssistantPage() {
@@ -98,6 +100,9 @@ export function InsightsAssistantPage() {
     },
   });
 
+  const WHY_RE = /\b(why|explain|kyu|kyun|kaise)\b/i;
+  const helpWhyHint = isHelpV2Enabled() && WHY_RE.test(draft);
+
   return (
     <Stack spacing={2}>
       <PageHeader
@@ -137,7 +142,7 @@ export function InsightsAssistantPage() {
           ) : thread.isLoading ? (
             <LoadingState />
           ) : thread.isError ? (
-            <ErrorState message={getErrorMessage(thread.error)} onRetry={() => void thread.refetch()} />
+            <ErrorState message={getErrorMessage(thread.error)} error={thread.error} onRetry={() => void thread.refetch()} />
           ) : (
             <Stack spacing={1.5} sx={{ mb: 2, maxHeight: 420, overflow: 'auto' }}>
               {(thread.data?.messages ?? []).map((m) => (
@@ -257,7 +262,17 @@ export function InsightsAssistantPage() {
               {t('insights.sendMessage')}
             </Button>
           </Stack>
-          {send.isError ? <ErrorState message={getErrorMessage(send.error)} /> : null}
+          {helpWhyHint ? (
+            <Alert severity="info">
+              <Link
+                component={RouterLink}
+                to={`/help?q=${encodeURIComponent(draft.trim())}&source=assistant`}
+              >
+                {t('help.assistantHint')}
+              </Link>
+            </Alert>
+          ) : null}
+          {send.isError ? <ErrorState message={getErrorMessage(send.error)} error={send.error} /> : null}
         </Paper>
       </Stack>
     </Stack>

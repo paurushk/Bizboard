@@ -1,8 +1,12 @@
 ﻿import { useState } from 'react';
 import { Alert, Box, Button, Paper, Stack, TextField, Typography } from '@mui/material';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { apiClient, getErrorMessage } from '@/api/client';
+import { fetchCurrentUser } from '@/api/auth';
+import { apiClient, getErrorMessage, unwrapData } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
+import { setAccessToken } from '@/auth/session';
 import { t } from '@/i18n';
+import type { User } from '@/types/domain';
 
 /** BB-000418: minimal invite accept / set-password flow. */
 export function AcceptInvitePage() {
@@ -10,6 +14,7 @@ export function AcceptInvitePage() {
   const [token, setToken] = useState(params.get('token') || '');
   const [password, setPassword] = useState('');
   const navigate = useNavigate();
+  const { setSession } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -17,9 +22,28 @@ export function AcceptInvitePage() {
     setPending(true);
     setError(null);
     try {
-      await apiClient.post('/auth/invite/accept/', { token, new_password: password });
+      const { data } = await apiClient.post('/auth/invite/accept/', {
+        token,
+        new_password: password,
+      });
+      const body = unwrapData<{
+        access?: string | null;
+        refresh?: string;
+        user?: User;
+        email?: string;
+        detail?: string;
+      }>(data);
       localStorage.setItem('bb_role_welcome', '1');
-      navigate('/login?invited=1', { replace: true });
+      if (body.access) {
+        setAccessToken(body.access);
+        const user = body.user ?? (await fetchCurrentUser());
+        await setSession(user, body.access);
+        navigate('/', { replace: true });
+        return;
+      }
+      const qs = new URLSearchParams({ invited: '1' });
+      if (body.email) qs.set('email', body.email);
+      navigate(`/login?${qs.toString()}`, { replace: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {

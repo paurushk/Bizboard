@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -18,12 +18,13 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   convertQuotation,
   convertQuotationToOrder,
   createQuotation,
+  getCompany,
   listCustomers,
   listQuotationsPage,
   listSalesInvoicesPage,
@@ -31,11 +32,16 @@ import {
 import { todayIso } from '@/components/billing';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
+import { useAuth } from '@/auth/AuthContext';
 import { t } from '@/i18n';
 import type { Customer, Product } from '@/types/domain';
+import { preferredInvoiceType } from '@/onboarding/taxHints';
 import { formatMoney, toNumber } from '@/utils/money';
+import { canCreateSales } from '@/utils/permissions';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 interface DraftLine {
   key: string;
@@ -49,15 +55,20 @@ const PAGE_SIZE = 50;
 
 export function QuotationsPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const canCreate = canCreateSales(user);
   const navigate = useNavigate();
-  const [page] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [page, setPage] = useState(1);
   const query = useQuery({
     queryKey: ['quotations', page],
     queryFn: () => listQuotationsPage({ page, pageSize: PAGE_SIZE }),
   });
+  const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const customers = useQuery({ queryKey: ['customers'], queryFn: () => listCustomers() });
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
-  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct });
+  const cf = useProductCfFilters();
+  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
 
   const [open, setOpen] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(emptyForm.customer);
@@ -67,6 +78,14 @@ export function QuotationsPage() {
   const [pendingQty, setPendingQty] = useState('1');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canCreate || searchParams.get('create') !== '1') return;
+    setOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('create');
+    setSearchParams(next, { replace: true });
+  }, [canCreate, searchParams, setSearchParams]);
 
   const resetDialog = () => {
     setCustomer(null);
@@ -91,7 +110,7 @@ export function QuotationsPage() {
       return createQuotation({
         customer: customer?.id,
         quotationDate: todayIso(),
-        invoiceType: 'GST',
+        invoiceType: preferredInvoiceType(company.data?.registrationType),
         items: lines.map((l) => ({
           product: l.product.id,
           quantity: l.qty,
@@ -158,15 +177,17 @@ export function QuotationsPage() {
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.quotations')}</Typography>
-        <Button variant="contained" onClick={() => setOpen(true)}>
-          {t('phase1.newQuotation')}
-        </Button>
+        {canCreate ? (
+          <Button variant="contained" onClick={() => setOpen(true)}>
+            {t('phase1.newQuotation')}
+          </Button>
+        ) : null}
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {quotations.length === 0 && query.isSuccess ? <EmptyState description={t('empty.quotations')} /> : null}
       {quotations.length > 0 ? (
@@ -196,7 +217,7 @@ export function QuotationsPage() {
                   </TableCell>
                   <TableCell align="right">{formatMoney(q.grandTotal)}</TableCell>
                   <TableCell align="right">
-                    {q.status === 'DRAFT' ? (
+                    {q.status === 'DRAFT' && canCreate ? (
                       <Stack direction="row" spacing={1} justifyContent="flex-end">
                         <Button
                           size="small"
@@ -206,11 +227,12 @@ export function QuotationsPage() {
                             convertingId === q.id
                           }
                           onClick={() => {
+                            if (!window.confirm(t('common.confirmToOrder'))) return;
                             setConvertingId(q.id);
                             convertToOrderMutation.mutate(q.id);
                           }}
                         >
-                          To Order
+                          {t('common.toOrder')}
                         </Button>
                         <Button
                           size="small"
@@ -219,6 +241,7 @@ export function QuotationsPage() {
                             convertingId === q.id
                           }
                           onClick={() => {
+                            if (!window.confirm(t('common.confirmConvert'))) return;
                             setConvertingId(q.id);
                             convertMutation.mutate(q.id);
                           }}
@@ -234,6 +257,24 @@ export function QuotationsPage() {
           </Table>
         </Paper>
       ) : null}
+      {query.data && (query.data.next || page > 1) ? (
+        <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+          <Typography variant="body2" color="text.secondary">
+            {t('common.page')} {page}
+          </Typography>
+          <Button variant="outlined" size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            {t('common.previous')}
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            disabled={!query.data.next}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            {t('common.next')}
+          </Button>
+        </Stack>
+      ) : null}
 
       <Dialog
         open={open}
@@ -247,6 +288,7 @@ export function QuotationsPage() {
         <DialogTitle>New quotation</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            {error ? <HelpErrorAlert message={error} /> : null}
             <Autocomplete
               options={customers.data ?? []}
               getOptionLabel={(o) => o.name}
@@ -288,6 +330,8 @@ export function QuotationsPage() {
               </Table>
             ) : null}
 
+            <Stack spacing={1}>
+              {cf.filterBar}
             <Stack direction="row" spacing={1} alignItems="center">
               <Autocomplete
                 sx={{ flex: 1 }}
@@ -320,6 +364,7 @@ export function QuotationsPage() {
               <Button variant="outlined" disabled={!pendingProduct} onClick={addLine}>
                 {t('common.add')}
               </Button>
+            </Stack>
             </Stack>
           </Stack>
         </DialogContent>

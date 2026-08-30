@@ -11,7 +11,7 @@ from core.events import emit
 from core.exceptions import BusinessRuleError
 from core.services.billing import compute_document_totals
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
-from core.services.place_of_supply import party_intra_state
+from .notes_services import _invoice_intra_state
 from inventory.models import MovementType, StockMovement
 from inventory.services import InventoryService, SerialNumberService
 
@@ -38,11 +38,7 @@ class ReturnService:
             sales_return,
             items,
             tax_enabled=_tax_enabled(sales_return.sales_invoice.invoice_type),
-            intra_state=party_intra_state(
-                sales_return.company,
-                sales_return.customer.state,
-                sales_return.customer.gstin or "",
-            ),
+            intra_state=_invoice_intra_state(sales_return.sales_invoice),
         )
         SalesReturnItem.objects.bulk_create(items)
         sales_return.updated_by = user
@@ -84,7 +80,7 @@ class ReturnService:
             raise BusinessRuleError(
                 "Return date cannot be before the original invoice date."
             )
-        items = list(sales_return.items.select_related("product"))
+        items = list(sales_return.items.select_related("product", "product__alternate_unit"))
         if not items:
             raise BusinessRuleError("Cannot complete a return without line items.")
 
@@ -154,7 +150,10 @@ class ReturnService:
                 created_by=user,
                 updated_by=user,
             )
-            note.additional_charges = Decimal("0.00") if not fully_returned else Decimal(str(invoice.additional_charges or 0))
+            note.additional_charges = (Decimal(str(invoice.additional_charges or 0)) * ratio).quantize(Decimal("0.01"))
+            note.charges_hsn = getattr(invoice, "charges_hsn", "") or ""
+            note.charges_gst_rate = getattr(invoice, "charges_gst_rate", Decimal("0")) or Decimal("0")
+            note.save(update_fields=["additional_charges", "charges_hsn", "charges_gst_rate"])
             inv_items_by_product = {}
             for inv_item in invoice.items.all():
                 inv_items_by_product.setdefault(inv_item.product_id, inv_item)
@@ -178,12 +177,22 @@ class ReturnService:
             from .notes_services import SalesNotesService
 
             SalesNotesService.set_credit_note_items(note, items_data, user)
+            tcs_share = (Decimal(str(getattr(invoice, "tcs_amount", 0) or 0)) * ratio).quantize(Decimal("0.01"))
+            if fully_returned:
+                tcs_share = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
+            if tcs_share > 0:
+                note.tcs_amount = tcs_share
+                note.tcs_in_grand_total = True
+                note.grand_total = (Decimal(str(note.grand_total or 0)) + tcs_share).quantize(Decimal("0.01"))
+                note.save(update_fields=["grand_total", "tcs_amount", "tcs_in_grand_total"])
             SalesNotesService.complete_credit_note(note, user)
 
         if sales_return.company.accounting_enabled:
             from accounting.services import PostingService
 
             PostingService.post_sales_return_cogs(sales_return, cogs_rev, user)
+            if getattr(sales_return, "is_damaged", False):
+                PostingService.post_sales_return_scrap(sales_return, cogs_rev, user)
 
         emit("document.completed", document=sales_return, user=user, event="sales_return.completed")
         return sales_return
@@ -208,6 +217,14 @@ class ReturnService:
                     reference_id=str(sales_return.pk),
                 )
             )
+            damaged_moves = list(
+                StockMovement.objects.filter(
+                    company=sales_return.company,
+                    movement_type=MovementType.ADJUSTMENT,
+                    reference_type="sales_return_damaged",
+                    reference_id=str(sales_return.pk),
+                )
+            )
             if return_moves:
                 for move in return_moves:
                     InventoryService.post_movement(
@@ -223,7 +240,22 @@ class ReturnService:
                         reason=f"Cancellation of {sales_return.number}",
                         user=user,
                     )
-            else:
+            if damaged_moves:
+                for move in damaged_moves:
+                    InventoryService.post_movement(
+                        company=sales_return.company,
+                        warehouse=move.warehouse,
+                        product=move.product,
+                        batch=move.batch,
+                        movement_type=MovementType.ADJUSTMENT,
+                        quantity=abs(Decimal(str(move.quantity))),
+                        unit_cost=move.unit_cost,
+                        reference_type="sales_return_damaged_cancel",
+                        reference_id=sales_return.pk,
+                        reason=f"Restore damaged scrap of {sales_return.number}",
+                        user=user,
+                    )
+            if not return_moves and not damaged_moves:
                 for item in sales_return.items.select_related("product"):
                     InventoryService.post_movement(
                         company=sales_return.company,
@@ -242,13 +274,14 @@ class ReturnService:
 
             for item in sales_return.items.select_related("product"):
                 if item.product.track_serial and item.serial_numbers:
+                    damaged = getattr(item, "condition", "SELLABLE") == "DAMAGED"
                     SerialNumberService.transition(
                         company=sales_return.company,
                         product=item.product,
                         warehouse=invoice.warehouse,
                         numbers=item.serial_numbers,
                         quantity=item.quantity,
-                        source=SerialNumber.Status.AVAILABLE,
+                        source=SerialNumber.Status.SCRAPPED if damaged else SerialNumber.Status.AVAILABLE,
                         target=SerialNumber.Status.SOLD,
                         user=user,
                     )

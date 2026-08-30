@@ -20,6 +20,7 @@ from .models import (
     CustomerReceipt,
     ReconMatch,
     SupplierPayment,
+    SupplierPaymentStatus,
 )
 from .upi import normalize_utr
 
@@ -244,6 +245,7 @@ def suggest_matches(*, company, line: BankStatementLine, limit: int = 5) -> list
     else:
         qs = SupplierPayment.objects.filter(
             company=company,
+            status=SupplierPaymentStatus.POSTED,
             payment_date__gte=window_start,
             payment_date__lte=window_end,
         ).select_related("supplier")

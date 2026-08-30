@@ -150,23 +150,35 @@ def process_due_schedules(*, now=None):
             continue
         if period_is_locked(schedule.company, on_date):
             skipped_locked += 1
+            schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence)
+            schedule.save(update_fields=["next_run_at", "updated_at"])
             continue
         run = generate_draft_for_schedule(schedule, run_date=on_date)
         if run is not None and run.invoice_id:
             created += 1
             inv = run.invoice
             assert inv.status == SalesInvoice.Status.DRAFT
+            from accounts.models import CompanyUser
             from core.models import Notification
             from core.services.notifications import NotificationService
 
-            NotificationService.send(
-                company=schedule.company,
-                channel=Notification.Channel.SMS,
-                recipient="owner",
-                subject="Recurring invoice draft ready",
-                body=(
-                    f"Draft invoice #{inv.pk} was generated from a recurring schedule. "
-                    "Complete it when ready — BizBoard never auto-completes recurring invoices."
-                ),
+            owner = (
+                CompanyUser.objects.filter(
+                    company=schedule.company, role=CompanyUser.Role.OWNER
+                )
+                .select_related("user")
+                .first()
             )
+            recipient = (owner.user.email if owner and owner.user else "") or (schedule.company.email or "")
+            if recipient:
+                NotificationService.send(
+                    company=schedule.company,
+                    channel=Notification.Channel.EMAIL,
+                    recipient=recipient,
+                    subject="Recurring invoice draft ready",
+                    body=(
+                        f"Draft invoice #{inv.pk} was generated from a recurring schedule. "
+                        "Complete it when ready — BizBoard never auto-completes recurring invoices."
+                    ),
+                )
     return {"created": created, "skipped_locked": skipped_locked, "skipped_duplicate": skipped_duplicate}

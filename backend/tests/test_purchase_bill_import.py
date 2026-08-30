@@ -451,6 +451,35 @@ def test_structured_xlsx_uses_line_items_sheet_and_recombines_qty(tenant_a):
     assert lines[1]["include"] is True
 
 
+def test_structured_xlsx_keeps_pack_qty_when_gross_disagrees(tenant_a):
+    """XLSX Cs/Pcs/UPC are the source of truth; Gross Amt only flags a mismatch."""
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    items = wb.active
+    items.title = "Line Items"
+    items.append([
+        "Sl", "Item Description", "Cs", "Pcs", "UPC", "Pcs Price", "Gross Amt", "GST %",
+    ])
+    items.append([7, "OB WHLSALE SHINYM CS", 5, 0, 24, 107.14, 5142.72, 5])
+    buf = BytesIO()
+    wb.save(buf)
+    resp = tenant_a.client.post("/api/v1/imports/", {
+        "kind": "PURCHASE_BILL",
+        "file": SimpleUploadedFile(
+            "pack-vs-gross.xlsx", buf.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
+    }, format="multipart")
+    assert resp.status_code == 201, resp.data
+    line = resp.data["preview"]["lines"][0]
+    assert line["quantity"] == "120"
+    assert str(line.get("cs") or "") == "5"
+    assert line["flags"]
+
+
 def test_extraction_continuation_merges_remaining_si_rows():
     from core.services.llm import (
         merge_extraction_line_payloads,
@@ -479,6 +508,30 @@ def test_extraction_continuation_merges_remaining_si_rows():
     names = [ln["name"] for ln in merged["lines"]]
     assert names == ["Olay NA IGF 40gm", "H&S 7in1 Rs3", "Whspr Ultra XL+ 15s CFC"]
     assert merged["printed_line_count"] == 30
+    shuffled = merge_extraction_line_payloads(
+        _normalize_payload({
+            "printed_line_count": "5",
+            "lines": [
+                {"si": "1", "name": "Olay NA IGF 40gm", "quantity": "3", "gst_rate": "18"},
+                {"si": "5", "name": "Guard Cream 125 gm", "quantity": "6", "gst_rate": "18"},
+                {"si": "2", "name": "Olay NA IGF 20gm", "quantity": "4", "gst_rate": "18"},
+            ],
+        }),
+        _normalize_payload({
+            "printed_line_count": "5",
+            "lines": [
+                {"si": "3", "name": "Gillette TSG", "quantity": "6", "gst_rate": "18"},
+                {"si": "4", "name": "Guard Cream Small 25 gm", "quantity": "12", "gst_rate": "18"},
+            ],
+        }),
+    )
+    assert [ln["name"] for ln in shuffled["lines"]] == [
+        "Olay NA IGF 40gm",
+        "Olay NA IGF 20gm",
+        "Gillette TSG",
+        "Guard Cream Small 25 gm",
+        "Guard Cream 125 gm",
+    ]
     complete = _normalize_payload({
         "printed_line_count": "2",
         "lines": [
@@ -565,3 +618,212 @@ def test_purchase_bill_retry_extract(mock_fail, tenant_a):
         assert resp.status_code == 200, resp.data
         assert resp.data["status"] == "PREVIEWED"
         mock_ok.assert_called_once()
+
+
+def test_split_bill_image_emits_top_and_bottom_for_tall_photo():
+    from io import BytesIO
+
+    from PIL import Image
+
+    from core.services.bill_images import TARGET_LONG_EDGE, split_bill_image
+
+    image = Image.new("RGB", (400, 900), color=(255, 255, 255))
+    buf = BytesIO()
+    image.save(buf, format="JPEG")
+    views = split_bill_image(buf.getvalue())
+    assert "full" in views and "top" in views and "bottom" in views
+    full = Image.open(BytesIO(views["full"]))
+    assert max(full.size) >= TARGET_LONG_EDGE
+
+
+def test_should_probe_remaining_rows_when_model_claims_complete_at_20():
+    from core.services.llm import needs_extraction_continuation, should_probe_remaining_rows
+
+    truncated = {
+        "printed_line_count": 20,
+        "lines": [{"si": str(i), "name": f"Item {i}"} for i in range(1, 21)],
+    }
+    assert needs_extraction_continuation(truncated, "stop") is False
+    assert should_probe_remaining_rows(truncated, "stop") is True
+    short = {
+        "printed_line_count": 5,
+        "lines": [{"si": str(i), "name": f"Item {i}"} for i in range(1, 6)],
+    }
+    assert should_probe_remaining_rows(short, "stop") is False
+
+
+@patch("core.services.llm._extract_openai_compatible")
+@patch("core.services.llm._bill_model_for", return_value="gpt-4o")
+@patch("core.services.llm._provider", return_value="openai")
+def test_extract_purchase_bill_fetches_si_21_30_after_20_row_stop(mock_provider, mock_model, mock_oa):
+    from core.services.llm import extract_purchase_bill
+
+    def fake(*, prompt, **kwargs):
+        if "between 1 and 15" in prompt:
+            lines = [
+                {"si": str(i), "name": f"Item {i}", "quantity": "1", "gst_rate": "18"}
+                for i in range(1, 21)
+            ]
+            return {"printed_line_count": "20", "lines": lines, "column_headers": ["SI"]}, "stop"
+        if "between 21 and" in prompt:
+            lines = [
+                {"si": str(i), "name": f"Item {i}", "quantity": "1", "gst_rate": "18"}
+                for i in range(21, 31)
+            ]
+            return {"printed_line_count": "30", "lines": lines}, "stop"
+        return {"printed_line_count": "30", "lines": []}, "stop"
+
+    mock_oa.side_effect = fake
+    payload = extract_purchase_bill([b"\xff\xd8\xff dummy"])
+    assert len(payload["lines"]) == 30
+    assert payload["printed_line_count"] == 30
+    assert mock_oa.call_count == 2
+
+
+@patch("core.services.llm._extract_openai_compatible")
+@patch("core.services.llm._bill_model_for", return_value="gpt-4o")
+@patch("core.services.llm._provider", return_value="openai")
+def test_extract_purchase_bill_stops_on_short_table(mock_provider, mock_model, mock_oa):
+    from core.services.llm import extract_purchase_bill
+
+    mock_oa.return_value = (
+        {
+            "printed_line_count": "5",
+            "lines": [
+                {"si": str(i), "name": f"Item {i}", "quantity": "1", "gst_rate": "18"}
+                for i in range(1, 6)
+            ],
+        },
+        "stop",
+    )
+    payload = extract_purchase_bill([b"\xff\xd8\xff dummy"])
+    assert len(payload["lines"]) == 5
+    assert mock_oa.call_count == 1
+
+
+@patch("core.services.llm.extract_purchase_bill", return_value=_dms_extract())
+def test_simple_template_ignored_when_bill_has_pack_columns(mock_llm, tenant_a):
+    """A saved SIMPLE layout from a prior bad extract must not pin Pcs as qty
+    when this bill actually has Cs/UPC columns."""
+    SupplierBillTemplate.objects.create(
+        company=tenant_a.company,
+        gstin=DMS_GSTIN,
+        party_name="VTC TRADEWINGS PVT",
+        line_total_formula=SupplierBillTemplate.LineTotalFormula.SIMPLE,
+        column_mapping={"qty_formula": "quantity"},
+        column_signature=DMS_COLUMN_HEADERS,
+    )
+    resp = _upload_bill(tenant_a)
+    assert resp.status_code == 201, resp.data
+    assert resp.data["status"] == "PREVIEWED"
+    assert resp.data["preview"]["lines"][0]["quantity"] == "15"
+
+
+@patch("core.services.llm.extract_purchase_bill", return_value=FAKE_EXTRACT)
+def test_bill_reupload_same_idempotency_key_starts_new_job(mock_llm, tenant_a):
+    """Re-uploading the same photo must not replay a prior preview/commit."""
+    headers = {"HTTP_IDEMPOTENCY_KEY": "import-upload-PURCHASE_BILL-same.jpeg-1-1"}
+    first = tenant_a.client.post(
+        "/api/v1/imports/",
+        {
+            "kind": "PURCHASE_BILL",
+            "file": SimpleUploadedFile("same.jpeg", _png_bytes(), content_type="image/jpeg"),
+        },
+        format="multipart",
+        **headers,
+    )
+    assert first.status_code == 201, first.data
+    second = tenant_a.client.post(
+        "/api/v1/imports/",
+        {
+            "kind": "PURCHASE_BILL",
+            "file": SimpleUploadedFile("same.jpeg", _png_bytes(), content_type="image/jpeg"),
+        },
+        format="multipart",
+        **headers,
+    )
+    assert second.status_code == 201, second.data
+    assert second.data["id"] != first.data["id"]
+
+
+def test_qty_uses_printed_gross_over_wrong_pcs_ocr():
+    """Circled Pcs=3 misread as 2 must still become billed qty 3 from Gross Amt."""
+    from imports.qty_formula import apply_qty_formula
+
+    lines = [{
+        "name": "Olay NA IGF 40gm",
+        "quantity": "2",
+        "unit_price": "146.65",
+        "printed_gross_amt": "439.95",
+        "extras": {"upc": "24"},
+    }]
+    apply_qty_formula(lines, {"qty_formula": "quantity"}, tolerance=Decimal("0.50"))
+    assert lines[0]["quantity"] == "3"
+    assert lines[0]["flags"] == []
+
+
+def test_qty_case_row_from_gross_when_cs_missing():
+    from imports.qty_formula import apply_qty_formula
+
+    lines = [{
+        "name": "OB WHLSALE SHINYS CS",
+        "quantity": "0",
+        "unit_price": "107.14",
+        "printed_gross_amt": "12856.80",
+        "extras": {"upc": "24"},
+    }]
+    apply_qty_formula(lines, {"qty_formula": "quantity"}, tolerance=Decimal("0.50"))
+    assert lines[0]["quantity"] == "120"
+    assert lines[0]["flags"] == []
+
+
+def test_qty_does_not_follow_garbage_printed_gross():
+    """A nonsense Gross Amt must not replace a formula qty that was already resolved."""
+    from imports.qty_formula import apply_qty_formula
+
+    lines = [{
+        "name": "Olay NA IGF 40gm",
+        "quantity": "3",
+        "unit_price": "10",
+        "printed_gross_amt": "999",
+        "cs": "2",
+        "upc": "6",
+        "extras": {"cs": "2", "upc": "6"},
+    }]
+    apply_qty_formula(lines, {"qty_formula": "cs*upc+quantity"}, tolerance=Decimal("0.50"))
+    assert lines[0]["quantity"] == "15"
+    assert len(lines[0]["flags"]) == 1
+
+
+def test_qty_recovers_missing_cs_from_gross_and_keeps_pcs():
+    from imports.qty_formula import apply_qty_formula
+
+    lines = [{
+        "name": "OB WHLSALE SHINYS CS",
+        "quantity": "0",
+        "unit_price": "107.14",
+        "printed_gross_amt": "12856.80",
+        "extras": {"upc": "24"},
+    }]
+    apply_qty_formula(lines, {"qty_formula": "cs*upc+quantity"}, tolerance=Decimal("0.50"))
+    assert lines[0]["quantity"] == "120"
+    assert lines[0]["cs"] == "5"
+    assert lines[0]["pcs"] == "0"
+    assert lines[0]["flags"] == []
+
+
+def test_qty_gst_inclusive_amount_still_resolves_pieces():
+    from imports.qty_formula import apply_qty_formula
+
+    lines = [{
+        "name": "Olay NA IGF 40gm",
+        "quantity": "2",
+        "unit_price": "146.65",
+        "gst_rate": "18",
+        "printed_gross_amt": "519.14",
+        "extras": {"upc": "24"},
+    }]
+    apply_qty_formula(lines, {"qty_formula": "quantity"}, tolerance=Decimal("0.50"))
+    assert lines[0]["quantity"] == "3"
+    assert lines[0]["pcs"] == "3"
+    assert lines[0]["cs"] == "0"

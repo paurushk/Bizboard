@@ -155,6 +155,10 @@ class PurchaseReturn(DocumentTotalsModel):
 
 
 class PurchaseReturnItem(DocumentLineModel):
+    class Condition(models.TextChoices):
+        SELLABLE = "SELLABLE", "Sellable"
+        DAMAGED = "DAMAGED", "Damaged"
+
     purchase_return = models.ForeignKey(PurchaseReturn, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="purchase_return_items")
     # BB-000383: batch/serial for track_batch / track_serial returns.
@@ -162,6 +166,7 @@ class PurchaseReturnItem(DocumentLineModel):
         "inventory.BatchLot", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     serial_numbers = models.JSONField(default=list, blank=True)
+    condition = models.CharField(max_length=16, choices=Condition.choices, default=Condition.SELLABLE)
 
 
 class PurchaseNoteReason(models.TextChoices):
@@ -298,6 +303,9 @@ class PurchaseDebitNoteItem(DocumentLineModel):
     debit_note = models.ForeignKey(PurchaseDebitNote, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey(
         "masters.Product", on_delete=models.PROTECT, related_name="purchase_debit_note_items"
+    )
+    source_item = models.ForeignKey(
+        "PurchaseItem", null=True, blank=True, on_delete=models.SET_NULL, related_name="debit_note_items"
     )
     hsn_code = models.CharField(max_length=8, blank=True)
     unit_name = models.CharField(max_length=32, blank=True, default="PCS")

@@ -20,6 +20,7 @@ import { isEinvoiceSubmitEnabled } from '@/config/features';
 import { t } from '@/i18n';
 import type { SalesCreditNote, SalesDebitNote } from '@/types/domain';
 import { triggerBlobDownload } from '@/utils/blob';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 type NoteKind = 'credit' | 'debit';
 
@@ -109,7 +110,7 @@ export function NoteEinvoicePanel({ kind, note, onError, onMessage }: Props) {
             color={statusColor(note.einvoiceStatus)}
           />
         </Stack>
-        {note.einvoiceError ? <Alert severity="error" sx={{ mb: 1 }}>{note.einvoiceError}</Alert> : null}
+        {note.einvoiceError ? <HelpErrorAlert message={note.einvoiceError} sx={{ mb: 1 }} /> : null}
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Button
             variant="outlined"

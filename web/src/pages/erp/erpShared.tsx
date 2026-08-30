@@ -9,9 +9,9 @@ import { PageShell } from '@/pages/phase/phaseShared';
 export type ErpModule = 'manufacturing' | 'payroll' | 'crm';
 
 const MVP_BANNERS: Record<ErpModule, string> = {
-  manufacturing: 'erp.manufacturingPreview',
-  payroll: 'erp.payrollPreview',
-  crm: 'erp.crmPreview',
+  manufacturing: 'preview.manufacturing',
+  payroll: 'preview.payroll',
+  crm: 'preview.crm',
 };
 
 const ENABLE_HINTS: Record<ErpModule, string> = {

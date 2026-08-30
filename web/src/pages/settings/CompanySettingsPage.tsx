@@ -20,6 +20,7 @@ import { isValidIfsc, isValidPincode, isValidUpiVpa } from '@/utils/gst';
 import { canManageUsers } from '@/utils/permissions';
 
 import { StateSelect } from '@/components/StateSelect';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 type CompanyForm = Pick<
   Company,
@@ -89,7 +90,7 @@ export function CompanySettingsPage() {
   if (!canManageUsers(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
 
   return (
@@ -118,7 +119,7 @@ export function CompanySettingsPage() {
         />
       </Stack>
       {mutation.isSuccess ? <Alert severity="success">Company settings saved</Alert> : null}
-      {mutation.isError ? <Alert severity="error">{getErrorMessage(mutation.error)}</Alert> : null}
+      {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
       <Paper sx={{ p: 3, maxWidth: 640 }}>
         <Stack spacing={2}>
           <Typography variant="h6" fontWeight={600}>

@@ -5,6 +5,7 @@ import ExpandMore from '@mui/icons-material/ExpandMore';
 import Alert from '@mui/material/Alert';
 import AppBar from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import Collapse from '@mui/material/Collapse';
 import Divider from '@mui/material/Divider';
 import Drawer from '@mui/material/Drawer';
@@ -21,8 +22,10 @@ import { UniversalSearch } from '@/components/UniversalSearch';
 import { CompanySwitcher } from '@/components/CompanySwitcher';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { useFeatureFlagEpoch } from '@/config/featureFlags';
 import { getLocale, subscribeLocale, t } from '@/i18n';
 import { filterNav, type NavItem } from '@/navigation/menu';
+import { listDrafts } from '@/offline/invoiceDraftCache';
 
 const DRAWER_WIDTH = 272;
 const MOBILE_BILLING_TIP_KEY = 'bizboard.dismiss.mobileBillingTip';
@@ -45,6 +48,10 @@ function NavSection({
   const childActive = item.children?.some((c) => c.path && location.pathname.startsWith(c.path));
   const [open, setOpen] = useState(Boolean(childActive));
 
+  useEffect(() => {
+    if (childActive) setOpen(true);
+  }, [childActive]);
+
   if (!item.children) {
     return (
       <ListItemButton
@@ -66,7 +73,7 @@ function NavSection({
         aria-controls={`nav-section-${item.id}`}
       >
         <ListItemText primary={t(item.labelKey)} />
-        {open ? <ExpandLess /> : <ExpandMore />}
+        {open ? <ExpandLess aria-hidden /> : <ExpandMore aria-hidden />}
       </ListItemButton>
       <Collapse in={open} timeout="auto" unmountOnExit id={`nav-section-${item.id}`}>
         <List component="div" disablePadding>
@@ -90,6 +97,7 @@ function NavSection({
 
 export function AppShell() {
   useLocaleTick();
+  const flagEpoch = useFeatureFlagEpoch();
   const { user, logout, usingMockSession } = useAuth();
   const { writesBlocked } = useSubscriptionGate();
   const location = useLocation();
@@ -97,7 +105,29 @@ export function AppShell() {
   const [hideBillingTip, setHideBillingTip] = useState(
     () => typeof window !== 'undefined' && localStorage.getItem(MOBILE_BILLING_TIP_KEY) === '1',
   );
-  const items = useMemo(() => filterNav(user), [user]);
+  const [pendingDrafts, setPendingDrafts] = useState(0);
+  const items = useMemo(() => filterNav(user), [user, flagEpoch]);
+
+  useEffect(() => {
+    const companyId = user?.companyId;
+    const userId = user?.id;
+    if (!companyId || !userId) {
+      setPendingDrafts(0);
+      return;
+    }
+    const refresh = () => {
+      void listDrafts(companyId, userId)
+        .then((drafts) => setPendingDrafts(drafts.length))
+        .catch(() => undefined);
+    };
+    refresh();
+    window.addEventListener('online', refresh);
+    const id = window.setInterval(refresh, 30000);
+    return () => {
+      window.removeEventListener('online', refresh);
+      window.clearInterval(id);
+    };
+  }, [user?.companyId, user?.id]);
 
   // BB-000242: close mobile drawer after navigation.
   useEffect(() => {
@@ -161,7 +191,7 @@ export function AppShell() {
           '&:focus': { left: 8 },
         }}
       >
-        Skip to content
+        {t('a11y.skipToContent')}
       </Box>
       <AppBar
         position="fixed"
@@ -169,16 +199,16 @@ export function AppShell() {
           width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
           ml: { md: `${DRAWER_WIDTH}px` },
           // UXW2-015: keep header chrome from intercepting clicks on form fields below.
-          overflow: 'hidden',
+          overflow: { xs: 'visible', sm: 'hidden' },
         }}
       >
-        <Toolbar sx={{ gap: 1, minHeight: 64, flexWrap: 'nowrap' }}>
+        <Toolbar sx={{ gap: 1, minHeight: 64, flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
           <IconButton
             color="inherit"
             edge="start"
             sx={{ display: { md: 'none' } }}
             onClick={() => setMobileOpen(true)}
-            aria-label="Open navigation"
+            aria-label={t('a11y.openNavigation')}
           >
             <MenuIcon />
           </IconButton>
@@ -188,6 +218,16 @@ export function AppShell() {
           <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: { xs: 'stretch', sm: 'center' }, minWidth: 0 }}>
             <UniversalSearch />
           </Box>
+          {pendingDrafts > 0 ? (
+            <Chip
+              component={RouterLink}
+              to="/offline-outbox"
+              clickable
+              size="small"
+              color="warning"
+              label={t('billing.outboxPendingBadge', { count: pendingDrafts })}
+            />
+          ) : null}
           <CompanySwitcher />
           <LocaleSwitcher />
           <Typography variant="body2" sx={{ display: { xs: 'none', lg: 'block' } }}>
@@ -196,7 +236,7 @@ export function AppShell() {
         </Toolbar>
       </AppBar>
 
-      <Box component="nav" sx={{ width: { md: DRAWER_WIDTH }, flexShrink: { md: 0 } }} aria-label="Main">
+      <Box component="nav" sx={{ width: { md: DRAWER_WIDTH }, flexShrink: { md: 0 } }} aria-label={t('a11y.mainNav')}>
         <Drawer
           variant="temporary"
           open={mobileOpen}
@@ -251,7 +291,7 @@ export function AppShell() {
               </Button>
             }
           >
-            Subscription is suspended or the trial has ended. The workspace is read-only.
+            {t('billing.writesBlocked')}
           </Alert>
         ) : null}
         {showBillingTip ? (

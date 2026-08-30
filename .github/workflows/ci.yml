@@ -53,6 +53,10 @@ jobs:
       - name: Assert OpenAPI snapshot clean
         working-directory: .
         run: git diff --exit-code docs/openapi-snapshot.json
+      - name: Assert helpCodes.json matches help_codes.py
+        run: |
+          python manage.py dump_help_codes
+          git diff --exit-code ../web/src/pages/help/helpCodes.json
       # BB-000533: H9 amend adversarial regression must stay in CI.
       - run: pytest tests/test_wave2_open_fixes.py -k h9 tests/test_wave3_books.py -k h9
       - run: pytest
@@ -234,7 +238,7 @@ jobs:
       - run: pip install -c constraints.txt -r requirements-dev.txt
       - run: python manage.py migrate --noinput
       - name: Tenant isolation smoke
-        run: pytest tests/test_phase5_accounting.py -k tenant -q --tb=line
+        run: pytest tests/test_phase5_accounting.py -k tenant tests/test_help_resolution.py -k staff_all -q --tb=line
       - name: Wave 17/18/19 assert gates
         working-directory: .
         run: |

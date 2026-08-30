@@ -3,6 +3,7 @@ Report Service (E5.2–E5.5) — dashboards, registers and exports via
 aggregated queries; API clients never scan raw document tables (§9).
 """
 
+import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -12,6 +13,7 @@ from django.utils import timezone
 
 from inventory.models import StockBalance
 from ledgers.services import LedgerService
+from masters.models import Product
 from payments.models import PaymentAllocation
 from purchases.models import (
     PurchaseCreditNote,
@@ -27,7 +29,8 @@ from sales.models import (
 )
 
 OPEN_SALES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
-NET_SALES = (SalesInvoice.Status.COMPLETED,)
+NET_SALES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
+logger = logging.getLogger(__name__)
 
 
 def _party_name(obj, attr="customer"):
@@ -58,6 +61,14 @@ class ReportService:
     def _company_payables(company) -> Decimal:
         """GAP-002: dashboard AP is LedgerService, not a parallel SQL formula."""
         return LedgerService.company_payables(company)
+
+    @staticmethod
+    def _invoice_balance(invoice) -> Decimal:
+        try:
+            return LedgerService.sales_invoice_outstanding(invoice)
+        except (TypeError, ValueError, ArithmeticError) as exc:
+            logger.warning("sales_invoice_outstanding failed for invoice %s: %s", getattr(invoice, "pk", None), exc)
+            return Decimal(str(invoice.grand_total or 0))
 
     @staticmethod
     def receivables_aging(company, as_of: date | None = None):
@@ -100,7 +111,9 @@ class ReportService:
             .values_list("sales_invoice_id", "total")
         )
         for inv in invoices:
-            tcs = Decimal(str(getattr(inv, "tcs_amount", 0) or 0))
+            tcs = Decimal("0")
+            if not getattr(inv, "tcs_in_grand_total", False):
+                tcs = Decimal(str(getattr(inv, "tcs_amount", 0) or 0))
             outstanding = (
                 inv.grand_total
                 + tcs
@@ -153,12 +166,9 @@ class ReportService:
             company=company, status=PurchaseInvoice.Status.COMPLETED, invoice_date__gte=month_start
         ).exclude(notes="TALLY_OPENING").aggregate(total=Sum("grand_total"), count=Count("id"))
 
-        low_stock = (
-            StockBalance.objects.filter(company=company, product__status="ACTIVE")
-            .annotate(_available=F("on_hand") - F("reserved"))
-            .filter(_available__lte=F("product__reorder_level"))
-            .count()
-        )
+        from inventory.views import low_stock_alert_payload
+
+        low_stock = len(low_stock_alert_payload(company))
 
         recent = SalesInvoice.objects.filter(company=company).exclude(
             status=SalesInvoice.Status.DRAFT
@@ -190,9 +200,14 @@ class ReportService:
                     "date": i.invoice_date,
                     "status": i.status,
                     "grand_total": i.grand_total,
+                    "balance": ReportService._invoice_balance(i),
                 }
                 for i in recent.select_related("customer")
             ],
+            "product_count": Product.objects.filter(company=company).count(),
+            "invoice_count": SalesInvoice.objects.filter(company=company)
+            .exclude(status=SalesInvoice.Status.DRAFT)
+            .count(),
         }
 
     @staticmethod
@@ -417,11 +432,12 @@ class ReportService:
                 "product": b.product.name,
                 "sku": b.product.sku,
                 "warehouse_id": b.warehouse_id,
+                "warehouse": b.warehouse.name if b.warehouse_id else "",
                 "on_hand": b.on_hand,
                 "reserved": b.reserved,
                 "available": b.available,
                 "reorder_level": b.product.reorder_level,
-                "stock_value": value,
+                "stock_value": (value or Decimal("0")).quantize(Decimal("0.01")),
             })
         return {"rows": rows, "total_stock_value": total_value}
 
@@ -513,14 +529,16 @@ class ReportService:
     @staticmethod
     def cash_book(company, date_from=None, date_to=None, bank_account_id=None):
         """Actual cash/bank movements from receipts and supplier payments (Phase 3.3)."""
-        from payments.models import CustomerReceipt, ReceiptStatus, SupplierPayment
+        from payments.models import CustomerReceipt, ReceiptStatus, SupplierPayment, SupplierPaymentStatus
 
         receipts = CustomerReceipt.objects.filter(
             company=company, status=ReceiptStatus.POSTED
         ).select_related(
             "customer", "bank_account"
         )
-        payments = SupplierPayment.objects.filter(company=company).select_related(
+        payments = SupplierPayment.objects.filter(
+            company=company, status=SupplierPaymentStatus.POSTED
+        ).select_related(
             "supplier", "bank_account"
         )
         if date_from:
@@ -575,15 +593,31 @@ class ReportService:
                 }
             )
         rows.sort(key=lambda x: (x["date"], x["type"], x["id"]))
-        opening = Decimal("0")
+        initial_opening = Decimal("0")
         from payments.models import BankAccount
 
         if bank_account_id:
             ba = BankAccount.objects.filter(company=company, pk=bank_account_id).first()
             if ba:
-                opening = ba.opening_balance or Decimal("0")
+                initial_opening = ba.opening_balance or Decimal("0")
         elif company.opening_cash_balance is not None:
-            opening = company.opening_cash_balance
+            initial_opening = company.opening_cash_balance
+
+        opening = initial_opening
+        if date_from:
+            pre_receipts = CustomerReceipt.objects.filter(
+                company=company, status=ReceiptStatus.POSTED, receipt_date__lt=date_from
+            ).exclude(mode="CREDIT")
+            pre_payments = SupplierPayment.objects.filter(
+                company=company, status=SupplierPaymentStatus.POSTED, payment_date__lt=date_from
+            ).exclude(mode="CREDIT")
+            if bank_account_id:
+                pre_receipts = pre_receipts.filter(bank_account_id=bank_account_id)
+                pre_payments = pre_payments.filter(bank_account_id=bank_account_id)
+            pre_inflow = sum((r.amount for r in pre_receipts), Decimal("0"))
+            pre_outflow = sum((p.amount for p in pre_payments), Decimal("0"))
+            opening = initial_opening + pre_inflow - pre_outflow
+
         return {
             "opening": opening,
             "inflow": inflow,
@@ -597,10 +631,14 @@ class ReportService:
 
     @staticmethod
     def cash_position(company):
-        book = ReportService.cash_book(company)
+        from django.utils import timezone
+
+        first_of_month = timezone.localdate().replace(day=1)
+        book_mtd = ReportService.cash_book(company, date_from=first_of_month)
+        book_all = ReportService.cash_book(company)
         return {
-            "closing": book["closing"],
-            "inflow_mtd": book["inflow"],
-            "outflow_mtd": book["outflow"],
+            "closing": book_all["closing"],
+            "inflow_mtd": book_mtd["inflow"],
+            "outflow_mtd": book_mtd["outflow"],
             "kind": "actuals",
         }

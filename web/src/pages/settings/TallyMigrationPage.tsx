@@ -256,7 +256,7 @@ export function TallyMigrationPage() {
             }}
           />
         </Button>
-        {upload.isError ? <ErrorState message={getErrorMessage(upload.error)} /> : null}
+        {upload.isError ? <ErrorState message={getErrorMessage(upload.error)} error={upload.error} /> : null}
       </Paper>
 
       {preview ? (
@@ -347,9 +347,9 @@ export function TallyMigrationPage() {
               {t('tally.commit')}
             </Button>
           </Stack>
-          {saveMap.isError ? <ErrorState message={getErrorMessage(saveMap.error)} /> : null}
-          {ignoreErrors.isError ? <ErrorState message={getErrorMessage(ignoreErrors.error)} /> : null}
-          {commit.isError ? <ErrorState message={getErrorMessage(commit.error)} /> : null}
+          {saveMap.isError ? <ErrorState message={getErrorMessage(saveMap.error)} error={saveMap.error} /> : null}
+          {ignoreErrors.isError ? <ErrorState message={getErrorMessage(ignoreErrors.error)} error={ignoreErrors.error} /> : null}
+          {commit.isError ? <ErrorState message={getErrorMessage(commit.error)} error={commit.error} /> : null}
           {created ? (
             <Stack spacing={0.5} sx={{ mt: 2 }}>
               <Typography variant="subtitle2">Commit summary</Typography>
@@ -380,7 +380,7 @@ export function TallyMigrationPage() {
           Download sales voucher CSV aid
         </Button>
         {downloadExport.isError ? (
-          <ErrorState message={getErrorMessage(downloadExport.error)} />
+          <ErrorState message={getErrorMessage(downloadExport.error)} error={downloadExport.error} />
         ) : null}
       </Paper>
     </Stack>

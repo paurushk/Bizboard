@@ -6,8 +6,53 @@ import re
 from decimal import Decimal
 
 from core.services.billing import extract_state_code, q2
+from core.services.charges import charge_line, charges_are_taxable
 
 from .models import SalesCreditNote, SalesDebitNote, SalesInvoice
+
+
+def _charges_taxable(document) -> bool:
+    return charges_are_taxable(document)
+
+
+def _intra_state_for(invoice) -> bool:
+    from core.services.billing import is_intra_state
+
+    customer = invoice.customer
+    stamp = getattr(invoice, "company_gstin", None)
+    seller_gstin = (getattr(stamp, "gstin", None) or "") if stamp is not None else ""
+    seller_state = (getattr(stamp, "state", None) or "") if stamp is not None else ""
+    return is_intra_state(
+        seller_state or invoice.company.state or "",
+        getattr(customer, "state", "") or "",
+        company_gstin=seller_gstin or invoice.company.gstin or "",
+        party_gstin=getattr(customer, "gstin", "") or "",
+    )
+
+
+def _append_charge_item(item_list: list, document, *, intra_state: bool) -> None:
+    charge = charge_line(document, intra_state=intra_state)
+    if charge is None:
+        return
+    item_list.append({
+        "SlNo": str(len(item_list) + 1),
+        "PrdDesc": charge.description,
+        "IsServc": "Y",
+        "HsnCd": charge.hsn_code,
+        "Qty": _num(charge.quantity),
+        "Unit": "OTH",
+        "UnitPrice": _num(charge.unit_price),
+        "TotAmt": _num(charge.taxable_amount),
+        "Discount": _num(0),
+        "AssAmt": _num(charge.taxable_amount),
+        "GstRt": _num(charge.gst_rate),
+        "CgstAmt": _num(charge.cgst),
+        "SgstAmt": _num(charge.sgst),
+        "IgstAmt": _num(charge.igst),
+        "CesRt": _num(0),
+        "CesAmt": _num(0),
+        "TotItemVal": _num(charge.line_total),
+    })
 
 
 def _seller_gstin(invoice) -> str:
@@ -259,6 +304,7 @@ def build_einvoice_payload(invoice: SalesInvoice) -> dict:
             "CesAmt": _num(getattr(item, "cess", 0)),
             "TotItemVal": _num(item.line_total),
         })
+    _append_charge_item(item_list, invoice, intra_state=_intra_state_for(invoice))
 
     # BB-000287: derive TranDtls from invoice; default B2B/N for normal B2B only.
     is_rcm = bool(getattr(invoice, "is_reverse_charge", False))
@@ -333,15 +379,54 @@ def build_einvoice_payload(invoice: SalesInvoice) -> dict:
             "CesVal": _num(getattr(invoice, "cess_total", 0) or 0),
             "StCesVal": _num(0),
             "Discount": _num(val_discount),
-            "OthChrg": _num(invoice.additional_charges),
+            "OthChrg": _num(
+                (
+                    Decimal("0")
+                    if _charges_taxable(invoice)
+                    else Decimal(str(invoice.additional_charges or 0))
+                )
+                + (
+                    Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
+                    if getattr(invoice, "tcs_in_grand_total", False)
+                    else Decimal("0")
+                )
+            ),
             "RndOffAmt": _num(invoice.round_off),
             "TotInvVal": _num(invoice.grand_total),
         },
     }
 
 
+def validate_einvoice_note_readiness(note) -> list[str]:
+    """Validate readiness of a credit or debit note for e-Invoicing."""
+    errors = []
+    inv = getattr(note, "sales_invoice", None)
+    if not inv:
+        errors.append("Note must be linked to a sales invoice.")
+        return errors
+    customer = note.customer
+    buyer_gstin = (
+        (getattr(note, "filing_party_gstin", None) or getattr(inv, "filing_party_gstin", None) or "").strip()
+        or (customer.gstin or "")
+    )
+    if not buyer_gstin:
+        errors.append("Customer GSTIN is required.")
+    if not (customer.billing_address or "").strip():
+        errors.append("Customer billing address is required.")
+    note_items = list(note.items.all())
+    if not note_items:
+        errors.append("Note must have at least one line item.")
+    for idx, item in enumerate(note_items, start=1):
+        if not (getattr(item, "hsn_code", "") or "").strip():
+            errors.append(f"Note Line {idx}: HSN code is required.")
+    return errors
+
+
 def build_einvoice_payload_from_note(note) -> dict:
     """BB-000647: CRN/DBN payload with PrecDocDtls pointing at the source invoice."""
+    errors = validate_einvoice_note_readiness(note)
+    if errors:
+        raise EinvoiceValidationError(errors)
     inv = note.sales_invoice
     payload = build_einvoice_payload(inv)
     if isinstance(note, SalesDebitNote):
@@ -358,6 +443,14 @@ def build_einvoice_payload_from_note(note) -> dict:
         "InvDt": _fmt_date(inv.invoice_date),
         "Irn": inv.irn or "",
     }]
+    discount_mode = getattr(note, "invoice_discount_mode", None) or getattr(
+        inv, "invoice_discount_mode", SalesInvoice.DiscountMode.AFTER_TAX
+    )
+    val_discount = (
+        Decimal(str(getattr(note, "invoice_discount", 0) or 0))
+        if str(discount_mode).upper() == "AFTER_TAX"
+        else Decimal("0")
+    )
     payload["ValDtls"] = {
         "AssVal": _num(note.taxable_total),
         "CgstVal": _num(note.cgst_total),
@@ -365,8 +458,19 @@ def build_einvoice_payload_from_note(note) -> dict:
         "IgstVal": _num(note.igst_total),
         "CesVal": _num(getattr(note, "cess_total", 0) or 0),
         "StCesVal": _num(0),
-        "Discount": _num(getattr(note, "invoice_discount", 0) or 0),
-        "OthChrg": _num(getattr(note, "additional_charges", 0) or 0),
+        "Discount": _num(val_discount),
+        "OthChrg": _num(
+            (
+                Decimal("0")
+                if _charges_taxable(note)
+                else Decimal(str(getattr(note, "additional_charges", 0) or 0))
+            )
+            + (
+                Decimal(str(getattr(note, "tcs_amount", 0) or 0))
+                if getattr(note, "tcs_in_grand_total", False)
+                else Decimal("0")
+            )
+        ),
         "RndOffAmt": _num(note.round_off),
         "TotInvVal": _num(note.grand_total),
     }
@@ -398,5 +502,6 @@ def build_einvoice_payload_from_note(note) -> dict:
             "CesAmt": _num(getattr(item, "cess", 0)),
             "TotItemVal": _num(item.line_total),
         })
+    _append_charge_item(item_list, note, intra_state=_intra_state_for(inv))
     payload["ItemList"] = item_list
     return payload

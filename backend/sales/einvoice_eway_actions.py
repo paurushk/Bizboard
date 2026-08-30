@@ -1,6 +1,9 @@
 """Prepare / submit / mark-generated actions for e-Invoice and e-Way."""
 
+from datetime import timedelta
+
 from django.conf import settings
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -37,6 +40,28 @@ def _require_audit_reason(request) -> str:
 def _require_einvoice_enabled(company):
     if not company.einvoice_enabled:
         raise BusinessRuleError("e-Invoice is not enabled for this company.")
+
+
+def _cancel_irn_via_gsp(document, request):
+    """NIC cancel: CnlRsn/CnlRem required; 24h from ack_date."""
+    ack = getattr(document, "ack_date", None)
+    if ack:
+        if timezone.is_naive(ack):
+            ack = timezone.make_aware(ack)
+        if timezone.now() > ack + timedelta(hours=24):
+            raise BusinessRuleError(
+                "IRN can be cancelled only within 24 hours of acknowledgement."
+            )
+    valid_rsn = {"1", "2", "3", "4"}
+    cnl_rsn = str(request.data.get("cnl_rsn") or request.data.get("CnlRsn") or "").strip()
+    cnl_rem = (request.data.get("cnl_rem") or request.data.get("CnlRem") or "").strip()
+    if cnl_rsn not in valid_rsn:
+        raise BusinessRuleError(
+            "cnl_rsn is required (1=Duplicate, 2=Data entry mistake, 3=Order cancelled, 4=Others)."
+        )
+    if not cnl_rem:
+        raise BusinessRuleError("cnl_rem (cancel remarks) is required.")
+    get_irp_adapter(document.company).cancel(document.irn, cnl_rsn=cnl_rsn, cnl_rem=cnl_rem)
 
 
 def _require_eway_enabled(company):
@@ -176,7 +201,7 @@ class InvoiceEinvoiceEwayActionsMixin:
         _require_einvoice_enabled(invoice.company)
         if invoice.irn:
             return Response(self.get_serializer(invoice).data)
-        async_result = enqueue_irn.delay(invoice.pk, request.user.pk)
+        async_result = enqueue_irn.delay(invoice.pk, request.user.pk, company_id=invoice.company_id)
         invoice.einvoice_status = SalesInvoice.EInvoiceStatus.QUEUED
         invoice.save(update_fields=["einvoice_status"])
         return Response(
@@ -192,9 +217,26 @@ class InvoiceEinvoiceEwayActionsMixin:
         _require_einvoice_enabled(invoice.company)
         if not invoice.irn:
             raise BusinessRuleError("No IRN to cancel.")
-        get_irp_adapter(invoice.company).cancel(invoice.irn)
+        cancelled_irn = invoice.irn
+        # MANUAL_IRN is owner-attested locally — do not call GSP (typos must be reversible).
+        if invoice.einvoice_status != SalesInvoice.EInvoiceStatus.MANUAL_IRN:
+            _cancel_irn_via_gsp(invoice, request)
         invoice.einvoice_status = SalesInvoice.EInvoiceStatus.CANCELLED
-        invoice.save(update_fields=["einvoice_status"])
+        invoice.irn = ""
+        invoice.ack_no = ""
+        invoice.ack_date = None
+        invoice.einvoice_qr = ""
+        invoice.einvoice_error = ""
+        invoice.save(
+            update_fields=[
+                "einvoice_status",
+                "irn",
+                "ack_no",
+                "ack_date",
+                "einvoice_qr",
+                "einvoice_error",
+            ]
+        )
         AuditService.log(
             company=invoice.company,
             user=request.user,
@@ -202,14 +244,14 @@ class InvoiceEinvoiceEwayActionsMixin:
             entity_type="salesinvoice",
             entity_id=invoice.pk,
             description="einvoice.cancelled",
-            metadata={"irn": invoice.irn},
+            metadata={"irn": cancelled_irn},
         )
         log_statutory_event(
             company=invoice.company,
             entity_type="salesinvoice",
             entity_id=invoice.pk,
             event_type=StatutoryDocumentEvent.EventType.IRN,
-            payload={"action": "cancelled", "irn": invoice.irn},
+            payload={"action": "cancelled", "irn": cancelled_irn},
             user=request.user,
         )
         return Response(self.get_serializer(invoice).data)
@@ -382,9 +424,10 @@ class InvoiceEinvoiceEwayActionsMixin:
         from core.permissions import get_company_user
         from core.validators import validate_gstin
         from django.core.exceptions import ValidationError
-        from reporting.gst_periods import mark_period_dirty_if_snapshotted
+        from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
         invoice = self.get_object()
+        assert_period_allows_money_amend(invoice.company, invoice.invoice_date)
         cu = get_company_user(request)
         if cu.role != "OWNER":
             raise BusinessRuleError("Only Owner can amend filing identity.")
@@ -614,7 +657,15 @@ class NoteEinvoiceActionsMixin:
         _require_einvoice_enabled(note.company)
         if not note.irn:
             raise BusinessRuleError("No IRN to cancel.")
-        get_irp_adapter(note.company).cancel(note.irn)
+        if getattr(note, "einvoice_status", None) != SalesInvoice.EInvoiceStatus.MANUAL_IRN:
+            _cancel_irn_via_gsp(note, request)
         note.einvoice_status = SalesInvoice.EInvoiceStatus.CANCELLED
-        note.save(update_fields=["einvoice_status"])
+        note.irn = ""
+        note.ack_no = ""
+        note.ack_date = None
+        note.einvoice_qr = ""
+        note.einvoice_error = ""
+        note.save(
+            update_fields=["einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error"]
+        )
         return Response(self.get_serializer(note).data)

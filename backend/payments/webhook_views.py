@@ -158,6 +158,24 @@ def payment_webhook(request, provider: str):
     if event.payment_link_id and event.payment_link_id != link.provider_link_id:
         return Response({"detail": "payment_link_id mismatch."}, status=status.HTTP_400_BAD_REQUEST)
 
+    if event.status == "REFUNDED":
+        from .models import GatewayPayment
+
+        gp = GatewayPayment.objects.filter(
+            company=company,
+            provider=provider,
+            provider_payment_id=event.provider_payment_id,
+        ).first()
+        if gp is None:
+            return Response({"ok": True, "ignored": True, "status": event.status})
+        try:
+            gp = PaymentService.refund_gateway_payment(
+                gateway_payment=gp, reason="webhook", skip_gateway=True
+            )
+        except BusinessRuleError as exc:
+            return Response({"detail": str(exc.detail)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"ok": True, "gateway_payment_id": gp.id, "status": gp.status})
+
     if event.status != "CAPTURED":
         return Response({"ok": True, "ignored": True, "status": event.status})
 

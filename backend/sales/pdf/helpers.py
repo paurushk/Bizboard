@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 from collections import defaultdict
+from xml.sax.saxutils import escape as xml_escape
+
 from decimal import Decimal, ROUND_HALF_UP
 
 ONES = [
@@ -129,6 +131,11 @@ def build_upi_qr_png(upi_id: str, amount: Decimal | None = None, note: str = "")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def pdf_esc(value) -> str:
+    """Escape user text for ReportLab Paragraph XML."""
+    return xml_escape(str(value or ""))
 
 
 def format_money(value) -> str:

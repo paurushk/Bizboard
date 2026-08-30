@@ -1,4 +1,3 @@
-import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -12,6 +11,7 @@ import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney } from '@/utils/money';
 import { canManageUsers } from '@/utils/permissions';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 function formatPaise(paise: number): string {
   return `${formatMoney(paise / 100)} / mo`;
@@ -31,7 +31,7 @@ export function BillingPage() {
   if (!canManageUsers(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
 
   const sub = query.data?.subscription ?? null;
@@ -54,7 +54,7 @@ export function BillingPage() {
             {sub?.currentPeriodEnd ? ` · period ends ${sub.currentPeriodEnd}` : ''}
           </Typography>
           {status === 'suspended' || (status === 'trial' && sub?.writeBlocked) ? (
-            <Alert severity="error">Workspace writes are blocked until billing is active.</Alert>
+            <HelpErrorAlert message="Workspace writes are blocked until billing is active." />
           ) : null}
         </Stack>
       </Paper>
@@ -63,9 +63,7 @@ export function BillingPage() {
           Available plans
         </Typography>
         {checkout.isError ? (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {getErrorMessage(checkout.error)}
-          </Alert>
+          <HelpErrorAlert error={checkout.error} sx={{ mb: 2 }} />
         ) : null}
         <Stack spacing={1.5}>
           {plans.map((plan) => (

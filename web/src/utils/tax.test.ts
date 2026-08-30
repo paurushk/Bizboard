@@ -199,6 +199,20 @@ describe('calculateInvoiceTotals', () => {
     expect(totals.grandTotal).toBe(168);
   });
 
+  it('taxable freight requires HSN and GST rate then adds GST to totals', () => {
+    const line = calculateLineTax({ quantity: 1, unitPrice: 100, gstRate: 18, intraState: true });
+    const totals = calculateInvoiceTotals([{ ...line, gstRate: 18, intraState: true }], {
+      applyRoundOff: false,
+      additionalCharges: 50,
+      chargesHsn: '9965',
+      chargesGstRate: 18,
+      intraState: true,
+    });
+    expect(totals.taxableTotal).toBe(150);
+    expect(totals.cgstTotal + totals.sgstTotal).toBe(27);
+    expect(totals.grandTotal).toBe(177);
+  });
+
   it('tax-inclusive extract from discounted line gross (Phase 2)', () => {
     const { exclusiveUnitPrice, taxableAmount } = extractExclusiveFromInclusiveLine({
       quantity: 2,
@@ -244,6 +258,7 @@ describe('calculateInvoiceTotals', () => {
       applyRoundOff: false,
     });
     expect(totals.cessTotal).toBe(1);
+    expect(totals.taxTotal).toBe(19);
     expect(totals.grandTotal).toBe(119);
   });
 });

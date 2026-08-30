@@ -20,7 +20,7 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, newIdempotencyKey } from '@/api/client';
 import {
   answerImportClarifications,
   commitImport,
@@ -42,6 +42,7 @@ import type {
   PurchaseBillPreview,
 } from '@/types/domain';
 import { statusLabelKey } from '@/utils/status';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 function isBillPreview(preview: ImportJob['preview']): preview is PurchaseBillPreview {
   return !!preview && !Array.isArray(preview) && Array.isArray((preview as PurchaseBillPreview).lines);
@@ -51,29 +52,49 @@ function isBillPreview(preview: ImportJob['preview']): preview is PurchaseBillPr
 // genuinely blank, never a fabricated default like qty=1 or GST=18 — a
 // fabricated default is indistinguishable from a real read and hides
 // exactly the rows that need the user's attention.
+function billedFromPack(cs?: string, pcs?: string, upc?: string): string | null {
+  const u = Number(upc);
+  if (!Number.isFinite(u) || u <= 0) return null;
+  const c = Number(cs || 0);
+  const p = Number(pcs || 0);
+  if (!Number.isFinite(c) || !Number.isFinite(p)) return null;
+  return String(c * u + p);
+}
+
 function toPreviewLines(preview: PurchaseBillPreview | null): PurchaseBillLinePreview[] {
   if (!preview?.lines) return [];
-  return preview.lines.map((line) => ({
-    name: line.name ?? '',
-    sku: line.sku ?? '',
-    hsnCode: line.hsnCode ?? (line as { hsn_code?: string }).hsn_code ?? '',
-    quantity: line.quantity != null ? String(line.quantity) : '',
-    unitPrice:
-      line.unitPrice != null
-        ? String(line.unitPrice)
-        : (line as { unit_price?: string }).unit_price != null
-          ? String((line as { unit_price?: string }).unit_price)
-          : '',
-    gstRate:
-      line.gstRate != null
-        ? String(line.gstRate)
-        : (line as { gst_rate?: string }).gst_rate != null
-          ? String((line as { gst_rate?: string }).gst_rate)
-          : '',
-    mrp: line.mrp != null ? String(line.mrp) : '',
-    include: line.include !== false,
-    flags: Array.isArray(line.flags) ? line.flags : [],
-  }));
+  return preview.lines.map((line, index) => {
+    const raw = line as PurchaseBillLinePreview & {
+      hsn_code?: string;
+      unit_price?: string;
+      gst_rate?: string;
+    };
+    return {
+      si: raw.si ? String(raw.si) : String(index + 1),
+      name: raw.name ?? '',
+      sku: raw.sku ?? '',
+      hsnCode: raw.hsnCode ?? raw.hsn_code ?? '',
+      quantity: raw.quantity != null ? String(raw.quantity) : '',
+      pcs: raw.pcs != null && raw.pcs !== '' ? String(raw.pcs) : '',
+      cs: raw.cs != null && raw.cs !== '' ? String(raw.cs) : '',
+      upc: raw.upc != null && raw.upc !== '' ? String(raw.upc) : '',
+      unitPrice:
+        raw.unitPrice != null
+          ? String(raw.unitPrice)
+          : raw.unit_price != null
+            ? String(raw.unit_price)
+            : '',
+      gstRate:
+        raw.gstRate != null
+          ? String(raw.gstRate)
+          : raw.gst_rate != null
+            ? String(raw.gst_rate)
+            : '',
+      mrp: raw.mrp != null ? String(raw.mrp) : '',
+      include: raw.include !== false,
+      flags: Array.isArray(raw.flags) ? raw.flags : [],
+    };
+  });
 }
 
 export interface BillUploadPageProps {
@@ -134,7 +155,16 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
       return uploadImport(file, kind, {
         supplierId: !isSales && partyId !== '' ? partyId : undefined,
         customerId: isSales && partyId !== '' ? partyId : undefined,
+        // A new key each click: the same WhatsApp JPEG must be allowed to
+        // re-extract after a prior job was previewed or committed.
+        idempotencyKey: newIdempotencyKey(),
       });
+    },
+    onMutate: () => {
+      setJobId(null);
+      setLines([]);
+      setError(null);
+      setSuccessMsg(null);
     },
     onSuccess: (data) => {
       setJobId(data.id);
@@ -163,10 +193,14 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     mutationFn: async () => {
       if (!jobId) throw new Error('No job');
       const payloadLines = lines.map((line) => ({
+        si: line.si ?? '',
         name: line.name,
         sku: line.sku ?? '',
         hsnCode: line.hsnCode ?? '',
         quantity: line.quantity,
+        pcs: line.pcs ?? '',
+        cs: line.cs ?? '',
+        upc: line.upc ?? '',
         unitPrice: line.unitPrice,
         gstRate: line.gstRate,
         mrp: line.mrp ?? '0',
@@ -193,12 +227,14 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
       setSuccessMsg(t(isSales ? 'billUpload.successSales' : 'billUpload.success'));
       setError(null);
       if (salesId) {
-        void navigate('/sales/history', {
-          state: { message: `Draft sales invoice #${salesId} created from bill upload.` },
+        void navigate(`/sales/history/${salesId}/edit`, {
+          replace: true,
+          state: { fromBillUpload: true },
         });
       } else if (purchaseId) {
-        void navigate('/purchases/history', {
-          state: { message: `Draft purchase #${purchaseId} created from bill upload.` },
+        void navigate(`/purchases/history/${purchaseId}/edit`, {
+          replace: true,
+          state: { fromBillUpload: true },
         });
       }
     },
@@ -220,14 +256,23 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     [lines],
   );
   const flaggedSet = useMemo(() => new Set(flaggedIndices), [flaggedIndices]);
-  const orderedIndices = useMemo(() => {
-    const clean = lines.map((_, i) => i).filter((i) => !flaggedSet.has(i));
-    return [...flaggedIndices, ...clean];
-  }, [lines, flaggedIndices, flaggedSet]);
-  const visibleIndices = showFlaggedOnly ? flaggedIndices : orderedIndices;
+  // Keep the printed bill order (SI 1…n). Flagged rows stay in place and
+  // highlight in orange — pulling them to the top reordered the invoice.
+  const billOrderIndices = useMemo(() => lines.map((_, i) => i), [lines]);
+  const visibleIndices = showFlaggedOnly ? flaggedIndices : billOrderIndices;
 
   const updateLine = (idx: number, patch: Partial<PurchaseBillLinePreview>) => {
-    setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+    setLines((prev) =>
+      prev.map((l, i) => {
+        if (i !== idx) return l;
+        const next = { ...l, ...patch };
+        if ('cs' in patch || 'pcs' in patch || 'upc' in patch) {
+          const billed = billedFromPack(next.cs, next.pcs, next.upc);
+          if (billed != null) next.quantity = billed;
+        }
+        return next;
+      }),
+    );
   };
 
   if (!canAccess) return <ForbiddenPage />;
@@ -242,9 +287,13 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
       <Typography color="text.secondary">
         {t(isSales ? 'billUpload.subtitleSales' : 'billUpload.subtitle')}
       </Typography>
-      <Alert severity="info">{t('billUpload.piiDisclaimer')}</Alert>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      <Alert severity="warning">{t('billUpload.aiAccuracyDisclaimer')}</Alert>
+      <Alert severity="info">{t(isSales ? 'billUpload.piiDisclaimerSales' : 'billUpload.piiDisclaimer')}</Alert>
+      {error ? <HelpErrorAlert message={error} /> : null}
       {successMsg ? <Alert severity="success">{successMsg}</Alert> : null}
+      {job?.status === 'COMMITTED' ? (
+        <Alert severity="info">{t('billUpload.alreadyCommitted')}</Alert>
+      ) : null}
       {job?.status === 'FAILED' && job.failureReason ? (
         <Alert
           severity="error"
@@ -352,8 +401,9 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
             variant="contained"
             disabled={!file || !piiConsent || extracting}
             onClick={() => uploadMutation.mutate()}
+            startIcon={extracting ? <CircularProgress size={16} color="inherit" /> : undefined}
           >
-            {t('common.upload')}
+            {extracting ? t('billUpload.extracting') : t('common.upload')}
           </Button>
         </Stack>
       </Paper>
@@ -436,10 +486,30 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                   expected: preview.printedLineCount,
                 })}
               </Alert>
+            ) : lines.length >= 18 && lines.length <= 22 ? (
+              <Alert
+                severity="info"
+                action={
+                  jobId != null ? (
+                    <Button
+                      color="inherit"
+                      size="small"
+                      onClick={() => {
+                        void retryImportExtract(jobId).then(() => void jobQuery.refetch());
+                      }}
+                    >
+                      {t('billUpload.retryExtract')}
+                    </Button>
+                  ) : undefined
+                }
+              >
+                {t('billUpload.maybeTruncated', { got: lines.length })}
+              </Alert>
             ) : null}
             {job.billTemplate && clarifications.length === 0 ? (
               <Alert severity="success">{t('billUpload.templateApplied')}</Alert>
             ) : null}
+            <Alert severity="warning">{t('billUpload.aiAccuracyDisclaimer')}</Alert>
 
             <Stack direction="row" spacing={2} flexWrap="wrap">
               <TextField
@@ -463,6 +533,11 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
             ) : (
               <>
                 <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={t('billUpload.extractedRows', { count: lines.length })}
+                  />
                   <Chip
                     size="small"
                     color={flaggedIndices.length > 0 ? 'warning' : 'success'}
@@ -519,10 +594,14 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                 <Table size="small">
                   <TableHead>
                     <TableRow>
+                      <TableCell>{t('billUpload.siNo')}</TableCell>
                       <TableCell>{t('billUpload.include')}</TableCell>
                       <TableCell>{t('common.name')}</TableCell>
                       {showAdvanced ? <TableCell>{t('common.sku')}</TableCell> : null}
                       {showAdvanced ? <TableCell>HSN</TableCell> : null}
+                      <TableCell align="right">{t('billUpload.colCs')}</TableCell>
+                      <TableCell align="right">{t('billUpload.colPcs')}</TableCell>
+                      <TableCell align="right">{t('billUpload.colUpc')}</TableCell>
                       <TableCell align="right">{t('billing.qty')}</TableCell>
                       <TableCell align="right">{t('billing.price')}</TableCell>
                       <TableCell align="right">GST %</TableCell>
@@ -542,6 +621,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                             sx={{ cursor: 'pointer' }}
                             onClick={() => setExpandedRows((prev) => new Set(prev).add(idx))}
                           >
+                            <TableCell>{line.si || idx + 1}</TableCell>
                             <TableCell padding="checkbox">
                               <Checkbox
                                 checked={line.include !== false}
@@ -550,6 +630,9 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                               />
                             </TableCell>
                             <TableCell colSpan={showAdvanced ? 3 : 1}>{line.name}</TableCell>
+                            <TableCell align="right">{line.cs || '—'}</TableCell>
+                            <TableCell align="right">{line.pcs || '—'}</TableCell>
+                            <TableCell align="right">{line.upc || '—'}</TableCell>
                             <TableCell align="right">{line.quantity || '—'}</TableCell>
                             <TableCell align="right">{line.unitPrice || '—'}</TableCell>
                             <TableCell align="right">{line.gstRate || '—'}</TableCell>
@@ -559,6 +642,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                       }
                       return (
                         <TableRow key={idx} sx={isFlagged ? { bgcolor: 'warning.light' } : undefined}>
+                          <TableCell>{line.si || idx + 1}</TableCell>
                           <TableCell padding="checkbox">
                             <Checkbox
                               checked={line.include !== false}
@@ -597,6 +681,36 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                               />
                             </TableCell>
                           ) : null}
+                          <TableCell align="right">
+                            <TextField
+                              size="small"
+                              type="number"
+                              value={line.cs ?? ''}
+                              placeholder="—"
+                              onChange={(e) => updateLine(idx, { cs: e.target.value })}
+                              sx={{ width: 72 }}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <TextField
+                              size="small"
+                              type="number"
+                              value={line.pcs ?? ''}
+                              placeholder="—"
+                              onChange={(e) => updateLine(idx, { pcs: e.target.value })}
+                              sx={{ width: 72 }}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <TextField
+                              size="small"
+                              type="number"
+                              value={line.upc ?? ''}
+                              placeholder="—"
+                              onChange={(e) => updateLine(idx, { upc: e.target.value })}
+                              sx={{ width: 72 }}
+                            />
+                          </TableCell>
                           <TableCell align="right">
                             <TextField
                               size="small"
@@ -654,6 +768,9 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
               >
                 {t(isSales ? 'billUpload.commitDraftSales' : 'billUpload.commitDraft')}
               </Button>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                {t(isSales ? 'billUpload.commitDraftHintSales' : 'billUpload.commitDraftHint')}
+              </Typography>
             </Box>
           </Stack>
         </Paper>

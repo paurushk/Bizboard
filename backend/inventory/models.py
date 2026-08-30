@@ -170,10 +170,18 @@ class StockTransfer(CompanyScopedModel):
 
 class StockTransferLine(models.Model):
     transfer = models.ForeignKey(StockTransfer, on_delete=models.CASCADE, related_name="lines")
+    company = models.ForeignKey(
+        "accounts.Company", on_delete=models.CASCADE, related_name="+", db_index=True,
+    )
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="+")
     batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
     serial_numbers = models.JSONField(default=list, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.transfer_id and not self.company_id:
+            self.company_id = self.transfer.company_id
+        super().save(*args, **kwargs)
 
 
 class SerialNumber(CompanyScopedModel):
@@ -187,6 +195,10 @@ class SerialNumber(CompanyScopedModel):
     warehouse = models.ForeignKey(Warehouse, null=True, blank=True, on_delete=models.PROTECT, related_name="serial_numbers")
     serial_number = models.CharField(max_length=128)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.AVAILABLE)
+    # R4-014: set to the ImportJob id when the unit was received via an import,
+    # so voiding that import can precisely scrap the serials it created (not a
+    # best-effort scan). Plain id, not an FK, to avoid inventory→imports coupling.
+    import_job_ref = models.PositiveBigIntegerField(null=True, blank=True, db_index=True)
 
     class Meta:
         ordering = ["serial_number"]
@@ -214,4 +226,78 @@ class InventoryCostLayer(CompanyScopedModel):
         ordering = ["id"]
         indexes = [
             models.Index(fields=["company", "warehouse", "product"], name="fifo_layer_lookup_idx"),
+        ]
+
+
+class WarehouseReorderLevel(CompanyScopedModel):
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name="reorder_levels")
+    product = models.ForeignKey("masters.Product", on_delete=models.CASCADE, related_name="warehouse_reorder_levels")
+    reorder_level = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "warehouse", "product"],
+                name="uniq_reorder_per_warehouse_product",
+            )
+        ]
+
+
+class StockCountSession(CompanyScopedModel):
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT"
+        COUNTED = "COUNTED"
+        POSTED = "POSTED"
+        CANCELLED = "CANCELLED"
+
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="stock_counts")
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    counted_on = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    posted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-id"]
+
+
+class StockCountLine(models.Model):
+    # Denormalized tenancy key (session.company) so the row can be enrolled in RLS.
+    company = models.ForeignKey(
+        "accounts.Company", on_delete=models.CASCADE, related_name="+", db_index=True,
+    )
+    session = models.ForeignKey(StockCountSession, on_delete=models.CASCADE, related_name="lines")
+    product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="+")
+    batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    system_qty = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
+    counted_qty = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session", "product", "batch"],
+                name="uniq_stock_count_line",
+            )
+        ]
+
+    @property
+    def variance(self):
+        if self.counted_qty is None:
+            return None
+        return self.counted_qty - self.system_qty
+
+
+class ExpiryAlertLog(CompanyScopedModel):
+    """One row per lot × warehouse × band so expiry notices fire once."""
+
+    batch = models.ForeignKey(BatchLot, on_delete=models.CASCADE, related_name="expiry_notices")
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name="+")
+    band_days = models.PositiveSmallIntegerField()
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "batch", "warehouse", "band_days"],
+                name="uniq_expiry_notice_per_band",
+            )
         ]
