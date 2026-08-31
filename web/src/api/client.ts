@@ -248,6 +248,11 @@ apiClient.interceptors.response.use(
           new CustomEvent('bizboard:company-context-conflict', { detail: { url: original?.url } }),
         );
       }
+      if (code === 'COMPANY_REQUIRED') {
+        const details =
+          (body as { error?: { details?: unknown } } | undefined)?.error?.details ?? body;
+        window.dispatchEvent(new CustomEvent('bizboard:company-required', { detail: details }));
+      }
     }
     return Promise.reject(error);
   },
@@ -351,6 +356,11 @@ export function newIdempotencyKey(): string {
     return crypto.randomUUID();
   }
   return `idem-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+/** PD-01: every user Complete/Save/Pay click gets a fresh UUID. Network auto-retry reuses the request header. */
+export function userGestureIdempotencyKey(): string {
+  return newIdempotencyKey();
 }
 
 export function idempotencyHeaders(key?: string): Record<string, string> {

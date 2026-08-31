@@ -1,5 +1,7 @@
 """Common GST HSN/SAC codes for the Find HSN helper (not a live GSTN feed)."""
 
+from datetime import date
+
 COMMON_HSN = [
     {"code": "0401", "description": "Milk and cream, not concentrated", "kind": "HSN"},
     {"code": "0402", "description": "Milk and cream, concentrated or containing sugar", "kind": "HSN"},
@@ -79,3 +81,96 @@ def search_hsn(query: str, *, kind: str | None = None, limit: int = 20) -> list[
         if len(rows) >= limit:
             break
     return rows
+
+
+GST2_CUTOVER = date(2025, 9, 22)
+
+# Starter table only — curator unnamed, so the product does not claim automatic GST updates.
+STARTER_HSN_RATES = [
+    # Biscuits / bakers' wares: 18% → 5% at GST 2.0.
+    {"hsn_sac": "1905", "rate": "18", "cess": "0", "valid_from": "2017-07-01", "valid_to": "2025-09-21",
+     "version": "pre-gst2.0", "source_ref": "starter-table"},
+    {"hsn_sac": "1905", "rate": "5", "cess": "0", "valid_from": "2025-09-22", "valid_to": None,
+     "version": "gst2.0-2025-09-22", "source_ref": "starter-table"},
+    # Cigarettes: 28% → 40% sin slab.
+    {"hsn_sac": "2402", "rate": "28", "cess": "0", "valid_from": "2017-07-01", "valid_to": "2025-09-21",
+     "version": "pre-gst2.0", "source_ref": "starter-table"},
+    {"hsn_sac": "2402", "rate": "40", "cess": "0", "valid_from": "2025-09-22", "valid_to": None,
+     "version": "gst2.0-2025-09-22", "source_ref": "starter-table"},
+]
+
+
+def _hsn_prefixes(hsn: str) -> list[str]:
+    digits = "".join(c for c in (hsn or "") if c.isdigit())
+    out = []
+    for length in (8, 6, 4):
+        if len(digits) >= length:
+            out.append(digits[:length])
+    if digits and digits not in out:
+        out.append(digits)
+    return out
+
+
+def rate_for(hsn: str, on_date) -> dict | None:
+    """Return the HsnRate in force on ``on_date``, or None if the table has no row.
+
+    None means keep the line/product rate — do not invent a rate.
+    """
+    from datetime import date as date_cls
+    from decimal import Decimal
+
+    from django.db.models import Q
+
+    from masters.models import HsnRate
+
+    if on_date is None:
+        return None
+    if isinstance(on_date, str):
+        on_date = date_cls.fromisoformat(str(on_date)[:10])
+    prefixes = _hsn_prefixes(hsn)
+    if not prefixes:
+        return None
+    qs = (
+        HsnRate.objects.filter(hsn_sac__in=prefixes)
+        .filter(valid_from__lte=on_date)
+        .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=on_date))
+    )
+    rows = list(qs)
+    if not rows:
+        return None
+    rows.sort(key=lambda r: (len(r.hsn_sac), r.valid_from), reverse=True)
+    hit = rows[0]
+    return {
+        "rate": Decimal(str(hit.rate)),
+        "cess": Decimal(str(hit.cess or 0)),
+        "version": hit.version,
+        "hsn_sac": hit.hsn_sac,
+        "source_ref": hit.source_ref,
+    }
+
+
+def seed_starter_hsn_rates() -> int:
+    """Idempotent seed of the starter GST 2.0 table. Not a live Council feed."""
+    from datetime import date as date_cls
+    from decimal import Decimal
+
+    from masters.models import HsnRate
+
+    created = 0
+    for row in STARTER_HSN_RATES:
+        valid_from = date_cls.fromisoformat(row["valid_from"])
+        valid_to = date_cls.fromisoformat(row["valid_to"]) if row["valid_to"] else None
+        _, was = HsnRate.objects.get_or_create(
+            hsn_sac=row["hsn_sac"],
+            version=row["version"],
+            defaults={
+                "rate": Decimal(row["rate"]),
+                "cess": Decimal(row["cess"]),
+                "valid_from": valid_from,
+                "valid_to": valid_to,
+                "source_ref": row["source_ref"],
+            },
+        )
+        if was:
+            created += 1
+    return created

@@ -684,6 +684,14 @@ class PaymentService:
         return link
 
     @staticmethod
+    def _raise_or_park(existing, holding: bool, reason: str, message: str):
+        from payments.holding import park_gateway_payment
+
+        if holding:
+            return park_gateway_payment(existing, reason, message)
+        raise BusinessRuleError(message)
+
+    @staticmethod
     @transaction.atomic
     def finalize_gateway_payment(
         *,
@@ -696,9 +704,25 @@ class PaymentService:
         raw_payload=None,
         user=None,
     ):
-        """Idempotent webhook finalize → receipt + allocate."""
+        """Idempotent webhook finalize → receipt + allocate.
+
+        W0-03: persist the provider payment id first. When GATEWAY_HOLDING_STATE
+        is on, books failures park as CAPTURED_PENDING_BOOKS instead of dropping
+        the capture or 4xx-ing Razorpay.
+        """
+        from payments.holding import (
+            books_hold_reason,
+            clear_holding,
+            err_detail,
+            gateway_holding_enabled,
+            park_gateway_payment,
+            suffixed_internal_utr,
+        )
+
         if not provider_payment_id:
             raise BusinessRuleError("Missing provider payment id.")
+
+        holding = gateway_holding_enabled()
 
         existing = (
             GatewayPayment.objects.select_for_update()
@@ -752,16 +776,22 @@ class PaymentService:
             existing.raw_payload = raw_payload
             existing.save()
 
+        retrying_hold = existing.status == GatewayPaymentStatus.CAPTURED_PENDING_BOOKS
+
         link = payment_link or existing.payment_link
         if link is None and existing.payment_link_id:
             link = PaymentLink.objects.select_for_update().filter(pk=existing.payment_link_id).first()
 
         if link is None:
-            raise BusinessRuleError("Gateway payment is not tied to a payment link.")
+            return PaymentService._raise_or_park(
+                existing, holding, "NO_LINK", "Gateway payment is not tied to a payment link."
+            )
 
         link = PaymentLink.objects.select_for_update().get(pk=link.pk)
-        if link.status == PaymentLinkStatus.CANCELLED:
-            raise BusinessRuleError("Payment link has been cancelled.")
+        if link.status == PaymentLinkStatus.CANCELLED and not retrying_hold:
+            return PaymentService._raise_or_park(
+                existing, holding, "LINK_CANCELLED", "Payment link has been cancelled."
+            )
         if link.sales_invoice_id:
             from sales.models import SalesInvoice
 
@@ -771,34 +801,60 @@ class PaymentService:
                 .first()
             )
             if invoice_status == SalesInvoice.Status.CANCELLED:
-                raise BusinessRuleError("Invoice has been cancelled; payment cannot be captured.")
+                return PaymentService._raise_or_park(
+                    existing,
+                    holding,
+                    "INVOICE_CANCELLED",
+                    "Invoice has been cancelled; payment cannot be captured.",
+                )
         # BB-000438: link already fully paid — do not mark a second provider id CAPTURED without receipt.
         if link.status == PaymentLinkStatus.PAID and link.paid_receipt_id:
             if existing.status != GatewayPaymentStatus.CAPTURED:
+                if holding:
+                    return park_gateway_payment(
+                        existing,
+                        "ALREADY_PAID",
+                        "Payment link is already paid; duplicate capture parked.",
+                    )
                 existing.status = GatewayPaymentStatus.FAILED
                 existing.save(update_fields=["status", "updated_at"])
             raise BusinessRuleError(
                 "Payment link is already paid; duplicate capture ignored."
             )
 
-        if link.expires_at and link.expires_at < timezone.now() and link.status not in (
-            PaymentLinkStatus.PAID,
-            PaymentLinkStatus.PARTIALLY_PAID,
+        if (
+            not retrying_hold
+            and link.expires_at
+            and link.expires_at < timezone.now()
+            and link.status
+            not in (
+                PaymentLinkStatus.PAID,
+                PaymentLinkStatus.PARTIALLY_PAID,
+            )
         ):
             link.status = PaymentLinkStatus.EXPIRED
             link.save(update_fields=["status", "updated_at"])
-            raise BusinessRuleError("Payment link has expired.")
+            return PaymentService._raise_or_park(
+                existing, holding, "LINK_EXPIRED", "Payment link has expired."
+            )
 
         capture_amount = Decimal(amount)
-        if not link.allow_partial and capture_amount < link.amount:
-            raise BusinessRuleError(
-                f"Captured amount {capture_amount} is below link amount {link.amount}; partial capture is not allowed."
-            )
-        # BB-000391: always reject over-capture (even when allow_partial).
-        if capture_amount > link.amount:
-            raise BusinessRuleError(
-                f"Captured amount {capture_amount} exceeds link amount {link.amount}."
-            )
+        if not retrying_hold:
+            if not link.allow_partial and capture_amount < link.amount:
+                return PaymentService._raise_or_park(
+                    existing,
+                    holding,
+                    "AMOUNT_MISMATCH",
+                    f"Captured amount {capture_amount} is below link amount {link.amount}; partial capture is not allowed.",
+                )
+            # BB-000391: always reject over-capture (even when allow_partial).
+            if capture_amount > link.amount:
+                return PaymentService._raise_or_park(
+                    existing,
+                    holding,
+                    "AMOUNT_MISMATCH",
+                    f"Captured amount {capture_amount} exceeds link amount {link.amount}.",
+                )
 
         # Sum prior captures on this link (gateway receipts).
         prior_captured = (
@@ -811,20 +867,29 @@ class PaymentService:
             or Decimal("0")
         )
         remaining_on_link = link.amount - Decimal(str(prior_captured))
-        if capture_amount > remaining_on_link:
-            raise BusinessRuleError(
-                f"Captured amount {capture_amount} exceeds remaining link balance {remaining_on_link}."
+        if not retrying_hold and capture_amount > remaining_on_link:
+            return PaymentService._raise_or_park(
+                existing,
+                holding,
+                "AMOUNT_MISMATCH",
+                f"Captured amount {capture_amount} exceeds remaining link balance {remaining_on_link}.",
             )
 
         # R3-002: staff may have pre-recorded this exact payment manually (UTR ==
         # provider id). Adopt that receipt rather than 500-ing on UTR uniqueness
         # and letting the provider retry forever.
-        _utr = provider_payment_id[:64]
+        _utr = (existing.internal_utr or provider_payment_id)[:64]
         existing_receipt = (
-            CustomerReceipt.objects.filter(company=company, utr=_utr)
+            CustomerReceipt.objects.filter(gateway_payment=existing)
             .exclude(status__in=(ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED))
             .first()
         )
+        if existing_receipt is None:
+            existing_receipt = (
+                CustomerReceipt.objects.filter(company=company, utr=provider_payment_id[:64])
+                .exclude(status__in=(ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED))
+                .first()
+            )
         if existing_receipt is not None:
             receipt = existing_receipt
             if receipt.gateway_payment_id is None:
@@ -832,20 +897,53 @@ class PaymentService:
                 receipt.source = PaymentSource.PAYMENT_LINK
                 receipt.save(update_fields=["gateway_payment", "source", "updated_at"])
         else:
-            receipt = PaymentService.create_receipt(
-                company=company,
-                customer=link.customer,
-                amount=capture_amount,
-                mode="UPI",
-                reference=provider_payment_id,
-                utr=_utr,
-                notes=f"Gateway {provider} capture",
-                user=user,
-                source=PaymentSource.PAYMENT_LINK,
-                gateway_payment=existing,
-                warn_utr_duplicate=False,
-                bypass_period_gate=True,  # R3-001
-            )
+            try:
+                with transaction.atomic():
+                    receipt = PaymentService.create_receipt(
+                        company=company,
+                        customer=link.customer,
+                        amount=capture_amount,
+                        mode="UPI",
+                        reference=provider_payment_id,
+                        utr=_utr,
+                        notes=f"Gateway {provider} capture",
+                        user=user,
+                        source=PaymentSource.PAYMENT_LINK,
+                        gateway_payment=existing,
+                        warn_utr_duplicate=False,
+                        # W0-03: when holding is on, do not bypass — park instead of silent post.
+                        bypass_period_gate=not holding,
+                    )
+            except (BusinessRuleError, IntegrityError) as exc:
+                reason = books_hold_reason(exc)
+                if reason == "UTR_CLASH" and holding:
+                    suffixed = suffixed_internal_utr(provider_payment_id, existing.pk)
+                    existing.internal_utr = suffixed
+                    existing.save(update_fields=["internal_utr", "updated_at"])
+                    try:
+                        with transaction.atomic():
+                            receipt = PaymentService.create_receipt(
+                                company=company,
+                                customer=link.customer,
+                                amount=capture_amount,
+                                mode="UPI",
+                                reference=provider_payment_id,
+                                utr=suffixed,
+                                notes=f"Gateway {provider} capture (UTR suffixed)",
+                                user=user,
+                                source=PaymentSource.PAYMENT_LINK,
+                                gateway_payment=existing,
+                                warn_utr_duplicate=True,
+                                bypass_period_gate=not holding,
+                            )
+                    except (BusinessRuleError, IntegrityError) as exc2:
+                        return park_gateway_payment(
+                            existing, books_hold_reason(exc2), err_detail(exc2)
+                        )
+                else:
+                    return PaymentService._raise_or_park(
+                        existing, holding, reason, err_detail(exc)
+                    )
         # Keep the receipt even if allocation fails; never mark the link PAID
         # until the invoice is actually allocated (unallocated advance otherwise).
         allocated_ok = True
@@ -873,8 +971,7 @@ class PaymentService:
                     link.sales_invoice_id,
                 )
 
-        existing.status = GatewayPaymentStatus.CAPTURED
-        existing.save(update_fields=["status", "updated_at"])
+        clear_holding(existing)
         total_captured = Decimal(str(prior_captured)) + capture_amount
         # BB-000392: PARTIALLY_PAID until fully collected AND allocated.
         if total_captured + Decimal("0.001") >= link.amount and allocated_ok:
@@ -888,6 +985,45 @@ class PaymentService:
         link.save(update_fields=["status", "paid_receipt", "updated_by", "updated_at"])
         emit("payment_link.paid", document=link, user=user, event="payment_link.paid")
         return existing
+
+    @staticmethod
+    def reconcile_gateway_captures(*, company_id=None, older_than_minutes: int = 5):
+        """Retry parked captures. Default: park until the period is open (no silent next-period post)."""
+        from datetime import timedelta as _td
+
+        from payments.holding import gateway_holding_enabled
+
+        if not gateway_holding_enabled():
+            return 0, 0
+        qs = GatewayPayment.objects.filter(
+            status=GatewayPaymentStatus.CAPTURED_PENDING_BOOKS
+        ).select_related("company", "payment_link")
+        if company_id:
+            qs = qs.filter(company_id=company_id)
+        if older_than_minutes:
+            cutoff = timezone.now() - _td(minutes=older_than_minutes)
+            qs = qs.filter(Q(holding_since__isnull=True) | Q(holding_since__lte=cutoff))
+        posted = 0
+        attempted = 0
+        for gp in qs.order_by("id")[:200]:
+            attempted += 1
+            try:
+                result = PaymentService.finalize_gateway_payment(
+                    company=gp.company,
+                    provider=gp.provider,
+                    provider_payment_id=gp.provider_payment_id,
+                    amount=gp.amount,
+                    fee=gp.fee or Decimal("0"),
+                    payment_link=gp.payment_link,
+                    raw_payload=gp.raw_payload,
+                )
+                if result.status == GatewayPaymentStatus.CAPTURED:
+                    posted += 1
+            except Exception:
+                logger.exception(
+                    "Holding reconcile failed for gateway payment %s", gp.provider_payment_id
+                )
+        return posted, attempted
 
     @staticmethod
     @transaction.atomic
@@ -1003,6 +1139,7 @@ class PaymentService:
     @staticmethod
     def share_payment_link(*, link, channel, recipient, user=None, public_base_url=""):
         from core.services.notifications import NotificationService
+        from sales.whatsapp_send import allow_cloud_for_customer, persist_invoice_whatsapp
 
         if link.status in (PaymentLinkStatus.CANCELLED, PaymentLinkStatus.EXPIRED):
             raise BusinessRuleError("Cannot share a cancelled or expired link.")
@@ -1012,14 +1149,25 @@ class PaymentService:
             f"Please pay {link.amount} using this secure BizBoard link: {url}"
             + (f" (Invoice {link.sales_invoice.number})" if link.sales_invoice_id else "")
         )
+        customer = link.customer
+        if customer is None and link.sales_invoice_id:
+            customer = link.sales_invoice.customer
+        allow_cloud = False
+        subject = f"Payment request — {link.company.name}"
+        if (channel or "").upper() == "WHATSAPP":
+            subject = "payment_reminder"
+            allow_cloud = allow_cloud_for_customer(customer)
         notification = NotificationService.send(
             company=link.company,
             channel=channel,
             recipient=recipient,
-            subject=f"Payment request — {link.company.name}",
+            subject=subject,
             body=body,
             user=user,
+            allow_cloud=allow_cloud,
         )
+        if (channel or "").upper() == "WHATSAPP" and link.sales_invoice_id:
+            persist_invoice_whatsapp(link.sales_invoice, notification)
         if link.status == PaymentLinkStatus.CREATED:
             link.status = PaymentLinkStatus.SENT
             link.updated_by = user
@@ -1163,6 +1311,40 @@ class PaymentService:
                         f"{partial_refunds} gateway payment(s) have a partial refund that is "
                         "not reflected in the books — post a manual credit note / adjustment."
                     ),
+                }
+            )
+
+        holding_n = GatewayPayment.objects.filter(
+            company=company, status=GatewayPaymentStatus.CAPTURED_PENDING_BOOKS
+        ).count()
+        if holding_n:
+            alerts.append(
+                {
+                    "code": "GATEWAY_CAPTURE_HOLDING",
+                    "severity": "critical",
+                    "message": (
+                        f"{holding_n} gateway capture(s) are paid at the provider but not "
+                        "posted to books — retry from Payment links or wait for period reopen."
+                    ),
+                    "count": holding_n,
+                }
+            )
+
+        suffixed_n = (
+            GatewayPayment.objects.filter(company=company)
+            .exclude(internal_utr="")
+            .count()
+        )
+        if suffixed_n:
+            alerts.append(
+                {
+                    "code": "GATEWAY_UTR_SUFFIXED",
+                    "severity": "warning",
+                    "message": (
+                        f"{suffixed_n} gateway capture(s) used a suffixed internal UTR because "
+                        "the provider payment id already existed on another receipt."
+                    ),
+                    "count": suffixed_n,
                 }
             )
 

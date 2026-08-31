@@ -249,8 +249,8 @@ export function SalesHistoryPage() {
                   <TableCell>{inv.customerName ?? '—'}</TableCell>
                   <TableCell>
                     <StatusChip
-                      tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance))}
-                      labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance))}
+                      tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
+                      labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
                     />
                   </TableCell>
                   <TableCell align="right">{formatMoney(inv.grandTotal)}</TableCell>

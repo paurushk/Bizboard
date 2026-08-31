@@ -6,7 +6,8 @@ ticket-level compilation. They are **not** a from-zero build schedule.
 
 **Operative mode (2026-08-21):** **gap audit against each Definition of Done,
 then schedule only the deltas.** Most of Phases 1–7 already exist on
-`wip/phase0` as MVP/preview slices. Do not resume the sequential
+`wip/phase0` as MVP/preview slices (historical). **As of 2026-08-31 the
+implementation branch is `main`.** Do not resume the sequential
 Phase-1→7 *build* calendar.
 
 **Arbitration rule:** **code + tests win for "what exists today"**;

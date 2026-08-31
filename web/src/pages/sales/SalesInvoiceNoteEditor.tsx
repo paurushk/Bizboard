@@ -46,6 +46,7 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { PdfStatusPoller } from '@/components/PdfStatusPoller';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
+import { usePreviewTotals } from '@/hooks/usePreviewTotals';
 import type { NoteReason, SalesCreditNote, SalesDebitNote, SalesInvoice } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
@@ -183,6 +184,24 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     })),
   });
 
+  const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
+  const preview = usePreviewTotals(
+    'sales',
+    previewOnline && invoice && activeSourceLines(lines).length > 0
+      ? {
+          customer: invoice.customer,
+          items: activeSourceLines(lines).map((l) => ({
+            product: l.product,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            discountPercent: l.discountPercent,
+            gstRate: l.gstRate,
+            cessRate: l.cessRate ?? 0,
+          })),
+        }
+      : null,
+  );
+
   const saveMutation = useMutation({
     mutationFn: async (mode: 'draft' | 'complete') => {
       if (!invoice) throw new Error(t('phase1.selectInvoice'));
@@ -247,11 +266,11 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
       title={t(isEdit ? (isCredit ? 'phase1.editCreditNote' : 'phase1.editDebitNote') : (isCredit ? 'phase1.newCreditNote' : 'phase1.newDebitNote'))}
       primarySave={primarySave}
       canSave={canSave}
-      canComplete={canSave}
+      canComplete={canSave && (!previewOnline || preview.ready)}
       isEdit={isEdit}
       backTo={listPath}
       message={message}
-      error={error}
+      error={error || preview.error}
       infoBanner={infoBanner}
       saving={saveMutation.isPending}
       hideSaveAndNew
@@ -363,7 +382,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
           availableToAdd={pool}
         />
 
-        <SimpleTotalsPanel totals={totals} />
+        <SimpleTotalsPanel totals={preview.totals ?? totals} />
       </Stack>
     </DocumentEditorShell>
   );

@@ -127,10 +127,16 @@ class CompanySerializer(serializers.ModelSerializer):
             "ai_features_enabled", "ai_monthly_token_budget",
             "opening_cash_balance", "opening_cash_as_of", "daily_summary_email_enabled",
             "require_payment_reference", "payment_gateway_provider", "payment_gateway_test_mode",
-            "auto_match_bank_exact", "inventory_valuation_method", "block_expired_stock",
+            "auto_match_bank_exact", "inventory_valuation_method", "valuation_business_date_order",
+            "recompute_tax_on_complete",
+            "block_expired_stock",
             "stock_on_delivery_challan", "accounting_enabled",
+            "outstanding_basis",
             "payroll_pt_slabs",
             "item_custom_field_defs",
+            "dunning_enabled", "dunning_days", "dunning_max_reminders",
+            "dunning_quiet_hours_start", "dunning_quiet_hours_end",
+            "dunning_channel_whatsapp", "dunning_channel_sms",
             # BB-000715: Owner-readable feature flags (platform/admin write optional elsewhere).
             "feature_flags",
             "onboarding_dismissed_at", "tax_profile_confirmed_at", "onboarding_started_at",
@@ -203,6 +209,22 @@ class CompanySerializer(serializers.ModelSerializer):
 
     def validate_udyam(self, value):
         return (value or "").strip().upper()
+
+    def validate_dunning_days(self, value):
+        if value in (None, ""):
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError("dunning_days must be a list of integers.")
+        days = []
+        for item in value:
+            try:
+                n = int(item)
+            except (TypeError, ValueError) as exc:
+                raise serializers.ValidationError("dunning_days must be integers.") from exc
+            if n < 1 or n > 365:
+                raise serializers.ValidationError("Each dunning day must be between 1 and 365.")
+            days.append(n)
+        return sorted(set(days))
 
     def validate_item_custom_field_defs(self, value):
         from masters.custom_fields import validate_definitions
@@ -414,6 +436,7 @@ class MeSerializer(serializers.Serializer):
     can_create_payments = serializers.BooleanField()
     can_post_journals = serializers.BooleanField()
     is_staff = serializers.BooleanField(source="user.is_staff", read_only=True)
+    push_token = serializers.CharField(source="user.push_token", read_only=True, allow_blank=True)
     company_id = serializers.IntegerField(source="company.id")
     company = serializers.SerializerMethodField()
 

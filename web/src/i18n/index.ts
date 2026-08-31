@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
 import { en, type MessageTree } from './en';
 import { hi } from './hi';
+import { ta } from './ta';
+import { gu } from './gu';
 
-const catalogs: Record<string, MessageTree> = { en, hi: hi as unknown as MessageTree };
+const catalogs: Record<string, MessageTree> = {
+  en,
+  hi: hi as unknown as MessageTree,
+  ta: ta as unknown as MessageTree,
+  gu: gu as unknown as MessageTree,
+};
 
 const LOCALE_STORAGE_KEY = 'bizboard:locale';
 
@@ -76,3 +83,5 @@ export function useLocale(): string {
 
 export { en };
 export { hi };
+export { ta };
+export { gu };

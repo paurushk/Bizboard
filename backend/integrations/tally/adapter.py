@@ -22,8 +22,8 @@ from masters.models import Customer, Product, Supplier, Unit
 from integrations.models import IntegrationSyncRun
 
 DISCLAIMER = (
-    "BizBoard Tally one-shot export dump / CSV migration aid — not live or incremental "
-    "Tally sync and not certified Tally parity. Validate totals with your CA after import."
+    "BizBoard Tally one-shot export dump / CSV migration aid — not a live Tally "
+    "connection and not certified Tally parity. Validate totals with your CA after import."
 )
 OPENING_NOTE = "TALLY_OPENING"
 OPENING_SKU = "__TALLY_OPENING__"
@@ -129,6 +129,17 @@ def parse_tally_masters_rows(rows: list[dict[str, str]]) -> dict[str, Any]:
             })
         else:
             errors.append({"row": i, "error": f"Unknown entity_type '{et}'"})
+    records = len(rows)
+    warning_rows = [
+        r for r in customers + suppliers + products
+        if _dec(r.get("opening_outstanding") or r.get("opening_qty")) < 0
+    ]
+    summary = {
+        "records": records,
+        "valid": len(customers) + len(suppliers) + len(products),
+        "warnings": len(warning_rows),
+        "errors": len(errors),
+    }
     return {
         "customers": customers,
         "suppliers": suppliers,
@@ -140,12 +151,66 @@ def parse_tally_masters_rows(rows: list[dict[str, str]]) -> dict[str, Any]:
             "products": len(products),
             "errors": len(errors),
         },
+        "summary": summary,
         "disclaimer": DISCLAIMER,
     }
 
 
 def parse_tally_masters_csv(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
     return parse_tally_masters_rows(_rows_from_upload(file_bytes, filename))
+
+
+def _post_commit_recon(company, preview: dict, created: dict) -> dict:
+    """Pass/fail opening stock, AR, AP vs the committed preview totals."""
+    from django.db.models import Sum
+
+    from inventory.models import StockBalance
+    from ledgers.services import LedgerService
+    from purchases.models import PurchaseInvoice
+    from sales.models import SalesInvoice
+
+    expected_ar = sum(
+        (_dec(r.get("opening_outstanding")) for r in (preview.get("customers") or [])),
+        Decimal("0"),
+    )
+    expected_ap = sum(
+        (_dec(r.get("opening_outstanding")) for r in (preview.get("suppliers") or [])),
+        Decimal("0"),
+    )
+    preview_products = [
+        r
+        for r in (preview.get("products") or [])
+        if r.get("sku") and _dec(r.get("opening_qty")) > 0
+    ]
+    expected_qty = sum((_dec(r.get("opening_qty")) for r in preview_products), Decimal("0"))
+    books_ar = LedgerService.company_receivables(company)
+    books_ap = LedgerService.company_payables(company)
+    opening_invoices = SalesInvoice.objects.filter(
+        company=company, is_opening_balance=True
+    ).count()
+    opening_bills = PurchaseInvoice.objects.filter(
+        company=company, is_opening_balance=True
+    ).count()
+    preview_skus = [str(r.get("sku")) for r in preview_products]
+    if preview_skus:
+        posted_qty = StockBalance.objects.filter(
+            company=company, product__sku__in=preview_skus
+        ).aggregate(s=Sum("on_hand"))["s"] or Decimal("0")
+    else:
+        posted_qty = Decimal("0")
+    ar_ok = abs(books_ar - expected_ar) <= Decimal("0.05")
+    ap_ok = abs(books_ap - expected_ap) <= Decimal("0.05")
+    stock_ok = abs(posted_qty - expected_qty) <= Decimal("0.05")
+    return {
+        "stock": {"expected": str(expected_qty), "actual": str(posted_qty), "pass": bool(stock_ok)},
+        "receivables": {"expected": str(expected_ar), "actual": str(books_ar), "pass": bool(ar_ok)},
+        "payables": {"expected": str(expected_ap), "actual": str(books_ap), "pass": bool(ap_ok)},
+        "balances": {
+            "opening_ar_docs": opening_invoices,
+            "opening_ap_docs": opening_bills,
+            "pass": bool(ar_ok and ap_ok),
+        },
+    }
 
 
 def _opening_balance_product(company, user, unit: Unit) -> Product:
@@ -319,11 +384,21 @@ def _apply_name_sku_maps(base: dict, edits: dict | None) -> dict:
     else:
         out["errors"] = list(base.get("errors") or [])
     out["disclaimer"] = DISCLAIMER
+    err = list(out.get("errors") or [])
+    n_cust = len(out.get("customers") or [])
+    n_sup = len(out.get("suppliers") or [])
+    n_prod = len(out.get("products") or [])
     out["counts"] = {
-        "customers": len(out.get("customers") or []),
-        "suppliers": len(out.get("suppliers") or []),
-        "products": len(out.get("products") or []),
-        "errors": len(out["errors"]),
+        "customers": n_cust,
+        "suppliers": n_sup,
+        "products": n_prod,
+        "errors": len(err),
+    }
+    out["summary"] = {
+        "records": n_cust + n_sup + n_prod + len(err),
+        "valid": n_cust + n_sup + n_prod,
+        "warnings": len(out.get("warnings") or []),
+        "errors": len(err),
     }
     return out
 
@@ -435,8 +510,18 @@ def commit_tally_preview(company, user, sync_run: IntegrationSyncRun, *, force: 
                 warnings.append(f"Opening stock skipped for {product.sku} (already recorded).")
 
     sync_run.status = IntegrationSyncRun.Status.COMMITTED
+    recon = _post_commit_recon(company, preview, created)
     sync_run.counts = created
-    sync_run.result = {"created": created, "warnings": warnings, "disclaimer": DISCLAIMER}
+    sync_run.result = {
+        "created": created,
+        "warnings": warnings,
+        "disclaimer": DISCLAIMER,
+        "reconciliation": recon,
+        "rollback": (
+            "Void this import via the existing import-void path (W0-08d): mark "
+            "TALLY_OPENING invoices as opening-balance voids; do not delete journals."
+        ),
+    }
     sync_run.save()
     return sync_run.result
 

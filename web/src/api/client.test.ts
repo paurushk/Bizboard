@@ -1,6 +1,6 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiClient, getErrorCode, getErrorMessage } from '@/api/client';
+import { apiClient, getErrorCode, getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import { clearSession, getAccessToken, getRefreshToken, setAccessToken } from '@/auth/session';
 
 describe('getErrorMessage', () => {
@@ -139,5 +139,14 @@ describe('refresh token rejection (BUG-407 / P0-111)', () => {
 
     await expect(apiClient.post('/auth/login/', { email: 'a', password: 'b' })).rejects.toBeTruthy();
     expect(postSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('PD-01 user-gesture idempotency keys', () => {
+  it('second Complete click is not the same UUID', () => {
+    const a = userGestureIdempotencyKey();
+    const b = userGestureIdempotencyKey();
+    expect(a).not.toBe(b);
+    expect(a.length).toBeGreaterThan(8);
   });
 });

@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
 
 from core.models import CompanyScopedModel
 
@@ -88,6 +90,7 @@ class StockMovement(models.Model):
     reference_id = models.CharField(max_length=64, blank=True)
     reason = models.CharField(max_length=255, blank=True)
     layer_peels = models.JSONField(default=list, blank=True)
+    movement_date = models.DateField(default=timezone.localdate, db_index=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
@@ -99,6 +102,24 @@ class StockMovement(models.Model):
             models.Index(fields=["company", "product", "created_at"]),
             models.Index(fields=["company", "warehouse", "product", "created_at"]),
             models.Index(fields=["company", "movement_type"]),
+            models.Index(fields=["company", "product", "movement_date"]),
+            models.Index(fields=["company", "warehouse", "product", "movement_date"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "warehouse", "product", "batch"],
+                condition=Q(movement_type="OPENING_STOCK")
+                & ~Q(reference_type="import_voided")
+                & Q(batch__isnull=False),
+                name="uniq_opening_stock_with_batch",
+            ),
+            models.UniqueConstraint(
+                fields=["company", "warehouse", "product"],
+                condition=Q(movement_type="OPENING_STOCK")
+                & ~Q(reference_type="import_voided")
+                & Q(batch__isnull=True),
+                name="uniq_opening_stock_no_batch",
+            ),
         ]
 
     def save(self, *args, **kwargs):
@@ -300,4 +321,59 @@ class ExpiryAlertLog(CompanyScopedModel):
                 fields=["company", "batch", "warehouse", "band_days"],
                 name="uniq_expiry_notice_per_band",
             )
+        ]
+
+
+class InventoryRunningCost(CompanyScopedModel):
+    """Perpetual WAVG qty/value per warehouse × product × batch (W0-06)."""
+
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name="running_costs")
+    product = models.ForeignKey("masters.Product", on_delete=models.CASCADE, related_name="running_costs")
+    batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.CASCADE, related_name="running_costs")
+    qty = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0"))
+    value = models.DecimalField(max_digits=16, decimal_places=4, default=Decimal("0"))
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "warehouse", "product", "batch"],
+                condition=models.Q(batch__isnull=False),
+                name="uniq_running_cost_with_batch",
+            ),
+            models.UniqueConstraint(
+                fields=["company", "warehouse", "product"],
+                condition=models.Q(batch__isnull=True),
+                name="uniq_running_cost_no_batch",
+            ),
+        ]
+
+    @property
+    def unit_cost(self):
+        if self.qty:
+            return self.value / self.qty
+        return Decimal("0")
+
+
+class InventoryValuationSnapshot(CompanyScopedModel):
+    """Month-end qty/value used when historical as_of would replay >10k movements."""
+
+    period = models.CharField(max_length=7, db_index=True)  # YYYY-MM
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name="+")
+    product = models.ForeignKey("masters.Product", on_delete=models.CASCADE, related_name="+")
+    batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.CASCADE, related_name="+")
+    qty = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0"))
+    value = models.DecimalField(max_digits=16, decimal_places=4, default=Decimal("0"))
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "period", "warehouse", "product", "batch"],
+                condition=models.Q(batch__isnull=False),
+                name="uniq_val_snapshot_with_batch",
+            ),
+            models.UniqueConstraint(
+                fields=["company", "period", "warehouse", "product"],
+                condition=models.Q(batch__isnull=True),
+                name="uniq_val_snapshot_no_batch",
+            ),
         ]

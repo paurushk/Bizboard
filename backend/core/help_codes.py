@@ -24,6 +24,7 @@ class HelpCode:
     IMPORT_INVALID_ROWS = "import_invalid_rows"
     PDF_OR_SHARE_UNAVAILABLE = "pdf_or_share_unavailable"
     PERMISSION_DENIED = "permission_denied"
+    GSTIN_TOTAL_CHANGED = "GSTIN_TOTAL_CHANGED"
 
 
 ALL_HELP_CODES: tuple[str, ...] = (
@@ -43,6 +44,7 @@ ALL_HELP_CODES: tuple[str, ...] = (
     HelpCode.IMPORT_INVALID_ROWS,
     HelpCode.PDF_OR_SHARE_UNAVAILABLE,
     HelpCode.PERMISSION_DENIED,
+    HelpCode.GSTIN_TOTAL_CHANGED,
 )
 
 # intentId keyed for the FE map / CI check. permission_denied is HTTP 403.
@@ -63,6 +65,7 @@ ERROR_CODE_TO_INTENT: dict[str, str] = {
     HelpCode.IMPORT_INVALID_ROWS: "import-row-errors",
     HelpCode.PDF_OR_SHARE_UNAVAILABLE: "pdf-or-share-unavailable",
     HelpCode.PERMISSION_DENIED: "login-cant-do-this",
+    HelpCode.GSTIN_TOTAL_CHANGED: "cannot-complete-invoice",
 }
 
 # Skip the diagnosis picker when the error already names the leaf (HR-3.3).
@@ -78,4 +81,5 @@ ERROR_CODE_TO_LEAF: dict[str, str] = {
     HelpCode.ALLOCATION_EXCEEDS_UNALLOCATED: "amount",
     HelpCode.ALLOCATION_PARTY_MISMATCH: "party",
     HelpCode.IMPORT_INVALID_ROWS: "one-bad-row",
+    HelpCode.GSTIN_TOTAL_CHANGED: "gstin",
 }

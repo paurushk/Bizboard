@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
@@ -11,6 +12,10 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
+import { enqueueDraft } from '@/offline/invoiceDraftCache';
+import { parseStockCountConflicts, type QtyConflict } from '@/pages/inventory/godownConflict';
+import { StockConflictModal } from '@/pages/inventory/StockConflictModal';
 import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -24,6 +29,7 @@ import { asRows, DataTable, PageShell, type Row } from '@/pages/phase/phaseShare
 
 export function StockCountPage() {
   const { writesBlocked } = useSubscriptionGate();
+  const { user } = useAuth();
   const qc = useQueryClient();
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: api.listWarehouses });
   const counts = useQuery({ queryKey: ['stock-counts'], queryFn: api.listStockCounts });
@@ -41,6 +47,9 @@ export function StockCountPage() {
   const customDefs = useVisibleCustomFieldDefs();
   const productSearch = useProductSearch({ activeOnly: true, selected: selectedProduct, cf: cfFilters });
   const [error, setError] = useState('');
+  const [conflicts, setConflicts] = useState<QtyConflict[]>([]);
+  const [lastSynced, setLastSynced] = useState<string | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
 
   const create = useMutation({
     mutationFn: () => api.createStockCount({ warehouse: Number(warehouseId), notes }),
@@ -71,13 +80,47 @@ export function StockCountPage() {
   });
 
   const post = useMutation({
-    mutationFn: () => api.postStockCount(Number(active?.id)),
-    onSuccess: () => {
+    mutationFn: async (resolve?: 'KEEP_SERVER' | 'KEEP_LOCAL') => {
+      const id = Number(active?.id);
+      const key = `stock-count-${id}`;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const companyId = user?.companyId;
+        const userId = user?.id;
+        if (!companyId || !userId) throw new Error(t('inventory.offlineNeedLogin'));
+        await enqueueDraft(companyId, userId, {
+          kind: 'stock_count',
+          payload: { sessionId: id, lines: counted, resolveConflicts: resolve ?? '' },
+          idempotencyKey: key,
+        });
+        return { offline: true };
+      }
+      return api.postStockCount(
+        id,
+        resolve ? { resolveConflicts: resolve } : {},
+        { idempotencyKey: key },
+      );
+    },
+    onSuccess: (result) => {
+      setConflicts([]);
+      if (result && typeof result === 'object' && 'offline' in result) {
+        setPendingCount((n) => n + 1);
+        setError('');
+        setActive(null);
+        return;
+      }
+      setLastSynced(new Date().toISOString());
       setActive(null);
       void qc.invalidateQueries({ queryKey: ['stock-counts'] });
       void qc.invalidateQueries({ queryKey: ['stock'] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => {
+      const rows = parseStockCountConflicts(err);
+      if (rows) {
+        setConflicts(rows);
+        return;
+      }
+      setError(getErrorMessage(err));
+    },
   });
 
   const cancel = useMutation({
@@ -115,8 +158,8 @@ export function StockCountPage() {
 
   return (
     <PageShell
-      title="Stock counts"
-      subtitle="Physical count sessions post quantity variance as ADJUSTMENT movements. Per-godown reorder lives here too."
+      title={t('inventory.stockCounts')}
+      subtitle={t('inventory.stockCountsSubtitle')}
       actions={
         <Stack direction="row" spacing={1}>
           <Button variant="outlined" onClick={() => setReorderOpen(true)} disabled={writesBlocked}>
@@ -131,6 +174,21 @@ export function StockCountPage() {
       {error ? (
         <HelpErrorAlert message={error} sx={{ mb: 2 }} onClose={() => setError('')} />
       ) : null}
+      <Alert severity="info" sx={{ mb: 2 }}>
+        {t('inventory.lastSynced', {
+          when: lastSynced ? new Date(lastSynced).toLocaleString() : t('inventory.neverSynced'),
+          count: String(pendingCount),
+        })}
+        {' · '}
+        {t('inventory.offlineTarget')}
+      </Alert>
+      <StockConflictModal
+        open={conflicts.length > 0}
+        conflicts={conflicts}
+        onCancel={() => setConflicts([])}
+        onKeepServer={() => post.mutate('KEEP_SERVER')}
+        onKeepLocal={() => post.mutate('KEEP_LOCAL')}
+      />
       <DataTable
         rows={rows}
         empty="No stock counts yet."
@@ -233,7 +291,7 @@ export function StockCountPage() {
                 variant="contained"
                 onClick={() => {
                   if (!window.confirm(t('inventory.confirmPostCount'))) return;
-                  post.mutate();
+                  post.mutate(undefined);
                 }}
               disabled={writesBlocked || post.isPending || String(active?.status) !== 'COUNTED'}
               >

@@ -740,7 +740,7 @@ class SalesNotesService:
                 "batch_no": getattr(item, "batch_no", "") or "",
                 "serial_numbers": getattr(item, "serial_numbers", None) or [],
             }
-            for item in challan.items.select_related("product")
+            for item in challan.items.select_related("product", "batch")
         ]
         SalesService.set_items(invoice, items_data, user)
         challan.converted_invoice = invoice

@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     BankAccountViewSet,
     BankStatementViewSet,
+    CollectionRiskView,
     CustomerReceiptViewSet,
     GatewayPaymentViewSet,
     GatewaySettingsView,
@@ -30,6 +31,12 @@ urlpatterns = router.urls + [
     path("upi-qr/", UpiQrView.as_view(), name="upi-qr"),
     path("gateway-settings/", GatewaySettingsView.as_view(), name="gateway-settings"),
     path("health/", PaymentHealthView.as_view(), name="payment-health"),
+    path("collection-risk/", CollectionRiskView.as_view(), name="collection-risk"),
+    path(
+        "collection-risk/<int:customer_id>/",
+        CollectionRiskView.as_view(),
+        name="collection-risk-customer",
+    ),
 ]
 
 # Mounted from config/urls at api/v1/ for public + webhooks

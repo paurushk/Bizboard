@@ -81,4 +81,19 @@ describe('invoice outbox v2 (localStorage path)', () => {
     await clearAllDrafts(3, 4);
     expect(await listDrafts(3, 4)).toHaveLength(0);
   });
+
+  it('throws OUTBOX_STORAGE_FULL when localStorage quota is exceeded', async () => {
+    const proto = Object.getPrototypeOf(localStorage);
+    const orig = proto.setItem.bind(localStorage);
+    proto.setItem = () => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    };
+    try {
+      await expect(
+        enqueueDraft(1, 1, { kind: 'invoice', payload: {}, idempotencyKey: 'quota' }),
+      ).rejects.toThrow('OUTBOX_STORAGE_FULL');
+    } finally {
+      proto.setItem = orig;
+    }
+  });
 });

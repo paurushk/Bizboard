@@ -413,6 +413,17 @@ class GstReturnView(BaseReportView):
             "companyGstin"
         )
         payload = self.build_fn(self.company, period, company_gstin=company_gstin or None)
+        from core.models import AuditEvent
+
+        AuditEvent.objects.create(
+            company=self.company,
+            user=request.user,
+            action=AuditEvent.Action.CREATE,
+            entity_type="GstReturnJson",
+            entity_id=period,
+            description=f"{payload.get('return_type', 'GSTR')} downloaded",
+            metadata={"format": export_format, "period": period},
+        )
         if request.query_params.get("persist") in ("1", "true", "True"):
             persist_snapshot(
                 self.company,
@@ -486,6 +497,133 @@ class Gstr9View(BaseReportView):
         raise BusinessRuleError("Unsupported format. Use format=json, format=xlsx, or format=gstn-json.")
 
 
+class CancelledDocumentNumbersView(BaseReportView):
+    """W0-04 / PD-03: FY cancelled-number register for the CA (CSV or JSON)."""
+
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "heavy_reports"
+
+    def perform_content_negotiation(self, request, force=False):
+        from rest_framework.renderers import JSONRenderer
+
+        return (JSONRenderer(), "application/json")
+
+    def get(self, request):
+        from core.models import StatutoryDocumentEvent
+        from core.services.document_numbers import gst_fy_label_for
+        from purchases.models import PurchaseInvoice
+        from sales.models import SalesCreditNote, SalesDebitNote, SalesInvoice
+
+        fy = (request.query_params.get("fy") or "").strip()
+        if not fy:
+            raise BusinessRuleError("Query parameter 'fy' is required (e.g. 2026-27).")
+        import re
+
+        if not re.fullmatch(r"\d{4}-\d{2}", fy):
+            raise BusinessRuleError("Query parameter 'fy' must look like 2026-27.")
+
+        def _in_fy(doc_date) -> bool:
+            if doc_date is None:
+                return False
+            return gst_fy_label_for(doc_date) == fy
+
+        rows = []
+
+        def _gstin(doc) -> str:
+            stamp = getattr(doc, "company_gstin", None)
+            if stamp is not None:
+                return (getattr(stamp, "gstin", None) or "").strip().upper()
+            return (getattr(self.company, "gstin", None) or "").strip().upper()
+
+        def _reason(entity_type, entity_id, fallback=""):
+            ev = (
+                StatutoryDocumentEvent.objects.filter(
+                    company=self.company,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    event_type=StatutoryDocumentEvent.EventType.CANCEL,
+                )
+                .order_by("-id")
+                .first()
+            )
+            if ev and isinstance(ev.payload, dict):
+                return str(ev.payload.get("reason") or fallback or "")
+            return fallback
+
+        for inv in (
+            SalesInvoice.objects.filter(company=self.company, status=SalesInvoice.Status.CANCELLED)
+            .exclude(number="")
+            .select_related("company_gstin", "updated_by")
+        ):
+            if not _in_fy(inv.invoice_date or (inv.cancelled_at.date() if inv.cancelled_at else None)):
+                continue
+            rows.append({
+                "number": inv.number,
+                "doc_type": "SALES_INVOICE",
+                "gstin": _gstin(inv),
+                "date": (inv.invoice_date.isoformat() if inv.invoice_date else ""),
+                "reason": _reason("sales_invoice", inv.pk),
+                "user": getattr(inv.updated_by, "email", "") or "",
+            })
+        for inv in (
+            PurchaseInvoice.objects.filter(
+                company=self.company, status=PurchaseInvoice.Status.CANCELLED
+            )
+            .exclude(number="")
+            .select_related("updated_by")
+        ):
+            if not _in_fy(inv.invoice_date):
+                continue
+            rows.append({
+                "number": inv.number,
+                "doc_type": "PURCHASE_INVOICE",
+                "gstin": (getattr(self.company, "gstin", None) or "").strip().upper(),
+                "date": (inv.invoice_date.isoformat() if inv.invoice_date else ""),
+                "reason": _reason("purchase_invoice", inv.pk),
+                "user": getattr(inv.updated_by, "email", "") or "",
+            })
+        for note in SalesCreditNote.objects.filter(
+            company=self.company, status=SalesCreditNote.Status.CANCELLED
+        ).exclude(number=""):
+            if not _in_fy(note.note_date):
+                continue
+            rows.append({
+                "number": note.number,
+                "doc_type": "SALES_CREDIT_NOTE",
+                "gstin": (getattr(self.company, "gstin", None) or "").strip().upper(),
+                "date": (note.note_date.isoformat() if note.note_date else ""),
+                "reason": _reason("sales_credit_note", note.pk),
+                "user": "",
+            })
+        for note in SalesDebitNote.objects.filter(
+            company=self.company, status=SalesDebitNote.Status.CANCELLED
+        ).exclude(number=""):
+            if not _in_fy(note.note_date):
+                continue
+            rows.append({
+                "number": note.number,
+                "doc_type": "SALES_DEBIT_NOTE",
+                "gstin": (getattr(self.company, "gstin", None) or "").strip().upper(),
+                "date": (note.note_date.isoformat() if note.note_date else ""),
+                "reason": _reason("sales_debit_note", note.pk),
+                "user": "",
+            })
+        rows.sort(key=lambda r: (r["date"], r["number"]))
+        export_format = (request.query_params.get("format") or "json").lower()
+        if export_format == "csv":
+            buf = io.StringIO()
+            writer = csv.DictWriter(
+                buf, fieldnames=["number", "doc_type", "gstin", "date", "reason", "user"]
+            )
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({k: csv_safe(v) for k, v in row.items()})
+            response = HttpResponse(buf.getvalue(), content_type="text/csv")
+            response["Content-Disposition"] = f'attachment; filename="cancelled-numbers-{fy}.csv"'
+            return response
+        return Response({"fy": fy, "columns": ["number", "doc_type", "gstin", "date", "reason", "user"], "rows": rows})
+
+
 class GstHealthView(BaseReportView):
     throttle_classes = [CompanyRateThrottle]
     throttle_scope = "gst_reports"
@@ -494,6 +632,21 @@ class GstHealthView(BaseReportView):
         assert_gstr_enabled(self.company)
         period = request.query_params.get("period")
         return Response(build_gst_health(self.company, period))
+
+
+class GstRateExposureView(BaseReportView):
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "gst_reports"
+
+    def get(self, request):
+        from reporting.gst_rate_scan import backscan_rate_exposure
+
+        assert_gstr_enabled(self.company)
+        return Response(backscan_rate_exposure(
+            self.company,
+            date_from=_parse_date(request.query_params.get("date_from")),
+            date_to=_parse_date(request.query_params.get("date_to")),
+        ))
 
 
 class GstCaPackView(BaseReportView):
@@ -579,6 +732,12 @@ class Gstr2bIngestViewSet(viewsets.ModelViewSet):
         source = (self.request.query_params.get("source") or "").strip().upper()
         if source in ("2A", "2B"):
             qs = qs.filter(raw__source=source)
+        ims_action = (self.request.query_params.get("ims_action") or "").strip().upper()
+        if ims_action in dict(Gstr2bIngest.ImsAction.choices):
+            qs = qs.filter(ims_action=ims_action)
+        match_class = (self.request.query_params.get("match_class") or "").strip()
+        if match_class:
+            qs = qs.filter(match_class=match_class)
         return qs
 
     def perform_create(self, serializer):
@@ -621,8 +780,127 @@ class Gstr2bIngestViewSet(viewsets.ModelViewSet):
         if not period:
             raise BusinessRuleError("'period' is required.")
         from reporting.gstr2b import match_gstr2b_to_purchases
+        from reporting.ims import classify_and_match
 
-        return Response(match_gstr2b_to_purchases(self.company, period))
+        match_gstr2b_to_purchases(self.company, period)
+        return Response(classify_and_match(self.company, period))
+
+    @action(detail=True, methods=["post"], url_path="ims-act")
+    def ims_act(self, request, pk=None):
+        from reporting.ims import apply_ims_action
+
+        row = self.get_object()
+        action = request.data.get("action") or request.data.get("ims_action")
+        remark = request.data.get("remark") or request.data.get("ims_remark") or ""
+        apply_ims_action(row, action, remark=remark, user=request.user)
+        row.refresh_from_db()
+        return Response(self.get_serializer(row).data)
+
+    @action(detail=False, methods=["post"], url_path="ims-bulk-accept")
+    def ims_bulk_accept(self, request):
+        from reporting.ims import bulk_accept_exact
+
+        period = request.data.get("period") or request.query_params.get("period")
+        if not period:
+            raise BusinessRuleError("'period' is required.")
+        return Response(bulk_accept_exact(self.company, period, user=request.user))
+
+    @action(detail=False, methods=["get"], url_path="ims-summary")
+    def ims_summary(self, request):
+        from reporting.ims import credit_at_risk
+
+        period = request.query_params.get("period")
+        if not period:
+            raise BusinessRuleError("'period' is required.")
+        return Response(credit_at_risk(self.company, period))
+
+    @action(detail=False, methods=["get"], url_path="missing-documents")
+    def missing_documents(self, request):
+        from reporting.chase import list_missing_documents, serialize_chase_row
+
+        period = request.query_params.get("period")
+        if not period:
+            raise BusinessRuleError("'period' is required.")
+        rows = list_missing_documents(self.company, period)
+        return Response({
+            "period": period,
+            "count": len(rows),
+            "items": [serialize_chase_row(r) for r in rows],
+        })
+
+    @action(detail=False, methods=["post"], url_path="chase-whatsapp")
+    def chase_whatsapp(self, request):
+        from reporting.chase import request_whatsapp
+
+        period = request.data.get("period") or request.query_params.get("period")
+        if not period:
+            raise BusinessRuleError("'period' is required.")
+        return Response(request_whatsapp(
+            self.company,
+            period,
+            user=request.user,
+            phone=request.data.get("phone") or "",
+        ))
+
+    @action(detail=True, methods=["post"], url_path="chase-photo")
+    def chase_photo(self, request, pk=None):
+        from reporting.chase import attach_photo_reply
+
+        uploaded = request.FILES.get("file")
+        if not uploaded:
+            raise BusinessRuleError("A photo or PDF file is required.")
+        return Response(attach_photo_reply(
+            self.company, int(pk), uploaded, user=request.user,
+        ), status=201)
+
+    @action(detail=False, methods=["get"], url_path="ims-scorecard")
+    def ims_scorecard(self, request):
+        from reporting.ims import supplier_scorecard
+
+        period = request.query_params.get("period")
+        if not period:
+            raise BusinessRuleError("'period' is required.")
+        return Response({"period": period, "suppliers": supplier_scorecard(self.company, period)})
+
+    @action(detail=True, methods=["post"], url_path="supplier-message")
+    def supplier_message(self, request, pk=None):
+        from reporting.ims import supplier_defect_message
+
+        row = self.get_object()
+        return Response(supplier_defect_message(row))
+
+    @action(detail=False, methods=["post"], url_path="ims-offline-import")
+    def ims_offline_import(self, request):
+        from reporting.ims_offline import import_offline
+
+        payload = request.data.get("payload") if "payload" in request.data else request.data
+        replace = bool(request.data.get("replace"))
+        return Response(import_offline(self.company, payload, replace=replace))
+
+    @action(detail=False, methods=["get"], url_path="ims-offline-export")
+    def ims_offline_export(self, request):
+        from reporting.ims_offline import export_offline
+
+        period = request.query_params.get("period")
+        if not period:
+            raise BusinessRuleError("'period' is required.")
+        return Response(export_offline(self.company, period))
+
+    @action(detail=False, methods=["post"], url_path="ims-gsp-pull")
+    def ims_gsp_pull(self, request):
+        """Fail-closed: live GSP only when P0 credentials exist."""
+        from core.services.gsp_adapters import get_gstr_filing_adapter
+        from reporting.ims_offline import import_offline
+
+        period = request.data.get("period")
+        if not period:
+            raise BusinessRuleError("'period' is required.")
+        adapter = get_gstr_filing_adapter(self.company)
+        fetched = adapter.fetch_gstr2b(period)
+        rows = fetched.get("rows") or fetched.get("data") or []
+        if not isinstance(rows, list) or not rows:
+            raise BusinessRuleError("GSP returned no 2B rows — use the GSTN offline-tool file.")
+        return Response(import_offline(self.company, {"period": period, "rows": rows}, replace=False))
 
 
 class Cmp08View(BaseReportView):
@@ -732,14 +1010,39 @@ class GstFilingSandboxView(BaseReportView):
             raise BusinessRuleError("'period' is required.")
         parse_period(period)
         adapter = get_gstr_filing_adapter(self.company)
+        result = None
+        payload = None
         if action_name == "upload_gstr1":
             payload = build_gstr1(self.company, period)
             result = adapter.upload_gstr1(payload)
-            return Response({"action": action_name, "result": result if isinstance(result, dict) else {"ok": True, "detail": str(result)}})
-        if action_name == "fetch_gstr2b":
+        elif action_name == "upload_gstr3b":
+            payload = build_gstr3b(self.company, period)
+            result = adapter.upload_gstr3b(payload)
+        elif action_name == "fetch_gstr2b":
             result = adapter.fetch_gstr2b(period)
             return Response({"action": action_name, "result": result})
-        raise BusinessRuleError("action must be upload_gstr1 or fetch_gstr2b.")
+        else:
+            raise BusinessRuleError("action must be upload_gstr1, upload_gstr3b, or fetch_gstr2b.")
+        ack = result if isinstance(result, dict) else {"ok": True, "detail": str(result)}
+        return_type = (
+            "GSTR-3B" if action_name == "upload_gstr3b" else (payload or {}).get("return_type", "GSTR-1")
+        )
+        snap = persist_snapshot(
+            self.company,
+            return_type,
+            period,
+            payload or {},
+            user=request.user,
+        )
+        body = dict(snap.payload or {})
+        body["gsp_upload"] = ack
+        snap.payload = body
+        snap.save(update_fields=["payload"])
+        return Response({
+            "action": action_name,
+            "result": ack,
+            "job_id": ack.get("reference_id") or ack.get("job_id") or ack.get("ack") or "",
+        })
 
 
 class TdsWorksheetView(APIView):

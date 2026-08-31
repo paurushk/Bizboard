@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from core.events import emit
 from core.exceptions import BusinessRuleError
-from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals
+from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals, recompute_totals_for_stamped_gstin
 from core.services.place_of_supply import assert_place_of_supply_for_gst, party_intra_state
 from core.services.document_numbers import DocumentNumberService
 from core.services.uqc import snapshot_unit_fields
@@ -146,6 +146,8 @@ def _build_purchase_items(invoice, items_data):
             exp_date=line.get("exp_date"),
             mfg_date=line.get("mfg_date"),
             serial_numbers=line.get("serial_numbers") or [],
+            rate_override=bool(line.get("rate_override")),
+            rate_override_reason=(line.get("rate_override_reason") or "")[:255],
         ))
     return items
 
@@ -523,7 +525,8 @@ class PurchaseService:
 
     @staticmethod
     @transaction.atomic
-    def complete(invoice: PurchaseInvoice, user, *, confirm_no_rcm=False, confirm_duplicate_bill=False):
+    def complete(invoice: PurchaseInvoice, user, *, confirm_no_rcm=False, confirm_duplicate_bill=False, confirm_blank_pos=False,
+                 confirm_gstin_total_change=False):
         """Atomic Complete: number + PURCHASE movements + event (E3.3)."""
         invoice = PurchaseInvoice.objects.select_for_update().get(pk=invoice.pk)
         if invoice.warehouse_id is None:
@@ -538,6 +541,20 @@ class PurchaseService:
         from core.services.registration_gates import assert_may_issue_gst_tax_invoice
 
         assert_may_issue_gst_tax_invoice(invoice.company, tax_enabled=tax_enabled)
+
+        from core.services.billing import place_of_supply_known
+
+        if (
+            tax_enabled
+            and not place_of_supply_known(
+                party_state=invoice.supplier.state or "",
+                party_gstin=invoice.supplier.gstin or "",
+            )
+            and not confirm_blank_pos
+        ):
+            raise BusinessRuleError(
+                "Place of supply is blank. Confirm this purchase is intra-state, or set the supplier state/GSTIN."
+            )
 
         assert_place_of_supply_for_gst(
             company=invoice.company,
@@ -645,41 +662,17 @@ class PurchaseService:
             if len(active) == 1:
                 invoice.company_gstin = active[0]
 
-        # R2-001 / R2-010: recompute the intra/inter tax split against the stamped
-        # filing GSTIN's state — line taxes were computed in set_items against
-        # company.state and are wrong for a multi-GSTIN company whose stamp is in
-        # a different state.
-        _stamp = invoice.company_gstin
-        if (
-            _stamp is not None
-            and tax_enabled
-            and not is_tally_opening
-            and not invoice.is_reverse_charge
-        ):
-            _lines_intra = sum((Decimal(str(it.cgst or 0)) for it in items), Decimal("0")) > 0
-            _lines_inter = sum((Decimal(str(it.igst or 0)) for it in items), Decimal("0")) > 0
-            if _lines_intra or _lines_inter:
-                _intra_now = party_intra_state(
-                    invoice.company,
-                    invoice.supplier.state,
-                    invoice.supplier.gstin or "",
-                    seller_state=getattr(_stamp, "state", None) or "",
-                    seller_gstin=getattr(_stamp, "gstin", None) or "",
-                )
-                if _intra_now != _lines_intra:
-                    compute_document_totals(
-                        invoice, items,
-                        tax_enabled=tax_enabled,
-                        intra_state=_intra_now,
-                        additional_charges=invoice.additional_charges,
-                        invoice_discount=invoice.invoice_discount,
-                        auto_round_off=invoice.auto_round_off,
-                        invoice_discount_mode=getattr(invoice, "invoice_discount_mode", None),
-                    )
-                    PurchaseItem.objects.bulk_update(
-                        items,
-                        ["taxable_amount", "cgst", "sgst", "igst", "cess", "line_total"],
-                    )
+        # R2-001 / W0-02: recompute tax against the stamped filing GSTIN.
+        recompute_totals_for_stamped_gstin(
+            invoice,
+            items,
+            party_state=invoice.supplier.state,
+            party_gstin=invoice.supplier.gstin or "",
+            tax_enabled=tax_enabled,
+            item_model=PurchaseItem,
+            confirm_gstin_total_change=confirm_gstin_total_change,
+            is_opening=is_tally_opening,
+        )
         invoice.save()
 
         # BB-000337 / BB-000699: money Complete hard-blocks closed periods; no except-pass.

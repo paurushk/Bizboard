@@ -249,3 +249,240 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
         pass
 
     return alerts
+
+
+DISCOUNT_ALERT_PERCENT = Decimal("20")
+
+
+def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, rupees_to_paise) -> list[dict]:
+    """Rules-based leakage (B-05). Deterministic — no LLM.
+
+    Called from the Attention Center only so the legacy alerts inbox is unchanged.
+    """
+    from django.db.models import Count
+    from inventory.models import MovementType, StockBalance, StockMovement
+    from payments.models import CustomerReceipt
+    from purchases.models import PurchaseInvoice, PurchaseItem
+    from sales.models import SalesInvoice, SalesItem
+
+    as_of = as_of or timezone.localdate()
+    month_start = as_of.replace(day=1)
+    rows: list[dict] = []
+    open_sales = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
+
+    # Sale below cost / expected margin this month (one row per SKU).
+    seen_below: set[int] = set()
+    for it in (
+        SalesItem.objects.filter(
+            invoice__company=company,
+            invoice__status__in=open_sales,
+            invoice__invoice_date__gte=month_start,
+        )
+        .select_related("product", "invoice")[:500]
+    ):
+        if it.product_id in seen_below:
+            continue
+        cost = getattr(it.product, "purchase_price", None) or Decimal("0")
+        price = it.unit_price or Decimal("0")
+        qty = it.quantity or Decimal("0")
+        if cost > 0 and price > 0 and price < cost:
+            seen_below.add(it.product_id)
+            impact = (cost - price) * qty
+            rows.append(row_factory(
+                code="SALE_BELOW_COST",
+                severity="critical",
+                title=f"{it.product.name} sold below cost",
+                money_impact_paise=rupees_to_paise(impact),
+                reason=f"Sold at ₹{price} vs cost ₹{cost}.",
+                action_label="Review item",
+                action_href="/inventory/products",
+                source_ticket="B-05",
+                entity_type="product",
+                entity_id=it.product_id,
+            ))
+        elif cost > 0 and price > 0 and (price - cost) / price < Decimal("0.05"):
+            # Already covered by MARGIN_DROP_SKU in build_business_alerts; skip.
+            pass
+
+    # Discount over threshold or stacked (line + header) this month.
+    for inv in (
+        SalesInvoice.objects.filter(
+            company=company,
+            status__in=open_sales,
+            invoice_date__gte=month_start,
+        )
+        .prefetch_related("items")[:200]
+    ):
+        stacked = (inv.invoice_discount or Decimal("0")) > 0 and any(
+            (it.discount_percent or Decimal("0")) > 0 for it in inv.items.all()
+        )
+        high = any(
+            (it.discount_percent or Decimal("0")) >= DISCOUNT_ALERT_PERCENT
+            for it in inv.items.all()
+        )
+        if stacked:
+            rows.append(row_factory(
+                code="DISCOUNT_STACKED",
+                severity="warning",
+                title=f"Stacked discount on {inv.number or inv.id}",
+                money_impact_paise=rupees_to_paise(inv.discount_total),
+                reason="Line discount and header discount both applied.",
+                action_label="Open invoice",
+                action_href=f"/sales/history/{inv.id}",
+                source_ticket="B-05",
+                entity_type="sales_invoice",
+                entity_id=inv.id,
+            ))
+        elif high:
+            rows.append(row_factory(
+                code="DISCOUNT_OVER_THRESHOLD",
+                severity="warning",
+                title=f"High line discount on {inv.number or inv.id}",
+                money_impact_paise=rupees_to_paise(inv.discount_total),
+                reason=f"A line discount is ≥ {DISCOUNT_ALERT_PERCENT}%.",
+                action_label="Open invoice",
+                action_href=f"/sales/history/{inv.id}",
+                source_ticket="B-05",
+                entity_type="sales_invoice",
+                entity_id=inv.id,
+            ))
+
+    # Last purchase price up, selling price flat (margin compression).
+    products_seen: set[int] = set()
+    for it in (
+        PurchaseItem.objects.filter(
+            invoice__company=company,
+            invoice__status=PurchaseInvoice.Status.COMPLETED,
+        )
+        .select_related("product", "invoice")
+        .order_by("product_id", "-invoice__invoice_date", "-id")[:800]
+    ):
+        if it.product_id in products_seen:
+            continue
+        products_seen.add(it.product_id)
+        prior = (
+            PurchaseItem.objects.filter(
+                invoice__company=company,
+                invoice__status=PurchaseInvoice.Status.COMPLETED,
+                product_id=it.product_id,
+            )
+            .exclude(id=it.id)
+            .order_by("-invoice__invoice_date", "-id")
+            .first()
+        )
+        if not prior:
+            continue
+        latest = it.unit_price or Decimal("0")
+        prev = prior.unit_price or Decimal("0")
+        sell = getattr(it.product, "selling_price", None) or Decimal("0")
+        if prev > 0 and latest > prev * Decimal("1.10") and sell > 0 and sell <= prev * Decimal("1.02"):
+            rows.append(row_factory(
+                code="MARGIN_COMPRESSION",
+                severity="warning",
+                title=f"Margin compressed — {it.product.name}",
+                money_impact_paise=0,
+                reason=f"Purchase price rose >10% (₹{prev} → ₹{latest}) while selling price stayed flat.",
+                action_label="Review item",
+                action_href="/inventory/products",
+                source_ticket="B-05",
+                entity_type="product",
+                entity_id=it.product_id,
+            ))
+        elif prev > 0 and latest > prev * Decimal("1.10"):
+            rows.append(row_factory(
+                code="PURCHASE_PRICE_JUMP",
+                severity="warning",
+                title=f"Supplier price jump — {it.product.name}",
+                money_impact_paise=rupees_to_paise(latest - prev),
+                reason=f"Latest purchase ₹{latest} is >10% above prior ₹{prev}.",
+                action_label="Open purchases",
+                action_href="/purchases/history",
+                source_ticket="B-05",
+                entity_type="product",
+                entity_id=it.product_id,
+            ))
+
+    # Abnormal stock adjustment (14d).
+    since = as_of - timedelta(days=14)
+    adjs = (
+        StockMovement.objects.filter(
+            company=company,
+            movement_type=MovementType.ADJUSTMENT,
+            created_at__date__gte=since,
+        )
+        .select_related("product")[:50]
+    )
+    for mv in adjs:
+        qty = abs(mv.quantity or Decimal("0"))
+        cost = mv.unit_cost or Decimal("0")
+        value = qty * cost
+        if qty < Decimal("50") and value < Decimal("10000"):
+            continue
+        rows.append(row_factory(
+            code="ABNORMAL_STOCK_ADJUSTMENT",
+            severity="warning",
+            title=f"Large stock adjustment — {mv.product.name}",
+            money_impact_paise=rupees_to_paise(value),
+            reason=mv.reason or f"Adjustment qty {qty}.",
+            action_label="Open stock",
+            action_href="/inventory/stock",
+            source_ticket="B-05",
+            entity_type="product",
+            entity_id=mv.product_id,
+            dedupe_key=f"ABNORMAL_STOCK_ADJUSTMENT:{mv.id}",
+        ))
+
+    # Duplicate posted receipts: same customer, amount, date.
+    dupes = (
+        CustomerReceipt.objects.filter(company=company, status="POSTED")
+        .values("customer_id", "amount", "receipt_date")
+        .annotate(n=Count("id"))
+        .filter(n__gte=2)[:20]
+    )
+    for d in dupes:
+        rows.append(row_factory(
+            code="DUPLICATE_PAYMENT",
+            severity="warning",
+            title="Possible duplicate receipt",
+            money_impact_paise=rupees_to_paise(d["amount"]),
+            reason=f"{d['n']} receipts of ₹{d['amount']} on {d['receipt_date']}.",
+            action_label="Review receipts",
+            action_href="/sales/receipts",
+            source_ticket="B-05",
+            entity_type="customer",
+            entity_id=d["customer_id"],
+            dedupe_key=f"DUPLICATE_PAYMENT:{d['customer_id']}:{d['receipt_date']}:{d['amount']}",
+        ))
+
+    # Dead-stock money figure (on-hand × purchase_price) — complements the hint.
+    sold_ids = set(
+        SalesInvoice.objects.filter(
+            company=company, status__in=open_sales, invoice_date__gte=as_of - timedelta(days=60),
+        ).values_list("items__product_id", flat=True)
+    )
+    sold_ids.discard(None)
+    dead_value = Decimal("0")
+    dead_n = 0
+    for bal in (
+        StockBalance.objects.filter(company=company, on_hand__gt=0)
+        .exclude(product_id__in=sold_ids)
+        .select_related("product")[:40]
+    ):
+        dead_n += 1
+        dead_value += (bal.on_hand or Decimal("0")) * (bal.product.purchase_price or Decimal("0"))
+    if dead_n:
+        rows.append(row_factory(
+            code="DEAD_STOCK",
+            severity="info",
+            title="Slow / dead stock",
+            money_impact_paise=rupees_to_paise(dead_value),
+            reason=f"{dead_n} SKUs have stock but no sales in 60 days.",
+            action_label="Open stock",
+            action_href="/inventory/stock",
+            source_ticket="B-05",
+            entity_type="company",
+            entity_id=company.id,
+            dedupe_key=f"DEAD_STOCK:{company.id}",
+        ))
+
+    return rows

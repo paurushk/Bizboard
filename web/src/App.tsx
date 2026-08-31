@@ -90,13 +90,18 @@ const Gstr7ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then(
 const Gstr8ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr8ReportPage })));
 const Gstr9ReportPage = lazy(() => import('@/pages/reports/Gstr9ReportPage').then((m) => ({ default: m.Gstr9ReportPage })));
 const GstHealthPage = lazy(() => import('@/pages/reports/GstHealthPage').then((m) => ({ default: m.GstHealthPage })));
+const GstRateExposurePage = lazy(() => import('@/pages/reports/GstRateExposurePage').then((m) => ({ default: m.GstRateExposurePage })));
 const Gstr2bPage = lazy(() => import('@/pages/reports/Gstr2bPage').then((m) => ({ default: m.Gstr2bPage })));
+const MissingDocumentsPage = lazy(() =>
+  import('@/pages/reports/MissingDocumentsPage').then((m) => ({ default: m.MissingDocumentsPage })),
+);
 const StatutoryEventsPage = lazy(() => import('@/pages/reports/StatutoryEventsPage').then((m) => ({ default: m.StatutoryEventsPage })));
 const InsightsHubPage = lazy(() => import('@/pages/insights/InsightsHubPage').then((m) => ({ default: m.InsightsHubPage })));
 const InsightsAlertsPage = lazy(() => import('@/pages/insights/InsightsAlertsPage').then((m) => ({ default: m.InsightsAlertsPage })));
 const InsightsHealthPage = lazy(() => import('@/pages/insights/InsightsHealthPage').then((m) => ({ default: m.InsightsHealthPage })));
 const InsightsCashflowPage = lazy(() => import('@/pages/insights/InsightsCashflowPage').then((m) => ({ default: m.InsightsCashflowPage })));
 const InsightsAssistantPage = lazy(() => import('@/pages/insights/InsightsAssistantPage').then((m) => ({ default: m.InsightsAssistantPage })));
+const AttentionPage = lazy(() => import('@/pages/AttentionPage').then((m) => ({ default: m.AttentionPage })));
 const TallyMigrationPage = lazy(() => import('@/pages/settings/TallyMigrationPage').then((m) => ({ default: m.TallyMigrationPage })));
 const AiSettingsPage = lazy(() => import('@/pages/settings/AiSettingsPage').then((m) => ({ default: m.AiSettingsPage })));
 const CompanySettingsPage = lazy(() => import('@/pages/settings/CompanySettingsPage').then((m) => ({ default: m.CompanySettingsPage })));
@@ -424,6 +429,7 @@ export function App() {
               <Route path="inventory/serials" element={<SerialsPage />} />
             </Route>
             <Route element={<RoleRoute allow={canViewFinancialReports} />}>
+              <Route path="attention" element={<AttentionPage />} />
               <Route path="reports/sales" element={<SalesReportPage />} />
               <Route path="reports/purchases" element={<PurchaseReportPage />} />
               <Route path="reports/inventory" element={<InventoryReportPage />} />
@@ -450,7 +456,10 @@ export function App() {
               <Route path="reports/gstr8" element={<Gstr8ReportPage />} />
               <Route path="reports/gstr9" element={<Gstr9ReportPage />} />
               <Route path="reports/gstr2b" element={<Gstr2bPage />} />
+              <Route path="reports/missing-documents" element={<MissingDocumentsPage />} />
+              <Route path="ca-needs" element={<MissingDocumentsPage />} />
               <Route path="reports/gst-health" element={<GstHealthPage />} />
+              <Route path="reports/gst-rate-exposure" element={<GstRateExposurePage />} />
             </Route>
             <Route element={<RoleRoute allow={canAccessSettings} />}>
               <Route element={<RoleRoute allow={canManageUsers} />}>

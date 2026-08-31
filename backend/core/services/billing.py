@@ -335,6 +335,85 @@ def apply_rcm_memo_after_tax(document, items) -> None:
     document.grand_total = q2(grand_total)
 
 
+_RATEABLE_DOCS = frozenset({"SalesInvoice", "PurchaseInvoice"})
+_FROZEN_STATUS = frozenset({"COMPLETED", "RETURNED", "CANCELLED"})
+
+
+def _document_tax_date(document):
+    from datetime import date as date_cls
+
+    for attr in (
+        "invoice_date",
+        "note_date",
+        "quotation_date",
+        "order_date",
+        "challan_date",
+        "return_date",
+    ):
+        val = getattr(document, attr, None)
+        if not val:
+            continue
+        if isinstance(val, str):
+            return date_cls.fromisoformat(str(val)[:10])
+        if hasattr(val, "year"):
+            return val
+    return None
+
+
+def apply_effective_gst_rate(document, item, *, tax_enabled: bool) -> None:
+    """B-06: resolve GST rate from the document date. Frozen after Complete."""
+    if not hasattr(item, "gst_rate"):
+        return
+    if not tax_enabled:
+        if hasattr(item, "applied_rate"):
+            item.applied_rate = Decimal("0")
+        return
+    status = (getattr(document, "status", "") or "").upper()
+    if status in _FROZEN_STATUS:
+        if hasattr(item, "applied_rate") and not item.applied_rate:
+            item.applied_rate = Decimal(str(item.gst_rate or 0))
+        item._billing_rate = Decimal(str(item.gst_rate or 0))  # noqa: SLF001
+        return
+    if document.__class__.__name__ not in _RATEABLE_DOCS:
+        if hasattr(item, "applied_rate"):
+            item.applied_rate = Decimal(str(item.gst_rate or 0))
+        return
+    if getattr(item, "rate_override", False):
+        reason = (getattr(item, "rate_override_reason", "") or "").strip()
+        if not reason:
+            raise BusinessRuleError("GST rate override requires a reason.")
+        item.applied_rate = Decimal(str(item.gst_rate or 0))
+        item.rate_version = item.rate_version or "override"
+        from core.services.audit import AuditService
+
+        AuditService.log(
+            action="UPDATE",
+            company=getattr(document, "company", None),
+            entity_type=item.__class__.__name__,
+            entity_id=getattr(item, "pk", "") or "",
+            description=f"GST rate override {item.gst_rate}%: {reason}",
+            metadata={"reason": reason, "applied_rate": str(item.gst_rate)},
+        )
+        item._billing_rate = Decimal(str(item.gst_rate or 0))  # noqa: SLF001
+        return
+    from masters.hsn_catalog import rate_for
+
+    hsn = (
+        (getattr(item, "hsn_code", None) or "")
+        or (getattr(getattr(item, "product", None), "hsn_code", None) or "")
+    )
+    resolved = rate_for(hsn, _document_tax_date(document))
+    if resolved:
+        item.gst_rate = resolved["rate"]
+        item.applied_rate = resolved["rate"]
+        item.rate_version = resolved["version"]
+        if resolved["cess"] and not Decimal(str(getattr(item, "cess_rate", 0) or 0)):
+            item.cess_rate = resolved["cess"]
+        item._billing_rate = resolved["rate"]  # noqa: SLF001
+    elif hasattr(item, "applied_rate"):
+        item.applied_rate = Decimal(str(item.gst_rate or 0))
+
+
 def compute_document_totals(
     document,
     items,
@@ -403,6 +482,7 @@ def compute_document_totals(
             item._billing_rate = Decimal("0")  # noqa: SLF001
         else:
             item._billing_rate = Decimal(item.gst_rate) if tax_enabled else Decimal("0")  # noqa: SLF001
+            apply_effective_gst_rate(document, item, tax_enabled=tax_enabled)
         item._billing_gross = gross  # noqa: SLF001
         item._billing_line_discount = discount  # noqa: SLF001
 
@@ -554,3 +634,206 @@ def compute_document_totals(
                 delattr(item, "_inclusive_discount_amount")
 
     return document
+
+
+def _tax_totals_snapshot(document):
+    return {
+        "grand_total": Decimal(str(getattr(document, "grand_total", 0) or 0)),
+        "cgst_total": Decimal(str(getattr(document, "cgst_total", 0) or 0)),
+        "sgst_total": Decimal(str(getattr(document, "sgst_total", 0) or 0)),
+        "igst_total": Decimal(str(getattr(document, "igst_total", 0) or 0)),
+        "cess_total": Decimal(str(getattr(document, "cess_total", 0) or 0)),
+        "taxable_total": Decimal(str(getattr(document, "taxable_total", 0) or 0)),
+    }
+
+
+def recompute_totals_for_stamped_gstin(
+    document,
+    items,
+    *,
+    party_state,
+    party_gstin,
+    tax_enabled,
+    item_model,
+    confirm_gstin_total_change=False,
+    is_opening=False,
+):
+    """W0-02: after Complete stamps company_gstin, recompute tax for that GSTIN's state.
+
+    Flag off (existing tenants): keep today's flip-only recompute (intra/inter mismatch).
+    Flag on: always recompute. If |Δ grand_total| > ₹0.01, require confirm (409).
+    """
+    from core.exceptions import GstinTotalChanged
+    from core.services.place_of_supply import party_intra_state
+
+    stamp = getattr(document, "company_gstin", None)
+    if stamp is None or not tax_enabled or is_opening:
+        return
+    if getattr(document, "is_reverse_charge", False):
+        return
+    company = document.company
+    flag_on = bool(getattr(company, "recompute_tax_on_complete", False))
+    intra_now = party_intra_state(
+        company,
+        party_state,
+        party_gstin or "",
+        seller_state=getattr(stamp, "state", None) or "",
+        seller_gstin=getattr(stamp, "gstin", None) or "",
+    )
+    lines_intra = sum((Decimal(str(it.cgst or 0)) for it in items), Decimal("0")) > 0
+    lines_inter = sum((Decimal(str(it.igst or 0)) for it in items), Decimal("0")) > 0
+    if not flag_on:
+        if not (lines_intra or lines_inter):
+            return
+        if intra_now == lines_intra:
+            return
+    before = _tax_totals_snapshot(document)
+    compute_document_totals(
+        document,
+        items,
+        tax_enabled=tax_enabled,
+        intra_state=intra_now,
+        additional_charges=getattr(document, "additional_charges", None),
+        invoice_discount=getattr(document, "invoice_discount", None),
+        auto_round_off=getattr(document, "auto_round_off", None),
+        invoice_discount_mode=getattr(document, "invoice_discount_mode", None),
+    )
+    after = _tax_totals_snapshot(document)
+    if flag_on and abs(after["grand_total"] - before["grand_total"]) > Decimal("0.01"):
+        if not confirm_gstin_total_change:
+            raise GstinTotalChanged(
+                before,
+                after,
+                [
+                    {
+                        "id": getattr(it, "pk", None),
+                        "cgst": str(it.cgst or 0),
+                        "sgst": str(it.sgst or 0),
+                        "igst": str(it.igst or 0),
+                    }
+                    for it in items
+                ],
+            )
+    item_model.objects.bulk_update(
+        items,
+        ["taxable_amount", "cgst", "sgst", "igst", "cess", "line_total"],
+    )
+
+
+def build_totals_preview(
+    *,
+    company,
+    party_state,
+    party_gstin,
+    data,
+    products_by_id,
+    default_price_attr,
+    tax_enabled,
+    seller_state="",
+    seller_gstin="",
+):
+    """A-03: authoritative GST/grand totals without persisting a document."""
+    from core.services.place_of_supply import party_intra_state
+
+    supply_type = str(data.get("supply_type") or "").strip().upper()
+    seller_state = seller_state or (company.state or "")
+    seller_gstin = seller_gstin or (company.gstin or "")
+    intra = party_intra_state(
+        company,
+        party_state or "",
+        party_gstin or "",
+        seller_state=seller_state,
+        seller_gstin=seller_gstin,
+    )
+
+    class _Doc:
+        additional_charges = data.get("additional_charges") or 0
+        invoice_discount = data.get("invoice_discount") or 0
+        invoice_discount_mode = data.get("invoice_discount_mode") or "AFTER_TAX"
+        auto_round_off = data.get("auto_round_off", True)
+        cess_total = 0
+        price_mode = data.get("price_mode") or "EXCLUSIVE"
+        charges_hsn = data.get("charges_hsn") or ""
+        charges_gst_rate = data.get("charges_gst_rate") or 0
+        is_reverse_charge = bool(data.get("is_reverse_charge"))
+        supply_type = data.get("supply_type") or ""
+
+    class _Item:
+        pass
+
+    items = []
+    for raw in data.get("items") or []:
+        product_id = raw.get("product")
+        try:
+            product = products_by_id[int(product_id)]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise BusinessRuleError("Invalid product.") from exc
+        item = _Item()
+        item.quantity = raw.get("quantity") or 0
+        default_price = getattr(product, default_price_attr, 0)
+        item.unit_price = raw.get("unit_price", default_price)
+        item.discount_percent = raw.get("discount_percent") or 0
+        item.gst_rate = raw.get("gst_rate", product.gst_rate)
+        if supply_type in ("EXPWOP", "SEZWOP"):
+            item.gst_rate = 0
+        item.cess_rate = raw.get("cess_rate", getattr(product, "cess_rate", 0) or 0)
+        if supply_type in ("EXPWOP", "SEZWOP"):
+            item.cess_rate = 0
+        item.cess_amount = raw.get("cess_amount", getattr(product, "cess_amount", 0) or 0)
+        item.cess = 0
+        item.unit_price_inclusive = raw.get("unit_price_inclusive")
+        item.supply_nature = raw.get("supply_nature") or "TAXABLE"
+        items.append(item)
+
+    doc = _Doc()
+    compute_document_totals(
+        doc,
+        items,
+        tax_enabled=tax_enabled,
+        intra_state=intra,
+        additional_charges=doc.additional_charges,
+        invoice_discount=doc.invoice_discount,
+        auto_round_off=doc.auto_round_off,
+        invoice_discount_mode=doc.invoice_discount_mode,
+    )
+    apply_rcm_memo_after_tax(doc, items)
+    tcs_rate = Decimal(str(data.get("tcs_rate") or 0))
+    tcs_amount = Decimal("0")
+    if tcs_rate > 0:
+        consideration = (
+            Decimal(str(doc.taxable_total or 0))
+            + Decimal(str(doc.cgst_total or 0))
+            + Decimal(str(doc.sgst_total or 0))
+            + Decimal(str(doc.igst_total or 0))
+            + Decimal(str(getattr(doc, "cess_total", 0) or 0))
+        )
+        tcs_amount = (consideration * tcs_rate / Decimal("100")).quantize(Decimal("0.01"))
+    amount_due = Decimal(str(doc.grand_total or 0)) + tcs_amount
+    return {
+        "subtotal": doc.subtotal,
+        "discount_total": doc.discount_total,
+        "taxable_total": doc.taxable_total,
+        "cgst_total": doc.cgst_total,
+        "sgst_total": doc.sgst_total,
+        "igst_total": doc.igst_total,
+        "cess_total": getattr(doc, "cess_total", 0),
+        "round_off": doc.round_off,
+        "grand_total": doc.grand_total,
+        "tcs_rate": tcs_rate,
+        "tcs_amount": tcs_amount,
+        "amount_due": amount_due,
+        "invoice_discount_mode": doc.invoice_discount_mode,
+        "intra_state": intra,
+        "items": [
+            {
+                "taxable_amount": i.taxable_amount,
+                "cgst": i.cgst,
+                "sgst": i.sgst,
+                "igst": i.igst,
+                "cess": getattr(i, "cess", 0),
+                "line_total": i.line_total,
+            }
+            for i in items
+        ],
+    }
+

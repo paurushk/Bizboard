@@ -1609,7 +1609,8 @@ def build_gstr9(company, fy_label: str, *, company_gstin=None) -> dict:
         dirty = bool(period_ctrl and period_ctrl.dirty_after_snapshot)
         # Prefer snapshot only when clean; rebuild live when period was dirtied.
         if snap and stamp_id is None and not dirty:
-            payload = snap.payload
+            payload = dict(snap.payload or {})
+            payload.pop("gsp_upload", None)
         else:
             payload = build_gstr1(company, period, company_gstin=stamp_id or company_gstin)
         totals = payload.get("totals", {})
@@ -1824,9 +1825,12 @@ def build_gstr9(company, fy_label: str, *, company_gstin=None) -> dict:
             },
         },
         "disclaimer": (
-            "GSTR-9 worksheet aid for CA — tables 4–8 best-effort from books/2B ingest; "
-            "17/18 HSN from books. Not a complete portal upload."
+            "books worksheet, not filing pack. GSTR-9 worksheet aid for CA — "
+            "tables 4–8 best-effort from books/2B ingest; 17/18 HSN from books. "
+            "Not a complete portal upload."
         ),
+        "watermark": "books worksheet, not filing pack",
+        "supported": False,
     }
 
 
@@ -1881,6 +1885,8 @@ def persist_snapshot(company, return_type: str, period: str, payload: dict, user
         "GSTR9": GstReturnSnapshot.ReturnType.GSTR9,
     }
     rt = rt_map.get(return_type, return_type)
+    payload = dict(payload or {})
+    payload.pop("gsp_upload", None)
     version = payload.get("builder_version") or BUILDER_VERSION_GSTR1
     h = content_hash(payload)
     # BB-000064: replace existing row for same company+type+period (one snapshot).

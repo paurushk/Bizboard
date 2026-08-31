@@ -8,7 +8,14 @@ import type {
 export type ChipTone = 'default' | 'success' | 'warning' | 'error' | 'info';
 
 /** Completed invoices with zero outstanding show as Paid (E2E3-031). */
-export function paidAwareStatus(status: string, balance?: string | number | null): string {
+export function paidAwareStatus(
+  status: string,
+  balance?: string | number | null,
+  paymentState?: string | null,
+): string {
+  const ps = String(paymentState || '').toUpperCase();
+  if (ps === 'PAID') return 'PAID';
+  if (ps === 'PAID_PENDING_BOOKS') return 'PAID_PENDING_BOOKS';
   const normalized = String(status || '').toUpperCase();
   if (normalized === 'COMPLETED' && balance != null && Number(balance) === 0) {
     return 'PAID';
@@ -22,6 +29,8 @@ export function documentStatusTone(status: DocumentStatus | string): ChipTone {
     case 'CONVERTED':
     case 'PAID':
       return 'success';
+    case 'PAID_PENDING_BOOKS':
+      return 'info';
     case 'DRAFT':
       return 'default';
     case 'RETURNED':

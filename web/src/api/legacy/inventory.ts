@@ -1,4 +1,4 @@
-import { apiClient, unwrapData } from '../client';
+import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockStock } from '@/mocks/data';
 import type { StockAdjustment, StockBalance } from '@/types/domain';
 import { withMocks, fetchAllPagesMasters } from './common';
@@ -74,8 +74,16 @@ export const createStockCount = (payload: Record<string, unknown>) =>
   apiClient.post('/inventory/stock-counts/', payload).then(({ data }) => unwrapData(data));
 export const updateStockCount = (id: number, payload: Record<string, unknown>) =>
   apiClient.patch(`/inventory/stock-counts/${id}/`, payload).then(({ data }) => unwrapData(data));
-export const postStockCount = (id: number) =>
-  apiClient.post(`/inventory/stock-counts/${id}/post/`).then(({ data }) => unwrapData(data));
+export const postStockCount = (
+  id: number,
+  payload?: Record<string, unknown>,
+  opts?: { idempotencyKey?: string },
+) =>
+  apiClient
+    .post(`/inventory/stock-counts/${id}/post/`, payload ?? {}, {
+      headers: idempotencyHeaders(opts?.idempotencyKey),
+    })
+    .then(({ data }) => unwrapData(data));
 export const cancelStockCount = (id: number) =>
   apiClient.post(`/inventory/stock-counts/${id}/cancel/`).then(({ data }) => unwrapData(data));
 export const listReorderLevels = () => fetchAllPagesMasters<Record<string, unknown>>('/inventory/reorder-levels/');

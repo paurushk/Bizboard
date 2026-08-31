@@ -1293,6 +1293,7 @@ class ImportService:
         else:
             raise BusinessRuleError(f"Unsupported import kind '{job.kind}'.")
 
+        job.preview = preview
         job.status = ImportJob.Status.COMMITTED
         job.committed_at = timezone.now()
         job.updated_by = user

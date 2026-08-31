@@ -262,6 +262,7 @@ class PaymentLink(CompanyScopedModel):
 class GatewayPaymentStatus(models.TextChoices):
     CREATED = "CREATED"
     CAPTURED = "CAPTURED"
+    CAPTURED_PENDING_BOOKS = "CAPTURED_PENDING_BOOKS"
     FAILED = "FAILED"
     REFUNDED = "REFUNDED"
 
@@ -274,15 +275,20 @@ class GatewayPayment(CompanyScopedModel):
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     fee = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     status = models.CharField(
-        max_length=16, choices=GatewayPaymentStatus.choices, default=GatewayPaymentStatus.CREATED
+        max_length=32, choices=GatewayPaymentStatus.choices, default=GatewayPaymentStatus.CREATED
     )
     payment_link = models.ForeignKey(
         PaymentLink, null=True, blank=True, on_delete=models.SET_NULL, related_name="gateway_payments"
     )
     raw_payload = models.JSONField(null=True, blank=True)
+    holding_reason = models.CharField(max_length=64, blank=True, default="")
+    holding_error = models.TextField(blank=True, default="")
+    holding_since = models.DateTimeField(null=True, blank=True)
+    internal_utr = models.CharField(max_length=80, blank=True, default="")
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [models.Index(fields=["company", "status"])]
         constraints = [
             models.UniqueConstraint(
                 fields=["company", "provider", "provider_payment_id"],
@@ -396,3 +402,38 @@ class GatewayRefundOutbox(CompanyScopedModel):
     class Meta:
         ordering = ["-id"]
         indexes = [models.Index(fields=["company", "status", "next_attempt_at"])]
+
+
+class DunningReminder(CompanyScopedModel):
+    """A-07: one automated AR reminder attempt per invoice per IST day."""
+
+    class Channel(models.TextChoices):
+        WHATSAPP = "WHATSAPP"
+        SMS = "SMS"
+
+    class Status(models.TextChoices):
+        SENT = "SENT"
+        SKIPPED = "SKIPPED"
+        FAILED = "FAILED"
+
+    invoice = models.ForeignKey(
+        "sales.SalesInvoice", on_delete=models.CASCADE, related_name="dunning_reminders"
+    )
+    customer = models.ForeignKey(
+        "masters.Customer", on_delete=models.CASCADE, related_name="dunning_reminders"
+    )
+    sent_on = models.DateField()
+    days_overdue = models.PositiveIntegerField()
+    channel = models.CharField(max_length=16, choices=Channel.choices)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.SENT)
+    error = models.CharField(max_length=500, blank=True, default="")
+
+    class Meta:
+        ordering = ["-sent_on", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["invoice", "sent_on"],
+                name="uniq_dunning_invoice_per_day",
+            )
+        ]
+        indexes = [models.Index(fields=["company", "sent_on"])]

@@ -19,6 +19,31 @@ IN_FLIGHT_STATUS = 0
 # (large import commit, e-invoice round-trip). Bump this, not a magic literal.
 IN_FLIGHT_STALE_SECONDS = 15 * 60
 
+# PD-01: 4xx that are safe to retry with the same key after the condition clears
+# or the user supplies extra confirm flags.
+TRANSIENT_4XX_CODES = frozenset({
+    "closed_period",
+    "period_locked",
+    "period_closed",
+    "gst_period_locked",
+    "login_locked_out",
+    "throttled",
+    "rate_limit",
+    "too_many_requests",
+    "try_again",
+    "retry",
+    "retry_later",
+    "COMPANY_REQUIRED",
+    "company_context_conflict",
+    "STOCK_COUNT_CONFLICT",
+    "GSTIN_TOTAL_CHANGED",
+    "place_of_supply_unresolved",
+    "sales_rcm_unconfirmed",
+    "not_authenticated",
+    "authentication_failed",
+    "permission_denied",
+})
+
 
 class IdempotencyInFlightError(APIException):
     status_code = status.HTTP_409_CONFLICT
@@ -161,17 +186,54 @@ def store_record(*, company, scope: str, raw_key: str, response: Response, resou
         )
 
 
-def wrap_idempotent(*, request, company, scope: str, build):
-    """Claim Idempotency-Key, run build(), store the outcome, release only on a
-    raised exception.
+def _response_error_code(response: Response) -> str:
+    data = getattr(response, "data", None)
+    if not isinstance(data, dict):
+        return ""
+    nested = data.get("error")
+    if isinstance(nested, dict) and nested.get("code"):
+        return str(nested.get("code") or "").strip()
+    return str(data.get("code") or "").strip()
 
-    R1-010: a returned **2xx** is stored (replayed on retry, as before). A
-    returned **5xx** is now *also* stored — if `build()` returned it, the handler
-    ran to completion and a naive retry with the same key could double-apply a
-    side effect that committed before the error. A **4xx** (deterministic client
-    error — bad input, conflict, subscription gate) still releases the key so the
-    client can correct and retry. A *raised* exception always releases (the
-    atomic block rolled back).
+
+def _is_transient_4xx(*, status_code: int, code: str) -> bool:
+    code_n = int(status_code or 0)
+    if code_n in (
+        status.HTTP_401_UNAUTHORIZED,
+        status.HTTP_403_FORBIDDEN,
+        status.HTTP_404_NOT_FOUND,
+        status.HTTP_429_TOO_MANY_REQUESTS,
+    ):
+        return True
+    return (code or "").strip().lower() in {c.lower() for c in TRANSIENT_4XX_CODES}
+
+
+def _store_success_or_error(*, company, scope, raw_key, response: Response) -> None:
+    data = getattr(response, "data", None) or {}
+    inner = data
+    if isinstance(data, dict) and isinstance(data.get("success"), bool) and "data" in data:
+        inner = data.get("data") or {}
+    code = int(getattr(response, "status_code", 200) or 200)
+    rid = (
+        str(inner.get("id") or "")
+        if (200 <= code < 300 and isinstance(inner, dict))
+        else ""
+    )
+    store_record(
+        company=company, scope=scope, raw_key=raw_key,
+        response=response, resource_id=rid,
+    )
+
+
+def wrap_idempotent(*, request, company, scope: str, build):
+    """Claim Idempotency-Key, run build(), store or release per PD-01.
+
+    | Outcome | Store? |
+    | 2xx | Yes |
+    | 5xx after build() returned | Yes |
+    | 4xx deterministic (validation, credit-limit, GSTIN required) | Yes |
+    | 4xx transient (closed_period, 429, retry) | No — release |
+    | Raised unexpected exception + rollback | Release |
     """
     raw_key = (request.headers.get("Idempotency-Key") or "").strip()
     claimed = None
@@ -182,25 +244,40 @@ def wrap_idempotent(*, request, company, scope: str, build):
     owns_key = raw_key and claimed is not None and not isinstance(claimed, Response)
     settled = False  # True once we've decided store-vs-release for this key
     try:
-        response = build()
+        try:
+            response = build()
+        except APIException as exc:
+            from core.exceptions import api_exception_handler
+
+            response = api_exception_handler(exc, {"request": request})
+            if response is None:
+                raise
+            if owns_key:
+                code = int(getattr(response, "status_code", 400) or 400)
+                err_code = _response_error_code(response) or str(
+                    getattr(exc, "default_code", "") or ""
+                )
+                if 400 <= code < 500 and _is_transient_4xx(status_code=code, code=err_code):
+                    release_record(company=company, scope=scope, raw_key=raw_key)
+                    settled = True
+                    raise
+                _store_success_or_error(
+                    company=company, scope=scope, raw_key=raw_key, response=response,
+                )
+                settled = True
+            return response
         if owns_key:
             code = int(getattr(response, "status_code", 200) or 200)
             if 200 <= code < 300 or code >= 500:
-                data = getattr(response, "data", None) or {}
-                inner = data
-                if isinstance(data, dict) and isinstance(data.get("success"), bool) and "data" in data:
-                    inner = data.get("data") or {}
-                rid = (
-                    str(inner.get("id") or "")
-                    if (200 <= code < 300 and isinstance(inner, dict))
-                    else ""
+                _store_success_or_error(
+                    company=company, scope=scope, raw_key=raw_key, response=response,
                 )
-                store_record(
-                    company=company, scope=scope, raw_key=raw_key,
-                    response=response, resource_id=rid,
-                )
-            else:
+            elif _is_transient_4xx(status_code=code, code=_response_error_code(response)):
                 release_record(company=company, scope=scope, raw_key=raw_key)
+            else:
+                _store_success_or_error(
+                    company=company, scope=scope, raw_key=raw_key, response=response,
+                )
             settled = True
         return response
     finally:

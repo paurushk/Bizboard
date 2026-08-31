@@ -90,6 +90,12 @@ class DocumentLineModel(models.Model):
     gst_rate = models.DecimalField(
         max_digits=5, decimal_places=2, default=Decimal("0"), validators=[validate_gst_rate],
     )
+    # B-06: rate legally in force on the document date, snapshotted so later
+    # HsnRate edits never re-rate a filed month.
+    applied_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    rate_version = models.CharField(max_length=64, blank=True, default="")
+    rate_override = models.BooleanField(default=False)
+    rate_override_reason = models.CharField(max_length=255, blank=True, default="")
     taxable_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     cgst = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     sgst = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))

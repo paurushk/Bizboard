@@ -10,7 +10,7 @@ the integrator. The integrator is:
    `WAVES_0_ABCD_CURSOR_IMPLEMENTATION_PLAN.md`, or
 3. If that is empty: the user who asked for the merge in chat (human).
 
-On-duty rotates weekly. Cloud agents never merge to `wip/phase0`.
+On-duty rotates weekly. Cloud agents never merge to `main`.
 
 | Week starting (Mon) | On duty | Backup |
 |---|---|---|

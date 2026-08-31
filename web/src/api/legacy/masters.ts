@@ -320,6 +320,8 @@ export async function verifySupplierGstin(id: number) {
 
 export const listBatches = (product?: number) =>
   fetchAllPagesMasters<import('@/types/domain').BatchLot>('/inventory/batches/', product ? { product: String(product) } : undefined);
-export const listPriceLists = () => fetchAllPagesMasters<Record<string, unknown>>('/masters/price-lists/');
+export const listPriceLists = () => fetchAllPagesMasters<import('@/utils/priceList').PriceListRow>('/masters/price-lists/');
 export const createPriceList = (payload: Record<string, unknown>) => apiClient.post('/masters/price-lists/', payload).then(({ data }) => unwrapData(data));
+export const updatePriceList = (id: number, payload: Record<string, unknown>) =>
+  apiClient.patch(`/masters/price-lists/${id}/`, payload).then(({ data }) => unwrapData(data));
 

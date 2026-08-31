@@ -1,8 +1,8 @@
 # BizBoard — Waves 0 / A / B / C / D implementation plan
 
 **Audience:** Cursor Agent, Cursor Cloud Agent, or a human following the same tickets.  
-**Branch:** implement on `wip/phase0` (or a feature branch cut from it).  
-**Date:** 2026-08-29 · **Revised:** 2026-08-30 (competitive-parity review)  
+**Branch:** implement on `main` (or a feature branch cut from it).  
+**Date:** 2026-08-29 · **Revised:** 2026-08-31 (B-05 AttentionRow contract; merge target `main`)  
 **Source of truth for intent:** this file. Freeze list in `docs/roadmap/FUTURE_ROADMAP_IMPLEMENTATION_PLAN.md` §0.3 still applies except where this file **explicitly unfreezes** live GSP / GSTR-1·3B GSP upload as the P0 track.  
 **Source of truth for code:** the repo. If this plan and the code disagree, **code + tests win**; update this file in the same PR.
 
@@ -33,7 +33,7 @@ Follow the Global agent contract in that file. Stop when the ticket DoD is met.
 
 ### Cursor Cloud
 
-Same prompt. Set the workspace to this repo, branch from `wip/phase0`, and attach this markdown file. Cloud agents cannot sign `GO_NO_GO.md`, sign a GSP contract, or publish to Play Store — those are **GATE: human**. They **can** land fail-closed GSP plumbing (B-01) and WhatsApp/reminder code behind flags.
+Same prompt. Set the workspace to this repo, branch from `main`, and attach this markdown file. Cloud agents cannot sign `GO_NO_GO.md`, sign a GSP contract, or publish to Play Store — those are **GATE: human**. They **can** land fail-closed GSP plumbing (B-01) and WhatsApp/reminder code behind flags.
 
 ### After each ticket
 
@@ -48,7 +48,7 @@ Same prompt. Set the workspace to this repo, branch from `wip/phase0`, and attac
 
 ### Integrator (merge owner)
 
-Parallel one-ticket branches need a single merger. **Do not wait for FUTURE_ROADMAP §0.5** (open since 2026-08-21). Use `docs/roadmap/ticket-logs/INTEGRATOR.md` (on-duty / backup). Cloud agents never merge to `wip/phase0`.
+Parallel one-ticket branches need a single merger. **Do not wait for FUTURE_ROADMAP §0.5** (open since 2026-08-21). Use `docs/roadmap/ticket-logs/INTEGRATOR.md` (on-duty / backup). Cloud agents never merge to `main` without the integrator.
 
 
 ---
@@ -210,7 +210,7 @@ Do not quote “~70 eng-weeks” as if GAP-001–010 were unstarted. Do not quot
 
 ## Locked product decisions (resolve before the ticket starts)
 
-These replace “leave a comment in code.” An agent that sees an unsigned `Signed` cell still **implements the Adopted rule** (it is the spec). A human must still sign before merge to `wip/phase0` for money-path tickets.
+These replace “leave a comment in code.” An agent that sees an unsigned `Signed` cell still **implements the Adopted rule** (it is the spec). A human must still sign before merge to `main` for money-path tickets.
 
 ### PD-01 — Idempotency 4xx (W0-05)
 
@@ -1500,12 +1500,39 @@ Keep unregistered RCM hard gate. Hide GSTR stub nav. i18n. Stop when DoD is met.
 
 The owner should not hunt through modules. One screen answers **"what needs my attention today?"** --
 a ranked work queue, not another dashboard. Every item: **Problem -> Money -> Reason -> Action -> Fix**.
+Downstream waves (M-01, M-03, M-04, Q-02, Q-03, R-01–04) emit **only** the AttentionRow contract
+below — they do not invent a second alert shape.
 
 ### Verify first
 
 `backend/insights/alerts.py` `build_business_alerts` and `backend/insights/services.py`
 `build_growth_hints` already exist (customer concentration, margin proxy, health score). This ticket
 **consolidates and ranks** them and adds a money figure + a resolve CTA -- it is not a new alert engine.
+
+### Attention-row contract (frozen — every later wave emits this shape)
+
+M–S (and F-04/F-06) **must not invent a second alert format**. One row:
+
+```
+AttentionRow {
+  code               str            # stable, e.g. "ITC_AT_RISK", "SCHEME_LIABILITY_HIGH"
+  severity           "critical" | "warning" | "info"
+  title              str            # <= 80 chars
+  money_impact_paise int            # signed; 0 if not monetary  (JSON field: money_impact_paise)
+  currency           "INR"
+  reason             str            # one line, why this fired
+  action_label       str            # button text
+  action_href        str            # deep link INTO the fix, not a report
+  source_ticket      str            # "B-03", "M-01", "Q-02", ...
+  entity_ref         {type, id}     # invoice / party / scheme / branch / ...
+  dedupe_key         str            # re-runs update, do not duplicate
+  first_seen         datetime
+  snooze_until       datetime | null
+}
+```
+
+API/serializer uses `money_impact_paise`. Do not add ad-hoc fields per source without versioning
+this contract.
 
 ### Files
 
@@ -1515,8 +1542,8 @@ a ranked work queue, not another dashboard. Every item: **Problem -> Money -> Re
 
 ### Steps
 
-1. One ranked feed. Each row: `code`, `severity`, `title`, `money_impact` (Rs, signed),
-   `reason` (one line), `action_label`, `action_href` (deep link, not a report).
+1. One ranked feed. Each row **is** an `AttentionRow` (contract above). Rank by `severity` then
+   `|money_impact_paise|` then recency / days remaining if present in `reason` or source payload.
 2. Sources: ITC at risk + expiring (B-03), GST Complete exceptions (B-04), overdue customers (A-07),
    paid-pending-books captures (W0-03), stock discrepancies / expiring inventory (Wave C), IRN issues
    (B-01), missing documents (D-04), plus **rules-based leakage detectors:**
@@ -1526,20 +1553,22 @@ a ranked work queue, not another dashboard. Every item: **Problem -> Money -> Re
    - dead / slow-moving stock, abnormal stock adjustment,
    - duplicate payment, unusual supplier price jump.
    All deterministic -- **no LLM in this ticket.**
-3. Rank by `severity` then `money_impact` then `days_remaining`.
+3. Rank by `severity` then `|money_impact_paise|` then recency. Do not add a `days_remaining` field
+   outside the contract — put remaining days in `reason` if needed.
 4. "Needs me" filter; snooze with reason + audit; a dismissed item reappears if the condition returns.
 5. Owner-scoped; respects capability flags (a cashier does not see margin leakage).
 
 ### Tests
 
 - A fixture with an overdue invoice + an at-risk ITC row + a dead-stock item -> three ranked rows
-  with correct Rs and working deep links.
+  with correct `money_impact_paise` and working deep links.
 - Snooze hides a row; the condition recurring un-hides it.
 - No PII in the payload beyond what the target screen already shows the user.
 
 ### DoD
 
 - [ ] One screen lists every actionable issue, ranked, each with a Rs figure and a one-click fix.
+- [ ] Payload is exactly the AttentionRow contract; no extra per-source shapes.
 - [ ] Reuses `build_business_alerts` / `build_growth_hints`; no duplicate alert logic.
 - [ ] Leakage detectors are rules, not AI.
 
@@ -1547,7 +1576,9 @@ a ranked work queue, not another dashboard. Every item: **Problem -> Money -> Re
 
 ```
 Implement B-05 from docs/roadmap/WAVES_0_ABCD_CURSOR_IMPLEMENTATION_PLAN.md.
-One ranked "needs attention" queue: Problem -> Money -> Reason -> Action -> Fix.
+One ranked "needs attention" queue using the frozen AttentionRow contract
+(code, severity, title, money_impact_paise, currency, reason, action_label, action_href,
+source_ticket, entity_ref, dedupe_key, first_seen, snooze_until).
 Consolidate build_business_alerts + build_growth_hints + B-03 credit-at-risk + due AR + guardrail
 hits + rules-based leakage detectors. Deep links, snooze-with-reason, capability scoped. No LLM.
 Stop when DoD is met.
@@ -2126,6 +2157,7 @@ Agents **must not** edit this table. Use `docs/roadmap/ticket-logs/<TICKET-ID>.m
 | 2026-08-29 | (plan authored) | — | — | High-level feature plan + DEEP_CODE_REVIEW deferred |
 | 2026-08-30 | (plan revised) | — | — | Competitive review: P0 GSP, WhatsApp, dunning, telemetry, SLOs, PD-01..03, parallel Wave A |
 | 2026-08-30 | (plan revised r2) | — | — | One-level-up review: B-03 -> IMS+ITC control; new B-05 Attention Center, B-06 effective-dated rates, D-04 missing-doc chase; priority ladder; QPS/console = charter |
+| 2026-08-31 | B-05 | plan | — | Frozen AttentionRow contract (`money_impact_paise` + source_ticket/entity_ref/dedupe_key); merge target `main` |
 
 ---
 

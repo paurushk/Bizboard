@@ -66,19 +66,20 @@ def _gstin_key(gstin) -> str:
 
 
 def series_identity(company, stamp=None, on_date=None):
-    """R1-013: resolve (gstin_key, fy_label, on_date) for a document series from a
-    single company-level policy (Company.doc_number_scope), so FY/GSTIN scoping
-    no longer depends on whether a call site passed `gstin=`.
+    """Resolve (gstin_key, fy_label, on_date) for a document series.
 
-    COMPANY  → ("", "", None)  — one series per doc type (legacy).
-    GSTIN_FY → (<gstin>, <FY>, on_date) — per filing GSTIN + financial year.
+    PD-03 / W0-04: if the company has any GSTIN (stamp, CompanyGstin, or
+    company.gstin), always key by GSTIN+FY — even when a caller omitted
+    ``gstin=`` and even when ``doc_number_scope`` is still COMPANY.
+    No GSTIN → legacy unscoped series (empty keys).
     """
-    scope = getattr(company, "doc_number_scope", "COMPANY") or "COMPANY"
-    if scope != "GSTIN_FY":
-        return "", "", None
     gstin_key = resolve_series_gstin(company, stamp)
+    if not gstin_key:
+        scope = getattr(company, "doc_number_scope", "COMPANY") or "COMPANY"
+        if scope != "GSTIN_FY":
+            return "", "", None
     fy = fy_label_for(company, on_date)
-    return (gstin_key or ""), fy, on_date
+    return (gstin_key or ""), fy, on_date or timezone.localdate()
 
 
 def resolve_series_gstin(company, stamp=None):
@@ -207,8 +208,9 @@ class DocumentNumberService:
     @staticmethod
     def sync_next(company, doc_type: str, *, gstin=None, on_date=None) -> DocumentSeries:
         """Ensure next_number continues after the highest existing document (import repair)."""
-        gstin_key = _gstin_key(gstin)
-        fy_label = fy_label_for(company, on_date) if (gstin_key or on_date is not None) else ""
+        gstin_key, fy_label, _on = DocumentNumberService._resolve_keys(
+            company, gstin=gstin, on_date=on_date
+        )
         DocumentNumberService._ensure_series(
             company, doc_type, gstin_key=gstin_key, fy_label=fy_label
         )
@@ -225,8 +227,9 @@ class DocumentNumberService:
 
     @staticmethod
     def peek(company, doc_type: str, *, gstin=None, on_date=None) -> dict:
-        gstin_key = _gstin_key(gstin)
-        fy_label = fy_label_for(company, on_date) if (gstin_key or on_date is not None) else ""
+        gstin_key, fy_label, _on = DocumentNumberService._resolve_keys(
+            company, gstin=gstin, on_date=on_date
+        )
         with transaction.atomic():
             series = DocumentNumberService._ensure_series(
                 company, doc_type, gstin_key=gstin_key, fy_label=fy_label
@@ -246,8 +249,9 @@ class DocumentNumberService:
     @transaction.atomic
     def configure(company, doc_type: str, *, prefix=None, next_number=None, padding=None,
                   gstin=None, on_date=None) -> dict:
-        gstin_key = _gstin_key(gstin)
-        fy_label = fy_label_for(company, on_date) if (gstin_key or on_date is not None) else ""
+        gstin_key, fy_label, _on = DocumentNumberService._resolve_keys(
+            company, gstin=gstin, on_date=on_date
+        )
         DocumentNumberService._ensure_series(
             company, doc_type, gstin_key=gstin_key, fy_label=fy_label
         )
@@ -275,15 +279,55 @@ class DocumentNumberService:
         )
 
     @staticmethod
+    def _resolve_keys(company, *, gstin=None, on_date=None) -> tuple[str, str, date | None]:
+        gstin_key = _gstin_key(gstin)
+        if gstin_key:
+            fy_label = fy_label_for(company, on_date) if (gstin_key or on_date is not None) else ""
+            return gstin_key, fy_label, on_date
+        auto_g, auto_fy, auto_on = series_identity(company, on_date=on_date)
+        if auto_g or auto_fy:
+            return auto_g, auto_fy, auto_on
+        fy_label = fy_label_for(company, on_date) if on_date is not None else ""
+        return "", fy_label, on_date
+
+    @staticmethod
+    def fy_restart_warning(company, doc_type: str, *, gstin_key: str, fy_label: str) -> str | None:
+        """PD-03: FY-boundary series starting at 1 is expected — warn, not a gap."""
+        if not fy_label:
+            return None
+        prior = (
+            DocumentSeries.objects.filter(
+                company=company, doc_type=doc_type, gstin_key=gstin_key or ""
+            )
+            .exclude(fy_label=fy_label)
+            .exclude(fy_label="")
+            .exists()
+        )
+        if not prior:
+            return None
+        series = DocumentSeries.objects.filter(
+            company=company, doc_type=doc_type, gstin_key=gstin_key or "", fy_label=fy_label
+        ).first()
+        if series is not None and int(series.next_number or 1) != 1:
+            return None
+        return (
+            f"FY series {fy_label} for {doc_type} starts at 1 "
+            "(expected year-end restart, not a skipped number)."
+        )
+
+    @staticmethod
     def next_number(company, doc_type: str, *, gstin=None, on_date=None) -> str:
         """Allocate next number inside the caller's transaction (nested atomic = savepoint).
 
         BB-000646: do not SELECT/parse all historical numbers here.
+        PD-03: allocate only inside the caller's atomic Complete — a rollback
+        rolls the series row back with it.
         """
         if doc_type not in DEFAULT_PREFIXES:
             raise ValueError(f"Unknown document type: {doc_type}")
-        gstin_key = _gstin_key(gstin)
-        fy_label = fy_label_for(company, on_date) if (gstin_key or on_date is not None) else ""
+        gstin_key, fy_label, _on = DocumentNumberService._resolve_keys(
+            company, gstin=gstin, on_date=on_date
+        )
         with transaction.atomic():
             DocumentNumberService._ensure_series(
                 company, doc_type, gstin_key=gstin_key, fy_label=fy_label

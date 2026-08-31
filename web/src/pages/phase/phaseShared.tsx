@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- this is a deliberate shared module of helpers + presentational components for the phase pages */
 import { type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';

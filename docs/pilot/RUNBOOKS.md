@@ -57,6 +57,17 @@
 ## Digest-pinned deploy (Wave 16A)
 - Prefer `scripts/pin_image_digests.sh <api-ref> <web-ref>` → `docker-compose.digest.yml`.
 - Host-side digest verification each release remains Final Gate (BB-000470).
+- Run from repo root; the script writes digest compose overlay. It does **not** sign `GO_NO_GO.md`.
+
+## TLS terminator (facts)
+
+Django does not terminate TLS. Pilot/prod HTTPS is at the edge (Caddy, nginx, or cloud LB). When the app sits behind that terminator:
+
+- Set `USE_TLS=1` so secure cookies, `SECURE_PROXY_SSL_HEADER`, and HSTS-related Django flags apply.
+- End-user traffic must be HTTPS before any real GSTIN/PII lands (`ENV_CHECKLIST.md` E1). Plain HTTP to the browser is a hard no-go even if the app container speaks HTTP on an internal port.
+- Webhooks (Razorpay, GSP) must hit the public HTTPS hostname, not a raw IP / docker port.
+
+Certificate issuance, renewal, and HSTS preload are ops — not this runbook.
 
 ## Deploy rollback (P0-508 / E9)
 

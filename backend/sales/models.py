@@ -146,6 +146,20 @@ class SalesInvoice(DocumentTotalsModel):
     # True once complete() folded tcs_amount into grand_total (avoid ledger double-count).
     tcs_in_grand_total = models.BooleanField(default=False)
 
+    class WhatsAppSendStatus(models.TextChoices):
+        NONE = "NONE"
+        QUEUED = "QUEUED"
+        SENT = "SENT"
+        FALLBACK_LINK = "FALLBACK_LINK"
+        FAILED = "FAILED"
+
+    whatsapp_send_status = models.CharField(
+        max_length=16, choices=WhatsAppSendStatus.choices, default=WhatsAppSendStatus.NONE
+    )
+    whatsapp_message_id = models.CharField(max_length=128, blank=True, default="")
+    whatsapp_share_link = models.TextField(blank=True, default="")
+    whatsapp_sent_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ["-invoice_date", "-id"]
         constraints = [
@@ -187,6 +201,7 @@ class SalesItem(DocumentLineModel):
     supply_nature = models.CharField(
         max_length=12, choices=SupplyNature.choices, default=SupplyNature.TAXABLE
     )
+    applied_price_list_name = models.CharField(max_length=100, blank=True, default="")
 
 
 class Quotation(DocumentTotalsModel):
@@ -570,6 +585,11 @@ class DeliveryChallan(DocumentTotalsModel):
 class DeliveryChallanItem(DocumentLineModel):
     challan = models.ForeignKey(DeliveryChallan, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="delivery_challan_items")
+    # C-02: lot identity must survive challan → invoice convert.
+    batch = models.ForeignKey(
+        "inventory.BatchLot", null=True, blank=True, on_delete=models.PROTECT, related_name="delivery_challan_items"
+    )
+    batch_no = models.CharField(max_length=64, blank=True)
     # BB-000402: serial tracking on challan stock path.
     serial_numbers = models.JSONField(default=list, blank=True)
 

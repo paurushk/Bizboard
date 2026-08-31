@@ -21,6 +21,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from core.exceptions import (
+    CompanyContextConflict,
+    CompanyRequired,
     OtpExpiredError,
     OtpInvalidError,
     OtpTooManyAttemptsError,
@@ -253,6 +255,8 @@ class RegisterView(APIView):
             email=data.get("email", ""),
             registration_type=data.get("registration_type", Company.RegistrationType.UNREGISTERED),
             gstin=data.get("gstin", ""),
+            valuation_business_date_order=True,
+            recompute_tax_on_complete=True,
         )
         CompanyUser.objects.create(
             company=company, user=user, role=CompanyUser.Role.OWNER,
@@ -452,8 +456,16 @@ class RequestOtpView(APIView):
             )
             try:
                 SmsProvider.send_otp(phone, code)
-            except Exception:
-                # Uniform 200 — never leak registration via provider errors.
+            except Exception:  # noqa: BLE001 — uniform 200; never leak registration via provider errors
+                # Log for ops (no PII beyond the last 4 digits) so a real
+                # send-path bug is not silently hidden as "provider hiccup".
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "OTP send failed for phone ***%s; challenge rolled back.",
+                    phone[-4:] if len(phone) >= 4 else "****",
+                    exc_info=True,
+                )
                 challenge.delete()
         return Response(payload)
 
@@ -536,8 +548,29 @@ class CsrfCookieView(APIView):
 class MeView(APIView):
     permission_classes = [IsAuthenticated, HasCompany]
 
+    def get_permissions(self):
+        # A-01: register a push token at login before the user has picked a company.
+        if self.request.method == "PATCH":
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), HasCompany()]
+
     def get(self, request):
         return Response(MeSerializer(get_company_user(request)).data)
+
+    def patch(self, request):
+        token = request.data.get("push_token")
+        if token is None:
+            token = request.data.get("pushToken")
+        if token is not None:
+            request.user.push_token = str(token).strip()[:512]
+            request.user.save(update_fields=["push_token"])
+        try:
+            cu = get_company_user(request)
+        except (CompanyRequired, CompanyContextConflict, PermissionDenied):
+            cu = None
+        if cu is None:
+            return Response({"id": request.user.id, "push_token": request.user.push_token})
+        return Response(MeSerializer(cu).data)
 
 
 class MembershipsListView(APIView):

@@ -20,13 +20,15 @@ import {
   removeDraft,
   type OutboxDraft,
 } from '@/offline/invoiceDraftCache';
-import { createPurchase, createSalesInvoice, updatePurchase, updateSalesInvoice } from '@/api/resources';
+import { createPurchase, createSalesInvoice, updatePurchase, updateSalesInvoice, postStockCount, updateStockCount, completeTransfer } from '@/api/resources';
 import { getErrorMessage } from '@/api/client';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 function kindLabel(kind: OutboxDraft['kind']): string {
   if (kind === 'invoice') return t('offlineOutbox.invoiceDrafts');
   if (kind === 'purchase') return t('offlineOutbox.purchaseDrafts');
+  if (kind === 'stock_count') return t('offlineOutbox.stockCountDrafts');
+  if (kind === 'stock_transfer') return t('offlineOutbox.stockTransferDrafts');
   return t('offlineOutbox.posDrafts');
 }
 
@@ -74,6 +76,26 @@ export function OfflineOutboxPage() {
           } else {
             await createSalesInvoice(draft.payload as never, { idempotencyKey: draft.idempotencyKey });
           }
+          return;
+        }
+        if (draft.kind === 'stock_count') {
+          const sessionId = Number(draft.payload.sessionId);
+          const lines = draft.payload.lines as Record<string, string> | undefined;
+          if (lines && Object.keys(lines).length) {
+            await updateStockCount(sessionId, {
+              lines: Object.entries(lines).map(([id, countedQty]) => ({ id: Number(id), countedQty })),
+            });
+          }
+          const resolve = String(draft.payload.resolveConflicts || '');
+          await postStockCount(
+            sessionId,
+            resolve ? { resolveConflicts: resolve } : {},
+            { idempotencyKey: draft.idempotencyKey },
+          );
+          return;
+        }
+        if (draft.kind === 'stock_transfer') {
+          await completeTransfer(Number(draft.payload.transferId));
           return;
         }
         throw new Error(t('pos.syncFailed'));

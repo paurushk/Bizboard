@@ -193,7 +193,9 @@ export function UsersSettingsPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {query.data.map((u) => (
+              {query.data.map((u) => {
+                const isOwner = u.role === 'OWNER';
+                return (
                 <TableRow key={u.id}>
                   <TableCell>{u.fullName}</TableCell>
                   <TableCell>{u.email}</TableCell>
@@ -203,7 +205,7 @@ export function UsersSettingsPage() {
                   <TableCell>
                     <Checkbox
                       checked={!!u.canCreateSales}
-                      disabled={u.role === 'OWNER'}
+                      disabled={isOwner}
                       onChange={(e) =>
                         patchMutation.mutate({ id: u.id, canCreateSales: e.target.checked })
                       }
@@ -212,7 +214,7 @@ export function UsersSettingsPage() {
                   <TableCell>
                     <Checkbox
                       checked={!!u.canCreatePurchases}
-                      disabled={u.role === 'OWNER'}
+                      disabled={isOwner}
                       onChange={(e) =>
                         patchMutation.mutate({ id: u.id, canCreatePurchases: e.target.checked })
                       }
@@ -221,7 +223,7 @@ export function UsersSettingsPage() {
                   <TableCell>
                     <Checkbox
                       checked={!!u.canCreatePayments}
-                      disabled={u.role === 'OWNER'}
+                      disabled={isOwner}
                       onChange={(e) =>
                         patchMutation.mutate({ id: u.id, canCreatePayments: e.target.checked })
                       }
@@ -230,7 +232,7 @@ export function UsersSettingsPage() {
                   <TableCell>
                     <Checkbox
                       checked={u.canManageInventory}
-                      disabled={u.role === 'OWNER'}
+                      disabled={isOwner}
                       onChange={(e) =>
                         patchMutation.mutate({
                           id: u.id,
@@ -242,7 +244,7 @@ export function UsersSettingsPage() {
                   <TableCell>
                     <Checkbox
                       checked={u.canImport}
-                      disabled={u.role === 'OWNER'}
+                      disabled={isOwner}
                       onChange={(e) =>
                         patchMutation.mutate({ id: u.id, canImport: e.target.checked })
                       }
@@ -251,7 +253,7 @@ export function UsersSettingsPage() {
                   <TableCell>
                     <Checkbox
                       checked={!!u.canCancelDocuments}
-                      disabled={u.role === 'OWNER'}
+                      disabled={isOwner}
                       onChange={(e) =>
                         patchMutation.mutate({ id: u.id, canCancelDocuments: e.target.checked })
                       }
@@ -260,7 +262,7 @@ export function UsersSettingsPage() {
                   <TableCell>
                     <Checkbox
                       checked={u.canViewFinancialReports === true}
-                      disabled={u.role === 'OWNER'}
+                      disabled={isOwner}
                       onChange={(e) =>
                         patchMutation.mutate({
                           id: u.id,
@@ -272,7 +274,7 @@ export function UsersSettingsPage() {
                   <TableCell>
                     <Checkbox
                       checked={!!u.canExport}
-                      disabled={u.role === 'OWNER'}
+                      disabled={isOwner}
                       onChange={(e) =>
                         patchMutation.mutate({ id: u.id, canExport: e.target.checked })
                       }
@@ -282,7 +284,8 @@ export function UsersSettingsPage() {
                     {u.isActive ? t('status.ACTIVE') : t('status.INACTIVE')}
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </Paper>

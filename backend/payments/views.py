@@ -419,6 +419,8 @@ class PaymentLinkViewSet(CompanyScopedViewSet):
                 "notification_id": notification.id,
                 "share_link": getattr(notification, "share_link", "") or "",
                 "status": notification.status,
+                "mode": getattr(notification, "delivery_mode", None)
+                or ("cloud" if notification.status == "SENT" else "link"),
             }
         )
 
@@ -432,6 +434,8 @@ class GatewayPaymentViewSet(CompanyScopedViewSet):
         action = getattr(self, "action", None)
         if action == "refund":
             return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        if action == "retry_books":
+            return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPaymentSurfaces()]
         return super().get_permissions()
@@ -441,6 +445,9 @@ class GatewayPaymentViewSet(CompanyScopedViewSet):
         link_id = self.request.query_params.get("payment_link")
         if link_id:
             qs = qs.filter(payment_link_id=link_id)
+        st = self.request.query_params.get("status")
+        if st:
+            qs = qs.filter(status=st)
         return qs
 
     @action(detail=True, methods=["post"], url_path="refund")
@@ -457,6 +464,22 @@ class GatewayPaymentViewSet(CompanyScopedViewSet):
         self._audit("UPDATE", gp)
         return Response(GatewayPaymentSerializer(gp).data)
 
+    @action(detail=True, methods=["post"], url_path="retry-books")
+    def retry_books(self, request, pk=None):
+        gp = self.get_object()
+        gp = PaymentService.finalize_gateway_payment(
+            company=gp.company,
+            provider=gp.provider,
+            provider_payment_id=gp.provider_payment_id,
+            amount=gp.amount,
+            fee=gp.fee,
+            payment_link=gp.payment_link,
+            raw_payload=gp.raw_payload,
+            user=request.user,
+        )
+        self._audit("UPDATE", gp)
+        return Response(GatewayPaymentSerializer(gp).data)
+
 
 class PaymentHealthView(APIView):
     # BB-000416: payment/financial surfaces — not HasCompany-only.
@@ -465,6 +488,24 @@ class PaymentHealthView(APIView):
     def get(self, request):
         company = get_company_user(request).company
         return Response(PaymentService.payment_health(company=company))
+
+
+class CollectionRiskView(APIView):
+    """A-07 per-customer collection risk (ageing + recommended next step)."""
+
+    permission_classes = [IsAuthenticated, HasCompany, CanViewPaymentSurfaces]
+
+    def get(self, request, customer_id=None):
+        from masters.models import Customer
+        from payments.dunning import customer_risk_snapshot, list_customer_risk
+
+        company = get_company_user(request).company
+        if customer_id is not None:
+            customer = Customer.objects.filter(company=company, pk=customer_id).first()
+            if customer is None:
+                raise BusinessRuleError("Customer not found.")
+            return Response(customer_risk_snapshot(company, customer))
+        return Response({"results": list_customer_risk(company)})
 
 
 class UpiQrView(APIView):

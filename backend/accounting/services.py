@@ -96,6 +96,14 @@ def seed_chart_of_accounts(company, user=None):
     return accounts
 
 
+def reclass_unreviewed_itc(invoice, *, user=None):
+    return PostingService.reclass_unreviewed_itc(invoice, user=user)
+
+
+def reclass_rejected_itc(invoice, *, user=None):
+    return PostingService.reclass_rejected_itc(invoice, user=user)
+
+
 class PostingService:
     """Creates immutable, idempotent projections of operational documents.
 
@@ -220,6 +228,89 @@ class PostingService:
             ),
             Decimal("0"),
         )
+
+    @classmethod
+    def _unreviewed_itc_parked(cls, invoice):
+        from django.db.models import Sum
+
+        from accounting.models import JournalLine
+
+        agg = JournalLine.objects.filter(
+            entry__company=invoice.company,
+            entry__source_type="PURCHASE_INVOICE",
+            entry__source_id=invoice.id,
+            entry__status="POSTED",
+            account__code="1390",
+        ).aggregate(debit=Sum("debit"), credit=Sum("credit"))
+        return (agg["debit"] or Decimal("0")) - (agg["credit"] or Decimal("0"))
+
+    @classmethod
+    def reclass_unreviewed_itc(cls, invoice, *, user=None):
+        """B-03: 1390 suspense → 1310/1320/1330/1370. Idempotent. No new CoA codes."""
+        if not invoice.company.accounting_enabled:
+            return None
+        parked = cls._unreviewed_itc_parked(invoice)
+        if parked <= 0:
+            return None
+        cgst = Decimal(str(invoice.cgst_total or 0))
+        sgst = Decimal(str(invoice.sgst_total or 0))
+        igst = Decimal(str(invoice.igst_total or 0))
+        cess = Decimal(str(getattr(invoice, "cess_total", 0) or 0))
+        tax = cgst + sgst + igst + cess
+        if tax <= 0:
+            return None
+        debit_lines = cls._tax_component_lines(
+            invoice.company,
+            (("1310", cgst), ("1320", sgst), ("1330", igst), ("1370", cess)),
+            side="debit",
+        )
+        credit_lines = cls._tax_component_lines(
+            invoice.company, (("1390", tax),), side="credit",
+        )
+        return cls.post(
+            company=invoice.company,
+            source_type="PURCHASE_INVOICE",
+            source_id=invoice.id,
+            purpose="ITC_RECLASS",
+            entry_date=invoice.invoice_date or timezone.localdate(),
+            lines=[*debit_lines, *credit_lines],
+            narration=f"IMS accept — reclass unreviewed ITC {invoice.number or invoice.id}",
+            user=user,
+        )
+
+    @classmethod
+    def reclass_rejected_itc(cls, invoice, *, user=None):
+        """B-03 REJECT: clear 1390 into inventory 1400 (same capitalize path as INELIGIBLE complete)."""
+        if not invoice.company.accounting_enabled:
+            return None
+        parked = cls._unreviewed_itc_parked(invoice)
+        if parked <= 0:
+            return None
+        tax = (
+            Decimal(str(invoice.cgst_total or 0))
+            + Decimal(str(invoice.sgst_total or 0))
+            + Decimal(str(invoice.igst_total or 0))
+            + Decimal(str(getattr(invoice, "cess_total", 0) or 0))
+        )
+        if tax <= 0:
+            return None
+        debit_lines = cls._tax_component_lines(
+            invoice.company, (("1400", tax),), side="debit",
+        )
+        credit_lines = cls._tax_component_lines(
+            invoice.company, (("1390", tax),), side="credit",
+        )
+        return cls.post(
+            company=invoice.company,
+            source_type="PURCHASE_INVOICE",
+            source_id=invoice.id,
+            purpose="ITC_REJECT",
+            entry_date=invoice.invoice_date or timezone.localdate(),
+            lines=[*debit_lines, *credit_lines],
+            narration=f"IMS reject — capitalize unreviewed ITC {invoice.number or invoice.id}",
+            user=user,
+        )
+
 
     @classmethod
     @transaction.atomic

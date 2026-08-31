@@ -17,8 +17,10 @@ from core.permissions import (
     HasCompany,
     IsOwner,
 )
+from core.services.billing import build_totals_preview
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 from core.viewsets import CompanyScopedViewSet
+from masters.models import Product, Supplier
 from payments.models import PaymentAllocation
 
 from .models import PurchaseInvoice, PurchaseReturn
@@ -46,7 +48,7 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
         action = getattr(self, "action", None)
         if action == "cancel":
             return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
-        if action in ("create", "complete", "update", "partial_update", "destroy"):
+        if action in ("create", "complete", "update", "partial_update", "destroy", "preview_totals"):
             return [IsAuthenticated(), HasCompany(), CanCreatePurchases()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
@@ -107,6 +109,46 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
             raise BusinessRuleError(str(exc)) from exc
         return Response(data)
 
+    @action(detail=False, methods=["post"], url_path="preview-totals")
+    def preview_totals(self, request):
+        """A-03: authoritative purchase totals without persisting."""
+        company = self.company
+        supplier_id = request.data.get("supplier")
+        if not supplier_id:
+            raise BusinessRuleError("supplier is required")
+        try:
+            supplier = Supplier.objects.get(pk=supplier_id, company=company)
+        except Supplier.DoesNotExist as exc:
+            raise BusinessRuleError("Invalid supplier.") from exc
+        purchase_type = request.data.get("purchase_type") or request.data.get("invoice_type") or PurchaseInvoice.PurchaseType.GST
+        tax_enabled = str(purchase_type).upper() != PurchaseInvoice.PurchaseType.NON_GST
+        from accounts.models import CompanyGstin
+
+        seller_state = company.state or ""
+        seller_gstin = company.gstin or ""
+        gstin_id = request.data.get("company_gstin")
+        if gstin_id:
+            stamp = CompanyGstin.objects.filter(pk=gstin_id, company=company, is_active=True).first()
+            if stamp is None:
+                raise BusinessRuleError("Invalid company GSTIN.")
+            seller_state = stamp.state or seller_state
+            seller_gstin = stamp.gstin or seller_gstin
+        product_ids = [raw.get("product") for raw in (request.data.get("items") or []) if raw.get("product")]
+        products_by_id = {
+            p.pk: p for p in Product.objects.filter(pk__in=product_ids, company=company)
+        }
+        return Response(build_totals_preview(
+            company=company,
+            party_state=supplier.state or "",
+            party_gstin=supplier.gstin or "",
+            data=request.data,
+            products_by_id=products_by_id,
+            default_price_attr="purchase_price",
+            tax_enabled=tax_enabled,
+            seller_state=seller_state,
+            seller_gstin=seller_gstin,
+        ))
+
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
         def _run():
@@ -116,11 +158,19 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
             confirm_duplicate_bill = str(
                 request.data.get("confirm_duplicate_bill") or ""
             ).lower() in ("true", "1", "yes")
+            confirm_blank_pos = str(request.data.get("confirm_blank_pos") or "").lower() in (
+                "true", "1", "yes",
+            )
+            confirm_gstin_total = str(request.data.get("confirm_gstin_total_change") or "").lower() in (
+                "true", "1", "yes",
+            )
             invoice, warnings = PurchaseService.complete(
                 self.get_object(),
                 request.user,
                 confirm_no_rcm=confirm_no_rcm,
                 confirm_duplicate_bill=confirm_duplicate_bill,
+                confirm_blank_pos=confirm_blank_pos,
+                confirm_gstin_total_change=confirm_gstin_total,
             )
             data = self.get_serializer(invoice).data
             data["warnings"] = warnings

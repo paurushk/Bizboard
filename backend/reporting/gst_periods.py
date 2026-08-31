@@ -34,6 +34,9 @@ def mark_period_dirty_if_snapshotted(company, doc_date) -> GstReturnPeriod | Non
 
 
 def soft_close_period(company, period: str, user) -> GstReturnPeriod:
+    from reporting.ims import deemed_accept_on_period_lock
+
+    deemed_accept_on_period_lock(company, period, user=user)
     obj = get_or_create_period(company, period)
     obj.status = GstReturnPeriod.Status.SOFT_CLOSED
     obj.closed_at = timezone.now()

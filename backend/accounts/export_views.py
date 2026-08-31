@@ -92,7 +92,16 @@ class TenantRestoreView(APIView):
                 raise BusinessRuleError(
                     "Destroy-in-place restore requires typed_name to match the company name exactly."
                 )
-            restore_destroy_in_place(company=company, payload=payload, owner=request.user)
+            confirm_unbacked = _truthy(
+                request.data.get("confirm_destroy_unbacked")
+                or request.data.get("confirmDestroyUnbacked")
+            )
+            restore_destroy_in_place(
+                company=company,
+                payload=payload,
+                owner=request.user,
+                confirm_destroy_unbacked=confirm_unbacked,
+            )
             AuditService.log(
                 action="tenant.restore_destroy",
                 company=company,

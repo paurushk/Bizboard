@@ -732,9 +732,10 @@ def confirm_proposed_action(company, user, message_id: int) -> dict:
             company=company,
             channel=Notification.Channel.WHATSAPP,
             recipient=phone,
-            subject="",
+            subject="payment_reminder",
             body=text,
             user=user,
+            allow_cloud=bool(cust and cust.whatsapp_opt_in),
         )
         msg.proposed_action = None
         msg.save(update_fields=["proposed_action"])

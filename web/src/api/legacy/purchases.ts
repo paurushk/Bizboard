@@ -2,6 +2,7 @@ import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockPurchases } from '@/mocks/data';
 import type { LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchaseReturn, ReportResponse } from '@/types/domain';
 import { withMocks, fetchPage, fetchMoneyListFirstPage, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
+import { mapPreviewTotals, type PreviewTotals } from './sales';
 
 function emptyNoteTotals() {
   return {
@@ -108,9 +109,17 @@ export async function updatePurchase(
   }, { ...mockPurchases[0], id, ...payload } as PurchaseInvoice);
 }
 
-export async function completePurchase(id: number): Promise<PurchaseInvoice> {
+export async function completePurchase(
+  id: number,
+  options?: { confirmNoRcm?: boolean; confirmBlankPos?: boolean; confirmDuplicateBill?: boolean; confirmGstinTotalChange?: boolean },
+): Promise<PurchaseInvoice> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/purchases/invoices/${id}/complete/`);
+    const { data } = await apiClient.post(`/purchases/invoices/${id}/complete/`, {
+      confirmNoRcm: Boolean(options?.confirmNoRcm),
+      confirmBlankPos: Boolean(options?.confirmBlankPos),
+      confirmDuplicateBill: Boolean(options?.confirmDuplicateBill),
+      confirmGstinTotalChange: Boolean(options?.confirmGstinTotalChange),
+    });
     return unwrapData<PurchaseInvoice>(data);
   }, { ...mockPurchases[0], id, status: 'COMPLETED', number: `PUR-${id}` });
 }
@@ -126,6 +135,11 @@ export async function deletePurchase(id: number): Promise<void> {
   return withMocks(async () => {
     await apiClient.delete(`/purchases/invoices/${id}/`);
   }, undefined);
+}
+
+export async function previewPurchaseTotals(payload: Record<string, unknown>): Promise<PreviewTotals> {
+  const { data } = await apiClient.post('/purchases/invoices/preview-totals/', payload);
+  return mapPreviewTotals(unwrapData<Record<string, unknown>>(data));
 }
 
 export async function getPurchaseNumberSeries(): Promise<InvoiceNumberSeries> {

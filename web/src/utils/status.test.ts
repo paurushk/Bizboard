@@ -17,4 +17,12 @@ describe('paidAwareStatus', () => {
     expect(paidAwareStatus('COMPLETED')).toBe('COMPLETED');
     expect(paidAwareStatus('COMPLETED', null)).toBe('COMPLETED');
   });
+
+  it('maps gateway holding to paid-pending-books', () => {
+    expect(paidAwareStatus('COMPLETED', 1000, 'PAID_PENDING_BOOKS')).toBe('PAID_PENDING_BOOKS');
+    expect(statusLabelKey(paidAwareStatus('COMPLETED', 1000, 'PAID_PENDING_BOOKS'))).toBe(
+      'status.PAID_PENDING_BOOKS',
+    );
+    expect(documentStatusTone('PAID_PENDING_BOOKS')).toBe('info');
+  });
 });

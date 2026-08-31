@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -18,7 +21,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { getCompany, createCustomer, listCustomersPage, updateCustomer, verifyCustomerGstin } from '@/api/resources';
+import { getCompany, createCustomer, listCustomersPage, listPriceLists, updateCustomer, verifyCustomerGstin } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
@@ -34,7 +37,17 @@ import { placeOfSupplyKnown } from '@/utils/tax';
 import { customerStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
-const emptyForm = { name: '', phone: '', email: '', gstin: '', state: '', billingAddress: '' };
+const emptyForm = {
+  name: '',
+  phone: '',
+  email: '',
+  gstin: '',
+  state: '',
+  billingAddress: '',
+  whatsappOptIn: false,
+  dunningOptOut: false,
+  priceList: '' as number | '',
+};
 const PAGE_SIZE = 50;
 
 function gstinStatusColor(status?: string): 'default' | 'success' | 'warning' | 'error' {
@@ -58,6 +71,7 @@ export function CustomersPage() {
     queryFn: () => listCustomersPage({ page, pageSize: PAGE_SIZE }),
   });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  const priceLists = useQuery({ queryKey: ['price-lists'], queryFn: listPriceLists });
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -81,7 +95,11 @@ export function CustomersPage() {
       if (gstin && !isValidGstin(gstin)) {
         throw new Error('Enter a valid 15-character GSTIN.');
       }
-      const payload = { ...form, gstin: gstin || form.gstin };
+      const payload = {
+        ...form,
+        gstin: gstin || form.gstin,
+        priceList: form.priceList === '' ? null : form.priceList,
+      };
       if (editing) return updateCustomer(editing.id, payload);
       return createCustomer({ ...payload, status: 'ACTIVE' });
     },
@@ -124,6 +142,9 @@ export function CustomersPage() {
       gstin: c.gstin ?? '',
       state: c.state ?? '',
       billingAddress: c.billingAddress ?? '',
+      whatsappOptIn: Boolean(c.whatsappOptIn),
+      dunningOptOut: Boolean(c.dunningOptOut),
+      priceList: c.priceList ?? '',
     });
     setNameTouched(false);
     setOpen(true);
@@ -299,6 +320,45 @@ export function CustomersPage() {
               }
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
             />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={form.whatsappOptIn}
+                  onChange={(e) => setForm((f) => ({ ...f, whatsappOptIn: e.target.checked }))}
+                />
+              }
+              label={t('common.whatsappOptIn')}
+            />
+            <Typography variant="caption" color="text.secondary">
+              {t('common.whatsappOptInHelp')}
+            </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={form.dunningOptOut}
+                  onChange={(e) => setForm((f) => ({ ...f, dunningOptOut: e.target.checked }))}
+                />
+              }
+              label={t('settings.dunningOptOut')}
+            />
+            <TextField
+              select
+              label="Price list"
+              value={form.priceList === '' ? '' : form.priceList}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  priceList: e.target.value === '' ? '' : Number(e.target.value),
+                }))
+              }
+            >
+              <MenuItem value="">None</MenuItem>
+              {(priceLists.data ?? []).map((pl) => (
+                <MenuItem key={pl.id} value={pl.id}>
+                  {pl.name}
+                </MenuItem>
+              ))}
+            </TextField>
             <TextField
               label={t('common.email')}
               value={form.email}

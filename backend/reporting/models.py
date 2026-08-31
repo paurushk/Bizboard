@@ -110,6 +110,82 @@ class Gstr2bIngest(TimeStampedModel):
     )
     raw = models.JSONField(default=dict, blank=True)
 
+    class MatchClass(models.TextChoices):
+        EXACT = "exact"
+        VALUE_MISMATCH = "value_mismatch"
+        MISSING_IN_BOOKS = "missing_in_books"
+        MISSING_IN_IMS = "missing_in_ims"
+        WRONG_GSTIN = "wrong_gstin"
+        DUPLICATE = "duplicate"
+        POTENTIALLY_INELIGIBLE = "potentially_ineligible"
+        OTHER = "other"
+
+    class ImsAction(models.TextChoices):
+        NO_ACTION = "NO_ACTION"
+        ACCEPT = "ACCEPT"
+        REJECT = "REJECT"
+        PENDING = "PENDING"
+
+    match_class = models.CharField(
+        max_length=32, choices=MatchClass.choices, blank=True, default=""
+    )
+    ims_action = models.CharField(
+        max_length=16, choices=ImsAction.choices, default=ImsAction.NO_ACTION, db_index=True
+    )
+    ims_remark = models.CharField(max_length=512, blank=True, default="")
+    acted_at = models.DateTimeField(null=True, blank=True)
+    acted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    submitted_payload = models.JSONField(default=dict, blank=True)
+    ims_response = models.JSONField(default=dict, blank=True)
+    section_16_4_deadline = models.DateField(null=True, blank=True)
+
+    class ChaseStatus(models.TextChoices):
+        NONE = "none"
+        REQUESTED = "requested"
+        RECEIVED = "received"
+        IMPORTED = "imported"
+        MATCHED = "matched"
+
+    chase_status = models.CharField(
+        max_length=16, choices=ChaseStatus.choices, default=ChaseStatus.NONE, db_index=True
+    )
+    chase_requested_at = models.DateTimeField(null=True, blank=True)
+    chase_import_job_id = models.PositiveIntegerField(null=True, blank=True)
+
     class Meta:
-        indexes = [models.Index(fields=["company", "period", "match_status"])]
+        indexes = [
+            models.Index(fields=["company", "period", "match_status"]),
+            models.Index(fields=["company", "period", "ims_action"]),
+        ]
         ordering = ["-id"]
+
+
+class ImsActionHistory(TimeStampedModel):
+    """Append-only IMS decision log (B-03). Never update or delete."""
+
+    company = models.ForeignKey(
+        "accounts.Company", on_delete=models.CASCADE, related_name="ims_action_history"
+    )
+    ingest = models.ForeignKey(
+        Gstr2bIngest, on_delete=models.CASCADE, related_name="action_history"
+    )
+    action = models.CharField(max_length=16)
+    remark = models.CharField(max_length=512, blank=True, default="")
+    acted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    payload = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["id"]
+        indexes = [models.Index(fields=["company", "ingest"])]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("IMS action history is append-only.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("IMS action history is append-only.")

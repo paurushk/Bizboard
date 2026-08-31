@@ -2,8 +2,10 @@ import { useEffect } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -36,7 +38,13 @@ type CompanyForm = Pick<
   | 'bankName'
   | 'bankAccount'
   | 'bankIfsc'
->;
+> & {
+  dunningEnabled: boolean;
+  dunningDaysText: string;
+  dunningMaxReminders: number;
+  dunningQuietHoursStart: number;
+  dunningQuietHoursEnd: number;
+};
 
 export function CompanySettingsPage() {
   const { user } = useAuth();
@@ -59,6 +67,11 @@ export function CompanySettingsPage() {
         bankName: query.data.bankName ?? '',
         bankAccount: query.data.bankAccount ?? '',
         bankIfsc: query.data.bankIfsc ?? '',
+        dunningEnabled: Boolean(query.data.dunningEnabled),
+        dunningDaysText: (query.data.dunningDays ?? [3, 7, 14]).join(', '),
+        dunningMaxReminders: query.data.dunningMaxReminders ?? 3,
+        dunningQuietHoursStart: query.data.dunningQuietHoursStart ?? 21,
+        dunningQuietHoursEnd: query.data.dunningQuietHoursEnd ?? 8,
       });
     }
   }, [query.data, reset]);
@@ -77,11 +90,20 @@ export function CompanySettingsPage() {
       if (upi && !isValidUpiVpa(upi)) {
         throw new Error('Enter a valid UPI ID (e.g. shopname@oksbi).');
       }
+      const { dunningDaysText, ...rest } = values;
       return updateCompany({
-        ...values,
+        ...rest,
         pincode: pin || values.pincode,
         bankIfsc: ifsc || values.bankIfsc,
         upiId: upi || values.upiId,
+        dunningEnabled: values.dunningEnabled,
+        dunningDays: dunningDaysText
+          .split(/[,\s]+/)
+          .map((p) => Number(p))
+          .filter((n) => Number.isFinite(n) && n >= 1),
+        dunningMaxReminders: values.dunningMaxReminders,
+        dunningQuietHoursStart: values.dunningQuietHoursStart,
+        dunningQuietHoursEnd: values.dunningQuietHoursEnd,
       });
     },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['company'] }),
@@ -225,6 +247,80 @@ export function CompanySettingsPage() {
               <TextField label="Bank IFSC Code (e.g. SBIN0001234)" {...field} value={field.value ?? ''} />
             )}
           />
+          <Typography variant="h6" fontWeight={600} sx={{ pt: 1 }}>
+            {t('settings.dunningTitle')}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {t('settings.dunningHelp')}
+          </Typography>
+          <Controller
+            name="dunningEnabled"
+            control={control}
+            render={({ field }) => (
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={Boolean(field.value)}
+                    onChange={(_, v) => field.onChange(v)}
+                  />
+                }
+                label={t('settings.dunningEnabled')}
+              />
+            )}
+          />
+          <Controller
+            name="dunningDaysText"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                label={t('settings.dunningDays')}
+                helperText={t('settings.dunningDaysHelp')}
+                {...field}
+                value={field.value ?? '3, 7, 14'}
+              />
+            )}
+          />
+          <Controller
+            name="dunningMaxReminders"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                type="number"
+                label={t('settings.dunningMaxReminders')}
+                {...field}
+                value={field.value ?? 3}
+                onChange={(e) => field.onChange(Number(e.target.value))}
+              />
+            )}
+          />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <Controller
+              name="dunningQuietHoursStart"
+              control={control}
+              render={({ field }) => (
+                <TextField
+                  type="number"
+                  label={t('settings.dunningQuietStart')}
+                  {...field}
+                  value={field.value ?? 21}
+                  onChange={(e) => field.onChange(Number(e.target.value))}
+                />
+              )}
+            />
+            <Controller
+              name="dunningQuietHoursEnd"
+              control={control}
+              render={({ field }) => (
+                <TextField
+                  type="number"
+                  label={t('settings.dunningQuietEnd')}
+                  {...field}
+                  value={field.value ?? 8}
+                  onChange={(e) => field.onChange(Number(e.target.value))}
+                />
+              )}
+            />
+          </Stack>
           <Button type="submit" variant="contained" size="large" disabled={mutation.isPending}>
             {t('common.save')}
           </Button>

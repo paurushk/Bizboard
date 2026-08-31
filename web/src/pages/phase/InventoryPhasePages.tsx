@@ -24,6 +24,8 @@ import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import type { Product } from '@/types/domain';
 import { t } from '@/i18n';
+import { useAuth } from '@/auth/AuthContext';
+import { enqueueDraft } from '@/offline/invoiceDraftCache';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import {
   asRows,
@@ -126,6 +128,7 @@ export function WarehousesPage() {
 
 export function StockTransferPage() {
   const { writesBlocked } = useSubscriptionGate();
+  const { user } = useAuth();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['transfers'], queryFn: api.listTransfers });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: api.listWarehouses });
@@ -168,7 +171,20 @@ export function StockTransferPage() {
     onError: (e) => setError(getErrorMessage(e)),
   });
   const complete = useMutation({
-    mutationFn: (id: number) => api.completeTransfer(id),
+    mutationFn: async (id: number) => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const companyId = user?.companyId;
+        const userId = user?.id;
+        if (!companyId || !userId) throw new Error(t('inventory.offlineNeedLogin'));
+        await enqueueDraft(companyId, userId, {
+          kind: 'stock_transfer',
+          payload: { transferId: id },
+          idempotencyKey: `stock-transfer-${id}`,
+        });
+        return { offline: true };
+      }
+      return api.completeTransfer(id);
+    },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['transfers'] }),
   });
   const cancel = useMutation({
@@ -513,8 +529,17 @@ export function PriceListsPage() {
   const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['price-lists'], queryFn: api.listPriceLists });
+  const products = useQuery({
+    queryKey: ['price-list-products'],
+    queryFn: () => api.listProductsPage({ page: 1, pageSize: 100 }),
+  });
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [edit, setEdit] = useState<{
+    id: number;
+    name: string;
+    items: { product: string; minQty: string; maxQty: string; unitPrice: string }[];
+  } | null>(null);
   const create = useMutation({
     mutationFn: () => api.createPriceList({ name }),
     onSuccess: () => {
@@ -523,8 +548,29 @@ export function PriceListsPage() {
       void qc.invalidateQueries({ queryKey: ['price-lists'] });
     },
   });
+  const save = useMutation({
+    mutationFn: () => {
+      if (!edit) return Promise.reject(new Error('No list'));
+      return api.updatePriceList(edit.id, {
+        name: edit.name,
+        items: edit.items
+          .filter((row) => Number(row.product) && Number(row.unitPrice) >= 0)
+          .map((row) => ({
+            product: Number(row.product),
+            minQty: Number(row.minQty || 1),
+            maxQty: row.maxQty.trim() === '' ? null : Number(row.maxQty),
+            unitPrice: Number(row.unitPrice),
+          })),
+      });
+    },
+    onSuccess: () => {
+      setEdit(null);
+      void qc.invalidateQueries({ queryKey: ['price-lists'] });
+    },
+  });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
+  const productRows = products.data?.results ?? [];
   return (
     <PageShell
       title={t('phase.priceLists')}
@@ -536,8 +582,8 @@ export function PriceListsPage() {
       }
     >
       <Alert severity="info" sx={{ mb: 2 }}>
-        Rates are interpreted using the invoice price mode (exclusive or inclusive) at billing
-        time. Price lists store a unit rate only — they do not have a separate tax-inclusive flag.
+        Quantity slabs (e.g. 1–10 @ ₹100, 11+ @ ₹92) apply at line qty. Assign a list on the customer.
+        Credit notes keep the original invoice rate.
       </Alert>
       <DataTable
         rows={asRows(query.data)}
@@ -547,6 +593,30 @@ export function PriceListsPage() {
           { key: 'isActive', label: 'Active', bool: true },
         ]}
       />
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+        {(query.data ?? []).map((row) => (
+          <Button
+            key={row.id}
+            size="small"
+            variant="outlined"
+            disabled={writesBlocked}
+            onClick={() =>
+              setEdit({
+                id: row.id,
+                name: row.name ?? '',
+                items: (row.items ?? []).map((item) => ({
+                  product: String(item.product),
+                  minQty: String(item.minQty ?? item.min_qty ?? 1),
+                  maxQty: item.maxQty == null && item.max_qty == null ? '' : String(item.maxQty ?? item.max_qty),
+                  unitPrice: String(item.unitPrice ?? item.unit_price ?? ''),
+                })),
+              })
+            }
+          >
+            Edit {row.name}
+          </Button>
+        ))}
+      </Stack>
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>New price list</DialogTitle>
         <DialogContent>
@@ -556,6 +626,93 @@ export function PriceListsPage() {
           <Button onClick={() => setOpen(false)}>Cancel</Button>
           <Button variant="contained" disabled={writesBlocked || !name || create.isPending} onClick={() => create.mutate()}>
             Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={Boolean(edit)} onClose={() => setEdit(null)} fullWidth maxWidth="md">
+        <DialogTitle>Qty slabs — {edit?.name}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1} sx={{ mt: 1 }}>
+            {(edit?.items ?? []).map((row, idx) => (
+              <Stack key={idx} direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                <TextField
+                  select
+                  label="Product"
+                  value={row.product}
+                  onChange={(e) =>
+                    setEdit((cur) =>
+                      cur
+                        ? {
+                            ...cur,
+                            items: cur.items.map((it, i) => (i === idx ? { ...it, product: e.target.value } : it)),
+                          }
+                        : cur,
+                    )
+                  }
+                  sx={{ minWidth: 220 }}
+                >
+                  {productRows.map((p) => (
+                    <MenuItem key={p.id} value={String(p.id)}>
+                      {p.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Min qty"
+                  value={row.minQty}
+                  onChange={(e) =>
+                    setEdit((cur) =>
+                      cur
+                        ? { ...cur, items: cur.items.map((it, i) => (i === idx ? { ...it, minQty: e.target.value } : it)) }
+                        : cur,
+                    )
+                  }
+                />
+                <TextField
+                  label="Max qty"
+                  placeholder="open"
+                  value={row.maxQty}
+                  onChange={(e) =>
+                    setEdit((cur) =>
+                      cur
+                        ? { ...cur, items: cur.items.map((it, i) => (i === idx ? { ...it, maxQty: e.target.value } : it)) }
+                        : cur,
+                    )
+                  }
+                />
+                <TextField
+                  label="Unit price"
+                  value={row.unitPrice}
+                  onChange={(e) =>
+                    setEdit((cur) =>
+                      cur
+                        ? {
+                            ...cur,
+                            items: cur.items.map((it, i) => (i === idx ? { ...it, unitPrice: e.target.value } : it)),
+                          }
+                        : cur,
+                    )
+                  }
+                />
+              </Stack>
+            ))}
+            <Button
+              onClick={() =>
+                setEdit((cur) =>
+                  cur
+                    ? { ...cur, items: [...cur.items, { product: '', minQty: '1', maxQty: '', unitPrice: '' }] }
+                    : cur,
+                )
+              }
+            >
+              Add slab
+            </Button>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEdit(null)}>Cancel</Button>
+          <Button variant="contained" disabled={writesBlocked || save.isPending} onClick={() => save.mutate()}>
+            Save slabs
           </Button>
         </DialogActions>
       </Dialog>

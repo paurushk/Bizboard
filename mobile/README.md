@@ -60,7 +60,16 @@ npx cap open ios
 
 No App Store binary is produced or maintained here.
 
+## Offline billing (A-01 / A-04 / C-01)
+
+Target: a shop can bill for **8 hours** with no WAN. Drafts queue in IndexedDB (winner) and Capacitor Preferences (native mirror). Complete of queued sales when online is idempotent. If device storage is full, new lines are blocked (`pos.storageFull`) — unpaid drafts are never FIFO-evicted.
+
+Lab check: queue at least **50** POS drafts on an emulator, restore network, confirm flush. Thermal print from tap to data on a local Bluetooth printer should be **< 2s**; if the PDF path cannot meet that, use the existing 80mm thermal renderer (follow-up, not claimed here).
+
+This README does **not** claim the app is listed on Google Play.
+
 ## Notes
 
 - `capacitor.config.ts` points `webDir` at `../web/dist` — rebuild web before `cap sync` when UI changes.
-- Push notifications and guaranteed background sync are out of scope. The web PWA service worker + IndexedDB invoice outbox apply inside the WebView with the same iOS background-sync limitation.
+- Push: native shell registers a device token and PATCHes `/auth/me/` `{ pushToken }`. No new notification product.
+- Outbox: IndexedDB wins when both IDB and Preferences have a copy. Web without Capacitor uses localStorage + IDB only.

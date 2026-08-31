@@ -245,12 +245,14 @@ class DeliveryChallanItemSerializer(_BaseLineSerializer):
         fields = [
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
-            "serial_numbers",
+            "batch", "batch_no", "serial_numbers",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY
         extra_kwargs = {
             "unit_price": {"required": False},
             "gst_rate": {"required": False},
+            "batch": {"required": False, "allow_null": True},
+            "batch_no": {"required": False, "allow_blank": True},
             "serial_numbers": {"required": False},
         }
 

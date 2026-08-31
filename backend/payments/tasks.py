@@ -48,3 +48,19 @@ def retry_pending_gateway_refunds():
     ).order_by("id")[:50]
     for row in qs:
         execute_gateway_refund.delay(row.id)
+
+
+@shared_task
+def run_ar_dunning_task():
+    from payments.dunning import run_dunning_all
+
+    return run_dunning_all()
+
+
+@shared_task
+def reconcile_gateway_captures_task():
+    from payments.services import PaymentService
+
+    posted, attempted = PaymentService.reconcile_gateway_captures(older_than_minutes=5)
+    logger.info("Gateway holding reconcile attempted=%s posted=%s", attempted, posted)
+    return {"attempted": attempted, "posted": posted}

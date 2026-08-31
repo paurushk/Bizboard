@@ -18,14 +18,29 @@ class Gstr2bIngestSerializer(serializers.ModelSerializer):
             "igst",
             "cgst",
             "sgst",
+            "cess",
             "match_status",
+            "match_class",
             "itc_eligibility",
+            "ims_action",
+            "ims_remark",
+            "acted_at",
+            "section_16_4_deadline",
             "purchase_invoice",
             "raw",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["match_status", "purchase_invoice", "created_at", "updated_at"]
+        read_only_fields = [
+            "match_status",
+            "match_class",
+            "ims_action",
+            "acted_at",
+            "section_16_4_deadline",
+            "purchase_invoice",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate_itc_eligibility(self, value):
         if value != Gstr2bIngest.ItcEligibility.CLAIMABLE:

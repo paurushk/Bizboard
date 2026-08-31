@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- resolveHelpLabel is a helper deliberately co-located with the renderer it supports */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';

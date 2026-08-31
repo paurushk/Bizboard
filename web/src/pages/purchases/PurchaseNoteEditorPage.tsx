@@ -47,6 +47,7 @@ import { StatusChip } from '@/components/StatusChip';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
+import { usePreviewTotals } from '@/hooks/usePreviewTotals';
 import type { NoteReason, Product, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, Supplier } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
@@ -238,6 +239,23 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     })),
   });
 
+  const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
+  const preview = usePreviewTotals(
+    'purchase',
+    previewOnline && supplierId && lines.length > 0
+      ? {
+          supplier: Number(supplierId),
+          items: lines.map((l) => ({
+            product: l.product,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            gstRate: l.gstRate,
+            cessRate: l.cessRate ?? 0,
+          })),
+        }
+      : null,
+  );
+
   const saveMutation = useMutation({
     mutationFn: async (mode: 'draft' | 'complete') => {
       const payload = buildPayload();
@@ -279,11 +297,11 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
       title={t(isEdit ? (isCredit ? 'phase1.editPurchaseCreditNote' : 'phase1.editPurchaseDebitNote') : (isCredit ? 'phase1.newPurchaseCreditNote' : 'phase1.newPurchaseDebitNote'))}
       primarySave={primarySave}
       canSave={canSave}
-      canComplete={canSave}
+      canComplete={canSave && (!previewOnline || preview.ready)}
       isEdit={isEdit}
       backTo={listPath}
       message={message}
-      error={error}
+      error={error || preview.error}
       saving={saveMutation.isPending}
       hideSaveAndNew
       showDraftButton={!readOnly}
@@ -416,7 +434,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
           </Stack>
           </Stack>
         ) : null}
-        <SimpleTotalsPanel totals={totals} />
+        <SimpleTotalsPanel totals={preview.totals ?? totals} />
       </Stack>
     </DocumentEditorShell>
   );

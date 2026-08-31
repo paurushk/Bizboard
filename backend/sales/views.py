@@ -15,14 +15,14 @@ from billing.permissions import SubscriptionWritesAllowed
 from core.permissions import (
     CanCancelDocuments,
     CanCreateSales,
+    CanViewFinancialReports,
     CanViewSalesSurfaces,
     HasCompany,
     IsOwner,
 )
-from core.services.billing import compute_document_totals
+from core.services.billing import build_totals_preview
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 from core.services.notifications import NotificationService
-from core.services.place_of_supply import party_intra_state
 from core.viewsets import CompanyScopedViewSet
 from masters.models import Customer, Product
 from payments.models import PaymentAllocation
@@ -91,6 +91,8 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in ("list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "thermal_pdf"):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
+        if action == "audit":
+            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
         if action == "number_series":
             if self.request.method == "GET":
                 return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
@@ -168,7 +170,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
 
     @action(detail=False, methods=["post"], url_path="preview-totals")
     def preview_totals(self, request):
-        """Authoritative totals preview without persisting (Phase 1)."""
+        """Authoritative totals preview without persisting (Phase 1 / A-03)."""
         company = self.company
         customer_id = request.data.get("customer")
         if not customer_id:
@@ -180,7 +182,6 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
 
         invoice_type = request.data.get("invoice_type") or SalesInvoice.InvoiceType.GST
         tax_enabled = _tax_enabled(invoice_type)
-        supply_type = (request.data.get("supply_type") or "").strip().upper()
         from accounts.models import CompanyGstin
 
         seller_state = company.state or ""
@@ -192,107 +193,26 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 raise BusinessRuleError("Invalid company GSTIN.")
             seller_state = stamp.state or seller_state
             seller_gstin = stamp.gstin or seller_gstin
-        intra = party_intra_state(
-            company,
-            customer.state or "",
-            customer.gstin or "",
+
+        product_ids = []
+        for raw in request.data.get("items") or []:
+            pid = raw.get("product")
+            if pid:
+                product_ids.append(pid)
+        products_by_id = {
+            p.pk: p for p in Product.objects.filter(pk__in=product_ids, company=company)
+        }
+        return Response(build_totals_preview(
+            company=company,
+            party_state=customer.state or "",
+            party_gstin=customer.gstin or "",
+            data=request.data,
+            products_by_id=products_by_id,
+            default_price_attr="selling_price",
+            tax_enabled=tax_enabled,
             seller_state=seller_state,
             seller_gstin=seller_gstin,
-        )
-
-        class _Doc:
-            additional_charges = request.data.get("additional_charges") or 0
-            invoice_discount = request.data.get("invoice_discount") or 0
-            invoice_discount_mode = request.data.get("invoice_discount_mode") or "AFTER_TAX"
-            auto_round_off = request.data.get("auto_round_off", True)
-            cess_total = 0
-            price_mode = request.data.get("price_mode") or "EXCLUSIVE"
-            charges_hsn = request.data.get("charges_hsn") or ""
-            charges_gst_rate = request.data.get("charges_gst_rate") or 0
-            is_reverse_charge = bool(request.data.get("is_reverse_charge"))
-            supply_type = request.data.get("supply_type") or ""
-
-        class _Item:
-            pass
-
-        items = []
-        for raw in request.data.get("items") or []:
-            product_id = raw.get("product")
-            try:
-                product = Product.objects.get(pk=product_id, company=company)
-            except Product.DoesNotExist as exc:
-                raise BusinessRuleError("Invalid product.") from exc
-            item = _Item()
-            item.quantity = raw.get("quantity") or 0
-            item.unit_price = raw.get("unit_price", product.selling_price)
-            item.discount_percent = raw.get("discount_percent") or 0
-            item.gst_rate = raw.get("gst_rate", product.gst_rate)
-            if supply_type in ("EXPWOP", "SEZWOP"):
-                item.gst_rate = 0
-            item.cess_rate = raw.get("cess_rate", getattr(product, "cess_rate", 0) or 0)
-            if supply_type in ("EXPWOP", "SEZWOP"):
-                item.cess_rate = 0
-            item.cess_amount = raw.get("cess_amount", getattr(product, "cess_amount", 0) or 0)
-            item.cess = 0
-            item.unit_price_inclusive = raw.get("unit_price_inclusive")
-            item.supply_nature = raw.get("supply_nature") or "TAXABLE"
-            items.append(item)
-
-        doc = _Doc()
-        compute_document_totals(
-            doc,
-            items,
-            tax_enabled=tax_enabled,
-            intra_state=intra,
-            additional_charges=doc.additional_charges,
-            invoice_discount=doc.invoice_discount,
-            auto_round_off=doc.auto_round_off,
-            invoice_discount_mode=doc.invoice_discount_mode,
-        )
-        from core.services.billing import apply_rcm_memo_after_tax
-
-        apply_rcm_memo_after_tax(doc, items)
-        from decimal import Decimal
-
-        tcs_rate = Decimal(str(request.data.get("tcs_rate") or 0))
-        tcs_amount = Decimal("0")
-        if tcs_rate > 0:
-            consideration = (
-                Decimal(str(doc.taxable_total or 0))
-                + Decimal(str(doc.cgst_total or 0))
-                + Decimal(str(doc.sgst_total or 0))
-                + Decimal(str(doc.igst_total or 0))
-                + Decimal(str(getattr(doc, "cess_total", 0) or 0))
-            )
-            tcs_amount = (consideration * tcs_rate / Decimal("100")).quantize(Decimal("0.01"))
-        amount_due = Decimal(str(doc.grand_total or 0)) + tcs_amount
-        return Response({
-            "subtotal": doc.subtotal,
-            "discount_total": doc.discount_total,
-            "taxable_total": doc.taxable_total,
-            "cgst_total": doc.cgst_total,
-            "sgst_total": doc.sgst_total,
-            "igst_total": doc.igst_total,
-            "cess_total": getattr(doc, "cess_total", 0),
-            "round_off": doc.round_off,
-            "grand_total": doc.grand_total,
-            "tcs_rate": tcs_rate,
-            "tcs_amount": tcs_amount,
-            "amount_due": amount_due,
-            "invoice_discount_mode": doc.invoice_discount_mode,
-            "intra_state": intra,
-            "items": [
-                {
-                    "taxable_amount": i.taxable_amount,
-                    "cgst": i.cgst,
-                    "sgst": i.sgst,
-                    "igst": i.igst,
-                    "cess": getattr(i, "cess", 0),
-                    "line_total": i.line_total,
-                }
-                for i in items
-            ],
-        })
+        ))
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
@@ -300,8 +220,18 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             confirm_rcm = str(request.data.get("confirm_sales_rcm") or "").lower() in (
                 "1", "true", "yes",
             )
+            confirm_blank_pos = str(request.data.get("confirm_blank_pos") or "").lower() in (
+                "1", "true", "yes",
+            )
+            confirm_gstin_total = str(request.data.get("confirm_gstin_total_change") or "").lower() in (
+                "1", "true", "yes",
+            )
             invoice, warnings = SalesService.complete(
-                self.get_object(), request.user, confirm_sales_rcm=confirm_rcm,
+                self.get_object(),
+                request.user,
+                confirm_sales_rcm=confirm_rcm,
+                confirm_blank_pos=confirm_blank_pos,
+                confirm_gstin_total_change=confirm_gstin_total,
             )
             data = self.get_serializer(invoice).data
             data["warnings"] = warnings
@@ -314,9 +244,31 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             build=_run,
         )
 
+    @action(detail=True, methods=["get"], url_path="audit")
+    def audit(self, request, pk=None):
+        """D-03: company-scoped invoice audit timeline (Owner/CA)."""
+        from core.models import AuditEvent
+        from core.serializers import AuditEventSerializer
+
+        invoice = self.get_object()
+        pk_s = str(invoice.pk)
+        events = (
+            AuditEvent.objects.filter(company=invoice.company, entity_id=pk_s)
+            .filter(entity_type__in=["SalesInvoice", "salesinvoice", "sales_invoice"])
+            .select_related("user")
+            .order_by("-created_at")[:200]
+        )
+        return Response(AuditEventSerializer(events, many=True).data)
+
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
-        invoice = SalesService.cancel(self.get_object(), request.user)
+        reason = (
+            request.data.get("reason")
+            or request.data.get("cancel_reason")
+            or request.data.get("cancelReason")
+            or ""
+        )
+        invoice = SalesService.cancel(self.get_object(), request.user, reason=str(reason))
         return Response(self.get_serializer(invoice).data)
 
     @action(detail=True, methods=["post"], url_path="regenerate-pdf")
@@ -379,6 +331,18 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 status=status.HTTP_409_CONFLICT,
             )
 
+        from core.models import AuditEvent
+
+        AuditEvent.objects.create(
+            company=invoice.company,
+            user=request.user,
+            action=AuditEvent.Action.CREATE,
+            entity_type="SalesInvoicePdf",
+            entity_id=str(invoice.pk),
+            description="Invoice PDF downloaded",
+            metadata={"copy": copy},
+        )
+
         # DUPLICATE is rendered in-memory so the stored file stays ORIGINAL.
         if copy == "DUPLICATE":
             content = render_gst_tax_invoice(invoice, copy="DUPLICATE")
@@ -438,25 +402,45 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         )
         if not recipient:
             raise BusinessRuleError("No recipient available for this channel.")
-        pdf_path = f"/api/v1/sales/invoices/{invoice.pk}/pdf/"
-        body = (
-            f"Invoice {invoice.number} dated {invoice.invoice_date} from {invoice.company.name}. "
-            f"Amount: INR {invoice.grand_total}. "
-            f"Download PDF: {pdf_path}"
+        from sales.whatsapp_send import (
+            allow_cloud_for_customer,
+            compose_invoice_whatsapp_body,
+            persist_invoice_whatsapp,
         )
+
+        if channel == Notification.Channel.WHATSAPP:
+            body = compose_invoice_whatsapp_body(invoice, request)
+            subject = "invoice_ready"
+            allow_cloud = allow_cloud_for_customer(invoice.customer)
+        else:
+            pdf_path = f"/api/v1/sales/invoices/{invoice.pk}/pdf/"
+            body = (
+                f"Invoice {invoice.number} dated {invoice.invoice_date} from {invoice.company.name}. "
+                f"Amount: INR {invoice.grand_total}. "
+                f"Download PDF: {pdf_path}"
+            )
+            subject = f"Invoice {invoice.number}"
+            allow_cloud = False
         notification = NotificationService.send(
-            company=invoice.company, channel=channel, recipient=recipient,
-            subject=f"Invoice {invoice.number}", body=body, user=request.user,
+            company=invoice.company,
+            channel=channel,
+            recipient=recipient,
+            subject=subject,
+            body=body,
+            user=request.user,
+            allow_cloud=allow_cloud,
         )
         from core.serializers import NotificationSerializer
 
         data = NotificationSerializer(notification).data
-        data["pdf_url"] = pdf_path
+        data["pdf_url"] = f"/api/v1/sales/invoices/{invoice.pk}/pdf/"
         # BB-000743: mode for WhatsApp honesty (cloud vs link / fallback).
         if channel == Notification.Channel.WHATSAPP:
+            persist_invoice_whatsapp(invoice, notification)
             data["mode"] = getattr(notification, "delivery_mode", None) or (
                 "cloud" if notification.status == Notification.Status.SENT else "link"
             )
+            data["whatsapp_send_status"] = invoice.whatsapp_send_status
         return Response(data)
 
 

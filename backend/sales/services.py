@@ -9,7 +9,7 @@ from django.utils import timezone
 from core.events import emit
 from core.exceptions import BusinessRuleError
 from core.help_codes import HelpCode
-from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals
+from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals, recompute_totals_for_stamped_gstin
 from core.services.place_of_supply import (
     assert_place_of_supply_for_gst,
     is_export_or_sez_supply,
@@ -141,7 +141,6 @@ def _build_items(model_cls, parent_field, parent, items_data):
     items = []
     for line in items_data:
         product = products.get(line["product"].pk, line["product"])
-        from masters.pricing import resolve_unit_price
         from core.services.uqc import snapshot_unit_fields
 
         source_item = None
@@ -169,21 +168,30 @@ def _build_items(model_cls, parent_field, parent, items_data):
             cess_rate = getattr(source_item, "cess_rate", None) or Decimal("0")
             cess_amount = getattr(source_item, "cess_amount", None) or Decimal("0")
             discount_percent = source_item.discount_percent
+            applied_list_name = ""
             if model_cls in (SalesDebitNoteItem, SalesCreditNoteItem) and line.get("unit_price") is not None:
                 unit_price = Decimal(str(line["unit_price"]))
             else:
                 unit_price = source_item.unit_price
         else:
+            from masters.pricing import resolve_party_price, resolve_unit_price
+
             unit_price = resolve_unit_price(
                 customer=getattr(parent, "customer", None),
                 product=product,
                 requested_price=line.get("unit_price", None),
                 role=getattr(parent, "_price_role", None),
+                quantity=line.get("quantity"),
             )
             discount_percent = line.get("discount_percent", Decimal("0"))
             gst_rate = line.get("gst_rate", product.gst_rate)
             cess_rate = line.get("cess_rate", Decimal("0"))
             cess_amount = line.get("cess_amount", Decimal("0"))
+            _list_price, applied_list_name = resolve_party_price(
+                customer=getattr(parent, "customer", None),
+                product=product,
+                quantity=line.get("quantity"),
+            )
 
         kwargs = {
             parent_field: parent,
@@ -197,6 +205,8 @@ def _build_items(model_cls, parent_field, parent, items_data):
             "cess_rate": cess_rate,
             "cess_amount": cess_amount,
         }
+        if model_cls is SalesItem:
+            kwargs["applied_price_list_name"] = applied_list_name
         if model_cls in (SalesItem, SalesCreditNoteItem, SalesDebitNoteItem):
             nature = line.get("supply_nature")
             if source_item is not None:
@@ -229,11 +239,15 @@ def _build_items(model_cls, parent_field, parent, items_data):
                     "exp_date": line.get("exp_date"),
                     "mfg_date": line.get("mfg_date"),
                     "serial_numbers": line.get("serial_numbers") or [],
+                    "rate_override": bool(line.get("rate_override")),
+                    "rate_override_reason": (line.get("rate_override_reason") or "")[:255],
                 })
         from sales.models import DeliveryChallanItem
 
         if model_cls is DeliveryChallanItem:
             kwargs["serial_numbers"] = line.get("serial_numbers") or []
+            kwargs["batch"] = line.get("batch")
+            kwargs["batch_no"] = line.get("batch_no") or ""
         # BB-000340: SalesReturnItem is not in the GST snapshot tuple — serials must still persist.
         if model_cls is SalesReturnItem:
             kwargs["serial_numbers"] = line.get("serial_numbers") or []
@@ -244,6 +258,40 @@ def _build_items(model_cls, parent_field, parent, items_data):
 
 def _tax_enabled(invoice_type):
     return invoice_type != SalesInvoice.InvoiceType.NON_GST
+
+
+def _lot_identity_key(item) -> tuple:
+    """Product + lot + serials. Batch identity is the batch_no, not the FK pk."""
+    batch_no = (getattr(item, "batch_no", None) or "").strip()
+    if not batch_no:
+        batch = getattr(item, "batch", None)
+        if batch is not None:
+            batch_no = (getattr(batch, "batch_no", None) or "").strip()
+    serials = tuple(
+        sorted(str(s).strip() for s in (getattr(item, "serial_numbers", None) or []) if str(s).strip())
+    )
+    return (item.product_id, batch_no, serials)
+
+
+def assert_converted_challan_lot_identity(invoice, items) -> None:
+    """C-02: converted invoice lines must match remaining challan product+batch+serial qty."""
+    from sales.models import DeliveryChallan, DeliveryChallanItem
+
+    challan_ids = list(
+        DeliveryChallan.objects.filter(converted_invoice=invoice).values_list("pk", flat=True)
+    )
+    if not challan_ids:
+        return
+    posted = defaultdict(Decimal)
+    for row in DeliveryChallanItem.objects.filter(challan_id__in=challan_ids):
+        posted[_lot_identity_key(row)] += Decimal(str(row.quantity or 0))
+    inv_qty = defaultdict(Decimal)
+    for item in items:
+        inv_qty[_lot_identity_key(item)] += Decimal(str(item.quantity or 0))
+    if set(posted.keys()) != set(inv_qty.keys()) or any(posted[key] != inv_qty[key] for key in inv_qty):
+        raise BusinessRuleError(
+            "Invoice product, batch, and serials must match the converted delivery challan."
+        )
 
 
 def _update_items_in_place(invoice: SalesInvoice, items_data):
@@ -299,10 +347,20 @@ def _update_items_in_place(invoice: SalesInvoice, items_data):
             product=old.product,
             requested_price=line.get("unit_price", old.unit_price),
             role=getattr(invoice, "_price_role", None),
+            quantity=line.get("quantity", old.quantity),
         )
         old.description = line.get("description") or old.description or old.product.name
         old.quantity = line["quantity"]
         old.unit_price = unit_price
+        if hasattr(old, "applied_price_list_name"):
+            from masters.pricing import resolve_party_price
+
+            _p, name = resolve_party_price(
+                customer=getattr(invoice, "customer", None),
+                product=old.product,
+                quantity=line.get("quantity", old.quantity),
+            )
+            old.applied_price_list_name = name
         old.discount_percent = line.get("discount_percent", old.discount_percent)
         old.gst_rate = line.get("gst_rate", old.gst_rate)
         if "supply_nature" in line or hasattr(old, "supply_nature"):
@@ -559,7 +617,8 @@ class SalesService:
 
     @staticmethod
     @transaction.atomic
-    def complete(invoice: SalesInvoice, user, *, confirm_sales_rcm=False):
+    def complete(invoice: SalesInvoice, user, *, confirm_sales_rcm=False, confirm_blank_pos=False,
+                 confirm_gstin_total_change=False):
         """Atomic Complete: rules + number + SALE movements + PDF event (E4.4)."""
         invoice = SalesInvoice.objects.select_for_update().get(pk=invoice.pk)
         if invoice.warehouse_id is None:
@@ -604,37 +663,34 @@ class SalesService:
             )
         is_tally_opening = bool(getattr(invoice, "is_opening_balance", False))
 
-        # R2-001 / R2-010: line taxes were computed in set_items against
-        # company.state (the stamp is usually unset on a draft). Now that a
-        # filing GSTIN is stamped, if its state flips the intra/inter
-        # determination, the persisted CGST/SGST-vs-IGST split is wrong — recompute
-        # the totals against the actual seller GSTIN before anything else uses them.
-        _stamp = invoice.company_gstin
-        if _stamp is not None and tax_enabled and not is_tally_opening:
-            _lines_intra = sum((Decimal(str(it.cgst or 0)) for it in items), Decimal("0")) > 0
-            _lines_inter = sum((Decimal(str(it.igst or 0)) for it in items), Decimal("0")) > 0
-            if _lines_intra or _lines_inter:
-                _intra_now = party_intra_state(
-                    invoice.company,
-                    invoice.customer.state,
-                    invoice.customer.gstin or "",
-                    seller_state=getattr(_stamp, "state", None) or "",
-                    seller_gstin=getattr(_stamp, "gstin", None) or "",
-                )
-                if _intra_now != _lines_intra:
-                    compute_document_totals(
-                        invoice, items,
-                        tax_enabled=tax_enabled,
-                        intra_state=_intra_now,
-                        additional_charges=invoice.additional_charges,
-                        invoice_discount=invoice.invoice_discount,
-                        auto_round_off=invoice.auto_round_off,
-                        invoice_discount_mode=getattr(invoice, "invoice_discount_mode", None),
-                    )
-                    SalesItem.objects.bulk_update(
-                        items,
-                        ["taxable_amount", "cgst", "sgst", "igst", "cess", "line_total"],
-                    )
+        from core.services.billing import place_of_supply_known
+
+        if (
+            tax_enabled
+            and not is_tally_opening
+            and not is_export_or_sez_supply(invoice.supply_type or "")
+            and not place_of_supply_known(
+                party_state=invoice.customer.state or "",
+                party_gstin=invoice.customer.gstin or "",
+            )
+            and not confirm_blank_pos
+        ):
+            raise BusinessRuleError(
+                "Place of supply is blank. Confirm this sale is intra-state, or set the customer state/GSTIN.",
+                code=HelpCode.PLACE_OF_SUPPLY_UNRESOLVED,
+            )
+
+        # R2-001 / W0-02: recompute tax against the stamped filing GSTIN.
+        recompute_totals_for_stamped_gstin(
+            invoice,
+            items,
+            party_state=invoice.customer.state,
+            party_gstin=invoice.customer.gstin or "",
+            tax_enabled=tax_enabled,
+            item_model=SalesItem,
+            confirm_gstin_total_change=confirm_gstin_total_change,
+            is_opening=is_tally_opening,
+        )
 
         tax_left = (
             Decimal(str(invoice.cgst_total or 0))
@@ -761,37 +817,13 @@ class SalesService:
                     f"Invoice total ≥ ₹{eway_threshold}: e-Way Bill may be required — "
                     "generate before goods movement if applicable."
                 )
-        # Stock already issued on a linked delivery challan — skip SALE on complete.
+        # C-02: converted challan lots must match even when stock posted on the challan.
         from .models import DeliveryChallan
 
+        assert_converted_challan_lot_identity(invoice, items)
         stock_from_challan = DeliveryChallan.objects.filter(
             converted_invoice=invoice, stock_posted=True
         ).exists()
-        if stock_from_challan:
-            from sales.models import DeliveryChallanItem
-
-            challan_ids = DeliveryChallan.objects.filter(
-                converted_invoice=invoice, stock_posted=True
-            ).values_list("pk", flat=True)
-            posted = defaultdict(Decimal)
-            for row in DeliveryChallanItem.objects.filter(challan_id__in=challan_ids):
-                serials = tuple(
-                    sorted(str(s).strip() for s in (row.serial_numbers or []) if str(s).strip())
-                )
-                posted[(row.product_id, serials)] += Decimal(str(row.quantity or 0))
-            inv_qty = defaultdict(Decimal)
-            for item in items:
-                serials = tuple(
-                    sorted(str(s).strip() for s in (getattr(item, "serial_numbers", None) or []) if str(s).strip())
-                )
-                inv_qty[(item.product_id, serials)] += Decimal(str(item.quantity or 0))
-            if set(posted.keys()) != set(inv_qty.keys()) or any(
-                posted[key] != inv_qty[key] for key in inv_qty
-            ):
-                raise BusinessRuleError(
-                    "Linked delivery challan stock quantities do not match this invoice "
-                    "(product and serials). Adjust lines or unlink the challan before completing."
-                )
         # Aggregate per product for the negative-stock check.
         required = defaultdict(Decimal)
         for item in items:
@@ -827,12 +859,17 @@ class SalesService:
         from core.services.document_numbers import series_identity
 
         _gk, _fy, _on = series_identity(invoice.company, stamp, invoice.invoice_date)
+        fy_warn = DocumentNumberService.fy_restart_warning(
+            invoice.company, "SALES_INVOICE", gstin_key=_gk or "", fy_label=_fy or ""
+        )
         invoice.number = invoice.number or DocumentNumberService.next_number(
             invoice.company,
             "SALES_INVOICE",
             gstin=_gk or None,
             on_date=_on,
         )
+        if fy_warn:
+            warnings.append(fy_warn)
         if not (invoice.filing_party_gstin or "").strip():
             invoice.filing_party_gstin = (invoice.customer.gstin or "").strip().upper()
         if not (invoice.filing_place_of_supply or "").strip():
@@ -904,7 +941,7 @@ class SalesService:
 
     @staticmethod
     @transaction.atomic
-    def cancel(invoice: SalesInvoice, user):
+    def cancel(invoice: SalesInvoice, user, *, reason: str = ""):
         invoice = SalesInvoice.objects.select_for_update().get(pk=invoice.pk)
         from reporting.gst_periods import assert_period_allows_money_amend
 
@@ -1069,7 +1106,7 @@ class SalesService:
             entity_type="sales_invoice",
             entity_id=invoice.pk,
             event_type=StatutoryDocumentEvent.EventType.CANCEL,
-            payload={"number": invoice.number},
+            payload={"number": invoice.number, "reason": (reason or "").strip()},
             user=user,
         )
         return invoice

@@ -27,6 +27,15 @@ def _parse_debug_flag(raw: str | None) -> bool:
     return (raw or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_bool(key: str, default: str = "0") -> bool:
+    """One truthy convention for every boolean env flag: 1/true/yes/on (case-insensitive).
+
+    Avoids the trap where ``ENABLE_POS=true`` was silently off because a call site
+    only compared ``== "1"``. Falsy values (0/false/no/off/"") → False.
+    """
+    return _parse_debug_flag(os.environ.get(key, default))
+
+
 # SEC-09: DEBUG is opt-in (default off). Local .env.example sets DJANGO_DEBUG=1.
 DEBUG = _parse_debug_flag(os.environ.get("DJANGO_DEBUG", "0"))
 # DJANGO_ENV is env-only (default development for local). Do not derive from DEBUG.
@@ -86,7 +95,7 @@ if DEBUG and DJANGO_ENV != "test" and any(not _is_local_allowed_host(h) for h in
         "DJANGO_DEBUG must be 0 when ALLOWED_HOSTS includes non-local hosts."
     )
 
-if DJANGO_ENV in ("production", "staging") or os.environ.get("DJANGO_FAIL_FAST_SECRETS") == "1":
+if DJANGO_ENV in ("production", "staging") or _env_bool("DJANGO_FAIL_FAST_SECRETS"):
     if DEBUG:
         raise ImproperlyConfigured(
             f"DJANGO_DEBUG must be 0 when DJANGO_ENV={DJANGO_ENV}."
@@ -291,9 +300,8 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    # Placeholder only — overwritten below from JWT_ACCESS_MINUTES (default 15m). BB-000594.
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    # ACCESS_TOKEN_LIFETIME / REFRESH_TOKEN_LIFETIME are set below from
+    # JWT_ACCESS_MINUTES (default 15m) and JWT_REFRESH_DAYS (default 7d). BB-000594.
     # Rotate on every refresh + blacklist the old token, so a stolen refresh
     # token used alongside the legitimate owner immediately desyncs and stops
     # working for one of them, rather than staying silently valid for the
@@ -342,7 +350,7 @@ if DJANGO_ENV in ("production", "staging"):
 elif DJANGO_ENV not in ("test",) and not SANDBOX_WEBHOOK_SECRET:
     # development: warn via empty — runtime BusinessRuleError if sandbox webhook fires.
     # Fail closed when explicitly required:
-    if os.environ.get("REQUIRE_SANDBOX_WEBHOOK_SECRET", "0") == "1":
+    if _env_bool("REQUIRE_SANDBOX_WEBHOOK_SECRET"):
         raise ImproperlyConfigured(
             "SANDBOX_WEBHOOK_SECRET is required when REQUIRE_SANDBOX_WEBHOOK_SECRET=1."
         )
@@ -374,7 +382,7 @@ else:
 CELERY_BROKER_URL = REDIS_URL or "redis://localhost:6379/0"
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 
-CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_TASK_ALWAYS_EAGER", "0") == "1"
+CELERY_TASK_ALWAYS_EAGER = _env_bool("CELERY_TASK_ALWAYS_EAGER")
 CELERY_TASK_EAGER_PROPAGATES = True
 # A down broker must fail fast instead of blocking Complete on the OS TCP timeout.
 CELERY_BROKER_CONNECTION_TIMEOUT = 2
@@ -393,7 +401,7 @@ CELERY_TASK_PUBLISH_RETRY_POLICY = {
 # BB-000234: explicit timezone for beat (Django TIME_ZONE is Asia/Kolkata).
 # BB-000377: default beat TZ to Asia/Kolkata (matches Django TIME_ZONE).
 CELERY_TIMEZONE = os.environ.get("CELERY_TIMEZONE", "Asia/Kolkata")
-CELERY_ENABLE_UTC = os.environ.get("CELERY_ENABLE_UTC", "0") == "1"
+CELERY_ENABLE_UTC = _env_bool("CELERY_ENABLE_UTC")
 CELERY_BEAT_SCHEDULE = {
     "insights-daily-summaries": {
         "task": "insights.tasks.generate_daily_summaries_task",
@@ -425,6 +433,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "core.tasks.prune_help_events_task",
         "schedule": crontab(hour=3, minute=15, day_of_week=0),
     },
+    "payments-ar-dunning": {
+        "task": "payments.tasks.run_ar_dunning_task",
+        "schedule": crontab(minute=20),
+    },
+    "payments-gateway-holding-reconcile": {
+        "task": "payments.tasks.reconcile_gateway_captures_task",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 AI_MONTHLY_TOKEN_BUDGET_DEFAULT = int(os.environ.get("AI_MONTHLY_TOKEN_BUDGET_DEFAULT", "100000"))
 
@@ -445,20 +461,20 @@ OTP_EXPIRY_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5
 # Opt-in debug echo (logs phone suffix only — never the code). Forbidden in
 # production/staging (checked below).
-OTP_DEBUG_ECHO = os.environ.get("OTP_DEBUG_ECHO", "0") == "1"
+OTP_DEBUG_ECHO = _env_bool("OTP_DEBUG_ECHO")
 # BB-000332: OTP enablement independent of debug echo (echo still forbidden in prod).
-OTP_ENABLED = os.environ.get("OTP_ENABLED", "0") == "1"
+OTP_ENABLED = _env_bool("OTP_ENABLED")
 # Pepper for HMAC-SHA256 OTP storage; falls back to SECRET_KEY when unset (local only).
 OTP_PEPPER = os.environ.get("OTP_PEPPER") or SECRET_KEY
 # Default console stub; set SMS_PROVIDER=off to disable OTP in locked-down deploys.
 SMS_PROVIDER = (os.environ.get("SMS_PROVIDER") or "console").strip().lower()
 # Docs off by default when not DEBUG; enable explicitly in locked-down envs if needed.
-ENABLE_API_DOCS = os.environ.get("ENABLE_API_DOCS", "1" if DEBUG else "0") == "1"
+ENABLE_API_DOCS = _env_bool("ENABLE_API_DOCS", "1" if DEBUG else "0")
 # Tally HTTP gateway URL for XML push adapter (optional).
 TALLY_URL = os.environ.get("TALLY_URL", "")
 METRICS_TOKEN = os.environ.get("METRICS_TOKEN", "")
 # BB-000208: admin off by default outside DEBUG.
-ADMIN_ENABLED = os.environ.get("ADMIN_ENABLED", "1" if DEBUG else "0") == "1"
+ADMIN_ENABLED = _env_bool("ADMIN_ENABLED", "1" if DEBUG else "0")
 # BB-000625: credentials always on; CORS_ALLOW_ALL_ORIGINS is wired and rejected with cookies.
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = _parse_debug_flag(os.environ.get("CORS_ALLOW_ALL_ORIGINS", "0"))
@@ -503,11 +519,12 @@ if not CSRF_TRUSTED_ORIGINS:
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # TLS / secure cookies when behind HTTPS terminator, production, or staging (BB-000296).
-if os.environ.get("USE_TLS", "0") == "1" or DJANGO_ENV in ("production", "staging"):
+_use_tls = _env_bool("USE_TLS")
+if _use_tls or DJANGO_ENV in ("production", "staging"):
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_SSL_REDIRECT = False  # terminate at nginx/load balancer
-    if DJANGO_ENV == "production" or os.environ.get("USE_TLS", "0") == "1":
+    if DJANGO_ENV == "production" or _use_tls:
         SECURE_HSTS_SECONDS = 31536000
         SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 
@@ -580,8 +597,8 @@ else:
     REQUIRE_SUBSCRIPTION = DJANGO_ENV == "production"
 # BB-000726: PAST_DUE write grace after current_period_end (0 = block immediately).
 BILLING_PAST_DUE_GRACE_DAYS = int(os.environ.get("BILLING_PAST_DUE_GRACE_DAYS", "0") or "0")
-GSP_LIVE_ENABLED = os.environ.get("GSP_LIVE_ENABLED", "0") == "1"
-GSP_CERTIFIED = os.environ.get("GSP_CERTIFIED", "0") == "1"
+GSP_LIVE_ENABLED = _env_bool("GSP_LIVE_ENABLED")
+GSP_CERTIFIED = _env_bool("GSP_CERTIFIED")
 _gsp_provider = (_env_value("GSP_PROVIDER", "custom") or "custom").strip().lower()
 GSP_PROVIDER = _gsp_provider if _gsp_provider in ("cleartax", "mastergst", "custom") else "custom"
 GSP_LIVE_BASE_URL = _env_value("GSP_LIVE_BASE_URL")
@@ -648,10 +665,10 @@ TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
 
 # Wave 16A — Postgres RLS (default off until soak)
-POSTGRES_RLS_ENABLED = os.environ.get("POSTGRES_RLS_ENABLED", "0") == "1"
+POSTGRES_RLS_ENABLED = _env_bool("POSTGRES_RLS_ENABLED")
 
 # Wave 16C — GSP HTTP sandbox / live
-GSP_HTTP_SANDBOX = os.environ.get("GSP_HTTP_SANDBOX", "0") == "1"
+GSP_HTTP_SANDBOX = _env_bool("GSP_HTTP_SANDBOX")
 GSP_SANDBOX_BASE_URL = (os.environ.get("GSP_SANDBOX_BASE_URL") or "").rstrip("/")
 IDENTITY_PROVIDER = (os.environ.get("IDENTITY_PROVIDER") or "null").strip().lower()
 IDENTITY_SANDBOX_BASE_URL = (os.environ.get("IDENTITY_SANDBOX_BASE_URL") or "").rstrip("/")
@@ -674,22 +691,25 @@ PAYU_MERCHANT_KEY = _env_value("PAYU_MERCHANT_KEY")
 PAYU_MERCHANT_SALT = _env_value("PAYU_MERCHANT_SALT")
 
 # Wave 17G — runtime feature flags (merged with Company.feature_flags at API)
-ENABLE_MANUFACTURING = os.environ.get("ENABLE_MANUFACTURING", "0") == "1"
-ENABLE_PAYROLL = os.environ.get("ENABLE_PAYROLL", "0") == "1"
-ENABLE_CRM = os.environ.get("ENABLE_CRM", "0") == "1"
-ENABLE_TDS = os.environ.get("ENABLE_TDS", "0") == "1"
-ENABLE_WHATSAPP_CLOUD = os.environ.get("ENABLE_WHATSAPP_CLOUD", "0") == "1"
-ENABLE_ACCOUNT_AGGREGATOR = os.environ.get("ENABLE_ACCOUNT_AGGREGATOR", "0") == "1"
-ENABLE_CASHFREE = os.environ.get("ENABLE_CASHFREE", "0") == "1"
-ENABLE_PAYU = os.environ.get("ENABLE_PAYU", "0") == "1"
-ENABLE_POS = os.environ.get("ENABLE_POS", "0") == "1"
-ENABLE_SETUP_WIZARD = os.environ.get("ENABLE_SETUP_WIZARD", "0") == "1"
+ENABLE_MANUFACTURING = _env_bool("ENABLE_MANUFACTURING")
+ENABLE_PAYROLL = _env_bool("ENABLE_PAYROLL")
+ENABLE_CRM = _env_bool("ENABLE_CRM")
+ENABLE_TDS = _env_bool("ENABLE_TDS")
+ENABLE_WHATSAPP_CLOUD = _env_bool("ENABLE_WHATSAPP_CLOUD")
+ENABLE_ACCOUNT_AGGREGATOR = _env_bool("ENABLE_ACCOUNT_AGGREGATOR")
+ENABLE_CASHFREE = _env_bool("ENABLE_CASHFREE")
+ENABLE_PAYU = _env_bool("ENABLE_PAYU")
+ENABLE_POS = _env_bool("ENABLE_POS")
+ENABLE_SETUP_WIZARD = _env_bool("ENABLE_SETUP_WIZARD")
 # Comma-separated company ids that always get Help v2 (internal / pilot).
 HELP_V2_COMPANY_ALLOWLIST = os.environ.get("HELP_V2_COMPANY_ALLOWLIST", "")
 # BB-000741: GSTR / Tally can unlock UI when VITE bake-off is false (CD).
-ENABLE_GSTR = os.environ.get("ENABLE_GSTR", "0") == "1"
-ENABLE_TALLY = os.environ.get("ENABLE_TALLY", "0") == "1"
-ENABLE_GSTN_JSON = os.environ.get("ENABLE_GSTN_JSON", "0") == "1"
+ENABLE_GSTR = _env_bool("ENABLE_GSTR")
+ENABLE_TALLY = _env_bool("ENABLE_TALLY")
+ENABLE_GSTN_JSON = _env_bool("ENABLE_GSTN_JSON")
+# W0-03: park verified gateway captures when books cannot post. Off = fail webhook (emergency only).
+# Default ON; set GATEWAY_HOLDING_STATE=0/false/no/off to disable (emergency only).
+GATEWAY_HOLDING_STATE = _env_bool("GATEWAY_HOLDING_STATE", "1")
 
 LOGGING = {
     "version": 1,
@@ -725,4 +745,8 @@ LOGGING = {
 }
 
 # BB-000443: emit one JSON request line per response (see RequestIdMiddleware).
-JSON_REQUEST_LOGS = os.environ.get("JSON_REQUEST_LOGS", "1") == "1"
+JSON_REQUEST_LOGS = _env_bool("JSON_REQUEST_LOGS", "1")
+
+# D-01: multi-membership without active_company → 409 COMPANY_REQUIRED.
+# Emergency: AUTO_PICK_COMPANY_ON_EMPTY=1 restores silent memberships[0].
+AUTO_PICK_COMPANY_ON_EMPTY = _env_bool("AUTO_PICK_COMPANY_ON_EMPTY")

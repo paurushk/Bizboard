@@ -210,14 +210,20 @@ def build_export_payload(company) -> dict[str, Any]:
     }
 
     file_manifest = []
+    # Track assets whose bytes/checksum could not be read so the Owner is not
+    # handed an export they believe is byte-complete when it is not.
+    file_asset_warnings: list[dict] = []
     for asset in FileAsset.objects.filter(company=company).order_by("id"):
+        checksum = _file_checksum(asset)
+        if not checksum:
+            file_asset_warnings.append({"id": asset.pk, "reason": "checksum_unreadable"})
         entry = {
             "id": asset.pk,
             "kind": asset.kind,
             "original_name": asset.original_name,
             "content_type": asset.content_type,
             "size": asset.size,
-            "checksum_sha256": _file_checksum(asset),
+            "checksum_sha256": checksum,
             "bytes_b64": None,
         }
         if asset.size and asset.size <= SMALL_FILE_MAX_BYTES:
@@ -226,6 +232,7 @@ def build_export_payload(company) -> dict[str, Any]:
                 entry["bytes_b64"] = base64.b64encode(asset.file.read()).decode("ascii")
             except Exception:  # noqa: BLE001
                 entry["bytes_b64"] = None
+                file_asset_warnings.append({"id": asset.pk, "reason": "bytes_unreadable"})
             finally:
                 try:
                     asset.file.close()
@@ -262,18 +269,22 @@ def build_export_payload(company) -> dict[str, Any]:
         "gstr2b_summary": gstr2b_summary,
         "gstr2b": gstr2b_rows,
         "file_assets": file_manifest,
+        "file_asset_warnings": file_asset_warnings,
     }
 
 
 def encrypt_export_zip(payload: dict[str, Any]) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        _asset_warnings = payload.get("file_asset_warnings") or []
         zf.writestr("manifest.json", json.dumps({
             "version": payload.get("version"),
             "exported_at": payload.get("exported_at"),
             "source_company_id": payload.get("source_company_id"),
             "source_company_name": payload.get("source_company_name"),
             "gstr2b_summary": payload.get("gstr2b_summary") or {},
+            "file_asset_warning_count": len(_asset_warnings),
+            "file_asset_warnings": _asset_warnings,
         }, default=_json_default, indent=2))
         json_sections = (
             "company",
@@ -866,8 +877,81 @@ def restore_to_sandbox(*, source_company, payload: dict[str, Any], owner):
     return sandbox
 
 
+def unbacked_live_counts(company, payload: dict[str, Any]) -> dict[str, int]:
+    """Rows wipe would drop that are not represented in the backup payload."""
+    from accounting.models import Account, JournalEntry
+    from accounts.models import CompanyGstin
+    from core.models import FileAsset
+    from inventory.models import BatchLot, InventoryCostLayer, SerialNumber, StockMovement
+    from masters.models import Customer, Product, Supplier
+    from payments.models import CustomerReceipt, PaymentAllocation, SupplierPayment
+    from purchases.models import (
+        PurchaseCreditNote,
+        PurchaseDebitNote,
+        PurchaseInvoice,
+        PurchaseOrder,
+        PurchaseReturn,
+    )
+    from reporting.models import Gstr2bIngest
+    from sales.models import (
+        DeliveryChallan,
+        Quotation,
+        SalesCreditNote,
+        SalesDebitNote,
+        SalesInvoice,
+        SalesOrder,
+        SalesReturn,
+    )
+
+    mapping = (
+        ("gstins", CompanyGstin),
+        ("customers", Customer),
+        ("suppliers", Supplier),
+        ("products", Product),
+        ("batch_lots", BatchLot),
+        ("stock_movements", StockMovement),
+        ("serial_numbers", SerialNumber),
+        ("inventory_cost_layers", InventoryCostLayer),
+        ("sales_invoices", SalesInvoice),
+        ("purchase_invoices", PurchaseInvoice),
+        ("receipts", CustomerReceipt),
+        ("supplier_payments", SupplierPayment),
+        ("allocations", PaymentAllocation),
+        ("accounts", Account),
+        ("journals", JournalEntry),
+        ("quotations", Quotation),
+        ("sales_orders", SalesOrder),
+        ("delivery_challans", DeliveryChallan),
+        ("sales_credit_notes", SalesCreditNote),
+        ("sales_debit_notes", SalesDebitNote),
+        ("sales_returns", SalesReturn),
+        ("purchase_orders", PurchaseOrder),
+        ("purchase_credit_notes", PurchaseCreditNote),
+        ("purchase_debit_notes", PurchaseDebitNote),
+        ("purchase_returns", PurchaseReturn),
+        ("gstr2b", Gstr2bIngest),
+        ("file_assets", FileAsset),
+    )
+    extra: dict[str, int] = {}
+    for key, model in mapping:
+        live = model.objects.filter(company=company).count()
+        backed = len(payload.get(key) or [])
+        if live > backed:
+            extra[key] = live - backed
+    return extra
+
+
 @transaction.atomic
-def restore_destroy_in_place(*, company, payload: dict[str, Any], owner):
+def restore_destroy_in_place(*, company, payload: dict[str, Any], owner, confirm_destroy_unbacked: bool = False):
+    extra = unbacked_live_counts(company, payload)
+    if extra and not confirm_destroy_unbacked:
+        from core.exceptions import BusinessRuleError
+
+        raise BusinessRuleError(
+            "Destroy-in-place would drop live rows that are not in this backup "
+            f"({extra}). Pass confirm_destroy_unbacked=true to proceed.",
+            code="UNBACKED_ROWS",
+        )
     wipe_logical_tenant_rows(company)
     import_payload(target_company=company, payload=payload, owner=owner)
     return company

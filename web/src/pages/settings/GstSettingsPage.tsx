@@ -39,6 +39,8 @@ interface GstForm {
   state: string;
   registrationType: RegistrationType;
   negativeStockPolicy: NegativeStockPolicy;
+  valuationBusinessDateOrder: boolean;
+  recomputeTaxOnComplete: boolean;
   assumeLocalStateForBlankParty: boolean;
   einvoiceEnabled: boolean;
   ewayEnabled: boolean;
@@ -67,6 +69,8 @@ export function GstSettingsPage() {
       state: '',
       registrationType: 'UNREGISTERED',
       negativeStockPolicy: 'BLOCK',
+      valuationBusinessDateOrder: false,
+      recomputeTaxOnComplete: false,
       assumeLocalStateForBlankParty: true,
       einvoiceEnabled: false,
       ewayEnabled: false,
@@ -90,6 +94,8 @@ export function GstSettingsPage() {
         state: d.state ?? '',
         registrationType: d.registrationType ?? 'REGULAR',
         negativeStockPolicy: d.negativeStockPolicy ?? 'BLOCK',
+        valuationBusinessDateOrder: !!d.valuationBusinessDateOrder,
+        recomputeTaxOnComplete: !!d.recomputeTaxOnComplete,
         assumeLocalStateForBlankParty: !!d.assumeLocalStateForBlankParty,
         einvoiceEnabled: !!d.einvoiceEnabled,
         ewayEnabled: !!d.ewayEnabled,
@@ -118,6 +124,8 @@ export function GstSettingsPage() {
         state: values.state || null,
         registrationType: values.registrationType,
         negativeStockPolicy: values.negativeStockPolicy,
+        valuationBusinessDateOrder: values.valuationBusinessDateOrder,
+        recomputeTaxOnComplete: values.recomputeTaxOnComplete,
         assumeLocalStateForBlankParty: values.assumeLocalStateForBlankParty,
         einvoice_enabled: values.einvoiceEnabled,
         eway_enabled: values.ewayEnabled,
@@ -307,6 +315,32 @@ export function GstSettingsPage() {
               </TextField>
             )}
           />
+          <Controller
+            name="valuationBusinessDateOrder"
+            control={control}
+            render={({ field }) => (
+              <FormControlLabel
+                control={<Checkbox checked={!!field.value} onChange={(_, c) => field.onChange(c)} />}
+                label={t('settings.valuationDateOrder')}
+              />
+            )}
+          />
+          <Typography variant="caption" color="text.secondary">
+            {t('settings.valuationDateOrderHelp')}
+          </Typography>
+          <Controller
+            name="recomputeTaxOnComplete"
+            control={control}
+            render={({ field }) => (
+              <FormControlLabel
+                control={<Checkbox checked={!!field.value} onChange={(_, c) => field.onChange(c)} />}
+                label={t('settings.recomputeTaxOnComplete')}
+              />
+            )}
+          />
+          <Typography variant="caption" color="text.secondary">
+            {t('settings.recomputeTaxOnCompleteHelp')}
+          </Typography>
           <Controller
             name="assumeLocalStateForBlankParty"
             control={control}

@@ -481,6 +481,8 @@ def test_refund_allows_recapture_on_reopened_link(tenant_a):
 
 
 def test_underpayment_rejected_when_partial_disallowed(tenant_a):
+    from payments.models import GatewayPayment, GatewayPaymentStatus
+
     inv, customer = _complete_invoice(tenant_a)
     link = PaymentService.create_payment_link(
         company=tenant_a.company,
@@ -498,9 +500,14 @@ def test_underpayment_rejected_when_partial_disallowed(tenant_a):
         "payment_link_id": link.provider_link_id,
     }
     wh = _post_sandbox_webhook(tenant_a.client, tenant_a.company.id, body)
-    assert wh.status_code in (400, 422)
+    # W0-03: signature-ok under-capture is parked, not 4xx'd (Razorpay would retry).
+    assert wh.status_code == 200, getattr(wh, "data", wh.content)
     link.refresh_from_db()
     assert link.status == PaymentLinkStatus.CREATED
+    gp = GatewayPayment.objects.get(provider_payment_id="pay_under_1")
+    assert gp.status == GatewayPaymentStatus.CAPTURED_PENDING_BOOKS
+    assert gp.holding_reason == "AMOUNT_MISMATCH"
+    assert CustomerReceipt.objects.filter(company=tenant_a.company).count() == 0
 
 
 def test_cash_book_xlsx(tenant_a):

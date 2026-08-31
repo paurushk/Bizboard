@@ -182,6 +182,8 @@ export interface Company {
   bankIfsc?: string;
   fyStartMonth?: number;
   negativeStockPolicy: NegativeStockPolicy;
+  valuationBusinessDateOrder?: boolean;
+  recomputeTaxOnComplete?: boolean;
   invoiceTerms?: string;
   priceMode?: PriceMode;
   assumeLocalStateForBlankParty?: boolean;
@@ -226,6 +228,13 @@ export interface Company {
     started: boolean;
   };
   itemCustomFieldDefs?: ItemCustomFieldDef[];
+  dunningEnabled?: boolean;
+  dunningDays?: number[];
+  dunningMaxReminders?: number;
+  dunningQuietHoursStart?: number;
+  dunningQuietHoursEnd?: number;
+  dunningChannelWhatsapp?: boolean;
+  dunningChannelSms?: boolean;
 }
 
 export interface Customer {
@@ -245,6 +254,8 @@ export interface Customer {
   gstinVerificationStatus?: GstinVerificationStatus;
   gstinLegalName?: string;
   priceList?: number | null;
+  whatsappOptIn?: boolean;
+  dunningOptOut?: boolean;
 }
 
 export interface Supplier {
@@ -335,6 +346,7 @@ export interface LineItem {
   cess?: string | number;
   lineTotal?: string | number;
   supplyNature?: 'TAXABLE' | 'NIL' | 'EXEMPT' | 'NON_GST';
+  appliedPriceListName?: string;
 }
 
 export interface DocumentTotals {
@@ -382,6 +394,7 @@ export interface SalesInvoice extends DocumentTotals {
   pdfFile?: number | null;
   received?: string | number;
   balance?: string | number;
+  paymentState?: 'UNPAID' | 'PAID_PENDING_BOOKS' | 'PAID';
   completedAt?: string | null;
   cancelledAt?: string | null;
   warnings?: string[];
@@ -408,6 +421,16 @@ export interface SalesInvoice extends DocumentTotals {
   isReverseCharge?: boolean;
   ecommerceOperatorGstin?: string;
   companyGstin?: number | null;
+  whatsappSendStatus?: 'NONE' | 'QUEUED' | 'SENT' | 'FALLBACK_LINK' | 'FAILED';
+  whatsappMessageId?: string;
+  whatsappShareLink?: string;
+  whatsappSentAt?: string | null;
+  whatsappOffer?: {
+    phone: string;
+    optIn: boolean;
+    hasPhone: boolean;
+    sendStatus: string;
+  };
 }
 
 export interface Quotation extends DocumentTotals {
@@ -791,6 +814,7 @@ export interface DashboardKpis {
     status: string;
     grandTotal: string | number;
     balance?: string | number;
+    paymentState?: string;
   }>;
 }
 
@@ -951,6 +975,22 @@ export interface BusinessAlert {
   status: string;
   snoozedUntil?: string | null;
   ctaPath?: string;
+}
+
+export interface AttentionRow {
+  code: string;
+  severity: AlertSeverity;
+  title: string;
+  moneyImpactPaise: number;
+  currency: 'INR' | string;
+  reason: string;
+  actionLabel: string;
+  actionHref: string;
+  sourceTicket: string;
+  entityRef: { type: string; id: number };
+  dedupeKey: string;
+  firstSeen: string | null;
+  snoozeUntil: string | null;
 }
 
 export interface DailyBusinessSummary {

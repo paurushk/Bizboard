@@ -89,6 +89,7 @@ def send_whatsapp_template(
     params: list[str] | dict | None = None,
     *,
     company=None,
+    allow_cloud: bool = True,
 ) -> WhatsAppSendResult:
     """Send an approved WhatsApp template via Cloud API, else explicit wa.me link."""
     phone = _normalize_phone(to_phone)
@@ -99,7 +100,7 @@ def send_whatsapp_template(
     )
 
     flags = build_feature_flags(company=company)
-    if not flags.get("ENABLE_WHATSAPP_CLOUD"):
+    if not allow_cloud or not flags.get("ENABLE_WHATSAPP_CLOUD"):
         return link_result
     approved = {name.lower() for name in APPROVED_WHATSAPP_TEMPLATES}
     if (template_name or "").strip().lower() not in approved:

@@ -34,8 +34,9 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
             "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
             "hsn_code", "mrp", "unit_name", "uqc_code", "unit_price_inclusive",
             "batch", "batch_no", "exp_date", "mfg_date", "serial_numbers",
+            "applied_rate", "rate_version", "rate_override", "rate_override_reason",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "uqc_code"]
+        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "uqc_code", "applied_rate", "rate_version"]
         extra_kwargs = {
             "unit_price": {"required": False},
             "gst_rate": {"required": False},

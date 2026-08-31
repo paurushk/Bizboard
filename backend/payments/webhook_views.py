@@ -47,9 +47,13 @@ def public_payment_link(request, token: str):
     )
     if not link:
         return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-    if link.status == PaymentLinkStatus.CANCELLED:
+    from payments.holding import link_payment_state, link_shows_paid
+
+    received = link_shows_paid(link)
+    payment_state = link_payment_state(link)
+    if link.status == PaymentLinkStatus.CANCELLED and not received:
         return Response({"detail": "This payment link was cancelled."}, status=status.HTTP_410_GONE)
-    if link.expires_at and link.expires_at < timezone.now() and link.status != PaymentLinkStatus.PAID:
+    if link.expires_at and link.expires_at < timezone.now() and not received:
         if link.status != PaymentLinkStatus.EXPIRED:
             link.status = PaymentLinkStatus.EXPIRED
             link.save(update_fields=["status", "updated_at"])
@@ -74,7 +78,8 @@ def public_payment_link(request, token: str):
             "provider": link.provider,
             "provider_short_url": link.provider_short_url,
             "upi": upi,
-            "paid": link.status == PaymentLinkStatus.PAID,
+            "paid": received,
+            "payment_state": payment_state,
         }
     )
 
@@ -179,13 +184,43 @@ def payment_webhook(request, provider: str):
     if event.status != "CAPTURED":
         return Response({"ok": True, "ignored": True, "status": event.status})
 
-    gp = PaymentService.finalize_gateway_payment(
-        company=company,
-        provider=provider,
-        provider_payment_id=event.provider_payment_id,
-        amount=event.amount,
-        fee=event.fee,
-        payment_link=link,
-        raw_payload=event.raw,
+    from payments.holding import (
+        err_detail,
+        gateway_holding_enabled,
+        park_gateway_payment,
     )
+    from payments.models import GatewayPayment, GatewayPaymentStatus
+
+    try:
+        gp = PaymentService.finalize_gateway_payment(
+            company=company,
+            provider=provider,
+            provider_payment_id=event.provider_payment_id,
+            amount=event.amount,
+            fee=event.fee,
+            payment_link=link,
+            raw_payload=event.raw,
+        )
+    except BusinessRuleError as exc:
+        gp = GatewayPayment.objects.filter(
+            company=company,
+            provider=provider,
+            provider_payment_id=event.provider_payment_id,
+        ).first()
+        if gateway_holding_enabled():
+            if gp is None:
+                gp = GatewayPayment.objects.create(
+                    company=company,
+                    provider=provider,
+                    provider_payment_id=event.provider_payment_id,
+                    amount=event.amount,
+                    fee=event.fee,
+                    status=GatewayPaymentStatus.CREATED,
+                    payment_link=link,
+                    raw_payload=event.raw,
+                )
+            if gp.status != GatewayPaymentStatus.CAPTURED:
+                park_gateway_payment(gp, "BOOKS_ERROR", err_detail(exc))
+            return Response({"ok": True, "gateway_payment_id": gp.id, "status": gp.status})
+        return Response({"detail": str(exc.detail)}, status=status.HTTP_400_BAD_REQUEST)
     return Response({"ok": True, "gateway_payment_id": gp.id, "status": gp.status})

@@ -47,7 +47,7 @@ import {
   updateSupplier,
   uploadFile,
 } from '@/api/resources';
-import { getErrorMessage, isNetworkError, newIdempotencyKey } from '@/api/client';
+import { getErrorCode, getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { isValidGstin, isValidHsnSac } from '@/utils/gst';
@@ -59,9 +59,10 @@ import {
   OUTBOX_WARNING_DISMISS_KEY,
   savePurchaseDraft,
 } from '@/offline/invoiceDraftCache';
-import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { usePreviewTotals } from '@/hooks/usePreviewTotals';
 import { usePurchaseOffline } from '@/pages/purchases/usePurchaseOffline';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { DocumentTaxSummary } from '@/components/DocumentTaxSummary';
 import { PartySelectPanel } from '@/components/PartySelectPanel';
 import { StateSelect } from '@/components/StateSelect';
@@ -220,7 +221,6 @@ export function NewPurchasePage() {
     gstin: string;
     state: string;
   }>({ name: '', phone: '', gstin: '', state: '' });
-  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [itemForm, setItemForm] = useState({
     name: '',
     sku: '',
@@ -481,7 +481,7 @@ export function NewPurchasePage() {
     });
     setLines(mapped);
     setLoadedEdit(true);
-  }, [existingInvoice.data, loadedEdit, company.data?.gstin, company.data?.state, selectedSupplierQuery.data, products.data]);
+  }, [existingInvoice.data, loadedEdit, company.data, selectedSupplierQuery.data, products.data, setError]);
 
   useEffect(() => {
     if (!isEdit && !warehouseId) {
@@ -624,7 +624,6 @@ export function NewPurchasePage() {
   const resetForm = () => {
     // BUG-501 / P0-311: do NOT call clearFeedback here — Save & New sets the
     // success flash then resets fields in the same tick. See useBillingSaveFeedback.
-    setIdempotencyKey(null);
     setLines([]);
     setSupplierId('');
     setWarehouseId(warehouses.data?.find((warehouse) => warehouse.isDefault)?.id ?? '');
@@ -720,10 +719,18 @@ export function NewPurchasePage() {
     })),
   });
 
+  const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
+  const preview = usePreviewTotals(
+    'purchase',
+    previewOnline && supplierId && lines.some((l) => l.product)
+      ? (buildPayload() as Record<string, unknown>)
+      : null,
+  );
+
   const saveMutation = useMutation({
     mutationFn: async (mode: 'draft' | 'complete' | 'complete_new' | 'save') => {
-      if (!supplierId) throw new Error('Supplier is required');
-      if (lines.length === 0) throw new Error('Add at least one item');
+      if (!supplierId) throw new Error(t('billing.supplierRequired'));
+      if (lines.length === 0) throw new Error(t('billing.addAtLeastOneItem'));
 
       const shouldComplete = mode === 'complete' || mode === 'complete_new';
       if (shouldComplete && purchaseType !== 'NON_GST' && intraState === null) {
@@ -732,8 +739,9 @@ export function NewPurchasePage() {
         );
       }
       const payload = buildPayload();
-      const key = idempotencyKey ?? newIdempotencyKey();
-      setIdempotencyKey(key);
+      // PD-01: one fresh Idempotency-Key per user gesture. Network auto-retry
+      // reuses the request header; an offline queue+flush reuses draft.idempotencyKey.
+      const key = userGestureIdempotencyKey();
       let invoice: PurchaseInvoice;
       let completeWarning: string | null = null;
       const queueOffline = async () => {
@@ -771,7 +779,22 @@ export function NewPurchasePage() {
           try {
             invoice = await completePurchase(invoice.id);
           } catch (err) {
-            completeWarning = getErrorMessage(err);
+            const code = getErrorCode(err);
+            if (code === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
+              invoice = await completePurchase(invoice.id, { confirmGstinTotalChange: true });
+            } else if (getErrorCode(err) === 'place_of_supply_unresolved' && window.confirm(t('billing.confirmBlankPos'))) {
+              try {
+                invoice = await completePurchase(invoice.id, { confirmBlankPos: true });
+              } catch (err2) {
+                if (getErrorCode(err2) === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
+                  invoice = await completePurchase(invoice.id, { confirmBlankPos: true, confirmGstinTotalChange: true });
+                } else {
+                  completeWarning = getErrorMessage(err2);
+                }
+              }
+            } else {
+              completeWarning = getErrorMessage(err);
+            }
           }
         }
       } else {
@@ -780,7 +803,22 @@ export function NewPurchasePage() {
           try {
             invoice = await completePurchase(invoice.id);
           } catch (err) {
-            completeWarning = getErrorMessage(err);
+            const code = getErrorCode(err);
+            if (code === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
+              invoice = await completePurchase(invoice.id, { confirmGstinTotalChange: true });
+            } else if (code === 'place_of_supply_unresolved' && window.confirm(t('billing.confirmBlankPos'))) {
+              try {
+                invoice = await completePurchase(invoice.id, { confirmBlankPos: true });
+              } catch (err2) {
+                if (getErrorCode(err2) === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
+                  invoice = await completePurchase(invoice.id, { confirmBlankPos: true, confirmGstinTotalChange: true });
+                } else {
+                  completeWarning = getErrorMessage(err2);
+                }
+              }
+            } else {
+              completeWarning = getErrorMessage(err);
+            }
           }
         }
       }
@@ -995,7 +1033,23 @@ export function NewPurchasePage() {
     (c) => c.isActive !== false && (c as unknown as { is_active?: boolean }).is_active !== false,
   );
   const canSave = lines.length > 0 && Boolean(supplierId) && !saveMutation.isPending;
-  const canComplete = canSave && posKnown;
+  const canComplete = canSave && posKnown && (!previewOnline || preview.ready);
+  const shownTotals = preview.totals
+    ? {
+        ...totals,
+        subtotal: preview.totals.subtotal,
+        taxableTotal: preview.totals.taxableTotal,
+        cgstTotal: preview.totals.cgstTotal,
+        sgstTotal: preview.totals.sgstTotal,
+        igstTotal: preview.totals.igstTotal,
+        cessTotal: preview.totals.cessTotal,
+        taxTotal: preview.totals.taxTotal,
+        roundOff: preview.totals.roundOff,
+        grandTotal: preview.totals.grandTotal,
+      }
+    : preview.error
+      ? { ...totals, subtotal: 0, taxTotal: 0, cessTotal: 0, grandTotal: 0 }
+      : totals;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
   const isCompletedEdit = editingStatus === 'COMPLETED';
   const canAmendMoney = isCompletedEdit && isOwner;
@@ -1035,7 +1089,7 @@ export function NewPurchasePage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canComplete, primarySave.mode, saveMutation.isPending, saveMutation.mutate]);
+  }, [canComplete, primarySave.mode, saveMutation]);
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;
@@ -1061,7 +1115,7 @@ export function NewPurchasePage() {
       showDraftButton={!isEdit || editingStatus === 'DRAFT'}
       backTo={isEdit ? '/purchases/history' : null}
       message={message ?? outboxBanner}
-      error={error}
+      error={error || preview.error}
       errorSource={errorSource}
       documentId={isEdit ? editId ?? undefined : undefined}
       multiGodown={(warehouses.data?.length ?? 0) > 1}
@@ -1508,7 +1562,9 @@ export function NewPurchasePage() {
           ) : null}
           <Typography fontWeight={700}>
             {t('billing.totalAmount')}{' '}
-            {formatMoney(rcmPreview ? rcmPreview.payable : totals.grandTotal)}
+            {formatMoney(
+              preview.totals?.grandTotal ?? (rcmPreview ? rcmPreview.payable : totals.grandTotal),
+            )}
           </Typography>
         </Box>
       </Paper>
@@ -1631,8 +1687,8 @@ export function NewPurchasePage() {
         </Stack>
 
         <DocumentTaxSummary
-          totals={totals}
-          displayGrandTotal={displayGrandTotal}
+          totals={shownTotals}
+          displayGrandTotal={preview.totals?.grandTotal ?? displayGrandTotal}
           totalLabel={rcmPreview ? 'Payable (RCM, excl. tax)' : t('billing.totalAmount')}
           additionalCharges={additionalCharges}
           onAdditionalChargesChange={setAdditionalCharges}

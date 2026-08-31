@@ -8,7 +8,7 @@ export function LocaleSwitcher() {
 
   useEffect(() => subscribeLocale(() => setLocaleState(getLocale())), []);
 
-  const switchTo = (next: 'en' | 'hi') => {
+  const switchTo = (next: 'en' | 'hi' | 'ta' | 'gu') => {
     if (next === getLocale()) return;
     setLocale(next);
     setLocaleState(next);
@@ -40,6 +40,20 @@ export function LocaleSwitcher() {
         sx={locale === 'hi' ? undefined : inactiveSx}
       >
         {t('locale.switchToHindi')}
+      </Button>
+      <Button
+        variant={locale === 'ta' ? 'contained' : 'outlined'}
+        onClick={() => switchTo('ta')}
+        sx={locale === 'ta' ? undefined : inactiveSx}
+      >
+        {t('locale.switchToTamil')}
+      </Button>
+      <Button
+        variant={locale === 'gu' ? 'contained' : 'outlined'}
+        onClick={() => switchTo('gu')}
+        sx={locale === 'gu' ? undefined : inactiveSx}
+      >
+        {t('locale.switchToGujarati')}
       </Button>
     </ButtonGroup>
   );

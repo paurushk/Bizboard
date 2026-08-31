@@ -1,8 +1,8 @@
-# Demand log (Wave L and premium modules)
+# Demand log (Wave P and premium modules)
 
-Append-only. Wave L charters need **≥3** paying-customer written requests for
-that L-id unless the charter records a PM exception.
+Append-only. Wave P charters (was Wave L) need **≥3** paying-customer written
+requests for that P-id unless the charter records a PM exception.
 
-| Date | Customer (paying?) | Ask | L-id / wave | Ticket / email | Logged by |
+| Date | Customer (paying?) | Ask | P-id / wave | Ticket / email | Logged by |
 |---|---|---|---|---|---|
 | | | | | | |

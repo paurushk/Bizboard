@@ -1,5 +1,7 @@
 """Inventory Service — balances, typed movements, adjustments (E2)."""
 
+from calendar import monthrange
+from datetime import date as date_cls, timedelta
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
@@ -10,7 +12,8 @@ from core.exceptions import BusinessRuleError
 from core.help_codes import HelpCode
 
 from .models import (
-    MOVEMENT_SIGN, BatchLot, InventoryCostLayer, MovementType, StockBalance,
+    MOVEMENT_SIGN, BatchLot, InventoryCostLayer, InventoryRunningCost,
+    InventoryValuationSnapshot, MovementType, StockBalance,
     StockMovement, SerialNumber, StockTransfer, Warehouse,
 )
 
@@ -35,7 +38,7 @@ class InventoryService:
     @staticmethod
     def post_movement(*, company, product, movement_type, quantity, unit_cost=None,
                       reference_type="", reference_id="", reason="", user=None,
-                      skip_negative_check=False, warehouse=None, batch=None):
+                      skip_negative_check=False, warehouse=None, batch=None, movement_date=None):
         """
         Append a typed movement and update the balance cache atomically.
         `quantity` is a positive magnitude for typed movements; for ADJUSTMENT
@@ -126,6 +129,7 @@ class InventoryService:
                 reference_type=reference_type,
                 reference_id=str(reference_id),
                 reason=reason,
+                movement_date=movement_date or timezone.localdate(),
                 created_by=user,
             )
             balance.on_hand = balance.on_hand + delta
@@ -140,6 +144,14 @@ class InventoryService:
                 delta=delta,
                 unit_cost=unit_cost,
                 movement_type=movement_type,
+            )
+            InventoryService._apply_running_cost(
+                company=company,
+                warehouse=warehouse,
+                product=product,
+                batch=batch,
+                delta=delta,
+                unit_cost=movement.unit_cost,
             )
         return movement
 
@@ -207,6 +219,7 @@ class InventoryService:
                 user=user,
                 warehouse=warehouse,
                 batch=batch,
+                movement_date=as_of,
             )
             if serials:
                 SerialNumberService.receive(
@@ -290,6 +303,7 @@ class InventoryService:
                 raise BusinessRuleError(
                     f"Opening stock has already been recorded for '{first}'."
                 )
+            today = timezone.localdate()
             movements = [
                 StockMovement(
                     company=company,
@@ -301,6 +315,7 @@ class InventoryService:
                     unit_cost=unit_cost,
                     reference_type=reference_type,
                     reference_id=str(reference_id),
+                    movement_date=today,
                     created_by=user,
                     created_at=now,
                 )
@@ -328,6 +343,23 @@ class InventoryService:
             if to_update:
                 StockBalance.objects.bulk_update(to_update, ["on_hand"], batch_size=500)
 
+            InventoryRunningCost.objects.bulk_create(
+                [
+                    InventoryRunningCost(
+                        company=company,
+                        warehouse=warehouse,
+                        product=product,
+                        batch=None,
+                        qty=quantity,
+                        value=quantity * Decimal(str(unit_cost or 0)),
+                        created_by=user,
+                        updated_by=user,
+                    )
+                    for product, quantity, unit_cost in prepared
+                ],
+                batch_size=500,
+            )
+
             method = getattr(company, "inventory_valuation_method", "WAVG") or "WAVG"
             if method == "FIFO":
                 from .models import InventoryCostLayer
@@ -352,6 +384,86 @@ class InventoryService:
                     batch_size=500,
                 )
         return created
+
+    @staticmethod
+    def _apply_running_cost(*, company, warehouse, product, batch, delta, unit_cost):
+        """Keep perpetual WAVG qty/value in lockstep with post_movement (W0-06)."""
+        delta = Decimal(str(delta or 0))
+        cost = Decimal(str(unit_cost or 0))
+        qs = InventoryRunningCost.objects.select_for_update().filter(
+            company=company, warehouse=warehouse, product=product, batch=batch
+        )
+        row = qs.first()
+        if row is None:
+            try:
+                row = InventoryRunningCost.objects.create(
+                    company=company,
+                    warehouse=warehouse,
+                    product=product,
+                    batch=batch,
+                    qty=Decimal("0"),
+                    value=Decimal("0"),
+                    created_by=None,
+                    updated_by=None,
+                )
+            except IntegrityError:
+                row = qs.first()
+        if row is None:
+            return
+        row = InventoryRunningCost.objects.select_for_update().get(pk=row.pk)
+        qty = Decimal(str(row.qty or 0))
+        value = Decimal(str(row.value or 0))
+        if delta > 0:
+            qty += delta
+            value += delta * cost
+        elif delta < 0:
+            issue = -delta
+            avg = (value / qty) if qty else Decimal("0")
+            use = cost if cost else avg
+            value -= issue * use
+            qty -= issue
+        row.qty = qty
+        row.value = value
+        row.save(update_fields=["qty", "value", "updated_at"])
+
+    @staticmethod
+    def rebuild_running_cost(company):
+        """Replay insert-order movements into InventoryRunningCost; fail on qty drift vs StockBalance."""
+        InventoryRunningCost.objects.filter(company=company).delete()
+        movements = (
+            StockMovement.objects.filter(company=company)
+            .select_related("warehouse", "product", "batch")
+            .order_by("created_at", "id")
+        )
+        for move in movements.iterator():
+            InventoryService._apply_running_cost(
+                company=company,
+                warehouse=move.warehouse,
+                product=move.product,
+                batch=move.batch,
+                delta=move.quantity,
+                unit_cost=move.unit_cost,
+            )
+        drifted = []
+        for bal in StockBalance.objects.filter(company=company).iterator():
+            rc = InventoryRunningCost.objects.filter(
+                company=company,
+                warehouse_id=bal.warehouse_id,
+                product_id=bal.product_id,
+                batch_id=bal.batch_id,
+            ).first()
+            rc_qty = Decimal(str(rc.qty or 0)) if rc is not None else Decimal("0")
+            bal_qty = Decimal(str(bal.on_hand or 0))
+            if rc_qty != bal_qty:
+                drifted.append(
+                    f"warehouse={bal.warehouse_id} product={bal.product_id} "
+                    f"batch={bal.batch_id} running={rc_qty} balance={bal_qty}"
+                )
+        if drifted:
+            raise BusinessRuleError(
+                "Running-cost qty drifted from StockBalance: " + "; ".join(drifted[:8])
+            )
+        return InventoryRunningCost.objects.filter(company=company).count()
 
     @staticmethod
     def _apply_cost_layers(*, company, warehouse, product, batch, movement, delta, unit_cost, movement_type):
@@ -870,6 +982,8 @@ class StockTransferService:
     @transaction.atomic
     def complete(transfer: StockTransfer, user=None):
         transfer = StockTransfer.objects.select_for_update().get(pk=transfer.pk)
+        if transfer.status == StockTransfer.Status.COMPLETED:
+            return transfer
         if transfer.status != StockTransfer.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete transfer in status {transfer.status}.")
         lines = list(transfer.lines.select_related("product", "batch"))
@@ -1003,28 +1117,206 @@ class InventoryValuationService:
 
     Honesty: WAVG is the default. FIFO peels perpetual cost layers when
     company.inventory_valuation_method is FIFO (see _apply_cost_layers).
+    Live WAVG Complete reads InventoryRunningCost (W0-06) — never a full replay.
     """
+
+    SNAPSHOT_THRESHOLD = 10000
+
+    @staticmethod
+    def _coerce_date(as_of):
+        if isinstance(as_of, date_cls):
+            return as_of
+        return date_cls.fromisoformat(str(as_of)[:10])
+
+    @staticmethod
+    def _month_end(year, month):
+        return date_cls(year, month, monthrange(year, month)[1])
+
+    @classmethod
+    def _snapshot_period_for(cls, as_of_date):
+        """Month-end snapshot strictly before as_of (previous calendar month).
+
+        Replay then covers (period_end, as_of]. Writing the current month's
+        snapshot is a separate command; as_of never assumes it already exists.
+        """
+        prev = as_of_date.replace(day=1) - timedelta(days=1)
+        return f"{prev.year:04d}-{prev.month:02d}", prev
+
+    @staticmethod
+    def _heal_running_zero_cost(company, rows, warehouse, product):
+        need = [
+            r for r in rows
+            if Decimal(str(r.get("qty") or 0)) > 0 and Decimal(str(r.get("value") or 0)) == 0
+        ]
+        if not need:
+            return
+        if warehouse is not None:
+            full = InventoryValuationService.valuation(
+                company, as_of=None, method="WAVG", warehouse=None, product=product,
+            )
+            full_by_key = {
+                (row["warehouse"], row["product"], row["batch"]): row for row in full
+            }
+            for row in need:
+                healed = full_by_key.get((row["warehouse"], row["product"], row["batch"]))
+                if healed is not None:
+                    row["value"] = healed["value"]
+                    qty = Decimal(str(row["qty"] or 0))
+                    row["unit_cost"] = (row["value"] / qty) if qty else Decimal("0")
+            return
+        by_product = {}
+        for row in rows:
+            by_product.setdefault(row["product"], []).append(row)
+        for items in by_product.values():
+            sibling_qty = sum(
+                (r["qty"] for r in items if r["qty"] > 0 and r["value"] > 0),
+                Decimal("0"),
+            )
+            sibling_val = sum(
+                (r["value"] for r in items if r["qty"] > 0 and r["value"] > 0),
+                Decimal("0"),
+            )
+            if sibling_qty <= 0:
+                continue
+            avg = sibling_val / sibling_qty
+            for row in items:
+                if row["qty"] > 0 and row["value"] == 0:
+                    row["value"] = row["qty"] * avg
+                    row["unit_cost"] = avg
+
+    @classmethod
+    def write_month_end_snapshot(cls, company, period):
+        """Persist month-end qty/value for historical as_of above SNAPSHOT_THRESHOLD."""
+        year, month = (int(p) for p in str(period).split("-")[:2])
+        as_of = cls._month_end(year, month)
+        saved = cls.SNAPSHOT_THRESHOLD
+        cls.SNAPSHOT_THRESHOLD = 10**12
+        try:
+            rows = cls.valuation(company, as_of=as_of)
+        finally:
+            cls.SNAPSHOT_THRESHOLD = saved
+        InventoryValuationSnapshot.objects.filter(company=company, period=period).delete()
+        InventoryValuationSnapshot.objects.bulk_create(
+            [
+                InventoryValuationSnapshot(
+                    company=company,
+                    period=period,
+                    warehouse_id=row["warehouse"],
+                    product_id=row["product"],
+                    batch_id=row.get("batch"),
+                    qty=row["qty"],
+                    value=row["value"],
+                )
+                for row in rows
+                if row.get("warehouse") and row.get("product")
+            ],
+            batch_size=500,
+        )
+        return len(rows)
 
     @staticmethod
     def valuation(company, *, as_of=None, method=None, warehouse=None, product=None):
         from core.exceptions import BusinessRuleError
 
         method = method or company.inventory_valuation_method
-        # Wave 16B: FIFO uses perpetual layers in post_movement; valuation replay
-        # still supports FIFO layer walk for reports.
         if method not in ("WAVG", "FIFO"):
             raise BusinessRuleError(
                 f"Unsupported inventory valuation method '{method}'. Use WAVG or FIFO."
             )
-        movements = StockMovement.objects.filter(company=company).select_related("product", "batch", "warehouse")
-        if as_of:
-            movements = movements.filter(created_at__date__lte=as_of)
+        use_business_date = bool(getattr(company, "valuation_business_date_order", False))
+        base = StockMovement.objects.filter(company=company)
         if warehouse:
-            movements = movements.filter(warehouse=warehouse)
+            base = base.filter(warehouse=warehouse)
         if product:
-            movements = movements.filter(product=product)
-        movements = movements.order_by("created_at", "id")
-        state = {}
+            base = base.filter(product=product)
+        if as_of is None and method == "WAVG":
+            running = InventoryRunningCost.objects.filter(company=company).select_related(
+                "product", "batch", "warehouse"
+            )
+            if warehouse:
+                running = running.filter(warehouse=warehouse)
+            if product:
+                running = running.filter(product=product)
+            rows = []
+            for row in running:
+                qty = Decimal(str(row.qty or 0))
+                value = Decimal(str(row.value or 0))
+                rows.append(
+                    {
+                        "warehouse": row.warehouse_id,
+                        "warehouse_name": getattr(row.warehouse, "name", None),
+                        "product": row.product_id,
+                        "product_name": row.product.name if row.product_id else None,
+                        "batch": row.batch_id,
+                        "qty": qty,
+                        "value": value,
+                        "layers": [],
+                        "unit_cost": (value / qty if qty else Decimal("0")),
+                    }
+                )
+            if rows:
+                InventoryValuationService._heal_running_zero_cost(
+                    company, rows, warehouse, product,
+                )
+                return rows
+        movements = base.select_related("product", "batch", "warehouse")
+        if as_of:
+            as_of_date = InventoryValuationService._coerce_date(as_of)
+            if movements.count() > InventoryValuationService.SNAPSHOT_THRESHOLD:
+                period, period_end = InventoryValuationService._snapshot_period_for(as_of_date)
+                snaps = InventoryValuationSnapshot.objects.filter(
+                    company=company, period=period
+                )
+                if warehouse:
+                    snaps = snaps.filter(warehouse=warehouse)
+                if product:
+                    snaps = snaps.filter(product=product)
+                snap_rows = list(snaps.select_related("product", "warehouse", "batch"))
+                if snap_rows:
+                    state = {}
+                    for snap in snap_rows:
+                        key = (snap.warehouse_id, snap.product_id, snap.batch_id)
+                        state[key] = {
+                            "warehouse": snap.warehouse_id,
+                            "warehouse_name": getattr(snap.warehouse, "name", None),
+                            "product": snap.product_id,
+                            "product_name": snap.product.name if snap.product_id else None,
+                            "batch": snap.batch_id,
+                            "qty": Decimal(str(snap.qty or 0)),
+                            "value": Decimal(str(snap.value or 0)),
+                            "layers": [],
+                        }
+                    if use_business_date:
+                        after = movements.filter(
+                            movement_date__gt=period_end,
+                            movement_date__lte=as_of_date,
+                        ).order_by("movement_date", "id")
+                    else:
+                        after = movements.filter(
+                            created_at__date__gt=period_end,
+                            created_at__date__lte=as_of_date,
+                        ).order_by("created_at", "id")
+                    return InventoryValuationService._replay(
+                        after, method, state, as_of=as_of, warehouse=warehouse,
+                        product=product, company=company,
+                    )
+            if use_business_date:
+                movements = movements.filter(movement_date__lte=as_of_date).order_by(
+                    "movement_date", "id"
+                )
+            else:
+                movements = movements.filter(created_at__date__lte=as_of_date).order_by(
+                    "created_at", "id"
+                )
+        else:
+            movements = movements.order_by("created_at", "id")
+        return InventoryValuationService._replay(
+            movements, method, {}, as_of=as_of, warehouse=warehouse, product=product, company=company,
+        )
+
+    @staticmethod
+    def _replay(movements, method, state, *, as_of=None, warehouse=None, product=None, company=None):
+        state = dict(state or {})
         zero_cost_transfer_in = set()
         for move in movements:
             key = (move.warehouse_id, move.product_id, move.batch_id)
@@ -1112,12 +1404,23 @@ class InventoryValuationService:
 
     @classmethod
     def unit_cost(cls, company, product, warehouse=None, batch=None):
-        # R2-022 (perf follow-up, NOT done here): this replays every StockMovement
-        # for the product via valuation(). A materialised running-cost cache is
-        # the fix, but it must be threaded through every post_movement path
-        # (issue / receive / adjust / cancel / transfer / FIFO peel) with its own
-        # test pass — cramming it risks a silent inventory-valuation bug. Left as
-        # a dedicated follow-up; the system is correct, just O(movements) here.
+        method = getattr(company, "inventory_valuation_method", "WAVG") or "WAVG"
+        if method == "WAVG":
+            qs = InventoryRunningCost.objects.filter(company=company, product=product)
+            if warehouse is not None:
+                qs = qs.filter(warehouse=warehouse)
+            if batch is not None:
+                batch_id = getattr(batch, "pk", batch)
+                hit = qs.filter(batch_id=batch_id).first()
+                if hit and hit.qty:
+                    return hit.unit_cost
+            pos = [r for r in qs if Decimal(str(r.qty or 0)) > 0]
+            if pos:
+                total_qty = sum((Decimal(str(r.qty)) for r in pos), Decimal("0"))
+                total_val = sum((Decimal(str(r.value or 0)) for r in pos), Decimal("0"))
+                if total_qty > 0:
+                    return total_val / total_qty
+        # Replay fallback (empty running-cost cache / FIFO tenants).
         rows = cls.valuation(company, warehouse=warehouse, product=product)
         if batch is not None:
             batch_id = getattr(batch, "pk", batch)

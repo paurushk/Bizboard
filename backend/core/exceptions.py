@@ -39,6 +39,66 @@ class CompanyContextConflict(APIException):
     default_code = "company_context_conflict"
 
 
+class CompanyRequired(APIException):
+    """D-01: multi-membership user must pick a company (no silent auto-pick)."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Select a company to continue."
+    default_code = "COMPANY_REQUIRED"
+
+    def __init__(self, memberships):
+        detail = {
+            "code": "COMPANY_REQUIRED",
+            "message": self.default_detail,
+            "memberships": [
+                {
+                    "id": m.company_id,
+                    "name": getattr(m.company, "name", ""),
+                    "role": m.role,
+                }
+                for m in memberships
+            ],
+        }
+        super().__init__(detail=detail, code="COMPANY_REQUIRED")
+
+
+class GstinTotalChanged(APIException):
+    """W0-02: Complete would change grand_total after filing-GSTIN recompute."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "Completing would change the invoice total because tax was recomputed "
+        "for the filing GSTIN. Confirm to continue."
+    )
+    default_code = "GSTIN_TOTAL_CHANGED"
+
+    def __init__(self, before, after, lines):
+        detail = {
+            "code": "GSTIN_TOTAL_CHANGED",
+            "message": self.default_detail,
+            "before": {k: str(v) for k, v in before.items()},
+            "after": {k: str(v) for k, v in after.items()},
+            "lines": lines,
+        }
+        super().__init__(detail=detail, code="GSTIN_TOTAL_CHANGED")
+
+
+class StockCountConflict(APIException):
+    """C-01: server qty drifted from the count snapshot — cashier must choose."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Stock on the server changed since this count was started."
+    default_code = "STOCK_COUNT_CONFLICT"
+
+    def __init__(self, conflicts):
+        detail = {
+            "code": "STOCK_COUNT_CONFLICT",
+            "message": self.default_detail,
+            "conflicts": conflicts,
+        }
+        super().__init__(detail=detail, code="STOCK_COUNT_CONFLICT")
+
+
 def exception_error_code(exc) -> str:
     """Instance code from DRF `get_codes()`, else class `default_code`.
 

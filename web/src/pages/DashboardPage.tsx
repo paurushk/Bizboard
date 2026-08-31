@@ -14,14 +14,16 @@ import { useQuery } from '@tanstack/react-query';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { getDashboard, getBusinessHealth, getCompany, getDailySummary, listBusinessAlerts, listLowStock } from '@/api/resources';
+import { getShopFloorSummary } from '@/lib/telemetry';
+import { canViewAiInsights, isOwner } from '@/utils/permissions';
 import { KpiStat, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { AttentionQueuePreview } from '@/pages/AttentionPage';
 import { useAuth } from '@/auth/AuthContext';
 import { t, useLocale } from '@/i18n';
 import type { DashboardKpis } from '@/types/domain';
-import { canViewAiInsights } from '@/utils/permissions';
 import { formatMoney, toNumber } from '@/utils/money';
 import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
 import { shouldForceSetup } from '@/onboarding/shouldForceSetup';
@@ -62,6 +64,12 @@ export function DashboardPage() {
     queryFn: getBusinessHealth,
     retry: false,
     enabled: showInsights,
+  });
+  const shopFloor = useQuery({
+    queryKey: ['shop-floor-telemetry'],
+    queryFn: getShopFloorSummary,
+    retry: false,
+    enabled: isOwner(user?.role ?? 'VIEWER'),
   });
 
   if (!company.isLoading && shouldForceSetup(user, company.data)) {
@@ -139,6 +147,32 @@ export function DashboardPage() {
         productCount={productCount}
         invoiceCount={invoiceCount}
       />
+
+      {shopFloor.data ? (
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+            {t('dashboard.shopFloor')}
+          </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
+            <Typography variant="body2">
+              {t('dashboard.completeP95')}: {shopFloor.data.completeP95Ms != null ? `${shopFloor.data.completeP95Ms} ms` : '—'}
+            </Typography>
+            <Typography variant="body2">
+              {t('dashboard.offlineFails')}: {shopFloor.data.offlineFlushFail ?? 0}
+            </Typography>
+          </Stack>
+        </Paper>
+      ) : null}
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+          <Typography variant="h6">{t('dashboard.needsAttention')}</Typography>
+          <Button component={RouterLink} to="/attention" size="small">
+            {t('attention.seeAll')}
+          </Button>
+        </Stack>
+        <AttentionQueuePreview />
+      </Paper>
 
       {!inviteCtaDismissed &&
       user?.role === 'OWNER' &&
@@ -275,8 +309,8 @@ export function DashboardPage() {
                   <TableCell>{inv.customer ?? '—'}</TableCell>
                   <TableCell>
                     <StatusChip
-                      tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance))}
-                      labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance))}
+                      tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
+                      labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
                     />
                   </TableCell>
                   <TableCell align="right">

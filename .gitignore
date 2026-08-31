@@ -27,6 +27,9 @@ mobile/ios/
 .DS_Store
 Thumbs.db
 
+# Load soak output (X-01) — numbers live in ticket logs, not git
+load/results/
+
 # Local artifacts
 web_build_out.txt
 .tmp_*/

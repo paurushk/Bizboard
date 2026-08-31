@@ -7,7 +7,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
+from core.exceptions import BusinessRuleError
 from core.permissions import HasCompany, IsOwner, get_company_user
+from .attention import build_attention_rows, snooze_attention_row
 
 from .assistant import confirm_proposed_action, dismiss_proposed_action, run_assistant_turn
 from .models import (
@@ -266,6 +268,40 @@ class AssistantDismissActionView(APIView):
         return Response(result)
 
 
+class AttentionFeedView(APIView):
+    """B-05: ranked AttentionRow feed. Not AI-gated — capability-filtered."""
+
+    permission_classes = [IsAuthenticated, HasCompany]
+
+    def get(self, request):
+        cu = get_company_user(request)
+        rows = build_attention_rows(cu.company, company_user=cu)
+        return Response({"rows": rows, "count": len(rows)})
+
+
+class AttentionSnoozeView(APIView):
+    permission_classes = [IsAuthenticated, HasCompany]
+
+    def post(self, request):
+        cu = get_company_user(request)
+        dedupe_key = (request.data.get("dedupe_key") or request.data.get("dedupeKey") or "").strip()
+        if not dedupe_key:
+            return Response({"detail": "dedupe_key required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = snooze_attention_row(
+                cu.company,
+                cu,
+                dedupe_key=dedupe_key,
+                days=request.data.get("days") or 7,
+                reason=request.data.get("reason") or "",
+            )
+        except BusinessRuleError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except (TypeError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+
+
 class AiUsageView(APIView):
     permission_classes = [IsAuthenticated, HasCompany, IsOwner]
 
@@ -283,4 +319,91 @@ class AiUsageView(APIView):
             "tokens_total": total_in + total_out,
             "budget": budget,
             "recent": AiUsageLedgerSerializer(qs.order_by("-created_at")[:20], many=True).data,
+        })
+
+
+_TELEMETRY_EVENTS = {
+    "invoice_complete",
+    "pos_line_added",
+    "offline_enqueue",
+    "offline_flush_fail",
+    "complete_duration_ms",
+    "time_to_first_invoice_ms",
+}
+_TELEMETRY_PII_KEYS = {
+    "gstin", "phone", "email", "name", "customer", "customer_name", "customerName",
+    "description", "address", "pan", "line_description", "lineDescription",
+}
+
+
+def _percentile(sorted_vals, p):
+    if not sorted_vals:
+        return None
+    k = max(0, min(len(sorted_vals) - 1, int(round((p / 100) * (len(sorted_vals) - 1)))))
+    return sorted_vals[k]
+
+
+class ShopFloorTelemetryView(APIView):
+    """A-08: POST events (no PII); GET 7-day owner summary."""
+
+    permission_classes = [IsAuthenticated, HasCompany]
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [IsAuthenticated(), HasCompany(), IsOwner()]
+        return [IsAuthenticated(), HasCompany()]
+
+    def post(self, request):
+        from .models import ShopFloorEvent
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        for key in payload:
+            if str(key).lower() in _TELEMETRY_PII_KEYS:
+                raise BusinessRuleError("Telemetry must not include personal data.")
+        event = str(payload.get("event") or "").strip()
+        if event not in _TELEMETRY_EVENTS:
+            raise BusinessRuleError("Unknown telemetry event.")
+        duration = payload.get("duration_ms")
+        taps = payload.get("tap_count")
+        try:
+            duration_ms = int(duration) if duration is not None else None
+        except (TypeError, ValueError):
+            duration_ms = None
+        try:
+            tap_count = int(taps) if taps is not None else None
+        except (TypeError, ValueError):
+            tap_count = None
+        if duration_ms is not None and duration_ms > 24 * 60 * 60 * 1000:
+            duration_ms = None
+        cu = get_company_user(request)
+        ShopFloorEvent.objects.create(
+            company=cu.company,
+            event=event,
+            duration_ms=duration_ms,
+            tap_count=tap_count,
+            occurred_on=timezone.localdate(),
+            created_by=request.user,
+            updated_by=request.user,
+        )
+        return Response({"ok": True}, status=status.HTTP_201_CREATED)
+
+    def get(self, request):
+        from .models import ShopFloorEvent
+
+        company = get_company_user(request).company
+        days = 7
+        start = timezone.localdate() - timedelta(days=days - 1)
+        qs = ShopFloorEvent.objects.filter(company=company, occurred_on__gte=start)
+        durations = sorted(
+            int(r.duration_ms)
+            for r in qs.filter(event__in=("complete_duration_ms", "invoice_complete"))
+            if r.duration_ms
+        )
+        return Response({
+            "days": days,
+            "complete_p95_ms": _percentile(durations, 95),
+            "complete_count": qs.filter(event="invoice_complete").count(),
+            "offline_flush_fail": qs.filter(event="offline_flush_fail").count(),
+            "offline_enqueue": qs.filter(event="offline_enqueue").count(),
+            "pos_line_added": qs.filter(event="pos_line_added").count(),
         })

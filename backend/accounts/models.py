@@ -31,6 +31,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
+    push_token = models.CharField(max_length=512, blank=True, default="")
     active_company = models.ForeignKey(
         "Company",
         null=True,
@@ -152,6 +153,21 @@ class Company(TimeStampedModel):
             "rows in creation order for outbound COGS."
         ),
     )
+    valuation_business_date_order = models.BooleanField(
+        default=False,
+        help_text=(
+            "W0-06: order historical valuation by movement_date instead of insert time. "
+            "Default off for existing companies — turning this on can restate inventory/COGS. Take a backup."
+        ),
+    )
+    recompute_tax_on_complete = models.BooleanField(
+        default=False,
+        help_text=(
+            "W0-02: after Complete stamps the filing GSTIN, recompute tax for that GSTIN's state. "
+            "Default off for existing companies. If grand total changes by more than ₹0.01, Complete "
+            "requires confirm_gstin_total_change. Turning this on can change CGST/SGST vs IGST on Complete."
+        ),
+    )
     block_expired_stock = models.BooleanField(default=True)
     # When True, completing a delivery challan posts outbound stock (SALE movements).
     stock_on_delivery_challan = models.BooleanField(default=False)
@@ -171,6 +187,19 @@ class Company(TimeStampedModel):
     doc_number_scope = models.CharField(
         max_length=16, choices=DocNumberScope.choices, default=DocNumberScope.COMPANY
     )
+    class OutstandingBasis(models.TextChoices):
+        GL_WHEN_BOOKS = "GL_WHEN_BOOKS"
+        DOCUMENTS_ALWAYS = "DOCUMENTS_ALWAYS"
+
+    outstanding_basis = models.CharField(
+        max_length=20,
+        choices=OutstandingBasis.choices,
+        default=OutstandingBasis.GL_WHEN_BOOKS,
+        help_text=(
+            "W0-07 / PD-02: GL_WHEN_BOOKS uses AR 1200 net of advances 2300 when "
+            "accounting_enabled. DOCUMENTS_ALWAYS keeps the document-derived figure."
+        ),
+    )
     # Wave 17G — per-company runtime feature overrides (merged with env flags at API)
     feature_flags = models.JSONField(default=dict, blank=True)
     # BB-000671: ops escape hatch — treat SaaS subscription as active/compliant.
@@ -185,6 +214,14 @@ class Company(TimeStampedModel):
     payroll_pt_slabs = models.JSONField(default=list, blank=True)
     # Extra keys shown on the item form Custom tab (Brand code / form by default).
     item_custom_field_defs = models.JSONField(default=list, blank=True)
+    # A-07 — AR dunning. Default off (DPDP / spam). Owner must opt in.
+    dunning_enabled = models.BooleanField(default=False)
+    dunning_days = models.JSONField(default=list, blank=True)
+    dunning_max_reminders = models.PositiveSmallIntegerField(default=3)
+    dunning_quiet_hours_start = models.PositiveSmallIntegerField(default=21)
+    dunning_quiet_hours_end = models.PositiveSmallIntegerField(default=8)
+    dunning_channel_whatsapp = models.BooleanField(default=True)
+    dunning_channel_sms = models.BooleanField(default=True)
 
     class Meta:
         verbose_name_plural = "companies"

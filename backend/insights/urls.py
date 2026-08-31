@@ -6,12 +6,15 @@ from .views import (
     AssistantDismissActionView,
     AssistantMessageCreateView,
     AssistantThreadViewSet,
+    AttentionFeedView,
+    AttentionSnoozeView,
     BusinessAlertViewSet,
     CashflowForecastView,
     DailySummaryView,
     GrowthHintsView,
     HealthHistoryView,
     HealthScoreView,
+    ShopFloorTelemetryView,
 )
 alert_list = BusinessAlertViewSet.as_view({"get": "list"})
 alert_snooze = BusinessAlertViewSet.as_view({"post": "snooze"})
@@ -28,6 +31,8 @@ urlpatterns = [
     path("health/history/", HealthHistoryView.as_view(), name="insights-health-history"),
     path("cashflow-forecast/", CashflowForecastView.as_view(), name="insights-cashflow"),
     path("growth-hints/", GrowthHintsView.as_view(), name="insights-hints"),
+    path("attention/", AttentionFeedView.as_view(), name="insights-attention"),
+    path("attention/snooze/", AttentionSnoozeView.as_view(), name="insights-attention-snooze"),
     path("assistant/threads/", thread_list, name="insights-threads"),
     path("assistant/threads/<int:pk>/", thread_detail, name="insights-thread-detail"),
     path(
@@ -46,4 +51,5 @@ urlpatterns = [
         name="insights-assistant-dismiss",
     ),
     path("usage/", AiUsageView.as_view(), name="insights-usage"),
+    path("telemetry/", ShopFloorTelemetryView.as_view(), name="insights-telemetry"),
 ]

@@ -7,7 +7,7 @@ const IDB_VERSION = 1;
 const LS_PREFIX = 'bizboard:invoice-outbox:v2:';
 const LS_V1_PREFIX = 'bizboard:invoice-draft:';
 
-export type OutboxKind = 'invoice' | 'pos' | 'purchase';
+export type OutboxKind = 'invoice' | 'pos' | 'purchase' | 'stock_count' | 'stock_transfer';
 
 export interface InvoiceDraftLine {
   productId: number;
@@ -141,9 +141,48 @@ function readLocal(companyId: number, userId: number): OutboxDraft[] {
 function writeLocal(companyId: number, userId: number, drafts: OutboxDraft[]): void {
   try {
     localStorage.setItem(lsKey(companyId, userId), JSON.stringify(drafts));
-  } catch {
-    // Storage quota exceeded or disabled
+  } catch (err) {
+    const quota = err instanceof DOMException && (
+      err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014
+    );
+    if (quota) {
+      throw new Error('OUTBOX_STORAGE_FULL');
+    }
+    throw err;
   }
+}
+
+async function scopedIdbDrafts(companyId: number, userId: number): Promise<OutboxDraft[] | null> {
+  if (!idbAvailable()) return null;
+  try {
+    return (await idbGetAll()).filter((d) => d.companyId === companyId && d.userId === userId);
+  } catch {
+    return null;
+  }
+}
+
+/** IDB is canonical when it reads; localStorage only supplies drafts IDB never stored. */
+async function mergeDurable(companyId: number, userId: number): Promise<OutboxDraft[]> {
+  const local = readLocal(companyId, userId);
+  const idb = await scopedIdbDrafts(companyId, userId);
+  if (!idb) return local;
+  const byId = new Map<string, OutboxDraft>();
+  for (const draft of idb) byId.set(draft.id, draft);
+  for (const draft of local) {
+    if (!byId.has(draft.id)) byId.set(draft.id, draft);
+  }
+  return [...byId.values()];
+}
+
+function mirrorNativePrefs(companyId: number, userId: number, drafts: OutboxDraft[]): void {
+  void import('@/lib/native')
+    .then(({ isNative, prefsSet }) => {
+      if (isNative()) {
+        return prefsSet(lsKey(companyId, userId), JSON.stringify(drafts), { skipLocal: true });
+      }
+      return undefined;
+    })
+    .catch(() => undefined);
 }
 
 function migrateV1IfNeeded(companyId: number, userId: number): OutboxDraft[] {
@@ -184,18 +223,33 @@ function migrateV1IfNeeded(companyId: number, userId: number): OutboxDraft[] {
 
 export async function listDrafts(companyId: number, userId: number): Promise<OutboxDraft[]> {
   const migrated = migrateV1IfNeeded(companyId, userId);
+  const idb = await scopedIdbDrafts(companyId, userId);
   const local = readLocal(companyId, userId);
-  let idb: OutboxDraft[] = [];
-  if (idbAvailable()) {
+  const byId = new Map<string, OutboxDraft>();
+  if (idb) {
+    for (const draft of idb) byId.set(draft.id, draft);
+    for (const draft of local) {
+      if (!byId.has(draft.id)) byId.set(draft.id, draft);
+    }
+  } else {
+    for (const draft of local) byId.set(draft.id, draft);
     try {
-      idb = (await idbGetAll()).filter((d) => d.companyId === companyId && d.userId === userId);
+      const { isNative, prefsGet } = await import('@/lib/native');
+      if (isNative()) {
+        const raw = await prefsGet(lsKey(companyId, userId));
+        if (raw) {
+          const parsed = JSON.parse(raw) as OutboxDraft[];
+          if (Array.isArray(parsed)) {
+            for (const draft of parsed) {
+              if (draft?.version === 2 && !byId.has(draft.id)) byId.set(draft.id, draft);
+            }
+          }
+        }
+      }
     } catch {
-      idb = [];
+      /* native prefs are a fallback only when IDB is unavailable */
     }
   }
-  const byId = new Map<string, OutboxDraft>();
-  for (const draft of local) byId.set(draft.id, draft);
-  for (const draft of idb) byId.set(draft.id, draft);
   for (const draft of migrated) {
     if (!byId.has(draft.id)) byId.set(draft.id, draft);
   }
@@ -233,14 +287,28 @@ export async function enqueueDraft(
     lines: input.lines,
   };
 
-  const existing = readLocal(companyId, userId).filter((d) => d.idempotencyKey !== idempotencyKey);
-  writeLocal(companyId, userId, [...existing, draft]);
+  const existing = (await mergeDurable(companyId, userId)).filter(
+    (d) => d.idempotencyKey !== idempotencyKey,
+  );
+  const next = [...existing, draft];
+  let persisted = false;
   if (idbAvailable()) {
     try {
       await idbPut(draft);
+      persisted = true;
     } catch {
-      // local already written
+      persisted = false;
     }
+  }
+  try {
+    writeLocal(companyId, userId, next);
+    persisted = true;
+  } catch (err) {
+    if (!persisted) throw err;
+  }
+  mirrorNativePrefs(companyId, userId, next);
+  if (!persisted) {
+    throw new Error('OUTBOX_STORAGE_FULL');
   }
   return draft;
 }
@@ -263,6 +331,7 @@ export async function removeDraft(
     userId,
     readLocal(companyId, userId).filter((d) => d.idempotencyKey !== idempotencyKey),
   );
+  mirrorNativePrefs(companyId, userId, await mergeDurable(companyId, userId));
 }
 
 export async function clearAllDrafts(companyId: number, userId: number): Promise<void> {
@@ -270,6 +339,7 @@ export async function clearAllDrafts(companyId: number, userId: number): Promise
   await Promise.all(drafts.map((d) => removeDraft(companyId, userId, d.idempotencyKey)));
   localStorage.removeItem(lsKey(companyId, userId));
   localStorage.removeItem(v1Key(companyId, userId));
+  mirrorNativePrefs(companyId, userId, []);
 }
 
 export function assertFlushableLine(line: InvoiceDraftLine): void {

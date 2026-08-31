@@ -1,12 +1,12 @@
 """
 Ledger Service (E5.1 / Wave 16B) — customer/supplier outstanding + statements.
 
-When ``company.accounting_enabled`` is True (GL-first path): party balances are
-derived from posted ``JournalLine`` rows on control/advance accounts
-(1200/2100/2300/1250) tagged with customer/supplier FKs.
+When ``company.accounting_enabled`` is True and outstanding_basis is
+GL_WHEN_BOOKS (PD-02): party balances are GL 1200 net of 2300 (AR) and 2100
+net of 1250 (AP). ``customer_statement`` foots the same number.
 
-When accounting is off: documents + allocations remain the source of truth
-(legacy document-derived path). Books 10/10 requires accounting_enabled.
+When accounting is off or outstanding_basis is DOCUMENTS_ALWAYS: documents +
+allocations remain the source of truth.
 """
 
 from decimal import Decimal
@@ -210,27 +210,44 @@ class LedgerService:
         return total
 
     @staticmethod
+    def _use_gl_outstanding(company) -> bool:
+        """PD-02: GL 1200 net 2300 when books on, unless outstanding_basis=DOCUMENTS_ALWAYS."""
+        if not getattr(company, "accounting_enabled", False):
+            return False
+        basis = getattr(company, "outstanding_basis", "GL_WHEN_BOOKS") or "GL_WHEN_BOOKS"
+        return basis != "DOCUMENTS_ALWAYS"
+
+    @staticmethod
     def customer_exposure_for_credit_limit(company, customer) -> Decimal:
-        """Outstanding reduced by unallocated advances (Phase 1 D7 / §3.2)."""
-        return LedgerService.customer_outstanding(company, customer) - LedgerService.customer_unallocated_receipts(
-            company, customer
-        )
+        """Outstanding reduced by unallocated advances (Phase 1 D7 / §3.2).
+
+        When PD-02 GL outstanding is on, advances are already netted — do not
+        subtract them a second time.
+        """
+        outstanding = LedgerService.customer_outstanding(company, customer)
+        if LedgerService._use_gl_outstanding(company):
+            return outstanding
+        return outstanding - LedgerService.customer_unallocated_receipts(company, customer)
 
     # ---------------- Customer ledger ----------------
 
     @staticmethod
     def customer_outstanding(company, customer) -> Decimal:
-        """Gross open receivable. R2-021: this does NOT net unallocated advances
-        — a prepaid customer with open invoices still shows the invoice figure.
-        Use customer_exposure_for_credit_limit() for the advance-netted number,
-        and show 'advance on account' separately in the UI."""
-        if getattr(company, "accounting_enabled", False):
-            # AR asset 1200: debit increases receivable. R2-018: floored at 0 for
-            # this per-party figure; control_balances() exposes the un-floored
-            # GL net for trial-balance reconciliation.
-            return max(Decimal("0"), LedgerService._party_account_net(
+        """Party AR that every money surface must foot.
+
+        PD-02 / W0-07a:
+        - books on + GL_WHEN_BOOKS: GL AR 1200 debit-positive net of advances 2300
+          (same number as customer_statement closing).
+        - books off or DOCUMENTS_ALWAYS: invoices − allocations − completed CNs + DNs.
+        """
+        if LedgerService._use_gl_outstanding(company):
+            ar = LedgerService._party_account_net(
                 company, account_code="1200", customer=customer
-            ))
+            )
+            advances = LedgerService._party_account_net(
+                company, account_code="2300", customer=customer
+            )
+            return ar + advances
         # Wave 3: sales returns restore stock only; AR relief is via auto credit notes.
         invoices = _sum(
             SalesInvoice.objects.filter(
@@ -272,26 +289,24 @@ class LedgerService:
 
     @staticmethod
     def bulk_customer_outstanding(company) -> dict:
-        if getattr(company, "accounting_enabled", False):
+        if LedgerService._use_gl_outstanding(company):
             from accounting.models import JournalEntry, JournalLine
+            from collections import defaultdict
 
+            nets: dict = defaultdict(lambda: Decimal("0"))
             rows = (
                 JournalLine.objects.filter(
                     company=company,
-                    account__code="1200",
+                    account__code__in=("1200", "2300"),
                     entry__status=JournalEntry.Status.POSTED,
                     customer_id__isnull=False,
                 )
                 .values("customer_id")
                 .annotate(d=Sum("debit"), c=Sum("credit"))
             )
-            return {
-                row["customer_id"]: max(
-                    Decimal("0"),
-                    (row["d"] or Decimal("0")) - (row["c"] or Decimal("0")),
-                )
-                for row in rows
-            }
+            for row in rows:
+                nets[row["customer_id"]] += (row["d"] or Decimal("0")) - (row["c"] or Decimal("0"))
+            return dict(nets)
         invoices = dict(
             SalesInvoice.objects.filter(company=company, status__in=OPEN_SALES_STATUSES)
             .values("customer_id")
@@ -358,8 +373,8 @@ class LedgerService:
 
     @staticmethod
     def customer_statement(company, customer, date_from=None, date_to=None):
-        """Running-balance statement — GL-first when accounting_enabled."""
-        if getattr(company, "accounting_enabled", False):
+        """Running-balance statement — foots customer_outstanding (PD-02)."""
+        if LedgerService._use_gl_outstanding(company):
             return LedgerService._gl_party_statement(
                 company,
                 account_codes=["1200", "2300"],
@@ -530,10 +545,13 @@ class LedgerService:
 
     @staticmethod
     def supplier_outstanding(company, supplier) -> Decimal:
-        if getattr(company, "accounting_enabled", False):
-            # AP liability 2100: credit increases payable → outstanding = −net (debit−credit).
-            net = LedgerService._party_account_net(company, account_code="2100", supplier=supplier)
-            return max(Decimal("0"), -net)
+        if LedgerService._use_gl_outstanding(company):
+            # AP 2100 (credit increases payable) net of supplier advances 1250.
+            ap = LedgerService._party_account_net(company, account_code="2100", supplier=supplier)
+            prepaid = LedgerService._party_account_net(
+                company, account_code="1250", supplier=supplier
+            )
+            return -(ap + prepaid)
         inv_qs = PurchaseInvoice.objects.filter(
             company=company,
             supplier=supplier,
@@ -575,26 +593,24 @@ class LedgerService:
 
     @staticmethod
     def bulk_supplier_outstanding(company) -> dict:
-        if getattr(company, "accounting_enabled", False):
+        if LedgerService._use_gl_outstanding(company):
             from accounting.models import JournalEntry, JournalLine
+            from collections import defaultdict
 
+            nets: dict = defaultdict(lambda: Decimal("0"))
             rows = (
                 JournalLine.objects.filter(
                     company=company,
-                    account__code="2100",
+                    account__code__in=("2100", "1250"),
                     entry__status=JournalEntry.Status.POSTED,
                     supplier_id__isnull=False,
                 )
                 .values("supplier_id")
                 .annotate(d=Sum("debit"), c=Sum("credit"))
             )
-            return {
-                row["supplier_id"]: max(
-                    Decimal("0"),
-                    (row["c"] or Decimal("0")) - (row["d"] or Decimal("0")),
-                )
-                for row in rows
-            }
+            for row in rows:
+                nets[row["supplier_id"]] += (row["d"] or Decimal("0")) - (row["c"] or Decimal("0"))
+            return {sid: -net for sid, net in nets.items()}
         invoices = dict(
             PurchaseInvoice.objects.filter(
                 company=company,

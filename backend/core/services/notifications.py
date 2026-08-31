@@ -11,7 +11,7 @@ from core.models import Notification
 
 class NotificationService:
     @classmethod
-    def send(cls, *, company, channel, recipient, subject="", body="", user=None):
+    def send(cls, *, company, channel, recipient, subject="", body="", user=None, allow_cloud=True):
         notification = Notification.objects.create(
             company=company,
             channel=channel,
@@ -48,6 +48,7 @@ class NotificationService:
                 template_name=template_name,
                 params=[body] if body else None,
                 company=company,
+                allow_cloud=allow_cloud,
             )
             # BB-000743: surface delivery mode for UI honesty (not persisted).
             notification.delivery_mode = result.mode  # type: ignore[attr-defined]
@@ -76,6 +77,17 @@ class NotificationService:
                 else:
                     notification.error = ""
             notification.save(update_fields=["share_link", "status", "error"])
+        elif channel == Notification.Channel.SMS:
+            from core.services.sms import SmsProvider
+
+            try:
+                SmsProvider.send_text(recipient, body)
+                notification.status = Notification.Status.SENT
+                notification.error = ""
+            except Exception as exc:
+                notification.status = Notification.Status.FAILED
+                notification.error = str(exc)[:2000]
+            notification.save(update_fields=["status", "error"])
         else:
             # SMS / Push deferred to Phase 2 — record only.
             notification.status = Notification.Status.QUEUED

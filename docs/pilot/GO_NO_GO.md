@@ -4,9 +4,10 @@
 > Final Gates** — do not claim Production Readiness 10/10 until every checkbox is
 > signed and live GSP credentials (if filing) are configured.
 
-**UAT build SHA:** ________  
+**UAT build SHA:** `ae3202d88821141220b56d7764d199921d5e04d2`  
 **Go build SHA:** ________  
 <!-- CI may inject: BUILD_SHA={{github.sha}} -->
+<!-- A-05: UAT SHA filled from `git rev-parse HEAD` on 2026-08-31. Not a signature. Do not tick SHAs-match until a human re-smokes or signs. -->
 - [ ] SHAs match **or** 12-row smoke re-signed on Go SHA  
 
 ## Checklist

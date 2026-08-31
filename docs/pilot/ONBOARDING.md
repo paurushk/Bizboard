@@ -15,7 +15,7 @@ when off, onboarding remains checklist-only.
 
 ## Privacy (DPDP one-liner)
 
-BizBoard stores customer/supplier names, phones, and GSTINs for your company only. Data is used to issue invoices and reports. Contact support for export/deletion requests during the pilot. See `ENV_CHECKLIST.md` for operator controls.
+BizBoard stores customer/supplier names, phones, and GSTINs for your company only. Data is used to issue invoices and reports. Contact support for export/deletion requests during the pilot. Operator posture: [`DPDP_POSTURE.md`](DPDP_POSTURE.md). See `ENV_CHECKLIST.md` for operator controls.
 
 ## Completed invoice corrections (H9-A)
 

@@ -103,3 +103,11 @@ jobs:
               "${{ steps.meta.outputs.prefix }}/bizboard-web:latest"
             docker push "${{ steps.meta.outputs.prefix }}/bizboard-web:latest"
           fi
+      - name: Pin image digests
+        run: |
+          chmod +x scripts/pin_image_digests.sh
+          API="${{ steps.meta.outputs.prefix }}/bizboard-api:${{ steps.meta.outputs.sha }}"
+          WEB="${{ steps.meta.outputs.prefix }}/bizboard-web:${{ steps.meta.outputs.sha }}"
+          ./scripts/pin_image_digests.sh "$API" "$WEB" docker-compose.digest.yml
+          grep -E '@sha256:[0-9a-f]{32,}' docker-compose.digest.yml >/dev/null \
+            || { echo "::error::W0-08b image digest pin missing"; exit 1; }

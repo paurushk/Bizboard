@@ -738,3 +738,36 @@ def test_barcode_image_svg(tenant_a):
     resp = tenant_a.client.get("/api/v1/products/barcode-image/", {"code": "ABC-123"})
     assert resp.status_code == 200
     assert "svg" in resp["Content-Type"]
+
+
+def test_expiry_alert_writeoff_posts_adjustment(tenant_a):
+    product = make_product(tenant_a.company, sku="C03-WO")
+    product.track_batch = True
+    product.save()
+    expiry = (date.today() + timedelta(days=3)).isoformat()
+    opened = _opening(
+        tenant_a, product=product.id, quantity="4",
+        batch_no="NEAR", expiry_date=expiry, unit_cost="8",
+    )
+    assert opened.status_code == 201, opened.data
+    warehouse = InventoryService.default_warehouse(tenant_a.company)
+    lot = BatchLot.objects.get(product=product, batch_no="NEAR")
+    listed = tenant_a.client.get("/api/v1/inventory/alerts/expiry/", {"days": 7})
+    assert listed.status_code == 200
+    items = listed.data.get("items") or listed.data
+    assert any(str(row.get("batch") or row.get("id")) == str(lot.id) for row in items)
+    wo = tenant_a.client.post(
+        "/api/v1/inventory/alerts/expiry/",
+        {
+            "product": product.id,
+            "warehouse": warehouse.id,
+            "batch": lot.id,
+            "quantity": "4",
+        },
+        format="json",
+    )
+    assert wo.status_code == 201, wo.data
+    move = StockMovement.objects.get(product=product, reference_type="expiry_write_off")
+    assert move.reason == "EXPIRED"
+    assert move.movement_type == MovementType.ADJUSTMENT
+    assert StockBalance.objects.get(product=product, warehouse=warehouse, batch=lot).on_hand == Decimal("0")

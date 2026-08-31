@@ -184,3 +184,63 @@ def test_concurrent_sales_complete_oversell_blocked(tenant_a):
     assert len(successes) == 1, (successes, errors)
     assert len(errors) == 1
     assert StockBalance.objects.get(product=product).on_hand == Decimal("0")
+
+
+def test_concurrent_journal_post_one_posted(tenant_a):
+    """W0-01 — two PostingService.post calls for the same source → one POSTED journal."""
+    _require_postgres()
+    from django.utils import timezone
+
+    from accounting.models import JournalEntry
+    from accounting.services import PostingService, seed_chart_of_accounts
+
+    tenant_a.company.accounting_enabled = True
+    tenant_a.company.save(update_fields=["accounting_enabled"])
+    seed_chart_of_accounts(tenant_a.company, tenant_a.owner)
+    cash = PostingService._account(tenant_a.company, "1100")
+    equity = PostingService._account(tenant_a.company, "3100")
+    pks: list[int] = []
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(2, timeout=10)
+
+    def post_one():
+        connection.close()
+        try:
+            barrier.wait()
+            entry = PostingService.post(
+                company=tenant_a.company,
+                source_type="TEST_W0_01",
+                source_id=1001,
+                purpose="SALE",
+                entry_date=timezone.localdate(),
+                user=tenant_a.owner,
+                lines=[
+                    {"account": cash, "debit": Decimal("10")},
+                    {"account": equity, "credit": Decimal("10")},
+                ],
+            )
+            if entry is not None:
+                pks.append(entry.pk)
+        except Exception as exc:  # pragma: no cover
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=post_one) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not errors, errors
+    assert len(set(pks)) == 1
+    assert (
+        JournalEntry.objects.filter(
+            company=tenant_a.company,
+            source_type="TEST_W0_01",
+            source_id=1001,
+            purpose="SALE",
+            status=JournalEntry.Status.POSTED,
+        ).count()
+        == 1
+    )

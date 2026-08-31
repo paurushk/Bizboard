@@ -29,6 +29,23 @@ export async function getSalesInvoice(id: number | string): Promise<SalesInvoice
   }, mockInvoices.find((i) => String(i.id) === String(id)) ?? mockInvoices[0]);
 }
 
+export type InvoiceAuditEvent = {
+  id: number;
+  action: string;
+  entityType?: string;
+  description: string;
+  metadata?: Record<string, unknown>;
+  userName?: string;
+  userEmail?: string;
+  createdAt: string;
+};
+
+export async function getInvoiceAudit(id: number | string): Promise<InvoiceAuditEvent[]> {
+  const { data } = await apiClient.get(`/sales/invoices/${id}/audit/`);
+  const body = unwrapData<InvoiceAuditEvent[] | { results?: InvoiceAuditEvent[] }>(data);
+  return Array.isArray(body) ? body : (body.results ?? []);
+}
+
 export async function createSalesInvoice(
   payload: {
     customer: number;
@@ -111,14 +128,78 @@ export async function updateSalesInvoice(
   }, { ...mockInvoices[0], id, ...payload } as SalesInvoice);
 }
 
+export type PreviewTotals = {
+  subtotal: number;
+  discountTotal: number;
+  taxableTotal: number;
+  cgstTotal: number;
+  sgstTotal: number;
+  igstTotal: number;
+  cessTotal: number;
+  roundOff: number;
+  grandTotal: number;
+  taxTotal: number;
+  tcsAmount?: number;
+  amountDue?: number;
+  intraState?: boolean | null;
+  invoiceDiscountMode?: string;
+};
+
+export function mapPreviewTotals(raw: Record<string, unknown>): PreviewTotals {
+  const n = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = raw[k];
+      if (v != null && v !== '') return Number(v);
+    }
+    return 0;
+  };
+  const cgst = n('cgstTotal', 'cgst_total');
+  const sgst = n('sgstTotal', 'sgst_total');
+  const igst = n('igstTotal', 'igst_total');
+  const cess = n('cessTotal', 'cess_total');
+  const intra = raw.intraState ?? raw.intra_state;
+  return {
+    subtotal: n('subtotal'),
+    discountTotal: n('discountTotal', 'discount_total'),
+    taxableTotal: n('taxableTotal', 'taxable_total'),
+    cgstTotal: cgst,
+    sgstTotal: sgst,
+    igstTotal: igst,
+    cessTotal: cess,
+    taxTotal: Math.round((cgst + sgst + igst + cess) * 100) / 100,
+    roundOff: n('roundOff', 'round_off'),
+    grandTotal: n('grandTotal', 'grand_total'),
+    tcsAmount: n('tcsAmount', 'tcs_amount'),
+    amountDue: n('amountDue', 'amount_due'),
+    intraState: intra === true ? true : intra === false ? false : null,
+    invoiceDiscountMode: String(raw.invoiceDiscountMode ?? raw.invoice_discount_mode ?? 'AFTER_TAX'),
+  };
+}
+
+export async function previewSalesTotals(payload: Record<string, unknown>): Promise<PreviewTotals> {
+  const { data } = await apiClient.post('/sales/invoices/preview-totals/', payload);
+  return mapPreviewTotals(unwrapData<Record<string, unknown>>(data));
+}
+
 export async function completeSalesInvoice(
   id: number,
-  options?: { confirmSalesRcm?: boolean },
+  options?: {
+    confirmSalesRcm?: boolean;
+    confirmBlankPos?: boolean;
+    confirmGstinTotalChange?: boolean;
+    idempotencyKey?: string;
+  },
 ): Promise<SalesInvoice> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/sales/invoices/${id}/complete/`, {
-      confirmSalesRcm: Boolean(options?.confirmSalesRcm),
-    });
+    const { data } = await apiClient.post(
+      `/sales/invoices/${id}/complete/`,
+      {
+        confirmSalesRcm: Boolean(options?.confirmSalesRcm),
+        confirmBlankPos: Boolean(options?.confirmBlankPos),
+        confirmGstinTotalChange: Boolean(options?.confirmGstinTotalChange),
+      },
+      { headers: idempotencyHeaders(options?.idempotencyKey) },
+    );
     return unwrapData<SalesInvoice>(data);
   }, { ...mockInvoices[0], id, status: 'COMPLETED', number: `INV-${id}`, pdfStatus: 'QUEUED' });
 }
@@ -389,7 +470,13 @@ export async function downloadInvoiceThermalPdf(
 export async function shareInvoice(
   id: number,
   payload: { channel: 'EMAIL' | 'WHATSAPP'; recipient: string; message?: string },
-): Promise<{ status: string; shareLink?: string; mode?: 'cloud' | 'link'; error?: string }> {
+): Promise<{
+  status: string;
+  shareLink?: string;
+  mode?: 'cloud' | 'link';
+  error?: string;
+  whatsappSendStatus?: string;
+}> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/invoices/${id}/share/`, payload);
     return unwrapData(data);

@@ -94,7 +94,10 @@ export function PublicPayPage() {
 
   const safeIntentUrl = intentUrl && isAllowedPaymentUrl(intentUrl) ? intentUrl : '';
 
-  const paid = Boolean(pay.paid);
+  const paid =
+    Boolean(pay.paid) ||
+    String(pay.paymentState || pay.payment_state || '').toUpperCase() === 'PAID' ||
+    String(pay.paymentState || pay.payment_state || '').toUpperCase() === 'PAID_PENDING_BOOKS';
 
 
 

@@ -268,6 +268,19 @@ export function PaymentLinksPage() {
   const [shareId, setShareId] = useState<number | null>(null);
   const [shareRecipient, setShareRecipient] = useState('');
   const [shareChannel, setShareChannel] = useState<'WHATSAPP' | 'EMAIL'>('WHATSAPP');
+  const holding = useQuery({
+    queryKey: ['gateway-holding'],
+    queryFn: async () => (await api.listGatewayPaymentsPage({ status: 'CAPTURED_PENDING_BOOKS', pageSize: 50 })).results,
+  });
+  const retryBooks = useMutation({
+    mutationFn: (id: number) => api.retryGatewayPaymentBooks(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['gateway-holding'] });
+      void qc.invalidateQueries({ queryKey: ['payment-links'] });
+      void qc.invalidateQueries({ queryKey: ['payment-health'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
+  });
   const share = useMutation({
     mutationFn: () =>
       api.sharePaymentLink(Number(shareId), { channel: shareChannel, recipient: shareRecipient }),
@@ -308,6 +321,32 @@ export function PaymentLinksPage() {
       }
     >
       {error ? <HelpErrorAlert message={error} /> : null}
+      {holding.data && holding.data.length ? (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {holding.data.length} capture(s) paid at the gateway — receipt pending books. Retry after the period is open.
+        </Alert>
+      ) : null}
+      {holding.data && holding.data.length ? (
+        <Stack spacing={1} sx={{ mb: 2 }}>
+          {holding.data.map((row) => (
+            <Paper key={String(row.id)} variant="outlined" sx={{ p: 1.5 }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="center" justifyContent="space-between">
+                <Typography variant="body2">
+                  {String(row.providerPaymentId || row.provider_payment_id || row.id)} · {String(row.holdingReason || row.holding_reason || 'holding')} · {formatMoney(String(row.amount ?? 0))}
+                </Typography>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  disabled={writesBlocked || retryBooks.isPending}
+                  onClick={() => retryBooks.mutate(Number(row.id))}
+                >
+                  Retry books
+                </Button>
+              </Stack>
+            </Paper>
+          ))}
+        </Stack>
+      ) : null}
       <DataTable
         rows={asRows(query.data)}
         empty="No payment links yet."

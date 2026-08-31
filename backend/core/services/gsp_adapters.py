@@ -70,6 +70,7 @@ class EwayAdapter(Protocol):
 @runtime_checkable
 class GstrFilingAdapter(Protocol):
     def upload_gstr1(self, payload: dict) -> dict: ...
+    def upload_gstr3b(self, payload: dict) -> dict: ...
     def fetch_gstr2b(self, period: str) -> dict: ...
 
 
@@ -83,6 +84,33 @@ def _live_enabled() -> bool:
 
 def _gsp_certified() -> bool:
     return getattr(settings, "GSP_CERTIFIED", False) is True
+
+
+_PLACEHOLDER_SECRETS = frozenset({
+    "",
+    "aaaa",
+    "aaaaaaaa",
+    "placeholder",
+    "test",
+    "changeme",
+    "your-api-key",
+    "secret",
+    "apikey",
+    "api-key",
+})
+
+
+def reject_placeholder_gsp_credentials(creds: dict | None) -> None:
+    """B-01: all-A / demo secrets must never reach live HTTP."""
+    if not creds:
+        raise BusinessRuleError("Live GSP credentials are empty.")
+    for value in creds.values():
+        raw = str(value or "").strip()
+        if not raw:
+            continue
+        low = raw.lower()
+        if low in _PLACEHOLDER_SECRETS or (len(raw) >= 4 and set(raw.lower()) == {"a"}):
+            raise BusinessRuleError("Placeholder GSP secrets are rejected. Use named-provider credentials.")
 
 
 def _http_sandbox_enabled() -> bool:
@@ -399,6 +427,11 @@ class SandboxEwayAdapter:
         return {"provider": "sandbox", "cancelled": True, "eway_bill_no": eway_bill_no}
 
 
+def _json_object(raw) -> dict:
+    """Live GSTR `|` merge requires a mapping; GSP bodies are not always objects."""
+    return raw if isinstance(raw, dict) else {"raw": raw}
+
+
 def _http_json(method: str, url: str, payload: dict | None, headers: dict | None = None) -> dict:
     data = None if payload is None else json.dumps(payload, default=str).encode()
     req = urllib.request.Request(
@@ -484,9 +517,11 @@ class LiveIrpAdapter:
         return (getattr(settings, "GSP_LIVE_BASE_URL", None) or "").rstrip("/")
 
     def _creds(self) -> dict:
-        return decrypt_gsp_credentials(
+        creds = decrypt_gsp_credentials(
             getattr(self.company, "gsp_credentials_encrypted", "") or ""
         )
+        reject_placeholder_gsp_credentials(creds)
+        return creds
 
     def _headers(self) -> dict:
         creds = self._creds()
@@ -532,9 +567,11 @@ class LiveEwayAdapter:
         return (getattr(settings, "GSP_LIVE_BASE_URL", None) or "").rstrip("/")
 
     def _creds(self) -> dict:
-        return decrypt_gsp_credentials(
+        creds = decrypt_gsp_credentials(
             getattr(self.company, "gsp_credentials_encrypted", "") or ""
         )
+        reject_placeholder_gsp_credentials(creds)
+        return creds
 
     def _headers(self) -> dict:
         creds = self._creds()
@@ -574,6 +611,11 @@ class StubGstrFilingAdapter:
             "GSTR filing upload requires live GSP credentials (Final Gate)."
         )
 
+    def upload_gstr3b(self, payload: dict) -> dict:
+        raise BusinessRuleError(
+            "GSTR-3B filing upload requires live GSP credentials (Final Gate)."
+        )
+
     def fetch_gstr2b(self, period: str) -> dict:
         raise BusinessRuleError(
             "GSTR-2B fetch requires live GSP credentials; use file ingest meanwhile."
@@ -590,12 +632,69 @@ class HttpSandboxGstrAdapter:
     def upload_gstr1(self, payload: dict) -> dict:
         if not self.base:
             raise BusinessRuleError("GSP_SANDBOX_BASE_URL required for GSTR-1 sandbox upload.")
-        return _http_json("POST", f"{self.base}/gstr1/upload", payload)
+        return _json_object(_http_json("POST", f"{self.base}/gstr1/upload", payload))
+
+    def upload_gstr3b(self, payload: dict) -> dict:
+        if not self.base:
+            raise BusinessRuleError("GSP_SANDBOX_BASE_URL required for GSTR-3B sandbox upload.")
+        return _json_object(_http_json("POST", f"{self.base}/gstr3b/upload", payload))
 
     def fetch_gstr2b(self, period: str) -> dict:
         if not self.base:
             raise BusinessRuleError("GSP_SANDBOX_BASE_URL required for GSTR-2B sandbox fetch.")
         return _http_json("POST", f"{self.base}/gstr2b/fetch", {"period": period})
+
+
+class LiveGstrFilingAdapter:
+    """Fail-closed live GSTR-1/3B upload. Same gate as LiveIrpAdapter."""
+
+    def __init__(self, company):
+        self.company = company
+        if not _live_enabled() or not _gsp_certified():
+            raise BusinessRuleError(
+                "Live GSTR adapter requires GSP_LIVE_ENABLED=1 and GSP_CERTIFIED=1. "
+                "Disable GSP_LIVE_ENABLED until a certified GSP ships."
+            )
+
+    def _base(self) -> str:
+        return (getattr(settings, "GSP_LIVE_BASE_URL", None) or "").rstrip("/")
+
+    def _creds(self) -> dict:
+        creds = decrypt_gsp_credentials(
+            getattr(self.company, "gsp_credentials_encrypted", "") or ""
+        )
+        reject_placeholder_gsp_credentials(creds)
+        return creds
+
+    def _headers(self) -> dict:
+        creds = self._creds()
+        base = self._base()
+        if not creds or not base:
+            raise BusinessRuleError(
+                "Live GSTR GSP is not configured. Set company GSP secrets + GSP_LIVE_BASE_URL."
+            )
+        return obtain_gsp_auth_session(self.company, base_url=base, creds=creds)
+
+    def upload_gstr1(self, payload: dict) -> dict:
+        base = self._base()
+        headers = self._headers()
+        provider = resolve_gsp_provider(self.company)
+        return _json_object(_http_json("POST", f"{base}/gstr1/upload", payload, headers=headers)) | {
+            "provider": provider,
+        }
+
+    def upload_gstr3b(self, payload: dict) -> dict:
+        base = self._base()
+        headers = self._headers()
+        provider = resolve_gsp_provider(self.company)
+        return _json_object(_http_json("POST", f"{base}/gstr3b/upload", payload, headers=headers)) | {
+            "provider": provider,
+        }
+
+    def fetch_gstr2b(self, period: str) -> dict:
+        base = self._base()
+        headers = self._headers()
+        return _http_json("POST", f"{base}/gstr2b/fetch", {"period": period}, headers=headers)
 
 
 HttpSandboxGstrFilingAdapter = HttpSandboxGstrAdapter
@@ -633,7 +732,15 @@ def get_eway_adapter(company) -> EwayAdapter:
 
 
 def get_gstr_filing_adapter(company) -> GstrFilingAdapter:
+    env = _django_env()
+    provider = (getattr(company, "gsp_provider", None) or "").strip().lower()
+    want_live = _live_enabled() and provider not in ("", "sandbox")
+    if want_live:
+        if env in ("production", "staging") and not _gsp_certified():
+            raise BusinessRuleError(
+                "Live GSTR upload is fail-closed until GSP_CERTIFIED=1 and named-provider secrets."
+            )
+        return LiveGstrFilingAdapter(company)
     if _http_sandbox_enabled():
         return HttpSandboxGstrAdapter(company)
-    # Live GSTR upload/fetch stays stub until a certified filing adapter ships.
     return StubGstrFilingAdapter()

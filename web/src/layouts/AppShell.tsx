@@ -20,6 +20,7 @@ import { Outlet, NavLink, Link as RouterLink, useLocation } from 'react-router-d
 import { useAuth } from '@/auth/AuthContext';
 import { UniversalSearch } from '@/components/UniversalSearch';
 import { CompanySwitcher } from '@/components/CompanySwitcher';
+import { CompanyRequiredDialog } from '@/components/CompanyRequiredDialog';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { useFeatureFlagEpoch } from '@/config/featureFlags';
@@ -117,7 +118,7 @@ export function AppShell() {
     }
     const refresh = () => {
       void listDrafts(companyId, userId)
-        .then((drafts) => setPendingDrafts(drafts.length))
+        .then((drafts) => setPendingDrafts(drafts.filter((d) => d.idempotencyKey !== 'purchase-editor-draft').length))
         .catch(() => undefined);
     };
     refresh();
@@ -218,7 +219,10 @@ export function AppShell() {
           <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: { xs: 'stretch', sm: 'center' }, minWidth: 0 }}>
             <UniversalSearch />
           </Box>
-          {pendingDrafts > 0 ? (
+          {pendingDrafts > 0 &&
+          (/^\/(pos|sales|purchases|offline-outbox)/.test(location.pathname) ||
+            location.pathname.startsWith('/inventory/stock-counts') ||
+            location.pathname.startsWith('/inventory/transfers')) ? (
             <Chip
               component={RouterLink}
               to="/offline-outbox"
@@ -307,6 +311,7 @@ export function AppShell() {
           </Alert>
         ) : null}
         <Outlet />
+        <CompanyRequiredDialog />
       </Box>
     </Box>
   );

@@ -20,6 +20,27 @@ class DailyBusinessSummary(CompanyScopedModel):
         indexes = [models.Index(fields=["company", "summary_date"])]
 
 
+class AttentionRowState(CompanyScopedModel):
+    """B-05: per-row snooze / first-seen for the frozen AttentionRow contract."""
+
+    dedupe_key = models.CharField(max_length=191, db_index=True)
+    first_seen = models.DateTimeField()
+    snooze_until = models.DateTimeField(null=True, blank=True)
+    snooze_reason = models.TextField(blank=True, default="")
+    dismissed = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "dedupe_key"],
+                name="uniq_attention_row_state_per_company",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["company", "snooze_until"]),
+        ]
+
+
 class BusinessAlertEvent(CompanyScopedModel):
     class Severity(models.TextChoices):
         CRITICAL = "critical"
@@ -120,3 +141,24 @@ class AiUsageLedger(CompanyScopedModel):
     class Meta:
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["company", "feature", "created_at"])]
+
+
+class ShopFloorEvent(CompanyScopedModel):
+    """A-08: first-party shop-floor telemetry. No PII in event or props."""
+
+    class Event(models.TextChoices):
+        INVOICE_COMPLETE = "invoice_complete"
+        POS_LINE_ADDED = "pos_line_added"
+        OFFLINE_ENQUEUE = "offline_enqueue"
+        OFFLINE_FLUSH_FAIL = "offline_flush_fail"
+        COMPLETE_DURATION_MS = "complete_duration_ms"
+        TIME_TO_FIRST_INVOICE_MS = "time_to_first_invoice_ms"
+
+    event = models.CharField(max_length=40, choices=Event.choices, db_index=True)
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    tap_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    occurred_on = models.DateField(db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["company", "event", "occurred_on"])]

@@ -1,6 +1,6 @@
 import { apiClient, idempotencyHeaders, newIdempotencyKey, unwrapData } from '../client';
 import { mockSearchResults } from '@/mocks/data';
-import type { ImportJob, ImportKind, PurchaseBillCommitResult, SearchResult, AssistantMessage, AssistantThread, BusinessAlert, CashflowForecast, DailyBusinessSummary, GrowthHint } from '@/types/domain';
+import type { ImportJob, ImportKind, PurchaseBillCommitResult, SearchResult, AssistantMessage, AssistantThread, AttentionRow, BusinessAlert, CashflowForecast, DailyBusinessSummary, GrowthHint } from '@/types/domain';
 import { withMocks, fetchPage, fetchMoneyListFirstPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
 
 /** Master import validate/commit can run long for multi-thousand-row CSVs. */
@@ -408,6 +408,16 @@ export async function listGrowthHints(): Promise<GrowthHint[]> {
   const { data } = await apiClient.get('/insights/growth-hints/');
   const body = unwrapData<{ hints: GrowthHint[] }>(data);
   return body.hints ?? [];
+}
+
+export async function listAttentionRows(): Promise<AttentionRow[]> {
+  const { data } = await apiClient.get('/insights/attention/');
+  const body = unwrapData<{ rows: AttentionRow[]; count: number }>(data);
+  return body.rows ?? [];
+}
+
+export async function snoozeAttentionRow(dedupeKey: string, reason: string, days = 7): Promise<void> {
+  await apiClient.post('/insights/attention/snooze/', { dedupeKey, reason, days });
 }
 
 export async function listAssistantThreads(): Promise<AssistantThread[]> {

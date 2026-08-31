@@ -38,6 +38,12 @@ def _party_name(obj, attr="customer"):
     return (getattr(party, "name", None) or "").strip() or "—"
 
 
+def _invoice_payment_state(invoice) -> str:
+    from payments.holding import invoice_payment_state
+
+    return invoice_payment_state(invoice)
+
+
 def _as_sort_date(value):
     if isinstance(value, datetime):
         return value.date()
@@ -201,6 +207,7 @@ class ReportService:
                     "status": i.status,
                     "grand_total": i.grand_total,
                     "balance": ReportService._invoice_balance(i),
+                    "payment_state": _invoice_payment_state(i),
                 }
                 for i in recent.select_related("customer")
             ],

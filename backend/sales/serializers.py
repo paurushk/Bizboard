@@ -70,8 +70,16 @@ class SalesItemSerializer(_BaseLineSerializer):
             "hsn_code", "mrp", "unit_name", "uqc_code", "unit_price_inclusive",
             "batch", "batch_no", "exp_date", "mfg_date", "serial_numbers",
             "supply_nature",
+            "applied_rate",
+            "rate_version",
+            "rate_override",
+            "rate_override_reason",
+            "applied_price_list_name",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "uqc_code"]
+        read_only_fields = LINE_READONLY + [
+            "hsn_code", "mrp", "uqc_code", "applied_rate", "rate_version",
+            "applied_price_list_name",
+        ]
         extra_kwargs = {
             "unit_price": {"required": False},
             "gst_rate": {"required": False},
@@ -86,6 +94,8 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
     customer_name = serializers.CharField(source="customer.name", read_only=True)
     received = serializers.SerializerMethodField()
     balance = serializers.SerializerMethodField()
+    whatsapp_offer = serializers.SerializerMethodField()
+    payment_state = serializers.SerializerMethodField()
 
     class Meta:
         model = SalesInvoice
@@ -109,12 +119,18 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "tcs_section", "tcs_rate", "tcs_amount",
             "received", "balance", "is_opening_balance",
             "completed_at", "cancelled_at", "created_at", "updated_at",
+            "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
+            "whatsapp_sent_at", "whatsapp_offer",
+            "payment_state",
         ] + TOTAL_READONLY
         read_only_fields = [
             "number", "status", "pdf_status", "pdf_file", "received", "balance",
             "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
             "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
             "completed_at", "cancelled_at", "is_opening_balance",
+            "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
+            "whatsapp_sent_at", "whatsapp_offer",
+            "payment_state",
         ] + TOTAL_READONLY + RCM_READONLY
 
     def _receivable(self, obj):
@@ -145,6 +161,18 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
 
         balance = Decimal(str(self.get_balance(obj) or 0))
         return max(self._receivable(obj) - balance, Decimal("0"))
+
+    def get_whatsapp_offer(self, obj):
+        from sales.whatsapp_send import whatsapp_offer_payload
+
+        return whatsapp_offer_payload(obj)
+
+    def get_payment_state(self, obj):
+        from payments.holding import invoice_payment_state
+
+        if obj.status == SalesInvoice.Status.DRAFT:
+            return "UNPAID"
+        return invoice_payment_state(obj)
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")

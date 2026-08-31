@@ -19,7 +19,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useParams, useSearchParams } from 'react-router-dom';
-import { getErrorMessage } from '@/api/client';
+import { getErrorCode, getErrorMessage } from '@/api/client';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   amendInvoiceFilingIdentity,
@@ -29,6 +29,7 @@ import {
   cancelPaymentLink,
   downloadInvoicePdf,
   downloadInvoiceThermalPdf,
+  getInvoiceAudit,
   getSalesInvoice,
   getUpiQr,
   listAllocationsPage,
@@ -49,7 +50,7 @@ import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { t } from '@/i18n';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { formatMoney, toNumber } from '@/utils/money';
-import { canCancelDocuments } from '@/utils/permissions';
+import { canCancelDocuments, canViewFinancialReports } from '@/utils/permissions';
 import { isAllowedPaymentUrl, isAllowedShareUrl, openShareUrl } from '@/utils/safeUrl';
 import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
 
@@ -96,6 +97,13 @@ export function InvoiceDetailPage() {
     queryFn: () => listCustomers(),
   });
 
+  const showAudit = canViewFinancialReports(user);
+  const auditQuery = useQuery({
+    queryKey: ['sales-invoice-audit', invoiceId],
+    queryFn: () => getInvoiceAudit(invoiceId),
+    enabled: invoiceIdValid && showAudit,
+  });
+
   useEffect(() => {
     if (!query.data) return;
     setVehicleNumber(query.data.vehicleNumber ?? '');
@@ -114,16 +122,39 @@ export function InvoiceDetailPage() {
 
   useEffect(() => {
     if (prefilled || !query.data) return;
+    const fromOffer = query.data.whatsappOffer?.phone?.trim();
     const customer = (customers.data ?? []).find((c) => c.id === query.data.customer);
-    if (customer?.phone) setSharePhone(customer.phone);
+    if (fromOffer) setSharePhone(fromOffer);
+    else if (customer?.phone) setSharePhone(customer.phone);
     if (customer?.email) setShareEmail(customer.email);
-    if (customer || customers.isFetched) setPrefilled(true);
+    if (fromOffer || customer || customers.isFetched) setPrefilled(true);
   }, [query.data, customers.data, customers.isFetched, prefilled]);
 
   const completeMutation = useMutation({
-    mutationFn: () => completeSalesInvoice(invoiceId),
-    onSuccess: () => {
-      setMessage(t('billing.invoiceCompleted'));
+    mutationFn: async () => {
+      try {
+        return await completeSalesInvoice(invoiceId);
+      } catch (err) {
+        const code = getErrorCode(err);
+        if (code === 'place_of_supply_unresolved' && window.confirm(t('billing.confirmBlankPos'))) {
+          try {
+            return await completeSalesInvoice(invoiceId, { confirmBlankPos: true });
+          } catch (err2) {
+            if (getErrorCode(err2) === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
+              return await completeSalesInvoice(invoiceId, { confirmBlankPos: true, confirmGstinTotalChange: true });
+            }
+            throw err2;
+          }
+        }
+        if (code === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
+          return await completeSalesInvoice(invoiceId, { confirmGstinTotalChange: true });
+        }
+        throw err;
+      }
+    },
+    onSuccess: (data) => {
+      const warns = (data?.warnings ?? []).filter(Boolean).join(' ');
+      setMessage(warns ? `${t('billing.invoiceCompleted')} ${warns}` : t('billing.invoiceCompleted'));
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
     },
     onError: (err) => captureError(err),
@@ -264,13 +295,16 @@ export function InvoiceDetailPage() {
           }
         }
       }
+      void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
     },
     onError: (err) => captureError(err),
   });
 
-  const whatsappButtonHint = isRuntimeFlagEnabled('ENABLE_WHATSAPP_CLOUD')
-    ? t('common.whatsapp')
-    : t('common.whatsappLinkHint');
+  const whatsappButtonHint = query.data?.whatsappOffer && !query.data.whatsappOffer.optIn
+    ? t('common.whatsappOptInOffHint')
+    : isRuntimeFlagEnabled('ENABLE_WHATSAPP_CLOUD')
+      ? t('common.whatsapp')
+      : t('common.whatsappLinkHint');
 
   const transportMutation = useMutation({
     mutationFn: () =>
@@ -371,8 +405,8 @@ export function InvoiceDetailPage() {
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: 'wrap' }}>
             <StatusChip
-              tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance))}
-              labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance))}
+              tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
+              labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
             />
             <Chip size="small" label={inv.invoiceType} variant="outlined" />
             <Typography variant="body2" color="text.secondary">
@@ -744,6 +778,11 @@ export function InvoiceDetailPage() {
                   <TableCell>{idx + 1}</TableCell>
                   <TableCell>
                     {item.productName ?? item.description ?? item.product}
+                    {item.appliedPriceListName ? (
+                      <Typography component="span" variant="caption" color="text.secondary">
+                        {` · List: ${item.appliedPriceListName}`}
+                      </Typography>
+                    ) : null}
                     {item.unitName ? (
                       <Typography component="span" variant="caption" color="text.secondary">
                         {` · ${item.unitName}`}
@@ -850,6 +889,26 @@ export function InvoiceDetailPage() {
           <Typography variant="h6" sx={{ mb: 2 }}>
             {t('common.share')}
           </Typography>
+          {inv.whatsappSendStatus && inv.whatsappSendStatus !== 'NONE' ? (
+            <Chip
+              size="small"
+              color={
+                inv.whatsappSendStatus === 'SENT'
+                  ? 'success'
+                  : inv.whatsappSendStatus === 'FAILED'
+                    ? 'error'
+                    : 'default'
+              }
+              label={
+                inv.whatsappSendStatus === 'SENT'
+                  ? t('common.whatsappStatusSent')
+                  : inv.whatsappSendStatus === 'FAILED'
+                    ? t('common.whatsappStatusFailed')
+                    : t('common.whatsappStatusFallback')
+              }
+              sx={{ mb: 1 }}
+            />
+          ) : null}
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             {whatsappButtonHint}
           </Typography>
@@ -875,7 +934,7 @@ export function InvoiceDetailPage() {
                 shareMutation.mutate({ channel: 'WHATSAPP', recipient: sharePhone })
               }
             >
-              {t('common.whatsapp')}
+              {t('common.whatsappSendInvoice')}
             </Button>
             <TextField
               label={t('common.email')}
@@ -940,6 +999,42 @@ export function InvoiceDetailPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      {showAudit ? (
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="h6" fontWeight={600} gutterBottom>
+            {t('billing.auditTrail')}
+          </Typography>
+          {auditQuery.isLoading ? (
+            <Typography color="text.secondary">{t('common.loading')}</Typography>
+          ) : (auditQuery.data ?? []).length === 0 ? (
+            <Typography color="text.secondary">{t('billing.auditEmpty')}</Typography>
+          ) : (
+            <Stack spacing={1.5}>
+              {(auditQuery.data ?? []).map((ev) => {
+                const before = (ev.metadata?.before ?? {}) as Record<string, unknown>;
+                const after = (ev.metadata?.after ?? {}) as Record<string, unknown>;
+                const moneyKeys = ['grand_total', 'grandTotal', 'cgst_total', 'cgstTotal', 'sgst_total', 'sgstTotal', 'igst_total', 'igstTotal'];
+                const diffs = moneyKeys.filter((k) => before[k] != null || after[k] != null);
+                return (
+                  <Box key={ev.id}>
+                    <Typography variant="body2">
+                      {ev.userName || ev.userEmail || t('common.unknownUser')} · {ev.action} · {new Date(ev.createdAt).toLocaleString()}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {ev.description}
+                    </Typography>
+                    {diffs.length ? (
+                      <Typography variant="caption" display="block">
+                        {diffs.map((k) => `${k}: ${String(before[k] ?? '—')} → ${String(after[k] ?? '—')}`).join(' · ')}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                );
+              })}
+            </Stack>
+          )}
+        </Paper>
+      ) : null}
     </Stack>
   );
 }

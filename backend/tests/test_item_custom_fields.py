@@ -183,6 +183,26 @@ def test_product_search_and_cf_filter(tenant_a):
     assert p1.id in ignored_ids and p2.id in ignored_ids
 
 
+def test_custom_fields_brand_query_filter(tenant_a):
+    _set_defs(tenant_a.company, [
+        {"key": "brandCode", "label": "Brand code", "type": "text", "active": True},
+        {"key": "rack", "label": "Rack", "type": "text", "active": True},
+    ])
+    p1 = make_product(tenant_a.company, sku="BR-1", name="Amul milk")
+    p1.custom_fields = {"brandCode": "AMUL", "rack": "A1"}
+    p1.save(update_fields=["custom_fields"])
+    p2 = make_product(tenant_a.company, sku="BR-2", name="Other milk")
+    p2.custom_fields = {"brandCode": "NESTLE", "rack": "B2"}
+    p2.save(update_fields=["custom_fields"])
+
+    by_alias = tenant_a.client.get("/api/v1/products/", {"custom_fields.brand": "AMUL"})
+    assert {row["id"] for row in by_alias.data["results"]} == {p1.id}
+    by_key = tenant_a.client.get("/api/v1/products/", {"custom_fields.brandCode": "AMUL"})
+    assert {row["id"] for row in by_key.data["results"]} == {p1.id}
+    by_rack = tenant_a.client.get("/api/v1/products/", {"custom_fields.rack": "B2"})
+    assert {row["id"] for row in by_rack.data["results"]} == {p2.id}
+
+
 def test_stock_search_and_custom_fields_payload(tenant_a):
     _set_defs(tenant_a.company, [
         {"key": "form", "label": "Form", "type": "list", "active": True, "options": ["Strip", "Bottle"]},

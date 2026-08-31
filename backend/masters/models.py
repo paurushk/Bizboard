@@ -112,6 +112,14 @@ class Customer(CompanyScopedModel):
     taxpayer_type = models.CharField(
         max_length=16, choices=TaxpayerType.choices, default=TaxpayerType.REGULAR, blank=True
     )
+    whatsapp_opt_in = models.BooleanField(
+        default=False,
+        help_text="A-06: Cloud WhatsApp only when True. wa.me open-in-app is always allowed.",
+    )
+    dunning_opt_out = models.BooleanField(
+        default=False,
+        help_text="A-07: when True, skip automated AR reminders for this customer.",
+    )
     price_list = models.ForeignKey(
         "PriceList", null=True, blank=True, on_delete=models.SET_NULL, related_name="customers"
     )
@@ -301,8 +309,36 @@ class PriceListItem(models.Model):
     price_list = models.ForeignKey(PriceList, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="price_list_items")
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+    min_qty = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("1"))
+    max_qty = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
+    discount_pct = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["price_list", "product"], name="uniq_product_price_per_list")
+            models.UniqueConstraint(
+                fields=["price_list", "product", "min_qty"],
+                name="uniq_product_slab_per_list",
+            )
         ]
+        ordering = ["product_id", "min_qty"]
+
+
+class HsnRate(models.Model):
+    """Curated HSN/SAC GST rate with an effective window (B-06). Not company-typed."""
+
+    hsn_sac = models.CharField(max_length=8, db_index=True)
+    rate = models.DecimalField(max_digits=5, decimal_places=2, validators=[validate_gst_rate])
+    cess = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    valid_from = models.DateField()
+    valid_to = models.DateField(null=True, blank=True)
+    version = models.CharField(max_length=64)
+    source_ref = models.CharField(max_length=128, blank=True, default="")
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["hsn_sac", "valid_from"]),
+        ]
+        ordering = ["hsn_sac", "-valid_from"]
+
+    def __str__(self):
+        return f"{self.hsn_sac} {self.rate}% {self.version}"

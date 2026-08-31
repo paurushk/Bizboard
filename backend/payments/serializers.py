@@ -241,6 +241,10 @@ class GatewayPaymentSerializer(serializers.ModelSerializer):
             "status",
             "payment_link",
             "created_at",
+            "holding_reason",
+            "holding_error",
+            "holding_since",
+            "internal_utr",
         ]
 
 

@@ -21,12 +21,13 @@ class CompanyPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
 
 class AuditEventSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source="user.email", read_only=True)
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
 
     class Meta:
         model = AuditEvent
         fields = [
             "id", "action", "entity_type", "entity_id", "description",
-            "metadata", "user", "user_email", "created_at",
+            "metadata", "user", "user_email", "user_name", "created_at",
         ]
 
 

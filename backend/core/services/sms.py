@@ -109,6 +109,34 @@ def _send_twilio(phone: str, code: str) -> None:
         raise BusinessRuleError(f"Twilio OTP unreachable: {exc.reason}") from exc
 
 
+def _send_twilio_text(phone: str, body: str) -> None:
+    sid = (getattr(settings, "TWILIO_ACCOUNT_SID", "") or "").strip()
+    token = (getattr(settings, "TWILIO_AUTH_TOKEN", "") or "").strip()
+    from_num = (getattr(settings, "TWILIO_FROM_NUMBER", "") or "").strip()
+    if not sid or not token or not from_num:
+        raise BusinessRuleError(
+            "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER are required "
+            "when SMS_PROVIDER=twilio."
+        )
+    data = urllib.parse.urlencode(
+        {"To": phone, "From": from_num, "Body": (body or "BizBoard")[:1600]}
+    ).encode()
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+    req = urllib.request.Request(url, data=data, method="POST")
+    import base64
+
+    basic = base64.b64encode(f"{sid}:{token}".encode()).decode()
+    req.add_header("Authorization", f"Basic {basic}")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            if resp.status >= 400:
+                raise BusinessRuleError(f"Twilio SMS send failed with HTTP {resp.status}.")
+    except urllib.error.HTTPError as exc:
+        raise BusinessRuleError(f"Twilio SMS send failed: {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise BusinessRuleError(f"Twilio SMS unreachable: {exc.reason}") from exc
+
+
 class SmsProvider:
     @staticmethod
     def send_otp(phone: str, code: str) -> None:
@@ -139,4 +167,26 @@ class SmsProvider:
         raise BusinessRuleError(
             f"SMS provider '{provider}' is not implemented. "
             "Use console (dev), msg91, or twilio."
+        )
+
+    @staticmethod
+    def send_text(phone: str, body: str) -> None:
+        """A-07 dunning SMS. Stub in test/dev; Twilio/MSG91 when configured."""
+        provider = (getattr(settings, "SMS_PROVIDER", "") or "").strip().lower()
+        env = _env()
+        if provider in _STUB_PROVIDERS:
+            if env not in ("development", "test", ""):
+                raise BusinessRuleError(
+                    "SMS stub providers cannot send outside development/test."
+                )
+            logger.info("SMS stub to %s: %s", phone[-4:] if len(phone) >= 4 else "****", (body or "")[:80])
+            return
+        if provider == "twilio":
+            _send_twilio_text(phone, body)
+            return
+        if provider == "msg91":
+            # OTP API is not a dunning channel; fail closed unless a stub env.
+            raise BusinessRuleError("MSG91 OTP API cannot send AR dunning texts. Use twilio or console.")
+        raise BusinessRuleError(
+            f"SMS provider '{provider}' is not implemented for text messages."
         )

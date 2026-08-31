@@ -47,6 +47,7 @@ function posVisible(user: User | null): boolean {
 
 export const navigation: NavItem[] = [
   { id: 'dashboard', labelKey: 'nav.dashboard', path: '/', visible: canViewFinancialReports },
+  { id: 'attention', labelKey: 'nav.attention', path: '/attention', visible: canViewFinancialReports },
   { id: 'pos', labelKey: 'nav.pos', path: '/pos', visible: posVisible },
   {
     id: 'insights',
@@ -210,24 +211,6 @@ export const navigation: NavItem[] = [
         visible: () => isGstrReportsEnabled(),
       },
       {
-        id: 'report-gstr6',
-        labelKey: 'nav.gstr6',
-        path: '/reports/gstr6',
-        visible: () => false,
-      },
-      {
-        id: 'report-gstr7',
-        labelKey: 'nav.gstr7',
-        path: '/reports/gstr7',
-        visible: () => false,
-      },
-      {
-        id: 'report-gstr8',
-        labelKey: 'nav.gstr8',
-        path: '/reports/gstr8',
-        visible: () => false,
-      },
-      {
         id: 'report-gstr9',
         labelKey: 'nav.gstr9',
         path: '/reports/gstr9',
@@ -240,6 +223,18 @@ export const navigation: NavItem[] = [
         visible: () => isGstrReportsEnabled(),
       },
       {
+        id: 'report-missing-docs',
+        labelKey: 'nav.missingDocuments',
+        path: '/reports/missing-documents',
+        visible: () => isGstrReportsEnabled(),
+      },
+      {
+        id: 'report-ca-needs',
+        labelKey: 'nav.caNeeds',
+        path: '/ca-needs?view=client',
+        visible: () => isGstrReportsEnabled(),
+      },
+      {
         id: 'report-statutory-events',
         labelKey: 'nav.statutoryEvents',
         path: '/reports/statutory-events',
@@ -248,6 +243,12 @@ export const navigation: NavItem[] = [
         id: 'report-gst-health',
         labelKey: 'nav.gstHealth',
         path: '/reports/gst-health',
+        visible: () => isGstrReportsEnabled(),
+      },
+      {
+        id: 'report-gst-rate-exposure',
+        labelKey: 'nav.gstRateExposure',
+        path: '/reports/gst-rate-exposure',
         visible: () => isGstrReportsEnabled(),
       },
       {

@@ -39,7 +39,7 @@ export function activeCustomFieldDefs(rows?: ItemCustomFieldDef[] | null): ItemC
 }
 
 export function suggestCustomFieldKey(label: string): string {
-  const parts = label.trim().split(/[\s_\-]+/).filter(Boolean);
+  const parts = label.trim().split(/[\s_-]+/).filter(Boolean);
   if (!parts.length) return '';
   const clean = (value: string) => value.replace(/[^A-Za-z0-9]/g, '');
   const first = clean(parts[0]);
@@ -85,7 +85,7 @@ export function normalizeHeader(value: string): string {
   return value
     .trim()
     .toLowerCase()
-    .replace(/[\s_\-]+/g, ' ')
+    .replace(/[\s_-]+/g, ' ')
     .trim();
 }
 

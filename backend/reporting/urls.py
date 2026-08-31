@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    CancelledDocumentNumbersView,
     CashBookView,
     Cmp08View,
     CustomerSalesView,
@@ -10,6 +11,7 @@ from .views import (
     GstCaPackView,
     GstFilingSandboxView,
     GstHealthView,
+    GstRateExposureView,
     GstPeriodView,
     Gstr1View,
     Gstr2bIngestViewSet,
@@ -47,7 +49,9 @@ urlpatterns = [
     path("reports/gstr7/", Gstr7View.as_view(), name="gstr7"),
     path("reports/gstr8/", Gstr8View.as_view(), name="gstr8"),
     path("reports/gst-filing-sandbox/", GstFilingSandboxView.as_view(), name="gst-filing-sandbox"),
+    path("reports/cancelled-document-numbers/", CancelledDocumentNumbersView.as_view(), name="cancelled-document-numbers"),
     path("reports/gst-health/", GstHealthView.as_view(), name="gst-health"),
+    path("reports/gst-rate-exposure/", GstRateExposureView.as_view(), name="gst-rate-exposure"),
     path("reports/gst-ca-pack/", GstCaPackView.as_view(), name="gst-ca-pack"),
     path("reports/gst-period/", GstPeriodView.as_view(), name="gst-period"),
     path("reports/tds-worksheet/", TdsWorksheetView.as_view(), name="tds-worksheet"),

@@ -1,6 +1,6 @@
 from rest_framework.permissions import BasePermission
 
-from core.exceptions import CompanyContextConflict
+from core.exceptions import CompanyContextConflict, CompanyRequired
 
 
 def _header_company_id(request) -> int | None:
@@ -44,19 +44,28 @@ def get_company_user(request):
         if active_company_id:
             company_user = qs.filter(company_id=active_company_id).order_by("id").first()
         if company_user is None:
-            memberships = list(qs.order_by("id")[:2])
-            # R1-008: a user with several memberships and no active company was
-            # hard-409'd on every request until they called switch-company —
-            # effectively locked out if the SPA didn't special-case that code.
-            # Auto-select the earliest membership and persist it so the choice is
-            # sticky; the user can switch companies at any time.
-            company_user = memberships[0] if memberships else None
-            if company_user is not None and len(memberships) > 1 and active_company_id is None:
-                try:
-                    user.active_company_id = company_user.company_id
-                    user.save(update_fields=["active_company"])
-                except Exception:  # noqa: BLE001 — never break the request over this
-                    pass
+            memberships = list(qs.order_by("id"))
+            if len(memberships) == 1:
+                company_user = memberships[0]
+                if active_company_id is None:
+                    try:
+                        user.active_company_id = company_user.company_id
+                        user.save(update_fields=["active_company"])
+                    except Exception:  # noqa: BLE001 — never break the request over this
+                        pass
+            elif len(memberships) > 1:
+                from django.conf import settings as dj_settings
+
+                if getattr(dj_settings, "AUTO_PICK_COMPANY_ON_EMPTY", False):
+                    company_user = memberships[0]
+                    if company_user is not None and active_company_id is None:
+                        try:
+                            user.active_company_id = company_user.company_id
+                            user.save(update_fields=["active_company"])
+                        except Exception:  # noqa: BLE001
+                            pass
+                else:
+                    raise CompanyRequired(memberships)
     request._company_user = company_user
     request._company_user_uid = current_uid
     return company_user

@@ -69,7 +69,7 @@ class CustomerSerializer(serializers.ModelSerializer):
             "shipping_address", "state", "status", "credit_limit",
             "credit_days", "notes", "created_at", "updated_at",
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
-            "price_list", "taxpayer_type",
+            "price_list", "taxpayer_type", "whatsapp_opt_in", "dunning_opt_out",
         ]
         read_only_fields = [
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
@@ -204,7 +204,7 @@ class PriceListItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PriceListItem
-        fields = ["id", "product", "unit_price"]
+        fields = ["id", "product", "unit_price", "min_qty", "max_qty", "discount_pct"]
 
 
 class PriceListSerializer(serializers.ModelSerializer):

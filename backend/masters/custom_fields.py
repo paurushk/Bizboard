@@ -398,10 +398,15 @@ def build_search_q(term: str, defs: list[dict], prefix: str = "") -> Q:
 
 
 def apply_cf_filters(qs, query_params, defs: list[dict], prefix: str = ""):
-    allowed = {
-        row["key"]: row
+    list_keys = {
+        row["key"]
         for row in defs
         if row.get("active") and row.get("type") == "list" and KEY_RE.match(row.get("key") or "")
+    }
+    any_keys = {
+        row["key"]
+        for row in defs
+        if row.get("active") and KEY_RE.match(row.get("key") or "")
     }
     path = f"{prefix}custom_fields" if prefix else "custom_fields"
     grouped: dict[str, list[str]] = {}
@@ -413,9 +418,17 @@ def apply_cf_filters(qs, query_params, defs: list[dict], prefix: str = ""):
             for key, value in dict(query_params).items()
         ]
     for name, values in items:
-        if not str(name).startswith("cf."):
+        dotted = str(name)
+        if dotted.startswith("cf."):
+            field_key = dotted[3:]
+            allowed = list_keys
+        elif dotted.startswith("custom_fields."):
+            field_key = dotted[len("custom_fields.") :]
+            allowed = any_keys
+            if field_key not in allowed and field_key == "brand":
+                field_key = next((k for k in BRAND_SEED_KEYS if k in allowed), field_key)
+        else:
             continue
-        field_key = str(name)[3:]
         if field_key not in allowed:
             continue
         cleaned = [str(v).strip() for v in values if str(v or "").strip()]

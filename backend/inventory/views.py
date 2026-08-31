@@ -10,7 +10,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.exceptions import BusinessRuleError
+from core.exceptions import BusinessRuleError, StockCountConflict
+from core.idempotency import wrap_idempotent
 from core.permissions import (
     CanManageInventory,
     CanViewFinancialReports,
@@ -424,47 +425,75 @@ class StockCountSessionViewSet(CompanyScopedViewSet):
     def post(self, request, pk=None):
         from django.utils import timezone
 
-        with transaction.atomic():
-            session = get_object_or_404(self.get_queryset().select_for_update(), pk=pk)
-            if session.status == StockCountSession.Status.POSTED:
-                raise BusinessRuleError("This count is already posted.")
-            if session.status == StockCountSession.Status.CANCELLED:
-                raise BusinessRuleError("A cancelled count cannot be posted.")
-            if session.status != StockCountSession.Status.COUNTED:
-                raise BusinessRuleError("Save the count before posting.")
-            if session.lines.filter(counted_qty__isnull=True).exists():
-                raise BusinessRuleError("Save all counted quantities before posting.")
-            from .item_stock import remaining_qty
+        def _run():
+            with transaction.atomic():
+                session = get_object_or_404(self.get_queryset().select_for_update(), pk=pk)
+                if session.status == StockCountSession.Status.POSTED:
+                    return Response(self.get_serializer(session).data)
+                if session.status == StockCountSession.Status.CANCELLED:
+                    raise BusinessRuleError("A cancelled count cannot be posted.")
+                if session.status != StockCountSession.Status.COUNTED:
+                    raise BusinessRuleError("Save the count before posting.")
+                if session.lines.filter(counted_qty__isnull=True).exists():
+                    raise BusinessRuleError("Save all counted quantities before posting.")
+                from .item_stock import remaining_qty
 
-            lines = list(session.lines.select_related("product", "batch"))
-            for line in lines:
-                if line.counted_qty is None:
-                    continue
-                if line.product.company_id != session.company_id:
-                    raise BusinessRuleError("Invalid product on stock count line.")
-                system_qty = remaining_qty(
-                    session.company, line.product, warehouse=session.warehouse, batch=line.batch,
-                    unbatched_only=line.batch_id is None,
-                )
-                variance = line.counted_qty - system_qty
-                if variance == 0:
-                    continue
-                InventoryService.post_movement(
-                    company=session.company,
-                    product=line.product,
-                    movement_type=MovementType.ADJUSTMENT,
-                    quantity=variance,
-                    reason="STOCK_COUNT",
-                    reference_type="stock_count",
-                    reference_id=session.pk,
-                    user=request.user,
-                    warehouse=session.warehouse,
-                    batch=line.batch,
-                )
-            session.status = StockCountSession.Status.POSTED
-            session.posted_at = timezone.now()
-            session.save(update_fields=["status", "posted_at"])
-        return Response(self.get_serializer(session).data)
+                lines = list(session.lines.select_related("product", "batch"))
+                conflicts = []
+                current_by_line = {}
+                for line in lines:
+                    if line.counted_qty is None:
+                        continue
+                    if line.product.company_id != session.company_id:
+                        raise BusinessRuleError("Invalid product on stock count line.")
+                    current = remaining_qty(
+                        session.company, line.product, warehouse=session.warehouse, batch=line.batch,
+                        unbatched_only=line.batch_id is None,
+                    )
+                    current_by_line[line.pk] = current
+                    if current != line.system_qty:
+                        conflicts.append({
+                            "line_id": line.pk,
+                            "product_name": line.product.name,
+                            "server_qty": str(current),
+                            "local_qty": str(line.counted_qty),
+                            "snapshot_qty": str(line.system_qty),
+                        })
+                resolve = str(request.data.get("resolve_conflicts") or "").upper()
+                if conflicts and resolve not in ("KEEP_SERVER", "KEEP_LOCAL"):
+                    raise StockCountConflict(conflicts)
+                for line in lines:
+                    if line.counted_qty is None:
+                        continue
+                    current = current_by_line[line.pk]
+                    if conflicts and current != line.system_qty and resolve == "KEEP_SERVER":
+                        continue
+                    variance = line.counted_qty - current
+                    if variance == 0:
+                        continue
+                    InventoryService.post_movement(
+                        company=session.company,
+                        product=line.product,
+                        movement_type=MovementType.ADJUSTMENT,
+                        quantity=variance,
+                        reason="STOCK_COUNT",
+                        reference_type="stock_count",
+                        reference_id=session.pk,
+                        user=request.user,
+                        warehouse=session.warehouse,
+                        batch=line.batch,
+                    )
+                session.status = StockCountSession.Status.POSTED
+                session.posted_at = timezone.now()
+                session.save(update_fields=["status", "posted_at"])
+            return Response(self.get_serializer(session).data)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="stock_count_post",
+            build=_run,
+        )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):

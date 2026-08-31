@@ -92,17 +92,20 @@ export const listGatewayPayments = (paymentLink?: number) =>
   );
 
 export async function listGatewayPaymentsPage(
-  params?: PageParams & { paymentLink?: number },
+  params?: PageParams & { paymentLink?: number; status?: string },
 ): Promise<PageResult<Record<string, unknown>>> {
-  const { paymentLink, ...pageParams } = params ?? {};
+  const { paymentLink, status, ...pageParams } = params ?? {};
   const query = {
     ...pageParams,
     ...(paymentLink != null ? { payment_link: String(paymentLink) } : {}),
+    ...(status ? { status } : {}),
   };
   return fetchPage<Record<string, unknown>>('/payments/gateway-payments/', query);
 }
 export const refundGatewayPayment = (id: number, payload?: { amount?: number; reason?: string }) =>
   apiClient.post(`/payments/gateway-payments/${id}/refund/`, payload ?? {}).then(({ data }) => unwrapData(data));
+export const retryGatewayPaymentBooks = (id: number) =>
+  apiClient.post(`/payments/gateway-payments/${id}/retry-books/`).then(({ data }) => unwrapData(data));
 export async function listBankStatements(params?: Record<string, string>): Promise<Record<string, unknown>[]> {
   return fetchMoneyListFirstPage<Record<string, unknown>>('/payments/statements/', params);
 }

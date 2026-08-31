@@ -2,7 +2,7 @@
 
 **Audience:** Cursor Agent, Cursor Cloud Agent, or a human following the same tickets.  
 **Companion:** [`WAVES_0_ABCD_CURSOR_IMPLEMENTATION_PLAN.md`](WAVES_0_ABCD_CURSOR_IMPLEMENTATION_PLAN.md). **Do 0–D / P0 first** unless the [PM waiver](#pm-waiver--enablement-only-books--ai-during-0d) is signed.  
-**Date:** 2026-08-30 · **Revised:** 2026-08-30 (rigor review)  
+**Date:** 2026-08-30 · **Revised:** 2026-08-31 (Wave L retired → Wave P; merge target `main`)  
 **Code + tests win.** Update this file in the same PR if they disagree.
 
 Phases 1–7 are **mostly in code**. These waves are enablement, honesty, SaaS entitlement, and charter-gated unfreeze — not a rebuild.
@@ -29,7 +29,7 @@ Stop when DoD is met.
 
 **Integrator:** `docs/roadmap/ticket-logs/INTEGRATOR.md` — not “PM until §0.5”. §0.5 has been open since 2026-08-21.
 
-**Charters (H–L, J, K):** copy [`charters/_TEMPLATE.md`](_TEMPLATE.md) (path: `docs/roadmap/charters/_TEMPLATE.md`). Wave **L** also needs ≥3 rows in [`charters/demand-log.md`](demand-log.md) unless the charter records a PM exception.
+**Charters (H–K):** copy [`charters/_TEMPLATE.md`](_TEMPLATE.md) (path: `docs/roadmap/charters/_TEMPLATE.md`). **Wave L is retired** — demand-gated India Stack tickets live in [`WAVES_M_TO_S_CURSOR_IMPLEMENTATION_PLAN.md`](WAVES_M_TO_S_CURSOR_IMPLEMENTATION_PLAN.md) Wave P (`P-01`…`P-06c`) and still need ≥3 rows in [`charters/demand-log.md`](demand-log.md) unless the charter records a PM exception.
 
 **Bug-fix track** (`BUG-*`) does **not** wait for a charter. It applies to dark/flagged tenants already in the tree.
 
@@ -1654,9 +1654,22 @@ CRM convert UAT. Blockers are BUG-CRM-* not a new charter.
 
 ---
 
-# Wave L — Demand-gated
+# Wave L — Demand-gated (**retired → Wave P**)
 
-**Bar:** `charters/demand-log.md` **≥3 paying written requests** for that L-id, then `_TEMPLATE.md` charter. Exception: PM one-liner in the charter. This is not “never.”
+> **Moved to `WAVES_M_TO_S_CURSOR_IMPLEMENTATION_PLAN.md` Wave P.** Each L-id is a real ticket
+> there (P-01…P-06c), with the same bar. This table is an id map only. **Do the work from Wave P.**
+> L-06 is split into P-06a (ONDC) / P-06b (DigiLocker) / P-06c (eSign), one demand-log each.
+
+**Bar:** `charters/demand-log.md` **≥3 paying written requests** for that P-id, then `_TEMPLATE.md` charter. Exception: PM one-liner in the charter. This is not “never.”
+
+| L-id | Wave P ticket |
+|---|---|
+| L-01 → | P-01 live AA bank feed |
+| L-02 → | P-02 second gateway |
+| L-03 → | P-03 GSTR-9/9C filing (also blocked on a named GSP annual product) |
+| L-04 → | P-04 iOS |
+| L-05 → | P-05 Busy / Zoho / Marg adapters |
+| L-06 → | P-06a ONDC · P-06b DigiLocker · P-06c eSign (separate demand-logs) |
 
 | ID | Topic | Agent notes |
 |---|---|---|
@@ -1670,9 +1683,10 @@ CRM convert UAT. Blockers are BUG-CRM-* not a new charter.
 ### Agent prompt
 
 ```
-If demand-log < 3 and no PM exception, BLOCKED.
-If charter missing, BLOCKED.
-Else implement only that L-id using 0–D contract.
+Do not implement any L-* ticket from this file.
+If asked to implement L-01..L-06, reply
+"BLOCKED — Wave L retired; use WAVES_M_TO_S Wave P (P-01..P-06c) plus charter + demand-log"
+and stop.
 ```
 
 ---
@@ -1686,7 +1700,7 @@ Else implement only that L-id using 0–D contract.
 | **F** | Tax refused; budget=0 off; pay-confirm WhatsApp; no AI CA copy in README. **F-06:** CA runs 10 client companies from one board; no query spans companies; isolation test green. |
 | **G** | Export disclaimer; WABA status; PAN not VALID in prod; locales beta or signed. |
 | **H–K** | Charter template filled; demo flags off. |
-| **L** | Demand-log ≥3 + charter. |
+| **L** | Retired. Work from Wave P (charter + demand-log ≥3). |
 
 ---
 
@@ -1699,6 +1713,7 @@ Agents: `ticket-logs/<ID>.md`. Integrator file: `ticket-logs/INTEGRATOR.md`.
 | 2026-08-30 | E–L authored |
 | 2026-08-30 | Rigor revision: 0–D ticket shape, P0 def, waiver, E-00, BUG-*, templates, demand-log |
 | 2026-08-30 | One-level-up review: F-06 Practice Console; F-04 consumes B-05; IMS/ITC + Attention Center live in 0-D B-03/B-05 |
+| 2026-08-31 | Wave L retired → WAVES_M_TO_S Wave P; merge target `main` |
 
 ---
 
@@ -1721,4 +1736,4 @@ Agents: `ticket-logs/<ID>.md`. Integrator file: `ticket-logs/INTEGRATOR.md`.
 | Pay run cancel reopens | BUG-J-04 |
 | PF / EPS | J-01 or keep frozen |
 | PT Kerala / unknown state | J-03 |
-| ONDC / iOS / GSTR-9 file | L-* + demand-log |
+| ONDC / iOS / GSTR-9 file | P-* in WAVES_M_TO_S + demand-log (L-* retired) |
