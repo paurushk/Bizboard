@@ -131,7 +131,21 @@ def test_tcs_sales_gl_206c(tenant_a):
         entry__source_id=draft["id"],
         account=tcs_acct,
     ).aggregate(c=Sum("credit"))["c"] or Decimal("0")
+    # Owner decision 2026-08-31: the explicit tcs_amount (1.00) overrides the
+    # rate-computed figure (0.100% of 1180 consideration = 1.18).
     assert credit == Decimal("1.00")
+
+    # The divergence is recorded on the COMPLETE audit event (trust layer).
+    from core.models import StatutoryDocumentEvent
+
+    ev = StatutoryDocumentEvent.objects.get(
+        company=tenant_a.company,
+        entity_type="sales_invoice",
+        entity_id=draft["id"],
+        event_type=StatutoryDocumentEvent.EventType.COMPLETE,
+    )
+    assert ev.payload["tcs_override"]["provided_amount"] == "1.00"
+    assert ev.payload["tcs_override"]["calculated_rate_amount"] == "1.18"
 
 
 def test_tds_worksheet_csv(tenant_a):

@@ -143,6 +143,9 @@ class SalesInvoice(DocumentTotalsModel):
     tcs_section = models.CharField(max_length=16, blank=True)
     tcs_rate = models.DecimalField(max_digits=6, decimal_places=3, default=0)
     tcs_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # True when the operator supplied tcs_amount explicitly — it then overrides the
+    # rate at Complete (owner decision 2026-08-31); a rate-only edit clears this.
+    tcs_amount_manual = models.BooleanField(default=False)
     # True once complete() folded tcs_amount into grand_total (avoid ledger double-count).
     tcs_in_grand_total = models.BooleanField(default=False)
 

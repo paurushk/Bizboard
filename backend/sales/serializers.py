@@ -234,6 +234,10 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         # used to unconditionally call next_number() on every single draft.)
         with transaction.atomic():
             invoice = SalesInvoice.objects.create(**validated_data)
+            # TCS: an explicit tcs_amount at create time overrides the rate (see update()).
+            if validated_data.get("tcs_amount"):
+                invoice.tcs_amount_manual = True
+                invoice.save(update_fields=["tcs_amount_manual"])
             # BB-000728: OWNER price-list override needs membership role.
             cu = get_company_user(self.context["request"])
             invoice._price_role = getattr(cu, "role", None) if cu else None
@@ -329,6 +333,14 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
                     new_value=validated_data[fld],
                     user=request.user,
                 )
+
+        # TCS: an operator-supplied tcs_amount overrides the rate at Complete
+        # (owner decision 2026-08-31). Remember which one it is; a rate-only edit
+        # (tcs_rate present, tcs_amount absent) reverts to rate-computed.
+        if "tcs_amount" in validated_data:
+            instance.tcs_amount_manual = bool(validated_data.get("tcs_amount"))
+        elif "tcs_rate" in validated_data:
+            instance.tcs_amount_manual = False
 
         instance = super().update(instance, validated_data)
         user = self.context["request"].user

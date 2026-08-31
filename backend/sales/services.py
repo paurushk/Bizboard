@@ -68,30 +68,58 @@ def _validate_lines(items_data, company, *, check_active=True):
 
 
 def apply_tcs_fold(invoice) -> None:
-    """Recompute TCS on consideration (taxable + GST) and fold into grand_total.
+    """Fold TCS into grand_total. 206C(1H) is levied on sale consideration.
 
-    206C(1H) is levied on sale consideration. Unfold any prior fold first so
-    amend / complete is idempotent and credit-limit sees the TCS-inclusive total.
+    Precedence (owner decision 2026-08-31): an operator-supplied ``tcs_amount``
+    that has **not** yet been system-folded wins over the rate — a CA / portal
+    reconciliation may pass a specific figure (rounding adjustment, collection
+    notice). The rate only auto-computes ``tcs_amount`` when none was supplied,
+    or on a re-fold of a prior system computation. When an override diverges
+    from the rate result, both figures are recorded on ``invoice._tcs_override``
+    for the COMPLETE audit event. Unfold any prior fold first so amend/complete
+    stays idempotent and credit-limit sees the TCS-inclusive total.
     """
     two = Decimal("0.01")
     prior = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
-    if getattr(invoice, "tcs_in_grand_total", False) and prior:
+    already_folded = bool(getattr(invoice, "tcs_in_grand_total", False)) and prior > 0
+    if already_folded:
         invoice.grand_total = (Decimal(str(invoice.grand_total or 0)) - prior).quantize(two)
         invoice.tcs_in_grand_total = False
+
     tcs_rate = Decimal(str(getattr(invoice, "tcs_rate", 0) or 0))
-    if tcs_rate > 0:
-        consideration = (
-            Decimal(str(invoice.taxable_total or 0))
-            + Decimal(str(invoice.cgst_total or 0))
-            + Decimal(str(invoice.sgst_total or 0))
-            + Decimal(str(invoice.igst_total or 0))
-            + Decimal(str(getattr(invoice, "cess_total", 0) or 0))
-        )
-        invoice.tcs_amount = (consideration * tcs_rate / Decimal("100")).quantize(two)
-    elif prior > 0:
-        invoice.tcs_amount = prior
+    consideration = (
+        Decimal(str(invoice.taxable_total or 0))
+        + Decimal(str(invoice.cgst_total or 0))
+        + Decimal(str(invoice.sgst_total or 0))
+        + Decimal(str(invoice.igst_total or 0))
+        + Decimal(str(getattr(invoice, "cess_total", 0) or 0))
+    )
+    rate_amount = (
+        (consideration * tcs_rate / Decimal("100")).quantize(two) if tcs_rate > 0 else Decimal("0")
+    )
+
+    invoice._tcs_override = None
+    manual = bool(getattr(invoice, "tcs_amount_manual", False))
+    if manual and prior > 0:
+        # Operator-supplied amount — wins over the rate on every fold pass,
+        # including a re-fold after a prior system fold (already_folded).
+        explicit = prior
+    else:
+        explicit = prior if (prior > 0 and not already_folded and not manual) else None
+    if explicit is not None:
+        invoice.tcs_amount = explicit
+        if tcs_rate > 0 and rate_amount != explicit:
+            invoice._tcs_override = {
+                "provided_amount": str(explicit),
+                "calculated_rate_amount": str(rate_amount),
+                "tcs_rate": str(tcs_rate),
+                "consideration": str(consideration),
+            }
+    elif tcs_rate > 0:
+        invoice.tcs_amount = rate_amount
     else:
         invoice.tcs_amount = Decimal("0")
+
     if invoice.tcs_amount:
         invoice.grand_total = (Decimal(str(invoice.grand_total or 0)) + invoice.tcs_amount).quantize(two)
         invoice.tcs_in_grand_total = True
@@ -923,12 +951,15 @@ class SalesService:
             emit("sales_invoice.completed", invoice=invoice, user=user)
             from core.models import StatutoryDocumentEvent, log_statutory_event
 
+            _complete_payload = {"number": invoice.number, "grand_total": str(invoice.grand_total)}
+            if getattr(invoice, "_tcs_override", None):
+                _complete_payload["tcs_override"] = invoice._tcs_override
             log_statutory_event(
                 company=invoice.company,
                 entity_type="sales_invoice",
                 entity_id=invoice.pk,
                 event_type=StatutoryDocumentEvent.EventType.COMPLETE,
-                payload={"number": invoice.number, "grand_total": str(invoice.grand_total)},
+                payload=_complete_payload,
                 user=user,
             )
         else:
