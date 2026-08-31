@@ -391,3 +391,48 @@ Post-fix verification (from `web/`): `tsc -b --noEmit --force` **clean**; `eslin
 | 5.1–5.2 | Re-verifying the prior UX/E2E findings (dashboard money consistency, session-expiry rescue, Hindi KPI i18n, POS orphan-draft cleanup) needs the running app + a Playwright pass. |
 | 6.1 | RLS soak / a CI guard that every `CompanyScopedModel` queryset is tenant-scoped — infra task. |
 | 7.3 | Add `.python-version` / `requires-python` — trivial, but pairs with the §1.1 decision on which interpreter. |
+
+---
+
+## 11. Backend suite baseline — `wip/waves-0-abcd` (2026-08-31)
+
+The WIP was moved off `main` to `wip/waves-0-abcd` (`b5226f8`), pushed to origin.
+Backend tests now run in Docker (`docker compose --profile test`, `python:3.12`
+image, no host venv). **Postgres run: `944 passed · 25 failed · 3 skipped` (24 min).**
+
+Of the 25 failures:
+
+- **~17 are container-only false negatives** — repo-layout tests
+  (`assert (REPO/"web"/"nginx.conf").is_file()`, `docker-compose.yml`,
+  `mobile/AndroidManifest.xml`, `.github/workflows/cd.yml`, `README.md`, …). The
+  backend-only image can't see them; CI's full checkout runs them fine. Not code
+  defects. The `test` compose service documents this.
+- **1 fixed** — `test_tcs_sales_gl_206c` (`af52ccd`, see §2.5 / commit).
+- **2 stale tests** (WIP changed the code on purpose): `test_pdf_download_enqueues_when_failed`
+  (+ orphan sibling) — `generate_invoice_pdf.delay` gained a `company_id=` kwarg;
+  `test_gsp_live_without_creds_raises` — GSP error text changed to "Live GSP
+  credentials are empty.". Both fixes are 1-line test-assertion updates.
+- **1 real WIP bug** — `test_void_opening_stock_import_allows_reimport`: the new
+  `inventory/0013_w0_08_opening_stock_unique` partial unique index blocks a
+  legitimate re-import after a void. Fix: add `import_voided=False` to the index
+  condition, or make void hard-delete the OPENING_STOCK movements.
+- **1 behavior decision** — `test_webhook_rejected_after_invoice_cancel`: a
+  verified gateway capture against a CANCELLED invoice. Old behavior rejected at
+  the webhook (400). W0-03 gateway-holding now parks unbookable captures as
+  `CAPTURED_PENDING_BOOKS` (200) so a signed capture is never dropped. Decide:
+  reject vs park-and-reconcile (+ refund).
+- **2 env/flaky** — `test_customer_statement_running_balance` (passes SQLite,
+  fails Postgres; `ledgers.customer_statement` sorts same-date rows by a
+  per-table `reference_id` pk — meaningless cross-table tiebreak; the sort line
+  is unchanged since `ae3202d`, so pre-existing). `test_bb_000668_export_restore_sandbox_totals_match`
+  — restore returns 500 on Postgres only (passed clean on SQLite); needs a
+  Postgres repro; not caused by the §2.1 `file_asset_warnings` change (restore
+  reads the payload via `.get()`).
+
+**Other CI gates the branch fails:**
+- `ruff check .` → **96 errors** (93 `ruff check --fix`-able — mostly `F401`
+  unused imports in the new `test_*` / IMS / attention files).
+- `makemigrations --check` → **4 missing migrations**: `insights`, `inventory`,
+  `payments`, `reporting` — Django index auto-name renames + `Alter field` on the
+  new choice fields (`gstr2bingest.chase_status/ims_action/match_class`,
+  `shopfloorevent.event`). `sales/0042` (this pass's TCS field) **is** complete.
