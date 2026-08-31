@@ -94,5 +94,5 @@ def test_gsp_live_without_creds_raises(tenant_a):
     company.gsp_credentials_encrypted = ""
     adapter = get_irp_adapter(company)
     assert isinstance(adapter, LiveIrpAdapter)
-    with pytest.raises(BusinessRuleError, match="not configured"):
+    with pytest.raises(BusinessRuleError, match="credentials are empty"):
         adapter.submit({})

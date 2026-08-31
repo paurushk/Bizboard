@@ -148,6 +148,15 @@ def api_exception_handler(exc, context):
 
     response = drf_exception_handler(exc, context)
     if response is None:
+        # Unhandled exception — DRF/Django would normally log this via
+        # `django.request`, but returning our own Response here suppresses that.
+        # Log it (with the traceback) so a production 500 is never silent.
+        import logging
+
+        _view = getattr(context.get("view", None), "__class__", None)
+        logging.getLogger("django.request").exception(
+            "Unhandled exception in %s", getattr(_view, "__name__", "API view")
+        )
         return Response(
             {
                 "success": False,

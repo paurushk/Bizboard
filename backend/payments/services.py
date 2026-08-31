@@ -1314,19 +1314,35 @@ class PaymentService:
                 }
             )
 
-        holding_n = GatewayPayment.objects.filter(
+        holding_qs = GatewayPayment.objects.filter(
             company=company, status=GatewayPaymentStatus.CAPTURED_PENDING_BOOKS
+        )
+        holding_n = holding_qs.count()
+        # INVOICE_CANCELLED / LINK_CANCELLED holds can never post to books — the
+        # customer must be refunded, not "retried".
+        terminal_n = holding_qs.filter(
+            holding_reason__in=("INVOICE_CANCELLED", "LINK_CANCELLED")
         ).count()
         if holding_n:
+            retry_n = holding_n - terminal_n
+            bits = []
+            if retry_n:
+                bits.append(
+                    f"{retry_n} paid at the provider but not posted to books — retry from "
+                    "Payment links or wait for period reopen"
+                )
+            if terminal_n:
+                bits.append(
+                    f"{terminal_n} paid at the provider against a cancelled invoice/link — "
+                    "refund the customer"
+                )
             alerts.append(
                 {
                     "code": "GATEWAY_CAPTURE_HOLDING",
                     "severity": "critical",
-                    "message": (
-                        f"{holding_n} gateway capture(s) are paid at the provider but not "
-                        "posted to books — retry from Payment links or wait for period reopen."
-                    ),
+                    "message": f"{holding_n} gateway capture(s): " + "; ".join(bits) + ".",
                     "count": holding_n,
+                    "refund_needed": terminal_n,
                 }
             )
 

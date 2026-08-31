@@ -343,22 +343,18 @@ class InventoryService:
             if to_update:
                 StockBalance.objects.bulk_update(to_update, ["on_hand"], batch_size=500)
 
-            InventoryRunningCost.objects.bulk_create(
-                [
-                    InventoryRunningCost(
-                        company=company,
-                        warehouse=warehouse,
-                        product=product,
-                        batch=None,
-                        qty=quantity,
-                        value=quantity * Decimal(str(unit_cost or 0)),
-                        created_by=user,
-                        updated_by=user,
-                    )
-                    for product, quantity, unit_cost in prepared
-                ],
-                batch_size=500,
-            )
+            # W0-06: maintain the perpetual WAVG row via the shared applier, not a
+            # blind bulk_create — a re-import after a voided opening lands on the
+            # (zeroed) existing row instead of colliding with its unique constraint.
+            for product, quantity, unit_cost in prepared:
+                InventoryService._apply_running_cost(
+                    company=company,
+                    warehouse=warehouse,
+                    product=product,
+                    batch=None,
+                    delta=quantity,
+                    unit_cost=unit_cost,
+                )
 
             method = getattr(company, "inventory_valuation_method", "WAVG") or "WAVG"
             if method == "FIFO":

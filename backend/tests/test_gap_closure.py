@@ -101,8 +101,12 @@ def test_payment_link_cancels_when_invoice_cancelled(tenant_a):
     assert link.status == PaymentLinkStatus.CANCELLED
 
 
-def test_webhook_rejected_after_invoice_cancel(tenant_a):
-    from payments.models import CustomerReceipt, PaymentLinkStatus
+def test_webhook_capture_after_invoice_cancel_parks_and_alerts(tenant_a):
+    """Owner decision 2026-09-01: a verified capture against a CANCELLED invoice is
+    never dropped — the webhook 200s, the capture is parked as
+    CAPTURED_PENDING_BOOKS (no receipt posted), and a health alert surfaces it
+    for refund."""
+    from payments.models import CustomerReceipt, GatewayPayment, GatewayPaymentStatus, PaymentLinkStatus
     from payments.services import PaymentService
     from sales.services import SalesService
     from tests.test_phase3_payments import _complete_invoice, _post_sandbox_webhook
@@ -124,8 +128,18 @@ def test_webhook_rejected_after_invoice_cancel(tenant_a):
         "payment_link_id": link.provider_link_id,
     }
     wh = _post_sandbox_webhook(tenant_a.client, tenant_a.company.id, body)
-    assert wh.status_code == 400
+    assert wh.status_code == 200, wh.data
+
+    gp = GatewayPayment.objects.get(company=tenant_a.company, provider_payment_id="pay_cancelled_inv")
+    assert gp.status == GatewayPaymentStatus.CAPTURED_PENDING_BOOKS
+    # Cancelling the invoice also cancels its link, so the webhook trips the
+    # LINK_CANCELLED guard first; INVOICE_CANCELLED covers a live-link edge case.
+    assert gp.holding_reason in ("LINK_CANCELLED", "INVOICE_CANCELLED")
+    # Nothing hit the books.
     assert CustomerReceipt.objects.filter(company=tenant_a.company).count() == 0
+    # And it is surfaced for the owner to refund.
+    health = PaymentService.payment_health(company=tenant_a.company)
+    assert any(a["code"] == "GATEWAY_CAPTURE_HOLDING" for a in health["alerts"])
 
 
 def test_pan_udyam_verify_soft_fail(tenant_a):

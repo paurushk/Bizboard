@@ -175,7 +175,7 @@ def test_pdf_download_enqueues_when_failed(tenant_a):
         assert "retry shortly" in download.data["detail"].lower()
         assert download.data["pdf_status"] == "QUEUED"
         mock_gen.assert_not_called()
-        mock_gen.delay.assert_called_once_with(inv.pk)
+        mock_gen.delay.assert_called_once_with(inv.pk, company_id=inv.company_id)
 
 
 def test_pdf_download_enqueues_orphan_ready_without_file(tenant_a):
@@ -193,7 +193,7 @@ def test_pdf_download_enqueues_orphan_ready_without_file(tenant_a):
         download = tenant_a.client.get(f"/api/v1/sales/invoices/{data['id']}/pdf/")
         assert download.status_code == 409, download.data
         assert download.data["pdf_status"] == "QUEUED"
-        mock_gen.delay.assert_called_once_with(inv.pk)
+        mock_gen.delay.assert_called_once_with(inv.pk, company_id=inv.company_id)
 
 
 def test_header_patch_preserves_line_snapshots(tenant_a):

@@ -97,6 +97,24 @@ _ALLOC_PREFETCH = Prefetch(
 
 OPEN_SALES_STATUSES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
 
+# Same-date statement ordering: charges (invoices / debit notes) before value
+# relief (returns / credit notes) before settlement (receipts / payments), then
+# by id. reference_id alone is a per-table pk and diverges between Postgres and
+# SQLite sequences, so it is not a stable cross-type tiebreak on its own
+# (test_customer_statement_running_balance).
+_STMT_TYPE_ORDER = {
+    "SALES_INVOICE": 0, "SALES_DEBIT_NOTE": 0,
+    "SALES_CREDIT_NOTE": 1,
+    "RECEIPT": 2,
+    "PURCHASE_INVOICE": 0, "PURCHASE_DEBIT_NOTE": 0,
+    "PURCHASE_RETURN": 1, "PURCHASE_CREDIT_NOTE": 1,
+    "PAYMENT": 2,
+}
+
+
+def _stmt_sort_key(e):
+    return (e["date"], _STMT_TYPE_ORDER.get(e["type"], 9), e["reference_id"])
+
 
 def _sum(qs, field="amount") -> Decimal:
     return qs.aggregate(total=Sum(field))["total"] or Decimal("0")
@@ -439,7 +457,7 @@ class LedgerService:
                 "unallocated": unallocated,
             })
 
-        entries.sort(key=lambda e: (e["date"], e["reference_id"]))
+        entries.sort(key=_stmt_sort_key)
         # BB-000098/289: opening from pre-range activity, then filter the window.
         opening = Decimal("0")
         if date_from:
@@ -749,7 +767,7 @@ class LedgerService:
                 "unallocated": unallocated,
             })
 
-        entries.sort(key=lambda e: (e["date"], e["reference_id"]))
+        entries.sort(key=_stmt_sort_key)
         # BB-000098/289: opening from pre-range activity, then filter the window.
         opening = Decimal("0")
         if date_from:
