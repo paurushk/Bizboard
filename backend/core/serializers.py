@@ -36,7 +36,7 @@ class FileAssetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FileAsset
-        fields = ["id", "kind", "file", "url", "original_name", "content_type", "size", "created_at"]
+        fields = ["id", "kind", "url", "original_name", "content_type", "size", "created_at"]
         read_only_fields = ["original_name", "content_type", "size"]
 
     def get_url(self, obj):

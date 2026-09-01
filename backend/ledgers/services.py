@@ -324,7 +324,7 @@ class LedgerService:
             )
             for row in rows:
                 nets[row["customer_id"]] += (row["d"] or Decimal("0")) - (row["c"] or Decimal("0"))
-            return dict(nets)
+            return {k: max(Decimal("0"), v) for k, v in nets.items()}
         invoices = dict(
             SalesInvoice.objects.filter(company=company, status__in=OPEN_SALES_STATUSES)
             .values("customer_id")

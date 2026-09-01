@@ -44,10 +44,15 @@ def enhance_bill_image(raw: bytes) -> Image.Image | None:
     """Decode, autocontrast, and upscale so a 19-col table is high-detail."""
     if Image is None or not raw:
         return None
+    Image.MAX_IMAGE_PIXELS = 40_000_000
     try:
         image = Image.open(BytesIO(raw))
         image.load()
+    except Image.DecompressionBombError:
+        return None
     except Exception:  # noqa: BLE001 — unreadable bytes fall back to the original
+        return None
+    if image.width * image.height > 40_000_000:
         return None
     image = _to_rgb(image)
     if ImageOps is not None:

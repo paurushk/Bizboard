@@ -115,6 +115,18 @@ if DJANGO_ENV in ("production", "staging") or _env_bool("DJANGO_FAIL_FAST_SECRET
             "(invoice/share email must not use the console backend)."
         )
 
+_non_local_hosts = any(not _is_local_allowed_host(h) for h in ALLOWED_HOSTS)
+if not DEBUG and _non_local_hosts and DJANGO_ENV not in ("test",):
+    if (
+        not os.environ.get("DJANGO_SECRET_KEY")
+        or SECRET_KEY in _KNOWN_PLACEHOLDER_SECRETS
+        or len(SECRET_KEY) < 40
+    ):
+        raise ImproperlyConfigured(
+            "Set a strong, unique DJANGO_SECRET_KEY (40+ chars) when DEBUG=0 and "
+            "ALLOWED_HOSTS includes a non-local host."
+        )
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -467,6 +479,11 @@ OTP_ENABLED = _env_bool("OTP_ENABLED")
 OTP_PEPPER = os.environ.get("OTP_PEPPER") or SECRET_KEY
 # Default console stub; set SMS_PROVIDER=off to disable OTP in locked-down deploys.
 SMS_PROVIDER = (os.environ.get("SMS_PROVIDER") or "console").strip().lower()
+if DJANGO_ENV in ("production", "staging") and OTP_ENABLED and SMS_PROVIDER in ("", "console", "stub"):
+    raise ImproperlyConfigured(
+        "SMS_PROVIDER must be msg91 or twilio when OTP_ENABLED=1 in production/staging "
+        "(or set SMS_PROVIDER=off and OTP_ENABLED=0)."
+    )
 # Docs off by default when not DEBUG; enable explicitly in locked-down envs if needed.
 ENABLE_API_DOCS = _env_bool("ENABLE_API_DOCS", "1" if DEBUG else "0")
 # Tally HTTP gateway URL for XML push adapter (optional).
@@ -748,4 +765,9 @@ JSON_REQUEST_LOGS = _env_bool("JSON_REQUEST_LOGS", "1")
 
 # D-01: multi-membership without active_company → 409 COMPANY_REQUIRED.
 # Emergency: AUTO_PICK_COMPANY_ON_EMPTY=1 restores silent memberships[0].
+# Forbidden in production/staging — wrong-tenant writes.
 AUTO_PICK_COMPANY_ON_EMPTY = _env_bool("AUTO_PICK_COMPANY_ON_EMPTY")
+if AUTO_PICK_COMPANY_ON_EMPTY and DJANGO_ENV in ("production", "staging"):
+    raise ImproperlyConfigured(
+        "AUTO_PICK_COMPANY_ON_EMPTY cannot be enabled when DJANGO_ENV is production or staging."
+    )

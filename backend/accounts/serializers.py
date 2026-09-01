@@ -132,6 +132,8 @@ class CompanySerializer(serializers.ModelSerializer):
             "block_expired_stock",
             "stock_on_delivery_challan", "accounting_enabled",
             "outstanding_basis",
+            "books_start_date",
+            "doc_number_scope",
             "payroll_pt_slabs",
             "item_custom_field_defs",
             "dunning_enabled", "dunning_days", "dunning_max_reminders",
@@ -150,6 +152,7 @@ class CompanySerializer(serializers.ModelSerializer):
             "gsp_credentials_configured",
             # BB-000215 / BB-000216: compliance / books enablement is not client-writable.
             "einvoice_enabled", "aato_turnover", "accounting_enabled",
+            "ai_features_enabled", "ai_monthly_token_budget",
             # BB-000259 / BB-000286 / BB-000573: gateway + e-Way/GSP mutate only via gated settings.
             "payment_gateway_provider", "payment_gateway_test_mode",
             "eway_enabled", "gsp_provider",
@@ -469,14 +472,20 @@ class CompanyGstinSerializer(serializers.ModelSerializer):
         return gstin
 
     def create(self, validated_data):
+        from django.db import transaction
+
         company = validated_data["company"]
-        if validated_data.get("is_primary"):
-            CompanyGstin.objects.filter(company=company, is_primary=True).update(is_primary=False)
-        return super().create(validated_data)
+        with transaction.atomic():
+            if validated_data.get("is_primary"):
+                CompanyGstin.objects.select_for_update().filter(company=company, is_primary=True).update(is_primary=False)
+            return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        if validated_data.get("is_primary"):
-            CompanyGstin.objects.filter(company=instance.company, is_primary=True).exclude(
-                pk=instance.pk
-            ).update(is_primary=False)
-        return super().update(instance, validated_data)
+        from django.db import transaction
+
+        with transaction.atomic():
+            if validated_data.get("is_primary"):
+                CompanyGstin.objects.select_for_update().filter(company=instance.company, is_primary=True).exclude(
+                    pk=instance.pk
+                ).update(is_primary=False)
+            return super().update(instance, validated_data)

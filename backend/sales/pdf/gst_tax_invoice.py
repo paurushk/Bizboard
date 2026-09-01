@@ -104,6 +104,10 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
 
     company = invoice.company
     customer = invoice.customer
+    stamp = getattr(invoice, "company_gstin", None)
+    seller_gstin = (getattr(stamp, "gstin", None) or "") if stamp is not None else (company.gstin or "")
+    seller_name = (getattr(stamp, "legal_name", None) or "") if stamp is not None else ""
+    seller_name = seller_name or company.name
     items = list(invoice.items.select_related("product", "product__unit").all())
     styles = build_styles()
     show_tax = invoice.invoice_type != invoice.InvoiceType.NON_GST
@@ -116,7 +120,8 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     try:
         balance = LedgerService.sales_invoice_outstanding(invoice)
         received = max(invoice.grand_total - balance, Decimal("0"))
-    except Exception:
+    except (TypeError, ValueError, ArithmeticError) as exc:
+        logger.warning("Invoice %s ledger outstanding failed: %s", invoice.pk, exc)
         received = allocated
         balance = max(invoice.grand_total - received, Decimal("0"))
 
@@ -145,12 +150,21 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             seller_bits.append(Spacer(1, 1 * mm))
         except (OSError, ValueError, TypeError) as exc:
             logger.warning("Skipping invoice logo: %s", exc)
-    seller_bits.append(Paragraph(pdf_esc(company.name), styles["company_name"]))
-    if company.gstin:
-        seller_bits.append(Paragraph(f"GSTIN: {pdf_esc(company.gstin)}", styles["meta"]))
+    seller_bits.append(Paragraph(pdf_esc(seller_name), styles["company_name"]))
+    if seller_gstin:
+        seller_bits.append(Paragraph(f"GSTIN: {pdf_esc(seller_gstin)}", styles["meta"]))
     if company.phone:
         seller_bits.append(Paragraph(f"Mobile: {company.phone}", styles["meta"]))
-    addr = _company_address(company)
+    addr = ""
+    if stamp is not None:
+        bits = [
+            (getattr(stamp, "address", None) or "").strip(),
+            (getattr(stamp, "city", None) or "").strip(),
+            (getattr(stamp, "pincode", None) or "").strip(),
+        ]
+        addr = ", ".join(b for b in bits if b)
+    if not addr:
+        addr = _company_address(company)
     if addr:
         for line in addr.split("\n"):
             seller_bits.append(Paragraph(line, styles["meta"]))
@@ -174,6 +188,9 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             styles["meta"],
         ),
     ]
+    pos = (getattr(invoice, "filing_place_of_supply", None) or "").strip()
+    if pos:
+        right_col.append(Paragraph(f"<b>Place of Supply</b> {pdf_esc(pos)}", styles["meta"]))
     if getattr(invoice, "due_date", None):
         right_col.append(
             Paragraph(
@@ -197,15 +214,16 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     # ---- Bill To / Ship To ----
     bill_addr = customer.billing_address or ""
     ship_addr = customer.shipping_address or customer.billing_address or ""
+    buyer_gstin = (getattr(invoice, "filing_party_gstin", None) or "").strip() or (customer.gstin or "")
     parties = Table(
         [[
             _party_block(
                 styles, "BILL TO", customer.name, bill_addr,
-                customer.gstin or "", customer.phone or "",
+                buyer_gstin, customer.phone or "",
             ),
             _party_block(
                 styles, "SHIP TO", customer.name, ship_addr,
-                customer.gstin or "", customer.phone or "",
+                buyer_gstin, customer.phone or "",
             ),
         ]],
         colWidths=[93 * mm, 93 * mm],
@@ -236,7 +254,12 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
         total_amount = Decimal("0")
         for idx, item in enumerate(items, start=1):
             total_qty += Decimal(item.quantity)
-            line_tax = Decimal(item.cgst or 0) + Decimal(item.sgst or 0) + Decimal(item.igst or 0)
+            line_tax = (
+                Decimal(item.cgst or 0)
+                + Decimal(item.sgst or 0)
+                + Decimal(item.igst or 0)
+                + Decimal(getattr(item, "cess", 0) or 0)
+            )
             total_tax += line_tax
             total_amount += Decimal(item.line_total or 0)
             unit = (item.unit_name or "PCS").upper()
@@ -413,8 +436,15 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     additional_charges = Decimal(getattr(invoice, "additional_charges", 0) or 0)
     invoice_discount = Decimal(getattr(invoice, "invoice_discount", 0) or 0)
     if additional_charges:
+        from core.services.charges import charges_are_taxable as _charges_taxable
+
+        charge_label = (
+            "Additional Charges (taxable)"
+            if _charges_taxable(invoice)
+            else "Additional Charges (non-taxable)"
+        )
         right_rows.append([
-            Paragraph("Additional Charges (non-taxable)", styles["total_label"]),
+            Paragraph(charge_label, styles["total_label"]),
             Paragraph(format_money(additional_charges), styles["total_value"]),
         ])
     if show_tax:
@@ -445,6 +475,12 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
         right_rows.append([
             Paragraph("Round Off", styles["total_label"]),
             Paragraph(format_money(invoice.round_off), styles["total_value"]),
+        ])
+    tcs_amt = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
+    if tcs_amt:
+        right_rows.append([
+            Paragraph("TCS", styles["total_label"]),
+            Paragraph(format_money(tcs_amt), styles["total_value"]),
         ])
     right_rows.append([
         Paragraph("TOTAL", styles["grand"]),

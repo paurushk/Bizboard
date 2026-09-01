@@ -103,7 +103,7 @@ def test_holding_gateway_capture_not_dunned(tenant_a):
         provider="sandbox",
         provider_payment_id="pay_dunning_hold",
         amount=invoice.grand_total,
-        status=GatewayPaymentStatus.CAPTURED,
+        status=GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
         payment_link=link,
     )
     midday = datetime(2026, 8, 31, 12, 0, tzinfo=IST)

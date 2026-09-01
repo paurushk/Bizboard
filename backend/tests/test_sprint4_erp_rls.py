@@ -11,7 +11,7 @@ from accounting.models import JournalEntry
 from core.rls import set_rls_company
 from inventory.models import MovementType, StockBalance, StockMovement
 from inventory.services import InventoryService
-from payroll.models import Employee, PayRun
+from payroll.models import Employee, PayRun, PaySlip
 from tests.conftest import add_stock, make_product
 
 pytestmark = pytest.mark.django_db
@@ -192,6 +192,32 @@ def test_cancel_pay_run_reverses_journal_and_reopens_draft(tenant_a):
         company=tenant_a.company, source_type="PayRun", source_id=run_id, purpose="PAYROLL",
     )
     assert entry.status == JournalEntry.Status.REVERSED
+
+
+def test_lop_placeholder_keeps_salary_gross(tenant_a):
+    emp = Employee.objects.create(
+        company=tenant_a.company,
+        name="Pat",
+        code="LOP1",
+        salary=Decimal("30000"),
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+    created = tenant_a.client.post("/api/v1/payroll/pay-runs/", {"period": "2026-04"}, format="json")
+    run_id = _body(created)["id"]
+    lop = tenant_a.client.post(
+        f"/api/v1/payroll/pay-runs/{run_id}/lop/",
+        {"entries": [{"employee": emp.id, "paid_days": "20"}]},
+        format="json",
+    )
+    assert lop.status_code == 200, lop.data
+    slip = PaySlip.objects.get(pay_run_id=run_id, employee=emp)
+    assert Decimal(str(slip.gross)) == Decimal("30000")
+    assert Decimal(str(slip.paid_days)) == Decimal("20")
+    done = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/")
+    assert done.status_code == 200, done.data
+    slip.refresh_from_db()
+    assert Decimal(str(slip.gross)) == Decimal("20000.00")
 
 
 @override_settings(ENABLE_CRM=False)

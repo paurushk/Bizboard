@@ -404,6 +404,11 @@ def _apply_name_sku_maps(base: dict, edits: dict | None) -> dict:
 
 
 def commit_tally_preview(company, user, sync_run: IntegrationSyncRun, *, force: bool = False) -> dict:
+    with transaction.atomic():
+        return _commit_tally_preview_inner(company, user, sync_run, force=force)
+
+
+def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, force: bool = False) -> dict:
     if sync_run.company_id != company.id:
         raise BusinessRuleError("Tenant mismatch.")
     if sync_run.status == IntegrationSyncRun.Status.COMMITTED:

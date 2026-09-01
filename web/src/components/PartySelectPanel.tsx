@@ -1,3 +1,4 @@
+import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -7,6 +8,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import type { SxProps, Theme } from '@mui/material/styles';
 import { t } from '@/i18n';
+import { isValidGstin } from '@/utils/gst';
 
 export type PartyOption = {
   id: number;
@@ -33,6 +35,9 @@ export function PartySelectPanel<T extends PartyOption>({
   onEditPartyClick,
   onQuickCashClick,
   quickCashLabel = t('billing.walkInCustomerBtn'),
+  manualName,
+  onManualNameChange,
+  onUseManualName,
   sx,
 }: {
   label: string;
@@ -48,6 +53,9 @@ export function PartySelectPanel<T extends PartyOption>({
   onEditPartyClick?: () => void;
   onQuickCashClick?: () => void;
   quickCashLabel?: string;
+  manualName?: string;
+  onManualNameChange?: (value: string) => void;
+  onUseManualName?: () => void;
   sx?: SxProps<Theme>;
 }) {
   const address = selectedParty?.billingAddress ?? selectedParty?.address;
@@ -102,18 +110,25 @@ export function PartySelectPanel<T extends PartyOption>({
                   </Button>
                 ) : null}
                 <Button size="small" onClick={onClear}>
-                  Change
+                  {t('billing.changeParty')}
                 </Button>
               </Stack>
             ) : null}
           </Stack>
           {!selectedParty.state && !selectedParty.gstin && onEditPartyClick && editingStatus !== 'COMPLETED' ? (
-            <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>
-              ⚠️ State & GSTIN not set.{' '}
-              <Link component="button" type="button" variant="caption" onClick={onEditPartyClick}>
-                Add State / GSTIN
+            <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}>
+              {t('billing.stateGstinMissing')}{' '}
+              <Link component="button" type="button" variant="body2" onClick={onEditPartyClick}>
+                {t('billing.addStateGstin')}
               </Link>
-            </Typography>
+            </Alert>
+          ) : selectedParty.gstin && !isValidGstin(selectedParty.gstin) && onEditPartyClick && editingStatus !== 'COMPLETED' ? (
+            <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}>
+              {t('billing.invalidGstin')}{' '}
+              <Link component="button" type="button" variant="body2" onClick={onEditPartyClick}>
+                {t('common.edit')}
+              </Link>
+            </Alert>
           ) : null}
         </Stack>
       ) : (
@@ -133,10 +148,10 @@ export function PartySelectPanel<T extends PartyOption>({
               <TextField
                 {...params}
                 label={label}
-                placeholder="Search by customer name, phone, or GSTIN…"
+                placeholder={t('billing.searchPartyPlaceholder')}
                 helperText={
                   query.trim().length > 0 && query.trim().length < 2
-                    ? 'Type name or phone number'
+                    ? t('billing.typeNameOrPhone')
                     : undefined
                 }
               />
@@ -152,6 +167,33 @@ export function PartySelectPanel<T extends PartyOption>({
               </Button>
             ) : null}
           </Stack>
+          {onManualNameChange && onUseManualName ? (
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+              <TextField
+                size="small"
+                label={t('billing.orTypeCustomerName')}
+                value={manualName ?? ''}
+                onChange={(e) => onManualNameChange(e.target.value)}
+                placeholder={t('billing.walkInCashPlaceholder')}
+                fullWidth
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (manualName ?? '').trim()) {
+                    e.preventDefault();
+                    onUseManualName();
+                  }
+                }}
+              />
+              <Button
+                size="small"
+                variant="contained"
+                disabled={!(manualName ?? '').trim()}
+                onClick={onUseManualName}
+                sx={{ whiteSpace: 'nowrap' }}
+              >
+                {t('billing.useName')}
+              </Button>
+            </Stack>
+          ) : null}
         </Stack>
       )}
     </Box>

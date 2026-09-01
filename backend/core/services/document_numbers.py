@@ -267,6 +267,11 @@ class DocumentNumberService:
             n = int(next_number)
             if n < 1:
                 raise ValueError("Next number must be at least 1.")
+            max_existing = DocumentNumberService._max_existing_seq(company, doc_type, series.prefix)
+            if n <= max_existing:
+                raise ValueError(
+                    f"Next number must be greater than the highest existing document ({max_existing})."
+                )
             series.next_number = n
         if padding is not None:
             p = int(padding)

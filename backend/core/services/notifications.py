@@ -89,7 +89,10 @@ class NotificationService:
                 notification.error = str(exc)[:2000]
             notification.save(update_fields=["status", "error"])
         else:
-            # SMS / Push deferred to Phase 2 — record only.
-            notification.status = Notification.Status.QUEUED
-            notification.save(update_fields=["status"])
+            from core.exceptions import BusinessRuleError as _BRE
+
+            notification.status = Notification.Status.FAILED
+            notification.error = f"Channel {channel} is not implemented."
+            notification.save(update_fields=["status", "error"])
+            raise _BRE(f"Notification channel {channel} is not supported.")
         return notification

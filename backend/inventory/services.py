@@ -418,6 +418,11 @@ class InventoryService:
             use = cost if cost else avg
             value -= issue * use
             qty -= issue
+            if qty <= 0:
+                qty = Decimal("0")
+                value = Decimal("0")
+            elif value < 0:
+                value = Decimal("0")
         row.qty = qty
         row.value = value
         row.save(update_fields=["qty", "value", "updated_at"])
@@ -486,13 +491,25 @@ class InventoryService:
             MovementType.MANUFACTURE_RECEIPT,
             MovementType.ADJUSTMENT,
         ):
+            cost = Decimal(str(unit_cost or 0))
+            if cost <= 0 and movement_type == MovementType.ADJUSTMENT:
+                cost = Decimal(
+                    str(
+                        InventoryValuationService.unit_cost(
+                            company, product, warehouse=warehouse, batch=batch
+                        )
+                        or 0
+                    )
+                )
+                if cost <= 0:
+                    cost = Decimal(str(getattr(product, "purchase_price", 0) or 0))
             InventoryCostLayer.objects.create(
                 company=company,
                 warehouse=warehouse,
                 product=product,
                 batch=batch,
                 qty_remaining=delta,
-                unit_cost=Decimal(str(unit_cost or 0)),
+                unit_cost=cost,
                 source_movement=movement,
                 created_by=movement.created_by,
                 updated_by=movement.created_by,
@@ -586,6 +603,20 @@ class InventoryService:
                     .first()
                 )
                 if layer is None:
+                    qty = Decimal(str(peel.get("qty") or 0))
+                    if qty <= 0:
+                        continue
+                    InventoryCostLayer.objects.create(
+                        company=outbound_movement.company,
+                        warehouse=outbound_movement.warehouse,
+                        product=outbound_movement.product,
+                        batch=outbound_movement.batch,
+                        qty_remaining=qty,
+                        unit_cost=Decimal(str(peel.get("unit_cost") or outbound_movement.unit_cost or 0)),
+                        source_movement=inbound_movement,
+                        created_by=getattr(outbound_movement, "created_by", None),
+                        updated_by=getattr(outbound_movement, "created_by", None),
+                    )
                     continue
                 layer.qty_remaining += Decimal(str(peel.get("qty") or 0))
                 layer.save(update_fields=["qty_remaining", "updated_at"])
@@ -731,23 +762,8 @@ class InventoryService:
                     f"Insufficient batched stock for '{product.name}': available short {remaining}."
                 )
             if remaining > 0:
-                try:
-                    ub, _ = StockBalance.objects.get_or_create(
-                        company=company, warehouse=warehouse, product=product, batch=None
-                    )
-                except IntegrityError:
-                    ub = StockBalance.objects.get(
-                        company=company, warehouse=warehouse, product=product, batch=None
-                    )
-                ub = StockBalance.objects.select_for_update().get(pk=ub.pk)
-                available = ub.on_hand - ub.reserved
-                take = min(remaining, max(available, Decimal("0")))
-                if take > 0:
-                    ub.reserved = ub.reserved + take
-                    if ub.reserved > ub.on_hand:
-                        ub.reserved = max(ub.on_hand, Decimal("0"))
-                    ub.save(update_fields=["reserved"])
-            return None
+                # FEFO remainder stays unreserved rather than parking on unbatched stock.
+                return None
 
         try:
             balance, _ = StockBalance.objects.get_or_create(
@@ -990,6 +1006,9 @@ class StockTransferService:
         for line in lines:
             if line.quantity <= 0:
                 raise BusinessRuleError("Transfer quantities must be greater than zero.")
+            InventoryService.check_negative_stock(
+                transfer.company, line.product, line.quantity, transfer.from_warehouse, batch=line.batch
+            )
             if line.product.track_serial:
                 SerialNumberService.transition(
                     company=transfer.company, product=line.product, warehouse=transfer.from_warehouse,

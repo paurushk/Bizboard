@@ -18,6 +18,7 @@ import { CompactField, NumericField } from './NumericField';
 import type { DraftLine } from './types';
 import { t } from '@/i18n';
 import { formatMoney, roundMoney } from '@/utils/money';
+import { formatUnitLabel } from '@/constants/unitLabels';
 import type { LineTaxResult } from '@/utils/tax';
 import { unitSwitchPatch } from './lineHelpers';
 
@@ -183,13 +184,13 @@ export function DraftLineTable({
                         .filter((unit, index, all) => Boolean(unit) && all.indexOf(unit) === index)
                         .map((unit) => (
                           <MenuItem key={unit} value={unit}>
-                            {unit}
+                            {formatUnitLabel(unit)}
                           </MenuItem>
                         ))}
                     </TextField>
                   ) : (
                     <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-                      {line.unitName}
+                      {formatUnitLabel(line.unitName)}
                     </Typography>
                   )}
                 </Stack>

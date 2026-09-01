@@ -157,6 +157,7 @@ export function NewInvoicePage() {
   const userId = user?.id ?? 0;
   const barcodeRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const skipLeaveGuard = useRef(false);
 
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [productQuery, setProductQuery] = useState('');
@@ -284,8 +285,7 @@ export function NewInvoicePage() {
   }, [company.data, isEdit, invoiceTypeTouched]);
   const customers = useQuery({
     queryKey: ['customers-search', debouncedCustomerQuery],
-    queryFn: () => listCustomersPage({ q: debouncedCustomerQuery, pageSize: 50 }),
-    enabled: debouncedCustomerQuery.trim().length >= 2,
+    queryFn: () => listCustomersPage({ q: debouncedCustomerQuery.trim() || undefined, pageSize: 50 }),
   });
   const selectedCustomerQuery = useQuery({
     queryKey: ['customer', customerId],
@@ -706,9 +706,9 @@ export function NewInvoicePage() {
     includePaymentQr: showQr,
     includeTerms: showTerms,
     signature: signatureId,
-    ...(isRuntimeFlagEnabled('ENABLE_TDS')
-      ? { tcsSection, tcsRate, tcsAmount }
-      : {}),
+    tcsSection,
+    tcsRate,
+    tcsAmount,
     items: lines.map((l) => ({
       ...(l.lineId != null ? { id: l.lineId } : {}),
       product: l.product,
@@ -774,9 +774,12 @@ export function NewInvoicePage() {
             ...(payload as Record<string, unknown>),
             ...(editingStatus ? { status: editingStatus } : {}),
             ...(editingStatus === 'COMPLETED' ? { confirmAmend: true } : {}),
+            _completeIntent: shouldComplete,
+            _confirmSalesRcm: isReverseCharge && confirmSalesRcm,
           },
           idempotencyKey: key,
           invoiceId: isEdit && editId ? editId : null,
+          completeIntent: shouldComplete,
         });
         setOutboxBanner(t('billing.savedOffline'));
       };
@@ -855,6 +858,7 @@ export function NewInvoicePage() {
       return { invoice, mode, paymentWarning };
     },
     onSuccess: async ({ invoice, mode, paymentWarning }) => {
+      skipLeaveGuard.current = true;
       flashWarning(paymentWarning ?? null);
       void qc.invalidateQueries({ queryKey: ['sales-invoice-number-series'] });
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoice.id] });
@@ -1003,13 +1007,13 @@ export function NewInvoicePage() {
     // BUG-513: warn before an accidental tab close/refresh discards a
     // half-built invoice — no confirmation existed at all previously.
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (lines.length === 0) return;
+      if (skipLeaveGuard.current || (lines.length === 0 && !customerId)) return;
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [lines.length]);
+  }, [lines.length, customerId]);
 
   const activeCustomers = (customers.data?.results ?? []).filter((c) => c.status === 'ACTIVE');
   const canSave = lines.length > 0 && Boolean(customerId) && !saveMutation.isPending;
@@ -1031,10 +1035,10 @@ export function NewInvoicePage() {
         taxTotal: preview.totals.taxTotal,
         roundOff: preview.totals.roundOff,
         grandTotal: preview.totals.grandTotal,
+        tcsAmount: preview.totals.tcsAmount ?? 0,
+        amountDue: preview.totals.amountDue ?? preview.totals.grandTotal,
       }
-    : preview.error
-      ? { ...totals, subtotal: 0, taxTotal: 0, cessTotal: 0, grandTotal: 0 }
-      : totals;
+    : totals;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
   const canAmendMoney = isCompletedEdit && isOwner;
 
@@ -1052,7 +1056,7 @@ export function NewInvoicePage() {
       const meta = e.ctrlKey || e.metaKey;
       if (meta && e.key.toLowerCase() === 's' && !e.shiftKey) {
         e.preventDefault();
-        if (!saveMutation.isPending) saveMutation.mutate('draft');
+        if (!saveMutation.isPending && canSave) saveMutation.mutate('draft');
         return;
       }
       if (meta && e.key === 'Enter' && !e.shiftKey && canComplete && primarySave.mode === 'complete') {
@@ -1072,7 +1076,7 @@ export function NewInvoicePage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canComplete, primarySave.mode, saveMutation]);
+  }, [canComplete, canSave, primarySave.mode, saveMutation]);
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;
@@ -1098,6 +1102,22 @@ export function NewInvoicePage() {
     );
   }
   if (isEdit && existingInvoice.isSuccess && !existingInvoice.data) return <EmptyState />;
+  if (isEdit && (editingStatus === 'CANCELLED' || existingInvoice.data?.status === 'CANCELLED')) {
+    return (
+      <ErrorState
+        message={t('billing.cannotEditCancelled')}
+        onRetry={() => navigate(`/sales/history/${editId}`)}
+      />
+    );
+  }
+  if (isEdit && existingInvoice.data?.status === 'RETURNED') {
+    return (
+      <ErrorState
+        message={t('billing.cannotEditReturned')}
+        onRetry={() => navigate(`/sales/history/${editId}`)}
+      />
+    );
+  }
 
   return (
     <DocumentEditorShell
@@ -1117,7 +1137,9 @@ export function NewInvoicePage() {
       warning={
         fromBillUpload
           ? t('billUpload.reviewOnEditDisclaimerSales')
-          : isEdit && editingStatus === 'COMPLETED'
+          : isEdit && editingStatus === 'COMPLETED' && lines.some((l) => l.trackBatch || l.trackSerial)
+            ? t('billing.completedBatchLocked')
+            : isEdit && editingStatus === 'COMPLETED'
             ? t('billing.editingCompletedWarning')
             : null
       }
@@ -1130,7 +1152,7 @@ export function NewInvoicePage() {
       onOpenSettings={() => setSettingsOpen(true)}
     >
       <Stack spacing={2}>
-      <UnsavedChangesGuard when={lines.length > 0} />
+      <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(customerId))} />
       {offline || hasOutboxItems || Boolean(outboxBanner) ? (
         !hideOutboxWarn || offline ? (
           <Alert
@@ -1649,7 +1671,7 @@ export function NewInvoicePage() {
             />
           </Collapse>
 
-          {isRuntimeFlagEnabled('ENABLE_TDS') ? (
+          {invoiceType !== 'NON_GST' ? (
             <>
               {!showTcs ? (
                 <Link component="button" type="button" underline="hover" onClick={() => setShowTcs(true)}>
@@ -1898,10 +1920,11 @@ export function NewInvoicePage() {
               onChange={(e) => setItemForm((f) => ({ ...f, name: e.target.value }))}
             />
             <TextField
-              label="SKU"
+              label={t('products.skuRequired')}
               value={itemForm.sku}
               onChange={(e) => setItemForm((f) => ({ ...f, sku: e.target.value }))}
-              helperText="Must be unique if set"
+              helperText={t('billing.skuMustBeUnique')}
+              required
             />
             <TextField
               select
@@ -1922,7 +1945,7 @@ export function NewInvoicePage() {
               error={Boolean(itemForm.hsnCode) && !isValidHsnSac(itemForm.hsnCode)}
               helperText={
                 Boolean(itemForm.hsnCode) && !isValidHsnSac(itemForm.hsnCode)
-                  ? 'HSN/SAC must be 4, 6, or 8 digits'
+                  ? t('billing.hsnSacDigits')
                   : undefined
               }
             />
@@ -1966,6 +1989,7 @@ export function NewInvoicePage() {
             variant="contained"
             disabled={
               !itemForm.name.trim() ||
+              !itemForm.sku.trim() ||
               itemMutation.isPending ||
               (Boolean(itemForm.hsnCode) && !isValidHsnSac(itemForm.hsnCode))
             }

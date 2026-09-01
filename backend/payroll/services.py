@@ -115,9 +115,9 @@ def _resolve_pt_slabs(company, employee) -> list:
             slabs = raw.get(state_key.title()) or raw.get(state_key.upper()) or raw.get(state_key.lower())
             if slabs is None and state_key in aliases:
                 slabs = raw.get(aliases[state_key])
-        if not slabs:
-            return list(DEFAULT_PT_SLABS)
-        return list(slabs)
+        if slabs:
+            return list(slabs)
+        raw = []
     if isinstance(raw, list) and raw:
         return list(raw)
     # R4-010: fall back to a known multi-slab state ladder before the single
@@ -144,24 +144,34 @@ def _pt_amount(gross: Decimal, slabs: list, *, month: int | None = None) -> Deci
 ESI_WAGE_CEILING = Decimal("21000")
 
 
-def compute_statutory(employee, company, *, gross=None, month: int | None = None) -> dict:
-    gross_amt = _money(gross if gross is not None else employee.salary)
+def compute_statutory(employee, company, *, gross=None, month: int | None = None, paid_days=None, period_days=None) -> dict:
+    gross_full = _money(gross if gross is not None else employee.salary)
     pf_employee = _money(0)
     pf_employer = _money(0)
     esi_employee = _money(0)
     esi_employer = _money(0)
+    prorate = Decimal("1")
+    if paid_days is not None and period_days:
+        days = Decimal(str(paid_days))
+        period = Decimal(str(period_days))
+        if period > 0 and days < period:
+            prorate = days / period
+    gross_amt = _money(gross_full * prorate)
     if employee.pf_applicable:
         ceiling = _money(employee.pf_wage_ceiling or Decimal("15000"))
         # R4-007: PF wage base = Basic + DA when configured; else fall back to
-        # the gross salary (legacy behaviour).
+        # the gross salary (legacy behaviour). Prorate Basic+DA the same as gross.
         basic_da = _money(getattr(employee, "basic", 0) or 0) + _money(getattr(employee, "da", 0) or 0)
+        if basic_da > 0:
+            basic_da = _money(basic_da * prorate)
         pf_wage = basic_da if basic_da > 0 else gross_amt
         wage_base = min(pf_wage, ceiling)
         pf_employee = _money(wage_base * PF_RATE)
         pf_employer = _money(wage_base * PF_RATE)
     if employee.esi_applicable:
         esi_ceiling = _money(getattr(company, "esi_wage_ceiling", None) or Decimal("21000"))
-        if gross_amt <= esi_ceiling:
+        # Eligibility is on full-month wages, not LOP-prorated gross.
+        if gross_full <= esi_ceiling:
             esi_employee = _money(gross_amt * ESI_EMPLOYEE_RATE)
             esi_employer = _money(gross_amt * ESI_EMPLOYER_RATE)
     pt_amount = _pt_amount(gross_amt, _resolve_pt_slabs(company, employee), month=month)
@@ -209,13 +219,19 @@ def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> Pa
     for emp in active:
         existing_slip = locked.slips.filter(employee=emp).first()
         gross = getattr(existing_slip, "gross", None)
-        # R4-008: prorate for a partial month when paid_days was entered on the
-        # slip (LOP / mid-month joiner-leaver).
         paid_days = getattr(existing_slip, "paid_days", None)
+        # LOP endpoint used to stamp gross=0 as a placeholder — treat that as missing.
+        if paid_days is not None and (gross is None or gross == 0):
+            gross = None
         base_gross = _money(gross if gross is not None else emp.salary)
-        if paid_days is not None and _period_days and Decimal(str(paid_days)) < _period_days:
-            base_gross = _money(base_gross * Decimal(str(paid_days)) / Decimal(_period_days))
-        computed = compute_statutory(emp, locked.company, gross=base_gross, month=_pt_month)
+        computed = compute_statutory(
+            emp,
+            locked.company,
+            gross=base_gross,
+            month=_pt_month,
+            paid_days=paid_days,
+            period_days=_period_days,
+        )
         computed["period_days"] = _period_days
         computed["paid_days"] = paid_days
         PaySlip.objects.update_or_create(

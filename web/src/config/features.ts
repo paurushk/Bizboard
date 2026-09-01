@@ -130,6 +130,11 @@ export function isEinvoiceSubmitEnabled(): boolean {
 
 }
 
+export function isEwaySubmitEnabled(): boolean {
+  if (features.advancedPilot) return true;
+  return isRuntimeFlagEnabled('ENABLE_EWAY') || features.einvoiceSubmit;
+}
+
 
 
 export function isManufacturingEnabled(): boolean {

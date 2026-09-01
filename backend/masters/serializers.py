@@ -161,7 +161,33 @@ class ProductSerializer(serializers.ModelSerializer):
         current_unit = attrs.get("unit", getattr(self.instance, "unit", None))
         if attrs.get("alternate_unit") and attrs.get("alternate_unit") == current_unit:
             raise serializers.ValidationError({"alternate_unit": "Alternate unit must differ from the base unit."})
+        if self.instance is None:
+            sku_raw = attrs.get("sku", self.initial_data.get("sku") or "")
+            if not str(sku_raw).strip():
+                raise serializers.ValidationError({"sku": "Item code is required."})
+        cat_raw = self.initial_data.get("category_name") or self.initial_data.get("categoryName")
+        if cat_raw and not attrs.get("category"):
+            cat_name = str(cat_raw).strip()
+            if cat_name:
+                cat = Category.objects.filter(company=company, name__iexact=cat_name).first()
+                if cat is None:
+                    cat = Category.objects.create(company=company, name=cat_name)
+                attrs["category"] = cat
+        brand_raw = self.initial_data.get("brand_name") or self.initial_data.get("brandName")
+        if brand_raw and not attrs.get("brand"):
+            brand_name = str(brand_raw).strip()
+            if brand_name:
+                brand = Brand.objects.filter(company=company, name__iexact=brand_name).first()
+                if brand is None:
+                    brand = Brand.objects.create(company=company, name=brand_name)
+                attrs["brand"] = brand
         return attrs
+
+    def validate_sku(self, value):
+        sku = (value or "").strip()
+        if not sku:
+            raise serializers.ValidationError("Item code is required.")
+        return sku
 
     def validate_custom_fields(self, value):
         from core.permissions import get_company_user

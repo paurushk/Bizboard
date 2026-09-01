@@ -20,7 +20,8 @@ import {
   removeDraft,
   type OutboxDraft,
 } from '@/offline/invoiceDraftCache';
-import { createPurchase, createSalesInvoice, updatePurchase, updateSalesInvoice, postStockCount, updateStockCount, completeTransfer } from '@/api/resources';
+import { completePurchase, completeSalesInvoice, createPurchase, createSalesInvoice, updatePurchase, updateSalesInvoice, postStockCount, updateStockCount, completeTransfer } from '@/api/resources';
+import { flushPosDraft } from '@/offline/flushPosCheckout';
 import { getErrorMessage } from '@/api/client';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
@@ -63,18 +64,55 @@ export function OfflineOutboxPage() {
     try {
       const result = await flushOutbox(companyId, userId, async (draft) => {
         if (draft.kind === 'purchase') {
+          const payload = { ...(draft.payload as Record<string, unknown>) };
+          const completeIntent =
+            Boolean(draft.completeIntent) || Boolean(payload._completeIntent);
+          const confirmBlankPos = Boolean(payload._confirmBlankPos || payload.confirmBlankPos);
+          const confirmGstinTotalChange = Boolean(
+            payload._confirmGstinTotalChange || payload.confirmGstinTotalChange,
+          );
+          delete payload._completeIntent;
+          delete payload._confirmBlankPos;
+          delete payload._confirmGstinTotalChange;
+          delete payload.status;
+          let purchase;
           if (draft.invoiceId) {
-            await updatePurchase(draft.invoiceId, draft.payload as never);
+            purchase = await updatePurchase(draft.invoiceId, payload as never);
           } else {
-            await createPurchase(draft.payload as never, { idempotencyKey: draft.idempotencyKey });
+            purchase = await createPurchase(payload as never, { idempotencyKey: draft.idempotencyKey });
+          }
+          if (completeIntent && purchase.status === 'DRAFT') {
+            await completePurchase(purchase.id, { confirmBlankPos, confirmGstinTotalChange });
           }
           return;
         }
+        if (draft.kind === 'pos') {
+          await flushPosDraft(draft);
+          return;
+        }
         if (draft.kind === 'invoice') {
+          const payload = { ...draft.payload } as Record<string, unknown>;
+          const completeIntent =
+            Boolean(draft.completeIntent) || Boolean(payload._completeIntent);
+          const confirmSalesRcm = Boolean(payload._confirmSalesRcm || payload.confirmSalesRcm);
+          delete payload._completeIntent;
+          delete payload._confirmSalesRcm;
+          let invoice;
           if (draft.invoiceId) {
-            await updateSalesInvoice(draft.invoiceId, draft.payload as never);
+            invoice = await updateSalesInvoice(draft.invoiceId, payload as never);
           } else {
-            await createSalesInvoice(draft.payload as never, { idempotencyKey: draft.idempotencyKey });
+            invoice = await createSalesInvoice(payload as never, {
+              idempotencyKey: draft.idempotencyKey,
+            });
+          }
+          if (completeIntent && invoice.status === 'DRAFT') {
+            await completeSalesInvoice(invoice.id, {
+              confirmSalesRcm,
+              confirmBlankPos: Boolean(payload.confirmBlankPos || payload._confirmBlankPos),
+              confirmGstinTotalChange: Boolean(
+                payload.confirmGstinTotalChange || payload._confirmGstinTotalChange,
+              ),
+            });
           }
           return;
         }

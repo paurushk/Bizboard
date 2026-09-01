@@ -55,16 +55,21 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
 
     year, month = period.split("-")
     y, m = int(year), int(month)
-    book_numbers = set(
-        PurchaseInvoice.objects.filter(
+    book_keys = {
+        ((gstin or "").upper(), (number or "").strip())
+        for gstin, number in PurchaseInvoice.objects.filter(
             company=company,
             status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
             invoice_date__year=y,
             invoice_date__month=m,
             is_opening_balance=False,
-        ).exclude(number="").values_list("number", flat=True)
-    )
-    ims_numbers = {(r.invoice_number or "").strip() for r in rows if (r.invoice_number or "").strip()}
+        ).exclude(number="").values_list("supplier__gstin", "number")
+    }
+    ims_keys = {
+        ((r.supplier_gstin or "").upper(), (r.invoice_number or "").strip())
+        for r in rows
+        if (r.invoice_number or "").strip()
+    }
 
     for row in rows:
         refresh_16_4(row)
@@ -83,13 +88,28 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
             if row.match_status == Gstr2bIngest.MatchStatus.PARTIAL:
                 klass = Gstr2bIngest.MatchClass.VALUE_MISMATCH
             else:
-                klass = Gstr2bIngest.MatchClass.MISSING_IN_BOOKS
+                other = (
+                    PurchaseInvoice.objects.filter(
+                        company=company,
+                        number__iexact=(row.invoice_number or "").strip(),
+                    )
+                    .exclude(supplier__gstin__iexact=row.supplier_gstin or "")
+                    .first()
+                )
+                if other is not None:
+                    klass = Gstr2bIngest.MatchClass.WRONG_GSTIN
+                else:
+                    klass = Gstr2bIngest.MatchClass.MISSING_IN_BOOKS
         if persist:
             if row.match_class != klass:
                 row.match_class = klass
                 row.save(update_fields=["match_class", "updated_at"])
 
-    missing_in_ims = sorted(n for n in book_numbers if n not in ims_numbers)
+    missing_in_ims = sorted(
+        f"{gstin}|{number}" if gstin else number
+        for gstin, number in book_keys
+        if (gstin, number) not in ims_keys
+    )
     result["match_classes"] = {
         "exact": Gstr2bIngest.objects.filter(
             company=company, period=period, match_class=Gstr2bIngest.MatchClass.EXACT
@@ -195,20 +215,27 @@ def bulk_accept_exact(company, period: str, *, user=None, remark: str = "") -> d
 
 
 def deemed_accept_on_period_lock(company, period: str, *, user=None) -> int:
-    """NO_ACTION at GST period lock is recorded as deemed ACCEPT — never silent."""
+    """NO_ACTION EXACT matches at GST period lock are deemed ACCEPT — never silent.
+
+    MISSING_IN_BOOKS / mismatches stay NO_ACTION so ITC is not auto-claimed.
+    """
     qs = Gstr2bIngest.objects.filter(
-        company=company, period=period, ims_action=Gstr2bIngest.ImsAction.NO_ACTION
+        company=company,
+        period=period,
+        ims_action=Gstr2bIngest.ImsAction.NO_ACTION,
+        match_class=Gstr2bIngest.MatchClass.EXACT,
     )
     n = 0
-    for row in qs:
-        apply_ims_action(
-            row,
-            Gstr2bIngest.ImsAction.ACCEPT,
-            remark="Deemed accept at GST period lock (no IMS action recorded before close).",
-            user=user,
-            payload={"deemed": True},
-        )
-        n += 1
+    with transaction.atomic():
+        for row in qs.select_for_update().order_by("id"):
+            apply_ims_action(
+                row,
+                Gstr2bIngest.ImsAction.ACCEPT,
+                remark="Deemed accept at GST period lock (exact match, no IMS action recorded before close).",
+                user=user,
+                payload={"deemed": True},
+            )
+            n += 1
     return n
 
 
@@ -277,6 +304,7 @@ def supplier_scorecard(company, period: str) -> list[dict]:
                 "correction_days": [],
             },
         )
+        taxed = False
         if row.match_class in (
             Gstr2bIngest.MatchClass.VALUE_MISMATCH,
             Gstr2bIngest.MatchClass.WRONG_GSTIN,
@@ -284,9 +312,11 @@ def supplier_scorecard(company, period: str) -> list[dict]:
             Gstr2bIngest.MatchClass.DUPLICATE,
         ):
             bucket["mismatch_count"] += 1
-            bucket["itc_affected"] += _tax(row)
+            taxed = True
         if row.ims_action == Gstr2bIngest.ImsAction.REJECT:
             bucket["rejections"] += 1
+            taxed = True
+        if taxed:
             bucket["itc_affected"] += _tax(row)
         if row.acted_at and row.created_at:
             bucket["correction_days"].append((row.acted_at.date() - row.created_at.date()).days)

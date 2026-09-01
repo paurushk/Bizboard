@@ -272,3 +272,22 @@ def test_einvoice_valdtls_before_tax_discount_zero(tenant_a):
     disc = Decimal(payload["ValDtls"]["Discount"])
     tot = Decimal(payload["ValDtls"]["TotInvVal"])
     assert ass + tax + rnd + oth - disc == tot
+    item = payload["ItemList"][0]
+    tot_amt = Decimal(item["TotAmt"])
+    line_disc = Decimal(item["Discount"])
+    ass_amt = Decimal(item["AssAmt"])
+    assert ass_amt == tot_amt - line_disc
+    assert ass_amt < tot_amt
+
+
+def test_cancel_blocked_while_live_irn(tenant_a):
+    data, _, _ = _complete_gst_invoice(tenant_a)
+    invoice = SalesInvoice.objects.get(pk=data["id"])
+    invoice.irn = "a" * 64
+    invoice.einvoice_status = SalesInvoice.EInvoiceStatus.GENERATED
+    invoice.save(update_fields=["irn", "einvoice_status"])
+    resp = tenant_a.client.post(f"/api/v1/sales/invoices/{data['id']}/cancel/")
+    assert resp.status_code == 400
+    assert "IRN" in str(resp.data)
+    invoice.refresh_from_db()
+    assert invoice.status == SalesInvoice.Status.COMPLETED

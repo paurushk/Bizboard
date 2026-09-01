@@ -98,6 +98,7 @@ class SalesInvoice(DocumentTotalsModel):
     class EwayStatus(models.TextChoices):
         NONE = "NONE"
         READY = "READY"
+        QUEUED = "QUEUED"
         GENERATED = "GENERATED"
         MANUAL_EWB = "MANUAL_EWB"  # BB-000273: client-attested e-Way (not GSP-verified)
         FAILED = "FAILED"

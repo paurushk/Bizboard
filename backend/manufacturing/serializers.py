@@ -28,6 +28,8 @@ class BomSerializer(serializers.ModelSerializer):
         lines_data = validated_data.pop("lines", [])
         bom = Bom.objects.create(**validated_data)
         for line in lines_data:
+            if getattr(line.get("component"), "pk", None) == bom.product_id:
+                raise serializers.ValidationError("A BOM cannot list its finished good as a component.")
             BomLine.objects.create(bom=bom, company_id=bom.company_id, **line)
         return bom
 
@@ -39,6 +41,10 @@ class BomSerializer(serializers.ModelSerializer):
         if lines_data is not None:
             instance.lines.all().delete()
             for line in lines_data:
+                if getattr(line.get("component"), "pk", None) == instance.product_id:
+                    raise serializers.ValidationError(
+                        "A BOM cannot list its finished good as a component."
+                    )
                 BomLine.objects.create(bom=instance, company_id=instance.company_id, **line)
         return instance
 
@@ -46,8 +52,8 @@ class BomSerializer(serializers.ModelSerializer):
 class WorkOrderLineSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkOrderLine
-        fields = ["id", "component", "qty_per_unit", "qty", "batch", "lot_allocations"]
-        read_only_fields = fields
+        fields = ["id", "component", "qty_per_unit", "qty", "batch", "lot_allocations", "serial_numbers"]
+        read_only_fields = ["id", "component", "qty_per_unit", "qty"]
 
 
 class WorkOrderSerializer(serializers.ModelSerializer):

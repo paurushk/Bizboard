@@ -404,7 +404,11 @@ class PaymentService:
         if payment.status != SupplierPaymentStatus.POSTED:
             raise BusinessRuleError("Only posted supplier payments can be allocated.")
 
-        unallocated = payment.amount - _allocated_of_payment("supplier_payment", payment)
+        unallocated = (
+            payment.amount
+            + Decimal(str(getattr(payment, "tds_amount", 0) or 0))
+            - _allocated_of_payment("supplier_payment", payment)
+        )
         if amount > unallocated:
             raise BusinessRuleError(
                 f"Allocation {amount} exceeds unallocated payment amount {unallocated}."
@@ -609,14 +613,16 @@ class PaymentService:
                 )
         # BB-000393: one open link per invoice — prevent outstanding oversubscription.
         if sales_invoice:
-            open_links = PaymentLink.objects.filter(
-                company=company,
-                sales_invoice=sales_invoice,
-                status__in=(
-                    PaymentLinkStatus.CREATED,
-                    PaymentLinkStatus.SENT,
-                    PaymentLinkStatus.PARTIALLY_PAID,
-                ),
+            open_links = list(
+                PaymentLink.objects.select_for_update().filter(
+                    company=company,
+                    sales_invoice=sales_invoice,
+                    status__in=(
+                        PaymentLinkStatus.CREATED,
+                        PaymentLinkStatus.SENT,
+                        PaymentLinkStatus.PARTIALLY_PAID,
+                    ),
+                )
             )
             reserved = sum((Decimal(str(l.amount)) for l in open_links), Decimal("0"))
             if reserved + amount > outstanding + Decimal("0.001"):
@@ -734,6 +740,31 @@ class PaymentService:
             .first()
         )
         if existing and existing.status == GatewayPaymentStatus.CAPTURED:
+            from ledgers.services import LedgerService
+
+            link = existing.payment_link
+            receipt = (
+                CustomerReceipt.objects.filter(gateway_payment=existing)
+                .exclude(status__in=(ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED))
+                .first()
+            )
+            if link and link.sales_invoice_id and receipt:
+                try:
+                    outstanding = LedgerService.sales_invoice_outstanding(link.sales_invoice)
+                    unalloc = Decimal(str(receipt.amount or 0)) - _allocated_of_payment("receipt", receipt)
+                    alloc_amt = min(unalloc, outstanding)
+                    if alloc_amt > 0:
+                        PaymentService.allocate_receipt(
+                            receipt=receipt,
+                            sales_invoice=link.sales_invoice,
+                            amount=alloc_amt,
+                            user=user,
+                        )
+                except BusinessRuleError:
+                    logger.exception(
+                        "Retry allocation for captured gateway payment %s failed",
+                        existing.provider_payment_id,
+                    )
             return existing
 
         if existing is None:
@@ -864,7 +895,10 @@ class PaymentService:
         prior_captured = (
             GatewayPayment.objects.filter(
                 payment_link=link,
-                status=GatewayPaymentStatus.CAPTURED,
+                status__in=(
+                    GatewayPaymentStatus.CAPTURED,
+                    GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
+                ),
             )
             .exclude(pk=existing.pk)
             .aggregate(total=Sum("amount"))["total"]
@@ -895,6 +929,17 @@ class PaymentService:
                 .first()
             )
         if existing_receipt is not None:
+            from decimal import Decimal as _D
+
+            if _D(str(existing_receipt.amount or 0)) != _D(str(capture_amount)):
+                raise BusinessRuleError(
+                    "Existing receipt UTR matches this capture but the amount differs. "
+                    "Resolve the UTR clash before adopting the gateway payment."
+                )
+            if existing_receipt.customer_id and link.customer_id and existing_receipt.customer_id != link.customer_id:
+                raise BusinessRuleError(
+                    "Existing receipt UTR matches this capture but the customer differs."
+                )
             receipt = existing_receipt
             if receipt.gateway_payment_id is None:
                 receipt.gateway_payment = existing
@@ -916,7 +961,7 @@ class PaymentService:
                         gateway_payment=existing,
                         warn_utr_duplicate=False,
                         # W0-03: when holding is on, do not bypass — park instead of silent post.
-                        bypass_period_gate=not holding,
+                        bypass_period_gate=False,
                     )
             except (BusinessRuleError, IntegrityError) as exc:
                 reason = books_hold_reason(exc)
@@ -938,7 +983,7 @@ class PaymentService:
                                 source=PaymentSource.PAYMENT_LINK,
                                 gateway_payment=existing,
                                 warn_utr_duplicate=True,
-                                bypass_period_gate=not holding,
+                                bypass_period_gate=False,
                             )
                     except (BusinessRuleError, IntegrityError) as exc2:
                         return park_gateway_payment(
@@ -1080,7 +1125,10 @@ class PaymentService:
         gp = GatewayPayment.objects.select_for_update().get(pk=gateway_payment.pk)
         if gp.status == GatewayPaymentStatus.REFUNDED:
             return gp
-        if gp.status != GatewayPaymentStatus.CAPTURED:
+        if gp.status not in (
+            GatewayPaymentStatus.CAPTURED,
+            GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
+        ):
             raise BusinessRuleError("Only captured gateway payments can be refunded.")
 
         refund_amount = Decimal(amount if amount is not None else gp.amount)
@@ -1135,19 +1183,27 @@ class PaymentService:
         if gp.payment_link_id:
             link = PaymentLink.objects.select_for_update().filter(pk=gp.payment_link_id).first()
         if link is not None:
-            link.status = (
-                PaymentLinkStatus.SENT
-                if link.status
-                in (
-                    PaymentLinkStatus.PAID,
-                    PaymentLinkStatus.PARTIALLY_PAID,
-                    PaymentLinkStatus.SENT,
+            other_captured = GatewayPayment.objects.filter(
+                payment_link=link,
+                status__in=(
+                    GatewayPaymentStatus.CAPTURED,
+                    GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
+                ),
+            ).exclude(pk=gp.pk).exists()
+            if not other_captured:
+                link.status = (
+                    PaymentLinkStatus.SENT
+                    if link.status
+                    in (
+                        PaymentLinkStatus.PAID,
+                        PaymentLinkStatus.PARTIALLY_PAID,
+                        PaymentLinkStatus.SENT,
+                    )
+                    else PaymentLinkStatus.CREATED
                 )
-                else PaymentLinkStatus.CREATED
-            )
-            link.paid_receipt = None
-            link.updated_by = user
-            link.save(update_fields=["status", "paid_receipt", "updated_by", "updated_at"])
+                link.paid_receipt = None
+                link.updated_by = user
+                link.save(update_fields=["status", "paid_receipt", "updated_by", "updated_at"])
 
         gp.status = GatewayPaymentStatus.REFUNDED
         gp.updated_by = user
@@ -1160,22 +1216,25 @@ class PaymentService:
         if not skip_gateway:
             from .models import GatewayRefundOutbox, GatewayRefundOutboxStatus
 
-            outbox = GatewayRefundOutbox.objects.create(
+            outbox, created = GatewayRefundOutbox.objects.get_or_create(
                 company=company,
                 gateway_payment=gp,
-                provider_payment_id=provider_payment_id,
-                amount=refund_amount,
-                status=GatewayRefundOutboxStatus.PENDING,
-                created_by=user,
-                updated_by=user,
+                defaults={
+                    "provider_payment_id": provider_payment_id,
+                    "amount": refund_amount,
+                    "status": GatewayRefundOutboxStatus.PENDING,
+                    "created_by": user,
+                    "updated_by": user,
+                },
             )
+            if created:
 
-            def _gateway_refund(oid=outbox.id):
-                from payments.tasks import execute_gateway_refund
+                def _gateway_refund(oid=outbox.id):
+                    from payments.tasks import execute_gateway_refund
 
-                execute_gateway_refund.delay(oid)
+                    execute_gateway_refund.delay(oid)
 
-            transaction.on_commit(_gateway_refund)
+                transaction.on_commit(_gateway_refund)
         emit("gateway_payment.refunded", document=gp, user=user, event="gateway_payment.refunded")
         return gp
 

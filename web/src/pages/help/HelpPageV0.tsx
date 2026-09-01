@@ -15,7 +15,7 @@ import { FAQ_CATEGORIES, FAQ_ITEMS, type FaqItem } from './faqContent';
 function matches(item: FaqItem, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  const hay = [item.question, item.category, ...(item.keywords ?? [])].join(' ').toLowerCase();
+  const hay = [item.id, item.question, item.category, ...(item.keywords ?? [])].join(' ').toLowerCase();
   return needle.split(/\s+/).every((word) => hay.includes(word));
 }
 

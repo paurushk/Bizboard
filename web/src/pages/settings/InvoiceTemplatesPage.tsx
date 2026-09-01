@@ -22,7 +22,7 @@ const LAYOUT_LEGEND = [
   'Seller header with GSTIN, phone, and address',
   'TAX INVOICE title with ORIGINAL / DUPLICATE stamp',
   'BILL TO and SHIP TO party blocks',
-  'Item table: HSN, Qty, MRP, Rate, Tax, Amount',
+  'Item table: Code (SKU), HSN, Qty with unit, MRP, Rate, Tax, Amount',
   'Tax-by-rate breakup (CGST/SGST or IGST)',
   'UPI QR, terms & conditions, authorized signatory',
 ];
@@ -87,9 +87,9 @@ export function InvoiceTemplatesPage() {
               GST Tax Invoice (A4)
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 1, maxWidth: 480 }}>
-              Production layout matching GST tax invoice practice: party blocks, HSN/MRP columns,
+              Production layout matching GST tax invoice practice: party blocks, item code (SKU), HSN/MRP columns,
               tax-by-rate footer, UPI QR, and amount in words. Used for all completed GST and Tax
-              invoices.
+              invoices. Terms below print on every copy.
             </Typography>
             <Button
               component={RouterLink}

@@ -29,6 +29,15 @@ from .models import (
 from .services import SalesService, _build_items, _tax_enabled, _validate_lines
 
 
+def _single_active_company_gstin(company):
+    from accounts.models import CompanyGstin
+
+    active = list(
+        CompanyGstin.objects.filter(company=company, is_active=True).order_by("-is_primary", "id")
+    )
+    return active[0] if len(active) == 1 else None
+
+
 def _resolve_product(line, company):
     product = line.get("product")
     if isinstance(product, Product):
@@ -164,6 +173,10 @@ class SalesNotesService:
         if tax_on:
             missing_hsn = note.items.filter(hsn_code="").count()
             if missing_hsn:
+                if getattr(note.company, "einvoice_enabled", False):
+                    raise BusinessRuleError(
+                        f"{missing_hsn} line(s) missing HSN — required before completing an e-invoice credit note."
+                    )
                 warnings.append(
                     f"{missing_hsn} line(s) missing HSN — GSTR Table 12 / e-Invoice may fail."
                 )
@@ -214,6 +227,9 @@ class SalesNotesService:
         note = SalesCreditNote.objects.select_for_update().get(pk=note.pk)
         if note.status != SalesCreditNote.Status.COMPLETED:
             raise BusinessRuleError("Only completed credit notes can be cancelled.")
+        from .irn_guard import assert_no_live_irn
+
+        assert_no_live_irn(note, kind="credit note")
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
         assert_period_allows_money_amend(note.company, note.note_date)
@@ -355,6 +371,9 @@ class SalesNotesService:
         note = SalesDebitNote.objects.select_for_update().get(pk=note.pk)
         if note.status != SalesDebitNote.Status.COMPLETED:
             raise BusinessRuleError("Only completed debit notes can be cancelled.")
+        from .irn_guard import assert_no_live_irn
+
+        assert_no_live_irn(note, kind="debit note")
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
         assert_period_allows_money_amend(note.company, note.note_date)
@@ -438,6 +457,10 @@ class SalesNotesService:
         order = SalesOrder.objects.select_for_update().get(pk=order.pk)
         if order.status not in (SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED):
             raise BusinessRuleError(f"Cannot convert an order in status {order.status}.")
+        if DeliveryChallan.objects.filter(sales_order=order).exclude(
+            status=DeliveryChallan.Status.CANCELLED
+        ).exists():
+            raise BusinessRuleError("This sales order already has a delivery challan.")
         if order.customer.status == Customer.Status.BLOCKED:
             raise BusinessRuleError("Cannot create an invoice for a blocked customer.")
         if not order.number:
@@ -459,6 +482,8 @@ class SalesNotesService:
             customer=order.customer,
             warehouse=order.warehouse or InventoryService.default_warehouse(order.company),
             invoice_type=order.invoice_type,
+            company_gstin=_single_active_company_gstin(order.company),
+            supply_type=getattr(order, "supply_type", None) or SalesInvoice.SupplyType.B2B,
             payment_terms_days=order.payment_terms_days,
             additional_charges=order.additional_charges,
             invoice_discount=order.invoice_discount,
@@ -477,6 +502,11 @@ class SalesNotesService:
                 "unit_price": item.unit_price,
                 "discount_percent": item.discount_percent,
                 "gst_rate": item.gst_rate,
+                "cess_rate": getattr(item, "cess_rate", Decimal("0")),
+                "cess_amount": getattr(item, "cess_amount", Decimal("0")),
+                "supply_nature": getattr(item, "supply_nature", None),
+                "hsn_code": getattr(item, "hsn_code", "") or "",
+                "rate_override": getattr(item, "rate_override", False),
                 # BB-000732: preserve lot/serial identity through conversion.
                 "batch": getattr(item, "batch", None),
                 "batch_no": getattr(item, "batch_no", "") or "",
@@ -516,9 +546,8 @@ class SalesNotesService:
         )
         if live_challan:
             raise BusinessRuleError("This sales order already has a delivery challan.")
-        if order.status == SalesOrder.Status.CONFIRMED:
-            order.status = SalesOrder.Status.CONVERTED
-            order.save(update_fields=["status"])
+        # Keep SO CONFIRMED/DRAFT until the challan Completes so reservations stay
+        # valid and cancel_sales_order still works on a draft challan.
         challan = DeliveryChallan.objects.create(
             company=order.company,
             customer=order.customer,
@@ -537,6 +566,8 @@ class SalesNotesService:
                 "unit_price": item.unit_price,
                 "discount_percent": item.discount_percent,
                 "gst_rate": item.gst_rate,
+                "cess_rate": getattr(item, "cess_rate", Decimal("0")),
+                "hsn_code": getattr(item, "hsn_code", "") or "",
                 "batch": getattr(item, "batch", None),
                 "batch_no": getattr(item, "batch_no", "") or "",
                 "serial_numbers": getattr(item, "serial_numbers", None) or [],
@@ -544,9 +575,8 @@ class SalesNotesService:
             for item in order.items.select_related("product")
         ]
         SalesNotesService.set_challan_items(challan, items_data, user)
-        order.status = SalesOrder.Status.CONVERTED
         order.updated_by = user
-        order.save(update_fields=["status", "updated_by", "updated_at"])
+        order.save(update_fields=["updated_by", "updated_at"])
         return challan
 
     @staticmethod
@@ -631,6 +661,20 @@ class SalesNotesService:
             gstin=resolve_series_gstin(challan.company),
             on_date=challan.challan_date,
         )
+        # Release SO reservations before SALE so available qty matches on-hand.
+        if challan.sales_order_id:
+            from .models import SalesOrder
+
+            order = SalesOrder.objects.select_for_update().get(pk=challan.sales_order_id)
+            warehouse = order.warehouse or InventoryService.default_warehouse(challan.company)
+            if order.status == SalesOrder.Status.CONFIRMED:
+                for item in order.items.select_related("product"):
+                    InventoryService.release_reservation(
+                        challan.company, warehouse, item.product, item.quantity, user
+                    )
+            order.status = SalesOrder.Status.CONVERTED
+            order.updated_by = user
+            order.save(update_fields=["status", "updated_by", "updated_at"])
         stock_posted = False
         if challan.company.stock_on_delivery_challan:
             from inventory.services import SerialNumberService
@@ -682,12 +726,6 @@ class SalesNotesService:
         challan.stock_posted = stock_posted
         challan.updated_by = user
         challan.save()
-        if challan.sales_order:
-            warehouse = challan.sales_order.warehouse or InventoryService.default_warehouse(challan.company)
-            for item in challan.sales_order.items.select_related("product"):
-                InventoryService.release_reservation(
-                    challan.company, warehouse, item.product, item.quantity, user
-                )
         emit("document.completed", document=challan, user=user, event="delivery_challan.completed")
         emit("delivery_challan.completed", document=challan, user=user)
         return challan
@@ -717,6 +755,8 @@ class SalesNotesService:
             customer=challan.customer,
             warehouse=challan.warehouse or InventoryService.default_warehouse(challan.company),
             invoice_type=invoice_type,
+            company_gstin=getattr(challan, "company_gstin", None)
+            or _single_active_company_gstin(challan.company),
             notes=challan.notes,
             vehicle_number=challan.vehicle_number,
             transporter_name=challan.transporter_name,
@@ -758,8 +798,17 @@ class SalesNotesService:
         from inventory.services import InventoryService
 
         challan = DeliveryChallan.objects.select_for_update().get(pk=challan.pk)
+        if challan.status == DeliveryChallan.Status.DRAFT:
+            challan.status = DeliveryChallan.Status.CANCELLED
+            challan.cancelled_at = timezone.now()
+            challan.updated_by = user
+            challan.save()
+            return challan
         if challan.status != DeliveryChallan.Status.COMPLETED:
-            raise BusinessRuleError("Only completed challans can be cancelled.")
+            raise BusinessRuleError("Only draft or completed challans can be cancelled.")
+        from .irn_guard import assert_no_live_eway
+
+        assert_no_live_eway(challan, kind="delivery challan")
         if challan.converted_invoice_id:
             inv = challan.converted_invoice
             if inv.status in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):

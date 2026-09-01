@@ -510,6 +510,38 @@ class PostingService:
             lines=lines)
 
     @classmethod
+    def adjust_sales_invoice_postings(cls, invoice, user=None):
+        """When a completed sales invoice is amended, reverse prior GL postings and post fresh ones."""
+        if not invoice.company.accounting_enabled:
+            return None
+        from accounting.models import JournalEntry
+
+        for entry in JournalEntry.objects.filter(
+            company=invoice.company,
+            source_type="SALES_INVOICE",
+            source_id=invoice.id,
+            status=JournalEntry.Status.POSTED,
+        ):
+            cls.reverse(entry, user=user)
+        return cls.post_sales_invoice(invoice, user=user)
+
+    @classmethod
+    def adjust_purchase_invoice_postings(cls, invoice, user=None):
+        """When a completed purchase invoice is amended, reverse prior GL postings and post fresh ones."""
+        if not invoice.company.accounting_enabled:
+            return None
+        from accounting.models import JournalEntry
+
+        for entry in JournalEntry.objects.filter(
+            company=invoice.company,
+            source_type="PURCHASE_INVOICE",
+            source_id=invoice.id,
+            status=JournalEntry.Status.POSTED,
+        ):
+            cls.reverse(entry, user=user)
+        return cls.post_purchase_invoice(invoice, user=user)
+
+    @classmethod
     def post_opening_sales_invoice(cls, invoice, user=None):
         """BB-000381: opening AR vs Opening Equity — no P&L/COGS."""
         if not invoice.grand_total:
@@ -582,7 +614,7 @@ class PostingService:
         if not amount:
             return None
         cls._ensure_chart(movement.company)
-        entry_date = cls._opening_entry_date(movement.company)
+        entry_date = getattr(movement, "movement_date", None) or cls._opening_entry_date(movement.company)
         return cls.post(
             company=movement.company,
             source_type="STOCK_MOVEMENT",
@@ -1066,11 +1098,30 @@ class PostingService:
                 )
                 if cap:
                     inv_amt = inv_amt + cap
-                lines = [
-                    {"account": cls._account(note.company, "2100"), "debit": note.grand_total, "supplier": note.supplier},
-                    {"account": cls._account(note.company, "1400"), "credit": inv_amt},
-                    *itc_lines,
-                ]
+                parent_bill = getattr(note, "purchase_invoice", None)
+                ap_debit = note.grand_total
+                advance_debit = Decimal("0")
+                if parent_bill is not None:
+                    from ledgers.services import LedgerService
+
+                    ap_out = max(LedgerService.purchase_invoice_outstanding(parent_bill), Decimal("0"))
+                    ap_debit = min(note.grand_total, ap_out)
+                    advance_debit = note.grand_total - ap_debit
+                lines = []
+                if ap_debit > 0:
+                    lines.append({
+                        "account": cls._account(note.company, "2100"),
+                        "debit": ap_debit,
+                        "supplier": note.supplier,
+                    })
+                if advance_debit > 0:
+                    lines.append({
+                        "account": cls._account(note.company, "1250"),
+                        "debit": advance_debit,
+                        "supplier": note.supplier,
+                    })
+                lines.append({"account": cls._account(note.company, "1400"), "credit": inv_amt})
+                lines.extend(itc_lines)
                 if charges > 0:
                     lines.append({"account": cls._account(note.company, "5110"), "credit": charges})
             round_off_line = cls._round_off_line(note.company, round_off, side="credit")

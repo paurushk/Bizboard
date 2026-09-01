@@ -61,11 +61,11 @@ const GST_RATE_LABELS: Record<number, string> = {
   0: '0% (Exempt / Nil)',
   0.25: '0.25% (Precious Stones)',
   3: '3% (Gold / Silver)',
-  5: '5%',
-  12: '12%',
+  5: '5% (Essentials / household)',
+  12: '12% (Processed goods)',
   18: '18% (Standard Goods & Services)',
   28: '28% (Luxury & Demerit)',
-  40: '40%',
+  40: '40% (Sin / demerit GST 2.0)',
 };
 
 export const GST_RATE_OPTIONS = ALLOWED_GST_RATES.map((value) => ({

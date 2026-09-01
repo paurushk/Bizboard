@@ -15,18 +15,20 @@ def convert_lead(
 ) -> tuple[Lead, Opportunity, Customer]:
     # BB-000731: lock + idempotent re-convert (no duplicate customer/opportunity).
     lead = Lead.objects.select_for_update().get(pk=lead.pk)
-    if lead.customer_id and lead.status == Lead.Status.QUALIFIED:
-        existing = (
-            Opportunity.objects.filter(company=lead.company, lead=lead)
-            .order_by("id")
-            .first()
-        )
-        if existing is not None:
-            if won and existing.stage != Opportunity.Stage.WON:
-                existing.stage = Opportunity.Stage.WON
-                existing.updated_by = user
-                existing.save(update_fields=["stage", "updated_by", "updated_at"])
-            return lead, existing, lead.customer
+    existing = (
+        Opportunity.objects.filter(company=lead.company, lead=lead)
+        .order_by("id")
+        .first()
+    )
+    if existing is not None:
+        if won and existing.stage != Opportunity.Stage.WON:
+            existing.stage = Opportunity.Stage.WON
+            existing.updated_by = user
+            existing.save(update_fields=["stage", "updated_by", "updated_at"])
+        customer = lead.customer
+        if customer is None:
+            customer = existing.customer
+        return lead, existing, customer
 
     if lead.customer_id:
         customer = lead.customer

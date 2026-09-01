@@ -83,7 +83,7 @@ class HasCompany(BasePermission):
 class IsOwner(BasePermission):
     """Owner/Admin role required (company settings, users, audit, import commit)."""
 
-    message = "Owner/Admin role required."
+    message = "Owner role required."
 
     def has_permission(self, request, view):
         cu = get_company_user(request)

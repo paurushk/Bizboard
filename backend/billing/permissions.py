@@ -31,8 +31,8 @@ class SubscriptionWritesAllowed(BasePermission):
             cu = get_company_user(request)
         except APIException:
             raise
-        except Exception:  # noqa: BLE001 — missing company context is not a write
-            return True
+        except Exception:  # noqa: BLE001 — missing/broken company context is not a write
+            return False
         if cu is None:
             return True
         return not company_writes_blocked(cu.company)

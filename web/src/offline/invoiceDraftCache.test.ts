@@ -33,6 +33,30 @@ describe('invoice outbox v2 (localStorage path)', () => {
     expect(await listDrafts(1, 9)).toHaveLength(0);
   });
 
+  it('persists POS pending customer name and invoice complete intent', async () => {
+    const pos = await enqueueDraft(1, 2, {
+      kind: 'pos',
+      payload: { items: [] },
+      pendingCustomerName: 'Ravi Cash',
+      idempotencyKey: 'pos-pending',
+    });
+    expect(pos.pendingCustomerName).toBe('Ravi Cash');
+
+    const invoice = await enqueueDraft(1, 2, {
+      kind: 'invoice',
+      payload: { _completeIntent: true },
+      completeIntent: true,
+      idempotencyKey: 'inv-complete',
+    });
+    expect(invoice.completeIntent).toBe(true);
+
+    const listed = await listDrafts(1, 2);
+    expect(listed.find((d) => d.idempotencyKey === 'pos-pending')?.pendingCustomerName).toBe(
+      'Ravi Cash',
+    );
+    expect(listed.find((d) => d.idempotencyKey === 'inv-complete')?.completeIntent).toBe(true);
+  });
+
   it('replaces a draft with the same idempotency key', async () => {
     await enqueueDraft(1, 1, {
       kind: 'invoice',

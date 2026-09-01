@@ -163,10 +163,17 @@ class AdjustmentView(APIView):
         else:
             warehouse = None
         batch_id = serializer.validated_data.get("batch")
+        batch_no = (serializer.validated_data.get("batch_no") or "").strip()
         if batch_id is not None:
-            batch = BatchLot.objects.filter(pk=batch_id, company=company).first()
+            batch = BatchLot.objects.filter(pk=batch_id, company=company, product=product).first()
             if batch is None:
                 raise BusinessRuleError("Invalid batch for this company.")
+        elif batch_no:
+            from .item_stock import get_or_create_batch
+
+            batch = get_or_create_batch(
+                company=company, product=product, batch_no=batch_no, user=request.user,
+            )
         else:
             batch = None
         movement = InventoryService.post_movement(
@@ -337,8 +344,14 @@ class SerialNumberViewSet(CompanyScopedViewSet):
         }
         if target not in allowed.get(serial.status, set()):
             return Response({"detail": "Invalid serial status transition."}, status=status.HTTP_400_BAD_REQUEST)
+        warehouse_id = request.data.get("warehouse", serial.warehouse_id)
+        if warehouse_id:
+            from inventory.models import Warehouse
+
+            if not Warehouse.objects.filter(company=self.company, pk=warehouse_id).exists():
+                return Response({"detail": "Warehouse does not belong to this company."}, status=status.HTTP_400_BAD_REQUEST)
         serial.status = target
-        serial.warehouse_id = request.data.get("warehouse", serial.warehouse_id)
+        serial.warehouse_id = warehouse_id
         serial.updated_by = request.user
         serial.save(update_fields=["status", "warehouse", "updated_by", "updated_at"])
         return Response(self.get_serializer(serial).data)
@@ -378,9 +391,11 @@ class ExpiryAlertsView(APIView):
         if qty <= 0:
             raise BusinessRuleError("Write-off quantity must be greater than zero.")
         on_hand = remaining_qty(company, product, warehouse=warehouse, batch=batch)
-        if qty > on_hand:
+        available = InventoryService.available_quantity(company, product, warehouse, batch)
+        if qty > available:
             raise BusinessRuleError(
-                f"Cannot write off {qty} — only {on_hand} remains on this lot at this godown."
+                f"Cannot write off {qty} — only {available} available on this lot at this godown "
+                f"({on_hand} on hand)."
             )
         movement = InventoryService.post_movement(
             company=company,
@@ -407,7 +422,31 @@ class StockValuationReportView(APIView):
             company, method=request.query_params.get("method"), as_of=request.query_params.get("as_of"),
             warehouse=warehouse,
         )
-        return Response({"method": request.query_params.get("method") or company.inventory_valuation_method, "items": rows})
+        basis = (request.query_params.get("basis") or "cost").strip().lower()
+        if basis in ("purchase", "selling", "mrp"):
+            from decimal import Decimal
+
+            from masters.models import Product
+
+            field = {"purchase": "purchase_price", "selling": "selling_price", "mrp": "mrp"}[basis]
+            products = {
+                p.id: p
+                for p in Product.objects.filter(
+                    company=company, pk__in=[r.get("product") for r in rows if r.get("product")]
+                )
+            }
+            for row in rows:
+                product = products.get(row.get("product"))
+                price = Decimal(str(getattr(product, field, 0) or 0)) if product else Decimal("0")
+                qty = Decimal(str(row.get("qty") or row.get("quantity") or 0))
+                row["unit_cost"] = price
+                row["value"] = price * qty
+                row["basis"] = basis
+        return Response({
+            "method": request.query_params.get("method") or company.inventory_valuation_method,
+            "basis": basis if basis in ("purchase", "selling", "mrp") else "cost",
+            "items": rows,
+        })
 
 
 class WarehouseReorderLevelViewSet(CompanyScopedViewSet):

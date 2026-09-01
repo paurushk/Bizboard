@@ -31,6 +31,10 @@ import {
   fetchBarcodeImage,
   generateBarcode,
   getCompany,
+  listCategories,
+  listBrands,
+  listStock,
+  listUnits,
   listWarehouses,
   searchHsn,
   updateProduct,
@@ -40,10 +44,10 @@ import { t } from '@/i18n';
 import { todayIso } from '@/components/billing';
 import type { Product } from '@/types/domain';
 import { isValidHsnSac, normalizeGstRate, GST_RATE_OPTIONS } from '@/utils/gst';
+import { STANDARD_UNITS, formatUnitLabel } from '@/constants/unitLabels';
 import { activeCustomFieldDefs, type ItemCustomFieldDef } from './itemCustomFieldDefaults';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
-const STANDARD_UNITS = ['PCS', 'BOX', 'KG', 'MTR', 'LTR', 'NOS', 'PKT', 'SET', 'PAIR', 'DOZ', 'GMS', 'ROLL', 'BAG'];
 type Tracking = 'NONE' | 'BATCH' | 'SERIAL';
 type TabKey = 'basic' | 'stock' | 'pricing' | 'custom';
 
@@ -82,6 +86,8 @@ interface FormState {
   defaultDiscountPercent: string;
   conversionRate: string;
   alternateUnitName: string;
+  categoryName: string;
+  brandName: string;
   trackInventory: boolean;
   tracking: Tracking;
   openingStock: string;
@@ -138,6 +144,8 @@ function buildForm(
     defaultDiscountPercent: String(product?.defaultDiscountPercent ?? '0'),
     conversionRate: String(product?.conversionRate ?? '1'),
     alternateUnitName: product?.alternateUnitName ?? '',
+    categoryName: product?.categoryName ?? '',
+    brandName: product?.brandName ?? '',
     trackInventory: product?.trackInventory !== false,
     tracking,
     openingStock: '0',
@@ -170,6 +178,10 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
     [companyQuery.data?.itemCustomFieldDefs, user?.company?.itemCustomFieldDefs],
   );
   const warehousesQuery = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses, enabled: open });
+  const unitsQuery = useQuery({ queryKey: ['units'], queryFn: listUnits, enabled: open });
+  const categoriesQuery = useQuery({ queryKey: ['categories'], queryFn: listCategories, enabled: open });
+  const brandsQuery = useQuery({ queryKey: ['brands'], queryFn: listBrands, enabled: open });
+  const stockQuery = useQuery({ queryKey: ['stock'], queryFn: () => listStock(), enabled: open && Boolean(product) });
   const warehouses = warehousesQuery.data ?? [];
   const defaultWarehouseId = String(warehouses[0]?.id ?? '');
   const [tab, setTab] = useState<TabKey>('basic');
@@ -191,18 +203,32 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
   // lists so an existing value is always visible (and never silently replaced).
   const baseUnitOptions = useMemo(() => {
     const set = new Set(STANDARD_UNITS);
+    for (const unit of unitsQuery.data ?? []) {
+      const code = (unit.shortName || unit.uqcCode || unit.name || '').trim();
+      if (code) set.add(code);
+    }
     if (form.unitName) set.add(form.unitName);
     if (product?.unitName) set.add(product.unitName);
     return [...set];
-  }, [form.unitName, product?.unitName]);
+  }, [form.unitName, product?.unitName, unitsQuery.data]);
   const alternateUnitOptions = useMemo(() => {
     const set = new Set(STANDARD_UNITS.filter((unit) => unit !== form.unitName));
+    for (const unit of unitsQuery.data ?? []) {
+      const code = (unit.shortName || unit.uqcCode || unit.name || '').trim();
+      if (code && code !== form.unitName) set.add(code);
+    }
     if (form.alternateUnitName) set.add(form.alternateUnitName);
     if (product?.alternateUnitName && product.alternateUnitName !== form.unitName) {
       set.add(product.alternateUnitName);
     }
     return [...set];
-  }, [form.unitName, form.alternateUnitName, product?.alternateUnitName]);
+  }, [form.unitName, form.alternateUnitName, product?.alternateUnitName, unitsQuery.data]);
+  const unitLabel = (code: string) => {
+    const match = (unitsQuery.data ?? []).find(
+      (unit) => (unit.shortName || unit.uqcCode || '').toUpperCase() === code.toUpperCase(),
+    );
+    return formatUnitLabel(code, match?.name);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -276,6 +302,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
     Boolean(form.alternateUnitName) && !(Number(form.conversionRate) > 0);
   const canSave =
     Boolean(form.name.trim()) &&
+    Boolean(form.sku.trim()) &&
     !hsnInvalid &&
     !conversionRateInvalid &&
     Number(form.purchasePrice) >= 0 &&
@@ -314,11 +341,14 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
   const save = useMutation({
     mutationFn: async (keepOpen: boolean) => {
       if (hsnInvalid) throw new Error('HSN/SAC must be 4, 6, or 8 digits');
-      const sku = form.sku.trim() || `ITEM-${Date.now().toString(36).toUpperCase()}`;
+      const sku = form.sku.trim();
+      if (!sku) throw new Error('Item code is required.');
       const payload: Partial<Product> = {
         name: form.name.trim(),
         sku,
         unitName: form.unitName,
+        categoryName: form.categoryName.trim() || undefined,
+        brandName: form.brandName.trim() || undefined,
         barcode: form.barcode.trim() || undefined,
         hsnCode: form.hsnCode.trim() || undefined,
         description: form.description.trim() || undefined,
@@ -472,8 +502,43 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
               />
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField
-                  label={t('products.skuOptional')}
-                  helperText={t('products.skuOptionalHint')}
+                  label={t('products.category')}
+                  value={form.categoryName}
+                  onChange={(e) => setForm((current) => ({ ...current, categoryName: e.target.value }))}
+                  placeholder={t('products.categoryPlaceholder')}
+                  helperText={t('products.categoryHint')}
+                  sx={{ flex: 1 }}
+                  InputProps={{
+                    inputProps: { list: 'item-form-categories' },
+                  }}
+                />
+                <datalist id="item-form-categories">
+                  {(categoriesQuery.data ?? []).map((row) => (
+                    <option key={row.id} value={row.name} />
+                  ))}
+                </datalist>
+                <TextField
+                  label={t('products.brand')}
+                  value={form.brandName}
+                  onChange={(e) => setForm((current) => ({ ...current, brandName: e.target.value }))}
+                  placeholder={t('products.brandPlaceholder')}
+                  helperText={t('products.brandHint')}
+                  sx={{ flex: 1 }}
+                  InputProps={{
+                    inputProps: { list: 'item-form-brands' },
+                  }}
+                />
+                <datalist id="item-form-brands">
+                  {(brandsQuery.data ?? []).map((row) => (
+                    <option key={row.id} value={row.name} />
+                  ))}
+                </datalist>
+              </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <TextField
+                  label={t('products.skuRequired')}
+                  helperText={t('products.skuRequiredHint')}
+                  required
                   value={form.sku}
                   onChange={(e) => setForm((current) => ({ ...current, sku: e.target.value }))}
                   sx={{ flex: 1 }}
@@ -488,18 +553,20 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                       <Stack direction="row" spacing={0.5}>
                         {form.barcode.trim() ? (
                           <Button size="small" onClick={() => void printBarcode()}>
-                            Print
+                            {t('common.print')}
                           </Button>
                         ) : null}
                         <Button
                           size="small"
                           onClick={() => {
-                            void generateBarcode(product?.id).then((res) =>
-                              setForm((current) => ({ ...current, barcode: res.barcode })),
-                            );
+                            void generateBarcode(product?.id)
+                              .then((res) =>
+                                setForm((current) => ({ ...current, barcode: res.barcode })),
+                              )
+                              .catch((err) => setError(getErrorMessage(err)));
                           }}
                         >
-                          Generate
+                          {t('products.generateBarcode')}
                         </Button>
                       </Stack>
                     ),
@@ -548,7 +615,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                     >
                       {baseUnitOptions.map((unit) => (
                         <MenuItem key={unit} value={unit}>
-                          {unit}
+                          {unitLabel(unit)}
                         </MenuItem>
                       ))}
                     </TextField>
@@ -569,13 +636,13 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                         };
                       })
                     }
-                    helperText="A second unit for billing — e.g. stock in PCS but sell by BOX. Stock is always kept in the base unit."
+                    helperText="A second unit for billing — e.g. stock in Pieces (PCS) but sell by Carton (CTN). Stock is always kept in the base unit."
                     sx={{ minWidth: 160, width: '100%' }}
                   >
                     <MenuItem value="">None</MenuItem>
                     {alternateUnitOptions.map((unit) => (
                       <MenuItem key={unit} value={unit}>
-                        {unit}
+                        {unitLabel(unit)}
                       </MenuItem>
                     ))}
                   </TextField>
@@ -593,7 +660,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                         conversionRateInvalid
                           ? 'Enter a number greater than 0'
                           : form.alternateUnitName
-                            ? `1 ${form.alternateUnitName} = this many ${form.unitName || 'base units'}`
+                            ? `1 ${unitLabel(form.alternateUnitName)} = this many ${unitLabel(form.unitName || 'PCS')}`
                             : 'Set an alternate unit first'
                       }
                       sx={{ minWidth: 160, width: '100%' }}
@@ -624,6 +691,29 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
 
           {tab === 'stock' && !stockHidden ? (
             <Stack spacing={2}>
+              {product ? (
+                <Stack spacing={1}>
+                  <Typography variant="subtitle2">Stock in existing godowns</Typography>
+                  {(stockQuery.data ?? []).filter((row) => Number(row.product) === Number(product.id)).length ? (
+                    (stockQuery.data ?? [])
+                      .filter((row) => Number(row.product) === Number(product.id))
+                      .map((row) => (
+                        <Typography key={`${row.warehouse}-${row.batchNo ?? ''}`} variant="body2">
+                          {row.warehouseName || 'Default godown'}
+                          {row.batchNo ? ` · batch ${row.batchNo}` : ''}
+                          {': '}
+                          <strong>
+                            {row.onHand} {unitLabel(form.unitName || 'PCS')}
+                          </strong>
+                        </Typography>
+                      ))
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      No recorded stock in any godown yet. Opening stock below is only for a new item.
+                    </Typography>
+                  )}
+                </Stack>
+              ) : null}
               {locked ? (
                 <Alert severity="info">
                   Tracking flags and the base unit are locked after the first stock movement.{' '}
@@ -942,7 +1032,9 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
             title={
               !form.name.trim()
                 ? 'Enter item name to save'
-                : hsnInvalid
+                : !form.sku.trim()
+                  ? 'Enter item code (SKU) to save'
+                  : hsnInvalid
                   ? 'Enter a valid HSN/SAC code (4, 6, or 8 digits)'
                   : conversionRateInvalid
                     ? 'Conversion rate must be greater than 0'
@@ -974,12 +1066,23 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
               <Button
                 key={row.code}
                 onClick={() => {
-                  setForm((current) => ({ ...current, hsnCode: row.code }));
+                  const rate = row.gstRate ?? (row as { gst_rate?: string }).gst_rate;
+                  setForm((current) => ({
+                    ...current,
+                    hsnCode: row.code,
+                    gstRate: rate ? String(rate) : current.gstRate,
+                  }));
                   setHsnOpen(false);
                 }}
-                sx={{ justifyContent: 'flex-start' }}
+                sx={{ justifyContent: 'flex-start', textTransform: 'none', display: 'block' }}
               >
-                {row.code} — {row.description}
+                <Typography variant="body2" fontWeight={600}>
+                  {row.code} · {row.kind}
+                  {row.gstRate ? ` · GST ${row.gstRate}%` : ''}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {row.description}
+                </Typography>
               </Button>
             ))}
           </Stack>

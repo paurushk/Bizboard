@@ -138,7 +138,7 @@ export const en = {
   },
   help: {
     title: 'Help & FAQ',
-    subtitle: 'Answers to common questions about billing, stock, items and units.',
+    subtitle: 'Answers to common questions about billing, GST, stock, payments and your login.',
     subtitleV2: 'Ask in your own words. We will take you to the fix.',
     searchLabel: 'Search FAQs',
     searchLabelV2: 'What are you trying to do?',
@@ -467,6 +467,26 @@ export const en = {
       'Amend this completed GST invoice? Changes to prices/discounts/charges will be audited. Quantities and GST rates stay locked.',
     confirmBlankPos:
       'Place of supply is blank. Treat this as an intra-state sale and complete?',
+    cannotEditCancelled:
+      'This cancelled invoice cannot be edited. Open the invoice to view it, or create a new bill.',
+    cannotEditReturned:
+      'This returned invoice cannot be edited. Use a credit note or the original return for stock corrections.',
+    completedBatchLocked:
+      'Quantity on batch/serial items cannot be changed on a completed bill. Use a credit note or sales return. An Owner can still amend prices.',
+    skuMustBeUnique: 'SKU is required and must be unique.',
+    hsnSacDigits: 'HSN/SAC must be 4, 6, or 8 digits',
+    fefoBatch: 'FEFO batch',
+    fefoBatchHint: 'Pick an existing lot, or enter a new batch number below',
+    newBatchOptional: 'New batch no (optional)',
+    changeParty: 'Change',
+    addStateGstin: 'Add State / GSTIN',
+    stateGstinMissing: 'State and GSTIN are not set.',
+    invalidGstin: 'This GSTIN checksum is invalid.',
+    searchPartyPlaceholder: 'Search by customer name, phone, or GSTIN…',
+    typeNameOrPhone: 'Type name or phone number',
+    orTypeCustomerName: 'Or type customer name',
+    useName: 'Use name',
+    walkInCashPlaceholder: 'Walk-in / cash sale name',
     confirmGstinTotalChange:
       'Filing GSTIN tax recompute would change the grand total. Confirm the new CGST/SGST vs IGST split and total, then complete?',
     unsavedTitle: 'Unsaved bill',
@@ -669,6 +689,8 @@ export const en = {
     unit: 'Unit of Measure',
     openingStock: 'Opening Stock',
     openingStockHint: 'Initial stock available in your shop',
+    skuRequired: 'SKU / Item Code',
+    skuRequiredHint: 'Primary item code — required. Must be unique.',
     skuOptional: 'SKU / Item Code (optional)',
     skuOptionalHint: 'Leave blank to auto-generate',
     sellingPrice: 'Selling Price (₹)',
@@ -679,6 +701,13 @@ export const en = {
     reorderLevelHint: 'Minimum safety stock for low-stock alerts',
     trackBatch: 'Track Batches / Expiry',
     trackSerial: 'Track Serial Numbers',
+    category: 'Category',
+    brand: 'Brand',
+    categoryPlaceholder: 'e.g. Apparel',
+    brandPlaceholder: 'e.g. Nike',
+    categoryHint: 'Same as Excel column Category. Type a new name to create it.',
+    brandHint: 'Same as Excel column Brand.',
+    generateBarcode: 'Generate',
   },
   customFields: {
     columns: 'Columns',
@@ -832,6 +861,12 @@ export const en = {
     qtyToReduce: 'Quantity to Reduce',
     reasonSelect: 'Reason for Adjustment',
     currentRecordedBalance: 'Current recorded balance',
+    existingBatch: 'Existing batch',
+    newBatchNo: 'New batch no',
+    newBatchHint: 'Use when adding stock to a new lot',
+    newBatchBelow: 'New batch number below',
+    requireBatch: 'Select or enter a batch for this tracked item',
+    reduceNeedsExisting: 'Reducing stock requires an existing batch',
     reasons: {
       damaged: 'Damaged / Defective Goods',
       discrepancy: 'Physical Count Discrepancy',
@@ -868,6 +903,10 @@ export const en = {
     offlineBanner: 'You are offline. Cash sales will be queued locally and synced when connection returns.',
     selectCustomerPlaceholder: 'Select customer…',
     walkInNamed: 'Walk-in — {name}',
+    orTypeCustomerName: 'Or type customer name',
+    cashWalkInPlaceholder: 'Cash / walk-in name',
+    typedNameHint: 'Bills this sale to the typed name without leaving the counter',
+    blankPosTaxHint: 'No state/GSTIN — tax is treated as intra-state until you confirm.',
     addItemsHint: 'Scan or search to add items.',
     tender: 'Tender',
     subtotal: 'Subtotal',
@@ -924,6 +963,9 @@ export const en = {
   payroll: {
     confirmRun: 'Post this payroll run to the books? This cannot be undone from this screen.',
     confirmComplete: 'Complete this pay run?',
+    payMonth: 'Pay month',
+    calendarYear: 'Calendar year',
+    payRun: 'pay run',
   },
   inventory: {
     godown: 'Godown',
@@ -1032,6 +1074,10 @@ export const en = {
     manufacturingPreview: 'Manufacturing preview — not a full MES',
     payrollPreview: 'Payroll preview — simplified PF/ESI/PT, not full statutory payroll or HRMS',
     crmPreview: 'CRM preview — lead notebook, not a full CRM suite',
+    moduleDisabled:
+      'This module isn’t enabled for your company. Ask your account owner to enable it, or contact support.',
+    payrollDisabled:
+      'Payroll isn’t enabled for your company. Ask your account owner to turn it on in settings, then use Pay Runs — this is not GSTR-9 or the financial-year screen.',
     completeWorkOrder: 'Complete work order',
     completePayRun: 'Complete pay run',
     convertLead: 'Convert lead',

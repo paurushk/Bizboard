@@ -95,7 +95,11 @@ def _sniff_mime(header: bytes, filename: str, declared: str) -> str:
     if header.startswith(b"GIF87a") or header.startswith(b"GIF89a"):
         return "image/gif"
     if header.startswith(b"PK"):
-        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        # Only treat as XLSX when the filename says so. Bare ZIP/DOCX/PPTX
+        # also start with PK and must not pass spreadsheet MIME checks.
+        if name.endswith(".xlsx") or name.endswith(".xlsm"):
+            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        return ""
     if header.startswith(b"\xd0\xcf\x11\xe0"):
         return "application/vnd.ms-excel"
 
@@ -185,6 +189,8 @@ class FileService:
 
         declared = getattr(uploaded_file, "content_type", "") or ""
         sniffed = _sniff_mime(header, getattr(uploaded_file, "name", "") or "", declared)
+        if sniffed == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            FileService._assert_real_xlsx(uploaded_file)
         if not sniffed or sniffed not in allowed or sniffed == "application/octet-stream":
             name = (getattr(uploaded_file, "name", "") or "").lower()
             # .csv whose header has high bytes that aren't UTF-8 and didn't look
@@ -202,6 +208,32 @@ class FileService:
                 f"File type '{sniffed or declared or 'unknown'}' is not allowed."
             )
         return sniffed
+
+    @staticmethod
+    def _assert_real_xlsx(uploaded_file) -> None:
+        """Reject ZIP/DOCX pretending to be xlsx and cap uncompressed size."""
+        import zipfile
+
+        pos = uploaded_file.tell()
+        try:
+            with zipfile.ZipFile(uploaded_file) as zf:
+                names = set(zf.namelist())
+                if "xl/workbook.xml" not in names:
+                    raise BusinessRuleError("File is not a valid Excel workbook.")
+                if len(names) > 2000:
+                    raise BusinessRuleError("Spreadsheet has too many entries.")
+                uncompressed = sum(info.file_size for info in zf.infolist())
+                if uncompressed > 50 * 1024 * 1024:
+                    raise BusinessRuleError("Spreadsheet uncompressed size is too large.")
+        except BusinessRuleError:
+            raise
+        except (zipfile.BadZipFile, OSError, ValueError) as exc:
+            raise BusinessRuleError("File is not a valid Excel workbook.") from exc
+        finally:
+            try:
+                uploaded_file.seek(pos)
+            except Exception:
+                pass
 
     @staticmethod
     def store_upload(*, company, uploaded_file, kind=FileAsset.Kind.ATTACHMENT, user=None):

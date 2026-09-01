@@ -71,12 +71,14 @@ import {
   OUTBOX_WARNING_DISMISS_KEY,
   type InvoiceDraftLine,
 } from '@/offline/invoiceDraftCache';
+import { flushPosDraft } from '@/offline/flushPosCheckout';
 import type { Customer, PaymentMode, Product } from '@/types/domain';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
 import { printBlob } from '@/utils/blob';
 import { isAllowedPaymentUrl, openShareUrl } from '@/utils/safeUrl';
-import { formatMoney, toNumber } from '@/utils/money';
+import { formatMoney, roundMoney, toNumber } from '@/utils/money';
+import { formatUnitLabel } from '@/constants/unitLabels';
 import { resolveListUnitPrice } from '@/utils/priceList';
 import {
   calculateLineTax,
@@ -90,6 +92,24 @@ interface CartLine {
   product: Product;
   quantity: number;
   discountPercent: number;
+  unitName: string;
+  /** Outbox snapshot already stored the alt-unit price; do not convert again. */
+  priceAlreadyConverted?: boolean;
+}
+
+function posLineUnitPrice(
+  product: Product,
+  qty: number,
+  unitName: string,
+  unitPriceFor: (productId: number, qty: number, sellingPrice?: string | number) => number,
+  priceAlreadyConverted = false,
+): number {
+  const base = unitPriceFor(product.id, qty, product.sellingPrice);
+  if (priceAlreadyConverted) return base;
+  const alt = product.alternateUnitName;
+  const rate = toNumber(product.conversionRate) || 1;
+  if (alt && unitName === alt && rate > 0) return roundMoney(base * rate);
+  return base;
 }
 
 interface UpiPending {
@@ -115,9 +135,16 @@ function draftLinesFromCart(
     productName: line.product.name,
     sku: line.product.sku,
     quantity: line.quantity,
-    unitPrice: unitPriceFor(line.product.id, line.quantity),
+    unitPrice: posLineUnitPrice(
+      line.product,
+      line.quantity,
+      line.unitName,
+      unitPriceFor,
+      line.priceAlreadyConverted,
+    ),
     gstRate: taxEnabled ? toNumber(line.product.gstRate) : 0,
     discountPercent: line.discountPercent || 0,
+    unitName: line.unitName,
   }));
 }
 
@@ -154,6 +181,7 @@ export function PosPage() {
   const [blankPosMode, setBlankPosMode] = useState<PaymentMode | null>(null);
   const [unpaidRecover, setUnpaidRecover] = useState<{ id: number; number: string } | null>(null);
   const [walkInConfirmMode, setWalkInConfirmMode] = useState<PaymentMode | null>(null);
+  const [walkInName, setWalkInName] = useState('');
   const [saleJustCompleted, setSaleJustCompleted] = useState(false);
   const flushGuard = useRef(false);
 
@@ -228,9 +256,11 @@ export function PosPage() {
       setHasOutboxItems(drafts.some((row) => row.kind === 'pos' || row.kind === 'invoice'));
       const draft = [...drafts].reverse().find((row) => row.kind === 'pos');
       if (!draft || navigator.onLine) return;
-      if (!draft.lines || draft.customerId == null) return;
+      if (!draft.lines?.length) return;
       setIdempotencyKey(draft.idempotencyKey);
-      setCustomerId(draft.customerId);
+      if (draft.customerId) setCustomerId(draft.customerId);
+      const pendingName = String(draft.pendingCustomerName || draft.payload?.pendingCustomerName || '').trim();
+      if (!draft.customerId && pendingName) setWalkInName(pendingName);
       setCart(
         draft.lines.map((line) => ({
           key: `${line.productId}-${line.sku}`,
@@ -246,6 +276,8 @@ export function PosPage() {
           } as Product,
           quantity: line.quantity,
           discountPercent: line.discountPercent ?? 0,
+          unitName: line.unitName || 'PCS',
+          priceAlreadyConverted: true,
         })),
       );
       setMessage(t('pos.recoveredDraft'));
@@ -264,7 +296,13 @@ export function PosPage() {
   const lineTaxes = useMemo(
     () =>
       cart.map((line) => {
-        let unitPrice = unitPriceFor(line.product.id, line.quantity, line.product.sellingPrice);
+        let unitPrice = posLineUnitPrice(
+          line.product,
+          line.quantity,
+          line.unitName,
+          unitPriceFor,
+          line.priceAlreadyConverted,
+        );
         let discountPercent = line.discountPercent || 0;
         if (isInclusive) {
           const extracted = extractExclusiveFromInclusiveLine({
@@ -319,7 +357,13 @@ export function PosPage() {
       }
       return [
         ...prev,
-        { key: `${product.id}-${Date.now()}`, product, quantity: 1, discountPercent: 0 },
+        {
+          key: `${product.id}-${Date.now()}`,
+          product,
+          quantity: 1,
+          discountPercent: 0,
+          unitName: product.unitName || 'PCS',
+        },
       ];
     });
     setProductQuery('');
@@ -446,6 +490,7 @@ export function PosPage() {
             unitPriceInclusive: isInclusive ? line.unitPrice : undefined,
             gstRate: taxEnabled ? line.gstRate : 0,
             discountPercent: line.discountPercent ?? 0,
+            unitName: line.unitName || undefined,
           })),
         },
         { idempotencyKey: key },
@@ -501,34 +546,6 @@ export function PosPage() {
       }
     },
     [createCompletedInvoice, finishSale],
-  );
-
-  /** Offline flush / recovery: complete sale with receipt for queued cash drafts. */
-  const performCheckout = useCallback(
-    async (mode: PaymentMode, lines: InvoiceDraftLine[], customer: number, key?: string, confirmBlankPos = false) => {
-      if (mode === 'UPI') {
-        // Offline UPI drafts sync as unpaid completed invoices; cashier confirms later.
-        setBusy(true);
-        setError(null);
-        try {
-          const completed = await createCompletedInvoice(lines, customer, key, confirmBlankPos);
-          if (key) await removeDraft(companyId, userId, key);
-          setCart([]);
-          setIdempotencyKey(null);
-          setMessage(
-            t('pos.syncedUnpaid', { number: String(completed.number ?? `#${completed.id}`) }),
-          );
-        } catch (err) {
-          setError(getErrorMessage(err));
-          throw err;
-        } finally {
-          setBusy(false);
-        }
-        return;
-      }
-      await performCashCheckout(lines, customer, key, confirmBlankPos);
-    },
-    [companyId, createCompletedInvoice, performCashCheckout, userId],
   );
 
   const startUpiCheckout = useCallback(
@@ -603,12 +620,7 @@ export function PosPage() {
         companyId,
         userId,
         async (draft) => {
-          await performCheckout(
-            draft.paymentMode ?? 'CASH',
-            draft.lines ?? [],
-            draft.customerId ?? 0,
-            draft.idempotencyKey,
-          );
+          await flushPosDraft(draft);
         },
         (draft) => draft.kind === 'pos',
       );
@@ -621,12 +633,16 @@ export function PosPage() {
           }),
         );
       } else if (result.flushed > 0) {
+        setCart([]);
+        setCashTendered('');
+        setWalkInName('');
+        setIdempotencyKey(null);
         setMessage(t('pos.syncedOfflineSales', { count: String(result.flushed) }));
       }
     } finally {
       flushGuard.current = false;
     }
-  }, [companyId, performCheckout, userId]);
+  }, [companyId, userId]);
 
   useEffect(() => {
     const onOnline = () => {
@@ -649,8 +665,32 @@ export function PosPage() {
         setError(t('billing.writesBlocked'));
         return;
       }
+      if (busy) return;
+      setBusy(true);
+      try {
       let effectiveCustomerId = customerId;
-      if (!effectiveCustomerId) {
+      const typedName = walkInName.trim();
+      const online = typeof navigator === 'undefined' || navigator.onLine;
+      // Typed name only applies when no party is selected — leftover text must not override B2B.
+      if (typedName && !effectiveCustomerId) {
+        const existingNamed = activeCustomers.find(
+          (c) => c.name.trim().toLowerCase() === typedName.toLowerCase(),
+        );
+        if (existingNamed) {
+          effectiveCustomerId = existingNamed.id;
+          setCustomerId(existingNamed.id);
+        } else if (online) {
+          try {
+            const created = await createCustomer({ name: typedName, status: 'ACTIVE' });
+            effectiveCustomerId = created.id;
+            setCustomerId(created.id);
+            setWalkInName('');
+          } catch {
+            setError(t('pos.selectCustomer'));
+            return;
+          }
+        }
+      } else if (!effectiveCustomerId) {
         if (walkInCustomer) {
           if (!opts?.confirmWalkIn) {
             setWalkInConfirmMode(mode);
@@ -658,7 +698,7 @@ export function PosPage() {
           }
           effectiveCustomerId = walkInCustomer.id;
           setCustomerId(walkInCustomer.id);
-        } else {
+        } else if (online) {
           try {
             const created = await createCustomer({ name: t('pos.walkInCustomer'), status: 'ACTIVE' });
             effectiveCustomerId = created.id;
@@ -702,17 +742,31 @@ export function PosPage() {
       setIdempotencyKey(key);
 
       if (!navigator.onLine) {
+        const pendingName =
+          !effectiveCustomerId
+            ? typedName || t('pos.walkInCustomer')
+            : undefined;
         try {
-          const saved = await enqueueDraft(companyId, userId, {
+          await enqueueDraft(companyId, userId, {
             kind: 'pos',
-            payload: { customer: Number(effectiveCustomerId), items: lines, paymentMode: mode },
+            payload: {
+              customer: Number(effectiveCustomerId) || 0,
+              items: lines,
+              paymentMode: mode,
+              pendingCustomerName: pendingName,
+            },
             idempotencyKey: key,
-            customerId: Number(effectiveCustomerId),
+            customerId: Number(effectiveCustomerId) || undefined,
+            pendingCustomerName: pendingName,
             paymentMode: mode,
             lines,
           });
           trackShopFloor('offline_enqueue');
-          setIdempotencyKey(saved.idempotencyKey);
+          setIdempotencyKey(null);
+          setCart([]);
+          setCashTendered('');
+          setWalkInName('');
+          setCustomerId('');
           setMessage(t('pos.savedOffline'));
           setError(null);
         } catch (err) {
@@ -725,11 +779,19 @@ export function PosPage() {
         return;
       }
 
+      if (!effectiveCustomerId) {
+        setError(t('pos.selectCustomer'));
+        return;
+      }
+
       if (mode === 'UPI') {
         await startUpiCheckout(lines, Number(effectiveCustomerId), key, Boolean(opts?.confirmBlankPos));
         return;
       }
       await performCashCheckout(lines, Number(effectiveCustomerId), key, Boolean(opts?.confirmBlankPos));
+      } finally {
+        setBusy(false);
+      }
     },
     [
       cart,
@@ -743,7 +805,9 @@ export function PosPage() {
       unitPriceFor,
       userId,
       walkInCustomer,
+      walkInName,
       writesBlocked,
+      busy,
       activeCustomers,
       selectedCustomer.data,
     ],
@@ -878,6 +942,7 @@ export function PosPage() {
               onChange={(e) => {
                 const v = e.target.value;
                 setCustomerId(v === '' ? '' : Number(v));
+                if (v !== '') setWalkInName('');
               }}
               fullWidth
             >
@@ -896,6 +961,16 @@ export function PosPage() {
                   </MenuItem>
                 ))}
             </TextField>
+            <TextField
+              size="small"
+              label={t('pos.orTypeCustomerName')}
+              value={walkInName}
+              onChange={(e) => setWalkInName(e.target.value)}
+              placeholder={t('pos.cashWalkInPlaceholder')}
+              helperText={t('pos.typedNameHint')}
+              disabled={Boolean(customerId)}
+              fullWidth
+            />
 
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
               <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
@@ -984,7 +1059,13 @@ export function PosPage() {
                   </TableRow>
                 ) : (
                   cart.map((line) => {
-                    const unitPrice = unitPriceFor(line.product.id, line.quantity, line.product.sellingPrice);
+                    const unitPrice = posLineUnitPrice(
+                      line.product,
+                      line.quantity,
+                      line.unitName,
+                      unitPriceFor,
+                      line.priceAlreadyConverted,
+                    );
                     const listHit = resolveListUnitPrice(
                       priceLists.data,
                       selectedCustomer.data?.priceList,
@@ -1025,6 +1106,33 @@ export function PosPage() {
                             <IconButton size="small" onClick={() => updateQty(line.key, line.quantity + 1)}>
                               <AddIcon fontSize="small" />
                             </IconButton>
+                            {line.product.alternateUnitName ? (
+                              <TextField
+                                select
+                                size="small"
+                                value={line.unitName}
+                                onChange={(e) =>
+                                  setCart((prev) =>
+                                    prev.map((row) =>
+                                      row.key === line.key ? { ...row, unitName: e.target.value } : row,
+                                    ),
+                                  )
+                                }
+                                sx={{ width: 110 }}
+                              >
+                                {[line.product.unitName || 'PCS', line.product.alternateUnitName]
+                                  .filter((unit, index, all) => Boolean(unit) && all.indexOf(unit) === index)
+                                  .map((unit) => (
+                                    <MenuItem key={unit} value={unit}>
+                                      {formatUnitLabel(unit)}
+                                    </MenuItem>
+                                  ))}
+                              </TextField>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">
+                                {formatUnitLabel(line.unitName || line.product.unitName || 'PCS')}
+                              </Typography>
+                            )}
                           </Stack>
                         </TableCell>
                         <TableCell align="right">
@@ -1061,10 +1169,35 @@ export function PosPage() {
               <Typography color="text.secondary">{t('pos.subtotal')}</Typography>
               <Typography>{formatMoney(totals.subtotal)}</Typography>
             </Stack>
-            <Stack direction="row" justifyContent="space-between">
-              <Typography color="text.secondary">{t('pos.tax')}</Typography>
-              <Typography>{formatMoney(totals.taxTotal)}</Typography>
-            </Stack>
+            {taxEnabled && (totals.cgstTotal > 0 || totals.sgstTotal > 0) ? (
+              <>
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography color="text.secondary">{t('billing.cgst')}</Typography>
+                  <Typography>{formatMoney(totals.cgstTotal)}</Typography>
+                </Stack>
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography color="text.secondary">{t('billing.sgst')}</Typography>
+                  <Typography>{formatMoney(totals.sgstTotal)}</Typography>
+                </Stack>
+              </>
+            ) : null}
+            {taxEnabled && totals.igstTotal > 0 ? (
+              <Stack direction="row" justifyContent="space-between">
+                <Typography color="text.secondary">{t('billing.igst')}</Typography>
+                <Typography>{formatMoney(totals.igstTotal)}</Typography>
+              </Stack>
+            ) : null}
+            {taxEnabled && totals.cgstTotal <= 0 && totals.sgstTotal <= 0 && totals.igstTotal <= 0 ? (
+              <Stack direction="row" justifyContent="space-between">
+                <Typography color="text.secondary">{t('pos.tax')}</Typography>
+                <Typography>{formatMoney(totals.taxTotal)}</Typography>
+              </Stack>
+            ) : null}
+            {taxEnabled && intraState == null ? (
+              <Typography variant="caption" color="warning.main">
+                {t('pos.blankPosTaxHint')}
+              </Typography>
+            ) : null}
             <Stack direction="row" justifyContent="space-between">
               <Typography variant="h6">{t('pos.total')}</Typography>
               <Typography variant="h6">{formatMoney(totals.grandTotal)}</Typography>

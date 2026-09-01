@@ -56,17 +56,12 @@ def in_quiet_hours(company, now: datetime | None = None) -> bool:
 
 
 def is_paid_pending_books(invoice) -> bool:
-    from payments.models import GatewayPayment, GatewayPaymentStatus, PaymentLinkStatus
+    from payments.models import GatewayPayment, GatewayPaymentStatus
 
-    if invoice.payment_links.filter(status=PaymentLinkStatus.PAID).exists():
-        return True
     return GatewayPayment.objects.filter(
         company_id=invoice.company_id,
         payment_link__sales_invoice=invoice,
-        status__in=(
-            GatewayPaymentStatus.CAPTURED,
-            GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
-        ),
+        status=GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
     ).exists()
 
 
@@ -166,7 +161,7 @@ def remind_invoice(invoice, *, sent_on: date, days_overdue: int) -> str:
     company = invoice.company
     body = (
         f"Payment reminder from {company.name}: invoice {invoice.number} "
-        f"for INR {invoice.grand_total} was due on {invoice.due_date}. Please pay."
+        f"for INR {_outstanding(invoice)} was due on {invoice.due_date}. Please pay."
     )
     if getattr(company, "dunning_channel_whatsapp", True):
         try:

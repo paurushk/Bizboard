@@ -21,6 +21,7 @@ export interface InvoiceDraftLine {
   discountAmount?: number;
   serials?: string[];
   supplyType?: string;
+  unitName?: string;
 }
 
 /** BB-000572: drafts are plaintext in IndexedDB/localStorage on shared POS devices. */
@@ -54,6 +55,8 @@ export interface OutboxDraft {
   customerId?: number;
   paymentMode?: PaymentMode;
   lines?: InvoiceDraftLine[];
+  pendingCustomerName?: string;
+  completeIntent?: boolean;
 }
 
 let forceLocalStorage = false;
@@ -269,6 +272,8 @@ export async function enqueueDraft(
     customerId?: number;
     paymentMode?: PaymentMode;
     lines?: InvoiceDraftLine[];
+    pendingCustomerName?: string;
+    completeIntent?: boolean;
   },
 ): Promise<OutboxDraft> {
   const idempotencyKey = input.idempotencyKey || newIdempotencyKey();
@@ -285,6 +290,8 @@ export async function enqueueDraft(
     customerId: input.customerId,
     paymentMode: input.paymentMode,
     lines: input.lines,
+    pendingCustomerName: input.pendingCustomerName,
+    completeIntent: input.completeIntent,
   };
 
   const existing = (await mergeDurable(companyId, userId)).filter(
@@ -320,11 +327,7 @@ export async function removeDraft(
 ): Promise<void> {
   const id = `${scopeKey(companyId, userId)}:${idempotencyKey}`;
   if (idbAvailable()) {
-    try {
-      await idbDelete(id);
-    } catch {
-      // still clear local fallback
-    }
+    await idbDelete(id);
   }
   writeLocal(
     companyId,

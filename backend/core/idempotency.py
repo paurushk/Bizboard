@@ -268,10 +268,13 @@ def wrap_idempotent(*, request, company, scope: str, build):
             return response
         if owns_key:
             code = int(getattr(response, "status_code", 200) or 200)
-            if 200 <= code < 300 or code >= 500:
+            if 200 <= code < 300:
                 _store_success_or_error(
                     company=company, scope=scope, raw_key=raw_key, response=response,
                 )
+            elif code >= 500:
+                # Pre-commit / transient 5xx must not brick the key forever.
+                release_record(company=company, scope=scope, raw_key=raw_key)
             elif _is_transient_4xx(status_code=code, code=_response_error_code(response)):
                 release_record(company=company, scope=scope, raw_key=raw_key)
             else:

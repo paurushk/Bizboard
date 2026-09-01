@@ -402,6 +402,9 @@ class PurchaseService:
                         InventoryService.retire_source_layers(move, take)
                         need -= take
             emit("purchase_invoice.edited", invoice=invoice, user=user, old_totals=old_totals)
+            if invoice.company.accounting_enabled:
+                from accounting.services import PostingService
+                PostingService.adjust_purchase_invoice_postings(invoice, user=user)
 
         invoice.updated_by = user
         invoice.save()
@@ -1178,7 +1181,11 @@ class PurchaseService:
                         ),
                         numbers=item.serial_numbers,
                         quantity=item.quantity,
-                        source=SerialNumber.Status.SCRAPPED,
+                        source=(
+                            SerialNumber.Status.SCRAPPED
+                            if item.condition == PurchaseReturnItem.Condition.DAMAGED
+                            else SerialNumber.Status.RETURNED
+                        ),
                         target=SerialNumber.Status.AVAILABLE,
                         user=user,
                     )
@@ -1238,8 +1245,15 @@ class PurchaseService:
                 )
             invoice = purchase_return.purchase_invoice
             if invoice and invoice.status == PurchaseInvoice.Status.RETURNED:
-                invoice.status = PurchaseInvoice.Status.COMPLETED
-                invoice.save(update_fields=["status"])
+                from .models import PurchaseReturn as PR
+
+                other_open = PR.objects.filter(
+                    purchase_invoice=invoice,
+                    status=PR.Status.COMPLETED,
+                ).exclude(pk=purchase_return.pk).exists()
+                if not other_open:
+                    invoice.status = PurchaseInvoice.Status.COMPLETED
+                    invoice.save(update_fields=["status"])
             # BB-000263: cancel linked auto purchase CNs.
             from .models import PurchaseCreditNote
             from .notes_services import PurchaseNotesService

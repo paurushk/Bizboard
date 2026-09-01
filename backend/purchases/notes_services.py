@@ -122,7 +122,7 @@ def _build_note_items(model_cls, parent_field, parent, items_data):
     product_ids = [line["product"].pk for line in items_data]
     products = {
         p.pk: p
-        for p in Product.objects.filter(pk__in=product_ids).select_related("unit")
+        for p in Product.objects.filter(pk__in=product_ids, company_id=parent.company_id).select_related("unit")
     }
     # PurchaseOrderItem has no HSN/UQC snapshot columns (invoice/CN/DN lines do).
     items = []
@@ -216,8 +216,8 @@ class PurchaseNotesService:
         if tax_enabled:
             missing_hsn = note.items.filter(hsn_code="").count()
             if missing_hsn:
-                warnings.append(
-                    f"{missing_hsn} line(s) missing HSN — GSTR Table 12 / e-Invoice may fail."
+                raise BusinessRuleError(
+                    f"{missing_hsn} line(s) missing HSN — complete the HSN before finishing this note."
                 )
         # BB-000736 / BB-000699: period before number; no except-pass.
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
@@ -328,8 +328,8 @@ class PurchaseNotesService:
         if tax_enabled:
             missing_hsn = note.items.filter(hsn_code="").count()
             if missing_hsn:
-                warnings.append(
-                    f"{missing_hsn} line(s) missing HSN — GSTR Table 12 / e-Invoice may fail."
+                raise BusinessRuleError(
+                    f"{missing_hsn} line(s) missing HSN — complete the HSN before finishing this note."
                 )
         # BB-000736 / BB-000699: period before number; no except-pass.
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
@@ -442,6 +442,13 @@ class PurchaseNotesService:
                 "unit_price": item.unit_price,
                 "discount_percent": item.discount_percent,
                 "gst_rate": item.gst_rate,
+                "cess_rate": getattr(item, "cess_rate", Decimal("0")),
+                "cess_amount": getattr(item, "cess_amount", Decimal("0")),
+                "hsn_code": getattr(item, "hsn_code", "") or "",
+                "batch": getattr(item, "batch", None),
+                "batch_no": getattr(item, "batch_no", "") or "",
+                "serial_numbers": getattr(item, "serial_numbers", None) or [],
+                "unit_price_inclusive": getattr(item, "unit_price_inclusive", None),
             }
             for item in order.items.select_related("product")
         ]

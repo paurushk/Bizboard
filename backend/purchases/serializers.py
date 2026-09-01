@@ -194,6 +194,7 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         money_fields = {
             "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off",
             "price_mode", "is_reverse_charge", "itc_eligibility",
+            "tds_rate", "tds_amount",
         }
         money_changing = bool(money_fields & set(validated_data.keys()))
         items_in_request = items_data is not serializers.empty

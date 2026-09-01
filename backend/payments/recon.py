@@ -177,7 +177,7 @@ def score_match(line: BankStatementLine, *, receipt: CustomerReceipt | None = No
         if abs(line.amount - target_amount) < Decimal("0.01"):
             score += Decimal("40")
     elif payment:
-        target_amount = payment.amount
+        target_amount = payment.amount + Decimal(str(getattr(payment, "tds_amount", 0) or 0))
         target_date = payment.payment_date
         target_utr = normalize_utr(payment.utr or payment.reference)
         target_ref = (payment.number or "").upper()
@@ -280,13 +280,13 @@ def _has_hard_recon_anchor(line: BankStatementLine, suggestion: dict) -> bool:
     line_utr = normalize_utr(line.utr)
     target_utr = ""
     if suggestion.get("type") == "receipt":
-        receipt = CustomerReceipt.objects.filter(pk=suggestion.get("id")).only(
+        receipt = CustomerReceipt.objects.filter(pk=suggestion.get("id"), company_id=line.company_id).only(
             "utr", "reference"
         ).first()
         if receipt:
             target_utr = normalize_utr(receipt.utr or receipt.reference)
     elif suggestion.get("type") == "supplier_payment":
-        payment = SupplierPayment.objects.filter(pk=suggestion.get("id")).only(
+        payment = SupplierPayment.objects.filter(pk=suggestion.get("id"), company_id=line.company_id).only(
             "utr", "reference"
         ).first()
         if payment:

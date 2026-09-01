@@ -88,7 +88,7 @@ class PayRunViewSet(CompanyScopedViewSet):
                 pay_run=pay_run,
                 company=company,
                 employee=emp,
-                defaults={"paid_days": paid, "gross": Decimal("0"), "net": Decimal("0")},
+                defaults={"paid_days": paid, "gross": emp.salary, "net": emp.salary},
             )
         pay_run = PayRun.objects.prefetch_related("slips__employee").get(pk=pay_run.pk)
         return Response(self.get_serializer(pay_run).data)

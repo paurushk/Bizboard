@@ -38,7 +38,12 @@ COMMON_HSN = [
     {"code": "6109", "description": "T-shirts, singlets and other vests, knitted or crocheted", "kind": "HSN"},
     {"code": "6110", "description": "Jerseys, pullovers, cardigans, knitted or crocheted", "kind": "HSN"},
     {"code": "6203", "description": "Men's or boys' suits, ensembles, jackets, trousers", "kind": "HSN"},
+    {"code": "6104", "description": "Women's or girls' suits, ensembles, jackets, trousers, knitted", "kind": "HSN"},
+    {"code": "6105", "description": "Men's or boys' shirts, knitted or crocheted", "kind": "HSN"},
+    {"code": "6108", "description": "Women's or girls' slips, pyjamas, nightdresses, knitted", "kind": "HSN"},
     {"code": "6204", "description": "Women's or girls' suits, ensembles, jackets, dresses", "kind": "HSN"},
+    {"code": "6205", "description": "Men's or boys' shirts", "kind": "HSN"},
+    {"code": "6211", "description": "Track suits, ski suits and swimwear; other garments", "kind": "HSN"},
     {"code": "6403", "description": "Footwear with outer soles of rubber, plastics, leather", "kind": "HSN"},
     {"code": "7308", "description": "Structures and parts of structures of iron or steel", "kind": "HSN"},
     {"code": "8418", "description": "Refrigerators, freezers and other refrigerating equipment", "kind": "HSN"},
@@ -68,7 +73,17 @@ COMMON_HSN = [
 ]
 
 
-def search_hsn(query: str, *, kind: str | None = None, limit: int = 20) -> list[dict]:
+def _current_starter_rate(code: str) -> str | None:
+    digits = "".join(c for c in (code or "") if c.isdigit())
+    prefixes = [digits[:n] for n in (8, 6, 4) if len(digits) >= n]
+    for prefix in prefixes:
+        hits = [r for r in STARTER_HSN_RATES if r["hsn_sac"] == prefix and r.get("valid_to") is None]
+        if hits:
+            return str(hits[0]["rate"])
+    return None
+
+
+def search_hsn(query: str, *, kind: str | None = None, limit: int = 40) -> list[dict]:
     q = (query or "").strip().lower()
     kind = (kind or "").upper() or None
     rows = []
@@ -77,7 +92,11 @@ def search_hsn(query: str, *, kind: str | None = None, limit: int = 20) -> list[
             continue
         blob = f"{row['code']} {row['description']}".lower()
         if not q or q in blob:
-            rows.append(row)
+            rows.append({
+                **row,
+                "gst_rate": _current_starter_rate(row["code"]),
+                "chapter": row["description"],
+            })
         if len(rows) >= limit:
             break
     return rows

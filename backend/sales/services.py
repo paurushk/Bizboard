@@ -613,6 +613,9 @@ class SalesService:
                 old_totals=old_totals,
                 amend=True,
             )
+            if invoice.company.accounting_enabled:
+                from accounting.services import PostingService
+                PostingService.adjust_sales_invoice_postings(invoice, user=user)
             from core.models import StatutoryDocumentEvent, log_statutory_event
 
             log_statutory_event(
@@ -801,6 +804,13 @@ class SalesService:
         if tax_enabled:
             missing_hsn = [i for i in items if not (i.hsn_code or "").strip()]
             if missing_hsn:
+                if getattr(invoice.company, "einvoice_enabled", False) and (
+                    customer.gstin or ""
+                ).strip():
+                    raise BusinessRuleError(
+                        f"{len(missing_hsn)} line(s) missing HSN — required before completing "
+                        "an e-invoice GST invoice."
+                    )
                 warnings.append(
                     f"{len(missing_hsn)} line(s) missing HSN — GSTR Table 12 / e-Invoice may fail."
                 )
@@ -999,6 +1009,10 @@ class SalesService:
                 "Cannot cancel an invoice with payment allocations against it. "
                 "Remove the allocation(s) first."
             )
+        from .irn_guard import assert_no_live_eway, assert_no_live_irn
+
+        assert_no_live_irn(invoice, kind="invoice")
+        assert_no_live_eway(invoice, kind="invoice")
 
         if invoice.status in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
             if invoice.company.accounting_enabled:
@@ -1186,10 +1200,20 @@ class SalesService:
         if not quotation.number:
             quotation.number = DocumentNumberService.next_number(quotation.company, "QUOTATION")
 
+        from accounts.models import CompanyGstin
+
+        active_gstins = list(
+            CompanyGstin.objects.filter(company=quotation.company, is_active=True).order_by(
+                "-is_primary", "id"
+            )
+        )
+        stamp = active_gstins[0] if len(active_gstins) == 1 else None
         invoice = SalesInvoice.objects.create(
             company=quotation.company,
             customer=quotation.customer,
+            warehouse=InventoryService.default_warehouse(quotation.company),
             invoice_type=quotation.invoice_type,
+            company_gstin=stamp,
             notes=quotation.notes,
             created_by=user,
             updated_by=user,

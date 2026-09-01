@@ -25,7 +25,7 @@ import {
   submitInvoiceEinvoice,
   submitInvoiceEway,
 } from '@/api/resources';
-import { isEinvoiceSubmitEnabled } from '@/config/features';
+import { isEinvoiceSubmitEnabled, isEwaySubmitEnabled } from '@/config/features';
 import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 import { triggerBlobDownload } from '@/utils/blob';
@@ -196,7 +196,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
   const einvoiceGenerated = invoice.einvoiceStatus === 'GENERATED';
   const ewayGenerated = invoice.ewayStatus === 'GENERATED';
   const canSubmitEinvoice = isEinvoiceSubmitEnabled();
-  const canSubmitEway = isEinvoiceSubmitEnabled();
+  const canSubmitEway = isEwaySubmitEnabled();
 
   return (
     <Paper sx={{ p: 2 }}>

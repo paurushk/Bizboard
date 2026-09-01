@@ -11,6 +11,7 @@ from django.conf import settings
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from core.exceptions import BusinessRuleError
@@ -110,6 +111,7 @@ class RazorpayWebhookView(APIView):
 
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [AnonRateThrottle]
 
     def post(self, request):
         body = request.body or b""

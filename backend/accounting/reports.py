@@ -332,13 +332,18 @@ def close_financial_year(company, fy_end, user=None):
 
     from manufacturing.models import WorkOrder
 
-    if WorkOrder.objects.filter(company=company, status=WorkOrder.Status.RELEASED).exists():
+    if WorkOrder.objects.filter(
+        company=company,
+        status=WorkOrder.Status.RELEASED,
+        released_at__lte=fy_end,
+    ).exists():
         raise BusinessRuleError(
             "Financial-year close blocked: OPEN_WIP — released work orders exist. Complete or cancel them first."
         )
     wip = JournalLine.objects.filter(
         entry__company=company,
         entry__status=JournalEntry.Status.POSTED,
+        entry__entry_date__lte=fy_end,
         account__code="1450",
     ).aggregate(d=Sum("debit"), c=Sum("credit"))
     wip_net = (wip["d"] or Decimal("0")) - (wip["c"] or Decimal("0"))

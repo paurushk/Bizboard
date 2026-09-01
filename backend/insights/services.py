@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -17,6 +18,8 @@ from ledgers.services import LedgerService
 from purchases.models import PurchaseInvoice
 from reporting.services import ReportService
 from sales.models import SalesInvoice
+
+logger = logging.getLogger(__name__)
 
 from .alerts import build_business_alerts
 from .models import (
@@ -184,21 +187,6 @@ def _maybe_send_digest_email(company, summary: DailyBusinessSummary, open_alerts
             email_sent_at=timezone.now(),
         )
         return
-    # Allow retry when only FAILED rows exist
-    if prior.exclude(status=Notification.Status.FAILED).exists():
-        # QUEUED/other in flight — claim without re-send
-        claimed = DailyBusinessSummary.objects.filter(
-            pk=summary.pk, email_sent_at__isnull=True,
-        ).update(email_sent_at=timezone.now())
-        if claimed:
-            return
-        return
-
-    claimed = DailyBusinessSummary.objects.filter(
-        pk=summary.pk, email_sent_at__isnull=True,
-    ).update(email_sent_at=timezone.now())
-    if not claimed:
-        return
 
     alert_lines = "\n".join(f"- [{a.severity}] {a.code}: {a.message}" for a in open_alerts[:10])
     body = (
@@ -216,7 +204,9 @@ def _maybe_send_digest_email(company, summary: DailyBusinessSummary, open_alerts
             body=body,
         )
         n.refresh_from_db()
-        if n.status == Notification.Status.FAILED:
+        if n.status == Notification.Status.SENT:
+            DailyBusinessSummary.objects.filter(pk=summary.pk).update(email_sent_at=timezone.now())
+        elif n.status == Notification.Status.FAILED:
             DailyBusinessSummary.objects.filter(pk=summary.pk).update(email_sent_at=None)
     except Exception:
         DailyBusinessSummary.objects.filter(pk=summary.pk).update(email_sent_at=None)
@@ -348,7 +338,8 @@ def compute_health_score(company, as_of: date | None = None) -> dict:
         crit = (gst.get("summary") or {}).get("critical") or 0
         compliance_score = max(Decimal("0"), Decimal("100") - Decimal(crit) * Decimal("15"))
     except Exception:
-        pass
+        logger.exception("GST health score failed for company %s", company.pk)
+        compliance_score = Decimal("50")
 
     # Data completeness — HSN on recent GST invoices
     gst_inv = SalesInvoice.objects.filter(

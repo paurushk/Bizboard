@@ -5,10 +5,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 from typing import Any
 
 from django.conf import settings
 from cryptography.fernet import Fernet, InvalidToken
+
+logger = logging.getLogger(__name__)
 
 
 def _fernet() -> Fernet:
@@ -41,6 +44,7 @@ def decrypt_gsp_credentials(ciphertext: str) -> dict[str, Any]:
     try:
         raw = _fernet().decrypt(ciphertext.encode("utf-8"))
     except (InvalidToken, ValueError):
+        logger.warning("GSP credentials decrypt failed (invalid token or corrupt ciphertext).")
         return {}
     try:
         data = json.loads(raw.decode("utf-8"))

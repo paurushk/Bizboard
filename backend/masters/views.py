@@ -309,6 +309,8 @@ class ProductViewSet(CompanyScopedViewSet):
 
     def destroy(self, request, *args, **kwargs):
         """Never hard-delete a referenced product (§4.5) — deactivate instead."""
+        from django.db.models import ProtectedError
+
         product = self.get_object()
         if product.is_referenced():
             product.status = Product.Status.INACTIVE
@@ -319,7 +321,17 @@ class ProductViewSet(CompanyScopedViewSet):
                 {"detail": "Product is referenced by documents; marked Inactive instead of deleting."},
                 status=200,
             )
-        return super().destroy(request, *args, **kwargs)
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            product.status = Product.Status.INACTIVE
+            product.updated_by = request.user
+            product.save(update_fields=["status", "updated_by"])
+            self._audit("UPDATE", product)
+            return Response(
+                {"detail": "Product is protected by database constraints; marked Inactive instead of deleting."},
+                status=200,
+            )
 
 
 class PriceListViewSet(CompanyScopedViewSet):

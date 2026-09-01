@@ -159,6 +159,13 @@ class Gstr2bIngest(TimeStampedModel):
             models.Index(fields=["company", "period", "match_status"]),
             models.Index(fields=["company", "period", "ims_action"]),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "period", "supplier_gstin", "invoice_number"],
+                condition=~models.Q(invoice_number=""),
+                name="uniq_gstr2b_ingest_doc",
+            ),
+        ]
         ordering = ["-id"]
 
 

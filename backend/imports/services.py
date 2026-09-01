@@ -37,6 +37,8 @@ from .qty_formula import (
 
 OCR_BILL_MIN_CONFIDENCE = float(getattr(settings, "OCR_BILL_MIN_CONFIDENCE", 0.7) or 0.7)
 BILL_TEMPLATE_SIGNATURE_MATCH_THRESHOLD = 0.7
+MAX_IMPORT_ROWS = 20_000
+MAX_IMPORT_CELLS = 500_000
 
 REQUIRED_COLUMNS = {
     ImportJob.Kind.CUSTOMERS: ["name"],
@@ -49,7 +51,7 @@ REQUIRED_COLUMNS = {
 MASTER_COLUMN_ALIASES = {
     "name": ["name", "product name", "item", "item name", "item name*", "item description", "product"],
     "sku": ["sku", "item code", "product code", "pcode", "code", "itemcode"],
-    "barcode": ["barcode", "ean", "upc", "bar code"],
+    "barcode": ["barcode", "ean", "bar code"],
     "hsn_code": ["hsn_code", "hsn", "hsn code", "hsn/sac", "hsn_sac"],
     "description": ["description", "item desc", "product description"],
     "gst_rate": ["gst_rate", "gst", "gst%", "tax_rate", "tax%", "gst rate", "gst tax rate(%)", "gst tax rate"],
@@ -966,7 +968,17 @@ def _prune_unmatched_extra_sheets(extra_sheets, item_rows) -> list[dict]:
 
 
 def _rows_from_worksheet(sheet) -> list[dict]:
-    materialized = [tuple(row) for row in sheet.iter_rows(values_only=True)]
+    materialized = []
+    cells = 0
+    for idx, row in enumerate(sheet.iter_rows(values_only=True)):
+        if idx > MAX_IMPORT_ROWS:
+            raise BusinessRuleError(
+                f"Import exceeds {MAX_IMPORT_ROWS} rows. Split the file and retry."
+            )
+        cells += len(row or ())
+        if cells > MAX_IMPORT_CELLS:
+            raise BusinessRuleError("Import spreadsheet is too large (cell cap).")
+        materialized.append(tuple(row))
     if not materialized:
         return []
     header = [str(h or "").strip().lower() for h in materialized[0]]

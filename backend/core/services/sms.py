@@ -74,8 +74,18 @@ def _send_msg91(phone: str, code: str) -> None:
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
+            raw_body = resp.read().decode("utf-8", errors="replace")
             if resp.status >= 400:
                 raise BusinessRuleError(f"MSG91 OTP send failed with HTTP {resp.status}.")
+            import json
+
+            try:
+                payload_json = json.loads(raw_body) if raw_body else {}
+            except json.JSONDecodeError:
+                payload_json = {}
+            if isinstance(payload_json, dict) and str(payload_json.get("type") or "").lower() == "error":
+                msg = payload_json.get("message") or payload_json.get("msg") or raw_body[:200]
+                raise BusinessRuleError(f"MSG91 OTP send failed: {msg}")
     except urllib.error.HTTPError as exc:
         raise BusinessRuleError(f"MSG91 OTP send failed: {exc.code}") from exc
     except urllib.error.URLError as exc:

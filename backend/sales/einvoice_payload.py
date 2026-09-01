@@ -278,10 +278,13 @@ def build_einvoice_payload(invoice: SalesInvoice) -> dict:
     for idx, item in enumerate(invoice.items.select_related("product").all(), start=1):
         qty = Decimal(str(item.quantity or 0))
         unit_price = Decimal(str(item.unit_price or 0))
-        discount_pct = Decimal(str(item.discount_percent or 0))
         gross = q2(qty * unit_price)
-        discount = q2(gross * discount_pct / Decimal("100"))
-        ass_amt = Decimal(str(item.taxable_amount or 0))
+        ass_amt = q2(Decimal(str(item.taxable_amount or 0)))
+        # NIC: AssAmt ≈ TotAmt − Discount. Header BEFORE_TAX discount is already
+        # in taxable_amount, so Discount must be the residual, not line % alone.
+        discount = q2(gross - ass_amt)
+        if discount < 0:
+            discount = Decimal("0")
         product = item.product
         is_service = bool(getattr(product, "is_service", False) or getattr(product, "product_type", "") == "SERVICE")
         uqc = (item.uqc_code or "").strip() or "NOS"
@@ -340,7 +343,14 @@ def build_einvoice_payload(invoice: SalesInvoice) -> dict:
             "SupTyp": sup_typ,
             "RegRev": reg_rev,
             "EcmGstin": (getattr(invoice, "ecommerce_operator_gstin", None) or "").strip() or None,
-            "IgstOnIntra": "N",
+            "IgstOnIntra": (
+                "Y"
+                if is_export_sez
+                and seller_stcd
+                and buyer_stcd
+                and extract_state_code(seller_stcd) == extract_state_code(buyer_stcd)
+                else "N"
+            ),
         },
         "DocDtls": {
             "Typ": "INV",
@@ -411,6 +421,9 @@ def validate_einvoice_note_readiness(note) -> list[str]:
     )
     if not buyer_gstin:
         errors.append("Customer GSTIN is required.")
+    completed = getattr(type(note).Status, "COMPLETED", "COMPLETED")
+    if getattr(note, "status", None) and note.status != completed:
+        errors.append("Note must be completed before e-invoice submit.")
     if not (customer.billing_address or "").strip():
         errors.append("Customer billing address is required.")
     note_items = list(note.items.all())
@@ -438,6 +451,19 @@ def build_einvoice_payload_from_note(note) -> dict:
         "No": note.number,
         "Dt": _fmt_date(note.note_date),
     }
+    note_gstin = (getattr(note, "filing_party_gstin", None) or "").strip()
+    note_pos = (getattr(note, "filing_place_of_supply", None) or "").strip()
+    if note_gstin or note_pos:
+        buyer = dict(payload.get("BuyerDtls") or {})
+        if note_gstin:
+            buyer["Gstin"] = note_gstin
+            code = extract_state_code(note_gstin)
+            if code:
+                buyer["Stcd"] = code
+                buyer["Pos"] = code
+        if note_pos:
+            buyer["Pos"] = extract_state_code(note_pos) or note_pos[:2]
+        payload["BuyerDtls"] = buyer
     payload["PrecDocDtls"] = [{
         "InvNo": inv.number or "",
         "InvDt": _fmt_date(inv.invoice_date),
@@ -478,9 +504,11 @@ def build_einvoice_payload_from_note(note) -> dict:
     for idx, item in enumerate(note.items.select_related("product").all(), start=1):
         qty = Decimal(str(item.quantity or 0))
         unit_price = Decimal(str(item.unit_price or 0))
-        discount_pct = Decimal(str(item.discount_percent or 0))
         gross = q2(qty * unit_price)
-        discount = q2(gross * discount_pct / Decimal("100"))
+        ass_amt = q2(Decimal(str(item.taxable_amount or 0)))
+        discount = q2(gross - ass_amt)
+        if discount < 0:
+            discount = Decimal("0")
         product = item.product
         is_service = bool(getattr(product, "is_service", False) or getattr(product, "product_type", "") == "SERVICE")
         item_list.append({

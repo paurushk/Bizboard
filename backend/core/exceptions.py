@@ -132,6 +132,9 @@ def api_exception_handler(exc, context):
         # A DB-level unique/foreign-key constraint firing (e.g. a duplicate
         # GSTIN/barcode conditional UniqueConstraint that DRF can't
         # auto-validate) should surface as a clean 400, not an unhandled 500.
+        from django.db import transaction as db_transaction
+
+        db_transaction.set_rollback(True)
         return Response(
             {
                 "success": False,

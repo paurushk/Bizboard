@@ -232,9 +232,13 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
         Paragraph(f"<b>Bill No:</b> {invoice.number or '—'}", styles["meta"]),
         Paragraph(f"<b>Bill Date:</b> {invoice.invoice_date.strftime('%d/%m/%Y')}", styles["meta"]),
     ]
-    if getattr(invoice, "supplier_invoice_number", None) or getattr(invoice, "reference", None):
-        ref_no = invoice.supplier_invoice_number or invoice.reference
-        doc_details.append(Paragraph(f"<b>Supplier Bill No:</b> {ref_no}", styles["meta"]))
+    supplier_bill = (
+        getattr(invoice, "supplier_bill_number", None)
+        or getattr(invoice, "supplier_invoice_number", None)
+        or getattr(invoice, "reference", None)
+    )
+    if supplier_bill:
+        doc_details.append(Paragraph(f"<b>Supplier Bill No:</b> {supplier_bill}", styles["meta"]))
     if getattr(invoice, "supplier_invoice_date", None):
         doc_details.append(Paragraph(f"<b>Supplier Bill Date:</b> {invoice.supplier_invoice_date.strftime('%d/%m/%Y')}", styles["meta"]))
     if getattr(invoice, "due_date", None):

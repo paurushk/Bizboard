@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { createPurchase, updatePurchase } from '@/api/resources';
+import { completePurchase, createPurchase, updatePurchase } from '@/api/resources';
 import { flushOutbox, isFlushableDraft, listDrafts } from '@/offline/invoiceDraftCache';
 import { t } from '@/i18n';
 
@@ -20,15 +20,29 @@ export function usePurchaseOffline(
         companyId,
         userId,
         async (draft) => {
+          const payload = { ...(draft.payload as Record<string, unknown>) };
+          const completeIntent =
+            Boolean(draft.completeIntent) || Boolean(payload._completeIntent);
+          const confirmBlankPos = Boolean(payload._confirmBlankPos || payload.confirmBlankPos);
+          const confirmGstinTotalChange = Boolean(
+            payload._confirmGstinTotalChange || payload.confirmGstinTotalChange,
+          );
+          delete payload._completeIntent;
+          delete payload._confirmBlankPos;
+          delete payload._confirmGstinTotalChange;
+          delete payload.status;
+          let invoice;
           if (draft.invoiceId) {
-            const payload = { ...(draft.payload as Record<string, unknown>) };
-            const status = String(payload.status ?? '').toUpperCase();
+            const status = String((draft.payload as Record<string, unknown>).status ?? '').toUpperCase();
             if (status === 'COMPLETED') {
               throw new Error(t('billing.offlineAmendRequiresConfirm'));
             }
-            await updatePurchase(draft.invoiceId, payload as never);
+            invoice = await updatePurchase(draft.invoiceId, payload as never);
           } else {
-            await createPurchase(draft.payload as never, { idempotencyKey: draft.idempotencyKey });
+            invoice = await createPurchase(payload as never, { idempotencyKey: draft.idempotencyKey });
+          }
+          if (completeIntent && invoice.status === 'DRAFT') {
+            await completePurchase(invoice.id, { confirmBlankPos, confirmGstinTotalChange });
           }
         },
         (draft) => draft.kind === 'purchase' && isFlushableDraft(draft),

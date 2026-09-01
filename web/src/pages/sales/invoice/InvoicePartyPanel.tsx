@@ -53,6 +53,7 @@ export function InvoicePartyPanel({
   const [partyDialogOpen, setPartyDialogOpen] = useState(false);
   const [partyForm, setPartyForm] = useState({ name: '', phone: '', gstin: '', state: '' });
   const [posForm, setPosForm] = useState({ state: '', gstin: '' });
+  const [manualName, setManualName] = useState('');
 
   const needsPosEditor =
     Boolean(requirePlaceOfSupply) &&
@@ -128,6 +129,35 @@ export function InvoicePartyPanel({
     onError: (err) => onError(getErrorMessage(err)),
   });
 
+  const handleUseManualName = async () => {
+    const name = manualName.trim();
+    if (!name) return;
+    try {
+      const existing = options.find((c) => c.name.trim().toLowerCase() === name.toLowerCase());
+      if (existing) {
+        setManualName('');
+        onSelect(existing);
+        return;
+      }
+      const searchRes = await listCustomersPage({ q: name, pageSize: 10 });
+      const found = searchRes.results.find(
+        (c) => c.name.trim().toLowerCase() === name.toLowerCase(),
+      );
+      if (found) {
+        setManualName('');
+        onSelect(found);
+        return;
+      }
+      const created = await createCustomer({ name, status: 'ACTIVE' });
+      void qc.invalidateQueries({ queryKey: ['customers-search'] });
+      setManualName('');
+      onCustomerCreated(created);
+      onSelect(created);
+    } catch (err) {
+      onError(getErrorMessage(err));
+    }
+  };
+
   const handleQuickWalkIn = async () => {
     const existing = options.find((c) => /walk[\s-]?in|cash/i.test(c.name));
     if (existing) {
@@ -161,14 +191,23 @@ export function InvoicePartyPanel({
           label={t('billing.billTo')}
           selectedParty={selectedCustomer}
           editingStatus={editingStatus}
-          onClear={() => onSelect(undefined)}
+          onClear={() => {
+            setManualName('');
+            onSelect(undefined);
+          }}
           options={options}
           query={query}
           onQueryChange={onQueryChange}
-          onSelect={(v) => onSelect(v)}
+          onSelect={(v) => {
+            setManualName('');
+            onSelect(v);
+          }}
           loading={loading}
           onCreatePartyClick={() => setPartyDialogOpen(true)}
           onQuickCashClick={handleQuickWalkIn}
+          manualName={manualName}
+          onManualNameChange={setManualName}
+          onUseManualName={() => void handleUseManualName()}
           sx={{ flex: 'none', width: '100%' }}
         />
 

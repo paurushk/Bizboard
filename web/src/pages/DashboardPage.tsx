@@ -15,7 +15,7 @@ import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { getDashboard, getBusinessHealth, getCompany, getDailySummary, listBusinessAlerts, listLowStock } from '@/api/resources';
 import { getShopFloorSummary } from '@/lib/telemetry';
-import { canViewAiInsights, isOwner } from '@/utils/permissions';
+import { canCreateSales, canViewAiInsights, isOwner } from '@/utils/permissions';
 import { KpiStat, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -134,11 +134,18 @@ export function DashboardPage() {
       <PageHeader
         title={t('nav.dashboard')}
         actions={
-          showInsights ? (
-            <Button component={RouterLink} to="/insights" size="small" variant="outlined">
-              {t('nav.insights')}
-            </Button>
-          ) : null
+          <Stack direction="row" spacing={1}>
+            {showInsights ? (
+              <Button component={RouterLink} to="/insights" size="small" variant="outlined">
+                {t('nav.insights')}
+              </Button>
+            ) : null}
+            {canCreateSales(user) ? (
+              <Button component={RouterLink} to="/sales/new" variant="contained">
+                {t('nav.newInvoice')}
+              </Button>
+            ) : null}
+          </Stack>
         }
       />
 
@@ -326,11 +333,6 @@ export function DashboardPage() {
       <Stack spacing={1.5}>
         <PageHeader
           title={t('dashboard.alerts')}
-          actions={
-            <Button component={RouterLink} to="/sales/new" variant="contained">
-              {t('nav.newInvoice')}
-            </Button>
-          }
         />
         {lowStock.isLoading ? (
           <LoadingState />

@@ -79,6 +79,7 @@ def tax_breakup_by_rate(items, *, tax_enabled: bool = True) -> list[dict]:
     cgst_by_half: dict[Decimal, Decimal] = defaultdict(lambda: Decimal("0"))
     sgst_by_half: dict[Decimal, Decimal] = defaultdict(lambda: Decimal("0"))
     igst_by_rate: dict[Decimal, Decimal] = defaultdict(lambda: Decimal("0"))
+    cess_total = Decimal("0")
 
     for item in items:
         rate = Decimal(item.gst_rate)
@@ -86,6 +87,7 @@ def tax_breakup_by_rate(items, *, tax_enabled: bool = True) -> list[dict]:
         cgst = Decimal(item.cgst or 0)
         sgst = Decimal(item.sgst or 0)
         igst = Decimal(item.igst or 0)
+        cess_total += Decimal(getattr(item, "cess", 0) or 0)
         if cgst:
             cgst_by_half[half] += cgst
         if sgst:
@@ -101,6 +103,8 @@ def tax_breakup_by_rate(items, *, tax_enabled: bool = True) -> list[dict]:
             rows.append({"label": f"SGST@{_fmt_rate(half)}", "amount": sgst_by_half[half]})
     for rate in sorted(igst_by_rate):
         rows.append({"label": f"IGST@{_fmt_rate(rate)}", "amount": igst_by_rate[rate]})
+    if cess_total:
+        rows.append({"label": "CESS", "amount": cess_total})
     return rows
 
 

@@ -12,7 +12,7 @@ import {
 } from './intents';
 import helpCodes from './helpCodes.json';
 import faqV0Snapshot from './faqV0Snapshot.json';
-import { FAQ_ITEMS } from './faqContent';
+import { FAQ_CATEGORIES, FAQ_ITEMS } from './faqContent';
 import { interpolateDestination, userHasHelpPermission } from './helpPermissions';
 import { buildHelpSearchHits, isNearExactSkuOrParty } from './searchHits';
 import { AMBIGUITY_MAP } from './ambiguityMap';
@@ -150,26 +150,54 @@ describe('help codes vs intents', () => {
 });
 
 describe('v0 FAQ fold-in still present when flag off', () => {
-  it('keeps the five v0 FAQ ids', () => {
-    expect(FAQ_ITEMS.map((i) => i.id).sort()).toEqual(
-      [
-        'base-vs-alternate-unit',
-        'reserved-vs-on-hand',
-        'stock-shows-but-insufficient',
-        'unit-conversion-rate',
-        'unit-field-blank-on-edit',
-      ].sort(),
-    );
+  const V0_IDS = [
+    'base-vs-alternate-unit',
+    'reserved-vs-on-hand',
+    'stock-shows-but-insufficient',
+    'unit-conversion-rate',
+    'unit-field-blank-on-edit',
+  ] as const;
+
+  it('keeps the five original v0 FAQ ids', () => {
+    const ids = new Set(FAQ_ITEMS.map((i) => i.id));
+    for (const id of V0_IDS) {
+      expect(ids.has(id), id).toBe(true);
+    }
   });
 
-  it('v0 question/keyword snapshot stays byte-identical', () => {
-    const current = FAQ_ITEMS.map((item) => ({
-      id: item.id,
-      category: item.category,
-      question: item.question,
-      keywords: item.keywords ?? [],
-    }));
-    expect(current).toEqual(faqV0Snapshot);
+  it('original v0 question/keyword snapshot stays byte-identical', () => {
+    const byId = Object.fromEntries(
+      FAQ_ITEMS.map((item) => [
+        item.id,
+        {
+          id: item.id,
+          category: item.category,
+          question: item.question,
+          keywords: item.keywords ?? [],
+        },
+      ]),
+    );
+    for (const snap of faqV0Snapshot) {
+      expect(byId[snap.id]).toEqual(snap);
+    }
+  });
+
+  it('every FAQ id is unique and every category is listed', () => {
+    const ids = FAQ_ITEMS.map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const categories = new Set(FAQ_CATEGORIES);
+    for (const item of FAQ_ITEMS) {
+      expect(categories.has(item.category), item.id).toBe(true);
+    }
+  });
+
+  it('FAQ t: tokens resolve in en.ts', () => {
+    const src = readFileSync(resolve(__dirname, './faqContent.tsx'), 'utf8');
+    const found = [...src.matchAll(/\*\*t:([^*]+)\*\*/g)].map((m) => m[1]);
+    expect(found.length).toBeGreaterThan(0);
+    for (const key of found) {
+      expect(hasI18nKey(en, key), `FAQ missing i18n key ${key}`).toBe(true);
+    }
   });
 });
 

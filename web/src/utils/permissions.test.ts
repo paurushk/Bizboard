@@ -88,7 +88,7 @@ describe('permissions', () => {
     expect(canViewInventorySurfaces(viewer)).toBe(false);
   });
 
-  it('canViewPaymentSurfaces follows create-payments or sales view, not purchase-only', () => {
+  it('canViewPaymentSurfaces follows create-payments or financial reports, not sales-view-only', () => {
     expect(canViewPaymentSurfaces({ ...mockSalesUser, canCreatePayments: true })).toBe(true);
     expect(
       canViewPaymentSurfaces({
@@ -97,7 +97,7 @@ describe('permissions', () => {
         canCreateSales: true,
         canViewFinancialReports: false,
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       canViewPaymentSurfaces({
         ...mockSalesUser,

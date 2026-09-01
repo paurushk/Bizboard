@@ -105,8 +105,8 @@ def build_feature_flags(*, company=None, user=None) -> dict[str, bool]:
             from billing.services import plan_modules_for_company
 
             plan_modules = plan_modules_for_company(company)
-        except Exception:  # noqa: BLE001 — flags must not fail if billing is unavailable
-            plan_modules = None
+        except Exception:  # noqa: BLE001 — billing outage must fail closed for dark modules
+            plan_modules = {key: False for key in DARK_MODULE_KEYS}
         if isinstance(plan_modules, dict):
             for key, value in plan_modules.items():
                 if key in flags:

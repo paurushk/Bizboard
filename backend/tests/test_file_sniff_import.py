@@ -60,3 +60,22 @@ def test_validate_upload_accepts_cp1252_csv(tenant_a):
 def test_sniff_accepts_cp1252_accented_header():
     header = "Café,sku,barcode,hsn".encode("cp1252")
     assert _sniff_mime(header, "products.csv", "text/csv") == "text/csv"
+
+
+def test_sniff_rejects_zip_as_xlsx_without_xlsx_name():
+    header = b"PK\x03\x04" + b"\x00" * 20
+    assert _sniff_mime(header, "payload.docx", "application/octet-stream") == ""
+    assert _sniff_mime(header, "sheet.xlsx", "") == (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+
+def test_validate_upload_rejects_docx_named_xlsx():
+    uploaded = SimpleUploadedFile(
+        "not-a-sheet.xlsx",
+        b"PK\x03\x04" + b"\x00" * 40,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    with pytest.raises(Exception) as exc:
+        FileService.validate_upload(uploaded_file=uploaded, kind=FileAsset.Kind.IMPORT)
+    assert "Excel" in str(exc.value) or "workbook" in str(exc.value).lower()

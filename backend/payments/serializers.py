@@ -122,7 +122,11 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
         return obj.allocations.filter(reversed_at__isnull=True).aggregate(total=Sum("amount"))["total"] or Decimal("0")
 
     def get_unallocated(self, obj) -> Decimal:
-        return obj.amount - self.get_allocated(obj)
+        return (
+            Decimal(str(obj.amount or 0))
+            + Decimal(str(getattr(obj, "tds_amount", 0) or 0))
+            - self.get_allocated(obj)
+        )
 
 
 class PaymentAllocationSerializer(serializers.ModelSerializer):

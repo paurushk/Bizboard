@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.db import transaction
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -191,6 +192,12 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
         return qs
 
     def create(self, request, *args, **kwargs):
+        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        if raw_key:
+            prior = get_record(company=self.company, scope="supplier_payment_create", raw_key=raw_key)
+            if prior is not None:
+                return replay_record(prior)
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         from reporting.gst_periods import assert_period_allows_money_amend, period_complete_warning
@@ -216,7 +223,16 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
         data = self.get_serializer(payment).data
         if warning:
             data["warnings"] = [warning]
-        return Response(data, status=status.HTTP_201_CREATED)
+        response = Response(data, status=status.HTTP_201_CREATED)
+        if raw_key:
+            store_record(
+                company=self.company,
+                scope="supplier_payment_create",
+                raw_key=raw_key,
+                response=response,
+                resource_id=str(payment.pk),
+            )
+        return response
 
     @action(detail=True, methods=["post"])
     def void(self, request, pk=None):
@@ -271,6 +287,10 @@ class PaymentAllocationViewSet(
 
         receipt = data.get("receipt")
         payment = data.get("supplier_payment")
+        if not receipt and not payment:
+            raise ValidationError("Either 'receipt' or 'supplier_payment' is required.")
+        if receipt and payment:
+            raise ValidationError("Provide exactly one of 'receipt' or 'supplier_payment'.")
         if receipt and receipt.company_id != self.company.id:
             raise BusinessRuleError("Invalid receipt reference.")
         if payment and payment.company_id != self.company.id:
@@ -623,6 +643,12 @@ class BankStatementViewSet(CompanyScopedViewSet):
             line = BankStatementLine.objects.select_for_update().get(pk=line.pk)
             if line.match_status == BankLineMatchStatus.MATCHED:
                 return line.recon_match
+            if receipt and ReconMatch.objects.select_for_update().filter(receipt=receipt).exists():
+                raise BusinessRuleError("This receipt is already matched to a bank line.")
+            if payment and ReconMatch.objects.select_for_update().filter(
+                supplier_payment=payment
+            ).exists():
+                raise BusinessRuleError("This supplier payment is already matched to a bank line.")
             match = ReconMatch.objects.create(
                 company=self.company,
                 line=line,
@@ -759,38 +785,42 @@ class ReconViewSet(viewsets.ViewSet):
         )
         if not line or line.amount <= 0:
             raise BusinessRuleError("Credit line required.")
+        if line.match_status == BankLineMatchStatus.MATCHED:
+            raise BusinessRuleError("This bank line is already matched.")
         from masters.models import Customer
 
         customer = Customer.objects.filter(company=self.company, pk=customer_id).first()
         if not customer:
             raise BusinessRuleError("Customer required.")
-        receipt = PaymentService.create_receipt(
-            company=self.company,
-            customer=customer,
-            amount=line.amount,
-            mode="BANK",
-            receipt_date=line.txn_date,
-            reference=line.utr or "",
-            utr=line.utr or "",
-            notes=f"Bank import: {line.narration[:200]}",
-            bank_account=line.statement.bank_account,
-            source=PaymentSource.BANK_IMPORT,
-            user=request.user,
-            warn_utr_duplicate=False,
-        )
-        vs = BankStatementViewSet()
-        vs.request = request
-        vs.format_kwarg = None
-        vs.kwargs = {}
-        # CompanyScopedViewSet.company is a cached_property from request
-        match = vs._confirm_match(
-            line=line,
-            receipt_id=receipt.id,
-            payment_id=None,
-            confidence=100,
-            user=request.user,
-            notes="created_from_line",
-        )
+        from django.db import transaction
+
+        with transaction.atomic():
+            receipt = PaymentService.create_receipt(
+                company=self.company,
+                customer=customer,
+                amount=line.amount,
+                mode="BANK",
+                receipt_date=line.txn_date,
+                reference=line.utr or "",
+                utr=line.utr or "",
+                notes=f"Bank import: {line.narration[:200]}",
+                bank_account=line.statement.bank_account,
+                source=PaymentSource.BANK_IMPORT,
+                user=request.user,
+                warn_utr_duplicate=False,
+            )
+            vs = BankStatementViewSet()
+            vs.request = request
+            vs.format_kwarg = None
+            vs.kwargs = {}
+            match = vs._confirm_match(
+                line=line,
+                receipt_id=receipt.id,
+                payment_id=None,
+                confidence=100,
+                user=request.user,
+                notes="created_from_line",
+            )
         return Response(
             {"receipt": CustomerReceiptSerializer(receipt).data, "match": ReconMatchSerializer(match).data},
             status=status.HTTP_201_CREATED,

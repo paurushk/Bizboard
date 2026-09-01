@@ -15,9 +15,9 @@ const MVP_BANNERS: Record<ErpModule, string> = {
 };
 
 const ENABLE_HINTS: Record<ErpModule, string> = {
-  manufacturing: 'This module isn’t enabled for your company. Ask your account owner to enable it, or contact support.',
-  payroll: 'This module isn’t enabled for your company. Ask your account owner to enable it, or contact support.',
-  crm: 'This module isn’t enabled for your company. Ask your account owner to enable it, or contact support.',
+  manufacturing: 'erp.moduleDisabled',
+  payroll: 'erp.payrollDisabled',
+  crm: 'erp.moduleDisabled',
 };
 
 export function isModuleEnabled(module: ErpModule): boolean {
@@ -51,7 +51,7 @@ export function ModuleGate({
   if (!isModuleEnabled(module)) {
     return (
       <PageShell title={title}>
-        <Typography>{ENABLE_HINTS[module]}</Typography>
+        <Typography>{t(ENABLE_HINTS[module])}</Typography>
       </PageShell>
     );
   }

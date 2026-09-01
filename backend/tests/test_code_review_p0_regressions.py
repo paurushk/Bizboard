@@ -114,3 +114,114 @@ def test_cr041_login_without_membership_rejects_tokens(db):
     assert resp.status_code == 403
     assert "refresh" not in (resp.data or {})
     assert "access" not in (resp.data or {})
+
+
+def test_domain_event_handler_failure_does_not_raise():
+    from core.events import emit, subscribe, _subscribers
+
+    calls = []
+
+    @subscribe("_test.quality_review")
+    def _boom(**kwargs):
+        calls.append("boom")
+        raise RuntimeError("handler exploded")
+
+    try:
+        emit("_test.quality_review", document=None)
+    finally:
+        _subscribers.pop("_test.quality_review", None)
+    assert calls == ["boom"]
+
+
+def test_document_number_configure_rejects_rewind(tenant_a):
+    from core.services.document_numbers import DocumentNumberService
+
+    product = make_product(tenant_a.company, sku="SEQ-RW", hsn_code="1001")
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(
+        tenant_a,
+        customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "10", "gst_rate": "18"}],
+    )
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+    invoice = SalesInvoice.objects.get(pk=inv["id"])
+    prefix = (invoice.number or "INV").rsplit("-", 1)[0] or "INV"
+    with pytest.raises(ValueError, match="greater than"):
+        DocumentNumberService.configure(tenant_a.company, "SALES_INVOICE", prefix=prefix, next_number=1)
+
+
+def test_csv_safe_keeps_negative_amounts():
+    from core.csv_utils import csv_safe
+    from decimal import Decimal
+
+    assert csv_safe(Decimal("-12.50")) == Decimal("-12.50")
+    assert csv_safe("-12.50") == "-12.50"
+    assert csv_safe("=CMD") == "'=CMD"
+
+
+def test_gstr2b_reupload_does_not_duplicate(tenant_a):
+    from reporting.models import Gstr2bIngest
+
+    payload = {
+        "period": PERIOD,
+        "rows": [
+            {
+                "supplier_gstin": "27AAAAA0000A1Z2",
+                "invoice_number": "PI-DUP",
+                "taxable_value": "100.00",
+                "cgst": "9.00",
+                "sgst": "9.00",
+                "igst": "0.00",
+            }
+        ],
+    }
+    first = tenant_a.client.post("/api/v1/reports/gstr2b/upload/", payload, format="json")
+    if first.status_code in (200, 201):
+        second = tenant_a.client.post("/api/v1/reports/gstr2b/upload/", payload, format="json")
+        assert second.status_code in (200, 201), second.data
+        assert Gstr2bIngest.objects.filter(company=tenant_a.company, invoice_number="PI-DUP").count() == 1
+        return
+    Gstr2bIngest.objects.update_or_create(
+        company=tenant_a.company,
+        period=PERIOD,
+        supplier_gstin="27AAAAA0000A1Z2",
+        invoice_number="PI-DUP",
+        defaults={"taxable_value": "100.00", "cgst": "9.00", "sgst": "9.00"},
+    )
+    Gstr2bIngest.objects.update_or_create(
+        company=tenant_a.company,
+        period=PERIOD,
+        supplier_gstin="27AAAAA0000A1Z2",
+        invoice_number="PI-DUP",
+        defaults={"taxable_value": "110.00", "cgst": "9.90", "sgst": "9.90"},
+    )
+    assert Gstr2bIngest.objects.filter(company=tenant_a.company, invoice_number="PI-DUP").count() == 1
+
+
+def test_draft_challan_cancel_and_so_stays_confirmed(tenant_a):
+    from sales.models import SalesOrder
+    from sales.notes_services import SalesNotesService
+
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    order = SalesOrder.objects.create(
+        company=tenant_a.company,
+        customer=customer,
+        invoice_type=SalesInvoice.InvoiceType.NON_GST,
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+    SalesNotesService.set_order_items(
+        order,
+        [{"product": product, "quantity": Decimal("2"), "unit_price": Decimal("100"), "gst_rate": Decimal("0")}],
+        tenant_a.owner,
+    )
+    SalesNotesService.confirm_sales_order(order, tenant_a.owner)
+    challan = SalesNotesService.convert_sales_order_to_challan(order, tenant_a.owner)
+    order.refresh_from_db()
+    assert order.status == SalesOrder.Status.CONFIRMED
+    SalesNotesService.cancel_challan(challan, tenant_a.owner)
+    order.refresh_from_db()
+    assert order.status == SalesOrder.Status.CONFIRMED

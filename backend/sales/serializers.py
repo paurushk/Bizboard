@@ -267,7 +267,14 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "additional_charges", "charges_hsn", "charges_gst_rate",
             "invoice_discount", "invoice_discount_mode", "auto_round_off",
             "price_mode",
+            "tcs_rate", "tcs_amount", "is_reverse_charge", "supply_type", "company_gstin",
         }
+        if instance.status == SalesInvoice.Status.COMPLETED:
+            for fld in ("filing_party_gstin", "filing_place_of_supply"):
+                if fld in validated_data and validated_data[fld] != getattr(instance, fld):
+                    raise BusinessRuleError(
+                        "Use the amend-filing-identity action to change filing GSTIN or place of supply."
+                    )
         money_changing = bool(money_fields & set(validated_data.keys()))
         items_in_request = items_data is not serializers.empty
         existing_qs = instance.items.select_related("product")

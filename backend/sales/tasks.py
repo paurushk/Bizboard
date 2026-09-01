@@ -40,9 +40,13 @@ def generate_invoice_pdf(self, invoice_id, company_id=None):
     from .pdf import render_gst_tax_invoice
 
     try:
-        invoice = SalesInvoice.objects.select_related(
-            "company", "customer", "company__logo", "signature",
-        ).prefetch_related("items__product__unit").get(pk=invoice_id)
+        qs = SalesInvoice.objects.select_related(
+            "company", "customer", "company__logo", "signature", "company_gstin",
+        ).prefetch_related("items__product__unit")
+        if company_id:
+            invoice = qs.get(pk=invoice_id, company_id=company_id)
+        else:
+            invoice = qs.get(pk=invoice_id)
     except SalesInvoice.DoesNotExist:
         return
 
@@ -69,9 +73,13 @@ def generate_credit_note_pdf(self, note_id, company_id=None):
     from .pdf import render_credit_note
 
     try:
-        note = SalesCreditNote.objects.select_related(
+        qs = SalesCreditNote.objects.select_related(
             "company", "customer", "sales_invoice",
-        ).prefetch_related("items__product").get(pk=note_id)
+        ).prefetch_related("items__product")
+        if company_id:
+            note = qs.get(pk=note_id, company_id=company_id)
+        else:
+            note = qs.get(pk=note_id)
     except SalesCreditNote.DoesNotExist:
         return
     try:
@@ -97,9 +105,13 @@ def generate_debit_note_pdf(self, note_id, company_id=None):
     from .pdf import render_debit_note
 
     try:
-        note = SalesDebitNote.objects.select_related(
+        qs = SalesDebitNote.objects.select_related(
             "company", "customer", "sales_invoice",
-        ).prefetch_related("items__product").get(pk=note_id)
+        ).prefetch_related("items__product")
+        if company_id:
+            note = qs.get(pk=note_id, company_id=company_id)
+        else:
+            note = qs.get(pk=note_id)
     except SalesDebitNote.DoesNotExist:
         return
     try:
@@ -156,7 +168,11 @@ def submit_einvoice_async(self, invoice_id: int, user_id: int | None = None, com
     from .models import SalesInvoice
 
     try:
-        invoice = SalesInvoice.objects.select_related("company", "customer").get(pk=invoice_id)
+        qs = SalesInvoice.objects.select_related("company", "customer")
+        if company_id:
+            invoice = qs.get(pk=invoice_id, company_id=company_id)
+        else:
+            invoice = qs.get(pk=invoice_id)
     except SalesInvoice.DoesNotExist:
         return {"status": "missing"}
     if invoice.irn:

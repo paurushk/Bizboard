@@ -864,64 +864,119 @@ def _gstr1_doc_table(
     cancelled_credit_notes=None,
     cancelled_debit_notes=None,
 ) -> list[dict]:
-    """GSTR-1 DOC: invoice series summary (prefix from document number)."""
+    """GSTR-1 DOC: invoice series summary with natural sorting (prefix from document number)."""
+    import re
     from collections import defaultdict
 
-    series: dict[str, dict] = defaultdict(lambda: {"from": "", "to": "", "total": 0, "cancelled": 0})
+    def _doc_sort_key(num: str):
+        raw = (num or "").strip()
+        m = re.search(r"(\d+)\s*$", raw)
+        num_val = int(m.group(1)) if m else 0
+        return (num_val, raw)
 
     def _prefix(num: str) -> str:
         return "".join(ch for ch in (num or "") if not ch.isdigit()) or "INV"
 
-    for inv in invoices:
-        num = inv.number or ""
-        prefix = _prefix(num)
-        bucket = series[prefix]
-        bucket["total"] += 1
-        if not bucket["from"] or num < bucket["from"]:
-            bucket["from"] = num
-        if not bucket["to"] or num > bucket["to"]:
-            bucket["to"] = num
-    for inv in cancelled_invoices:
-        num = inv.number or ""
-        prefix = _prefix(num)
-        bucket = series[prefix]
-        bucket["total"] += 1
-        bucket["cancelled"] += 1
-        if num and (not bucket["from"] or num < bucket["from"]):
-            bucket["from"] = num
-        if num and (not bucket["to"] or num > bucket["to"]):
-            bucket["to"] = num
+    def _summarize_docs(doc_list, cancelled_list, default_prefix="INV"):
+        series: dict[str, dict] = defaultdict(lambda: {"nums": [], "total": 0, "cancelled": 0})
+        for item in doc_list:
+            num = getattr(item, "number", "") or ""
+            if not num:
+                continue
+            p = _prefix(num)
+            bucket = series[p]
+            bucket["total"] += 1
+            bucket["nums"].append(num)
+        for item in cancelled_list:
+            num = getattr(item, "number", "") or ""
+            if not num:
+                continue
+            p = _prefix(num)
+            bucket = series[p]
+            bucket["total"] += 1
+            bucket["cancelled"] += 1
+            bucket["nums"].append(num)
+        results = []
+        for p, bucket in sorted(series.items()):
+            sorted_nums = sorted(bucket["nums"], key=_doc_sort_key)
+            sr_from = sorted_nums[0] if sorted_nums else ""
+            sr_to = sorted_nums[-1] if sorted_nums else ""
+            results.append({
+                "sr_from": sr_from,
+                "sr_to": sr_to,
+                "total_number": bucket["total"],
+                "cancelled": bucket["cancelled"],
+                "series": p,
+            })
+        return results
+
+    rows = []
+    inv_summaries = _summarize_docs(invoices, cancelled_invoices, default_prefix="INV")
+    for s in inv_summaries:
+        rows.append({
+            "nature": "Invoices for outward supply",
+            "sr_from": s["sr_from"],
+            "sr_to": s["sr_to"],
+            "total_number": s["total_number"],
+            "cancelled": s["cancelled"],
+            "series": s["series"],
+        })
+    if not inv_summaries:
+        rows.append({
+            "nature": "Invoices for outward supply",
+            "sr_from": "",
+            "sr_to": "",
+            "total_number": 0,
+            "cancelled": 0,
+            "series": "",
+        })
+
     cancelled_credit_notes = cancelled_credit_notes or []
     cancelled_debit_notes = cancelled_debit_notes or []
     cancelled_cn = len(cancelled_credit_notes)
     cancelled_dn = len(cancelled_debit_notes)
-    rows = [
-        {
-            "nature": "Invoices for outward supply",
-            "sr_from": vals["from"],
-            "sr_to": vals["to"],
-            "total_number": vals["total"],
-            "cancelled": vals["cancelled"],
-            "series": prefix,
-        }
-        for prefix, vals in sorted(series.items())
-    ]
-    rows.append({
-        "nature": "Credit notes",
-        "sr_from": "",
-        "sr_to": "",
-        "total_number": len(credit_notes) + cancelled_cn,
-        "cancelled": cancelled_cn,
-        "series": "",
-    })
-    rows.append({
-        "nature": "Debit notes",
-        "sr_from": "",
-        "sr_to": "",
-        "total_number": len(debit_notes) + cancelled_dn,
-        "cancelled": cancelled_dn,
-        "series": "",
-    })
+
+    cn_summaries = _summarize_docs(credit_notes, cancelled_credit_notes, default_prefix="SCN")
+    if cn_summaries:
+        for s in cn_summaries:
+            rows.append({
+                "nature": "Credit notes",
+                "sr_from": s["sr_from"],
+                "sr_to": s["sr_to"],
+                "total_number": s["total_number"],
+                "cancelled": s["cancelled"],
+                "series": s["series"],
+            })
+    else:
+        rows.append({
+            "nature": "Credit notes",
+            "sr_from": "",
+            "sr_to": "",
+            "total_number": len(credit_notes) + cancelled_cn,
+            "cancelled": cancelled_cn,
+            "series": "",
+        })
+
+    dn_summaries = _summarize_docs(debit_notes, cancelled_debit_notes, default_prefix="SDN")
+    if dn_summaries:
+        for s in dn_summaries:
+            rows.append({
+                "nature": "Debit notes",
+                "sr_from": s["sr_from"],
+                "sr_to": s["sr_to"],
+                "total_number": s["total_number"],
+                "cancelled": s["cancelled"],
+                "series": s["series"],
+            })
+    else:
+        rows.append({
+            "nature": "Debit notes",
+            "sr_from": "",
+            "sr_to": "",
+            "total_number": len(debit_notes) + cancelled_dn,
+            "cancelled": cancelled_dn,
+            "series": "",
+        })
     return rows
 
 
@@ -1006,7 +1061,7 @@ def _gstr1_atadj_table(company, date_from, date_to, *, company_gstin_id=None) ->
         inv = alloc.sales_invoice
         if rec is None or inv is None:
             continue
-        if rec.receipt_date and rec.receipt_date > inv.invoice_date:
+        if rec.receipt_date and inv.invoice_date and rec.receipt_date >= inv.invoice_date:
             continue
         rows.append({
             "receipt_number": rec.number,
@@ -1225,10 +1280,15 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
     from reporting.models import Gstr2bIngest
 
     has_2b_rows = Gstr2bIngest.objects.filter(company=company, period=period).exists()
-    has_2b = has_2b_rows
+    has_matched_2b = Gstr2bIngest.objects.filter(
+        company=company,
+        period=period,
+        match_status=Gstr2bIngest.MatchStatus.MATCHED,
+    ).exists()
+    has_2b = has_matched_2b
     itc_block = {
-        "provisional": not has_2b,
-        "claimable": has_2b,
+        "provisional": not has_2b_rows,
+        "claimable": has_matched_2b,
         "available_from_purchases": itc_available,
         "from_gstr2b_matched": {
             "igst": _money(itc_2b["igst"]),

@@ -70,8 +70,12 @@ def _issue_batches(wo, component, qty, line=None):
                     allocs.append((b_obj, b_qty))
         if allocs:
             tot = sum((q for _, q in allocs), Decimal("0"))
-            if tot >= Decimal(str(qty)):
-                return allocs
+            need = Decimal(str(qty))
+            if tot > need:
+                raise BusinessRuleError("Lot allocations exceed the required component quantity.")
+            if tot != need:
+                raise BusinessRuleError("Lot allocations must equal the required component quantity.")
+            return allocs
 
     remaining = Decimal(str(qty))
     allocations = []
@@ -94,7 +98,8 @@ def _issue_batches(wo, component, qty, line=None):
 
 
 @transaction.atomic
-def release_work_order(wo, user):
+def release_work_order(wo, user, *, component_serials=None):
+    wo = WorkOrder.objects.select_for_update().get(pk=wo.pk)
     from django.utils import timezone
 
     from reporting.gst_periods import assert_period_allows_money_amend
@@ -109,6 +114,15 @@ def release_work_order(wo, user):
     warehouse = wo.warehouse or InventoryService.default_warehouse(wo.company)
     wo.warehouse = warehouse
     _snapshot_bom(wo)
+    serial_map = {}
+    if isinstance(component_serials, dict):
+        serial_map = {str(k): v for k, v in component_serials.items()}
+    if serial_map:
+        for line in wo.component_lines.all():
+            serials = serial_map.get(str(line.component_id)) or serial_map.get(line.component_id)
+            if serials:
+                line.serial_numbers = list(serials)
+                line.save(update_fields=["serial_numbers"])
     requirements = _component_requirements(wo)
     if not requirements:
         raise BusinessRuleError("BOM has no component lines.")
@@ -147,7 +161,7 @@ def release_work_order(wo, user):
                 numbers=comp_serials,
                 quantity=qty,
                 source=SerialNumber.Status.AVAILABLE,
-                target=SerialNumber.Status.SOLD,
+                target=SerialNumber.Status.SCRAPPED,
                 user=user,
             )
         if line is not None and lot_payload:
@@ -170,6 +184,7 @@ def release_work_order(wo, user):
 
 @transaction.atomic
 def complete_work_order(wo, user):
+    wo = WorkOrder.objects.select_for_update().get(pk=wo.pk)
     from django.utils import timezone
 
     from reporting.gst_periods import assert_period_allows_money_amend
@@ -202,7 +217,6 @@ def complete_work_order(wo, user):
             defaults={
                 "expiry_date": getattr(wo, "exp_date", None),
                 "manufacturing_date": getattr(wo, "mfg_date", None) or wo.completed_at or gate_date,
-                "mrp": getattr(fg, "selling_price", None),
                 "created_by": user,
                 "updated_by": user,
             },
@@ -245,6 +259,7 @@ def complete_work_order(wo, user):
 
 @transaction.atomic
 def cancel_work_order(wo, user):
+    wo = WorkOrder.objects.select_for_update().get(pk=wo.pk)
     from django.utils import timezone
 
     from reporting.gst_periods import assert_period_allows_money_amend
@@ -306,6 +321,22 @@ def cancel_work_order(wo, user):
             reference_id=str(wo.id),
         )
         InventoryService.restore_fifo_peels(move, inbound)
+        matching_lines = wo.component_lines.filter(component=move.product)
+        all_comp_serials = []
+        for cline in matching_lines:
+            if getattr(cline, "serial_numbers", None):
+                all_comp_serials.extend(cline.serial_numbers)
+        if move.product.track_serial and all_comp_serials:
+            SerialNumberService.transition(
+                company=wo.company,
+                product=move.product,
+                warehouse=move.warehouse or warehouse,
+                numbers=all_comp_serials,
+                quantity=len(all_comp_serials),
+                source=SerialNumber.Status.SCRAPPED,
+                target=SerialNumber.Status.AVAILABLE,
+                user=user,
+            )
     if wo.company.accounting_enabled:
         from accounting.services import PostingService
 

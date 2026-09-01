@@ -150,20 +150,32 @@ class ReportService:
         month_start = today.replace(day=1)
 
         sales_today = SalesInvoice.objects.filter(
-            company=company, status__in=NET_SALES, invoice_date=today
+            company=company, status=SalesInvoice.Status.COMPLETED, invoice_date=today
         ).exclude(notes="TALLY_OPENING").aggregate(total=Sum("grand_total"), count=Count("id"))
         sales_month = SalesInvoice.objects.filter(
-            company=company, status__in=NET_SALES, invoice_date__gte=month_start
+            company=company, status=SalesInvoice.Status.COMPLETED, invoice_date__gte=month_start
         ).exclude(notes="TALLY_OPENING").aggregate(total=Sum("grand_total"), count=Count("id"))
-        returns_today = (
-            SalesReturn.objects.filter(
-                company=company, status=SalesReturn.Status.COMPLETED, return_date=today,
+        cn_today = (
+            SalesCreditNote.objects.filter(
+                company=company, status=SalesCreditNote.Status.COMPLETED, note_date=today,
             ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
             or Decimal("0")
         )
-        returns_month = (
-            SalesReturn.objects.filter(
-                company=company, status=SalesReturn.Status.COMPLETED, return_date__gte=month_start,
+        cn_month = (
+            SalesCreditNote.objects.filter(
+                company=company, status=SalesCreditNote.Status.COMPLETED, note_date__gte=month_start,
+            ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
+            or Decimal("0")
+        )
+        dn_today = (
+            SalesDebitNote.objects.filter(
+                company=company, status=SalesDebitNote.Status.COMPLETED, note_date=today,
+            ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
+            or Decimal("0")
+        )
+        dn_month = (
+            SalesDebitNote.objects.filter(
+                company=company, status=SalesDebitNote.Status.COMPLETED, note_date__gte=month_start,
             ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
             or Decimal("0")
         )
@@ -181,11 +193,11 @@ class ReportService:
 
         return {
             "sales_today": {
-                "total": (sales_today["total"] or Decimal("0")) - returns_today,
+                "total": (sales_today["total"] or Decimal("0")) - cn_today + dn_today,
                 "count": sales_today["count"],
             },
             "sales_this_month": {
-                "total": (sales_month["total"] or Decimal("0")) - returns_month,
+                "total": (sales_month["total"] or Decimal("0")) - cn_month + dn_month,
                 "count": sales_month["count"],
             },
             "purchases_this_month": {
@@ -263,6 +275,9 @@ class ReportService:
         dn_qs = SalesDebitNote.objects.filter(
             company=company, status=SalesDebitNote.Status.COMPLETED
         )
+        if company_gstin_id:
+            cn_qs = cn_qs.filter(sales_invoice__company_gstin_id=company_gstin_id)
+            dn_qs = dn_qs.filter(sales_invoice__company_gstin_id=company_gstin_id)
         if customer_id:
             cn_qs = cn_qs.filter(customer_id=customer_id)
             dn_qs = dn_qs.filter(customer_id=customer_id)

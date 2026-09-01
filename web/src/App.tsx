@@ -33,6 +33,9 @@ import {
   canManageGst,
   canExport,
   canManageUsers,
+  canManageManufacturing,
+  canManagePayroll,
+  canManageCrm,
   canViewAiInsights,
   canUseAiAssistant,
   canViewFinancialReports,
@@ -223,15 +226,15 @@ function allowTdsReports(user: User | null): boolean {
 }
 
 function allowManufacturing(user: User | null): boolean {
-  return canManageUsers(user) && isManufacturingEnabled();
+  return canManageManufacturing(user) && isManufacturingEnabled();
 }
 
 function allowPayroll(user: User | null): boolean {
-  return canManageUsers(user) && isPayrollEnabled();
+  return canManagePayroll(user) && isPayrollEnabled();
 }
 
 function allowCrm(user: User | null): boolean {
-  return canManageUsers(user) && isCrmEnabled();
+  return canManageCrm(user) && isCrmEnabled();
 }
 
 function allowAccounting(user: User | null): boolean {

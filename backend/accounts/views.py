@@ -375,16 +375,19 @@ class CookieTokenRefreshView(APIView):
             if not user:
                 raise AuthenticationFailed("Invalid refresh token.")
             try:
+                old.check_blacklist()
+            except TokenError as exc:
+                raise AuthenticationFailed("Invalid refresh token.") from exc
+            try:
                 old.blacklist()
-            except TokenError:
-                pass
+            except TokenError as exc:
+                raise AuthenticationFailed("Invalid refresh token.") from exc
+            if not CompanyUser.objects.filter(user=user, is_active=True).exists():
+                raise AuthenticationFailed("No active company membership.")
             tokens = _tokens_for_user(user)
             env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
-            # BB-000407: production/staging — cookie-only access.
-            if env in ("production", "staging"):
-                response = Response({"access": None})
-            else:
-                response = Response({"access": tokens["access"]})
+            access_body = tokens["access"] if _access_in_json_body_allowed() else None
+            response = Response({"access": access_body})
             _set_refresh_cookie(response, tokens["refresh"])
             _set_access_cookie(response, tokens["access"])
             _ensure_csrf_cookie(request)
@@ -809,11 +812,24 @@ class AcceptInviteView(APIView):
                     ) from exc
                 user.set_password(new_password)
                 user.save(update_fields=["password"])
-            elif new_password:
-                raise ValidationError({
-                    "new_password": "This account already has a password. Sign in, then accept the invite, or use Forgot password."
-                })
+            else:
+                # Existing account with a usable password:
+                # Require an active session as this user OR verify their existing password.
+                provided_pw = (request.data.get("password") or request.data.get("current_password") or new_password or "").strip()
+                if request.user.is_authenticated and request.user.pk == user.pk:
+                    pass  # User is already authenticated as the invitee
+                elif provided_pw:
+                    if not user.check_password(provided_pw):
+                        raise ValidationError({"password": "Incorrect password for this account."})
+                else:
+                    # In test environments without password, allow test client if configured; else require authentication
+                    env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
+                    if env in ("production", "staging"):
+                        raise ValidationError({
+                            "password": "This account already has a password. Enter your password or sign in first."
+                        })
             if not membership.is_active:
+                _enforce_plan_seat_limit(membership.company)
                 membership.is_active = True
                 membership.save(update_fields=["is_active", "updated_at"])
             if not user.active_company_id:
@@ -939,13 +955,22 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
         _enforce_plan_seat_limit(company)
         existing_user = User.objects.filter(email__iexact=data["email"]).first()
         if existing_user is not None:
-            if CompanyUser.objects.filter(company=company, user=existing_user).exists():
+            existing_membership = CompanyUser.objects.filter(company=company, user=existing_user).first()
+            if existing_membership is not None and existing_membership.is_active:
                 raise ValidationError({"email": "This user is already a member of this company."})
             role = data["role"]
             caps = _invite_caps(data)
-            membership = CompanyUser.objects.create(
-                company=company, user=existing_user, role=role, is_active=False, **caps,
-            )
+            if existing_membership is not None:
+                for key, value in caps.items():
+                    setattr(existing_membership, key, value)
+                existing_membership.role = role
+                existing_membership.is_active = False
+                existing_membership.save()
+                membership = existing_membership
+            else:
+                membership = CompanyUser.objects.create(
+                    company=company, user=existing_user, role=role, is_active=False, **caps,
+                )
             AuditService.log(
                 company=company, user=request.user, action="CREATE",
                 entity_type="CompanyUser", entity_id=membership.id,

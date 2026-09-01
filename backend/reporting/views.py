@@ -758,19 +758,33 @@ class Gstr2bIngestViewSet(viewsets.ModelViewSet):
         for row in rows:
             raw = dict(row) if isinstance(row, dict) else {}
             raw["source"] = source
-            obj = Gstr2bIngest.objects.create(
-                company=self.company,
-                period=period,
-                supplier_gstin=(row.get("supplier_gstin") or "")[:15],
-                invoice_number=(row.get("invoice_number") or "")[:64],
-                invoice_date=row.get("invoice_date") or None,
-                taxable_value=row.get("taxable_value") or 0,
-                igst=row.get("igst") or 0,
-                cgst=row.get("cgst") or 0,
-                sgst=row.get("sgst") or 0,
-                cess=row.get("cess") or 0,
-                raw=raw,
-            )
+            supplier = (row.get("supplier_gstin") or "").strip().upper()[:15]
+            invoice_number = (row.get("invoice_number") or "").strip()[:64]
+            defaults = {
+                "invoice_date": row.get("invoice_date") or None,
+                "taxable_value": row.get("taxable_value") or 0,
+                "igst": row.get("igst") or 0,
+                "cgst": row.get("cgst") or 0,
+                "sgst": row.get("sgst") or 0,
+                "cess": row.get("cess") or 0,
+                "raw": raw,
+            }
+            if invoice_number:
+                obj, _created = Gstr2bIngest.objects.update_or_create(
+                    company=self.company,
+                    period=period,
+                    supplier_gstin=supplier,
+                    invoice_number=invoice_number,
+                    defaults=defaults,
+                )
+            else:
+                obj = Gstr2bIngest.objects.create(
+                    company=self.company,
+                    period=period,
+                    supplier_gstin=supplier,
+                    invoice_number=invoice_number,
+                    **defaults,
+                )
             created.append(obj.pk)
         return Response({"period": period, "created": len(created), "ids": created})
 

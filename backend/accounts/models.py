@@ -260,6 +260,11 @@ class CompanyGstin(TimeStampedModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["company", "gstin"], name="uniq_company_gstin"),
+            models.UniqueConstraint(
+                fields=["company"],
+                condition=models.Q(is_primary=True),
+                name="uniq_company_one_primary_gstin",
+            ),
         ]
         ordering = ["-is_primary", "gstin"]
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import Q, Sum
 
 from reporting.models import Gstr2bIngest
 
@@ -30,7 +30,7 @@ def match_gstr2b_to_purchases(company, period: str, *, persist: bool = True) -> 
             company=company,
             status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
             supplier__gstin__iexact=row.supplier_gstin,
-            number=row.invoice_number,
+            number__iexact=row.invoice_number,
             is_opening_balance=False,
         )
         candidates = list(qs)
@@ -104,7 +104,18 @@ def claimable_itc_from_2b(company, period: str, *, company_gstin_id=None) -> dic
         purchase_invoice__is_reverse_charge=True,
     )
     if company_gstin_id is not None:
-        qs = qs.filter(purchase_invoice__company_gstin_id=company_gstin_id)
+        from accounts.models import CompanyGstin
+
+        primary = CompanyGstin.objects.filter(
+            company=company, is_primary=True, is_active=True
+        ).first()
+        if primary is not None and primary.id == company_gstin_id:
+            qs = qs.filter(
+                Q(purchase_invoice__company_gstin_id=company_gstin_id)
+                | Q(purchase_invoice__company_gstin_id__isnull=True)
+            )
+        else:
+            qs = qs.filter(purchase_invoice__company_gstin_id=company_gstin_id)
     agg = qs.aggregate(
         cgst=Sum("cgst"),
         sgst=Sum("sgst"),
@@ -181,7 +192,9 @@ def build_cmp08(company, period: str) -> dict:
         Decimal("0"),
     )
 
-    composition_rate = Decimal("0.01")
+    flags = getattr(company, "feature_flags", None) or {}
+    raw_rate = flags.get("composition_cmp08_rate") if isinstance(flags, dict) else None
+    composition_rate = Decimal(str(raw_rate or "0.01"))
     est_outward_tax = (taxable * composition_rate).quantize(Decimal("0.01"))
     total_tax_payable = est_outward_tax + inward_rcm_tax
 
@@ -194,8 +207,13 @@ def build_cmp08(company, period: str) -> dict:
         "table_2_inward_rcm_taxable": str(inward_rcm_taxable),
         "table_2_inward_rcm_tax": str(inward_rcm_tax),
         "table_3_tax_payable": str(total_tax_payable),
+        "composition_rate": str(composition_rate),
         "outward_taxable": str(taxable),
-        "disclaimer": "CMP-08 aid — opening/non-GST excluded; CNs netted; Table 2 RCM included. Verify rates with CA.",
+        "disclaimer": (
+            f"CMP-08 aid — assumed composition rate {composition_rate} "
+            "(override via company feature_flags.composition_cmp08_rate; restaurants often 5%). "
+            "Opening/non-GST excluded; CNs netted; Table 2 RCM included. Verify rates with CA."
+        ),
     }
 
 

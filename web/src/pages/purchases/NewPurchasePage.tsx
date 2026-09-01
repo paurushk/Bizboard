@@ -126,6 +126,7 @@ export function NewPurchasePage() {
   const barcodeRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const skipAutosaveRef = useRef(false);
+  const skipLeaveGuard = useRef(false);
   const [offline, setOffline] = useState(
     typeof navigator !== 'undefined' ? !navigator.onLine : false,
   );
@@ -239,8 +240,7 @@ export function NewPurchasePage() {
   }, [company.data, isEdit, purchaseTypeTouched]);
   const suppliers = useQuery({
     queryKey: ['suppliers-search', debouncedSupplierQuery],
-    queryFn: () => listSuppliersPage({ q: debouncedSupplierQuery, pageSize: 50 }),
-    enabled: debouncedSupplierQuery.trim().length >= 2,
+    queryFn: () => listSuppliersPage({ q: debouncedSupplierQuery.trim() || undefined, pageSize: 50 }),
   });
   const selectedSupplierQuery = useQuery({
     queryKey: ['supplier', supplierId],
@@ -738,6 +738,10 @@ export function NewPurchasePage() {
           'Supplier state or GSTIN is required for GST purchases. Update the supplier or enable assume-local in GST settings.',
         );
       }
+      const missingBatch = lines.find((l) => l.trackBatch && !l.batchNo.trim());
+      if (shouldComplete && missingBatch) {
+        throw new Error(`A batch is required for tracked product '${missingBatch.productName}'.`);
+      }
       const payload = buildPayload();
       // PD-01: one fresh Idempotency-Key per user gesture. Network auto-retry
       // reuses the request header; an offline queue+flush reuses draft.idempotencyKey.
@@ -752,9 +756,11 @@ export function NewPurchasePage() {
             ...(payload as Record<string, unknown>),
             ...(editingStatus ? { status: editingStatus } : {}),
             ...(editingStatus === 'COMPLETED' ? { confirmAmend: true } : {}),
+            _completeIntent: shouldComplete,
           },
           idempotencyKey: key,
           invoiceId: isEdit && editId ? editId : null,
+          completeIntent: shouldComplete,
         });
         setOutboxBanner(t('billing.savedOffline'));
       };
@@ -856,6 +862,7 @@ export function NewPurchasePage() {
       return { invoice, mode, paymentWarning };
     },
     onSuccess: async ({ invoice, mode, paymentWarning }) => {
+      skipLeaveGuard.current = true;
       flashWarning(paymentWarning ?? null);
       void qc.invalidateQueries({ queryKey: ['purchase-invoice-number-series'] });
       void qc.invalidateQueries({ queryKey: ['purchase-invoice', invoice.id] });
@@ -1033,7 +1040,8 @@ export function NewPurchasePage() {
     (c) => c.isActive !== false && (c as unknown as { is_active?: boolean }).is_active !== false,
   );
   const canSave = lines.length > 0 && Boolean(supplierId) && !saveMutation.isPending;
-  const canComplete = canSave && posKnown && (!previewOnline || preview.ready);
+  const missingPurchaseBatch = lines.some((l) => l.trackBatch && !l.batchNo.trim());
+  const canComplete = canSave && posKnown && !missingPurchaseBatch && (!previewOnline || preview.ready);
   const shownTotals = preview.totals
     ? {
         ...totals,
@@ -1147,7 +1155,7 @@ export function NewPurchasePage() {
       }
     >
       <Stack spacing={2}>
-      <UnsavedChangesGuard when={lines.length > 0} />
+      <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(supplierId))} />
       {pendingDraft ? (
         <Alert
           severity="info"
@@ -1412,17 +1420,37 @@ export function NewPurchasePage() {
             <>
               <TableCell>
                 {line.trackBatch ? (
-                  <Autocomplete
-                    size="small"
-                    options={(batches.data ?? []).filter((lot) => Number(lot.product) === line.product)}
-                    getOptionLabel={(lot) => `${lot.batchNo}${lot.expiryDate ? ` · exp ${lot.expiryDate}` : ''}`}
-                    value={(batches.data ?? []).find((lot) => Number(lot.id) === line.batch) ?? null}
-                    onChange={(_, lot) => updateLine(line.key, {
-                      batch: lot ? Number(lot.id) : null,
-                      batchNo: lot?.batchNo ?? '',
-                    })}
-                    renderInput={(params) => <TextField {...params} placeholder="FEFO batch" helperText="Leave blank to use FEFO" />}
-                  />
+                  <Stack spacing={0.5} sx={{ minWidth: 180 }}>
+                    <Autocomplete
+                      size="small"
+                      options={(batches.data ?? []).filter((lot) => Number(lot.product) === line.product)}
+                      getOptionLabel={(lot) =>
+                        `${lot.batchNo}${lot.expiryDate ? ` · exp ${lot.expiryDate}` : ''}`
+                      }
+                      value={(batches.data ?? []).find((lot) => Number(lot.id) === line.batch) ?? null}
+                      onChange={(_, lot) =>
+                        updateLine(line.key, {
+                          batch: lot ? Number(lot.id) : null,
+                          batchNo: lot?.batchNo ?? '',
+                          expDate: lot?.expiryDate ?? line.expDate,
+                        })
+                      }
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          placeholder={t('billing.fefoBatch')}
+                          helperText={t('billing.fefoBatchHint')}
+                        />
+                      )}
+                    />
+                    {!line.batch ? (
+                      <CompactField
+                        value={line.batchNo}
+                        onChange={(e) => updateLine(line.key, { batchNo: e.target.value, batch: null })}
+                        placeholder={t('billing.newBatchOptional')}
+                      />
+                    ) : null}
+                  </Stack>
                 ) : (
                   <CompactField value={line.batchNo} onChange={(e) => updateLine(line.key, { batchNo: e.target.value })} />
                 )}

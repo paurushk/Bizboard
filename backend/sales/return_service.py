@@ -84,20 +84,58 @@ class ReturnService:
         if not items:
             raise BusinessRuleError("Cannot complete a return without line items.")
 
+        sold_lines = list(invoice.items.order_by("id"))
+        remaining_by_line = {row.id: Decimal(str(row.quantity)) for row in sold_lines}
+        lines_by_product = defaultdict(list)
+        for row in sold_lines:
+            lines_by_product[row.product_id].append(row.id)
+
+        def _consume_prior(exclude=None):
+            qs = SalesReturnItem.objects.filter(
+                sales_return__sales_invoice=invoice,
+                sales_return__status=SalesReturn.Status.COMPLETED,
+            ).order_by("id")
+            if exclude is not None:
+                qs = qs.exclude(sales_return=exclude)
+            for prior in qs:
+                need = Decimal(str(prior.quantity))
+                for lid in lines_by_product.get(prior.product_id, []):
+                    if need <= 0:
+                        break
+                    take = min(need, remaining_by_line[lid])
+                    remaining_by_line[lid] -= take
+                    need -= take
+                if need > 0:
+                    raise BusinessRuleError(
+                        "Prior returns exceed invoice quantity for this product; repair the return history."
+                    )
+
+        _consume_prior(exclude=sales_return)
+        source_by_return_item = {}
+        for item in items:
+            need = Decimal(str(item.quantity))
+            matched = None
+            for lid in lines_by_product.get(item.product_id, []):
+                if need <= 0:
+                    break
+                avail = remaining_by_line[lid]
+                if avail <= 0:
+                    continue
+                take = min(need, avail)
+                remaining_by_line[lid] -= take
+                need -= take
+                if matched is None:
+                    matched = lid
+            if need > 0:
+                raise BusinessRuleError(
+                    f"Return quantity for '{item.product.name}' exceeds remaining returnable quantity on matching invoice lines."
+                )
+            source_by_return_item[item.pk] = matched
+
         sold = {
             row["product"]: row["total"]
             for row in invoice.items.values("product").annotate(total=Sum("quantity"))
         }
-        already = ReturnService.returned_quantities(invoice)
-        requested = defaultdict(Decimal)
-        for item in items:
-            requested[item.product_id] += item.quantity
-        for product_id, qty in requested.items():
-            remaining = sold.get(product_id, Decimal("0")) - already.get(product_id, Decimal("0"))
-            if qty > remaining:
-                raise BusinessRuleError(
-                    f"Return quantity {qty} exceeds remaining returnable quantity {remaining}."
-                )
 
         sales_return.number = DocumentNumberService.next_number(
             sales_return.company,
@@ -154,9 +192,7 @@ class ReturnService:
             note.charges_hsn = getattr(invoice, "charges_hsn", "") or ""
             note.charges_gst_rate = getattr(invoice, "charges_gst_rate", Decimal("0")) or Decimal("0")
             note.save(update_fields=["additional_charges", "charges_hsn", "charges_gst_rate"])
-            inv_items_by_product = {}
-            for inv_item in invoice.items.all():
-                inv_items_by_product.setdefault(inv_item.product_id, inv_item)
+            inv_items_by_id = {inv_item.id: inv_item for inv_item in invoice.items.all()}
             items_data = [
                 {
                     "product": item.product,
@@ -166,11 +202,16 @@ class ReturnService:
                     "discount_percent": item.discount_percent,
                     "gst_rate": item.gst_rate,
                     "cess_rate": (
-                        getattr(inv_items_by_product.get(item.product_id), "cess_rate", Decimal("0"))
-                        if inv_items_by_product.get(item.product_id) is not None
+                        getattr(inv_items_by_id.get(source_by_return_item.get(item.pk)), "cess_rate", Decimal("0"))
+                        if source_by_return_item.get(item.pk)
                         else Decimal(str(getattr(item, "cess_rate", 0) or 0))
                     ),
-                    "source_item": inv_items_by_product.get(item.product_id),
+                    "cess_amount": (
+                        getattr(inv_items_by_id.get(source_by_return_item.get(item.pk)), "cess_amount", Decimal("0"))
+                        if source_by_return_item.get(item.pk)
+                        else Decimal(str(getattr(item, "cess_amount", 0) or 0))
+                    ),
+                    "source_item": inv_items_by_id.get(source_by_return_item.get(item.pk)),
                 }
                 for item in items
             ]
@@ -191,8 +232,23 @@ class ReturnService:
             from accounting.services import PostingService
 
             PostingService.post_sales_return_cogs(sales_return, cogs_rev, user)
-            if getattr(sales_return, "is_damaged", False):
-                PostingService.post_sales_return_scrap(sales_return, cogs_rev, user)
+            damaged_qty = sum(
+                (
+                    Decimal(str(item.quantity or 0))
+                    for item in items
+                    if getattr(item, "condition", "SELLABLE") == "DAMAGED"
+                ),
+                Decimal("0"),
+            )
+            if damaged_qty > 0:
+                scrap_share = (
+                    (cogs_rev * damaged_qty / sum((Decimal(str(i.quantity or 0)) for i in items), Decimal("0"))).quantize(
+                        Decimal("0.01")
+                    )
+                    if items
+                    else cogs_rev
+                )
+                PostingService.post_sales_return_scrap(sales_return, scrap_share, user)
 
         emit("document.completed", document=sales_return, user=user, event="sales_return.completed")
         return sales_return
@@ -286,8 +342,15 @@ class ReturnService:
                         user=user,
                     )
             if invoice.status == SalesInvoice.Status.RETURNED:
-                invoice.status = SalesInvoice.Status.COMPLETED
-                invoice.save(update_fields=["status"])
+                from .models import SalesReturn as SR
+
+                other_open = SR.objects.filter(
+                    sales_invoice=invoice,
+                    status=SR.Status.COMPLETED,
+                ).exclude(pk=sales_return.pk).exists()
+                if not other_open:
+                    invoice.status = SalesInvoice.Status.COMPLETED
+                    invoice.save(update_fields=["status"])
             from .notes_services import SalesNotesService
             from .models import SalesCreditNote as SCN
 

@@ -5,6 +5,7 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -225,17 +226,38 @@ function PayRunsPageInner() {
       ) : null}
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>{editing ? t('common.edit') : t('common.create')} pay run</DialogTitle>
+        <DialogTitle>
+          {editing ? t('common.edit') : t('common.create')} {t('payroll.payRun')}
+        </DialogTitle>
         <DialogContent>
-          <TextField
-            label={t('erp.period')}
-            placeholder="YYYY-MM"
-            required
-            fullWidth
-            sx={{ mt: 1 }}
-            value={period}
-            onChange={(e) => setPeriod(e.target.value)}
-          />
+          <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+            <TextField
+              select
+              label={t('payroll.payMonth')}
+              fullWidth
+              value={period.slice(5, 7) || String(new Date().getMonth() + 1).padStart(2, '0')}
+              onChange={(e) => setPeriod(`${period.slice(0, 4) || String(new Date().getFullYear())}-${e.target.value}`)}
+            >
+              {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((mm) => (
+                <MenuItem key={mm} value={mm}>
+                  {new Date(2000, Number(mm) - 1, 1).toLocaleString('en', { month: 'long' })}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label={t('payroll.calendarYear')}
+              fullWidth
+              value={period.slice(0, 4) || String(new Date().getFullYear())}
+              onChange={(e) => setPeriod(`${e.target.value}-${period.slice(5, 7) || '01'}`)}
+            >
+              {Array.from({ length: 6 }, (_, i) => String(new Date().getFullYear() - 2 + i)).map((year) => (
+                <MenuItem key={year} value={year}>
+                  {year}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>

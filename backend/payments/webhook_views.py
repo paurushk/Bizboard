@@ -174,7 +174,10 @@ def payment_webhook(request, provider: str):
             return Response({"ok": True, "ignored": True, "status": event.status})
         try:
             gp = PaymentService.refund_gateway_payment(
-                gateway_payment=gp, reason="webhook", skip_gateway=True
+                gateway_payment=gp,
+                amount=getattr(event, "amount", None),
+                reason="webhook",
+                skip_gateway=True,
             )
         except BusinessRuleError as exc:
             return Response({"detail": str(exc.detail)}, status=status.HTTP_400_BAD_REQUEST)

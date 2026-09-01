@@ -11,7 +11,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Controller, useForm } from 'react-hook-form';
 import { Navigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { createStockAdjustment, listStock, listWarehouses } from '@/api/resources';
+import { createStockAdjustment, listBatches, listStock, listWarehouses } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
@@ -32,6 +32,8 @@ interface FormValues {
   reasonPreset: string;
   customReason: string;
   warehouse: number | '';
+  batch: number | '';
+  batchNo: string;
 }
 
 const PRESET_REASONS = [
@@ -53,6 +55,11 @@ export function StockAdjustmentPage() {
   const productSearch = useProductSearch({ selected: selectedProduct, cf: cfFilters });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
   const stockQuery = useQuery({ queryKey: ['stock'], queryFn: () => listStock() });
+  const batchesQuery = useQuery({
+    queryKey: ['batches', selectedProduct?.id],
+    queryFn: () => listBatches(selectedProduct?.id),
+    enabled: Boolean(selectedProduct?.trackBatch),
+  });
   const { control, handleSubmit, reset, setValue, watch } = useForm<FormValues>({
     defaultValues: {
       product: '',
@@ -61,6 +68,8 @@ export function StockAdjustmentPage() {
       reasonPreset: 'Physical Count Discrepancy',
       customReason: '',
       warehouse: '',
+      batch: '',
+      batchNo: '',
     },
   });
   const selectedWarehouseId = watch('warehouse');
@@ -95,6 +104,8 @@ export function StockAdjustmentPage() {
         quantity: finalDelta,
         reason: reasonText,
         warehouse: values.warehouse ? Number(values.warehouse) : undefined,
+        batch: values.batch ? Number(values.batch) : undefined,
+        batchNo: values.batchNo.trim() || undefined,
       });
     },
     onSuccess: () => {
@@ -110,6 +121,8 @@ export function StockAdjustmentPage() {
         reasonPreset: 'Physical Count Discrepancy',
         customReason: '',
         warehouse: warehouses.data?.find((w) => w.isDefault)?.id ?? '',
+        batch: '',
+        batchNo: '',
       });
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -151,6 +164,8 @@ export function StockAdjustmentPage() {
                 onChange={(_, v) => {
                   setSelectedProduct(v);
                   field.onChange(v?.id ?? '');
+                  setValue('batch', '');
+                  setValue('batchNo', '');
                 }}
                 renderInput={(params) => (
                   <TextField
@@ -192,6 +207,72 @@ export function StockAdjustmentPage() {
             </Alert>
           ) : null}
 
+          {selectedProduct?.trackBatch ? (
+            <Stack spacing={1.5}>
+              <Controller
+                name="batch"
+                control={control}
+                rules={{
+                  validate: (v, values) => {
+                    if (!selectedProduct?.trackBatch) return true;
+                    if (values.adjustmentType === 'REDUCE') {
+                      return Boolean(v) || t('adjustments.reduceNeedsExisting');
+                    }
+                    return (
+                      Boolean(v) ||
+                      Boolean(values.batchNo.trim()) ||
+                      t('adjustments.requireBatch')
+                    );
+                  },
+                }}
+                render={({ field, fieldState }) => (
+                  <TextField
+                    select
+                    label={t('adjustments.existingBatch')}
+                    value={field.value === '' ? '' : String(field.value)}
+                    onChange={(e) => {
+                      const next = e.target.value === '' ? '' : Number(e.target.value);
+                      field.onChange(next);
+                      if (next !== '') setValue('batchNo', '');
+                    }}
+                    error={Boolean(fieldState.error)}
+                    helperText={fieldState.error?.message || t('adjustments.requireBatch')}
+                  >
+                    <MenuItem value="">
+                      {watch('adjustmentType') === 'REDUCE'
+                        ? t('adjustments.reduceNeedsExisting')
+                        : t('adjustments.newBatchBelow')}
+                    </MenuItem>
+                    {(batchesQuery.data ?? []).map((lot) => (
+                      <MenuItem key={lot.id} value={String(lot.id)}>
+                        {lot.batchNo}
+                        {lot.expiryDate ? ` · exp ${lot.expiryDate}` : ''}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
+              {watch('adjustmentType') === 'ADD' ? (
+              <Controller
+                name="batchNo"
+                control={control}
+                render={({ field }) => (
+                  <TextField
+                    label={t('adjustments.newBatchNo')}
+                    value={field.value}
+                    onChange={(e) => {
+                      field.onChange(e.target.value);
+                      if (e.target.value.trim()) setValue('batch', '');
+                    }}
+                    helperText={t('adjustments.newBatchHint')}
+                    disabled={Boolean(watch('batch'))}
+                  />
+                )}
+              />
+              ) : null}
+            </Stack>
+          ) : null}
+
           <Stack spacing={1}>
             <Typography variant="subtitle2" color="text.secondary">
               {t('adjustments.adjustmentType')}
@@ -204,7 +285,11 @@ export function StockAdjustmentPage() {
                   value={field.value}
                   exclusive
                   fullWidth
-                  onChange={(_, val) => val && field.onChange(val)}
+                  onChange={(_, val) => {
+                    if (!val) return;
+                    field.onChange(val);
+                    if (val === 'REDUCE') setValue('batchNo', '');
+                  }}
                   color="primary"
                 >
                   <ToggleButton value="ADD" color="success">

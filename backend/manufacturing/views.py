@@ -40,7 +40,9 @@ class WorkOrderViewSet(CompanyScopedViewSet):
     def release(self, request, pk=None):
         wo = self.get_object()
         try:
-            wo = release_work_order(wo, request.user)
+            wo = release_work_order(
+                wo, request.user, component_serials=request.data.get("component_serials")
+            )
         except BusinessRuleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(wo).data)

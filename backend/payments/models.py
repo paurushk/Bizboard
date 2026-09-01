@@ -373,10 +373,23 @@ class ReconMatch(CompanyScopedModel):
 
     class Meta:
         ordering = ["-matched_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["receipt"],
+                condition=models.Q(receipt__isnull=False),
+                name="uniq_recon_match_receipt",
+            ),
+            models.UniqueConstraint(
+                fields=["supplier_payment"],
+                condition=models.Q(supplier_payment__isnull=False),
+                name="uniq_recon_match_supplier_payment",
+            ),
+        ]
 
 
 class GatewayRefundOutboxStatus(models.TextChoices):
     PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
 
@@ -402,6 +415,12 @@ class GatewayRefundOutbox(CompanyScopedModel):
     class Meta:
         ordering = ["-id"]
         indexes = [models.Index(fields=["company", "status", "next_attempt_at"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["gateway_payment"],
+                name="uniq_refund_outbox_per_gateway_payment",
+            )
+        ]
 
 
 class DunningReminder(CompanyScopedModel):

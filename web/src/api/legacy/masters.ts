@@ -109,6 +109,14 @@ export async function listUnits(): Promise<Unit[]> {
   return withMocks(async () => fetchAllPagesMasters<Unit>('/masters/units/'), []);
 }
 
+export async function listCategories(): Promise<Array<{ id: number; name: string }>> {
+  return withMocks(async () => fetchAllPagesMasters<{ id: number; name: string }>('/masters/categories/'), []);
+}
+
+export async function listBrands(): Promise<Array<{ id: number; name: string }>> {
+  return withMocks(async () => fetchAllPagesMasters<{ id: number; name: string }>('/masters/brands/'), []);
+}
+
 export async function createUnit(payload: Partial<Unit>): Promise<Unit> {
   return withMocks(async () => {
     const { data } = await apiClient.post('/masters/units/', payload);
@@ -236,7 +244,13 @@ export async function fetchBarcodeImage(code: string): Promise<Blob> {
   return data as Blob;
 }
 
-export async function searchHsn(q: string, kind?: string): Promise<{ count: number; items: Array<{ code: string; description: string; kind: string }> }> {
+export async function searchHsn(
+  q: string,
+  kind?: string,
+): Promise<{
+  count: number;
+  items: Array<{ code: string; description: string; kind: string; gstRate?: string | null; chapter?: string }>;
+}> {
   const { data } = await apiClient.get('/products/hsn-search/', { params: { q, kind } });
   return unwrapData(data);
 }

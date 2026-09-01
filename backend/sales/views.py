@@ -101,6 +101,8 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             "mark_einvoice_generated",
             "mark_eway_generated",
             "submit_einvoice",
+            "submit_einvoice_async",
+            "amend_filing_identity",
             "cancel_einvoice",
             "submit_eway",
             "cancel_eway",
@@ -413,11 +415,14 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             subject = "invoice_ready"
             allow_cloud = allow_cloud_for_customer(invoice.customer)
         else:
-            pdf_path = f"/api/v1/sales/invoices/{invoice.pk}/pdf/"
+            from django.conf import settings as dj_settings
+
+            base = (getattr(dj_settings, "FRONTEND_URL", "") or "").rstrip("/")
+            view_url = f"{base}/sales/history/{invoice.pk}" if base else f"/sales/history/{invoice.pk}"
             body = (
                 f"Invoice {invoice.number} dated {invoice.invoice_date} from {invoice.company.name}. "
                 f"Amount: INR {invoice.grand_total}. "
-                f"Download PDF: {pdf_path}"
+                f"View and download the invoice: {view_url}"
             )
             subject = f"Invoice {invoice.number}"
             allow_cloud = False

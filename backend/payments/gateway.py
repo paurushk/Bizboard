@@ -98,7 +98,7 @@ class PaymentGatewayAdapter(Protocol):
 
     def parse_webhook(self, *, body: bytes) -> WebhookEvent | None: ...
 
-    def refund(self, *, provider_payment_id: str, amount: Decimal) -> dict[str, Any]: ...
+    def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]: ...
 
 
 def _sandbox_webhook_secret_base() -> str:
@@ -186,7 +186,7 @@ class SandboxAdapter:
             raw=data,
         )
 
-    def refund(self, *, provider_payment_id: str, amount: Decimal) -> dict[str, Any]:
+    def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]:
         return {"id": f"rfnd_sandbox_{secrets.token_hex(6)}", "payment_id": provider_payment_id, "amount": str(amount)}
 
     def cancel_payment_link(self, *, provider_link_id: str) -> None:
@@ -292,7 +292,7 @@ class RazorpayAdapter:
             raw=data,
         )
 
-    def refund(self, *, provider_payment_id: str, amount: Decimal) -> dict[str, Any]:
+    def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]:
         if not self.key_id or not self.key_secret:
             raise BusinessRuleError("Razorpay credentials are not configured.")
         import base64
@@ -301,10 +301,16 @@ class RazorpayAdapter:
 
         auth = base64.b64encode(f"{self.key_id}:{self.key_secret}".encode()).decode()
         amount_paise = int(Decimal(amount).quantize(Decimal("0.01")) * 100)
+        headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
+        if idempotency_key:
+            headers["X-Razorpay-Idempotency"] = idempotency_key[:64]
+        body = {"amount": amount_paise}
+        if idempotency_key:
+            body["receipt"] = idempotency_key[:40]
         resp = requests.post(
             f"https://api.razorpay.com/v1/payments/{provider_payment_id}/refund",
-            headers={"Authorization": f"Basic {auth}", "Content-Type": "application/json"},
-            json={"amount": amount_paise},
+            headers=headers,
+            json=body,
             timeout=30,
         )
         if resp.status_code >= 400:
@@ -432,7 +438,18 @@ class CashfreeGateway:
     def parse_webhook(self, *, body: bytes) -> WebhookEvent | None:
         data = json.loads(body.decode("utf-8"))
         link = data.get("data") or data
-        amount_raw = link.get("link_amount") or link.get("order_amount") or link.get("amount") or "0"
+        payment = {}
+        if isinstance(link, dict):
+            payment = link.get("payment") or {}
+        amount_raw = (
+            payment.get("payment_amount")
+            or payment.get("amount")
+            or link.get("payment_amount")
+            or link.get("order_amount")
+            or link.get("link_amount")
+            or link.get("amount")
+            or "0"
+        )
         amount = Decimal(str(amount_raw)).quantize(Decimal("0.01"))
         status_raw = str(link.get("link_status") or link.get("order_status") or "").upper()
         status_map = {"PAID": "CAPTURED", "SUCCESS": "CAPTURED", "FAILED": "FAILED", "REFUNDED": "REFUNDED"}
@@ -445,13 +462,13 @@ class CashfreeGateway:
             raw=data,
         )
 
-    def refund(self, *, provider_payment_id: str, amount: Decimal) -> dict[str, Any]:
+    def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]:
         if not self.app_id or not self.secret_key:
             raise BusinessRuleError("Cashfree credentials are not configured.")
         import requests
 
-        refund_amount = float(Decimal(amount).quantize(Decimal("0.01")))
-        refund_id = f"bb_rf_{secrets.token_hex(8)}"
+        refund_amount = str(Decimal(amount).quantize(Decimal("0.01")))
+        refund_id = (idempotency_key or f"bb_rf_{secrets.token_hex(8)}")[:40]
         resp = requests.post(
             f"{self.api_base}/orders/{provider_payment_id}/refunds",
             headers={
@@ -567,7 +584,7 @@ class PayUGateway:
             raw=data,
         )
 
-    def refund(self, *, provider_payment_id: str, amount: Decimal) -> dict[str, Any]:
+    def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]:
         if not self.merchant_key or not self.merchant_salt:
             raise BusinessRuleError("PayU credentials are not configured.")
         import requests
@@ -630,7 +647,7 @@ class _DisabledProviderAdapter:
             raw=data,
         )
 
-    def refund(self, *, provider_payment_id: str, amount: Decimal) -> dict[str, Any]:
+    def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]:
         raise BusinessRuleError(f"Payment provider '{self.name}' is not enabled.")
 
 

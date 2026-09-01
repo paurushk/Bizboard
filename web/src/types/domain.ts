@@ -329,7 +329,11 @@ export interface LineItem {
   discountPercent?: string | number;
   gstRate?: string | number;
   cessRate?: string | number;
+  cessAmount?: string | number;
   hsnCode?: string;
+  rateOverride?: boolean;
+  appliedRate?: string | number;
+  uqcCode?: string;
   mrp?: string | number;
   unitName?: string;
   batch?: number | null;
@@ -742,6 +746,8 @@ export interface StockAdjustment {
   quantity: number;
   reason: string;
   warehouse?: number;
+  batch?: number;
+  batchNo?: string;
 }
 
 export interface OpeningStockInput {

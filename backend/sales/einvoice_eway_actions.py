@@ -42,16 +42,61 @@ def _require_einvoice_enabled(company):
         raise BusinessRuleError("e-Invoice is not enabled for this company.")
 
 
+def _claim_einvoice_submit(invoice, *, allow_queued_retry=False):
+    """Atomically claim QUEUED so only one IRP submit runs. Returns 'claimed'|'already'|'in_flight'."""
+    model = type(invoice)
+    qs = model.objects.filter(pk=invoice.pk, irn="")
+    if not allow_queued_retry:
+        qs = qs.exclude(
+            einvoice_status__in=(
+                SalesInvoice.EInvoiceStatus.QUEUED,
+                SalesInvoice.EInvoiceStatus.GENERATED,
+            )
+        )
+    else:
+        qs = qs.exclude(einvoice_status=SalesInvoice.EInvoiceStatus.GENERATED)
+    n = qs.update(einvoice_status=SalesInvoice.EInvoiceStatus.QUEUED)
+    invoice.refresh_from_db()
+    if invoice.irn:
+        return "already"
+    if n == 0 and invoice.einvoice_status == SalesInvoice.EInvoiceStatus.QUEUED and not allow_queued_retry:
+        return "in_flight"
+    return "claimed"
+
+
+def _claim_eway_submit(document):
+    """Atomically claim QUEUED so only one e-Way GSP submit runs."""
+    model = type(document)
+    qs = model.objects.filter(pk=document.pk).filter(eway_bill_no="")
+    qs = qs.exclude(
+        eway_status__in=(
+            SalesInvoice.EwayStatus.QUEUED,
+            SalesInvoice.EwayStatus.GENERATED,
+            SalesInvoice.EwayStatus.MANUAL_EWB,
+        )
+    )
+    n = qs.update(eway_status=SalesInvoice.EwayStatus.QUEUED)
+    document.refresh_from_db()
+    if document.eway_bill_no:
+        return "already"
+    if n == 0:
+        return "in_flight"
+    return "claimed"
+
+
 def _cancel_irn_via_gsp(document, request):
     """NIC cancel: CnlRsn/CnlRem required; 24h from ack_date."""
     ack = getattr(document, "ack_date", None)
-    if ack:
-        if timezone.is_naive(ack):
-            ack = timezone.make_aware(ack)
-        if timezone.now() > ack + timedelta(hours=24):
-            raise BusinessRuleError(
-                "IRN can be cancelled only within 24 hours of acknowledgement."
-            )
+    if not ack:
+        raise BusinessRuleError(
+            "Cannot cancel IRN without an acknowledgement date. Wait for IRP ack or cancel on the portal."
+        )
+    if timezone.is_naive(ack):
+        ack = timezone.make_aware(ack)
+    if timezone.now() > ack + timedelta(hours=24):
+        raise BusinessRuleError(
+            "IRN can be cancelled only within 24 hours of acknowledgement."
+        )
     valid_rsn = {"1", "2", "3", "4"}
     cnl_rsn = str(request.data.get("cnl_rsn") or request.data.get("CnlRsn") or "").strip()
     cnl_rem = (request.data.get("cnl_rem") or request.data.get("CnlRem") or "").strip()
@@ -141,6 +186,9 @@ class InvoiceEinvoiceEwayActionsMixin:
         invoice = self.get_object()
         _assert_sandbox_gsp_allowed(invoice.company)
         _require_einvoice_enabled(invoice.company)
+        claim = _claim_einvoice_submit(invoice, allow_queued_retry=True)
+        if claim == "already":
+            return Response(self.get_serializer(invoice).data)
         try:
             payload = build_einvoice_payload(invoice)
         except EinvoiceValidationError as exc:
@@ -200,6 +248,11 @@ class InvoiceEinvoiceEwayActionsMixin:
         _assert_sandbox_gsp_allowed(invoice.company)
         _require_einvoice_enabled(invoice.company)
         if invoice.irn:
+            return Response(self.get_serializer(invoice).data)
+        claim = _claim_einvoice_submit(invoice)
+        if claim == "already":
+            return Response(self.get_serializer(invoice).data)
+        if claim == "in_flight":
             return Response(self.get_serializer(invoice).data)
         async_result = enqueue_irn.delay(invoice.pk, request.user.pk, company_id=invoice.company_id)
         invoice.einvoice_status = SalesInvoice.EInvoiceStatus.QUEUED
@@ -336,6 +389,11 @@ class InvoiceEinvoiceEwayActionsMixin:
         invoice = self.get_object()
         _assert_sandbox_gsp_allowed(invoice.company)
         _require_eway_enabled(invoice.company)
+        claim = _claim_eway_submit(invoice)
+        if claim == "already":
+            return Response(self.get_serializer(invoice).data)
+        if claim == "in_flight":
+            return Response(self.get_serializer(invoice).data)
         try:
             payload = build_eway_payload_from_invoice(
                 invoice,
@@ -451,7 +509,15 @@ class InvoiceEinvoiceEwayActionsMixin:
         from core.services.billing import extract_state_code
 
         company = invoice.company
-        company_code = extract_state_code(company.gstin) or extract_state_code(company.state)
+        stamp = getattr(invoice, "company_gstin", None)
+        stamp_gstin = (getattr(stamp, "gstin", None) or "") if stamp is not None else ""
+        stamp_state = (getattr(stamp, "state", None) or "") if stamp is not None else ""
+        company_code = (
+            extract_state_code(stamp_gstin)
+            or extract_state_code(stamp_state)
+            or extract_state_code(company.gstin)
+            or extract_state_code(company.state)
+        )
         customer_state_code = extract_state_code(invoice.customer.state)
         before_party_code = (
             extract_state_code(before["filing_party_gstin"])
@@ -623,6 +689,13 @@ class NoteEinvoiceActionsMixin:
         note = self.get_object()
         _assert_sandbox_gsp_allowed(note.company)
         _require_einvoice_enabled(note.company)
+        if getattr(note, "irn", None):
+            return Response(self.get_serializer(note).data)
+        claim = _claim_einvoice_submit(note)
+        if claim == "already":
+            return Response(self.get_serializer(note).data)
+        if claim == "in_flight":
+            return Response(self.get_serializer(note).data)
         try:
             payload = build_einvoice_payload_from_note(note)
         except EinvoiceValidationError as exc:

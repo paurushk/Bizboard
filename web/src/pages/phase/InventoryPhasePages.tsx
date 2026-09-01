@@ -493,7 +493,11 @@ export function SerialsPage() {
 }
 
 export function StockValuationPage() {
-  const q = useQuery({ queryKey: ['stock-valuation'], queryFn: () => api.getStockValuation() });
+  const [basis, setBasis] = useState('cost');
+  const q = useQuery({
+    queryKey: ['stock-valuation', basis],
+    queryFn: () => api.getStockValuation(basis === 'cost' ? undefined : { basis }),
+  });
   if (q.isLoading) return <LoadingState />;
   if (q.isError) return <ErrorState message={getErrorMessage(q.error)} error={q.error} onRetry={() => void q.refetch()} />;
   const data = q.data as Row;
@@ -505,10 +509,31 @@ export function StockValuationPage() {
     value: r.value ?? r.stockValue,
     quantity: r.quantity ?? r.qty ?? r.onHand,
   }));
+  const basisLabel =
+    basis === 'purchase' ? 'purchase price' : basis === 'selling' ? 'selling price' : basis === 'mrp' ? 'MRP' : 'unit cost';
   return (
     <PageShell
       title={t('phase.stockValuation')}
-      subtitle={`Method: ${String(data.method || 'WAVG')} — WAVG blends remaining unit cost; FIFO consumes purchase layers in creation order for COGS (Wave 16/17).`}
+      subtitle={
+        basis === 'cost'
+          ? `Method: ${String(data.method || 'WAVG')} — WAVG blends remaining unit cost; FIFO consumes purchase layers in creation order for COGS (Wave 16/17).`
+          : `Valued at item ${basisLabel} × quantity on hand.`
+      }
+      actions={
+        <TextField
+          select
+          size="small"
+          label="Value stock at"
+          value={basis}
+          onChange={(e) => setBasis(e.target.value)}
+          sx={{ minWidth: 200 }}
+        >
+          <MenuItem value="cost">Cost (WAVG / FIFO)</MenuItem>
+          <MenuItem value="purchase">Purchase price</MenuItem>
+          <MenuItem value="selling">Selling price</MenuItem>
+          <MenuItem value="mrp">MRP</MenuItem>
+        </TextField>
+      }
     >
       <DataTable
         rows={items}

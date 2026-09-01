@@ -203,11 +203,20 @@ class BankReconSessionViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         statement = serializer.validated_data["statement"]
         if account.company_id != self.company.id or statement.company_id != self.company.id:
             raise BusinessRuleError("Account and statement must belong to this company.")
-        gl = JournalLine.objects.filter(entry__company=self.company, entry__status=JournalEntry.Status.POSTED,
-            account=account).aggregate(d=Sum("debit"), c=Sum("credit"))
+        gl = JournalLine.objects.filter(
+            entry__company=self.company,
+            entry__status=JournalEntry.Status.POSTED,
+            account=account,
+        ).aggregate(d=Sum("debit"), c=Sum("credit"))
         statement_balance = statement.lines.aggregate(total=Sum("amount"))["total"] or Decimal("0")
-        serializer.save(company=self.company, gl_balance=(gl["debit"] or 0) - (gl["credit"] or 0),
-                        statement_balance=statement_balance, created_by=self.request.user, updated_by=self.request.user)
+        gl_balance = (gl.get("d") or Decimal("0")) - (gl.get("c") or Decimal("0"))
+        serializer.save(
+            company=self.company,
+            gl_balance=gl_balance,
+            statement_balance=statement_balance,
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
 
     @action(detail=True, methods=["post"])
     def match(self, request, pk=None):
@@ -225,8 +234,16 @@ class BankReconSessionViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         )
         if not line or not bank_line:
             raise BusinessRuleError("An unreconciled journal line and bank statement line are required.")
+        if session.statement_id and bank_line.statement_id != session.statement_id:
+            raise BusinessRuleError("Bank statement line must belong to this recon session's statement.")
+        je_amount = (line.debit or Decimal("0")) - (line.credit or Decimal("0"))
+        bank_amount = bank_line.amount or Decimal("0")
+        if abs(je_amount - bank_amount) > Decimal("0.01"):
+            raise BusinessRuleError("Journal line amount must match the bank statement line.")
+        if JournalLine.objects.filter(bank_statement_line=bank_line).exclude(pk=line.pk).exists():
+            raise BusinessRuleError("This bank statement line is already reconciled.")
         line.bank_statement_line = bank_line
-        line.reconciled_at = timezone.localdate()
+        line.reconciled_at = timezone.now()
         line.save(update_fields=["bank_statement_line", "reconciled_at"])
         return Response({"ok": True})
 

@@ -16,6 +16,21 @@ export function canManageUsers(user: User | null): boolean {
   return !!user && isOwner(user.role);
 }
 
+export function canManageManufacturing(user: User | null): boolean {
+  if (!user || isViewer(user.role)) return false;
+  return isOwner(user.role);
+}
+
+export function canManagePayroll(user: User | null): boolean {
+  if (!user || isViewer(user.role)) return false;
+  return isOwner(user.role);
+}
+
+export function canManageCrm(user: User | null): boolean {
+  if (!user || isViewer(user.role)) return false;
+  return isOwner(user.role) || user.canCreateSales === true;
+}
+
 export function canManageGst(user: User | null): boolean {
   return !!user && isOwner(user.role);
 }
@@ -78,9 +93,10 @@ export function canCreatePayments(user: User | null): boolean {
   return isOwner(user.role) || user.canCreatePayments === true;
 }
 
-/** Receipts / recon: payers or sales viewers. Purchase-only staff do not get cash surfaces. */
+/** Receipts / recon: payers or financial-report viewers — not sales-view-only. */
 export function canViewPaymentSurfaces(user: User | null): boolean {
-  return canCreatePayments(user) || canViewSalesSurfaces(user);
+  if (!user || isViewer(user.role)) return false;
+  return canCreatePayments(user) || canViewFinancialReports(user);
 }
 
 /** Bank recon is cash ops or financial reports — not sales-view-only. */
@@ -105,8 +121,6 @@ export function canViewInventorySurfaces(user: User | null): boolean {
   if (!user || isViewer(user.role)) return false;
   return (
     canAdjustInventory(user) ||
-    canCreateSales(user) ||
-    canCreatePurchases(user) ||
     canViewFinancialReports(user)
   );
 }
