@@ -18,6 +18,10 @@ from core.services.document_numbers import DocumentNumberService, resolve_series
 
 logger = logging.getLogger(__name__)
 
+# Gateway-holding reasons that can never post to books — the capture must be
+# refunded to the customer, not retried (see reconcile_gateway_captures).
+_TERMINAL_HOLDING_REASONS = ("INVOICE_CANCELLED", "LINK_CANCELLED")
+
 from .gateway import decrypt_gateway_credentials, get_adapter
 from .models import (
     BankAccount,
@@ -1005,8 +1009,20 @@ class PaymentService:
             qs = qs.filter(Q(holding_since__isnull=True) | Q(holding_since__lte=cutoff))
         posted = 0
         attempted = 0
+        refunded = 0
         for gp in qs.order_by("id")[:200]:
             attempted += 1
+            # INVOICE_CANCELLED / LINK_CANCELLED holds can never post to books —
+            # retrying finalize just re-parks them. Refund the customer instead
+            # (no receipt/GL was posted, so there is nothing to unwind).
+            if (gp.holding_reason or "") in _TERMINAL_HOLDING_REASONS:
+                try:
+                    refunded += PaymentService._auto_refund_parked_capture(gp)
+                except Exception:
+                    logger.exception(
+                        "Auto-refund of parked capture %s failed", gp.provider_payment_id
+                    )
+                continue
             try:
                 result = PaymentService.finalize_gateway_payment(
                     company=gp.company,
@@ -1023,13 +1039,40 @@ class PaymentService:
                 logger.exception(
                     "Holding reconcile failed for gateway payment %s", gp.provider_payment_id
                 )
+        if refunded:
+            logger.info("Holding reconcile auto-refunded %s terminal capture(s)", refunded)
         return posted, attempted
+
+    @staticmethod
+    def _auto_refund_parked_capture(gp) -> int:
+        """Enqueue a provider refund for a capture parked against a cancelled
+        invoice/link. gp.status flips to REFUNDED only once the provider confirms
+        (see execute_gateway_refund). Idempotent — one outbox row per capture."""
+        from .models import GatewayRefundOutbox
+
+        with transaction.atomic():
+            gp = GatewayPayment.objects.select_for_update().get(pk=gp.pk)
+            if gp.status != GatewayPaymentStatus.CAPTURED_PENDING_BOOKS:
+                return 0
+            outbox, created = GatewayRefundOutbox.objects.get_or_create(
+                company=gp.company,
+                gateway_payment=gp,
+                defaults={
+                    "provider_payment_id": gp.provider_payment_id,
+                    "amount": gp.amount,
+                },
+            )
+        if created:
+            from payments.tasks import execute_gateway_refund
+
+            transaction.on_commit(lambda: execute_gateway_refund.delay(outbox.id))
+            return 1
+        return 0
 
     @staticmethod
     @transaction.atomic
     def refund_gateway_payment(*, gateway_payment, amount=None, user=None, reason="", skip_gateway=False):
         """Full refund of a captured gateway payment: unwind allocations + reverse GL (no receipt delete)."""
-        from accounting.models import JournalEntry
         from accounting.services import PostingService
 
         from .models import GatewayPaymentStatus

@@ -29,6 +29,13 @@ def execute_gateway_refund(self, outbox_id):
         row.last_error = ""
         row.next_attempt_at = None
         row.save(update_fields=["attempts", "status", "last_error", "next_attempt_at", "updated_at"])
+        # A capture parked for a cancelled invoice/link never posted a receipt or
+        # GL, so the provider confirming the refund fully resolves it.
+        from payments.models import GatewayPaymentStatus
+
+        if gp.status == GatewayPaymentStatus.CAPTURED_PENDING_BOOKS:
+            gp.status = GatewayPaymentStatus.REFUNDED
+            gp.save(update_fields=["status", "updated_at"])
     except Exception as exc:
         row.status = GatewayRefundOutboxStatus.FAILED
         row.last_error = str(exc)[:2000]

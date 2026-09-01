@@ -240,9 +240,12 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             total_tax += line_tax
             total_amount += Decimal(item.line_total or 0)
             unit = (item.unit_name or "PCS").upper()
+            sku = getattr(item.product, "sku", "") or ""
             item_cell = [
                 Paragraph(pdf_esc(item.description or item.product.name), styles["td"]),
             ]
+            if sku:
+                item_cell.append(Paragraph(f"Code: {pdf_esc(sku)}", styles["body_small"]))
             # Subtle second line with product name if description differs
             if item.description and item.description != item.product.name:
                 item_cell.append(Paragraph(pdf_esc(item.product.name), styles["body_small"]))
@@ -286,9 +289,13 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             total_qty += Decimal(item.quantity)
             total_amount += Decimal(item.line_total or 0)
             unit = (item.unit_name or "PCS").upper()
+            sku = getattr(item.product, "sku", "") or ""
+            item_name = item.description or item.product.name
+            if sku:
+                item_name = f"{item_name} ({sku})"
             data.append([
                 Paragraph(str(idx), styles["td_center"]),
-                Paragraph(item.description or item.product.name, styles["td"]),
+                Paragraph(item_name, styles["td"]),
                 Paragraph(f"{format_qty(item.quantity)} {unit}", styles["td_center"]),
                 Paragraph(format_money(item.unit_price), styles["td_right"]),
                 Paragraph(format_money(item.discount_percent), styles["td_right"]),
@@ -356,8 +363,8 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     include_qr = getattr(invoice, "include_payment_qr", True)
     if include_qr and not show_einvoice_qr:
         # Amount-lock QR to outstanding when partially paid (Phase 3 gap).
-        from ledgers.services import LedgerService
-
+        # LedgerService is imported at module scope; a second local import here
+        # would shadow it and make the earlier use (line ~117) an UnboundLocalError.
         try:
             qr_amount = LedgerService.sales_invoice_outstanding(invoice)
         except Exception:

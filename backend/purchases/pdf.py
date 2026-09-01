@@ -11,9 +11,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     Image,
@@ -27,7 +25,6 @@ from reportlab.platypus import (
 
 from sales.pdf.helpers import amount_in_words, format_money, format_qty, pdf_esc
 from sales.pdf.styles import (
-    BLACK,
     GREY_HEADER,
     GREY_TOTAL,
     LINE,
@@ -182,6 +179,7 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
     intra_state = party_intra_state(company, supplier.state, supplier.gstin or "")
 
     balance = LedgerService.purchase_invoice_outstanding(invoice)
+    allocated = max(Decimal(str(invoice.grand_total or 0)) - Decimal(str(balance or 0)), Decimal("0"))
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(

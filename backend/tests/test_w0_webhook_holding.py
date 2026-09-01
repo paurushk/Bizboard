@@ -11,7 +11,6 @@ from payments.models import (
     CustomerReceipt,
     GatewayPayment,
     GatewayPaymentStatus,
-    PaymentLinkStatus,
     SupplierPayment,
 )
 from payments.services import PaymentService
@@ -120,6 +119,42 @@ def test_duplicate_webhook_while_holding_still_one_receipt(tenant_a):
     reopen_period(tenant_a.company, period)
     PaymentService.reconcile_gateway_captures(older_than_minutes=0)
     assert CustomerReceipt.objects.filter(company=tenant_a.company).count() == 1
+
+
+def test_reconcile_auto_refunds_capture_parked_for_cancelled_invoice(tenant_a, django_capture_on_commit_callbacks):
+    """Owner decision 2026-09-01: a capture parked because its invoice/link was
+    cancelled can never post to books — reconcile must refund it, not retry
+    finalize forever."""
+    from payments.models import GatewayRefundOutbox, GatewayRefundOutboxStatus
+    from sales.services import SalesService
+
+    inv, link, body = _link_and_body(tenant_a, payment_id="pay_terminal_1")
+    SalesService.cancel(inv, tenant_a.owner)
+
+    wh = _post_sandbox_webhook(tenant_a.client, tenant_a.company.id, body)
+    assert wh.status_code == 200, wh.data
+    gp = GatewayPayment.objects.get(provider_payment_id="pay_terminal_1")
+    assert gp.status == GatewayPaymentStatus.CAPTURED_PENDING_BOOKS
+    assert gp.holding_reason in ("INVOICE_CANCELLED", "LINK_CANCELLED")
+
+    with django_capture_on_commit_callbacks(execute=True):
+        posted, attempted = PaymentService.reconcile_gateway_captures(older_than_minutes=0)
+    assert attempted >= 1
+    assert posted == 0  # never finalized to books
+    assert CustomerReceipt.objects.filter(company=tenant_a.company).count() == 0
+
+    outbox = GatewayRefundOutbox.objects.get(gateway_payment=gp)
+    assert outbox.status == GatewayRefundOutboxStatus.SUCCEEDED
+    gp.refresh_from_db()
+    assert gp.status == GatewayPaymentStatus.REFUNDED
+
+    # Reconcile again — idempotent, no duplicate outbox row, no error.
+    PaymentService.reconcile_gateway_captures(older_than_minutes=0)
+    assert GatewayRefundOutbox.objects.filter(gateway_payment=gp).count() == 1
+
+    health = tenant_a.client.get("/api/v1/payments/health/")
+    codes = [a["code"] for a in health.data.get("alerts", [])]
+    assert "GATEWAY_CAPTURE_HOLDING" not in codes
 
 
 def test_utr_clash_does_not_drop_capture(tenant_a):
