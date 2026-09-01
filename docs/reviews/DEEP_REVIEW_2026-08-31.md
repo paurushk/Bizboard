@@ -429,10 +429,29 @@ Of the 25 failures:
   Postgres repro; not caused by the §2.1 `file_asset_warnings` change (restore
   reads the payload via `.get()`).
 
-**Other CI gates the branch fails:**
-- `ruff check .` → **96 errors** (93 `ruff check --fix`-able — mostly `F401`
-  unused imports in the new `test_*` / IMS / attention files).
-- `makemigrations --check` → **4 missing migrations**: `insights`, `inventory`,
-  `payments`, `reporting` — Django index auto-name renames + `Alter field` on the
-  new choice fields (`gstr2bingest.chase_status/ims_action/match_class`,
-  `shopfloorevent.event`). `sales/0042` (this pass's TCS field) **is** complete.
+**Other CI gates:**
+- `makemigrations --check` → **now clean** (`73d9f8f`). Added the 4 auto-detected
+  migrations (`insights/0005`, `inventory/0015`, `payments/0017`, `reporting/0011`
+  — all `RenameIndex` + choice-field `AlterField`, no data change) plus
+  `sales/0042` (TCS field, `af52ccd`) and `core/0017` (audit action length,
+  `2e6d174`).
+- `ruff check .` → **still red**: 2 real errors left for the parallel PDF work
+  (`purchases/pdf.py:400` `F821` `allocated` undefined → `NameError` in the
+  purchase PDF's paid/allocated row; `sales/pdf/gst_tax_invoice.py:117` `F823`
+  `LedgerService` used before its local import → `UnboundLocalError`), plus ~88
+  `F401`/`F811` auto-fixable unused-imports (mostly `tests/`). `billing/services.py`
+  `F821` `Any` fixed (`73d9f8f`).
+
+### Fix commits (all on `wip/waves-0-abcd`, pushed)
+
+| Commit | Scope |
+|---|---|
+| `af52ccd` | TCS: explicit `tcs_amount` overrides rate + audit log + `sales/0042` |
+| `ca2718d` | opening-stock re-import; statement sort; webhook-vs-cancel park+alert; DRF 500 logging; 2 stale-test updates |
+| `2e6d174` | `AuditEvent.action` `varchar(16)`→`64` (Postgres restore 500) + `core/0017` |
+| `73d9f8f` | 4 missing migrations; `billing/services.py` `Any` import |
+
+All fixes verified on the Postgres test path. A full-suite green run is still
+pending — a parallel session has been editing ~30 files (`inventory/`, `masters/`,
+`sales/pdf/`, most of `web/src/`) throughout, so the tree has not been quiescent
+enough for one clean end-to-end run.
