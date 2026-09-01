@@ -126,7 +126,6 @@ def test_profit_and_loss_filters_by_cost_center(books):
 def test_backfill_command_creates_journals(books):
     from accounting.models import JournalEntry
     from django.core.management import call_command
-    from sales.models import SalesInvoice
 
     customer = make_customer(books.company)
     invoice = _si_with_tax_lines(books.company, customer)
@@ -279,7 +278,7 @@ def test_purchase_credit_note_rcm_reverses_rcm_liability(books):
 
 def test_fa_dispose_creates_gl_journal(books):
     """BB-000459: disposal writes NBV to 5600 Loss, never Depreciation 5300."""
-    from accounting.models import FixedAsset, JournalEntry, JournalLine
+    from accounting.models import FixedAsset, JournalEntry
 
     asset_acct = PostingService._account(books.company, "1600")
     accum_acct = PostingService._account(books.company, "1650")

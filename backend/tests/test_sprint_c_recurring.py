@@ -1,7 +1,6 @@
 """BB-000669: recurring invoice schedules — draft only, skip locked/duplicate."""
 
-from datetime import date, datetime, timedelta
-from decimal import Decimal
+from datetime import date, timedelta
 
 import pytest
 from django.utils import timezone

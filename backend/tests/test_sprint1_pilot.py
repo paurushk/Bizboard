@@ -4,7 +4,6 @@ import pytest
 from django.test import override_settings
 from rest_framework.test import APIClient
 
-from accounts.models import CompanyUser
 from tests.conftest import make_customer
 
 pytestmark = pytest.mark.django_db

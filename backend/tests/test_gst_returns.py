@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 from sales.models import SalesInvoice
-from tests.conftest import add_stock, create_draft_invoice, create_draft_purchase, make_customer, make_product, make_supplier
+from tests.conftest import add_stock, create_draft_purchase, make_customer, make_product, make_supplier
 
 pytestmark = pytest.mark.django_db
 

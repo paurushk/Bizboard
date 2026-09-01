@@ -17,7 +17,6 @@ from .models import (
     AssistantThread,
     BusinessAlertEvent,
     BusinessHealthSnapshot,
-    DailyBusinessSummary,
 )
 from .serializers import (
     AiUsageLedgerSerializer,

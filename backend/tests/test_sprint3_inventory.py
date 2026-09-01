@@ -9,7 +9,7 @@ from inventory.models import BatchLot, InventoryCostLayer, MovementType, SerialN
 from inventory.services import InventoryService, StockTransferService
 from inventory.models import StockTransfer, StockTransferLine
 from sales.models import SalesInvoice, SalesOrder
-from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
+from tests.conftest import create_draft_invoice, make_customer, make_product
 
 pytestmark = pytest.mark.django_db
 

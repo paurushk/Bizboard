@@ -60,7 +60,7 @@ def test_bb_000600_purchase_complete_posts_input_cess(tenant_a):
 
 
 def test_bb_000619_620_rcm_moves_cess_and_return_cn_copies_rate(tenant_a):
-    from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals
+    from core.services.billing import apply_rcm_memo_after_tax
     from purchases.models import PurchaseInvoice, PurchaseItem
 
     inv = PurchaseInvoice(

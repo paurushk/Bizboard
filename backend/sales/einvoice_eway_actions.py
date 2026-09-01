@@ -19,7 +19,7 @@ from .einvoice_payload import (
     build_einvoice_payload_from_note,
 )
 from .eway_payload import EwayValidationError, build_eway_payload_from_challan, build_eway_payload_from_invoice
-from .models import DeliveryChallan, SalesCreditNote, SalesDebitNote, SalesInvoice
+from .models import DeliveryChallan, SalesInvoice
 
 
 def _require_owner(request):

@@ -13,7 +13,7 @@ from core.services.billing import compute_document_totals
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 from .notes_services import _invoice_intra_state
 from inventory.models import MovementType, StockMovement
-from inventory.services import InventoryService, SerialNumberService
+from inventory.services import InventoryService
 
 from .models import (
     NoteReason,

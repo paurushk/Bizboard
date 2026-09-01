@@ -4,7 +4,6 @@ from decimal import Decimal
 
 import pytest
 
-from core.exceptions import BusinessRuleError
 from core.services.billing import extract_exclusive_from_inclusive_line, place_of_supply_known, q2
 from core.services.uqc import normalize_uqc, resolve_uqc_code
 from reporting.gst_returns import (

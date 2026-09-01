@@ -9,8 +9,6 @@ import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
-from django.db.models import Q
-from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
 

@@ -1443,7 +1443,7 @@ class InventoryValuationService:
     def fefo_batches(company, product, warehouse=None):
         from django.db.models import F
 
-        from .item_stock import business_date, lot_is_expired
+        from .item_stock import business_date
 
         qs = BatchLot.objects.filter(company=company, product=product, stock_balances__on_hand__gt=0)
         if warehouse:

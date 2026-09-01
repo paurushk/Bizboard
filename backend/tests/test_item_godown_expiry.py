@@ -10,7 +10,7 @@ from django.db.models import Sum
 from openpyxl import Workbook
 
 from inventory.models import BatchLot, MovementType, StockBalance, StockMovement, Warehouse
-from inventory.services import InventoryService, InventoryValuationService
+from inventory.services import InventoryService
 from masters.models import Product
 from tests.conftest import add_stock, create_draft_invoice, create_draft_purchase, make_customer, make_product, make_supplier
 

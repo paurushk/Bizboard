@@ -139,7 +139,6 @@ def test_tally_commit_blocked_with_errors(tenant_a):
 
 @pytest.mark.django_db
 def test_tally_xlsx_parse():
-    import io
 
     import openpyxl
 

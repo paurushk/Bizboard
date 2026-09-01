@@ -7,7 +7,7 @@ import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from django.db.models import Count, F, Sum
+from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -19,7 +19,6 @@ from purchases.models import (
     PurchaseCreditNote,
     PurchaseDebitNote,
     PurchaseInvoice,
-    PurchaseReturn,
 )
 from sales.models import (
     SalesCreditNote,

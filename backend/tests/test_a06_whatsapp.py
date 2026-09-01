@@ -6,7 +6,7 @@ import pytest
 from django.test import override_settings
 
 from sales.models import SalesInvoice
-from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
+from tests.conftest import make_customer
 from tests.test_pdf_and_share import _complete
 
 pytestmark = pytest.mark.django_db

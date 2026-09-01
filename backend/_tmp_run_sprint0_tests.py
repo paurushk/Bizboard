@@ -1,5 +1,4 @@
 import os
-import sys
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings_test")
 os.environ.setdefault("PYTHONUNBUFFERED", "1")

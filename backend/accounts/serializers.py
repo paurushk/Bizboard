@@ -5,7 +5,7 @@ from rest_framework import serializers
 from core.permissions import get_company_user
 from core.validators import validate_upi_vpa
 
-from .models import Company, CompanyGstin, CompanyUser, User
+from .models import Company, CompanyGstin, CompanyUser
 
 def _item_custom_field_defs(value):
     from masters.custom_fields import normalize_stored_defs

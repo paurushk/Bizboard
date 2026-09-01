@@ -18,8 +18,8 @@ from core.services.place_of_supply import (
 )
 from core.services.registration_gates import assert_may_issue_gst_tax_invoice
 from core.services.document_numbers import DocumentNumberService
-from inventory.models import BatchLot, MovementType, SerialNumber, StockMovement
-from inventory.services import InventoryService, InventoryValuationService, SerialNumberService
+from inventory.models import BatchLot, MovementType, StockMovement
+from inventory.services import InventoryService, InventoryValuationService
 from ledgers.services import LedgerService
 from masters.models import Customer, Product
 

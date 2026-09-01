@@ -106,7 +106,7 @@ def test_webhook_capture_after_invoice_cancel_parks_and_alerts(tenant_a):
     never dropped — the webhook 200s, the capture is parked as
     CAPTURED_PENDING_BOOKS (no receipt posted), and a health alert surfaces it
     for refund."""
-    from payments.models import CustomerReceipt, GatewayPayment, GatewayPaymentStatus, PaymentLinkStatus
+    from payments.models import CustomerReceipt, GatewayPayment, GatewayPaymentStatus
     from payments.services import PaymentService
     from sales.services import SalesService
     from tests.test_phase3_payments import _complete_invoice, _post_sandbox_webhook

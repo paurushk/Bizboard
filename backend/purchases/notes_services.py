@@ -11,7 +11,6 @@ from core.exceptions import BusinessRuleError
 from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 from core.services.place_of_supply import party_intra_state
-from ledgers.services import LedgerService
 from masters.models import Product
 
 from .models import (

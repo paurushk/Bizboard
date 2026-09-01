@@ -3,7 +3,6 @@
 from decimal import Decimal
 import pytest
 from django.test import override_settings
-from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
 from core.services.gsp_adapters import LiveIrpAdapter, get_irp_adapter

@@ -8,8 +8,6 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from inventory.models import MovementType
 from inventory.services import InventoryService
 from masters.custom_fields import (
-    apply_cf_filters,
-    build_search_q,
     coerce_values,
     normalize_header,
     resolve_import_columns,

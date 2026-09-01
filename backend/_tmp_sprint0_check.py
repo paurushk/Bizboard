@@ -10,7 +10,6 @@ print("django ok", flush=True)
 
 from config.settings import (
     _assert_allowed_hosts,
-    _assert_cors_credentials_safe,
     _is_local_allowed_host,
     _parse_debug_flag,
 )

@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from accounting.models import AccountingPeriod, CostCenter, FixedAsset, JournalEntry, JournalLine
+from accounting.models import AccountingPeriod, CostCenter, FixedAsset
 from accounting.reports import balance_sheet, profit_and_loss
 from accounting.services import BooksHealthService, PostingService, seed_chart_of_accounts
 from core.exceptions import BusinessRuleError

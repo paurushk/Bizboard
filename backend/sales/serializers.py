@@ -247,11 +247,6 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
     def update(self, instance, validated_data):
         from core.exceptions import BusinessRuleError
         from core.permissions import get_company_user
-        from core.services.h9_amend import (
-            assert_h9a_line_allowlist,
-            existing_lines_as_items_data,
-            lines_prices_unchanged,
-        )
 
         if instance.status in (SalesInvoice.Status.CANCELLED, SalesInvoice.Status.RETURNED):
             raise BusinessRuleError("Cancelled/returned invoice cannot be edited.")

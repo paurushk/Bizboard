@@ -8,7 +8,7 @@ from decimal import Decimal
 from core.services.billing import extract_state_code, q2
 from core.services.charges import charge_line, charges_are_taxable
 
-from .models import SalesCreditNote, SalesDebitNote, SalesInvoice
+from .models import SalesDebitNote, SalesInvoice
 
 
 def _charges_taxable(document) -> bool:

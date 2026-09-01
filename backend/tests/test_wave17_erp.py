@@ -10,7 +10,7 @@ from accounting.models import JournalEntry
 from crm.models import Lead, Opportunity
 from inventory.models import StockBalance
 from inventory.services import InventoryService
-from payroll.models import Employee, PayRun
+from payroll.models import Employee
 from tests.conftest import add_stock, make_product
 
 pytestmark = pytest.mark.django_db

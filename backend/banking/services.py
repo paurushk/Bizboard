@@ -12,7 +12,6 @@ def match_aa_to_receipts(*, company, tolerance: Decimal | None = None) -> int:
     """Match unmatched AA credits to posted customer receipts.
     Uses reference / UTR match, date proximity (+/- 7 days), and amount tolerance.
     """
-    from datetime import timedelta
     from django.db.models import Q
     from payments.models import ReceiptStatus
 

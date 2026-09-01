@@ -9,7 +9,6 @@ from urllib.parse import quote
 logger = logging.getLogger(__name__)
 
 import requests
-from django.conf import settings
 
 from core.services.feature_flags import build_feature_flags
 

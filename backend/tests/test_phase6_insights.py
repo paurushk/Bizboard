@@ -14,7 +14,6 @@ from insights.services import (
     upsert_alerts,
 )
 from masters.models import Customer
-from sales.models import SalesInvoice
 
 
 @pytest.mark.django_db
@@ -63,7 +62,7 @@ def test_cashflow_conservation(tenant_a):
 @pytest.mark.django_db
 def test_health_golden_band(tenant_a, make_product=None):
     """Stable score band for a thin but consistent tenant."""
-    from tests.conftest import make_customer, make_product, add_stock, create_draft_invoice
+    from tests.conftest import make_customer, make_product, add_stock
 
     cust = make_customer(tenant_a.company)
     product = make_product(tenant_a.company, reorder_level="0")

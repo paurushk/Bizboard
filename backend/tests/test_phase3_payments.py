@@ -10,7 +10,7 @@ from decimal import Decimal
 import pytest
 from django.utils import timezone
 
-from payments.models import BankAccount, CustomerReceipt, PaymentLink, PaymentLinkStatus
+from payments.models import BankAccount, CustomerReceipt, PaymentLinkStatus
 from payments.services import PaymentService
 from payments.upi import build_upi_intent, normalize_utr
 from sales.models import SalesInvoice

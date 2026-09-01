@@ -6,7 +6,6 @@ Local/dev/test fall back to SQLite; production supplies DATABASE_URL
 """
 
 import os
-import re
 from datetime import timedelta
 from pathlib import Path
 

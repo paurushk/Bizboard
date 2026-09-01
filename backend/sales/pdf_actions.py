@@ -1,6 +1,5 @@
 """Shared pdf-status / pdf / regenerate-pdf actions for note/challan viewsets."""
 
-import io
 
 from django.http import FileResponse
 from rest_framework import status

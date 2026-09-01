@@ -1,11 +1,10 @@
 """Wave 16 smoke tests — GL-first outstanding, GSP factories, 2B claimable flag."""
 
 from decimal import Decimal
-from unittest.mock import patch
 
 import pytest
 
-from accounting.services import PostingService, seed_chart_of_accounts
+from accounting.services import seed_chart_of_accounts
 from core.services.gsp_adapters import (
     SandboxIrpAdapter,
     get_gstr_filing_adapter,

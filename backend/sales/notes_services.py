@@ -12,7 +12,6 @@ from core.exceptions import BusinessRuleError
 from core.services.billing import compute_document_totals
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 from core.services.place_of_supply import assert_place_of_supply_for_gst, party_intra_state
-from ledgers.services import LedgerService
 from masters.models import Customer, Product
 
 from .models import (
@@ -26,7 +25,6 @@ from .models import (
     SalesInvoice,
     SalesOrder,
     SalesOrderItem,
-    SalesReturn,
 )
 from .services import SalesService, _build_items, _tax_enabled, _validate_lines
 

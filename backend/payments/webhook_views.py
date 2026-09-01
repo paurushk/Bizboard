@@ -1,6 +1,5 @@
 """Public payment link + gateway webhook views (BB-000506)."""
 
-from decimal import Decimal
 
 from django.utils import timezone
 from rest_framework import status

@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 from django.test import override_settings
 
-from accounting.models import JournalEntry, JournalLine
+from accounting.models import JournalEntry
 from accounting.services import seed_chart_of_accounts
 from tests.conftest import create_draft_invoice, create_draft_purchase, make_customer, make_product, make_supplier
 

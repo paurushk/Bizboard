@@ -2,17 +2,15 @@ from decimal import Decimal
 from io import BytesIO
 
 import pytest
-from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from accounts.models import CompanyUser, User
 from core.exceptions import api_exception_handler
 from core.services.files import FileService
-from reporting.gst_returns import build_gstr1, build_gstr3b
+from reporting.gst_returns import build_gstr1
 from reporting.models import Gstr2bIngest
-from sales.models import SalesCreditNote, SalesInvoice
+from sales.models import SalesInvoice
 from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
 
 pytestmark = pytest.mark.django_db
@@ -61,9 +59,7 @@ def test_mime_rejects_octet_stream_and_extension_spoof():
 
 def test_cors_prod_requires_non_localhost(settings):
     with override_settings(DJANGO_ENV="production"):
-        from importlib import reload
 
-        import config.settings as settings_mod
 
         # Settings module already loaded — exercise the helper path via ImproperlyConfigured
         # by calling the same check the module uses on import.
