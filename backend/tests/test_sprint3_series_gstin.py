@@ -10,6 +10,7 @@ from accounts.models import CompanyGstin
 from core.services.document_numbers import DocumentNumberService
 from purchases.models import PurchaseInvoice
 from reporting.gst_returns import build_gstr1, build_gstr3b
+from sales.models import SalesInvoice
 from tests.conftest import add_stock, create_draft_invoice, create_draft_purchase, make_customer, make_product, make_supplier
 
 pytestmark = pytest.mark.django_db
@@ -87,6 +88,9 @@ def test_bb_000556_gstr1_filters_by_company_gstin_stamp(tenant_a):
         {"company_gstin": ho.id, "items": [{"product": product.id, "quantity": "1", "unit_price": "1000", "gst_rate": "18"}]},
         format="json",
     )
+    # Pin the invoice date into the queried period regardless of when the
+    # suite runs (mirrors the sibling GSTR-3B test below).
+    SalesInvoice.objects.filter(pk=inv_a["id"]).update(invoice_date="2026-08-05")
     assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv_a['id']}/complete/").status_code == 200
     inv_b = create_draft_invoice(
         tenant_a, customer, [{"product": product.id, "quantity": "1", "unit_price": "2000", "gst_rate": "18"}],
@@ -96,6 +100,7 @@ def test_bb_000556_gstr1_filters_by_company_gstin_stamp(tenant_a):
         {"company_gstin": branch.id, "items": [{"product": product.id, "quantity": "1", "unit_price": "2000", "gst_rate": "18"}]},
         format="json",
     )
+    SalesInvoice.objects.filter(pk=inv_b["id"]).update(invoice_date="2026-08-05")
     assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv_b['id']}/complete/").status_code == 200
 
     from core.exceptions import BusinessRuleError
