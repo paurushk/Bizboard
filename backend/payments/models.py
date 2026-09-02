@@ -188,6 +188,12 @@ class PaymentAllocation(CompanyScopedModel):
                 ),
                 name="alloc_xor_receipt_or_supplier_payment",
             ),
+            # PAY-10: a zero / negative allocation is always a bug (the service
+            # rejects it too — this is defense in depth).
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=0),
+                name="alloc_amount_positive",
+            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(sales_invoice__isnull=False, purchase_invoice__isnull=True)
@@ -418,8 +424,18 @@ class GatewayRefundOutbox(CompanyScopedModel):
         ordering = ["-id"]
         indexes = [models.Index(fields=["company", "status", "next_attempt_at"])]
         constraints = [
+            # PAY-12: dedup on the idempotency key, not blindly on (payment,
+            # amount) — that blocked two legitimate equal-amount partial refunds.
+            # A retry of the *same* logical refund reuses its key; a distinct
+            # refund gets a distinct key.
+            models.UniqueConstraint(
+                fields=["gateway_payment", "idempotency_key"],
+                condition=models.Q(idempotency_key__gt=""),
+                name="uniq_refund_outbox_per_idempotency_key",
+            ),
             models.UniqueConstraint(
                 fields=["gateway_payment", "amount"],
+                condition=models.Q(idempotency_key=""),
                 name="uniq_refund_outbox_per_payment_amount",
             )
         ]

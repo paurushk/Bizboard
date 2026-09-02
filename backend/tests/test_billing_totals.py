@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from core.services.billing import DISCOUNT_BEFORE_TAX, compute_document_totals, q2
+from core.services.billing import DISCOUNT_BEFORE_TAX, compute_document_totals
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "tax_parity_cases.json"
 PARITY_CASES = json.loads(FIXTURE_PATH.read_text())

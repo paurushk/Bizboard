@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.exceptions import BusinessRuleError
-from core.idempotency import begin_record, get_record, release_record, replay_record, store_record
+from core.idempotency import begin_record, release_record, store_record
 from core.permissions import (
     CanCancelDocuments,
     CanCreatePayments,

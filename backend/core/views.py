@@ -6,6 +6,7 @@ from django.db import connection
 from django.http import FileResponse, Http404, HttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -272,6 +273,16 @@ class FileAssetViewSet(
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
         asset = self.get_object()
+        # CORE-12: the list/retrieve gate (CanManageFileAssets) lets anyone with
+        # sales OR purchase rights in — fine for their own attachments, but an
+        # EXPORT / IMPORT file (tenant backups, bulk imports) should need the
+        # export capability, and an OWNER always. Scope the actual download.
+        cu = get_company_user(request)
+        if asset.kind in (FileAsset.Kind.EXPORT, FileAsset.Kind.IMPORT):
+            if not (cu and (cu.role == "OWNER" or cu.can_export or cu.can_import)):
+                raise PermissionDenied(
+                    "Downloading import/export files requires the export or import permission."
+                )
         try:
             handle = asset.file.open("rb")
         except (FileNotFoundError, OSError) as exc:

@@ -1268,7 +1268,6 @@ class PaymentService:
     @transaction.atomic
     def refund_gateway_payment(*, gateway_payment, amount=None, user=None, reason="", skip_gateway=False):
         """Full refund of a captured gateway payment: unwind allocations + reverse GL (no receipt delete)."""
-        from accounting.services import PostingService
 
         from .models import GatewayPaymentStatus
 

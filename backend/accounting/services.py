@@ -383,6 +383,21 @@ class PostingService:
             status__in=blocking_statuses,
         ).exists():
             raise BusinessRuleError("Cannot post to a closed accounting period.")
+        # ACC-04: opt-in — the date must fall inside an OPEN period, not merely
+        # avoid a closed one (a back-dated entry to a year with no period rows
+        # otherwise bypasses period control entirely).
+        if getattr(company, "require_open_period_for_posting", False):
+            in_open = AccountingPeriod.objects.filter(
+                company=company,
+                start_date__lte=entry_date,
+                end_date__gte=entry_date,
+                status=AccountingPeriod.Status.OPEN,
+            ).exists()
+            if not in_open:
+                raise BusinessRuleError(
+                    f"{entry_date} is not inside an open accounting period. "
+                    "Create the period (or open it) before posting."
+                )
         # BB-000432: sequential journal numbers unique per company.
         # ACC-12: allocate the voucher number *inside* the same savepoint that
         # inserts the entry, so a concurrent-double-post IntegrityError rolls the

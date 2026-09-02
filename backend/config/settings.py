@@ -35,6 +35,21 @@ def _env_bool(key: str, default: str = "0") -> bool:
     return _parse_debug_flag(os.environ.get(key, default))
 
 
+def _env_int(key: str, default: int) -> int:
+    """CFG-03: parse an int env var with a clear error naming the offending var
+    instead of a bare ValueError from a stray ``int(os.environ[...])``.
+    """
+    raw = os.environ.get(key)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return int(str(raw).strip())
+    except ValueError as exc:
+        raise ImproperlyConfigured(
+            f"{key} must be an integer (got {raw!r})."
+        ) from exc
+
+
 # SEC-09: DEBUG is opt-in (default off). Local .env.example sets DJANGO_DEBUG=1.
 DEBUG = _parse_debug_flag(os.environ.get("DJANGO_DEBUG", "0"))
 # DJANGO_ENV is env-only (default development for local). Do not derive from DEBUG.
@@ -480,13 +495,13 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute="*/5"),
     },
 }
-AI_MONTHLY_TOKEN_BUDGET_DEFAULT = int(os.environ.get("AI_MONTHLY_TOKEN_BUDGET_DEFAULT", "100000"))
+AI_MONTHLY_TOKEN_BUDGET_DEFAULT = _env_int("AI_MONTHLY_TOKEN_BUDGET_DEFAULT", 100000)
 
 # Email — console backend unless SMTP configured
 if os.environ.get("EMAIL_HOST"):
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
     EMAIL_HOST = os.environ["EMAIL_HOST"]
-    EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+    EMAIL_PORT = _env_int("EMAIL_PORT", 587)
     EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
     EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
     EMAIL_USE_TLS = True
@@ -518,9 +533,20 @@ TALLY_URL = os.environ.get("TALLY_URL", "")
 METRICS_TOKEN = os.environ.get("METRICS_TOKEN", "")
 # BB-000208: admin off by default outside DEBUG.
 ADMIN_ENABLED = _env_bool("ADMIN_ENABLED", "1" if DEBUG else "0")
-# BB-000625: credentials always on; CORS_ALLOW_ALL_ORIGINS is wired and rejected with cookies.
+# BB-000625: credentials are always on for this app (cookie-JWT SPA), and the
+# CORS spec forbids `Access-Control-Allow-Origin: *` together with credentials.
+# CFG-04: the old CORS_ALLOW_ALL_ORIGINS env knob was therefore dead in every
+# environment — turning it on only ever hard-crashed boot via the assert below.
+# It is intentionally unsupported: use CORS_ALLOWED_ORIGINS (exact list) or
+# CORS_ALLOWED_ORIGIN_REGEXES for local tooling instead.
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = _parse_debug_flag(os.environ.get("CORS_ALLOW_ALL_ORIGINS", "0"))
+CORS_ALLOW_ALL_ORIGINS = False
+if os.environ.get("CORS_ALLOW_ALL_ORIGINS"):
+    raise ImproperlyConfigured(
+        "CORS_ALLOW_ALL_ORIGINS is not supported (credentials are always on; the "
+        "CORS spec forbids '*' with credentials). Set CORS_ALLOWED_ORIGINS or "
+        "CORS_ALLOWED_ORIGIN_REGEXES instead."
+    )
 
 
 def _assert_cors_credentials_safe(*, origins, allow_all: bool, allow_credentials: bool) -> None:
@@ -605,9 +631,9 @@ if str(JWT_REFRESH_COOKIE_SAMESITE).lower() == "none" and os.environ.get(
         "and a CSRF-protected refresh deploy. Prefer SameSite=Lax with same-site SPA/API."
     )
 
-REFRESH_TOKEN_DAYS = int(os.environ.get("JWT_REFRESH_DAYS", "7"))
+REFRESH_TOKEN_DAYS = _env_int("JWT_REFRESH_DAYS", 7)
 SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"] = timedelta(days=REFRESH_TOKEN_DAYS)
-SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"] = timedelta(minutes=int(os.environ.get("JWT_ACCESS_MINUTES", "15")))
+SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"] = timedelta(minutes=_env_int("JWT_ACCESS_MINUTES", 15))
 
 def _env_value(key: str, default: str = "") -> str:
     """Read env var; strip whitespace and ignore values that are leftover inline comments."""
@@ -658,10 +684,10 @@ elif _require_sub in ("0", "false", "no"):
 else:
     REQUIRE_SUBSCRIPTION = DJANGO_ENV == "production"
 # No SaaS plan: starter seat (1), not unlimited. 0 = explicit unlimited.
-UNSUBSCRIBED_SEAT_LIMIT = int(os.environ.get("UNSUBSCRIBED_SEAT_LIMIT", "1") or "1")
-BILLING_TRIAL_DAYS = int(os.environ.get("BILLING_TRIAL_DAYS", "14") or "14")
+UNSUBSCRIBED_SEAT_LIMIT = _env_int("UNSUBSCRIBED_SEAT_LIMIT", 1)
+BILLING_TRIAL_DAYS = _env_int("BILLING_TRIAL_DAYS", 14)
 # BB-000726: PAST_DUE write grace after current_period_end (0 = block immediately).
-BILLING_PAST_DUE_GRACE_DAYS = int(os.environ.get("BILLING_PAST_DUE_GRACE_DAYS", "0") or "0")
+BILLING_PAST_DUE_GRACE_DAYS = _env_int("BILLING_PAST_DUE_GRACE_DAYS", 0)
 GSP_LIVE_ENABLED = _env_bool("GSP_LIVE_ENABLED")
 GSP_CERTIFIED = _env_bool("GSP_CERTIFIED")
 _gsp_provider = (_env_value("GSP_PROVIDER", "custom") or "custom").strip().lower()
@@ -747,7 +773,7 @@ FIU_API_KEY = (os.environ.get("FIU_API_KEY") or "").strip()
 
 # Optional ClamAV host for media scan (compose profile clamav)
 CLAMAV_HOST = os.environ.get("CLAMAV_HOST", "").strip()
-CLAMAV_PORT = int(os.environ.get("CLAMAV_PORT", "3310") or "3310")
+CLAMAV_PORT = _env_int("CLAMAV_PORT", 3310)
 
 # Wave 17E — WhatsApp Cloud API (falls back to wa.me when unset)
 WHATSAPP_TOKEN = _env_value("WHATSAPP_TOKEN")

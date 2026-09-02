@@ -194,6 +194,10 @@ class Company(TimeStampedModel):
     stock_on_delivery_challan = models.BooleanField(default=False)
     # Phase 5 — light accounting
     accounting_enabled = models.BooleanField(default=False)
+    # ACC-04: when on, PostingService.post / assert_period_allows_money_amend
+    # reject a date that is not inside an OPEN AccountingPeriod (not just one
+    # that is explicitly CLOSED). Off by default for back-compat.
+    require_open_period_for_posting = models.BooleanField(default=False)
     # R3-017: effective date for opening-balance journals (opening stock, opening
     # AR/AP). Falls back to the current FY start when unset.
     books_start_date = models.DateField(null=True, blank=True)

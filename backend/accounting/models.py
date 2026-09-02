@@ -51,6 +51,21 @@ class AccountingPeriod(CompanyScopedModel):
         ordering = ["-start_date"]
         constraints = [models.UniqueConstraint(fields=["company", "start_date", "end_date"], name="uniq_accounting_period")]
 
+    def clean(self):
+        # ACC-05: reject overlapping periods per company (serializer enforces this
+        # on the API path; this covers management commands / data loads).
+        if self.start_date and self.end_date:
+            if self.end_date < self.start_date:
+                raise ValidationError("end_date must not precede start_date.")
+            if self.company_id:
+                clash = AccountingPeriod.objects.filter(
+                    company_id=self.company_id,
+                    start_date__lte=self.end_date,
+                    end_date__gte=self.start_date,
+                ).exclude(pk=self.pk)
+                if clash.exists():
+                    raise ValidationError("This period overlaps an existing accounting period.")
+
 
 class CostCenter(CompanyScopedModel):
     name = models.CharField(max_length=128)

@@ -1,6 +1,5 @@
 """D-04 — missing IMS/2B documents chase (not in books)."""
 
-from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
 from core.services.whatsapp import _normalize_phone, _wa_me_link

@@ -18,6 +18,34 @@ class AccountingPeriodSerializer(serializers.ModelSerializer):
         model = AccountingPeriod
         fields = ["id", "name", "start_date", "end_date", "status"]
 
+    def validate(self, attrs):
+        # ACC-05: no overlapping periods per company — an overlapping OPEN+CLOSED
+        # pair makes "is this date in a closed period?" and every period-scoped
+        # report ambiguous.
+        start = attrs.get("start_date") or getattr(self.instance, "start_date", None)
+        end = attrs.get("end_date") or getattr(self.instance, "end_date", None)
+        if start and end:
+            if end < start:
+                raise serializers.ValidationError({"end_date": "end_date must not precede start_date."})
+            request = self.context.get("request")
+            company = None
+            if request is not None:
+                from core.permissions import get_company_user
+
+                cu = get_company_user(request)
+                company = cu.company if cu else None
+            if company is not None:
+                clash = AccountingPeriod.objects.filter(
+                    company=company, start_date__lte=end, end_date__gte=start,
+                )
+                if self.instance is not None:
+                    clash = clash.exclude(pk=self.instance.pk)
+                if clash.exists():
+                    raise serializers.ValidationError(
+                        "This period overlaps an existing accounting period."
+                    )
+        return attrs
+
 
 class CostCenterSerializer(serializers.ModelSerializer):
     class Meta:

@@ -10,7 +10,11 @@ ALLOW_PREFIXES = (
     "/api/v1/billing/",
     "/api/v1/help-events/",
     "/api/v1/help-feedback/",
+    # SUB-02: a lapsed tenant must still be able to get their own data out.
+    "/api/v1/company/export/",
 )
+# SUB-02: and to unwind / cancel documents so they can tidy up before leaving.
+ALLOW_SUFFIXES = ("/cancel/", "/void/", "/reverse/")
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
 
@@ -23,6 +27,8 @@ class SubscriptionWriteGateMiddleware:
             return self.get_response(request)
         path = getattr(request, "path", "") or ""
         if any(path.startswith(prefix) for prefix in ALLOW_PREFIXES):
+            return self.get_response(request)
+        if path.startswith("/api/v1/") and path.endswith(ALLOW_SUFFIXES):
             return self.get_response(request)
         user = getattr(request, "user", None)
         if user is None or not getattr(user, "is_authenticated", False):
