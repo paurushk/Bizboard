@@ -103,20 +103,182 @@ def search_hsn(query: str, *, kind: str | None = None, limit: int = 40) -> list[
 
 
 GST2_CUTOVER = date(2025, 9, 22)
+_PRE_FROM = "2017-07-01"
+_PRE_TO = "2025-09-21"
+_POST_FROM = "2025-09-22"
+_PRE_VER = "pre-gst2.0"
+_POST_VER = "gst2.0-2025-09-22"
 
-# Starter table only — curator unnamed, so the product does not claim automatic GST updates.
-STARTER_HSN_RATES = [
-    # Biscuits / bakers' wares: 18% → 5% at GST 2.0.
-    {"hsn_sac": "1905", "rate": "18", "cess": "0", "valid_from": "2017-07-01", "valid_to": "2025-09-21",
-     "version": "pre-gst2.0", "source_ref": "starter-table"},
-    {"hsn_sac": "1905", "rate": "5", "cess": "0", "valid_from": "2025-09-22", "valid_to": None,
-     "version": "gst2.0-2025-09-22", "source_ref": "starter-table"},
-    # Cigarettes: 28% → 40% sin slab.
-    {"hsn_sac": "2402", "rate": "28", "cess": "0", "valid_from": "2017-07-01", "valid_to": "2025-09-21",
-     "version": "pre-gst2.0", "source_ref": "starter-table"},
-    {"hsn_sac": "2402", "rate": "40", "cess": "0", "valid_from": "2025-09-22", "valid_to": None,
-     "version": "gst2.0-2025-09-22", "source_ref": "starter-table"},
+# ---------------------------------------------------------------------------
+# Curated HSN → GST rate starter table (4-digit chapter headings).
+#
+# DISCLAIMER: this is a best-effort convenience table at the 4-digit level for
+# the goods a typical Indian SMB bills most often. It reflects the GST 2.0 rate
+# rationalisation effective 22-Sep-2025 (primarily 5 / 18 / 40 slabs) and the
+# earlier structure before it. It is NOT the full CBIC rate schedule, does not
+# cover every 6/8-digit exception, and MUST be verified by your CA against the
+# current CGST rate notifications before you rely on it for filing. `rate_for()`
+# only *overrides* a line rate when a row matches; anything not listed keeps the
+# rate the user / product master entered.
+#
+# spec row: (hsn4, pre_rate, pre_cess, post_rate, post_cess, note)
+# ---------------------------------------------------------------------------
+_HSN_RATE_SPEC = [
+    # --- Foodstuffs, beverages (Ch. 04-24) ---
+    ("0401", "5", "0", "0", "0", "Milk, fresh — nil at GST 2.0"),
+    ("0402", "5", "0", "5", "0", "Milk powder / concentrated"),
+    ("0405", "12", "0", "5", "0", "Butter, ghee, dairy fats"),
+    ("0406", "12", "0", "5", "0", "Cheese, paneer (pre-packed)"),
+    ("0701", "0", "0", "0", "0", "Potatoes, fresh"),
+    ("0713", "0", "0", "0", "0", "Dried leguminous vegetables (pulses)"),
+    ("0901", "5", "0", "5", "0", "Coffee"),
+    ("0902", "5", "0", "5", "0", "Tea"),
+    ("1006", "0", "0", "0", "0", "Rice (non-branded) — branded/packed 5%"),
+    ("1101", "0", "0", "0", "0", "Wheat / meslin flour (non-branded)"),
+    ("1507", "5", "0", "5", "0", "Soya-bean oil"),
+    ("1512", "5", "0", "5", "0", "Sunflower / safflower / cotton-seed oil"),
+    ("1517", "5", "0", "5", "0", "Edible mixtures / vanaspati"),
+    ("1701", "5", "0", "5", "0", "Cane / beet sugar"),
+    ("1704", "18", "0", "5", "0", "Sugar confectionery"),
+    ("1806", "18", "0", "18", "0", "Chocolate & cocoa preparations"),
+    ("1902", "12", "0", "5", "0", "Pasta, noodles"),
+    ("1905", "18", "0", "5", "0", "Bread, biscuits, bakers' wares"),
+    ("2009", "12", "0", "5", "0", "Fruit / vegetable juices"),
+    ("2101", "18", "0", "18", "0", "Coffee / tea extracts, instant"),
+    ("2106", "18", "0", "18", "0", "Food preparations n.e.s."),
+    ("2201", "18", "0", "18", "0", "Waters / mineral waters (unsweetened 5%)"),
+    ("2202", "28", "12", "40", "0", "Aerated / sweetened beverages"),
+    ("2203", "28", "0", "40", "0", "Beer"),
+    ("2402", "28", "0", "40", "0", "Cigars / cigarettes (+ tobacco cess)"),
+    ("2403", "28", "0", "40", "0", "Other manufactured tobacco (+ cess)"),
+    ("2404", "28", "0", "40", "0", "Chewing tobacco / pan masala type (+ cess)"),
+    # --- Chemicals, pharma, cosmetics (Ch. 28-38) ---
+    ("3003", "12", "0", "5", "0", "Medicaments (bulk / unmixed)"),
+    ("3004", "12", "0", "5", "0", "Medicaments (retail packs)"),
+    ("3005", "12", "0", "5", "0", "Wadding, gauze, bandages, dressings"),
+    ("3006", "12", "0", "5", "0", "Pharmaceutical goods (sutures, kits)"),
+    ("3208", "18", "0", "18", "0", "Paints & varnishes (non-aqueous)"),
+    ("3209", "18", "0", "18", "0", "Paints & varnishes (aqueous)"),
+    ("3304", "18", "0", "18", "0", "Beauty / make-up preparations"),
+    ("3305", "18", "0", "18", "0", "Hair preparations"),
+    ("3306", "18", "0", "18", "0", "Oral / dental hygiene"),
+    ("3401", "18", "0", "18", "0", "Soap"),
+    ("3402", "18", "0", "18", "0", "Detergents / washing preparations"),
+    # --- Plastics, rubber, leather (Ch. 39-43) ---
+    ("3917", "18", "0", "18", "0", "Plastic tubes, pipes, hoses"),
+    ("3923", "18", "0", "18", "0", "Plastic packing articles"),
+    ("3924", "18", "0", "18", "0", "Plastic tableware / kitchenware"),
+    ("3926", "18", "0", "18", "0", "Other articles of plastics"),
+    ("4011", "28", "0", "18", "0", "New pneumatic tyres"),
+    ("4013", "28", "0", "18", "0", "Inner tubes of rubber"),
+    ("4202", "18", "0", "18", "0", "Trunks, cases, handbags"),
+    # --- Paper, printed matter (Ch. 48-49) ---
+    ("4802", "12", "0", "18", "0", "Uncoated paper / paperboard"),
+    ("4818", "18", "0", "18", "0", "Toilet paper, tissues, napkins"),
+    ("4819", "18", "0", "18", "0", "Cartons, boxes, cases of paper"),
+    ("4820", "18", "0", "18", "0", "Registers, notebooks, stationery"),
+    ("4901", "0", "0", "0", "0", "Printed books"),
+    ("4909", "12", "0", "18", "0", "Printed postcards / greeting cards"),
+    # --- Textiles, apparel, footwear (Ch. 50-64) ---
+    ("5208", "5", "0", "5", "0", "Woven cotton fabric"),
+    ("5407", "5", "0", "5", "0", "Woven synthetic filament fabric"),
+    ("6101", "12", "0", "5", "0", "Men's overcoats etc. (knitted)"),
+    ("6109", "12", "0", "5", "0", "T-shirts, singlets (knitted)"),
+    ("6110", "12", "0", "5", "0", "Jerseys, pullovers (knitted)"),
+    ("6203", "12", "0", "5", "0", "Men's suits, trousers"),
+    ("6204", "12", "0", "5", "0", "Women's suits, dresses"),
+    ("6205", "12", "0", "5", "0", "Men's shirts"),
+    ("6302", "12", "0", "5", "0", "Bed / table / kitchen linen"),
+    ("6403", "18", "0", "18", "0", "Footwear, leather uppers (<=1000 5%)"),
+    ("6405", "18", "0", "18", "0", "Other footwear (<=1000 5%)"),
+    # --- Stone, ceramics, glass (Ch. 68-70) ---
+    ("6802", "18", "0", "18", "0", "Worked monumental / building stone"),
+    ("6907", "18", "0", "18", "0", "Ceramic tiles / flags"),
+    ("6910", "18", "0", "18", "0", "Ceramic sinks, wash basins, sanitary"),
+    ("7013", "18", "0", "18", "0", "Glassware for table / kitchen"),
+    # --- Base metals & articles (Ch. 72-83) ---
+    ("7210", "18", "0", "18", "0", "Flat-rolled iron/steel, plated/coated"),
+    ("7214", "18", "0", "18", "0", "Bars & rods of iron / non-alloy steel"),
+    ("7308", "18", "0", "18", "0", "Structures & parts, iron or steel"),
+    ("7317", "18", "0", "18", "0", "Nails, tacks, staples of iron/steel"),
+    ("7323", "18", "0", "18", "0", "Table / kitchen articles of iron/steel"),
+    ("7610", "18", "0", "18", "0", "Aluminium structures"),
+    ("8302", "18", "0", "18", "0", "Base metal mountings / fittings"),
+    ("8481", "18", "0", "18", "0", "Taps, cocks, valves"),
+    # --- Machinery & electrical (Ch. 84-85) ---
+    ("8413", "18", "0", "18", "0", "Pumps for liquids"),
+    ("8414", "18", "0", "18", "0", "Air / vacuum pumps, compressors, fans"),
+    ("8415", "28", "0", "18", "0", "Air-conditioning machines"),
+    ("8418", "28", "0", "18", "0", "Refrigerators, freezers"),
+    ("8421", "18", "0", "18", "0", "Centrifuges, filtering machinery"),
+    ("8443", "18", "0", "18", "0", "Printing / copying machinery"),
+    ("8450", "18", "0", "18", "0", "Household washing machines"),
+    ("8471", "18", "0", "18", "0", "Computers & data-processing units"),
+    ("8481", "18", "0", "18", "0", "Valves / taps (machinery)"),
+    ("8504", "18", "0", "18", "0", "Transformers, static converters, chargers"),
+    ("8507", "18", "0", "18", "0", "Electric accumulators / batteries"),
+    ("8517", "18", "0", "18", "0", "Telephones incl. smartphones"),
+    ("8523", "18", "0", "18", "0", "Discs, tapes, solid-state storage"),
+    ("8528", "28", "0", "18", "0", "Monitors, projectors, TV receivers"),
+    ("8536", "18", "0", "18", "0", "Electrical switches, plugs, sockets"),
+    ("8544", "18", "0", "18", "0", "Insulated wire & cable"),
+    # --- Vehicles (Ch. 87) — compensation cess on many ---
+    ("8703", "28", "17", "40", "0", "Motor cars (cess varies by engine/length)"),
+    ("8711", "28", "0", "40", "0", "Motorcycles (>350cc historically +3% cess)"),
+    ("8712", "12", "0", "5", "0", "Bicycles, non-motorised"),
+    ("8714", "18", "0", "18", "0", "Parts & accessories of cycles"),
+    # --- Furniture, toys, misc (Ch. 94-96) ---
+    ("9401", "18", "0", "18", "0", "Seats / chairs"),
+    ("9403", "18", "0", "18", "0", "Other furniture"),
+    ("9404", "18", "0", "5", "0", "Mattresses, quilts, bedding"),
+    ("9405", "18", "0", "18", "0", "Lamps & lighting fittings"),
+    ("9503", "18", "0", "18", "0", "Tricycles, scooters, toys"),
+    ("9506", "18", "0", "18", "0", "Sports goods / gym equipment"),
+    ("9603", "18", "0", "18", "0", "Brooms, brushes"),
+    ("9619", "12", "0", "5", "0", "Sanitary towels, napkins, diapers"),
 ]
+
+# Common SAC (services) — mostly 18%, some 5% without ITC.
+_SAC_RATE_SPEC = [
+    ("9963", "18", "0", "18", "0", "Accommodation, food & beverage services"),
+    ("9964", "18", "0", "18", "0", "Passenger transport (varies; some 5%)"),
+    ("9965", "18", "0", "18", "0", "Goods transport (GTA 5%/12%/18%)"),
+    ("9971", "18", "0", "18", "0", "Financial & related services"),
+    ("9972", "18", "0", "18", "0", "Real estate services"),
+    ("9973", "18", "0", "18", "0", "Leasing / rental services"),
+    ("9982", "18", "0", "18", "0", "Legal & accounting services"),
+    ("9983", "18", "0", "18", "0", "Other professional / technical / business"),
+    ("9984", "18", "0", "18", "0", "Telecom, broadcasting, information supply"),
+    ("9985", "18", "0", "18", "0", "Support services"),
+    ("9987", "18", "0", "18", "0", "Maintenance, repair & installation"),
+    ("9988", "12", "0", "5", "0", "Manufacturing services on others' inputs (job work)"),
+    ("9989", "18", "0", "18", "0", "Other manufacturing / publishing / printing"),
+    ("9994", "18", "0", "18", "0", "Sewage, waste collection & sanitation"),
+    ("9997", "18", "0", "18", "0", "Other services"),
+]
+
+
+def _build_starter_rates():
+    rows = []
+    for spec in (_HSN_RATE_SPEC + _SAC_RATE_SPEC):
+        hsn, pre_r, pre_c, post_r, post_c, _note = spec
+        rows.append({
+            "hsn_sac": hsn, "rate": pre_r, "cess": pre_c,
+            "valid_from": _PRE_FROM, "valid_to": _PRE_TO,
+            "version": _PRE_VER, "source_ref": "starter-table",
+        })
+        # Only add a post-cutover row when the rate or cess actually changed,
+        # else the pre row (with valid_to) would leave a gap after the cutover —
+        # so for unchanged HSNs the post row keeps the same rate, open-ended.
+        rows.append({
+            "hsn_sac": hsn, "rate": post_r, "cess": post_c,
+            "valid_from": _POST_FROM, "valid_to": None,
+            "version": _POST_VER, "source_ref": "starter-table",
+        })
+    return rows
+
+
+STARTER_HSN_RATES = _build_starter_rates()
 
 
 def _hsn_prefixes(hsn: str) -> list[str]:

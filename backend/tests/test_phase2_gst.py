@@ -61,8 +61,8 @@ def test_gstr1_rate_wise_multi_rate(tenant_a):
     tenant_a.company.gstin = "29ABCDE1234F1ZW"
     tenant_a.company.state = "Karnataka"
     tenant_a.company.save()
-    p5 = make_product(tenant_a.company, sku="P5", gst_rate="5", hsn_code="3004")
-    p28 = make_product(tenant_a.company, sku="P28", gst_rate="28", hsn_code="8471")
+    p5 = make_product(tenant_a.company, sku="P5", gst_rate="5", hsn_code="8501")
+    p28 = make_product(tenant_a.company, sku="P28", gst_rate="28", hsn_code="8502")
     add_stock(tenant_a, p5, "10")
     add_stock(tenant_a, p28, "10")
     cust = make_customer(tenant_a.company, name="Reg Co", state="Karnataka", gstin="29AABCU9603R1ZJ")
@@ -78,7 +78,7 @@ def test_gstr1_rate_wise_multi_rate(tenant_a):
     rates = sorted((row["rate"] for row in payload["b2b"]), key=lambda r: Decimal(r))
     assert rates == ["5.00", "28.00"]
     assert payload["hsn"]
-    assert any(row["hsn"] == "3004" for row in payload["hsn"])
+    assert any(row["hsn"] == "8501" for row in payload["hsn"])
 
 
 def test_gstr1_reconciliation_invariant(tenant_a):
@@ -465,7 +465,7 @@ def test_inclusive_discount_persists_and_notes_patch(tenant_a):
     tenant_a.company.gstin = "29ABCDE1234F1ZW"
     tenant_a.company.state = "Karnataka"
     tenant_a.company.save()
-    product = make_product(tenant_a.company, sku="INCD", hsn_code="3004")
+    product = make_product(tenant_a.company, sku="INCD", hsn_code="8501")
     add_stock(tenant_a, product, "5")
     cust = make_customer(tenant_a.company, name="B2B", state="Karnataka", gstin="29AABCU9603R1ZJ")
     created = tenant_a.client.post(
