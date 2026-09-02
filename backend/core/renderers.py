@@ -10,7 +10,17 @@ class EnvelopeJSONRenderer(CamelCaseJSONRenderer):
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
         response = renderer_context.get("response") if renderer_context else None
-        already_wrapped = isinstance(data, dict) and isinstance(data.get("success"), bool)
+        # CORE-06: a resource that legitimately exposes a boolean field named
+        # `success` must not be mistaken for an already-enveloped payload. The
+        # envelope is *only* {"success": bool, ...} whose other keys are a subset
+        # of {"data", "error"} — a raw serializer dict with a `success` field
+        # will carry other keys and fall through to normal wrapping.
+        already_wrapped = (
+            isinstance(data, dict)
+            and isinstance(data.get("success"), bool)
+            and set(data.keys()) <= {"success", "data", "error"}
+            and ("data" in data or "error" in data)
+        )
         status_code = getattr(response, "status_code", 200) if response is not None else 200
 
         if already_wrapped:

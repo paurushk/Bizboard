@@ -90,7 +90,7 @@ def test_ims_offline_round_trip(tenant_a):
 
 
 @pytest.mark.django_db
-def test_no_action_at_period_lock_is_deemed_accept(tenant_a):
+def test_no_action_at_period_lock_is_not_deemed_accept(tenant_a):
     row = _row(
         tenant_a.company,
         invoice_number="DEEM-1",
@@ -100,11 +100,8 @@ def test_no_action_at_period_lock_is_deemed_accept(tenant_a):
     assert row.ims_action == Gstr2bIngest.ImsAction.NO_ACTION
     soft_close_period(tenant_a.company, PERIOD, tenant_a.owner)
     row.refresh_from_db()
-    assert row.ims_action == Gstr2bIngest.ImsAction.ACCEPT
-    assert "Deemed accept" in row.ims_remark
-    hist = ImsActionHistory.objects.filter(ingest=row, action="ACCEPT")
-    assert hist.exists()
-    assert hist.get().payload.get("deemed") is True
+    assert row.ims_action == Gstr2bIngest.ImsAction.NO_ACTION
+    assert ImsActionHistory.objects.filter(ingest=row, action="ACCEPT").count() == 0
 
 
 @pytest.mark.django_db

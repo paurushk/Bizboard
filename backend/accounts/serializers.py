@@ -82,6 +82,17 @@ class RegisterSerializer(serializers.Serializer):
     def validate_gstin(self, value):
         return (value or "").strip().upper()
 
+    def validate_phone(self, value):
+        from accounts.otp_utils import canonicalize_user_phone
+
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        try:
+            return canonicalize_user_phone(raw)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
     def validate(self, attrs):
         from django.core.exceptions import ValidationError as DjangoValidationError
 
@@ -415,6 +426,20 @@ class InviteUserSerializer(serializers.Serializer):
             )
         return role
 
+    def validate_phone(self, value):
+        from accounts.otp_utils import canonicalize_user_phone, phone_taken
+
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        try:
+            canon = canonicalize_user_phone(raw)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        if phone_taken(phone=canon):
+            raise serializers.ValidationError("A user with this phone number already exists.")
+        return canon
+
     def validate(self, attrs):
         caps = {k: v for k, v in attrs.items() if v is not None}
         _assert_role_capability_invariants(attrs.get("role"), caps)
@@ -488,4 +513,12 @@ class CompanyGstinSerializer(serializers.ModelSerializer):
                 CompanyGstin.objects.select_for_update().filter(company=instance.company, is_primary=True).exclude(
                     pk=instance.pk
                 ).update(is_primary=False)
+            elif "is_primary" in validated_data and not validated_data.get("is_primary"):
+                still = CompanyGstin.objects.filter(
+                    company=instance.company, is_primary=True,
+                ).exclude(pk=instance.pk).exists()
+                if not still:
+                    raise serializers.ValidationError(
+                        {"is_primary": "At least one GSTIN must remain primary."}
+                    )
             return super().update(instance, validated_data)

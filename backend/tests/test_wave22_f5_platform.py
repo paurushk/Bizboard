@@ -4,6 +4,7 @@ import inspect
 from pathlib import Path
 
 import pytest
+from django.test import override_settings
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -65,11 +66,13 @@ def test_bb_000753_metrics_endpoint_registered():
 
 
 @pytest.mark.django_db
+@override_settings(METRICS_TOKEN="test-metrics-token")
 def test_bb_000753_metrics_returns_counter():
     from django.test import Client
 
     client = Client()
-    resp = client.get("/metrics/")
+    assert client.get("/metrics/").status_code == 401
+    resp = client.get("/metrics/", HTTP_AUTHORIZATION="Bearer test-metrics-token")
     assert resp.status_code == 200
     body = resp.content.decode("utf-8")
     assert "bizboard_http_requests_total" in body

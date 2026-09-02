@@ -13,8 +13,8 @@ from core.services.billing import apply_rcm_memo_after_tax, compute_document_tot
 from core.services.place_of_supply import assert_place_of_supply_for_gst, party_intra_state
 from core.services.document_numbers import DocumentNumberService
 from core.services.uqc import snapshot_unit_fields
-from inventory.item_stock import base_quantity, base_unit_cost
-from inventory.models import BatchLot, MovementType
+from inventory.item_stock import base_quantity, base_unit_cost, get_or_create_batch
+from inventory.models import MovementType
 from inventory.services import InventoryService, SerialNumberService
 from masters.models import Product
 
@@ -110,6 +110,12 @@ def _validate_lines(items_data, company):
             )
         if line["product"].company_id != company.id:
             raise BusinessRuleError("Invalid product reference.")
+        batch = line.get("batch")
+        if batch is not None:
+            if getattr(batch, "company_id", None) != company.id:
+                raise BusinessRuleError("Invalid batch reference.")
+            if getattr(batch, "product_id", None) not in (None, line["product"].pk):
+                raise BusinessRuleError("Batch does not belong to this product.")
 
 
 def _build_purchase_items(invoice, items_data):
@@ -296,16 +302,22 @@ class PurchaseService:
                     raise BusinessRuleError(
                         f"Quantity cannot be below already-returned quantity {returned_qty}."
                     )
-            # Reducing purchased qty removes stock — enforce negative-stock policy.
             for product_id in set(old_qty) | set(new_qty_preview):
                 delta = new_qty_preview.get(product_id, Decimal("0")) - old_qty.get(
                     product_id, Decimal("0")
                 )
+                if delta == 0:
+                    continue
+                product = next(
+                    (line["product"] for line in items_data if line["product"].pk == product_id),
+                    None,
+                ) or Product.objects.get(pk=product_id)
+                if getattr(product, "track_serial", False) or getattr(product, "track_batch", False):
+                    raise BusinessRuleError(
+                        "Completed purchase quantity cannot be amended for serial- or batch-tracked "
+                        "items. Issue a debit/credit note or a purchase return instead."
+                    )
                 if delta < 0:
-                    product = next(
-                        (line["product"] for line in items_data if line["product"].pk == product_id),
-                        None,
-                    ) or Product.objects.get(pk=product_id)
                     InventoryService.check_negative_stock(invoice.company, product, -delta)
 
         if adjust_stock:
@@ -619,8 +631,14 @@ class PurchaseService:
         if invoice.purchase_type == PurchaseInvoice.PurchaseType.GST:
             missing_hsn = [i for i in items if not (i.hsn_code or "").strip()]
             if missing_hsn:
+                # CHG-02 pattern: HSN on a *purchase* is not filed HSN-wise by the
+                # buyer (the supplier's invoice carries it; 3B ITC is an
+                # aggregate, GSTR-2B matching is by invoice not HSN). Recording
+                # the purchase must not be blocked because the HSN hasn't been
+                # looked up yet — warn and let the user add it before filing.
                 warnings.append(
-                    f"{len(missing_hsn)} line(s) missing HSN — GSTR / ITC aids may fail."
+                    f"{len(missing_hsn)} line(s) missing HSN — add it before filing GSTR / "
+                    "for a complete purchase register."
                 )
         warnings = PurchaseService._unregistered_rcm_gate(
             invoice, items, confirm_no_rcm=confirm_no_rcm, warnings=warnings
@@ -689,17 +707,14 @@ class PurchaseService:
             if item.product.track_batch and not item.batch_id:
                 if not item.batch_no:
                     raise BusinessRuleError(f"A batch is required for tracked product '{item.product.name}'.")
-                item.batch, _batch_created = BatchLot.objects.get_or_create(
-                    company=invoice.company, product=item.product, batch_no=item.batch_no,
-                    defaults={"expiry_date": item.exp_date, "manufacturing_date": item.mfg_date, "created_by": user, "updated_by": user},
+                item.batch = get_or_create_batch(
+                    company=invoice.company,
+                    product=item.product,
+                    batch_no=item.batch_no,
+                    expiry_date=item.exp_date,
+                    manufacturing_date=item.mfg_date,
+                    user=user,
                 )
-                # R2-012: an existing lot's expiry/mfg date wins silently on
-                # get_or_create — surface the mismatch so it isn't lost.
-                if not _batch_created and item.exp_date and item.batch.expiry_date and item.batch.expiry_date != item.exp_date:
-                    warnings.append(
-                        f"Batch '{item.batch_no}' of '{item.product.name}' already exists with "
-                        f"expiry {item.batch.expiry_date}; the entered {item.exp_date} was ignored."
-                    )
                 item.save(update_fields=["batch"])
             if item.product.track_serial:
                 SerialNumberService.receive(
@@ -788,7 +803,6 @@ class PurchaseService:
             # Reverse stock via ADJUSTMENT — movements stay append-only (§5.3).
             # BB-000718: retire the original PURCHASE layers (do not peel FIFO-oldest).
             from inventory.models import SerialNumber, StockMovement
-            from inventory.services import SerialNumberService
 
             for move in StockMovement.objects.filter(
                 company=invoice.company,
@@ -812,16 +826,12 @@ class PurchaseService:
                 InventoryService.retire_source_layers(move, abs(Decimal(str(move.quantity))))
             for item in invoice.items.select_related("product"):
                 if item.product.track_serial and item.serial_numbers:
-                    SerialNumberService.transition(
+                    SerialNumber.objects.filter(
                         company=invoice.company,
                         product=item.product,
-                        warehouse=invoice.warehouse,
-                        numbers=item.serial_numbers,
-                        quantity=item.quantity,
-                        source=SerialNumber.Status.AVAILABLE,
-                        target=SerialNumber.Status.SCRAPPED,
-                        user=user,
-                    )
+                        serial_number__in=list(item.serial_numbers),
+                        status=SerialNumber.Status.AVAILABLE,
+                    ).delete()
         invoice.status = PurchaseInvoice.Status.CANCELLED
         invoice.cancelled_at = timezone.now()
         invoice.updated_by = user
@@ -911,7 +921,10 @@ class PurchaseService:
             raise BusinessRuleError(
                 "Accounting-enabled companies require a linked purchase invoice on purchase returns."
             )
-        if invoice and invoice.status != PurchaseInvoice.Status.COMPLETED:
+        if invoice and invoice.status not in (
+            PurchaseInvoice.Status.COMPLETED,
+            PurchaseInvoice.Status.RETURNED,
+        ):
             raise BusinessRuleError("Purchase return must reference a completed purchase invoice.")
 
         if invoice:
@@ -1108,12 +1121,18 @@ class PurchaseService:
             ratio = Decimal("1")
             if inv_taxable > 0 and not fully_returned:
                 ratio = min(Decimal("1"), ret_taxable / inv_taxable)
+            elif not fully_returned:
+                inv_grand = Decimal(str(invoice.grand_total or 0))
+                ret_grand = sum(
+                    (Decimal(str(getattr(i, "line_total", None) or i.taxable_amount or 0)) for i in items),
+                    Decimal("0"),
+                )
+                ratio = min(Decimal("1"), ret_grand / inv_grand) if inv_grand > 0 else Decimal("0")
             # R2-015: on the return that closes the invoice, give the CN the EXACT
             # unallocated remainder of the invoice-level discount (what prior
             # auto-CNs on this invoice haven't already taken) so repeated partial
-            # returns never leave a few paise of AP residue. (PurchaseCreditNote
-            # has no additional_charges field — the invoice's charges are not
-            # carried onto the auto-CN at all.)
+            # returns never leave a few paise of AP residue. Freight/additional
+            # charges are prorated the same way.
             if fully_returned:
                 _prior_d = PurchaseCreditNote.objects.filter(
                     purchase_invoice=invoice,
@@ -1125,28 +1144,61 @@ class PurchaseService:
                 note.invoice_discount = (inv_discount - _prior_d).quantize(Decimal("0.01"))
             else:
                 note.invoice_discount = (inv_discount * ratio).quantize(Decimal("0.01"))
+            inv_charges = Decimal(str(invoice.additional_charges or 0))
+            if fully_returned:
+                _prior_c = PurchaseCreditNote.objects.filter(
+                    purchase_invoice=invoice,
+                    purchase_return__isnull=False,
+                    status=PurchaseCreditNote.Status.COMPLETED,
+                ).exclude(purchase_return=purchase_return).aggregate(
+                    c=Sum("additional_charges")
+                )["c"] or Decimal("0")
+                note.additional_charges = (inv_charges - _prior_c).quantize(Decimal("0.01"))
+            else:
+                note.additional_charges = (inv_charges * ratio).quantize(Decimal("0.01"))
+            note.save(update_fields=["invoice_discount", "additional_charges"])
             # BB-000364: map each returned line back to its originating invoice
             # line (by product) so the auto CN carries the invoiced HSN/lineage
             # instead of the product master's current (possibly since-changed) HSN.
-            invoice_items_by_product = {}
-            for inv_item in invoice.items.all():
-                invoice_items_by_product.setdefault(inv_item.product_id, inv_item)
+            items_by_id = {inv_item.id: inv_item for inv_item in invoice.items.all()}
+            remaining_by_line = {
+                inv_item.id: Decimal(str(inv_item.quantity))
+                for inv_item in items_by_id.values()
+            }
+            lines_by_product = {}
+            for inv_item in items_by_id.values():
+                lines_by_product.setdefault(inv_item.product_id, []).append(inv_item.id)
             items_data = []
             for item in items:
-                source_item = invoice_items_by_product.get(item.product_id)
-                items_data.append({
-                    "product": item.product,
-                    "description": getattr(item, "description", "") or "",
-                    "quantity": item.quantity,
-                    "unit_price": item.unit_price,
-                    "discount_percent": item.discount_percent,
-                    "gst_rate": item.gst_rate,
-                    "cess_rate": getattr(item, "cess_rate", None)
-                    if getattr(item, "cess_rate", None) is not None
-                    else getattr(source_item, "cess_rate", Decimal("0")),
-                    "source_item": source_item,
-                    "hsn_code": getattr(source_item, "hsn_code", "") or "",
-                })
+                need = Decimal(str(item.quantity))
+                for lid in lines_by_product.get(item.product_id, []):
+                    if need <= 0:
+                        break
+                    avail = remaining_by_line.get(lid, Decimal("0"))
+                    if avail <= 0:
+                        continue
+                    take = min(need, avail)
+                    remaining_by_line[lid] -= take
+                    need -= take
+                    source_item = items_by_id.get(lid)
+                    items_data.append({
+                        "product": item.product,
+                        "description": getattr(item, "description", "") or "",
+                        "quantity": take,
+                        "unit_price": item.unit_price,
+                        "discount_percent": item.discount_percent,
+                        "gst_rate": item.gst_rate,
+                        "cess_rate": getattr(item, "cess_rate", None)
+                        if getattr(item, "cess_rate", None) is not None
+                        else getattr(source_item, "cess_rate", Decimal("0")),
+                        "source_item": source_item,
+                        "hsn_code": getattr(source_item, "hsn_code", "") or "",
+                    })
+                if need > 0:
+                    raise BusinessRuleError(
+                        f"Return quantity for '{item.product.name}' exceeds remaining "
+                        "returnable quantity on matching invoice lines."
+                    )
             PurchaseNotesService.set_credit_note_items(note, items_data, user)
             PurchaseNotesService.complete_credit_note(note, user)
 
@@ -1208,9 +1260,10 @@ class PurchaseService:
                     | Q(reference_type="purchase_return", reason="DAMAGED")
                 )
             )
+            invoice = purchase_return.purchase_invoice
             if return_moves:
                 for move in return_moves:
-                    InventoryService.post_movement(
+                    inbound = InventoryService.post_movement(
                         company=purchase_return.company,
                         warehouse=move.warehouse,
                         product=move.product,
@@ -1223,9 +1276,27 @@ class PurchaseService:
                         reason=f"Cancellation of {purchase_return.number}",
                         user=user,
                     )
+                    peels = getattr(move, "layer_peels", None) or []
+                    if peels:
+                        InventoryService.restore_fifo_peels(move, inbound)
+                    elif invoice is not None:
+                        remaining = abs(Decimal(str(move.quantity)))
+                        for src in StockMovement.objects.filter(
+                            company=purchase_return.company,
+                            movement_type=InvMovementType.PURCHASE,
+                            reference_type="purchase_invoice",
+                            reference_id=str(invoice.pk),
+                            product=move.product,
+                            batch=move.batch,
+                        ).order_by("id"):
+                            if remaining <= 0:
+                                break
+                            take = min(remaining, abs(Decimal(str(src.quantity))))
+                            InventoryService.restore_source_layers(src, take)
+                            remaining -= take
             if damaged_moves:
                 for move in damaged_moves:
-                    InventoryService.post_movement(
+                    inbound = InventoryService.post_movement(
                         company=purchase_return.company,
                         warehouse=move.warehouse,
                         product=move.product,
@@ -1238,12 +1309,29 @@ class PurchaseService:
                         reason=f"Restore damaged write-off of {purchase_return.number}",
                         user=user,
                     )
+                    peels = getattr(move, "layer_peels", None) or []
+                    if peels:
+                        InventoryService.restore_fifo_peels(move, inbound)
+                    elif invoice is not None:
+                        remaining = abs(Decimal(str(move.quantity)))
+                        for src in StockMovement.objects.filter(
+                            company=purchase_return.company,
+                            movement_type=InvMovementType.PURCHASE,
+                            reference_type="purchase_invoice",
+                            reference_id=str(invoice.pk),
+                            product=move.product,
+                            batch=move.batch,
+                        ).order_by("id"):
+                            if remaining <= 0:
+                                break
+                            take = min(remaining, abs(Decimal(str(src.quantity))))
+                            InventoryService.restore_source_layers(src, take)
+                            remaining -= take
             if not return_moves and not damaged_moves:
                 raise BusinessRuleError(
                     "Cannot cancel this purchase return: original stock movements are missing. "
                     "Restore stock with a manual adjustment instead of inventing unbatched quantity."
                 )
-            invoice = purchase_return.purchase_invoice
             if invoice and invoice.status == PurchaseInvoice.Status.RETURNED:
                 from .models import PurchaseReturn as PR
 
@@ -1254,7 +1342,15 @@ class PurchaseService:
                 if not other_open:
                     invoice.status = PurchaseInvoice.Status.COMPLETED
                     invoice.save(update_fields=["status"])
-            # BB-000263: cancel linked auto purchase CNs.
+            # BB-000263: cancel linked auto purchase CNs. Mark the return
+            # CANCELLED *first* so `cancel_credit_note`'s "cancel the return
+            # instead" guard (which fires only while the return is COMPLETED)
+            # does not block this very flow.
+            purchase_return.status = PurchaseReturn.Status.CANCELLED
+            purchase_return.cancelled_at = timezone.now()
+            purchase_return.updated_by = user
+            purchase_return.save(update_fields=["status", "cancelled_at", "updated_by", "updated_at"])
+
             from .models import PurchaseCreditNote
             from .notes_services import PurchaseNotesService
 

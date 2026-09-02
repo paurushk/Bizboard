@@ -39,6 +39,9 @@ const emptyForm = {
   name: '',
   code: '',
   salary: '',
+  basic: '',
+  da: '',
+  tdsRate: '',
   status: 'ACTIVE',
   pfApplicable: false,
   pfWageCeiling: '15000.00',
@@ -75,6 +78,9 @@ function EmployeesPageInner() {
         name: form.name,
         code: form.code,
         salary: form.salary,
+        basic: form.basic || '0',
+        da: form.da || '0',
+        tdsRate: form.tdsRate || '0',
         status: form.status,
         pfApplicable: form.pfApplicable,
         pfWageCeiling: form.pfWageCeiling || '15000.00',
@@ -112,6 +118,9 @@ function EmployeesPageInner() {
       name: emp.name,
       code: emp.code,
       salary: emp.salary,
+      basic: emp.basic ?? '',
+      da: emp.da ?? '',
+      tdsRate: emp.tdsRate ?? '',
       status: emp.status,
       pfApplicable: Boolean(emp.pfApplicable),
       pfWageCeiling: emp.pfWageCeiling || '15000.00',
@@ -226,6 +235,24 @@ function EmployeesPageInner() {
               required
               value={form.salary}
               onChange={(e) => setForm((f) => ({ ...f, salary: e.target.value }))}
+            />
+            <TextField
+              label={t('erp.basic')}
+              type="number"
+              value={form.basic}
+              onChange={(e) => setForm((f) => ({ ...f, basic: e.target.value }))}
+            />
+            <TextField
+              label={t('erp.da')}
+              type="number"
+              value={form.da}
+              onChange={(e) => setForm((f) => ({ ...f, da: e.target.value }))}
+            />
+            <TextField
+              label={t('erp.tdsRate')}
+              type="number"
+              value={form.tdsRate}
+              onChange={(e) => setForm((f) => ({ ...f, tdsRate: e.target.value }))}
             />
             <TextField
               select

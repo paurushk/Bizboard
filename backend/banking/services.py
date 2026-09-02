@@ -47,9 +47,9 @@ def match_aa_to_receipts(*, company, tolerance: Decimal | None = None) -> int:
                 )
             receipt = None
             ref = (aa_txn.txn_id or "").strip()
-            if ref and len(ref) >= 6:
+            if ref and len(ref) >= 8:
                 receipt = base_qs.filter(
-                    Q(reference__icontains=ref) | Q(utr__icontains=ref) | Q(notes__icontains=ref)
+                    Q(reference__iexact=ref) | Q(utr__iexact=ref)
                 ).first()
             if not receipt:
                 continue

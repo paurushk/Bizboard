@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -30,6 +32,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
@@ -60,6 +63,7 @@ function activityKindLabel(kind: string) {
 }
 
 function LeadsPageInner() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
@@ -71,6 +75,7 @@ function LeadsPageInner() {
   const [activityBody, setActivityBody] = useState('');
   const [convertLeadRow, setConvertLeadRow] = useState<Lead | null>(null);
   const [convertAmount, setConvertAmount] = useState('0');
+  const [convertWon, setConvertWon] = useState(true);
 
   const query = useQuery({
     queryKey: ['leads', page],
@@ -116,8 +121,8 @@ function LeadsPageInner() {
   });
 
   const convertMutation = useMutation({
-    mutationFn: ({ lead, amount }: { lead: Lead; amount: number }) =>
-      convertLead(lead.id, { amount }),
+    mutationFn: ({ lead, amount, won }: { lead: Lead; amount: number; won: boolean }) =>
+      convertLead(lead.id, { amount, won }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['leads'] });
       void qc.invalidateQueries({ queryKey: ['opportunities'] });
@@ -160,7 +165,7 @@ function LeadsPageInner() {
       <MvpModuleBanner module="crm" />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.leads')}</Typography>
-        <Button variant="contained" onClick={openCreate}>
+        <Button variant="contained" onClick={openCreate} disabled={writesBlocked}>
           {t('common.add')}
         </Button>
       </Stack>
@@ -201,7 +206,7 @@ function LeadsPageInner() {
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <Button size="small" onClick={() => openEdit(lead)}>
+                    <Button size="small" onClick={() => openEdit(lead)} disabled={writesBlocked}>
                       {t('common.edit')}
                     </Button>
                     <Button size="small" onClick={() => setTimelineLead(lead)}>
@@ -209,10 +214,11 @@ function LeadsPageInner() {
                     </Button>
                     <Button
                       size="small"
-                      disabled={convertMutation.isPending}
+                      disabled={writesBlocked || convertMutation.isPending}
                       onClick={() => {
                         setConvertLeadRow(lead);
                         setConvertAmount('0');
+                        setConvertWon(true);
                       }}
                     >
                       {t('erp.convertLead')}
@@ -299,7 +305,7 @@ function LeadsPageInner() {
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={!form.name || saveMutation.isPending}
+            disabled={!form.name || writesBlocked || saveMutation.isPending}
             onClick={() => saveMutation.mutate()}
           >
             {t('common.save')}
@@ -358,7 +364,7 @@ function LeadsPageInner() {
           <Button onClick={() => setTimelineLead(null)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={!activityBody.trim() || activityMutation.isPending}
+            disabled={!activityBody.trim() || writesBlocked || activityMutation.isPending}
             onClick={() => activityMutation.mutate()}
           >
             {t('erp.addActivity')}
@@ -377,16 +383,26 @@ function LeadsPageInner() {
               onChange={(e) => setConvertAmount(e.target.value)}
               inputProps={{ min: 0, step: '0.01' }}
             />
+            <FormControlLabel
+              control={
+                <Checkbox checked={convertWon} onChange={(e) => setConvertWon(e.target.checked)} />
+              }
+              label={t('erp.markAsWon')}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setConvertLeadRow(null)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={convertMutation.isPending || !convertLeadRow}
+            disabled={writesBlocked || convertMutation.isPending || !convertLeadRow}
             onClick={() => {
               if (!convertLeadRow) return;
-              convertMutation.mutate({ lead: convertLeadRow, amount: Number(convertAmount) || 0 });
+              convertMutation.mutate({
+                lead: convertLeadRow,
+                amount: Number(convertAmount) || 0,
+                won: convertWon,
+              });
               setConvertLeadRow(null);
             }}
           >

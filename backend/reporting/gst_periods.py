@@ -16,15 +16,18 @@ def get_or_create_period(company, period: str) -> GstReturnPeriod:
 
 
 def mark_period_dirty_if_snapshotted(company, doc_date) -> GstReturnPeriod | None:
-    """If a completed/amended doc falls in a period that has been exported, mark dirty."""
+    """If a completed/amended doc falls in a period that has been exported, mark dirty.
+
+    PER-01: a document change can invalidate *any* return already snapshotted for
+    that month (GSTR-1, 3B, 9, …), not only GSTR-1 — a tenant who exported the 3B
+    pack and then amends an invoice must still be told the export is stale.
+    """
     if doc_date is None:
         return None
     period = f"{doc_date.year:04d}-{doc_date.month:02d}"
     from .models import GstReturnSnapshot
 
-    if not GstReturnSnapshot.objects.filter(
-        company=company, period=period, return_type=GstReturnSnapshot.ReturnType.GSTR1
-    ).exists():
+    if not GstReturnSnapshot.objects.filter(company=company, period=period).exists():
         return None
     obj = get_or_create_period(company, period)
     if not obj.dirty_after_snapshot:
@@ -51,6 +54,34 @@ def reopen_period(company, period: str) -> GstReturnPeriod:
     obj.closed_at = None
     obj.closed_by = None
     obj.save(update_fields=["status", "closed_at", "closed_by", "updated_at"])
+    # PER-02: soft-close ran `deemed_accept_on_period_lock`, which posts IMS
+    # accept / ITC-reclass journals. Reopening only flips the status flag — those
+    # postings intentionally stay (reversing already-availed ITC on a reopen
+    # would be worse than leaving it). Record the asymmetry so it is visible in
+    # the audit trail rather than silent.
+    import logging
+
+    from core.models import AuditEvent
+
+    logging.getLogger(__name__).info(
+        "GST period %s reopened for company %s; IMS deemed-accept / ITC-reclass "
+        "journals posted at close are retained.",
+        period,
+        getattr(company, "id", None),
+    )
+    try:
+        AuditEvent.objects.create(
+            company=company,
+            action="gst_period.reopen",
+            entity_type="GstReturnPeriod",
+            entity_id=str(obj.pk),
+            description=(
+                f"Reopened GST period {period}. Deemed-accept / ITC-reclass "
+                "journals from the close are not reversed."
+            ),
+        )
+    except Exception:  # noqa: BLE001 — audit write must not break the reopen
+        pass
     return obj
 
 

@@ -50,7 +50,6 @@ import {
 import { getErrorCode, getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
 import { trackInvoiceComplete } from '@/lib/telemetry';
 import { useAuth } from '@/auth/AuthContext';
-import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import {
   enqueueDraft,
   listDrafts,
@@ -647,10 +646,6 @@ export function NewInvoicePage() {
     );
   }, [selectedCustomer, totals.grandTotal]);
 
-  useEffect(() => {
-    if (markFullyPaid) setAmountReceived(totals.grandTotal);
-  }, [markFullyPaid, totals.grandTotal]);
-
   const resetForm = () => {
     // BUG-500 / P0-311: do NOT call clearFeedback here — Save & New sets the
     // success flash then resets fields in the same tick; wiping feedback would
@@ -776,10 +771,15 @@ export function NewInvoicePage() {
             ...(editingStatus === 'COMPLETED' ? { confirmAmend: true } : {}),
             _completeIntent: shouldComplete,
             _confirmSalesRcm: isReverseCharge && confirmSalesRcm,
+            _amountReceived: amountReceived,
+            _paymentMode: paymentMode,
+            _customerId: Number(customerId),
           },
           idempotencyKey: key,
           invoiceId: isEdit && editId ? editId : null,
           completeIntent: shouldComplete,
+          customerId: Number(customerId),
+          paymentMode,
         });
         setOutboxBanner(t('billing.savedOffline'));
       };
@@ -838,18 +838,24 @@ export function NewInvoicePage() {
         const toAllocate = Math.max(0, amountReceived - already);
         if (toAllocate > 0) {
           try {
-            const receipt = await createReceipt({
-              customer: Number(customerId),
-              amount: toAllocate,
-              mode: paymentMode,
-              receiptDate: invoiceDate,
-              notes: `Against ${invoice.number ?? invoice.id}`,
-            });
-            await createAllocation({
-              receipt: receipt.id,
-              salesInvoice: invoice.id,
-              amount: toAllocate,
-            });
+            const receipt = await createReceipt(
+              {
+                customer: Number(customerId),
+                amount: toAllocate,
+                mode: paymentMode,
+                receiptDate: invoiceDate,
+                notes: `Against ${invoice.number ?? invoice.id}`,
+              },
+              { idempotencyKey: `${key}-receipt` },
+            );
+            await createAllocation(
+              {
+                receipt: receipt.id,
+                salesInvoice: invoice.id,
+                amount: toAllocate,
+              },
+              { idempotencyKey: `${key}-alloc` },
+            );
           } catch (err) {
             paymentWarning = [paymentWarning, getErrorMessage(err)].filter(Boolean).join(' ');
           }
@@ -865,7 +871,7 @@ export function NewInvoicePage() {
       const label = invoice.number?.trim() ? invoice.number : `#${invoice.id}`;
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
-        flashSaveAndNew(`Invoice ${label} saved — start the next one`, paymentWarning);
+        flashSaveAndNew(t('billing.invoiceSavedNext', { label }), paymentWarning);
         resetForm();
         navigate('/sales/new', { replace: true });
         return;
@@ -873,8 +879,10 @@ export function NewInvoicePage() {
 
       const flash =
         invoice.status === 'COMPLETED'
-          ? `Invoice ${label} saved`
-          : `Draft ${label} saved${paymentWarning ? ` — complete failed: ${paymentWarning}` : ''}`;
+          ? t('billing.invoiceSaved', { label })
+          : paymentWarning
+            ? t('billing.draftSavedCompleteFailed', { label, warning: paymentWarning })
+            : t('billing.draftSaved', { label });
 
       // Warm list cache before SPA navigate so history isn't blank until hard refresh.
       try {
@@ -1039,6 +1047,10 @@ export function NewInvoicePage() {
         amountDue: preview.totals.amountDue ?? preview.totals.grandTotal,
       }
     : totals;
+
+  useEffect(() => {
+    if (markFullyPaid) setAmountReceived(shownTotals.grandTotal);
+  }, [markFullyPaid, shownTotals.grandTotal]);
   const primarySave = primarySaveAction({ isEdit, editingStatus });
   const canAmendMoney = isCompletedEdit && isOwner;
 
@@ -1059,7 +1071,18 @@ export function NewInvoicePage() {
         if (!saveMutation.isPending && canSave) saveMutation.mutate('draft');
         return;
       }
-      if (meta && e.key === 'Enter' && !e.shiftKey && canComplete && primarySave.mode === 'complete') {
+      // FE-19: Complete files GST, posts the GL entry and decrements stock — do
+      // not let a stray Ctrl+Enter while typing in a line field trigger it.
+      const inEditableField =
+        target?.tagName === 'INPUT' || target?.tagName === 'SELECT';
+      if (
+        meta &&
+        e.key === 'Enter' &&
+        !e.shiftKey &&
+        !inEditableField &&
+        canComplete &&
+        primarySave.mode === 'complete'
+      ) {
         e.preventDefault();
         if (!saveMutation.isPending) saveMutation.mutate('complete');
         return;
@@ -1773,7 +1796,7 @@ export function NewInvoicePage() {
                     checked={markFullyPaid}
                     onChange={(e) => {
                       setMarkFullyPaid(e.target.checked);
-                      if (e.target.checked) setAmountReceived(totals.grandTotal);
+                      if (e.target.checked) setAmountReceived(shownTotals.grandTotal);
                     }}
                     size="small"
                   />

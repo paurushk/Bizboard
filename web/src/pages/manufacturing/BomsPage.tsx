@@ -30,6 +30,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
@@ -61,6 +62,7 @@ export function BomsPage() {
 }
 
 function BomsPageInner() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
@@ -127,7 +129,7 @@ function BomsPageInner() {
       <MvpModuleBanner module="manufacturing" />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.boms')}</Typography>
-        <Button variant="contained" onClick={openCreate}>
+        <Button variant="contained" onClick={openCreate} disabled={writesBlocked}>
           {t('common.add')}
         </Button>
       </Stack>
@@ -164,7 +166,7 @@ function BomsPageInner() {
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <Button size="small" onClick={() => openEdit(bom)}>
+                    <Button size="small" onClick={() => openEdit(bom)} disabled={writesBlocked}>
                       {t('common.edit')}
                     </Button>
                   </TableCell>
@@ -280,6 +282,7 @@ function BomsPageInner() {
             <Button
               variant="outlined"
               onClick={() => setForm((f) => ({ ...f, lines: [...f.lines, emptyLine()] }))}
+              disabled={writesBlocked}
             >
               {t('erp.addComponent')}
             </Button>
@@ -289,7 +292,7 @@ function BomsPageInner() {
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={!form.name || !form.product || saveMutation.isPending}
+            disabled={!form.name || !form.product || writesBlocked || saveMutation.isPending}
             onClick={() => saveMutation.mutate()}
           >
             {t('common.save')}

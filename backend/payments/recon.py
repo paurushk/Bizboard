@@ -160,6 +160,7 @@ def score_match(line: BankStatementLine, *, receipt: CustomerReceipt | None = No
                 payment: SupplierPayment | None = None) -> Decimal:
     """Return 0–100 confidence."""
     score = Decimal("0")
+    amount_hit = False
     target_amount = None
     target_date = None
     target_utr = ""
@@ -176,16 +177,27 @@ def score_match(line: BankStatementLine, *, receipt: CustomerReceipt | None = No
             return Decimal("0")
         if abs(line.amount - target_amount) < Decimal("0.01"):
             score += Decimal("40")
+            amount_hit = True
     elif payment:
-        target_amount = payment.amount + Decimal(str(getattr(payment, "tds_amount", 0) or 0))
+        # Score the GL bank amount (payment.amount). Bank lines are the cash
+        # that left the account, not amount+TDS. A smaller bonus if the line
+        # instead matches the gross (amount + TDS).
+        bank_amount = Decimal(str(payment.amount or 0))
+        tds = Decimal(str(getattr(payment, "tds_amount", 0) or 0))
+        gross = bank_amount + tds
         target_date = payment.payment_date
         target_utr = normalize_utr(payment.utr or payment.reference)
         target_ref = (payment.number or "").upper()
         target_name = (payment.supplier.name or "").upper()
         if line.amount >= 0:
             return Decimal("0")
-        if abs(abs(line.amount) - target_amount) < Decimal("0.01"):
+        line_abs = abs(line.amount)
+        if abs(line_abs - bank_amount) < Decimal("0.01"):
             score += Decimal("40")
+            amount_hit = True
+        elif tds > 0 and abs(line_abs - gross) < Decimal("0.01"):
+            score += Decimal("15")
+            amount_hit = True
     else:
         return Decimal("0")
 
@@ -204,6 +216,9 @@ def score_match(line: BankStatementLine, *, receipt: CustomerReceipt | None = No
         score += Decimal("10")
     elif target_date and abs((line.txn_date - target_date).days) <= 7:
         score += Decimal("5")
+    # UTR/name/date without an amount match must not look high-confidence.
+    if not amount_hit:
+        score = min(score, Decimal("35"))
     return min(score, Decimal("100"))
 
 

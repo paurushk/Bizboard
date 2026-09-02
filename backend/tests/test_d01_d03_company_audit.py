@@ -72,3 +72,22 @@ def test_single_membership_without_active_company_does_not_409(tenant_a):
     tenant_a.owner.save(update_fields=["active_company"])
     resp = tenant_a.client.get("/api/v1/company/")
     assert resp.status_code == 200, resp.data
+
+
+def test_feature_flags_company_required_returns_public_subset(tenant_a):
+    other = Company.objects.create(name="Second Books", state="Delhi")
+    CompanyUser.objects.create(
+        company=other,
+        user=tenant_a.owner,
+        role=CompanyUser.Role.ACCOUNTANT,
+        can_view_financial_reports=True,
+        is_active=True,
+    )
+    tenant_a.owner.active_company = None
+    tenant_a.owner.save(update_fields=["active_company"])
+    client = APIClient()
+    client.force_authenticate(user=tenant_a.owner)
+    resp = client.get("/api/v1/feature-flags/")
+    assert resp.status_code == 200, resp.data
+    assert "ENABLE_SETUP_WIZARD" in resp.data
+    assert "ENABLE_MANUFACTURING" not in resp.data

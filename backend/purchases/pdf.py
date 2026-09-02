@@ -88,7 +88,17 @@ def _build_hsn_summary_table(items, styles, intra_state: bool) -> Table:
     for item in items:
         hsn = item.hsn_code or getattr(item.product, "hsn_code", "") or "—"
         rate = Decimal(str(item.gst_rate or 0))
-        taxable = Decimal(str(item.taxable_amount or item.line_total or 0))
+        taxable_raw = Decimal(str(getattr(item, "taxable_amount", 0) or 0))
+        if taxable_raw == 0 and Decimal(str(item.line_total or 0)) > 0 and Decimal(str(item.gst_rate or 0)) > 0:
+            tax_on_line = (
+                Decimal(str(item.cgst or 0))
+                + Decimal(str(item.sgst or 0))
+                + Decimal(str(item.igst or 0))
+                + Decimal(str(getattr(item, "cess", 0) or 0))
+            )
+            taxable = max(Decimal("0"), Decimal(str(item.line_total or 0)) - tax_on_line)
+        else:
+            taxable = taxable_raw
         cgst = Decimal(str(item.cgst or 0))
         sgst = Decimal(str(item.sgst or 0))
         igst = Decimal(str(item.igst or 0))
@@ -176,7 +186,14 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
     styles = build_styles()
 
     from core.services.place_of_supply import party_intra_state
-    intra_state = party_intra_state(company, supplier.state, supplier.gstin or "")
+    stamp = getattr(invoice, "company_gstin", None)
+    intra_state = party_intra_state(
+        company,
+        supplier.state,
+        supplier.gstin or "",
+        seller_state=(getattr(stamp, "state", None) or ""),
+        seller_gstin=(getattr(stamp, "gstin", None) or ""),
+    )
 
     balance = LedgerService.purchase_invoice_outstanding(invoice)
     allocated = max(Decimal(str(invoice.grand_total or 0)) - Decimal(str(balance or 0)), Decimal("0"))
@@ -207,8 +224,12 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
         except (OSError, ValueError, TypeError) as exc:
             logger.warning("Skipping purchase PDF logo: %s", exc)
     buyer_bits.append(Paragraph(f"<b>{pdf_esc(company.name)}</b>", styles["company_name"]))
-    if company.gstin:
-        buyer_bits.append(Paragraph(f"<b>GSTIN:</b> {pdf_esc(company.gstin)}", styles["meta"]))
+    if company.gstin or getattr(invoice, "company_gstin_id", None):
+        stamp_gstin = ""
+        if getattr(invoice, "company_gstin_id", None):
+            stamp_gstin = getattr(invoice.company_gstin, "gstin", "") or ""
+        buyer_gstin = stamp_gstin or company.gstin
+        buyer_bits.append(Paragraph(f"<b>GSTIN:</b> {pdf_esc(buyer_gstin)}", styles["meta"]))
     if company.phone:
         buyer_bits.append(Paragraph(f"<b>Phone:</b> {company.phone}", styles["meta"]))
     addr = _company_address(company)
@@ -270,7 +291,12 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
             ),
             _party_block(
                 styles, "BILLED TO / DELIVERED TO (BUYER)", company.name, addr,
-                company.gstin or "", company.phone or "", company.state, getattr(company, "state_code", "")
+                (
+                    getattr(getattr(invoice, "company_gstin", None), "gstin", None)
+                    or company.gstin
+                    or ""
+                ),
+                company.phone or "", company.state, getattr(company, "state_code", "")
             ),
         ]],
         colWidths=[91 * mm, 91 * mm],
@@ -307,7 +333,17 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
         qty = Decimal(str(item.quantity))
         rate = Decimal(str(item.unit_price))
         disc = Decimal(str(getattr(item, "discount_percent", 0) or 0))
-        taxable = Decimal(str(item.taxable_amount or item.line_total or 0))
+        taxable_raw = Decimal(str(getattr(item, "taxable_amount", 0) or 0))
+        if taxable_raw == 0 and Decimal(str(item.line_total or 0)) > 0 and Decimal(str(item.gst_rate or 0)) > 0:
+            tax_on_line = (
+                Decimal(str(item.cgst or 0))
+                + Decimal(str(item.sgst or 0))
+                + Decimal(str(item.igst or 0))
+                + Decimal(str(getattr(item, "cess", 0) or 0))
+            )
+            taxable = max(Decimal("0"), Decimal(str(item.line_total or 0)) - tax_on_line)
+        else:
+            taxable = taxable_raw
         line_tax = Decimal(str(item.cgst or 0)) + Decimal(str(item.sgst or 0)) + Decimal(str(item.igst or 0)) + Decimal(str(getattr(item, "cess", 0) or 0))
         line_tot = Decimal(str(item.line_total or 0))
 
@@ -543,7 +579,17 @@ def render_gst_purchase_order(order) -> bytes:
     for idx, item in enumerate(items, start=1):
         qty = Decimal(str(item.quantity))
         rate = Decimal(str(item.unit_price))
-        taxable = Decimal(str(item.taxable_amount or item.line_total or 0))
+        taxable_raw = Decimal(str(getattr(item, "taxable_amount", 0) or 0))
+        if taxable_raw == 0 and Decimal(str(item.line_total or 0)) > 0 and Decimal(str(item.gst_rate or 0)) > 0:
+            tax_on_line = (
+                Decimal(str(item.cgst or 0))
+                + Decimal(str(item.sgst or 0))
+                + Decimal(str(item.igst or 0))
+                + Decimal(str(getattr(item, "cess", 0) or 0))
+            )
+            taxable = max(Decimal("0"), Decimal(str(item.line_total or 0)) - tax_on_line)
+        else:
+            taxable = taxable_raw
         line_tax = Decimal(str(item.cgst or 0)) + Decimal(str(item.sgst or 0)) + Decimal(str(item.igst or 0)) + Decimal(str(getattr(item, "cess", 0) or 0))
         line_tot = Decimal(str(item.line_total or 0))
 

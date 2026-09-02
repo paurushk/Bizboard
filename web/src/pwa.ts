@@ -13,7 +13,9 @@ export function registerPwa() {
         // so Upload/extract fixes looked "not deployed". Apply the new worker
         // and reload once so every later deploy takes effect without Ctrl+F5.
         onNeedRefresh() {
-          void updateSW(true);
+          if (window.confirm('A new version is available. Reload now?')) {
+            void updateSW(true);
+          }
         },
       });
     })

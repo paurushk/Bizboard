@@ -18,11 +18,11 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import {
   createAllocation,
   createSupplierPayment,
-  listPurchasesPage,
+  listAllPurchases,
   listSupplierPaymentsPage,
   listSuppliers,
   voidSupplierPayment,
@@ -46,10 +46,7 @@ export function SupplierPaymentsPage() {
   const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
   const purchases = useQuery({
     queryKey: ['purchases'],
-    queryFn: async () => {
-      const res = await listPurchasesPage({ pageSize: PAGE_SIZE });
-      return res.results;
-    },
+    queryFn: () => listAllPurchases({ status: 'COMPLETED' }),
   });
 
   const payments = query.data?.results ?? [];
@@ -70,18 +67,25 @@ export function SupplierPaymentsPage() {
       // let "-500" through since it's a non-empty string).
       const paymentAmount = Number(amount);
       if (!(paymentAmount > 0)) throw new Error('Amount must be greater than zero');
-      const payment = await createSupplierPayment({
-        supplier: supplier.id,
-        amount: paymentAmount,
-        mode,
-        paymentDate: todayIso(),
-      });
+      const key = userGestureIdempotencyKey();
+      const payment = await createSupplierPayment(
+        {
+          supplier: supplier.id,
+          amount: paymentAmount,
+          mode,
+          paymentDate: todayIso(),
+        },
+        { idempotencyKey: key },
+      );
       if (purchase && Number(allocAmount) > 0) {
-        await createAllocation({
-          supplierPayment: payment.id,
-          purchaseInvoice: purchase.id,
-          amount: Number(allocAmount),
-        });
+        await createAllocation(
+          {
+            supplierPayment: payment.id,
+            purchaseInvoice: purchase.id,
+            amount: Number(allocAmount),
+          },
+          { idempotencyKey: `${key}-alloc` },
+        );
       }
       return payment;
     },

@@ -140,8 +140,7 @@ export async function fetchMoneyListFirstPage<T>(
   path: string,
   params?: Record<string, string>,
 ): Promise<T[]> {
-  const page = await listPage<T>(path, params);
-  return page.results;
+  return fetchAllPagesMasters<T>(path, params);
 }
 
 export async function fetchAllPagesMasters<T>(
@@ -151,13 +150,16 @@ export async function fetchAllPagesMasters<T>(
   const first = await listPage<T>(path, params);
   let results = first.results;
   let next = first.next;
-  const MAX_PAGES = 500;
+  const MAX_PAGES = 5000;
   let guard = 0;
   while (next && guard < MAX_PAGES) {
     const page = await fetchNextPage<T>(next);
     results = results.concat(page.results);
     next = page.next;
     guard += 1;
+  }
+  if (next) {
+    throw new Error(`List truncated after ${MAX_PAGES} pages at ${path}`);
   }
   return results;
 }

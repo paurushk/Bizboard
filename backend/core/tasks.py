@@ -9,13 +9,22 @@ logger = logging.getLogger(__name__)
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def send_email_notification(self, notification_id, company_id=None):
-    """BB-000530: Celery retries must not duplicate sends — SENT rows are skipped."""
-    from django.db import transaction
+    """BB-000530: Celery retries must not duplicate sends — SENT rows are skipped.
+
+    CORE-13: dedup with a short cache lock (Redis SETNX) instead of holding a
+    ``select_for_update`` row lock + DB connection open across the whole SMTP
+    round trip.
+    """
+    from django.core.cache import cache
 
     from core.models import Notification
 
-    with transaction.atomic():
-        notification = Notification.objects.select_for_update().get(pk=notification_id)
+    lock_key = f"bizboard:email_send:{notification_id}"
+    if not cache.add(lock_key, "1", timeout=180):
+        logger.info("Email notification %s send already in flight; skipping", notification_id)
+        return
+    try:
+        notification = Notification.objects.get(pk=notification_id)
         if notification.status == Notification.Status.SENT:
             logger.info("Email notification %s already sent; skipping retry", notification_id)
             return
@@ -23,9 +32,10 @@ def send_email_notification(self, notification_id, company_id=None):
         env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
         # Fail closed: never pretend email was sent via console in prod/staging.
         if env in ("production", "staging") and "console" in backend:
-            notification.status = Notification.Status.FAILED
-            notification.error = "SMTP is not configured (console email backend forbidden)."
-            notification.save(update_fields=["status", "error"])
+            Notification.objects.filter(pk=notification_id).update(
+                status=Notification.Status.FAILED,
+                error="SMTP is not configured (console email backend forbidden).",
+            )
             logger.error("Email notification %s blocked: console backend in %s", notification_id, env)
             return
         try:
@@ -36,15 +46,17 @@ def send_email_notification(self, notification_id, company_id=None):
                 recipient_list=[notification.recipient],
                 fail_silently=False,
             )
-            notification.status = Notification.Status.SENT
-            notification.error = ""
-            notification.save(update_fields=["status", "error"])
+            Notification.objects.filter(pk=notification_id).update(
+                status=Notification.Status.SENT, error=""
+            )
         except Exception as exc:  # pragma: no cover - depends on SMTP env
-            notification.status = Notification.Status.FAILED
-            notification.error = str(exc)
-            notification.save(update_fields=["status", "error"])
+            Notification.objects.filter(pk=notification_id).update(
+                status=Notification.Status.FAILED, error=str(exc)
+            )
             logger.exception("Email notification %s failed", notification_id)
             raise
+    finally:
+        cache.delete(lock_key)
 
 
 BEAT_HEARTBEAT_KEY = "bizboard:celery_beat_heartbeat"
@@ -86,14 +98,50 @@ def prune_help_events_task(days=180, company_id=None):
     from django.utils import timezone
 
     from core.models import HelpEvent
-    from core.rls import set_help_staff_all
+    from core.rls import rls_bypass
 
     _ = company_id
-    set_help_staff_all(True)
-    try:
+    # Cross-tenant retention sweep — RLS bypass (SYS-01).
+    with rls_bypass():
         cutoff = timezone.now() - timedelta(days=max(1, int(days)))
         deleted, _counts = HelpEvent.objects.filter(created_at__lt=cutoff).delete()
         logger.info("prune_help_events_task deleted %s rows older than %s days", deleted, days)
         return deleted
-    finally:
-        set_help_staff_all(False)
+
+
+@shared_task
+def prune_idempotency_records_task(days=30):
+    """CORE-05: `IdempotencyRecord` rows are durable with no natural expiry — an
+    unbounded table otherwise. A client can only replay a key for a short window
+    after the original request; a *completed* row older than ``days`` is safe to
+    drop. In-flight placeholders older than the hard-stale window are also
+    reclaimed (a crash between the request's commit and `store_record` otherwise
+    bricks that key forever — CORE-04).
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from core.idempotency import IN_FLIGHT_STATUS
+    from core.models import IdempotencyRecord
+    from core.rls import rls_bypass
+
+    now = timezone.now()
+    completed_cutoff = now - timedelta(days=max(1, int(days)))
+    stale_inflight_cutoff = now - timedelta(hours=24)
+
+    with rls_bypass():  # cross-tenant sweep (SYS-01)
+        done_deleted, _ = (
+            IdempotencyRecord.objects.filter(created_at__lt=completed_cutoff)
+            .exclude(status_code=IN_FLIGHT_STATUS)
+            .delete()
+        )
+        inflight_deleted, _ = IdempotencyRecord.objects.filter(
+            status_code=IN_FLIGHT_STATUS, created_at__lt=stale_inflight_cutoff
+        ).delete()
+    logger.info(
+        "prune_idempotency_records_task: %s completed + %s stale in-flight rows removed",
+        done_deleted,
+        inflight_deleted,
+    )
+    return done_deleted + inflight_deleted

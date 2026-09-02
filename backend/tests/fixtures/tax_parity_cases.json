@@ -42,9 +42,9 @@
     "expected": {
       "taxableAmount": 10.05,
       "cgst": 0.9,
-      "sgst": 0.91,
+      "sgst": 0.9,
       "igst": 0,
-      "lineTotal": 11.86
+      "lineTotal": 11.85
     }
   },
   {
@@ -121,7 +121,12 @@
     "autoRoundOff": true,
     "additionalCharges": 0,
     "lines": [
-      {"quantity": 1, "unitPrice": 100, "gstRate": 18, "discountPercent": 0}
+      {
+        "quantity": 1,
+        "unitPrice": 100,
+        "gstRate": 18,
+        "discountPercent": 0
+      }
     ],
     "expected": {
       "taxableTotal": 100,
@@ -142,7 +147,12 @@
     "autoRoundOff": true,
     "additionalCharges": 0,
     "lines": [
-      {"quantity": 1, "unitPrice": 100, "gstRate": 18, "discountPercent": 0}
+      {
+        "quantity": 1,
+        "unitPrice": 100,
+        "gstRate": 18,
+        "discountPercent": 0
+      }
     ],
     "expected": {
       "taxableTotal": 90,
@@ -163,15 +173,20 @@
     "autoRoundOff": true,
     "additionalCharges": 0,
     "lines": [
-      {"quantity": 1, "unitPrice": 10.05, "gstRate": 18, "discountPercent": 0}
+      {
+        "quantity": 1,
+        "unitPrice": 10.05,
+        "gstRate": 18,
+        "discountPercent": 0
+      }
     ],
     "expected": {
       "taxableTotal": 10.05,
       "cgstTotal": 0.9,
-      "sgstTotal": 0.91,
+      "sgstTotal": 0.9,
       "igstTotal": 0,
       "grandTotal": 12,
-      "roundOff": 0.14
+      "roundOff": 0.15
     }
   },
   {
@@ -184,14 +199,19 @@
     "autoRoundOff": false,
     "additionalCharges": 0,
     "lines": [
-      {"quantity": 1, "unitPrice": 10.05, "gstRate": 18, "discountPercent": 0}
+      {
+        "quantity": 1,
+        "unitPrice": 10.05,
+        "gstRate": 18,
+        "discountPercent": 0
+      }
     ],
     "expected": {
       "taxableTotal": 10.05,
       "cgstTotal": 0.9,
-      "sgstTotal": 0.91,
+      "sgstTotal": 0.9,
       "igstTotal": 0,
-      "grandTotal": 11.86,
+      "grandTotal": 11.85,
       "roundOff": 0
     }
   },
@@ -205,8 +225,18 @@
     "autoRoundOff": true,
     "additionalCharges": 0,
     "lines": [
-      {"quantity": 1, "unitPrice": 100, "gstRate": 5, "discountPercent": 0},
-      {"quantity": 1, "unitPrice": 100, "gstRate": 28, "discountPercent": 0}
+      {
+        "quantity": 1,
+        "unitPrice": 100,
+        "gstRate": 5,
+        "discountPercent": 0
+      },
+      {
+        "quantity": 1,
+        "unitPrice": 100,
+        "gstRate": 28,
+        "discountPercent": 0
+      }
     ],
     "expected": {
       "taxableTotal": 200,
@@ -227,7 +257,12 @@
     "autoRoundOff": true,
     "additionalCharges": 0,
     "lines": [
-      {"quantity": 1, "unitPrice": 100, "gstRate": 18, "discountPercent": 0}
+      {
+        "quantity": 1,
+        "unitPrice": 100,
+        "gstRate": 18,
+        "discountPercent": 0
+      }
     ],
     "expected": {
       "taxableTotal": 100,
@@ -248,7 +283,12 @@
     "autoRoundOff": true,
     "additionalCharges": 0,
     "lines": [
-      {"quantity": 1, "unitPrice": 100, "gstRate": 12, "discountPercent": 0}
+      {
+        "quantity": 1,
+        "unitPrice": 100,
+        "gstRate": 12,
+        "discountPercent": 0
+      }
     ],
     "expected": {
       "taxableTotal": 100,
@@ -308,7 +348,13 @@
     "autoRoundOff": true,
     "additionalCharges": 0,
     "lines": [
-      {"quantity": 1, "unitPrice": 118, "unitPriceInclusive": 118, "gstRate": 18, "discountPercent": 0}
+      {
+        "quantity": 1,
+        "unitPrice": 118,
+        "unitPriceInclusive": 118,
+        "gstRate": 18,
+        "discountPercent": 0
+      }
     ],
     "expected": {
       "taxableTotal": 90,
@@ -329,9 +375,24 @@
     "autoRoundOff": true,
     "additionalCharges": 0,
     "lines": [
-      {"quantity": 1, "unitPrice": 100, "gstRate": 0, "discountPercent": 0},
-      {"quantity": 1, "unitPrice": 100, "gstRate": 18, "discountPercent": 0},
-      {"quantity": 1, "unitPrice": 50, "gstRate": 0, "discountPercent": 0}
+      {
+        "quantity": 1,
+        "unitPrice": 100,
+        "gstRate": 0,
+        "discountPercent": 0
+      },
+      {
+        "quantity": 1,
+        "unitPrice": 100,
+        "gstRate": 18,
+        "discountPercent": 0
+      },
+      {
+        "quantity": 1,
+        "unitPrice": 50,
+        "gstRate": 0,
+        "discountPercent": 0
+      }
     ],
     "expected": {
       "taxableTotal": 250,

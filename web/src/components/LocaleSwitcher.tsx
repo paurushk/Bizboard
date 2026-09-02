@@ -8,7 +8,15 @@ export function LocaleSwitcher() {
 
   useEffect(() => subscribeLocale(() => setLocaleState(getLocale())), []);
 
-  const switchTo = (next: 'en' | 'hi' | 'ta' | 'gu') => {
+  useEffect(() => {
+    // Gujarati/Tamil catalogs are English fallbacks — do not offer them until signed.
+    if (getLocale() === 'ta' || getLocale() === 'gu') {
+      setLocale('en');
+      setLocaleState('en');
+    }
+  }, []);
+
+  const switchTo = (next: 'en' | 'hi') => {
     if (next === getLocale()) return;
     setLocale(next);
     setLocaleState(next);
@@ -26,7 +34,7 @@ export function LocaleSwitcher() {
   } as const;
 
   return (
-    <ButtonGroup size="small" variant="outlined" aria-label="Language">
+    <ButtonGroup size="small" variant="outlined" aria-label={t('locale.language')}>
       <Button
         variant={locale === 'en' ? 'contained' : 'outlined'}
         onClick={() => switchTo('en')}
@@ -40,20 +48,6 @@ export function LocaleSwitcher() {
         sx={locale === 'hi' ? undefined : inactiveSx}
       >
         {t('locale.switchToHindi')}
-      </Button>
-      <Button
-        variant={locale === 'ta' ? 'contained' : 'outlined'}
-        onClick={() => switchTo('ta')}
-        sx={locale === 'ta' ? undefined : inactiveSx}
-      >
-        {t('locale.switchToTamil')}
-      </Button>
-      <Button
-        variant={locale === 'gu' ? 'contained' : 'outlined'}
-        onClick={() => switchTo('gu')}
-        sx={locale === 'gu' ? undefined : inactiveSx}
-      >
-        {t('locale.switchToGujarati')}
       </Button>
     </ButtonGroup>
   );

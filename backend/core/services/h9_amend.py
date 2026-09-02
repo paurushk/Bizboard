@@ -52,6 +52,10 @@ def assert_h9a_line_allowlist(existing_items, items_data):
             raise BusinessRuleError(
                 "Completed document amend cannot change products (H9-A)."
             )
+        if "description" in line and (line.get("description") or "") != (getattr(old, "description", "") or ""):
+            raise BusinessRuleError(
+                "Completed document amend cannot change description (H9-A)."
+            )
         if Decimal(str(line["quantity"])) != Decimal(str(old.quantity)):
             raise BusinessRuleError(
                 "Completed document amend cannot change quantities (H9-A)."
@@ -60,6 +64,66 @@ def assert_h9a_line_allowlist(existing_items, items_data):
             raise BusinessRuleError(
                 "Completed document amend cannot change GST rates (H9-A)."
             )
+        if "supply_nature" in line:
+            old_nature = (getattr(old, "supply_nature", None) or "").strip()
+            new_nature = (line.get("supply_nature") or "").strip()
+            if new_nature != old_nature:
+                raise BusinessRuleError(
+                    "Completed document amend cannot change supply nature (H9-A)."
+                )
+        if "cess_rate" in line and Decimal(str(line["cess_rate"] or 0)) != Decimal(
+            str(getattr(old, "cess_rate", 0) or 0)
+        ):
+            raise BusinessRuleError(
+                "Completed document amend cannot change cess rates (H9-A)."
+            )
+        if "cess_amount" in line and Decimal(str(line["cess_amount"] or 0)) != Decimal(
+            str(getattr(old, "cess_amount", 0) or 0)
+        ):
+            raise BusinessRuleError(
+                "Completed document amend cannot change cess amounts (H9-A)."
+            )
+        if "hsn_code" in line and (line.get("hsn_code") or "") != (getattr(old, "hsn_code", "") or ""):
+            raise BusinessRuleError(
+                "Completed document amend cannot change HSN (H9-A)."
+            )
+        if "serial_numbers" in line:
+            old_sns = list(getattr(old, "serial_numbers", None) or [])
+            new_sns = list(line.get("serial_numbers") or [])
+            if old_sns != new_sns:
+                raise BusinessRuleError(
+                    "Completed document amend cannot change serial numbers (H9-A)."
+                )
+        if "batch_no" in line and (line.get("batch_no") or "") != (getattr(old, "batch_no", "") or ""):
+            raise BusinessRuleError(
+                "Completed document amend cannot change batch (H9-A)."
+            )
+        # H9-01: for INCLUSIVE price-mode documents `unit_price_inclusive` is what
+        # actually drives taxable_amount / tax (see
+        # billing.extract_exclusive_from_inclusive_line). Allowing it through the
+        # H9-A gate would let a post-Complete amend re-rate a filed invoice.
+        if "unit_price_inclusive" in line:
+            _old_incl = getattr(old, "unit_price_inclusive", None)
+            if _old_incl is not None and Decimal(str(line.get("unit_price_inclusive") or 0)) != Decimal(
+                str(_old_incl or 0)
+            ):
+                raise BusinessRuleError(
+                    "Completed document amend cannot change the tax-inclusive unit price (H9-A). "
+                    "Adjust the exclusive unit price / discount instead."
+                )
+        for _frozen_attr, _label in (
+            ("mrp", "MRP"),
+            ("exp_date", "expiry date"),
+            ("mfg_date", "manufacture date"),
+            ("uqc_code", "unit (UQC)"),
+        ):
+            if _frozen_attr in line:
+                _old_v = getattr(old, _frozen_attr, None)
+                _new_v = line.get(_frozen_attr)
+                if _old_v is not None and str(_new_v or "") != str(_old_v or ""):
+                    raise BusinessRuleError(
+                        f"Completed document amend cannot change {_label} (H9-A)."
+                    )
 
 
 def lines_prices_unchanged(existing_items, items_data) -> bool:
@@ -87,6 +151,17 @@ def lines_prices_unchanged(existing_items, items_data) -> bool:
         ):
             return False
         if Decimal(str(line.get("gst_rate", old.gst_rate))) != Decimal(str(old.gst_rate)):
+            return False
+        if Decimal(str(line.get("cess_rate", getattr(old, "cess_rate", 0) or 0) or 0)) != Decimal(
+            str(getattr(old, "cess_rate", 0) or 0)
+        ):
+            return False
+        if Decimal(str(line.get("cess_amount", getattr(old, "cess_amount", 0) or 0) or 0)) != Decimal(
+            str(getattr(old, "cess_amount", 0) or 0)
+        ):
+            return False
+        old_nature = getattr(old, "supply_nature", None) or ""
+        if str(line.get("supply_nature", old_nature) or "") != str(old_nature):
             return False
         old_incl = getattr(old, "unit_price_inclusive", None)
         if "unit_price_inclusive" in line or old_incl is not None:

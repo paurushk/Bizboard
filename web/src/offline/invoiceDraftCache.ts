@@ -357,24 +357,52 @@ export async function flushOutbox(
   sendFn: (draft: OutboxDraft) => Promise<void>,
   filter?: (draft: OutboxDraft) => boolean,
 ): Promise<{ flushed: number; failed: number; errors: string[] }> {
-  const drafts = (await listDrafts(companyId, userId)).filter(
-    (d) => isFlushableDraft(d) && (filter ? filter(d) : true),
-  );
-  let flushed = 0;
-  let failed = 0;
-  const errors: string[] = [];
-  for (const draft of drafts) {
+  const empty = { flushed: 0, failed: 0, errors: [] as string[] };
+  const lockName = `bb-outbox-flush:${companyId}:${userId}`;
+  const run = async () => {
+    const drafts = (await listDrafts(companyId, userId)).filter(
+      (d) => isFlushableDraft(d) && (filter ? filter(d) : true),
+    );
+    let flushed = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    for (const draft of drafts) {
+      try {
+        for (const line of draft.lines ?? []) assertFlushableLine(line);
+        await sendFn(draft);
+        await removeDraft(companyId, userId, draft.idempotencyKey);
+        flushed += 1;
+      } catch (err) {
+        failed += 1;
+        errors.push(getErrorMessage(err));
+      }
+    }
+    return { flushed, failed, errors };
+  };
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (locks?.request) {
+    return locks.request(lockName, { ifAvailable: true }, async (lock) => {
+      if (!lock) return empty;
+      return run();
+    });
+  }
+  const lsKeyName = `bb-outbox-flush-lock:${companyId}:${userId}`;
+  try {
+    const held = Number(localStorage.getItem(lsKeyName) || 0);
+    if (held && Date.now() - held < 60_000) return empty;
+    localStorage.setItem(lsKeyName, String(Date.now()));
+  } catch {
+    /* private mode */
+  }
+  try {
+    return await run();
+  } finally {
     try {
-      for (const line of draft.lines ?? []) assertFlushableLine(line);
-      await sendFn(draft);
-      await removeDraft(companyId, userId, draft.idempotencyKey);
-      flushed += 1;
-    } catch (err) {
-      failed += 1;
-      errors.push(getErrorMessage(err));
+      localStorage.removeItem(lsKeyName);
+    } catch {
+      /* ignore */
     }
   }
-  return { flushed, failed, errors };
 }
 
 /** POS compatibility wrappers over the v2 outbox (localStorage-first for sync callers). */

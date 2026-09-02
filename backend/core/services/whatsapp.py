@@ -147,8 +147,18 @@ def send_whatsapp_template(
             raw={"error": resp.text, "status_code": resp.status_code},
         )
     data = resp.json()
-    message_id = ""
     messages = data.get("messages") or []
-    if messages:
-        message_id = str(messages[0].get("id") or "")
+    if not messages:
+        return WhatsAppSendResult(
+            mode="link",
+            share_link=_wa_me_link(phone=phone, text=body_text),
+            raw={**data, "error": "WhatsApp Cloud returned no messages."},
+        )
+    message_id = str(messages[0].get("id") or "")
+    if not message_id:
+        return WhatsAppSendResult(
+            mode="link",
+            share_link=_wa_me_link(phone=phone, text=body_text),
+            raw={**data, "error": "WhatsApp Cloud returned no message id."},
+        )
     return WhatsAppSendResult(mode="cloud", message_id=message_id, raw=data)

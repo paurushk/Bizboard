@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from decimal import Decimal
+import logging
 
 from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce
@@ -16,6 +17,8 @@ from purchases.models import PurchaseInvoice
 from reporting.gst_health import build_gst_health
 from reporting.services import ReportService
 from sales.models import SalesInvoice, SalesItem
+
+logger = logging.getLogger(__name__)
 
 OPEN_SALES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
 
@@ -84,23 +87,14 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
         ap_due += LedgerService.purchase_invoice_outstanding(inv)
     payables = ReportService._company_payables(company)
     ap_signal = min(ap_due, payables) if payables > 0 else ap_due
-    recent_receipts = (
-        CustomerReceipt.objects.filter(
-            company=company,
-            receipt_date__gte=as_of - timedelta(days=6),
-            receipt_date__lte=as_of,
-            status="POSTED",
-        ).aggregate(t=Coalesce(Sum("amount"), Decimal("0")))["t"]
-        or Decimal("0")
-    )
-    if ap_signal > 0 and ap_signal > recent_receipts:
+    if ap_signal > 0:
         alerts.append(_alert(
             "AP_DUE_7D",
             "warning",
-            f"Supplier bills due in 7 days (~₹{ap_signal}) exceed recent 7d receipts (₹{recent_receipts}).",
+            f"Supplier bills due in 7 days (~₹{ap_signal}).",
             subject_key="ap",
             cta_path="/reports/supplier-ledger",
-            payload={"ap_due_7d": str(ap_signal), "receipts_7d": str(recent_receipts)},
+            payload={"ap_due_7d": str(ap_signal)},
         ))
 
     # Low stock fast movers — company-wide available vs product reorder
@@ -231,7 +225,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     cta_path="/insights/cashflow",
                 ))
     except Exception:
-        pass
+        logger.exception("Cashflow tight-14d alert failed for company %s", company.id)
 
     # Bridge to GST Health criticals
     try:
@@ -246,7 +240,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                 cta_path="/reports/gst-health",
             ))
     except Exception:
-        pass
+        logger.exception("GST health critical alert failed for company %s", company.id)
 
     return alerts
 

@@ -165,7 +165,6 @@ def _post_commit_recon(company, preview: dict, created: dict) -> dict:
     from django.db.models import Sum
 
     from inventory.models import StockBalance
-    from ledgers.services import LedgerService
     from purchases.models import PurchaseInvoice
     from sales.models import SalesInvoice
 
@@ -183,8 +182,26 @@ def _post_commit_recon(company, preview: dict, created: dict) -> dict:
         if r.get("sku") and _dec(r.get("opening_qty")) > 0
     ]
     expected_qty = sum((_dec(r.get("opening_qty")) for r in preview_products), Decimal("0"))
-    books_ar = LedgerService.company_receivables(company)
-    books_ap = LedgerService.company_payables(company)
+    cust_names = [r.get("name") for r in (preview.get("customers") or []) if r.get("name")]
+    sup_names = [r.get("name") for r in (preview.get("suppliers") or []) if r.get("name")]
+    books_ar = (
+        SalesInvoice.objects.filter(
+            company=company,
+            is_opening_balance=True,
+            customer__name__in=cust_names,
+            status=SalesInvoice.Status.COMPLETED,
+        ).aggregate(s=Sum("grand_total"))["s"]
+        or Decimal("0")
+    ) if cust_names else Decimal("0")
+    books_ap = (
+        PurchaseInvoice.objects.filter(
+            company=company,
+            is_opening_balance=True,
+            supplier__name__in=sup_names,
+            status=PurchaseInvoice.Status.COMPLETED,
+        ).aggregate(s=Sum("grand_total"))["s"]
+        or Decimal("0")
+    ) if sup_names else Decimal("0")
     opening_invoices = SalesInvoice.objects.filter(
         company=company, is_opening_balance=True
     ).count()
@@ -409,6 +426,8 @@ def commit_tally_preview(company, user, sync_run: IntegrationSyncRun, *, force: 
 
 
 def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, force: bool = False) -> dict:
+    del force  # force= is refused at the view; never bypass preview errors.
+    sync_run = IntegrationSyncRun.objects.select_for_update().get(pk=sync_run.pk)
     if sync_run.company_id != company.id:
         raise BusinessRuleError("Tenant mismatch.")
     if sync_run.status == IntegrationSyncRun.Status.COMMITTED:
@@ -422,8 +441,8 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
     sync_run.save(update_fields=["preview", "errors", "counts", "updated_at"])
 
     errors = preview.get("errors") or []
-    if errors and not force:
-        raise BusinessRuleError("Cannot commit while preview has errors. Clear or ignore them first.")
+    if errors:
+        raise BusinessRuleError("Cannot commit while preview has errors. Clear them and re-preview.")
     if sync_run.status != IntegrationSyncRun.Status.PREVIEWED:
         if not errors:
             sync_run.status = IntegrationSyncRun.Status.PREVIEWED
@@ -461,6 +480,21 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
         )
         if was_created:
             created["customers"] += 1
+        else:
+            dirty = []
+            phone = row.get("phone") or ""
+            gstin = row.get("gstin") or ""
+            if gstin and not (cust.gstin or "").strip():
+                cust.gstin = gstin
+                dirty.append("gstin")
+            elif gstin and (cust.gstin or "").strip() and cust.gstin != gstin:
+                warnings.append(f"Customer '{cust.name}' GSTIN kept as {cust.gstin} (import had {gstin}).")
+            if phone and not (cust.phone or "").strip():
+                cust.phone = phone
+                dirty.append("phone")
+            if dirty:
+                cust.updated_by = user
+                cust.save(update_fields=dirty + ["updated_by", "updated_at"])
         amt = _dec(row.get("opening_outstanding"))
         if amt > 0 and _create_opening_sales(company, user, cust, amt, opening_product):
             created["opening_ar"] += 1
@@ -478,6 +512,21 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
         )
         if was_created:
             created["suppliers"] += 1
+        else:
+            dirty = []
+            phone = row.get("phone") or ""
+            gstin = row.get("gstin") or ""
+            if gstin and not (sup.gstin or "").strip():
+                sup.gstin = gstin
+                dirty.append("gstin")
+            elif gstin and (sup.gstin or "").strip() and sup.gstin != gstin:
+                warnings.append(f"Supplier '{sup.name}' GSTIN kept as {sup.gstin} (import had {gstin}).")
+            if phone and not (sup.phone or "").strip():
+                sup.phone = phone
+                dirty.append("phone")
+            if dirty:
+                sup.updated_by = user
+                sup.save(update_fields=dirty + ["updated_by", "updated_at"])
         amt = _dec(row.get("opening_outstanding"))
         if amt > 0 and _create_opening_purchase(company, user, sup, amt, opening_product):
             created["opening_ap"] += 1

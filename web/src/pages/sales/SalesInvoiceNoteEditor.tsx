@@ -47,6 +47,8 @@ import { PdfStatusPoller } from '@/components/PdfStatusPoller';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
+import { useAuth } from '@/auth/AuthContext';
+import { canCancelDocuments, canCreateSales } from '@/utils/permissions';
 import type { NoteReason, SalesCreditNote, SalesDebitNote, SalesInvoice } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
@@ -59,6 +61,9 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
   const listPath = isCredit ? '/sales/credit-notes' : '/sales/debit-notes';
   const queryKey = isCredit ? 'sales-credit-notes' : 'sales-debit-notes';
 
+  const { user } = useAuth();
+  const canWrite = canCreateSales(user);
+  const canCancel = canCancelDocuments(user);
   const { id: editIdParam } = useParams();
   const editId = editIdParam ? Number(editIdParam) : null;
   const isEdit = Number.isFinite(editId) && (editId as number) > 0;
@@ -162,7 +167,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     [lineTaxes, intraState],
   );
 
-  const canSave = Boolean(invoice) && activeSourceLines(lines).length > 0;
+  const canSave = Boolean(invoice) && activeSourceLines(lines).length > 0 && canWrite;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
 
   const buildPayload = () => ({
@@ -292,7 +297,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
               {t('billing.print')}
             </Button>
           ) : null}
-          {readOnly && editingStatus === 'COMPLETED' ? (
+          {readOnly && editingStatus === 'COMPLETED' && canCancel ? (
             <Button color="warning" size="small" disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate()}>
               {t('phase1.cancelDocument')}
             </Button>

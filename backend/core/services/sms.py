@@ -79,11 +79,15 @@ def _send_msg91(phone: str, code: str) -> None:
                 raise BusinessRuleError(f"MSG91 OTP send failed with HTTP {resp.status}.")
             import json
 
+            if not (raw_body or "").strip():
+                raise BusinessRuleError("MSG91 OTP send failed: empty response.")
             try:
-                payload_json = json.loads(raw_body) if raw_body else {}
-            except json.JSONDecodeError:
-                payload_json = {}
-            if isinstance(payload_json, dict) and str(payload_json.get("type") or "").lower() == "error":
+                payload_json = json.loads(raw_body)
+            except json.JSONDecodeError as exc:
+                raise BusinessRuleError("MSG91 OTP send failed: invalid response.") from exc
+            if not isinstance(payload_json, dict):
+                raise BusinessRuleError("MSG91 OTP send failed: invalid response.")
+            if str(payload_json.get("type") or "").lower() == "error":
                 msg = payload_json.get("message") or payload_json.get("msg") or raw_body[:200]
                 raise BusinessRuleError(f"MSG91 OTP send failed: {msg}")
     except urllib.error.HTTPError as exc:

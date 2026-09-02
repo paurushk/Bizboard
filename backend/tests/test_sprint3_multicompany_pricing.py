@@ -30,7 +30,7 @@ def test_bb_000673_existing_user_consent_invite_joins_second_company(tenant_a, t
     guest = APIClient()
     accepted = guest.post(
         "/api/v1/auth/invite/accept/",
-        {"token": token},
+        {"token": token, "password": "StrongPass123!"},
         format="json",
     )
     assert accepted.status_code == 200, accepted.data

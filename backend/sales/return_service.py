@@ -32,6 +32,16 @@ class ReturnService:
         if sales_return.status != SalesReturn.Status.DRAFT:
             raise BusinessRuleError("Completed return cannot be edited.")
         _validate_lines(items_data, sales_return.company, check_active=False)
+        for line in items_data:
+            product = line["product"]
+            if getattr(product, "track_serial", False):
+                serial_numbers = line.get("serial_numbers") or []
+                numbers = [str(n).strip() for n in serial_numbers if str(n).strip()]
+                if len(numbers) != int(Decimal(str(line["quantity"]))):
+                    raise BusinessRuleError(
+                        f"Exactly {line['quantity']} serial number(s) are required for "
+                        f"tracked product '{product.name}'."
+                    )
         sales_return.items.all().delete()
         items = _build_items(SalesReturnItem, "sales_return", sales_return, items_data)
         compute_document_totals(
@@ -111,10 +121,9 @@ class ReturnService:
                     )
 
         _consume_prior(exclude=sales_return)
-        source_by_return_item = {}
+        source_takes = []
         for item in items:
             need = Decimal(str(item.quantity))
-            matched = None
             for lid in lines_by_product.get(item.product_id, []):
                 if need <= 0:
                     break
@@ -124,13 +133,11 @@ class ReturnService:
                 take = min(need, avail)
                 remaining_by_line[lid] -= take
                 need -= take
-                if matched is None:
-                    matched = lid
+                source_takes.append((item, lid, take))
             if need > 0:
                 raise BusinessRuleError(
                     f"Return quantity for '{item.product.name}' exceeds remaining returnable quantity on matching invoice lines."
                 )
-            source_by_return_item[item.pk] = matched
 
         sold = {
             row["product"]: row["total"]
@@ -174,6 +181,29 @@ class ReturnService:
             ratio = Decimal("1")
             if inv_taxable > 0 and not fully_returned:
                 ratio = min(Decimal("1"), ret_taxable / inv_taxable)
+            elif not fully_returned:
+                inv_grand = Decimal(str(invoice.grand_total or 0))
+                ret_grand = sum((Decimal(str(it.grand_total or it.taxable_amount or 0)) for it in items), Decimal("0"))
+                ratio = min(Decimal("1"), ret_grand / inv_grand) if inv_grand > 0 else Decimal("0")
+            inv_discount = Decimal(str(invoice.invoice_discount or 0))
+            inv_charges = Decimal(str(invoice.additional_charges or 0))
+            inv_tcs = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
+            prior_qs = SalesCreditNote.objects.filter(
+                sales_invoice=invoice,
+                sales_return__isnull=False,
+                status=SalesCreditNote.Status.COMPLETED,
+            ).exclude(sales_return=sales_return)
+            if fully_returned:
+                prior_d = prior_qs.aggregate(d=Sum("invoice_discount"))["d"] or Decimal("0")
+                prior_c = prior_qs.aggregate(c=Sum("additional_charges"))["c"] or Decimal("0")
+                prior_t = prior_qs.aggregate(t=Sum("tcs_amount"))["t"] or Decimal("0")
+                discount_share = (inv_discount - prior_d).quantize(Decimal("0.01"))
+                charges_share = (inv_charges - prior_c).quantize(Decimal("0.01"))
+                tcs_share = (inv_tcs - prior_t).quantize(Decimal("0.01"))
+            else:
+                discount_share = (inv_discount * ratio).quantize(Decimal("0.01"))
+                charges_share = (inv_charges * ratio).quantize(Decimal("0.01"))
+                tcs_share = (inv_tcs * ratio).quantize(Decimal("0.01"))
             note = SalesCreditNote.objects.create(
                 company=sales_return.company,
                 customer=sales_return.customer,
@@ -182,45 +212,47 @@ class ReturnService:
                 note_date=sales_return.return_date,
                 reason=NoteReason.SALES_RETURN,
                 reason_detail=f"Auto from sales return {sales_return.number} [{marker}]",
-                invoice_discount=(Decimal(str(invoice.invoice_discount or 0)) * ratio).quantize(Decimal("0.01")),
+                invoice_discount=max(Decimal("0"), discount_share),
                 invoice_discount_mode=invoice.invoice_discount_mode,
                 auto_round_off=invoice.auto_round_off if fully_returned else False,
                 created_by=user,
                 updated_by=user,
             )
-            note.additional_charges = (Decimal(str(invoice.additional_charges or 0)) * ratio).quantize(Decimal("0.01"))
+            note.additional_charges = max(Decimal("0"), charges_share)
             note.charges_hsn = getattr(invoice, "charges_hsn", "") or ""
             note.charges_gst_rate = getattr(invoice, "charges_gst_rate", Decimal("0")) or Decimal("0")
             note.save(update_fields=["additional_charges", "charges_hsn", "charges_gst_rate"])
             inv_items_by_id = {inv_item.id: inv_item for inv_item in invoice.items.all()}
-            items_data = [
-                {
+            items_data = []
+            for item, lid, take in source_takes:
+                src = inv_items_by_id.get(lid)
+                src_qty = Decimal(str(src.quantity)) if src else Decimal("0")
+                cess_full = (
+                    Decimal(str(getattr(src, "cess_amount", 0) or 0))
+                    if src
+                    else Decimal(str(getattr(item, "cess_amount", 0) or 0))
+                )
+                cess_scaled = (
+                    (cess_full * take / src_qty).quantize(Decimal("0.01"))
+                    if src_qty
+                    else cess_full
+                )
+                items_data.append({
                     "product": item.product,
                     "description": getattr(item, "description", "") or "",
-                    "quantity": item.quantity,
+                    "quantity": take,
                     "unit_price": item.unit_price,
                     "discount_percent": item.discount_percent,
                     "gst_rate": item.gst_rate,
                     "cess_rate": (
-                        getattr(inv_items_by_id.get(source_by_return_item.get(item.pk)), "cess_rate", Decimal("0"))
-                        if source_by_return_item.get(item.pk)
-                        else Decimal(str(getattr(item, "cess_rate", 0) or 0))
+                        getattr(src, "cess_rate", Decimal("0")) if src else Decimal(str(getattr(item, "cess_rate", 0) or 0))
                     ),
-                    "cess_amount": (
-                        getattr(inv_items_by_id.get(source_by_return_item.get(item.pk)), "cess_amount", Decimal("0"))
-                        if source_by_return_item.get(item.pk)
-                        else Decimal(str(getattr(item, "cess_amount", 0) or 0))
-                    ),
-                    "source_item": inv_items_by_id.get(source_by_return_item.get(item.pk)),
-                }
-                for item in items
-            ]
+                    "cess_amount": cess_scaled,
+                    "source_item": src,
+                })
             from .notes_services import SalesNotesService
 
             SalesNotesService.set_credit_note_items(note, items_data, user)
-            tcs_share = (Decimal(str(getattr(invoice, "tcs_amount", 0) or 0)) * ratio).quantize(Decimal("0.01"))
-            if fully_returned:
-                tcs_share = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
             if tcs_share > 0:
                 note.tcs_amount = tcs_share
                 note.tcs_in_grand_total = True
@@ -282,6 +314,9 @@ class ReturnService:
                 )
             )
             if return_moves:
+                from .cogs_service import CogsService
+
+                invoice_for_lots = sales_return.sales_invoice
                 for move in return_moves:
                     InventoryService.post_movement(
                         company=sales_return.company,
@@ -296,6 +331,19 @@ class ReturnService:
                         reason=f"Cancellation of {sales_return.number}",
                         user=user,
                     )
+                    # N-002: reverse the peels that complete restored, don't skip FIFO.
+                    remaining = abs(Decimal(str(move.quantity)))
+                    if invoice_for_lots is not None:
+                        for sale_move in CogsService.invoice_sale_moves(
+                            invoice_for_lots, product=move.product
+                        ):
+                            if remaining <= 0:
+                                break
+                            if move.batch_id and sale_move.batch_id != move.batch_id:
+                                continue
+                            take = min(remaining, abs(Decimal(str(sale_move.quantity))))
+                            InventoryService.unrestore_fifo_peels(sale_move, take)
+                            remaining -= take
             if damaged_moves:
                 for move in damaged_moves:
                     InventoryService.post_movement(
@@ -312,18 +360,10 @@ class ReturnService:
                         user=user,
                     )
             if not return_moves and not damaged_moves:
-                for item in sales_return.items.select_related("product"):
-                    InventoryService.post_movement(
-                        company=sales_return.company,
-                        warehouse=sales_return.sales_invoice.warehouse,
-                        product=item.product,
-                        movement_type=MovementType.ADJUSTMENT,
-                        quantity=-item.quantity,
-                        reference_type="sales_return_cancel",
-                        reference_id=sales_return.pk,
-                        reason=f"Cancellation of {sales_return.number}",
-                        user=user,
-                    )
+                raise BusinessRuleError(
+                    "Cannot cancel this sales return: original stock movements are missing. "
+                    "Restore stock with a manual adjustment instead of inventing unbatched quantity."
+                )
             invoice = sales_return.sales_invoice
             from inventory.models import SerialNumber
             from inventory.services import SerialNumberService
@@ -351,6 +391,16 @@ class ReturnService:
                 if not other_open:
                     invoice.status = SalesInvoice.Status.COMPLETED
                     invoice.save(update_fields=["status"])
+            # Mark the return CANCELLED first so `cancel_credit_note`'s
+            # "cancel the sales return instead" guard (active only while the
+            # return is COMPLETED) does not block this flow.
+            sales_return.status = SalesReturn.Status.CANCELLED
+            sales_return.cancelled_at = timezone.now()
+            sales_return.updated_by = user
+            sales_return.save(
+                update_fields=["status", "cancelled_at", "updated_by", "updated_at"]
+            )
+
             from .notes_services import SalesNotesService
             from .models import SalesCreditNote as SCN
 
@@ -367,7 +417,7 @@ class ReturnService:
                     company=sales_return.company,
                     source_type="SALES_RETURN",
                     source_id=sales_return.id,
-                    purpose="COGS_REVERSE",
+                    purpose__in=("COGS_REVERSE", "DAMAGED_SCRAP"),
                     status=JournalEntry.Status.POSTED,
                 ):
                     PostingService.reverse(entry, user, sales_return.return_date)

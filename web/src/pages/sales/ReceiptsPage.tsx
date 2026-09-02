@@ -19,7 +19,7 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   createAllocation,
@@ -92,14 +92,18 @@ export function ReceiptsPage() {
       // let a negative amount ("-500" is a non-empty string) through.
       const receiptAmount = Number(amount);
       if (!(receiptAmount > 0)) throw new Error('Amount must be greater than zero');
-      const receipt = await createReceipt({
-        customer: customer.id,
-        amount: receiptAmount,
-        mode,
-        receiptDate: todayIso(),
-        utr: utr || undefined,
-        bankAccount: bankAccount ? Number(bankAccount) : undefined,
-      });
+      const key = userGestureIdempotencyKey();
+      const receipt = await createReceipt(
+        {
+          customer: customer.id,
+          amount: receiptAmount,
+          mode,
+          receiptDate: todayIso(),
+          utr: utr || undefined,
+          bankAccount: bankAccount ? Number(bankAccount) : undefined,
+        },
+        { idempotencyKey: key },
+      );
       if (invoice && Number(allocAmount) > 0) {
         const alloc = Number(allocAmount);
         const maxAlloc = Math.min(
@@ -111,11 +115,14 @@ export function ReceiptsPage() {
             `Allocation must be between 0.01 and ${maxAlloc.toFixed(2)}`,
           );
         }
-        await createAllocation({
-          receipt: receipt.id,
-          salesInvoice: invoice.id,
-          amount: alloc,
-        });
+        await createAllocation(
+          {
+            receipt: receipt.id,
+            salesInvoice: invoice.id,
+            amount: alloc,
+          },
+          { idempotencyKey: `${key}-alloc` },
+        );
       }
       return receipt;
     },

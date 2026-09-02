@@ -71,6 +71,8 @@ export const en = {
     supplierLedger: 'Supplier Ledger',
     gstr1: 'GSTR-1',
     gstr3b: 'GSTR-3B',
+    gstr4: 'GSTR-4 (not a filing engine)',
+    cmp08: 'CMP-08 (not a filing engine)',
     gstr8: 'GSTR-8 (stub)',
     gstr6: 'GSTR-6 (stub)',
     gstr7: 'GSTR-7 (stub)',
@@ -103,6 +105,7 @@ export const en = {
     paymentLinks: 'Payment Links',
     bankStatements: 'Bank Statements',
     bankReconciliation: 'Bank Reconciliation',
+    accountAggregator: 'Account Aggregator',
     bankAccounts: 'Bank Accounts',
     paymentGateway: 'Payment Gateway',
     billing: 'Billing',
@@ -135,6 +138,7 @@ export const en = {
     opportunities: 'Opportunities',
     help: 'Help & FAQ',
     helpHealth: 'Help health',
+    offlineOutbox: 'Offline outbox',
   },
   help: {
     title: 'Help & FAQ',
@@ -433,6 +437,16 @@ export const en = {
     itcEligibility: 'ITC eligibility',
     savedOffline: 'Saved offline — will sync when you are back online.',
     offlineOutboxPending: 'Offline invoice drafts are waiting to sync.',
+    invoiceSaved: 'Invoice {label} saved',
+    invoiceSavedNext: 'Invoice {label} saved — start the next one',
+    draftSaved: 'Draft {label} saved',
+    draftSavedCompleteFailed: 'Draft {label} saved — complete failed: {warning}',
+    purchaseSaved: 'Purchase {label} saved',
+    purchaseSavedNext: 'Purchase {label} saved — start the next one',
+    purchaseSavedStock: 'Purchase {label} saved — {count} items added to stock',
+    saveDisabledReason: 'Select a party and at least one line item to save',
+    completeDisabledReason:
+      'Select a customer/supplier and at least one item with valid quantity to complete',
     restoreDraft: 'Restore',
     restorePurchaseDraft: 'Unsaved purchase draft from {when} found on this device.',
     mobileBillingTip: 'For denser billing screens, landscape or a tablet works best.',
@@ -678,6 +692,21 @@ export const en = {
     loadMore: 'Load more',
     confirmCancel: 'Cancel {label}? This cannot be undone.',
     confirmDeleteDraft: 'Delete draft {label}? This cannot be undone.',
+    confirmCancelCreditNote:
+      'Cancel this credit note? If it was created from a sales return that is still completed, cancel the return first. This cannot be undone.',
+    confirmCancelDebitNote:
+      'Are you sure you want to cancel this debit note? This action cannot be undone.',
+    confirmCancelDeliveryChallan:
+      'Are you sure you want to cancel this delivery challan? This action cannot be undone.',
+    confirmCancelPurchaseCreditNote:
+      'Are you sure you want to cancel this purchase credit note? This action cannot be undone.',
+    confirmCancelPurchaseDebitNote:
+      'Are you sure you want to cancel this purchase debit note? This action cannot be undone.',
+    confirmCancelPurchaseOrder:
+      'Are you sure you want to cancel this purchase order? This action cannot be undone.',
+    confirmCancelSalesOrder:
+      'Are you sure you want to cancel this sales order? This action cannot be undone.',
+    confirmCancelAction: 'Confirm cancel',
   },
   products: {
     bulkActions: 'Bulk Actions',
@@ -963,9 +992,14 @@ export const en = {
   payroll: {
     confirmRun: 'Post this payroll run to the books? This cannot be undone from this screen.',
     confirmComplete: 'Complete this pay run?',
+    confirmCancel: 'Cancel this pay run? Posted journals will reverse and the run returns to draft.',
+    cancelPayRun: 'Cancel pay run',
     payMonth: 'Pay month',
     calendarYear: 'Calendar year',
     payRun: 'pay run',
+    lop: 'Loss of pay',
+    paidDays: 'Paid days',
+    saveLop: 'Save paid days',
   },
   inventory: {
     godown: 'Godown',
@@ -1008,6 +1042,11 @@ export const en = {
     stubTitle: 'Not a filing engine',
     stubBody:
       'This return type is not implemented. The API returns an empty payload with supported: false. Do not use this for GSTN filing.',
+    rawPayload: 'Technical payload',
+  },
+  aaHonesty: {
+    title: 'No consent UI in this app',
+    body: 'Account Aggregator ingest APIs exist for partners. This web app does not collect AA consent or list bank accounts from a FIU. Use bank statement upload and reconciliation instead.',
   },
   dashboard: {
     todaySales: "Today's sales",
@@ -1097,6 +1136,17 @@ export const en = {
     activityCall: 'Call',
     activityEmail: 'Email',
     convertWon: 'Convert as won',
+    markAsWon: 'Mark as won',
+    basic: 'Basic',
+    da: 'DA',
+    tdsRate: 'TDS rate %',
+    batchNo: 'Batch no',
+    expDate: 'Expiry date',
+    mfgDate: 'Mfg date',
+    serialNumbers: 'Serial numbers',
+    serialNumbersHint: 'One serial per line (finished goods on complete).',
+    componentSerials: 'Component serials',
+    componentSerialsHint: 'One line per component: componentId: serial1, serial2',
   },
   reports: {
     period: 'Return period',
@@ -1188,6 +1238,7 @@ export const en = {
     saved: 'Saved successfully',
     cancelled: 'Document cancelled',
     cancelDocument: 'Cancel document',
+    toChallan: 'To Challan',
     convertedToInvoice: 'Converted to draft invoice #{id}',
     creditLimitWarning:
       'Credit limit warning: {exposure} exposure (outstanding + this invoice) vs {limit} limit ({pct}%).',
@@ -1306,6 +1357,7 @@ export const en = {
     export: 'Download export aid',
   },
   locale: {
+    language: 'Language',
     switchToHindi: 'हिंदी',
     switchToEnglish: 'English',
     switchToTamil: 'தமிழ் (beta)',
@@ -1313,6 +1365,11 @@ export const en = {
     companySwitcher: 'Switch company',
     companyRequired: 'Choose a company',
     companyRequiredHelp: 'You belong to more than one company. Pick one to continue.',
+  },
+  errorBoundary: {
+    title: 'Something went wrong',
+    body: 'An unexpected error occurred. Reloading the page usually fixes this.',
+    reload: 'Reload',
   },
   preview: {
     manufacturing: 'Preview only — not a full MES.',

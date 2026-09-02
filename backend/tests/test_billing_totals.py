@@ -63,16 +63,21 @@ def test_auto_round_off_can_be_disabled():
     assert doc.round_off == Decimal("0.00")
 
 
-def test_cgst_sgst_halves_sum_to_tax():
-    """Odd tax amounts must split so CGST + SGST == q2(tax), residual on SGST."""
+def test_cgst_sgst_halves_are_equal():
+    """BILL-01: intra-state CGST and SGST must be exactly equal (GSTN validation);
+    any odd third-place paise is dropped from the line tax and absorbed by the
+    document round-off leg, not pushed onto SGST."""
     doc = _Doc()
     items = [_Item(1, 10.05, gst_rate=18)]
     compute_document_totals(doc, items, tax_enabled=True, intra_state=True)
     item = items[0]
+    # tax = 1.809 → q2(0.9045) = 0.90 each side.
     assert item.cgst == Decimal("0.90")
-    assert item.sgst == Decimal("0.91")
-    assert item.cgst + item.sgst == q2(Decimal("10.05") * Decimal("18") / Decimal("100"))
-    assert item.line_total == Decimal("11.86")
+    assert item.sgst == Decimal("0.90")
+    assert item.cgst == item.sgst
+    assert item.line_total == Decimal("11.85")
+    # The dropped 0.9 paise re-appears as round-off on the document.
+    assert doc.grand_total == Decimal("12.00")
 
 
 def test_before_tax_invoice_discount_reduces_gst():

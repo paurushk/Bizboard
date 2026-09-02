@@ -32,7 +32,11 @@ def _file_to_images(raw: bytes, content_type: str, filename: str) -> list[bytes]
                 f"PDF has {page_count} pages, over the {hard_cap}-page limit — this is "
                 "almost never a genuine bill. Split it or upload the relevant pages only."
             )
-        pages_to_read = min(page_count, soft_cap)
+        if page_count > soft_cap:
+            raise BusinessRuleError(
+                f"PDF has {page_count} pages (limit {soft_cap}). Split the bill or raise LLM_BILL_MAX_PAGES."
+            )
+        pages_to_read = page_count
         images = []
         for index in range(pages_to_read):
             page = pdf[index]

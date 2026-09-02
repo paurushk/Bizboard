@@ -1,0 +1,323 @@
+{
+  "totalChecked": 39,
+  "passed": 36,
+  "failed": 3,
+  "defectsCount": 0,
+  "defects": [],
+  "auditLog": [
+    {
+      "screen": "Login",
+      "element": "Email Field",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Login",
+      "element": "Password Field",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Login",
+      "element": "Sign In Button",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Login",
+      "element": "Empty Submit Validation",
+      "testType": "Negative Path",
+      "status": "PASS",
+      "details": "Errors: Email | Email | Enter a valid email | Password | Password | Password is required",
+      "issueId": ""
+    },
+    {
+      "screen": "Login",
+      "element": "Invalid Credentials Validation",
+      "testType": "Negative Path",
+      "status": "PASS",
+      "details": "Alert: Email or password is incorrect. | Email or password is incorrect.",
+      "issueId": ""
+    },
+    {
+      "screen": "Login",
+      "element": "Valid Credentials Login",
+      "testType": "Happy Path",
+      "status": "PASS",
+      "details": "Landed at http://localhost/",
+      "issueId": ""
+    },
+    {
+      "screen": "Dashboard",
+      "element": "App Navigation Header",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Dashboard",
+      "element": "Sidebar Navigation Drawer",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Dashboard",
+      "element": "KPI Summary Cards & Panels",
+      "testType": "UI Data Load",
+      "status": "PASS",
+      "details": "Count: 18 cards",
+      "issueId": ""
+    },
+    {
+      "screen": "Customers",
+      "element": "Add Customer Button",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Customers",
+      "element": "Customer Modal Dialog",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Customers",
+      "element": "Create Valid Customer",
+      "testType": "Happy Path",
+      "status": "PASS",
+      "details": "Saved customer successfully",
+      "issueId": ""
+    },
+    {
+      "screen": "New Invoice",
+      "element": "Customer Combobox Selector",
+      "testType": "UI Presence",
+      "status": "FAIL",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "New Invoice",
+      "element": "Save Invoice Button",
+      "testType": "UI Presence",
+      "status": "FAIL",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Sales",
+      "element": "Sales History",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Sales History\nNew Invo\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Sales",
+      "element": "Quotations",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Quotations\nNew quotati\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Sales",
+      "element": "Sales Orders",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Sales Orders\nNew sales\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Sales",
+      "element": "Delivery Challans",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Delivery Challans\nNew \"",
+      "issueId": ""
+    },
+    {
+      "screen": "Sales",
+      "element": "Credit Notes",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Credit Notes\nNew credi\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Sales",
+      "element": "Debit Notes",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Debit Notes\nNew debit \"",
+      "issueId": ""
+    },
+    {
+      "screen": "Sales",
+      "element": "Sales Returns",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Sales Returns\nNew sale\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Sales",
+      "element": "Receipts",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Customer Payments (Pay\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Sales",
+      "element": "Recurring Invoices",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Recurring invoices\n\nTe\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Sales",
+      "element": "Sales Bill Upload",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Upload sales bill\n\nExt\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Sales",
+      "element": "Point of Sale (POS)",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Point of Sale\n\nFast co\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Suppliers",
+      "element": "Add Supplier Button",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Suppliers",
+      "element": "Supplier Modal Dialog",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Suppliers",
+      "element": "Create Valid Supplier",
+      "testType": "Happy Path",
+      "status": "PASS",
+      "details": "Saved supplier successfully",
+      "issueId": ""
+    },
+    {
+      "screen": "Purchases",
+      "element": "New Purchase Bill",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Something went wrong\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Purchases",
+      "element": "Purchase History",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Purchase History\nNew P\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Purchases",
+      "element": "Purchase Orders",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Purchase Orders\nNew pu\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Purchases",
+      "element": "Purchase Credit Notes",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Purchase Credit Notes\n\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Purchases",
+      "element": "Purchase Debit Notes",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Purchase Debit Notes\nR\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Purchases",
+      "element": "Purchase Returns",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Purchase Returns\nNew p\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Purchases",
+      "element": "Supplier Payments",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Supplier Payments (Pay\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Purchases",
+      "element": "Purchase Bill Upload",
+      "testType": "Surface Route & Render",
+      "status": "PASS",
+      "details": "Loaded: \"Bizboard Bizboard Upload purchase bill\n\n\"",
+      "issueId": ""
+    },
+    {
+      "screen": "Inventory",
+      "element": "Add Product Button",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Inventory",
+      "element": "Product Modal Dialog",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "screen": "Runner",
+      "element": "Global Audit",
+      "testType": "Execution",
+      "status": "FAIL",
+      "details": "locator.fill: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('div[role=\"dialog\"]').first().locator('label:has-text(\"Selling Price\"), label:has-text(\"Price\")').locator('..').locator('input').first()\u001b[22m\n",
+      "issueId": ""
+    }
+  ],
+  "consoleErrorsCount": 6,
+  "networkErrorsCount": 2
+}

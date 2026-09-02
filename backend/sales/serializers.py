@@ -10,6 +10,7 @@ from core.services.h9_amend import (
     existing_lines_as_items_data,
     lines_prices_unchanged,
 )
+from core.serializers import CompanyPrimaryKeyRelatedField
 from masters.models import Customer, Product
 
 from .models import (
@@ -42,7 +43,7 @@ class CompanyScopedSerializerMixin:
 
 
 class _BaseLineSerializer(serializers.ModelSerializer):
-    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
+    product = CompanyPrimaryKeyRelatedField(queryset=Product.objects.all())
     product_name = serializers.CharField(source="product.name", read_only=True)
 
 
@@ -234,9 +235,10 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         # used to unconditionally call next_number() on every single draft.)
         with transaction.atomic():
             invoice = SalesInvoice.objects.create(**validated_data)
-            # TCS: an explicit tcs_amount at create time overrides the rate (see update()).
-            if validated_data.get("tcs_amount"):
-                invoice.tcs_amount_manual = True
+            raw = getattr(self.context.get("request"), "data", None) or {}
+            if hasattr(raw, "__contains__") and "tcs_amount" in raw:
+                amount = raw.get("tcs_amount") if hasattr(raw, "get") else None
+                invoice.tcs_amount_manual = amount is not None
                 invoice.save(update_fields=["tcs_amount_manual"])
             # BB-000728: OWNER price-list override needs membership role.
             cu = get_company_user(self.context["request"])
@@ -245,6 +247,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             return invoice
 
     def update(self, instance, validated_data):
+        from django.db import transaction
         from core.exceptions import BusinessRuleError
         from core.permissions import get_company_user
 
@@ -268,6 +271,8 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "invoice_discount", "invoice_discount_mode", "auto_round_off",
             "price_mode",
             "tcs_rate", "tcs_amount", "is_reverse_charge", "supply_type", "company_gstin",
+            "warehouse", "invoice_date", "due_date", "cost_center",
+            "ecommerce_operator_gstin", "invoice_type",
         }
         if instance.status == SalesInvoice.Status.COMPLETED:
             for fld in ("filing_party_gstin", "filing_place_of_supply"):
@@ -336,11 +341,12 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
                     user=request.user,
                 )
 
-        # TCS: an operator-supplied tcs_amount overrides the rate at Complete
-        # (owner decision 2026-08-31). Remember which one it is; a rate-only edit
-        # (tcs_rate present, tcs_amount absent) reverts to rate-computed.
-        if "tcs_amount" in validated_data:
-            instance.tcs_amount_manual = bool(validated_data.get("tcs_amount"))
+        # TCS: an operator-supplied tcs_amount (including explicit 0) overrides the
+        # rate at Complete. A rate-only edit (tcs_rate present, tcs_amount absent)
+        # reverts to rate-computed.
+        if hasattr(raw, "__contains__") and "tcs_amount" in raw:
+            amount = raw.get("tcs_amount") if hasattr(raw, "get") else None
+            instance.tcs_amount_manual = amount is not None
         elif "tcs_rate" in validated_data:
             instance.tcs_amount_manual = False
 
@@ -357,55 +363,50 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
                     if items_data is not None
                     else existing_lines_as_items_data(instance.items)
                 )
-                SalesService.set_items(instance, payload, user)
-                # H9: reverse prior COMPLETE (+COGS) journals and re-post at amended totals.
-                if instance.company.accounting_enabled:
-                    from decimal import Decimal as D
+                with transaction.atomic():
+                    SalesService.set_items(instance, payload, user)
+                    # set_items already reversed+reposted COMPLETE via adjust_sales_invoice_postings.
+                    if instance.company.accounting_enabled:
+                        from decimal import Decimal as D
 
-                    from accounting.models import JournalEntry
-                    from accounting.services import PostingService
+                        from accounting.models import JournalEntry, JournalLine
+                        from accounting.services import PostingService
+                        from sales.cogs_service import CogsService
 
-                    for entry in JournalEntry.objects.filter(
-                        company=instance.company,
-                        source_type="SALES_INVOICE",
-                        source_id=instance.id,
-                        purpose__in=("COMPLETE", "COGS"),
-                        status=JournalEntry.Status.POSTED,
-                    ):
-                        PostingService.reverse(entry, user, instance.invoice_date)
-                    PostingService.post_sales_invoice(instance, user)
-                    # Price-only H9: keep SALE peel unit_cost. Do not revalue from remaining layers.
-                    from sales.cogs_service import CogsService
-
-                    cogs_new = D("0")
-                    sale_moves = CogsService.invoice_sale_moves(instance)
-                    for move in sale_moves:
-                        cogs_new += D(str(move.unit_cost or 0)) * abs(D(str(move.quantity)))
-                    if not cogs_new:
-                        prior = JournalEntry.objects.filter(
+                        has_cogs = JournalEntry.objects.filter(
                             company=instance.company,
                             source_type="SALES_INVOICE",
                             source_id=instance.id,
                             purpose="COGS",
-                            status=JournalEntry.Status.REVERSED,
-                        ).order_by("-id").first()
-                        if prior is not None:
-                            from accounting.models import JournalLine
+                            status=JournalEntry.Status.POSTED,
+                        ).exists()
+                        if not has_cogs:
+                            cogs_new = D("0")
+                            sale_moves = CogsService.invoice_sale_moves(instance)
+                            for move in sale_moves:
+                                cogs_new += D(str(move.unit_cost or 0)) * abs(D(str(move.quantity)))
+                            if not cogs_new:
+                                prior = JournalEntry.objects.filter(
+                                    company=instance.company,
+                                    source_type="SALES_INVOICE",
+                                    source_id=instance.id,
+                                    purpose="COGS",
+                                    status=JournalEntry.Status.REVERSED,
+                                ).order_by("-id").first()
+                                if prior is not None:
+                                    cogs_new = sum(
+                                        (
+                                            D(str(line.debit or 0))
+                                            for line in JournalLine.objects.filter(entry=prior, account__code="5400")
+                                        ),
+                                        D("0"),
+                                    )
+                            if cogs_new:
+                                PostingService.post_sales_cogs(instance, cogs_new, user)
+                    from reporting.gst_periods import mark_period_dirty_if_snapshotted
 
-                            cogs_new = sum(
-                                (
-                                    D(str(line.debit or 0))
-                                    for line in JournalLine.objects.filter(entry=prior, account__code="5400")
-                                ),
-                                D("0"),
-                            )
-                    if cogs_new:
-                        PostingService.post_sales_cogs(instance, cogs_new, user)
-                # BB-000275: money amend must dirty snapshotted GST periods.
-                from reporting.gst_periods import mark_period_dirty_if_snapshotted
-
-                mark_period_dirty_if_snapshotted(instance.company, instance.invoice_date)
-            # else: notes/terms-only — no set_items, no PDF requeue
+                    mark_period_dirty_if_snapshotted(instance.company, instance.invoice_date)
+                return instance
             return instance
 
         if items_data is not None:
@@ -420,7 +421,8 @@ class QuotationItemSerializer(_BaseLineSerializer):
         model = QuotationItem
         fields = [
             "id", "product", "product_name", "description", "quantity",
-            "unit_price", "discount_percent", "gst_rate",
+            "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
+            "hsn_code", "supply_nature", "unit_price_inclusive",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
@@ -434,7 +436,11 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
         model = Quotation
         fields = [
             "id", "number", "status", "invoice_type", "customer", "customer_name",
-            "quotation_date", "valid_until", "notes", "items", "converted_invoice",
+            "quotation_date", "valid_until", "notes", "terms_text",
+            "payment_terms_days", "additional_charges", "charges_hsn", "charges_gst_rate",
+            "invoice_discount", "invoice_discount_mode", "auto_round_off",
+            "supply_type", "company_gstin",
+            "items", "converted_invoice",
             "converted_order", "created_at", "updated_at",
         ] + TOTAL_READONLY
         read_only_fields = ["number", "status", "converted_invoice", "converted_order"] + TOTAL_READONLY
@@ -442,6 +448,11 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
         return customer
+
+    def validate_company_gstin(self, company_gstin):
+        if company_gstin is not None:
+            self.check_company_ref(company_gstin, "company_gstin")
+        return company_gstin
 
     def create(self, validated_data):
         from django.db import transaction

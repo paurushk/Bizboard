@@ -124,7 +124,15 @@ export function DocumentEditorShell({
               {t('billing.settings')}
             </Button>
           ) : null}
-          <Tooltip title={primaryDisabled ? (primarySave.mode === 'save' ? 'Select a party and at least one line item to save' : 'Select a customer/supplier and at least one item with valid quantity to complete') : ''}>
+          <Tooltip
+            title={
+              primaryDisabled
+                ? primarySave.mode === 'save'
+                  ? t('billing.saveDisabledReason')
+                  : t('billing.completeDisabledReason')
+                : ''
+            }
+          >
             <span>
               <Button variant="contained" disabled={primaryDisabled} onClick={onPrimarySave}>
                 {t(primarySave.labelKey)}

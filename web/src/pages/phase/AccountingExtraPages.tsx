@@ -18,6 +18,7 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney, toNumber } from '@/utils/money';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import {
   asRows,
   DataTable,
@@ -27,12 +28,13 @@ import {
 
 
 export function AccountingSettingsPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const [msg, setMsg] = useState('');
   const [fyEnd, setFyEnd] = useState('2026-03-31');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const m = useMutation({
-    mutationFn: (enabled: boolean) => api.updateAccountingSettings({ accounting_enabled: enabled }),
+    mutationFn: (enabled: boolean) => api.updateAccountingSettings({ accountingEnabled: enabled }),
     onSuccess: (data) => {
       const enabled = Boolean((data as Row)?.accountingEnabled ?? (data as Row)?.accounting_enabled);
       setMsg(enabled ? 'Accounting enabled — CoA seeded.' : 'Accounting disabled.');
@@ -61,10 +63,10 @@ export function AccountingSettingsPage() {
             Enable only when pilots need journals / TB / P&amp;L. GL is a projection of documents — not a second place to edit sales.
           </Alert>
           <Stack direction="row" spacing={1}>
-            <Button variant="contained" disabled={m.isPending} onClick={() => m.mutate(true)}>
+            <Button variant="contained" disabled={writesBlocked || m.isPending} onClick={() => m.mutate(true)}>
               Enable accounting
             </Button>
-            <Button variant="outlined" disabled={m.isPending} onClick={() => m.mutate(false)}>
+            <Button variant="outlined" disabled={writesBlocked || m.isPending} onClick={() => m.mutate(false)}>
               Disable
             </Button>
           </Stack>
@@ -85,7 +87,7 @@ export function AccountingSettingsPage() {
             onChange={(e) => setFyEnd(e.target.value)}
             sx={{ maxWidth: 220 }}
           />
-          <Button color="error" variant="contained" disabled={!fyEnd || fyClose.isPending} onClick={() => setConfirmOpen(true)}>
+          <Button color="error" variant="contained" disabled={writesBlocked || !fyEnd || fyClose.isPending} onClick={() => setConfirmOpen(true)}>
             Close financial year…
           </Button>
         </Stack>
@@ -97,7 +99,7 @@ export function AccountingSettingsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
-          <Button color="error" variant="contained" disabled={fyClose.isPending} onClick={() => fyClose.mutate()}>
+          <Button color="error" variant="contained" disabled={writesBlocked || fyClose.isPending} onClick={() => fyClose.mutate()}>
             Confirm close
           </Button>
         </DialogActions>
@@ -107,6 +109,7 @@ export function AccountingSettingsPage() {
 }
 
 export function AccountingBankReconPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['accounting-bank-recon'], queryFn: api.listAccountingBankReconSessions });
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: api.listAccounts });
@@ -223,7 +226,7 @@ export function AccountingBankReconPage() {
               </MenuItem>
             ))}
           </TextField>
-          <Button variant="contained" disabled={!account || !statement || create.isPending} onClick={() => create.mutate()}>
+          <Button variant="contained" disabled={writesBlocked || !account || !statement || create.isPending} onClick={() => create.mutate()}>
             Create session
           </Button>
         </Stack>
@@ -276,7 +279,7 @@ export function AccountingBankReconPage() {
               </MenuItem>
             ))}
           </TextField>
-          <Button variant="outlined" disabled={!session || !journalLine || !bankLine || match.isPending} onClick={() => match.mutate()}>
+          <Button variant="outlined" disabled={writesBlocked || !session || !journalLine || !bankLine || match.isPending} onClick={() => match.mutate()}>
             Match lines
           </Button>
         </Stack>
@@ -297,6 +300,7 @@ export function AccountingBankReconPage() {
 }
 
 export function CostCentersPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['cost-centers'], queryFn: api.listCostCenters });
   const [open, setOpen] = useState(false);
@@ -316,7 +320,7 @@ export function CostCentersPage() {
       title={t('phase.costCenters')}
       subtitle={t('phase.costCentersSubtitle')}
       actions={
-        <Button variant="contained" onClick={() => setOpen(true)}>
+        <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
           Add
         </Button>
       }
@@ -340,7 +344,7 @@ export function CostCentersPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={!name || create.isPending} onClick={() => create.mutate()}>
+          <Button variant="contained" disabled={writesBlocked || !name || create.isPending} onClick={() => create.mutate()}>
             Save
           </Button>
         </DialogActions>

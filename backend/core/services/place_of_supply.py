@@ -4,12 +4,22 @@ from core.exceptions import BusinessRuleError
 from core.help_codes import HelpCode
 from core.services.billing import extract_state_code, is_intra_state, place_of_supply_known
 
-EXPORT_SEZ_SUPPLY_TYPES = frozenset({"SEZWP", "SEZWOP", "EXPWP", "EXPWOP", "DEXP"})
+# POS-01: DEXP (deemed export) is a *domestic* supply — the recipient is in
+# India (EOU / Advance-Authorisation holder), so its place of supply is the
+# recipient's actual state (GSTR-1 table 6C), never the export code "96". Only
+# real exports / SEZ supplies get POS 96 and skip the party-state requirement.
+EXPORT_SEZ_SUPPLY_TYPES = frozenset({"SEZWP", "SEZWOP", "EXPWP", "EXPWOP"})
+DEEMED_EXPORT_SUPPLY_TYPES = frozenset({"DEXP"})
 EXPORT_POS_CODE = "96"
 
 
 def is_export_or_sez_supply(supply_type: str | None) -> bool:
+    """Real export / SEZ supply → POS 96, no party state needed. Excludes DEXP."""
     return (supply_type or "").strip().upper() in EXPORT_SEZ_SUPPLY_TYPES
+
+
+def is_deemed_export_supply(supply_type: str | None) -> bool:
+    return (supply_type or "").strip().upper() in DEEMED_EXPORT_SUPPLY_TYPES
 
 
 def resolve_place_of_supply_code(

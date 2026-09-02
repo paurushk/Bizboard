@@ -88,14 +88,23 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
             if row.match_status == Gstr2bIngest.MatchStatus.PARTIAL:
                 klass = Gstr2bIngest.MatchClass.VALUE_MISMATCH
             else:
-                other = (
-                    PurchaseInvoice.objects.filter(
-                        company=company,
-                        number__iexact=(row.invoice_number or "").strip(),
+                other_qs = PurchaseInvoice.objects.filter(
+                    company=company,
+                    number__iexact=(row.invoice_number or "").strip(),
+                    status__in=(
+                        PurchaseInvoice.Status.COMPLETED,
+                        PurchaseInvoice.Status.RETURNED,
+                    ),
+                ).exclude(supplier__gstin__iexact=row.supplier_gstin or "")
+                if row.invoice_date:
+                    from .gstr2b import _indian_fy_start_year
+
+                    fy = _indian_fy_start_year(row.invoice_date)
+                    other_qs = other_qs.filter(
+                        invoice_date__gte=date(fy, 4, 1),
+                        invoice_date__lt=date(fy + 1, 4, 1),
                     )
-                    .exclude(supplier__gstin__iexact=row.supplier_gstin or "")
-                    .first()
-                )
+                other = other_qs.first()
                 if other is not None:
                     klass = Gstr2bIngest.MatchClass.WRONG_GSTIN
                 else:
@@ -184,8 +193,10 @@ def apply_ims_action(row: Gstr2bIngest, action: str, *, remark: str = "", user=N
 
 
 def bulk_accept_exact(company, period: str, *, user=None, remark: str = "") -> dict:
-    """Accept EXACT matches in chunks of 500. Idempotent: already-ACCEPT rows skip."""
-    classify_and_match(company, period, persist=True)
+    """Accept EXACT matches in chunks of 500. Idempotent: already-ACCEPT rows skip.
+
+    Does not rematch 2B as a side effect — Accept records the board's current EXACT set.
+    """
     qs = (
         Gstr2bIngest.objects.filter(
             company=company,
@@ -215,33 +226,13 @@ def bulk_accept_exact(company, period: str, *, user=None, remark: str = "") -> d
 
 
 def deemed_accept_on_period_lock(company, period: str, *, user=None) -> int:
-    """NO_ACTION EXACT matches at GST period lock are deemed ACCEPT — never silent.
-
-    MISSING_IN_BOOKS / mismatches stay NO_ACTION so ITC is not auto-claimed.
-    """
-    qs = Gstr2bIngest.objects.filter(
-        company=company,
-        period=period,
-        ims_action=Gstr2bIngest.ImsAction.NO_ACTION,
-        match_class=Gstr2bIngest.MatchClass.EXACT,
-    )
-    n = 0
-    with transaction.atomic():
-        for row in qs.select_for_update().order_by("id"):
-            apply_ims_action(
-                row,
-                Gstr2bIngest.ImsAction.ACCEPT,
-                remark="Deemed accept at GST period lock (exact match, no IMS action recorded before close).",
-                user=user,
-                payload={"deemed": True},
-            )
-            n += 1
-    return n
+    """Period lock no longer auto-ACCEPTS IMS rows — ITC requires an explicit decision."""
+    return 0
 
 
 def credit_at_risk(company, period: str, *, as_of: date | None = None) -> dict:
     as_of = as_of or timezone.localdate()
-    classify_and_match(company, period, persist=True)
+    classify_and_match(company, period, persist=False)
     rows = list(Gstr2bIngest.objects.filter(company=company, period=period))
     total = Decimal("0")
     matched = Decimal("0")

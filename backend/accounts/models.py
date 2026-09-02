@@ -46,6 +46,27 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
+    def save(self, *args, **kwargs):
+        raw = (self.phone or "").strip()
+        if raw:
+            from accounts.otp_utils import canonicalize_user_phone
+
+            try:
+                self.phone = canonicalize_user_phone(raw)
+            except ValueError:
+                import re
+
+                digits = re.sub(r"\D", "", raw)
+                if digits.startswith("0") and len(digits) == 11:
+                    self.phone = canonicalize_user_phone(digits[1:])
+                else:
+                    from django.core.exceptions import ValidationError
+
+                    raise ValidationError({"phone": "Enter a valid mobile number (E.164 or 10-digit Indian)."})
+        else:
+            self.phone = ""
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return self.email
 
@@ -231,11 +252,11 @@ class Company(TimeStampedModel):
 
     @property
     def is_gst_registered(self):
-        # BB-000607: registration lives on Company, not CompanyGstin.
-        return (
-            self.registration_type != self.RegistrationType.UNREGISTERED
-            and bool(self.gstin)
-        )
+        if self.registration_type == self.RegistrationType.UNREGISTERED:
+            return False
+        if self.gstin:
+            return True
+        return self.gstins.filter(is_active=True).exclude(gstin="").exists()
 
 
 class CompanyGstin(TimeStampedModel):

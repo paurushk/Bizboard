@@ -311,13 +311,26 @@ export function Gstr3bReportPage() {
   return <GstReturnPage kind="gstr3b" />;
 }
 
-function GstStubPage({ kind }: { kind: 'gstr6' | 'gstr7' | 'gstr8' }) {
+function GstStubPage({ kind }: { kind: 'gstr4' | 'cmp08' | 'gstr6' | 'gstr7' | 'gstr8' }) {
   const [period, setPeriod] = useState(currentPeriod());
   const title =
-    kind === 'gstr6' ? t('nav.gstr6') : kind === 'gstr7' ? t('nav.gstr7') : t('nav.gstr8');
+    kind === 'gstr4'
+      ? t('nav.gstr4')
+      : kind === 'cmp08'
+        ? t('nav.cmp08')
+        : kind === 'gstr6'
+          ? t('nav.gstr6')
+          : kind === 'gstr7'
+            ? t('nav.gstr7')
+            : t('nav.gstr8');
+  // `getGstReturn` only serves gstr6/7/8 here (gstr4 / cmp08 render from their
+  // own components); `enabled` guarantees the queryFn never runs for those.
+  const isServerReturn = kind === 'gstr6' || kind === 'gstr7' || kind === 'gstr8';
   const query = useQuery({
     queryKey: ['gst-return', kind, period],
-    queryFn: () => getGstReturn(kind, { period }),
+    queryFn: () =>
+      getGstReturn(kind as 'gstr6' | 'gstr7' | 'gstr8', { period }),
+    enabled: isServerReturn,
   });
   return (
     <Stack spacing={2}>
@@ -340,14 +353,25 @@ function GstStubPage({ kind }: { kind: 'gstr6' | 'gstr7' | 'gstr8' }) {
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data ? (
-        <Paper sx={{ p: 2, overflow: 'auto' }}>
-          <Typography variant="body2" component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap' }}>
-            {JSON.stringify(query.data, null, 2)}
-          </Typography>
-        </Paper>
+        <details>
+          <summary>{t('gstHonesty.rawPayload')}</summary>
+          <Paper sx={{ p: 2, overflow: 'auto', mt: 1 }}>
+            <Typography variant="body2" component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap' }}>
+              {JSON.stringify(query.data, null, 2)}
+            </Typography>
+          </Paper>
+        </details>
       ) : null}
     </Stack>
   );
+}
+
+export function Gstr4ReportPage() {
+  return <GstStubPage kind="gstr4" />;
+}
+
+export function Cmp08ReportPage() {
+  return <GstStubPage kind="cmp08" />;
 }
 
 export function Gstr6ReportPage() {

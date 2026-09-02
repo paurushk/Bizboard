@@ -129,6 +129,7 @@ export const navigation: NavItem[] = [
       { id: 'payment-links', labelKey: 'nav.paymentLinks', path: '/payments/links', visible: canCreatePayments },
       { id: 'bank-statements', labelKey: 'nav.bankStatements', path: '/payments/statements', visible: canCreatePayments },
       { id: 'payment-recon', labelKey: 'nav.bankReconciliation', path: '/payments/reconciliation', visible: canViewBankRecon },
+      { id: 'account-aggregator', labelKey: 'nav.accountAggregator', path: '/payments/account-aggregator', visible: canViewBankRecon },
       { id: 'cash-book-payments', labelKey: 'nav.cashBook', path: '/reports/cash-book', visible: canViewFinancialReports },
     ],
   },
@@ -208,6 +209,18 @@ export const navigation: NavItem[] = [
         id: 'report-gstr3b',
         labelKey: 'nav.gstr3b',
         path: '/reports/gstr3b',
+        visible: () => isGstrReportsEnabled(),
+      },
+      {
+        id: 'report-gstr4',
+        labelKey: 'nav.gstr4',
+        path: '/reports/gstr4',
+        visible: () => isGstrReportsEnabled(),
+      },
+      {
+        id: 'report-cmp08',
+        labelKey: 'nav.cmp08',
+        path: '/reports/cmp08',
         visible: () => isGstrReportsEnabled(),
       },
       {
@@ -410,6 +423,7 @@ export const navigation: NavItem[] = [
     ],
   },
   { id: 'help', labelKey: 'nav.help', path: '/help' },
+  { id: 'offline-outbox', labelKey: 'nav.offlineOutbox', path: '/offline-outbox', visible: (user) => Boolean(user) },
 ];
 
 export function filterNav(user: User | null): NavItem[] {

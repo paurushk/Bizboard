@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -76,7 +77,7 @@ class PayRunViewSet(CompanyScopedViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             try:
-                paid = Decimal(str(row.get("paid_days")))
+                paid = Decimal(str(row.get("paid_days") if row.get("paid_days") is not None else row.get("paidDays")))
             except (InvalidOperation, TypeError):
                 return Response(
                     {"detail": "paid_days must be a number."},
@@ -84,11 +85,24 @@ class PayRunViewSet(CompanyScopedViewSet):
                 )
             if paid < 0:
                 return Response({"detail": "paid_days cannot be negative."}, status=status.HTTP_400_BAD_REQUEST)
+            from calendar import monthrange
+
+            period = getattr(pay_run, "period", "") or ""
+            try:
+                year, month = int(period[:4]), int(period[5:7])
+                max_days = monthrange(year, month)[1]
+            except (ValueError, IndexError):
+                max_days = 31
+            if paid > max_days:
+                return Response(
+                    {"detail": f"paid_days cannot exceed {max_days} calendar days in {period}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             PaySlip.objects.update_or_create(
                 pay_run=pay_run,
                 company=company,
                 employee=emp,
-                defaults={"paid_days": paid, "gross": emp.salary, "net": emp.salary},
+                defaults={"paid_days": paid, "gross": emp.salary, "net": Decimal("0")},
             )
         pay_run = PayRun.objects.prefetch_related("slips__employee").get(pk=pay_run.pk)
         return Response(self.get_serializer(pay_run).data)
@@ -106,12 +120,14 @@ class PayRunViewSet(CompanyScopedViewSet):
         pay_run = PayRun.objects.prefetch_related("slips__employee").get(pk=pay_run.pk)
         return Response(self.get_serializer(pay_run).data)
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], url_path="cancel")
     def cancel(self, request, pk=None):
-        pay_run = self.get_object()
-        try:
-            pay_run = cancel_pay_run(pay_run, request.user)
-        except BusinessRuleError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        """Reverse a completed pay run (GL reverse + reopen DRAFT)."""
+        with transaction.atomic():
+            pay_run = PayRun.objects.select_for_update().get(pk=self.get_object().pk)
+            try:
+                pay_run = cancel_pay_run(pay_run, request.user)
+            except BusinessRuleError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         pay_run = PayRun.objects.prefetch_related("slips__employee").get(pk=pay_run.pk)
         return Response(self.get_serializer(pay_run).data)

@@ -1,8 +1,11 @@
 """Work-order release / complete / cancel with BOM snapshot + optional WIP GL."""
 
 from decimal import Decimal
+import logging
 
 from django.db import transaction
+
+logger = logging.getLogger(__name__)
 
 from core.exceptions import BusinessRuleError
 from inventory.models import MovementType, SerialNumber, StockMovement
@@ -22,7 +25,8 @@ def _component_requirements(wo):
 
 
 def _snapshot_bom(wo):
-    wo.component_lines.all().delete()
+    if wo.component_lines.exists():
+        return
     WorkOrderLine.objects.bulk_create(
         [
             WorkOrderLine(
@@ -55,6 +59,14 @@ def _issue_batches(wo, component, qty, line=None):
         return [(getattr(line, "batch", None) if line else None, qty)]
     batch = getattr(line, "batch", None) if line else None
     if batch is not None:
+        warehouse = wo.warehouse or InventoryService.default_warehouse(wo.company)
+        available = InventoryService.available_quantity(wo.company, component, warehouse, batch)
+        need = Decimal(str(qty))
+        if available < need:
+            raise BusinessRuleError(
+                f"Insufficient stock in batch '{getattr(batch, 'batch_no', batch)}' "
+                f"for '{component.name}': available {available}, required {need}."
+            )
         return [(batch, qty)]
 
     # Custom lot allocations specified by user
@@ -65,9 +77,14 @@ def _issue_batches(wo, component, qty, line=None):
             b_id = alloc.get("batch_id")
             b_qty = Decimal(str(alloc.get("qty") or 0))
             if b_id and b_qty > 0:
-                b_obj = BatchLot.objects.filter(company=wo.company, pk=b_id).first()
-                if b_obj:
-                    allocs.append((b_obj, b_qty))
+                b_obj = BatchLot.objects.filter(
+                    company=wo.company, pk=b_id, product_id=component.pk,
+                ).first()
+                if not b_obj:
+                    raise BusinessRuleError(
+                        f"Lot allocation batch {b_id} does not belong to '{component.name}'."
+                    )
+                allocs.append((b_obj, b_qty))
         if allocs:
             tot = sum((q for _, q in allocs), Decimal("0"))
             need = Decimal(str(qty))
@@ -210,17 +227,41 @@ def complete_work_order(wo, user):
         from inventory.models import BatchLot
 
         batch_number = getattr(wo, "batch_no", None) or f"WO-{wo.id}"
-        batch, _ = BatchLot.objects.get_or_create(
+        wo_exp = getattr(wo, "exp_date", None)
+        wo_mfg = getattr(wo, "mfg_date", None) or wo.completed_at or gate_date
+        batch, created = BatchLot.objects.get_or_create(
             company=wo.company,
             product=fg,
             batch_no=batch_number,
             defaults={
-                "expiry_date": getattr(wo, "exp_date", None),
-                "manufacturing_date": getattr(wo, "mfg_date", None) or wo.completed_at or gate_date,
+                "expiry_date": wo_exp,
+                "manufacturing_date": wo_mfg,
                 "created_by": user,
                 "updated_by": user,
             },
         )
+        if not created:
+            lot_updates = []
+            if wo_exp and batch.expiry_date and batch.expiry_date != wo_exp:
+                raise BusinessRuleError(
+                    f"Batch {batch_number} already exists with expiry {batch.expiry_date}; "
+                    f"entered {wo_exp} does not match."
+                )
+            elif wo_exp and not batch.expiry_date:
+                batch.expiry_date = wo_exp
+                lot_updates.append("expiry_date")
+            if wo_mfg and batch.manufacturing_date and batch.manufacturing_date != wo_mfg:
+                raise BusinessRuleError(
+                    f"Batch {batch_number} already exists with mfg date {batch.manufacturing_date}; "
+                    f"entered {wo_mfg} does not match."
+                )
+            elif wo_mfg and not batch.manufacturing_date:
+                batch.manufacturing_date = wo_mfg
+                lot_updates.append("manufacturing_date")
+            if lot_updates:
+                batch.updated_by = user
+                lot_updates.extend(["updated_by", "updated_at"])
+                batch.save(update_fields=lot_updates)
         wo.batch = batch
         wo.batch_no = batch_number
     # BB-000723: register FG serials when track_serial.
@@ -232,6 +273,7 @@ def complete_work_order(wo, user):
             numbers=wo.serial_numbers,
             quantity=wo.qty,
             user=user,
+            allow_reactivate_scrap=True,
         )
     InventoryService.post_movement(
         company=wo.company,
@@ -249,8 +291,8 @@ def complete_work_order(wo, user):
     wo.completed_at = wo.completed_at or gate_date
     wo.updated_by = user
     wo.save(update_fields=["status", "completed_at", "batch", "batch_no", "updated_at", "updated_by"])
-    gl_amount = issue_cost if issue_cost > 0 else (unit_cost * Decimal(str(wo.qty or 0)))
-    if wo.company.accounting_enabled and gl_amount > 0:
+    gl_amount = issue_cost
+    if wo.company.accounting_enabled and issue_cost > 0:
         from accounting.services import PostingService
 
         PostingService.post_work_order_complete(wo, gl_amount, user=user)
@@ -292,6 +334,9 @@ def cancel_work_order(wo, user):
             )
             InventoryService.retire_source_layers(move, abs(Decimal(str(move.quantity))))
             if move.product.track_serial and wo.serial_numbers:
+                # Scrap unused FG serials so they are not sellable after the
+                # receipt is reversed. SerialNumberService.receive reactivates
+                # SCRAPPED numbers on a later complete (reuse is not permanent).
                 SerialNumberService.transition(
                     company=wo.company,
                     product=move.product,
@@ -323,9 +368,13 @@ def cancel_work_order(wo, user):
         InventoryService.restore_fifo_peels(move, inbound)
         matching_lines = wo.component_lines.filter(component=move.product)
         all_comp_serials = []
+        seen = set()
         for cline in matching_lines:
-            if getattr(cline, "serial_numbers", None):
-                all_comp_serials.extend(cline.serial_numbers)
+            for serial in getattr(cline, "serial_numbers", None) or []:
+                key = str(serial).strip()
+                if key and key not in seen:
+                    seen.add(key)
+                    all_comp_serials.append(serial)
         if move.product.track_serial and all_comp_serials:
             SerialNumberService.transition(
                 company=wo.company,
@@ -337,6 +386,9 @@ def cancel_work_order(wo, user):
                 target=SerialNumber.Status.AVAILABLE,
                 user=user,
             )
+            for cline in matching_lines:
+                cline.serial_numbers = []
+                cline.save(update_fields=["serial_numbers"])
     if wo.company.accounting_enabled:
         from accounting.services import PostingService
 

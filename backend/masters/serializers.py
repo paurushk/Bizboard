@@ -232,6 +232,33 @@ class PriceListItemSerializer(serializers.ModelSerializer):
         model = PriceListItem
         fields = ["id", "product", "unit_price", "min_qty", "max_qty", "discount_pct"]
 
+    def validate(self, attrs):
+        from core.exceptions import BusinessRuleError
+        from masters.pricing import assert_slab_bounds, ranges_overlap
+
+        min_q = attrs.get("min_qty", getattr(self.instance, "min_qty", 1) if self.instance else 1)
+        max_q = attrs.get("max_qty", getattr(self.instance, "max_qty", None) if self.instance else None)
+        try:
+            assert_slab_bounds(min_q, max_q)
+        except BusinessRuleError as exc:
+            raise serializers.ValidationError(exc.detail) from exc
+        product = attrs.get("product") or getattr(self.instance, "product", None)
+        price_list = None
+        if self.instance is not None:
+            price_list = self.instance.price_list
+        elif self.parent is not None and getattr(self.parent, "instance", None) is not None:
+            price_list = self.parent.instance
+        if product is not None and price_list is not None:
+            siblings = PriceListItem.objects.filter(price_list=price_list, product=product)
+            if self.instance is not None:
+                siblings = siblings.exclude(pk=self.instance.pk)
+            for other in siblings:
+                if ranges_overlap(min_q, max_q, other.min_qty, other.max_qty):
+                    raise serializers.ValidationError(
+                        "Quantity slabs for this product overlap on the same price list."
+                    )
+        return attrs
+
 
 class PriceListSerializer(serializers.ModelSerializer):
     items = PriceListItemSerializer(many=True, required=False)
@@ -239,6 +266,18 @@ class PriceListSerializer(serializers.ModelSerializer):
     class Meta:
         model = PriceList
         fields = ["id", "name", "is_active", "items", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        items = attrs.get("items")
+        if items is not None:
+            from core.exceptions import BusinessRuleError
+            from masters.pricing import assert_slab_payloads
+
+            try:
+                assert_slab_payloads(items)
+            except BusinessRuleError as exc:
+                raise serializers.ValidationError({"items": exc.detail})
+        return attrs
 
     def create(self, validated_data):
         items = validated_data.pop("items", [])

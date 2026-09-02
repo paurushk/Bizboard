@@ -265,6 +265,7 @@ class GatewayPaymentStatus(models.TextChoices):
     CAPTURED_PENDING_BOOKS = "CAPTURED_PENDING_BOOKS"
     FAILED = "FAILED"
     REFUNDED = "REFUNDED"
+    PARTIALLY_REFUNDED = "PARTIALLY_REFUNDED"
 
 
 class GatewayPayment(CompanyScopedModel):
@@ -411,14 +412,15 @@ class GatewayRefundOutbox(CompanyScopedModel):
     attempts = models.PositiveSmallIntegerField(default=0)
     last_error = models.TextField(blank=True)
     next_attempt_at = models.DateTimeField(null=True, blank=True)
+    idempotency_key = models.CharField(max_length=80, blank=True, default="")
 
     class Meta:
         ordering = ["-id"]
         indexes = [models.Index(fields=["company", "status", "next_attempt_at"])]
         constraints = [
             models.UniqueConstraint(
-                fields=["gateway_payment"],
-                name="uniq_refund_outbox_per_gateway_payment",
+                fields=["gateway_payment", "amount"],
+                name="uniq_refund_outbox_per_payment_amount",
             )
         ]
 

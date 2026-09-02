@@ -219,7 +219,7 @@ export function PaymentLinksPage() {
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ['payment-links'],
-    queryFn: async () => (await api.listPaymentLinksPage()).results,
+    queryFn: () => api.listAllPaymentLinks(),
   });
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');

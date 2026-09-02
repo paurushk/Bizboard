@@ -179,30 +179,32 @@ class CogsService:
             ]
             restored_lots = []
             if sale_moves:
+                prior_returned = (
+                    StockMovement.objects.filter(
+                        company=sales_return.company,
+                        movement_type=MovementType.SALES_RETURN,
+                        product=item.product,
+                        reference_type="sales_return",
+                        reference_id__in=prior_sr_ids,
+                    ).aggregate(total=Sum("quantity"))["total"]
+                    or Decimal("0")
+                )
+                consumed_prior = Decimal(str(prior_returned))
                 for move in sale_moves:
                     if remaining <= 0:
                         break
                     lot_qty = abs(Decimal(str(move.quantity)))
                     move_unit_cost = Decimal(str(move.unit_cost or 0))
-                    already_lot = (
-                        StockMovement.objects.filter(
-                            company=sales_return.company,
-                            movement_type=MovementType.SALES_RETURN,
-                            product=item.product,
-                            batch=move.batch,
-                            reference_type="sales_return",
-                            reference_id__in=prior_sr_ids,
-                        ).aggregate(total=Sum("quantity"))["total"]
-                        or Decimal("0")
-                    )
-                    available_on_lot = lot_qty - already_lot
+                    already_this_move = min(consumed_prior, lot_qty)
+                    consumed_prior = max(Decimal("0"), consumed_prior - lot_qty)
+                    available_on_lot = lot_qty - already_this_move
                     if available_on_lot <= 0:
                         continue
                     take = min(remaining, available_on_lot)
                     # BB-000720: restore original sale peels instead of inventing a new layer.
                     inbound = InventoryService.post_movement(
                         company=sales_return.company,
-                        warehouse=invoice.warehouse,
+                        warehouse=move.warehouse or invoice.warehouse,
                         product=item.product,
                         batch=move.batch,
                         movement_type=MovementType.SALES_RETURN,

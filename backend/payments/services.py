@@ -18,9 +18,49 @@ from core.services.document_numbers import DocumentNumberService, resolve_series
 
 logger = logging.getLogger(__name__)
 
+
+def refund_idempotency_key(gateway_payment_id, amount) -> str:
+    """Stable provider key for sync + outbox so a timeout cannot double-refund."""
+    amt = Decimal(str(amount or 0)).quantize(Decimal("0.01"))
+    return f"bb-refund-{gateway_payment_id}-{amt}"
+
+
+# PAY-11: `GatewayPayment.raw_payload` is retained indefinitely — never persist
+# cardholder / contact PII in it. Strip these keys anywhere in the payload; the
+# reconciliation-relevant fields (ids, amount, status, fee, method, timestamps)
+# are kept.
+_GATEWAY_PAYLOAD_PII_KEYS = frozenset({
+    "card", "card_id", "cardnum", "card_number", "cardhash", "name_on_card",
+    "email", "customer_email", "contact", "customer_phone", "phone",
+    "customer_name", "name", "vpa", "upi_id", "wallet_phone",
+    "auth_code", "token", "customer_token", "cvv", "billing_address",
+    "ip", "user_agent", "notes",
+})
+
+
+def redact_gateway_payload(value):
+    """Recursively drop known PII keys from a provider webhook payload."""
+    if isinstance(value, dict):
+        return {
+            k: redact_gateway_payload(v)
+            for k, v in value.items()
+            if str(k).lower() not in _GATEWAY_PAYLOAD_PII_KEYS
+        }
+    if isinstance(value, list):
+        return [redact_gateway_payload(v) for v in value]
+    return value
+
 # Gateway-holding reasons that can never post to books — the capture must be
 # refunded to the customer, not retried (see reconcile_gateway_captures).
-_TERMINAL_HOLDING_REASONS = ("INVOICE_CANCELLED", "LINK_CANCELLED")
+# BOOKS_ERROR / PERIOD_LOCKED / UTR_CLASH can succeed later and stay retryable.
+_TERMINAL_HOLDING_REASONS = (
+    "INVOICE_CANCELLED",
+    "LINK_CANCELLED",
+    "AMOUNT_MISMATCH",
+    "ALREADY_PAID",
+    "LINK_EXPIRED",
+    "NO_LINK",
+)
 
 from .gateway import decrypt_gateway_credentials, get_adapter
 from .models import (
@@ -697,7 +737,15 @@ class PaymentService:
     def _raise_or_park(existing, holding: bool, reason: str, message: str):
         from payments.holding import park_gateway_payment
 
-        if holding:
+        # Money already captured at the provider must not vanish when books
+        # cannot post (closed period), even if holding-state is off.
+        always_park = str(reason or "").upper() in {
+            "CLOSED_PERIOD",
+            "PERIOD_LOCKED",
+            "GST_PERIOD_LOCKED",
+            "PERIOD_CLOSED",
+        }
+        if holding or always_park:
             return park_gateway_payment(existing, reason, message)
         raise BusinessRuleError(message)
 
@@ -731,6 +779,9 @@ class PaymentService:
 
         if not provider_payment_id:
             raise BusinessRuleError("Missing provider payment id.")
+
+        # PAY-11: never persist cardholder / contact PII from the webhook body.
+        raw_payload = redact_gateway_payload(raw_payload) if raw_payload is not None else None
 
         holding = gateway_holding_enabled()
 
@@ -946,6 +997,7 @@ class PaymentService:
                 receipt.source = PaymentSource.PAYMENT_LINK
                 receipt.save(update_fields=["gateway_payment", "source", "updated_at"])
         else:
+            bank_account = BankAccount.objects.filter(company=company, is_default=True).first()
             try:
                 with transaction.atomic():
                     receipt = PaymentService.create_receipt(
@@ -957,6 +1009,7 @@ class PaymentService:
                         utr=_utr,
                         notes=f"Gateway {provider} capture",
                         user=user,
+                        bank_account=bank_account,
                         source=PaymentSource.PAYMENT_LINK,
                         gateway_payment=existing,
                         warn_utr_duplicate=False,
@@ -980,6 +1033,7 @@ class PaymentService:
                                 utr=suffixed,
                                 notes=f"Gateway {provider} capture (UTR suffixed)",
                                 user=user,
+                                bank_account=bank_account,
                                 source=PaymentSource.PAYMENT_LINK,
                                 gateway_payment=existing,
                                 warn_utr_duplicate=True,
@@ -1102,17 +1156,113 @@ class PaymentService:
             outbox, created = GatewayRefundOutbox.objects.get_or_create(
                 company=gp.company,
                 gateway_payment=gp,
+                amount=gp.amount,
                 defaults={
                     "provider_payment_id": gp.provider_payment_id,
-                    "amount": gp.amount,
                 },
             )
         if created:
             from payments.tasks import execute_gateway_refund
 
-            transaction.on_commit(lambda: execute_gateway_refund.delay(outbox.id))
+            cid = outbox.company_id
+            oid = outbox.id
+            transaction.on_commit(
+                lambda: execute_gateway_refund.delay(oid, company_id=cid)
+            )
             return 1
         return 0
+
+    @staticmethod
+    def _unwind_refund_books(gp, *, user, refund_amount, reason="", full=True):
+        """Reverse allocations (full or proportional), post refund GL, reopen the link on full."""
+        from .models import GatewayPaymentStatus, PaymentLinkStatus, ReceiptStatus
+
+        raw = gp.raw_payload if isinstance(gp.raw_payload, dict) else {}
+        if raw.get("books_unwound"):
+            return
+        company = gp.company
+        leftover = Decimal(str(refund_amount or 0))
+        receipts = list(
+            CustomerReceipt.objects.filter(gateway_payment=gp)
+            .select_related("gateway_payment")
+            .select_for_update()
+        )
+        je_seq = int(raw.get("refund_je_seq") or 0)
+        for receipt in receipts:
+            if leftover <= 0:
+                break
+            for alloc in list(
+                receipt.allocations.select_for_update()
+                .filter(reversed_at__isnull=True)
+                .order_by("-id")
+            ):
+                if leftover <= 0:
+                    break
+                alloc_amount = Decimal(str(alloc.amount or 0))
+                invoice = alloc.sales_invoice
+                if alloc_amount <= leftover:
+                    PaymentService.reverse_allocation(allocation=alloc, user=user)
+                    leftover -= alloc_amount
+                else:
+                    keep = alloc_amount - leftover
+                    PaymentService.reverse_allocation(allocation=alloc, user=user)
+                    if keep > 0 and invoice is not None:
+                        PaymentService.allocate_receipt(
+                            receipt=receipt, sales_invoice=invoice, amount=keep, user=user
+                        )
+                    leftover = Decimal("0")
+            note = (receipt.notes or "").strip()
+            refund_note = f"Refunded {refund_amount} via {gp.provider}" + (
+                f": {reason}" if reason else ""
+            )
+            receipt.notes = f"{note}\n{refund_note}".strip() if note else refund_note
+            if full:
+                receipt.status = ReceiptStatus.REFUNDED
+            receipt.updated_by = user
+            receipt.save(update_fields=["notes", "status", "updated_by", "updated_at"])
+        if receipts and getattr(company, "accounting_enabled", False):
+            from accounting.services import PostingService
+
+            je_seq += 1
+            PostingService.post_receipt_refund(
+                receipts[0],
+                user=user,
+                amount=refund_amount,
+                purpose="REFUND" if full else f"REFUND_{je_seq}",
+            )
+        if full and gp.payment_link_id:
+            link = PaymentLink.objects.select_for_update().filter(pk=gp.payment_link_id).first()
+            if link is not None:
+                other_captured = GatewayPayment.objects.filter(
+                    payment_link=link,
+                    status__in=(
+                        GatewayPaymentStatus.CAPTURED,
+                        GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
+                    ),
+                ).exclude(pk=gp.pk).exists()
+                if not other_captured:
+                    link.status = (
+                        PaymentLinkStatus.SENT
+                        if link.status
+                        in (
+                            PaymentLinkStatus.PAID,
+                            PaymentLinkStatus.PARTIALLY_PAID,
+                            PaymentLinkStatus.SENT,
+                        )
+                        else PaymentLinkStatus.CREATED
+                    )
+                    link.paid_receipt = None
+                    link.updated_by = user
+                    link.save(update_fields=["status", "paid_receipt", "updated_by", "updated_at"])
+        raw = {
+            **raw,
+            "books_unwound": bool(full),
+            "refund_amount": str(refund_amount),
+            "refund_reason": reason,
+            "refund_je_seq": je_seq,
+        }
+        gp.raw_payload = raw
+        gp.save(update_fields=["raw_payload", "updated_at"])
 
     @staticmethod
     @transaction.atomic
@@ -1128,113 +1278,143 @@ class PaymentService:
         if gp.status not in (
             GatewayPaymentStatus.CAPTURED,
             GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
+            GatewayPaymentStatus.PARTIALLY_REFUNDED,
         ):
             raise BusinessRuleError("Only captured gateway payments can be refunded.")
 
         refund_amount = Decimal(amount if amount is not None else gp.amount)
         if refund_amount <= 0:
             raise BusinessRuleError("Invalid refund amount.")
-        # R3-003: a PARTIAL refund (usually provider-initiated) is not unwound
-        # through allocations / GL yet. Record it on the gateway payment and
-        # return quietly so the provider webhook 200s and stops retrying — the
-        # GATEWAY_REFUND_STUCK / partial-refund is surfaced for manual books
-        # reconciliation rather than lost.
-        if refund_amount != gp.amount:
-            raw = gp.raw_payload if isinstance(gp.raw_payload, dict) else {}
-            partials = list(raw.get("partial_refunds") or [])
-            partials.append({"amount": str(refund_amount), "reason": reason})
-            gp.raw_payload = {**raw, "partial_refunds": partials}
-            gp.save(update_fields=["raw_payload", "updated_at"])
-            logger.warning(
-                "Gateway %s payment %s: partial refund %s recorded but NOT unwound in "
-                "books — reconcile manually.",
-                gp.provider, gp.provider_payment_id, refund_amount,
+        raw_early = gp.raw_payload if isinstance(gp.raw_payload, dict) else {}
+        if raw_early.get("books_unwound") and gp.status != GatewayPaymentStatus.REFUNDED:
+            if skip_gateway:
+                gp.status = GatewayPaymentStatus.REFUNDED
+                gp.save(update_fields=["status", "updated_at"])
+                return gp
+            from .models import GatewayRefundOutbox, GatewayRefundOutboxStatus
+
+            outbox, created = GatewayRefundOutbox.objects.get_or_create(
+                company=gp.company,
+                gateway_payment=gp,
+                amount=refund_amount,
+                defaults={
+                    "provider_payment_id": gp.provider_payment_id,
+                    "status": GatewayRefundOutboxStatus.PENDING,
+                    "created_by": user,
+                    "updated_by": user,
+                    "idempotency_key": refund_idempotency_key(gp.id, refund_amount),
+                },
             )
+            if not created and outbox.status != GatewayRefundOutboxStatus.SUCCEEDED:
+                outbox.attempts = 0
+                outbox.status = GatewayRefundOutboxStatus.PENDING
+                outbox.save(update_fields=["attempts", "status", "updated_at"])
+
+            def _retry_refund(oid=outbox.id, cid=gp.company_id):
+                from payments.tasks import execute_gateway_refund
+
+                execute_gateway_refund.delay(oid, company_id=cid)
+
+            transaction.on_commit(_retry_refund)
+            return gp
+        raw = gp.raw_payload if isinstance(gp.raw_payload, dict) else {}
+        already = Decimal("0")
+        for prior in raw.get("partial_refunds") or []:
+            try:
+                already += Decimal(str((prior or {}).get("amount") or 0))
+            except Exception:
+                continue
+        remaining = max(Decimal("0"), Decimal(str(gp.amount or 0)) - already)
+        if refund_amount > remaining:
+            raise BusinessRuleError(
+                f"Refund {refund_amount} exceeds remaining captured amount {remaining}."
+            )
+        is_full_unwind = remaining > 0 and refund_amount >= remaining
+        company = gp.company
+        if not skip_gateway:
+            creds = decrypt_gateway_credentials(
+                getattr(company, "payment_gateway_credentials_encrypted", "") or ""
+            )
+            adapter = get_adapter(gp.provider, creds if creds else None)
+            try:
+                refund_id = gp.provider_payment_id
+                if gp.provider == "cashfree":
+                    from payments.gateway import cashfree_order_id_for_refund
+
+                    refund_id = cashfree_order_id_for_refund(
+                        gp.provider_payment_id, getattr(gp, "raw_payload", None)
+                    )
+                adapter.refund(
+                    provider_payment_id=refund_id,
+                    amount=refund_amount,
+                    idempotency_key=refund_idempotency_key(gp.id, refund_amount),
+                )
+            except Exception:
+                from .models import GatewayRefundOutbox, GatewayRefundOutboxStatus
+
+                key = refund_idempotency_key(gp.id, refund_amount)
+                outbox, created = GatewayRefundOutbox.objects.get_or_create(
+                    company=company,
+                    gateway_payment=gp,
+                    amount=refund_amount,
+                    defaults={
+                        "provider_payment_id": gp.provider_payment_id,
+                        "status": GatewayRefundOutboxStatus.PENDING,
+                        "created_by": user,
+                        "updated_by": user,
+                        "idempotency_key": key,
+                    },
+                )
+                if not created and outbox.status != GatewayRefundOutboxStatus.SUCCEEDED:
+                    if outbox.status != GatewayRefundOutboxStatus.IN_PROGRESS:
+                        outbox.status = GatewayRefundOutboxStatus.PENDING
+                        outbox.provider_payment_id = gp.provider_payment_id
+                        outbox.amount = refund_amount
+                        outbox.idempotency_key = outbox.idempotency_key or key
+                        outbox.save(
+                            update_fields=[
+                                "status",
+                                "provider_payment_id",
+                                "amount",
+                                "idempotency_key",
+                                "updated_at",
+                            ]
+                        )
+
+                def _gateway_refund(oid=outbox.id, cid=company.id):
+                    from payments.tasks import execute_gateway_refund
+
+                    execute_gateway_refund.delay(oid, company_id=cid)
+
+                transaction.on_commit(_gateway_refund)
+                logger.exception("Gateway refund deferred to outbox for payment %s", gp.provider_payment_id)
+                return gp
+
+        PaymentService._unwind_refund_books(
+            gp, user=user, refund_amount=refund_amount, reason=reason, full=is_full_unwind
+        )
+        raw = gp.raw_payload if isinstance(gp.raw_payload, dict) else {}
+        if not is_full_unwind:
+            partials = list(raw.get("partial_refunds") or [])
+            partials.append({"amount": str(refund_amount), "reason": reason, "books": True})
+            gp.raw_payload = {**raw, "partial_refunds": partials}
+            gp.status = GatewayPaymentStatus.PARTIALLY_REFUNDED
+            gp.updated_by = user
+            gp.save(update_fields=["raw_payload", "status", "updated_by", "updated_at"])
             emit(
                 "gateway_payment.partial_refund",
                 document=gp, user=user, event="gateway_payment.partial_refund",
             )
             return gp
-
-        company = gp.company
-        creds = decrypt_gateway_credentials(
-            getattr(company, "payment_gateway_credentials_encrypted", "") or ""
-        )
-        adapter = get_adapter(gp.provider, creds if creds else None)
-
-        receipts = list(CustomerReceipt.objects.filter(gateway_payment=gp).select_for_update())
-        for receipt in receipts:
-            for alloc in list(receipt.allocations.select_for_update().filter(reversed_at__isnull=True)):
-                PaymentService.reverse_allocation(allocation=alloc, user=user)
-            note = (receipt.notes or "").strip()
-            refund_note = f"Refunded {refund_amount} via {gp.provider}" + (f": {reason}" if reason else "")
-            receipt.notes = f"{note}\n{refund_note}".strip() if note else refund_note
-            # BB-000457: mark REFUNDED so ledger does not treat as unallocated advance.
-            receipt.status = ReceiptStatus.REFUNDED
-            receipt.updated_by = user
-            receipt.save(update_fields=["notes", "status", "updated_by", "updated_at"])
-
-            if getattr(company, "accounting_enabled", False):
-                from accounting.services import PostingService
-                PostingService.post_receipt_refund(receipt, user=user)
-
-        # BB-000458: reopen payment link so customer can re-pay after full refund.
-        link = None
-        if gp.payment_link_id:
-            link = PaymentLink.objects.select_for_update().filter(pk=gp.payment_link_id).first()
-        if link is not None:
-            other_captured = GatewayPayment.objects.filter(
-                payment_link=link,
-                status__in=(
-                    GatewayPaymentStatus.CAPTURED,
-                    GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
-                ),
-            ).exclude(pk=gp.pk).exists()
-            if not other_captured:
-                link.status = (
-                    PaymentLinkStatus.SENT
-                    if link.status
-                    in (
-                        PaymentLinkStatus.PAID,
-                        PaymentLinkStatus.PARTIALLY_PAID,
-                        PaymentLinkStatus.SENT,
-                    )
-                    else PaymentLinkStatus.CREATED
-                )
-                link.paid_receipt = None
-                link.updated_by = user
-                link.save(update_fields=["status", "paid_receipt", "updated_by", "updated_at"])
-
         gp.status = GatewayPaymentStatus.REFUNDED
         gp.updated_by = user
-        raw = gp.raw_payload if isinstance(gp.raw_payload, dict) else {}
-        raw = {**raw, "refund_amount": str(refund_amount), "refund_reason": reason}
-        gp.raw_payload = raw
+        gp.raw_payload = {
+            **raw,
+            "refund_amount": str(refund_amount),
+            "refund_reason": reason,
+            "books_unwound": True,
+        }
         gp.save(update_fields=["status", "raw_payload", "updated_by", "updated_at"])
-        provider_payment_id = gp.provider_payment_id
-
-        if not skip_gateway:
-            from .models import GatewayRefundOutbox, GatewayRefundOutboxStatus
-
-            outbox, created = GatewayRefundOutbox.objects.get_or_create(
-                company=company,
-                gateway_payment=gp,
-                defaults={
-                    "provider_payment_id": provider_payment_id,
-                    "amount": refund_amount,
-                    "status": GatewayRefundOutboxStatus.PENDING,
-                    "created_by": user,
-                    "updated_by": user,
-                },
-            )
-            if created:
-
-                def _gateway_refund(oid=outbox.id):
-                    from payments.tasks import execute_gateway_refund
-
-                    execute_gateway_refund.delay(oid)
-
-                transaction.on_commit(_gateway_refund)
         emit("gateway_payment.refunded", document=gp, user=user, event="gateway_payment.refunded")
         return gp
 
@@ -1389,20 +1569,19 @@ class PaymentService:
                     "code": "GATEWAY_REFUND_STUCK",
                     "severity": "critical",
                     "message": (
-                        f"{stuck_refunds} gateway refund(s) are recorded in the books but not "
-                        "confirmed at the gateway — reconcile manually."
+                        f"{stuck_refunds} gateway refund(s) are queued at the provider but not "
+                        "confirmed yet — books stay posted until the gateway confirms."
                     ),
                 }
             )
 
-        # R3-003: provider-initiated partial refunds are recorded but not unwound
-        # in the books — flag them for manual reconciliation.
         partial_refunds = sum(
             1
             for raw in GatewayPayment.objects.filter(
                 company=company, status=GatewayPaymentStatus.CAPTURED
             ).values_list("raw_payload", flat=True)
-            if isinstance(raw, dict) and raw.get("partial_refunds")
+            if isinstance(raw, dict)
+            and any(not (p or {}).get("books") for p in (raw.get("partial_refunds") or []))
         )
         if partial_refunds:
             alerts.append(
@@ -1423,7 +1602,7 @@ class PaymentService:
         # INVOICE_CANCELLED / LINK_CANCELLED holds can never post to books — the
         # customer must be refunded, not "retried".
         terminal_n = holding_qs.filter(
-            holding_reason__in=("INVOICE_CANCELLED", "LINK_CANCELLED")
+            holding_reason__in=_TERMINAL_HOLDING_REASONS
         ).count()
         if holding_n:
             retry_n = holding_n - terminal_n

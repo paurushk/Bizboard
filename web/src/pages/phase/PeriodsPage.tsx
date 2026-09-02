@@ -9,25 +9,38 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 export function PeriodsPage() {
   const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ['accounting-periods'],
-    queryFn: async () => (await api.listAccountingPeriodsPage()).results,
+    queryFn: () => api.listAccountingPeriods(),
   });
   const [name, setName] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [fyEnd, setFyEnd] = useState('2026-03-31');
+  const [error, setError] = useState('');
   const create = useMutation({
     mutationFn: () => api.createAccountingPeriod({ name, startDate: start, endDate: end }),
-    onSuccess: () => { setName(''); setStart(''); setEnd(''); void qc.invalidateQueries({ queryKey: ['accounting-periods'] }); },
+    onSuccess: () => {
+      setError('');
+      setName('');
+      setStart('');
+      setEnd('');
+      void qc.invalidateQueries({ queryKey: ['accounting-periods'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   const setStatus = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) => api.updateAccountingPeriod(id, { status }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['accounting-periods'] }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['accounting-periods'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   const fyClose = useMutation({
     mutationFn: () => {
@@ -36,11 +49,19 @@ export function PeriodsPage() {
       }
       return api.closeFinancialYear({ fyEnd, confirm: true });
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['accounting-periods'] }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['accounting-periods'] });
+    },
+    onError: (e) => {
+      if (getErrorMessage(e) === 'Cancelled') return;
+      setError(getErrorMessage(e));
+    },
   });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return <PageShell title={t('phase.periods')} subtitle={t('phase.periodsSubtitle')}>
+    {error ? <HelpErrorAlert message={error} /> : null}
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
       <TextField label="Name" size="small" value={name} onChange={(e) => setName(e.target.value)} />
       <TextField type="date" label="Start" size="small" InputLabelProps={{ shrink: true }} value={start} onChange={(e) => setStart(e.target.value)} />

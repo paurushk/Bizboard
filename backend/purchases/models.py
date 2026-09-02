@@ -205,6 +205,7 @@ class PurchaseCreditNote(DocumentTotalsModel):
         max_length=32, choices=PurchaseNoteReason.choices, default=PurchaseNoteReason.CORRECTION_OF_INVOICE
     )
     reason_detail = models.CharField(max_length=255, blank=True)
+    additional_charges = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     invoice_discount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     invoice_discount_mode = models.CharField(
         max_length=12,

@@ -210,6 +210,13 @@ if DJANGO_ENV in ("production", "staging") and "sqlite" in _db_engine:
         f"SQLite is not allowed when DJANGO_ENV={DJANGO_ENV}. "
         "Set DATABASE_URL to a PostgreSQL connection string."
     )
+if "sqlite" in _db_engine:
+    # CFG-06: persistent SQLite connections are a "database is locked" source
+    # under the dev server + eager Celery; keep sqlite connections per-request.
+    DATABASES["default"]["CONN_MAX_AGE"] = 0
+else:
+    # CFG-05: reap dead pooled connections (needed with CONN_MAX_AGE > 0).
+    DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 # BB-000546: Postgres statement / idle-in-transaction timeouts (ignored on SQLite).
 if "postgresql" in _db_engine or "postgres" in _db_engine:
     _db_opts = DATABASES["default"].setdefault("OPTIONS", {})
@@ -394,6 +401,15 @@ CELERY_BROKER_URL = REDIS_URL or "redis://localhost:6379/0"
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 
 CELERY_TASK_ALWAYS_EAGER = _env_bool("CELERY_TASK_ALWAYS_EAGER")
+# CFG-02: if an operator empties REDIS_URL to force the LocMem cache but does not
+# also run tasks eagerly, every .delay() would silently fail against a
+# non-existent localhost broker. Make that misconfiguration explicit.
+if not (REDIS_URL or "").strip() and not CELERY_TASK_ALWAYS_EAGER and DJANGO_ENV != "test":
+    raise ImproperlyConfigured(
+        "REDIS_URL is empty but CELERY_TASK_ALWAYS_EAGER is not set — background "
+        "tasks would fail silently. Set CELERY_TASK_ALWAYS_EAGER=1 for a "
+        "broker-less local run, or provide REDIS_URL."
+    )
 CELERY_TASK_EAGER_PROPAGATES = True
 # A down broker must fail fast instead of blocking Complete on the OS TCP timeout.
 CELERY_BROKER_CONNECTION_TIMEOUT = 2
@@ -411,20 +427,26 @@ CELERY_TASK_PUBLISH_RETRY_POLICY = {
 }
 # BB-000234: explicit timezone for beat (Django TIME_ZONE is Asia/Kolkata).
 # BB-000377: default beat TZ to Asia/Kolkata (matches Django TIME_ZONE).
+# CFG-01: CELERY_ENABLE_UTC defaults False, so every crontab() below is
+# interpreted in CELERY_TIMEZONE (Asia/Kolkata). All wall-clock comments here
+# are therefore IST. (A previous comment claimed "06:00 IST ≈ 00:30 UTC" while
+# the crontab said 00:30 — with enable_utc off that actually ran at 00:30 IST.)
 CELERY_TIMEZONE = os.environ.get("CELERY_TIMEZONE", "Asia/Kolkata")
 CELERY_ENABLE_UTC = _env_bool("CELERY_ENABLE_UTC")
 CELERY_BEAT_SCHEDULE = {
     "insights-daily-summaries": {
         "task": "insights.tasks.generate_daily_summaries_task",
-        # 06:00 Asia/Kolkata ≈ 00:30 UTC
-        "schedule": crontab(hour=0, minute=30),
+        # 06:00 IST — start of the Indian business day.
+        "schedule": crontab(hour=6, minute=0),
     },
     # BB-000636: daily summary already snapshots health — do not schedule a second job.
     "insights-cashflow-refresh": {
         "task": "insights.tasks.refresh_cashflow_forecasts_task",
-        "schedule": crontab(hour=1, minute=0),
+        # 06:30 IST — right after the daily summary.
+        "schedule": crontab(hour=6, minute=30),
     },
     "accounting-monthly-depreciation": {
+        # 00:05 IST on the 1st of the month.
         "task": "accounting.tasks.post_monthly_depreciation",
         "schedule": crontab(day_of_month=1, hour=0, minute=5),
     },
@@ -443,6 +465,11 @@ CELERY_BEAT_SCHEDULE = {
     "help-prune-events": {
         "task": "core.tasks.prune_help_events_task",
         "schedule": crontab(hour=3, minute=15, day_of_week=0),
+    },
+    # CORE-05: keep the durable Idempotency-Key table bounded (03:40 IST daily).
+    "prune-idempotency-records": {
+        "task": "core.tasks.prune_idempotency_records_task",
+        "schedule": crontab(hour=3, minute=40),
     },
     "payments-ar-dunning": {
         "task": "payments.tasks.run_ar_dunning_task",
@@ -534,12 +561,31 @@ if not CSRF_TRUSTED_ORIGINS:
 # Trust X-Forwarded-Proto from reverse proxy (nginx / load balancer / Cloudflare tunnel)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+# CFG-05: cheap hardening headers for an app that serves user PDFs / photos.
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = os.environ.get("SECURE_REFERRER_POLICY", "same-origin")
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "Lax")
+# Error mail should not appear to come from root@localhost.
+SERVER_EMAIL = os.environ.get("SERVER_EMAIL", DEFAULT_FROM_EMAIL)
+# Bill/rate-list photos are multipart uploads; raise the in-memory ceiling so a
+# 10 MB DMS photo isn't spooled to a temp file on every request (still bounded).
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(
+    os.environ.get("DATA_UPLOAD_MAX_MEMORY_SIZE", str(15 * 1024 * 1024)) or (15 * 1024 * 1024)
+)
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(
+    os.environ.get("FILE_UPLOAD_MAX_MEMORY_SIZE", str(15 * 1024 * 1024)) or (15 * 1024 * 1024)
+)
+
 # TLS / secure cookies when behind HTTPS terminator, production, or staging (BB-000296).
 _use_tls = _env_bool("USE_TLS")
 if _use_tls or DJANGO_ENV in ("production", "staging"):
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SECURE_SSL_REDIRECT = False  # terminate at nginx/load balancer
+    # CFG-07: TLS is normally terminated at nginx / the load balancer, so the
+    # app does not redirect by default. Set SECURE_SSL_REDIRECT=1 to opt in to
+    # an app-level backstop when the edge is not trusted to do it.
+    SECURE_SSL_REDIRECT = _env_bool("SECURE_SSL_REDIRECT")
     if DJANGO_ENV == "production" or _use_tls:
         SECURE_HSTS_SECONDS = 31536000
         SECURE_HSTS_INCLUDE_SUBDOMAINS = True
@@ -611,6 +657,9 @@ elif _require_sub in ("0", "false", "no"):
     REQUIRE_SUBSCRIPTION = False
 else:
     REQUIRE_SUBSCRIPTION = DJANGO_ENV == "production"
+# No SaaS plan: starter seat (1), not unlimited. 0 = explicit unlimited.
+UNSUBSCRIBED_SEAT_LIMIT = int(os.environ.get("UNSUBSCRIBED_SEAT_LIMIT", "1") or "1")
+BILLING_TRIAL_DAYS = int(os.environ.get("BILLING_TRIAL_DAYS", "14") or "14")
 # BB-000726: PAST_DUE write grace after current_period_end (0 = block immediately).
 BILLING_PAST_DUE_GRACE_DAYS = int(os.environ.get("BILLING_PAST_DUE_GRACE_DAYS", "0") or "0")
 GSP_LIVE_ENABLED = _env_bool("GSP_LIVE_ENABLED")
@@ -680,8 +729,13 @@ TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
 
-# Wave 16A — Postgres RLS (default off until soak)
-POSTGRES_RLS_ENABLED = _env_bool("POSTGRES_RLS_ENABLED")
+# SYS-01 — Postgres Row-Level Security (defense-in-depth tenant isolation).
+# Migration core.0020 puts a company_id policy on every tenant table (FORCE RLS).
+# Now ON by default; `PostgresRlsMiddleware` SETs app.company_id per request and
+# clears every RLS GUC afterwards. No-op on SQLite. Stage on a Postgres replica
+# / staging environment and soak before the prod cut-over; set
+# POSTGRES_RLS_ENABLED=0 to fall back to app-level filtering only.
+POSTGRES_RLS_ENABLED = _env_bool("POSTGRES_RLS_ENABLED", "1")
 
 # Wave 16C — GSP HTTP sandbox / live
 GSP_HTTP_SANDBOX = _env_bool("GSP_HTTP_SANDBOX")
@@ -732,7 +786,9 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "verbose": {
-            "format": "{levelname} {name} {message}",
+            # CFG-08: timestamp so stdout capture is correlatable with the JSON
+            # access log line emitted by RequestIdMiddleware.
+            "format": "{asctime} {levelname} {name} {message}",
             "style": "{",
         },
     },

@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
@@ -146,6 +146,16 @@ class PostingService:
             return acct
         inactive = Account.objects.filter(company=company, code=code).first()
         if inactive is not None and getattr(inactive, "is_system", False):
+            # ACC-13: a system account is required for correct posting — reactivate
+            # it, but do not do so silently.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Reactivating deactivated system ledger account %s for company %s "
+                "(required by an accounting posting).",
+                code,
+                getattr(company, "id", None),
+            )
             inactive.is_active = True
             inactive.save(update_fields=["is_active", "updated_at"])
             return inactive
@@ -279,27 +289,61 @@ class PostingService:
         )
 
     @classmethod
+    def _claimable_input_gst_parked(cls, invoice):
+        """Net debit on claimable Input GST (1310/1320/1330/1370) for this PI."""
+        from django.db.models import Sum
+
+        from accounting.models import JournalLine
+
+        agg = JournalLine.objects.filter(
+            entry__company=invoice.company,
+            entry__source_type="PURCHASE_INVOICE",
+            entry__source_id=invoice.id,
+            entry__status="POSTED",
+            account__code__in=("1310", "1320", "1330", "1370"),
+        ).aggregate(debit=Sum("debit"), credit=Sum("credit"))
+        return (agg["debit"] or Decimal("0")) - (agg["credit"] or Decimal("0"))
+
+    @classmethod
     def reclass_rejected_itc(cls, invoice, *, user=None):
-        """B-03 REJECT: clear 1390 into inventory 1400 (same capitalize path as INELIGIBLE complete)."""
+        """B-03 REJECT: clear parked 1390 into 1400, or reverse claimable Input GST to 5600.
+
+        After IMS ACCEPT, tax sits on 1310/1320/1330 (not 1390). REJECT must then
+        credit those Input GST accounts and debit ineligible expense 5600.
+        """
         if not invoice.company.accounting_enabled:
             return None
         parked = cls._unreviewed_itc_parked(invoice)
-        if parked <= 0:
-            return None
-        tax = (
-            Decimal(str(invoice.cgst_total or 0))
-            + Decimal(str(invoice.sgst_total or 0))
-            + Decimal(str(invoice.igst_total or 0))
-            + Decimal(str(getattr(invoice, "cess_total", 0) or 0))
-        )
+        cgst = Decimal(str(invoice.cgst_total or 0))
+        sgst = Decimal(str(invoice.sgst_total or 0))
+        igst = Decimal(str(invoice.igst_total or 0))
+        cess = Decimal(str(getattr(invoice, "cess_total", 0) or 0))
+        tax = cgst + sgst + igst + cess
         if tax <= 0:
             return None
-        debit_lines = cls._tax_component_lines(
-            invoice.company, (("1400", tax),), side="debit",
-        )
-        credit_lines = cls._tax_component_lines(
-            invoice.company, (("1390", tax),), side="credit",
-        )
+        if parked > 0:
+            debit_lines = cls._tax_component_lines(
+                invoice.company, (("1400", tax),), side="debit",
+            )
+            credit_lines = cls._tax_component_lines(
+                invoice.company, (("1390", tax),), side="credit",
+            )
+            narration = f"IMS reject — capitalize unreviewed ITC {invoice.number or invoice.id}"
+        elif cls._claimable_input_gst_parked(invoice) > 0:
+            # ACCEPT already moved 1390 → Input GST; reverse claimable ITC to expense.
+            debit_lines = cls._tax_component_lines(
+                invoice.company, (("5600", tax),), side="debit",
+            )
+            credit_lines = cls._tax_component_lines(
+                invoice.company,
+                (("1310", cgst), ("1320", sgst), ("1330", igst), ("1370", cess)),
+                side="credit",
+            )
+            narration = f"IMS reject — reverse claimable ITC to ineligible {invoice.number or invoice.id}"
+        else:
+            return None
+        if not debit_lines or not credit_lines:
+            return None
         return cls.post(
             company=invoice.company,
             source_type="PURCHASE_INVOICE",
@@ -307,7 +351,7 @@ class PostingService:
             purpose="ITC_REJECT",
             entry_date=invoice.invoice_date or timezone.localdate(),
             lines=[*debit_lines, *credit_lines],
-            narration=f"IMS reject — capitalize unreviewed ITC {invoice.number or invoice.id}",
+            narration=narration,
             user=user,
         )
 
@@ -340,13 +384,17 @@ class PostingService:
         ).exists():
             raise BusinessRuleError("Cannot post to a closed accounting period.")
         # BB-000432: sequential journal numbers unique per company.
+        # ACC-12: allocate the voucher number *inside* the same savepoint that
+        # inserts the entry, so a concurrent-double-post IntegrityError rolls the
+        # series increment back too — otherwise every lost race burned a number
+        # and left a gap in a statutory sequence.
         from core.services.document_numbers import DocumentNumberService
 
-        number = DocumentNumberService.next_number(company, "JOURNAL_ENTRY")
         from django.db import IntegrityError
 
         try:
             with transaction.atomic():
+                number = DocumentNumberService.next_number(company, "JOURNAL_ENTRY")
                 entry = JournalEntry.objects.create(
                     company=company, number=number, entry_date=entry_date,
                     status=JournalEntry.Status.POSTED, source_type=source_type, source_id=source_id,
@@ -511,25 +559,88 @@ class PostingService:
 
     @classmethod
     def adjust_sales_invoice_postings(cls, invoice, user=None):
-        """When a completed sales invoice is amended, reverse prior GL postings and post fresh ones."""
+        """When a completed sales invoice is amended, reverse prior GL postings and post fresh ones.
+
+        ACC-02: each reversal is dated to the *original* entry's date, not
+        today, so an amend done in a later month does not leave the source
+        period overstated and the current month carrying an orphan reversal.
+        ACC-03: the COGS leg is reversed here too — re-post it from the reversed
+        entry's 5400 debit so callers that don't separately re-run COGS
+        (notes_services, recurring, import) don't leave COGS understated.
+        """
         if not invoice.company.accounting_enabled:
             return None
-        from accounting.models import JournalEntry
+        # The invoice was loaded by the viewset with `prefetch_related("items")`,
+        # so `set_items` mutated + bulk_updated fresh rows while `invoice.items`
+        # still caches the pre-amend lines. Evict that cache so `post_*` re-reads
+        # the amended taxable/tax values (else GL posts on stale amounts and the
+        # entry is unbalanced).
+        if hasattr(invoice, "_prefetched_objects_cache"):
+            invoice._prefetched_objects_cache.pop("items", None)
+        from decimal import Decimal as _D
 
+        from accounting.models import JournalEntry, JournalLine
+
+        reversed_cogs = _D("0")
         for entry in JournalEntry.objects.filter(
             company=invoice.company,
             source_type="SALES_INVOICE",
             source_id=invoice.id,
             status=JournalEntry.Status.POSTED,
         ):
-            cls.reverse(entry, user=user)
-        return cls.post_sales_invoice(invoice, user=user)
+            if entry.purpose == "COGS":
+                reversed_cogs += sum(
+                    (
+                        _D(str(line.debit or 0))
+                        for line in JournalLine.objects.filter(entry=entry, account__code="5400")
+                    ),
+                    _D("0"),
+                )
+            cls.reverse(entry, user=user, entry_date=entry.entry_date)
+        posted = cls.post_sales_invoice(invoice, user=user)
+        # Re-post COGS if a COGS entry was reversed and nothing else has already
+        # re-created it (post_sales_cogs is idempotent on the POSTED row).
+        if reversed_cogs > 0:
+            already = JournalEntry.objects.filter(
+                company=invoice.company,
+                source_type="SALES_INVOICE",
+                source_id=invoice.id,
+                purpose="COGS",
+                status=JournalEntry.Status.POSTED,
+            ).exists()
+            if not already:
+                try:
+                    from sales.cogs_service import CogsService
+
+                    fresh = sum(
+                        (
+                            _D(str(m.unit_cost or 0)) * abs(_D(str(m.quantity or 0)))
+                            for m in CogsService.invoice_sale_moves(invoice)
+                        ),
+                        _D("0"),
+                    )
+                except Exception:  # noqa: BLE001 — fall back to the reversed amount
+                    fresh = _D("0")
+                cls.post_sales_cogs(invoice, fresh or reversed_cogs, user)
+        return posted
 
     @classmethod
     def adjust_purchase_invoice_postings(cls, invoice, user=None):
-        """When a completed purchase invoice is amended, reverse prior GL postings and post fresh ones."""
+        """When a completed purchase invoice is amended, reverse prior GL postings and post fresh ones.
+
+        ACC-02: reversals inherit the original entry's date (see the sales
+        counterpart). `post_purchase` re-derives the ITC legs from the current
+        `itc_eligibility`, so an ITC_RECLASS/ITC_REJECT entry that is reversed
+        here does not need a blind re-post — the fresh `post_purchase` is
+        self-consistent with the invoice's current IMS state.
+        """
         if not invoice.company.accounting_enabled:
             return None
+        # Evict the viewset's prefetched `items` cache so `post_purchase` re-reads
+        # the amended line taxable/tax (else the GL entry is unbalanced — the
+        # header totals were recomputed but the cached lines were not).
+        if hasattr(invoice, "_prefetched_objects_cache"):
+            invoice._prefetched_objects_cache.pop("items", None)
         from accounting.models import JournalEntry
 
         for entry in JournalEntry.objects.filter(
@@ -538,8 +649,8 @@ class PostingService:
             source_id=invoice.id,
             status=JournalEntry.Status.POSTED,
         ):
-            cls.reverse(entry, user=user)
-        return cls.post_purchase_invoice(invoice, user=user)
+            cls.reverse(entry, user=user, entry_date=entry.entry_date)
+        return cls.post_purchase(invoice, user=user)
 
     @classmethod
     def post_opening_sales_invoice(cls, invoice, user=None):
@@ -716,23 +827,42 @@ class PostingService:
             lines=lines)
 
     @classmethod
-    def post_receipt_refund(cls, receipt, user=None):
-        """Refund customer receipt: Dr Customer Advances (2300) / Cr Bank (1500 or 1100)."""
+    def post_receipt_refund(cls, receipt, user=None, *, amount=None, purpose="REFUND"):
+        """Invert post_receipt: Dr 2300 amount, Cr Bank net of MDR, reverse fee expense."""
         cls._ensure_chart(receipt.company)
         code = "1500" if receipt.bank_account_id else "1100"
-        amount = Decimal(str(receipt.amount or 0))
+        amount = Decimal(str(amount if amount is not None else receipt.amount or 0))
         if amount <= 0:
             return None
+        full = Decimal(str(receipt.amount or 0))
+        fee = Decimal("0")
+        gp = getattr(receipt, "gateway_payment", None)
+        if gp is not None:
+            fee = max(Decimal("0"), Decimal(str(getattr(gp, "fee", 0) or 0)))
+        if full > 0 and fee > 0:
+            fee_share = (fee * amount / full).quantize(Decimal("0.01"))
+            if fee_share > fee:
+                fee_share = fee
+        else:
+            fee_share = Decimal("0")
+        if fee_share > amount:
+            fee_share = amount
+        bank_credit = amount - fee_share
         lines = [
             {"account": cls._account(receipt.company, "2300"), "debit": amount, "customer": receipt.customer},
-            {"account": cls._account(receipt.company, code), "credit": amount},
         ]
+        if bank_credit > 0:
+            lines.append({"account": cls._account(receipt.company, code), "credit": bank_credit})
+        if fee_share > 0:
+            lines.append({"account": cls._account(receipt.company, "5200"), "credit": fee_share})
+        if len(lines) == 1:
+            lines.append({"account": cls._account(receipt.company, code), "credit": amount})
         return cls.post(
             company=receipt.company,
             source_type="CUSTOMER_RECEIPT",
             source_id=receipt.id,
-            purpose="REFUND",
-            entry_date=timezone.localdate(),
+            purpose=purpose or "REFUND",
+            entry_date=receipt.receipt_date or timezone.localdate(),
             user=user,
             narration=f"Refund: {receipt.number}",
             lines=lines,
@@ -774,14 +904,18 @@ class PostingService:
         """
         cls._ensure_chart(invoice.company)
         cc = invoice.cost_center
+        # SYS-03: `taxable_amount` is always present on a document line; a
+        # legitimately-zero line (100% discount / free sample) must stay zero,
+        # not fall through `or` to `line_total` (which includes tax).
         line_taxable = sum(
-            (Decimal(str(getattr(li, "taxable_amount", 0) or getattr(li, "line_total", 0) or 0))
+            (Decimal(str(getattr(li, "taxable_amount", None) if getattr(li, "taxable_amount", None) is not None else 0))
              for li in invoice.items.all()),
             Decimal("0"),
         )
-        # Prefer explicit taxable_total when present and lines empty-sum fallback.
+        # Fall back to the header taxable only when there are genuinely no line
+        # rows to sum (import edge), not when every line taxable is zero.
         header_taxable = Decimal(str(getattr(invoice, "taxable_total", 0) or 0))
-        if line_taxable <= 0 and header_taxable > 0:
+        if not invoice.items.exists() and header_taxable > 0:
             line_taxable = header_taxable
         cess = Decimal(str(getattr(invoice, "cess_total", 0) or 0))
         tax = (
@@ -938,6 +1072,8 @@ class PostingService:
         return cls.post(company=invoice.company, source_type="PURCHASE_INVOICE", source_id=invoice.id,
             purpose="COMPLETE", entry_date=invoice.invoice_date, user=user, narration=invoice.number,
             lines=lines)
+
+    post_purchase_invoice = post_purchase
 
     @classmethod
     def post_supplier_payment(cls, payment, user=None):
@@ -1303,8 +1439,18 @@ class BooksHealthService:
         gst = build_gst_health(company, period)
         blockers.extend(a for a in gst["alerts"] if a.get("severity") == "critical")
         from manufacturing.models import WorkOrder
+        from calendar import monthrange
+        from datetime import date as date_cls
 
-        if WorkOrder.objects.filter(company=company, status=WorkOrder.Status.RELEASED).exists():
+        wo_qs = WorkOrder.objects.filter(company=company, status=WorkOrder.Status.RELEASED)
+        if period:
+            try:
+                year, month = int(str(period)[:4]), int(str(period)[5:7])
+                period_end = date_cls(year, month, monthrange(year, month)[1])
+                wo_qs = wo_qs.filter(Q(released_at__lte=period_end) | Q(released_at__isnull=True))
+            except (TypeError, ValueError):
+                pass
+        if wo_qs.exists():
             blockers.append({
                 "code": "OPEN_WIP",
                 "severity": "error",

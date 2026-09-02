@@ -56,7 +56,10 @@ export const createWarehouse = (payload: Record<string, unknown>) => apiClient.p
 export const updateWarehouse = (id: number, payload: Record<string, unknown>) => apiClient.patch(`/inventory/warehouses/${id}/`, payload).then(({ data }) => unwrapData(data));
 export const listTransfers = () => fetchAllPagesMasters<import('@/types/domain').StockTransfer>('/inventory/transfers/');
 export const createTransfer = (payload: Record<string, unknown>) => apiClient.post('/inventory/transfers/', payload).then(({ data }) => unwrapData(data));
-export const completeTransfer = (id: number) => apiClient.post(`/inventory/transfers/${id}/complete/`).then(({ data }) => unwrapData(data));
+export const completeTransfer = (id: number, options?: { idempotencyKey?: string }) =>
+  apiClient
+    .post(`/inventory/transfers/${id}/complete/`, {}, { headers: idempotencyHeaders(options?.idempotencyKey) })
+    .then(({ data }) => unwrapData(data));
 export const cancelTransfer = (id: number) => apiClient.post(`/inventory/transfers/${id}/cancel/`).then(({ data }) => unwrapData(data));
 export const listSerials = (params?: Record<string, string>) =>
   fetchAllPagesMasters<Record<string, unknown>>('/inventory/serials/', params);

@@ -1,0 +1,977 @@
+{
+  "totalTests": 106,
+  "passed": 100,
+  "failed": 6,
+  "defectsCount": 0,
+  "defects": [],
+  "testLog": [
+    {
+      "module": "Auth",
+      "screen": "Login",
+      "element": "Login Form Fields",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "Email, password & submit button present",
+      "issueId": ""
+    },
+    {
+      "module": "Auth",
+      "screen": "Login",
+      "element": "Empty Submit Validation",
+      "testType": "Negative Path",
+      "status": "PASS",
+      "details": "Validation error shown: \"Email | Email | Enter a valid email | Password | Password | Password is required\"",
+      "issueId": ""
+    },
+    {
+      "module": "Auth",
+      "screen": "Login",
+      "element": "Invalid Credentials Alert",
+      "testType": "Negative Path",
+      "status": "PASS",
+      "details": "Alert displayed: \"Email or password is incorrect. | Email or password is incorrect.\"",
+      "issueId": ""
+    },
+    {
+      "module": "Auth",
+      "screen": "Login",
+      "element": "Valid Login Flow",
+      "testType": "Happy Path",
+      "status": "PASS",
+      "details": "Logged in successfully, landed at http://localhost/",
+      "issueId": ""
+    },
+    {
+      "module": "Dashboard",
+      "screen": "Dashboard",
+      "element": "App Header & Navigation Bar",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "module": "Dashboard",
+      "screen": "Dashboard",
+      "element": "User Profile / Role Indicator",
+      "testType": "UI Presence",
+      "status": "FAIL",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "module": "Dashboard",
+      "screen": "Dashboard",
+      "element": "Logout Button",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "module": "Dashboard",
+      "screen": "Dashboard",
+      "element": "KPI Metrics & Summary Cards",
+      "testType": "UI Data Load",
+      "status": "PASS",
+      "details": "Found 18 cards/panels",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Company Settings",
+      "element": "Company Settings Form",
+      "testType": "UI Presence",
+      "status": "FAIL",
+      "details": "Company form inputs missing",
+      "issueId": "DEF-005"
+    },
+    {
+      "module": "Sales",
+      "screen": "Customers",
+      "element": "Add Customer Button",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "Add button visible",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Customers",
+      "element": "Customer Modal Dialog",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "Modal opened",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Customers",
+      "element": "Customer Empty Submit Validation",
+      "testType": "Negative Path",
+      "status": "PASS",
+      "details": "Save button properly disabled when required fields are empty",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Customers",
+      "element": "Save Customer Record",
+      "testType": "Happy Path",
+      "status": "PASS",
+      "details": "Created customer MasterQA-Cust-2850",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "New Invoice",
+      "element": "Customer Picker Autocomplete",
+      "testType": "UI Presence",
+      "status": "FAIL",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "New Invoice",
+      "element": "Save Invoice Button",
+      "testType": "UI Presence",
+      "status": "FAIL",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Sales History",
+      "element": "Sales Invoices Table",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Quotations",
+      "element": "Quotations Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Loaded heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Sales Orders",
+      "element": "Sales Orders Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Loaded heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Delivery Challans",
+      "element": "Delivery Challans Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Loaded heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Credit Notes",
+      "element": "Credit Notes Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Loaded heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Debit Notes",
+      "element": "Debit Notes Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Loaded heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Sales Returns",
+      "element": "Sales Returns Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Loaded heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Receipts",
+      "element": "Receipts Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Loaded heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Recurring Invoices",
+      "element": "Recurring Invoices Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Loaded heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "Sales Bill Upload",
+      "element": "Sales Bill Upload Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Loaded heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Sales",
+      "screen": "POS Counter",
+      "element": "POS Counter Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Loaded heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "Suppliers",
+      "element": "Add Supplier Button",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "Add button visible",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "Suppliers",
+      "element": "Supplier Modal Dialog",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "Dialog opened",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "Suppliers",
+      "element": "Save Supplier Record",
+      "testType": "Happy Path",
+      "status": "PASS",
+      "details": "Created supplier MasterQA-Sup-6935",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "New Purchase",
+      "element": "Supplier Picker Autocomplete",
+      "testType": "UI Presence",
+      "status": "FAIL",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "New Purchase",
+      "element": "Save Purchase Button",
+      "testType": "UI Presence",
+      "status": "FAIL",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "Purchase Orders",
+      "element": "Purchase Orders Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "Purchase History",
+      "element": "Purchase History Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "Purchase Credit Notes",
+      "element": "Purchase Credit Notes Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "Purchase Debit Notes",
+      "element": "Purchase Debit Notes Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "Purchase Returns",
+      "element": "Purchase Returns Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "Supplier Payments",
+      "element": "Supplier Payments Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Purchases",
+      "screen": "Purchase Bill Upload",
+      "element": "Purchase Bill Upload Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Inventory",
+      "screen": "Products",
+      "element": "Add Product Button",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "Add button found",
+      "issueId": ""
+    },
+    {
+      "module": "Inventory",
+      "screen": "Products",
+      "element": "Product Modal Dialog",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "Modal dialog opened",
+      "issueId": ""
+    },
+    {
+      "module": "Inventory",
+      "screen": "Products",
+      "element": "Save Product Record",
+      "testType": "Happy Path",
+      "status": "PASS",
+      "details": "Created product MasterQA-Item-3403",
+      "issueId": ""
+    },
+    {
+      "module": "Inventory",
+      "screen": "Current Stock",
+      "element": "Current Stock Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Inventory",
+      "screen": "Low Stock",
+      "element": "Low Stock Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Inventory",
+      "screen": "Expiry Alerts",
+      "element": "Expiry Alerts Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Inventory",
+      "screen": "Stock Adjustments",
+      "element": "Stock Adjustments Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Inventory",
+      "screen": "Warehouses",
+      "element": "Warehouses Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Inventory",
+      "screen": "Stock Transfers",
+      "element": "Stock Transfers Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Inventory",
+      "screen": "Serials Tracking",
+      "element": "Serials Tracking Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Inventory",
+      "screen": "Stock Counts",
+      "element": "Stock Counts Page Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Banking & Accounting",
+      "screen": "Payment Links",
+      "element": "Payment Links Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Banking & Accounting",
+      "screen": "Bank Statements",
+      "element": "Bank Statements Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Banking & Accounting",
+      "screen": "Bank Reconciliation",
+      "element": "Bank Reconciliation Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Banking & Accounting",
+      "screen": "Cash Book",
+      "element": "Cash Book Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Banking & Accounting",
+      "screen": "Chart of Accounts",
+      "element": "Chart of Accounts Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Banking & Accounting",
+      "screen": "Journal Entries",
+      "element": "Journal Entries Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Banking & Accounting",
+      "screen": "Accounting Bank Recon",
+      "element": "Accounting Bank Recon Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Banking & Accounting",
+      "screen": "Cost Centers",
+      "element": "Cost Centers Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Banking & Accounting",
+      "screen": "Fixed Assets",
+      "element": "Fixed Assets Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Enterprise Modules",
+      "screen": "Bill of Materials (BOMs)",
+      "element": "Bill of Materials (BOMs) Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Enterprise Modules",
+      "screen": "Work Orders",
+      "element": "Work Orders Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Enterprise Modules",
+      "screen": "Payroll Employees",
+      "element": "Payroll Employees Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Enterprise Modules",
+      "screen": "Pay Runs",
+      "element": "Pay Runs Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Enterprise Modules",
+      "screen": "CRM Leads",
+      "element": "CRM Leads Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Enterprise Modules",
+      "screen": "CRM Opportunities",
+      "element": "CRM Opportunities Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Sales Report",
+      "element": "Sales Report Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Purchases Report",
+      "element": "Purchases Report Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Inventory Report",
+      "element": "Inventory Report Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Customer Ledger",
+      "element": "Customer Ledger Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Supplier Ledger",
+      "element": "Supplier Ledger Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Stock Valuation",
+      "element": "Stock Valuation Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "TDS/TCS Report",
+      "element": "TDS/TCS Report Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Trial Balance",
+      "element": "Trial Balance Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Profit & Loss",
+      "element": "Profit & Loss Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Balance Sheet",
+      "element": "Balance Sheet Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Books Health",
+      "element": "Books Health Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "GSTR-1",
+      "element": "GSTR-1 Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "GSTR-3B",
+      "element": "GSTR-3B Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "GSTR-9",
+      "element": "GSTR-9 Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "GSTR-2B",
+      "element": "GSTR-2B Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "GST Health",
+      "element": "GST Health Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "GST Rate Exposure",
+      "element": "GST Rate Exposure Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Page not found\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Missing Documents",
+      "element": "Missing Documents Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Page not found\"",
+      "issueId": ""
+    },
+    {
+      "module": "Reports & Analytics",
+      "screen": "Statutory Events",
+      "element": "Statutory Events Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "AI Insights",
+      "screen": "Insights Hub",
+      "element": "Insights Hub Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "AI Insights",
+      "screen": "Insights Alerts",
+      "element": "Insights Alerts Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "AI Insights",
+      "screen": "Business Health",
+      "element": "Business Health Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "AI Insights",
+      "screen": "Cashflow Forecast",
+      "element": "Cashflow Forecast Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "AI Insights",
+      "screen": "AI Assistant",
+      "element": "AI Assistant Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "AI Insights",
+      "screen": "AI Assistant",
+      "element": "Chat Input Box",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "module": "AI Insights",
+      "screen": "AI Assistant",
+      "element": "Send Prompt Button",
+      "testType": "UI Presence",
+      "status": "PASS",
+      "details": "",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Company Profile",
+      "element": "Company Profile Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Units of Measurement",
+      "element": "Units of Measurement Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Invoice Templates",
+      "element": "Invoice Templates Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Users & Roles",
+      "element": "Users & Roles Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Bank Accounts Settings",
+      "element": "Bank Accounts Settings Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Payment Gateway",
+      "element": "Payment Gateway Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Subscription & Billing",
+      "element": "Subscription & Billing Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Price Lists",
+      "element": "Price Lists Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Backup & Data Export",
+      "element": "Backup & Data Export Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "AI Configuration",
+      "element": "AI Configuration Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Accounting Settings",
+      "element": "Accounting Settings Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "GST Configuration",
+      "element": "GST Configuration Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Data Import",
+      "element": "Data Import Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Settings",
+      "screen": "Tally Migration",
+      "element": "Tally Migration Surface & Navigation",
+      "testType": "Navigation & Render",
+      "status": "PASS",
+      "details": "Heading: \"Bizboard\"",
+      "issueId": ""
+    },
+    {
+      "module": "Cross-Cutting",
+      "screen": "404 Handling",
+      "element": "Unknown Route 404 Page",
+      "testType": "Navigation / Error State",
+      "status": "PASS",
+      "details": "Body content: \"404\nPage not found\n\nThere's nothing at /non-existent-random-route-qa-999. It may have moved, or the \"",
+      "issueId": ""
+    },
+    {
+      "module": "Cross-Cutting",
+      "screen": "Security & Console",
+      "element": "CSP Inline Script Violations",
+      "testType": "Console Logs / Security",
+      "status": "PASS",
+      "details": "No CSP violations",
+      "issueId": ""
+    }
+  ],
+  "consoleErrorsCount": 6,
+  "networkErrorsCount": 2,
+  "networkErrors": [
+    {
+      "status": 401,
+      "url": "http://localhost/api/v1/auth/refresh/",
+      "statusText": "Unauthorized"
+    },
+    {
+      "status": 401,
+      "url": "http://localhost/api/v1/auth/login/",
+      "statusText": "Unauthorized"
+    }
+  ]
+}

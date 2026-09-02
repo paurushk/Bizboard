@@ -230,11 +230,14 @@ class DocumentNumberService:
         gstin_key, fy_label, _on = DocumentNumberService._resolve_keys(
             company, gstin=gstin, on_date=on_date
         )
+        # DOCNUM-03: a preview must not take `SELECT ... FOR UPDATE` on the series
+        # row — it serialised every totals-preview poll against real allocation.
+        # A plain read of `next_number` is exactly as accurate for a preview.
         with transaction.atomic():
             series = DocumentNumberService._ensure_series(
                 company, doc_type, gstin_key=gstin_key, fy_label=fy_label
             )
-            series = DocumentSeries.objects.select_for_update().get(pk=series.pk)
+            series = DocumentSeries.objects.get(pk=series.pk)
             return {
                 "doc_type": series.doc_type,
                 "prefix": series.prefix,
@@ -315,6 +318,25 @@ class DocumentNumberService:
         ).first()
         if series is not None and int(series.next_number or 1) != 1:
             return None
+        # DOCNUM-02: a *different* GSTIN's series already running in this same FY
+        # means the primary GSTIN was added / switched mid-year — the new
+        # registration's numbering restarts at 1, which looks like a rewind to an
+        # auditor. Call it out distinctly from the ordinary year-end restart.
+        other_gstin_running = (
+            DocumentSeries.objects.filter(
+                company=company, doc_type=doc_type, fy_label=fy_label
+            )
+            .exclude(gstin_key=gstin_key or "")
+            .exclude(gstin_key="")
+            .filter(next_number__gt=1)
+            .exists()
+        )
+        if other_gstin_running:
+            return (
+                f"{doc_type} numbering for GSTIN …{(gstin_key or '')[-4:]} in FY {fy_label} "
+                "starts at 1 because this registration was added or changed mid-year — "
+                "each GSTIN keeps its own consecutive series."
+            )
         return (
             f"FY series {fy_label} for {doc_type} starts at 1 "
             "(expected year-end restart, not a skipped number)."
@@ -330,6 +352,19 @@ class DocumentNumberService:
         """
         if doc_type not in DEFAULT_PREFIXES:
             raise ValueError(f"Unknown document type: {doc_type}")
+        # DOCNUM-01: the "a rolled-back Complete rolls the number back" guarantee
+        # only holds when this runs *inside* the caller's transaction (so the
+        # `with transaction.atomic()` below is a savepoint, not its own committed
+        # transaction). Allocating a statutory consecutive number outside a
+        # transaction would leave a gap on any later failure.
+        from django.db import connection as _conn
+
+        if not _conn.in_atomic_block:
+            raise RuntimeError(
+                "DocumentNumberService.next_number must be called inside a "
+                "transaction (the caller's atomic Complete) so a rollback also "
+                "rolls back the series increment."
+            )
         gstin_key, fy_label, _on = DocumentNumberService._resolve_keys(
             company, gstin=gstin, on_date=on_date
         )

@@ -1,0 +1,26 @@
+{
+  "results": [
+    {
+      "category": "Negative Inputs",
+      "screen": "Customer Modal",
+      "element": "Invalid GSTIN Format",
+      "testType": "Negative Path",
+      "status": "FAIL",
+      "inputUsed": "INVALID_GSTIN",
+      "expectedResult": "Clear message stating 15-character valid GSTIN required",
+      "actualResult": "",
+      "usabilityNotes": "Did not validate invalid GSTIN"
+    },
+    {
+      "category": "Execution",
+      "screen": "Global",
+      "element": "Usability Test Execution",
+      "testType": "Fatal Error",
+      "status": "FAIL",
+      "inputUsed": "N/A",
+      "expectedResult": "N/A",
+      "actualResult": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('div[role=\"dialog\"]').first().locator('button:has-text(\"Save\")').first()\u001b[22m\n\u001b[2m    - locator resolved to <button disabled tabindex=\"-1\" type=\"button\" class=\"MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-disableElevation Mui-disabled MuiButton-root MuiButton-contained MuiButton-containedPrimary MuiButton-sizeMedium MuiButton-containedSizeMedium MuiButton-colorPrimary MuiButton-disableElevation css-1943ku2\">Save</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not enabled\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not enabled\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    57 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is not enabled\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n",
+      "usabilityNotes": ""
+    }
+  ]
+}

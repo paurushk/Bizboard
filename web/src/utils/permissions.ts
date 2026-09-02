@@ -61,11 +61,7 @@ export function canViewAiInsights(user: User | null): boolean {
   // VIEWER / ACCOUNTANT defaults keep AI off unless explicitly flagged.
   if (isViewer(user.role)) return false;
   if (isAccountant(user.role)) return user.canViewAiInsights === true;
-  return (
-    isOwner(user.role) ||
-    user.canViewAiInsights === true ||
-    user.canViewFinancialReports === true
-  );
+  return isOwner(user.role) || user.canViewAiInsights === true;
 }
 
 export function canUseAiAssistant(user: User | null): boolean {

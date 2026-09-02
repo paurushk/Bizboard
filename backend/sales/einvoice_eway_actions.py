@@ -3,9 +3,11 @@
 from datetime import timedelta
 
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.decorators import action
+from rest_framework import status
 from rest_framework.response import Response
 
 from core.exceptions import BusinessRuleError
@@ -67,7 +69,7 @@ def _claim_einvoice_submit(invoice, *, allow_queued_retry=False):
 def _claim_eway_submit(document):
     """Atomically claim QUEUED so only one e-Way GSP submit runs."""
     model = type(document)
-    qs = model.objects.filter(pk=document.pk).filter(eway_bill_no="")
+    qs = model.objects.filter(pk=document.pk).filter(Q(eway_bill_no="") | Q(eway_bill_no__isnull=True))
     qs = qs.exclude(
         eway_status__in=(
             SalesInvoice.EwayStatus.QUEUED,
@@ -86,6 +88,18 @@ def _claim_eway_submit(document):
 
 def _cancel_irn_via_gsp(document, request):
     """NIC cancel: CnlRsn/CnlRem required; 24h from ack_date."""
+    # Validate the request payload before the document state — a missing cancel
+    # reason is a client error regardless of the IRN's ack status.
+    valid_rsn = {"1", "2", "3", "4"}
+    cnl_rsn = str(request.data.get("cnl_rsn") or request.data.get("CnlRsn") or "").strip()
+    cnl_rem = (request.data.get("cnl_rem") or request.data.get("CnlRem") or "").strip()
+    if cnl_rsn not in valid_rsn:
+        raise BusinessRuleError(
+            "cnl_rsn is required (1=Duplicate, 2=Data entry mistake, 3=Order cancelled, 4=Others)."
+        )
+    if not cnl_rem:
+        raise BusinessRuleError("cnl_rem (cancel remarks) is required.")
+
     ack = getattr(document, "ack_date", None)
     if not ack:
         raise BusinessRuleError(
@@ -97,15 +111,6 @@ def _cancel_irn_via_gsp(document, request):
         raise BusinessRuleError(
             "IRN can be cancelled only within 24 hours of acknowledgement."
         )
-    valid_rsn = {"1", "2", "3", "4"}
-    cnl_rsn = str(request.data.get("cnl_rsn") or request.data.get("CnlRsn") or "").strip()
-    cnl_rem = (request.data.get("cnl_rem") or request.data.get("CnlRem") or "").strip()
-    if cnl_rsn not in valid_rsn:
-        raise BusinessRuleError(
-            "cnl_rsn is required (1=Duplicate, 2=Data entry mistake, 3=Order cancelled, 4=Others)."
-        )
-    if not cnl_rem:
-        raise BusinessRuleError("cnl_rem (cancel remarks) is required.")
     get_irp_adapter(document.company).cancel(document.irn, cnl_rsn=cnl_rsn, cnl_rem=cnl_rem)
 
 
@@ -253,7 +258,10 @@ class InvoiceEinvoiceEwayActionsMixin:
         if claim == "already":
             return Response(self.get_serializer(invoice).data)
         if claim == "in_flight":
-            return Response(self.get_serializer(invoice).data)
+            return Response(
+                {"detail": "A statutory submission is already in progress."},
+                status=status.HTTP_409_CONFLICT,
+            )
         async_result = enqueue_irn.delay(invoice.pk, request.user.pk, company_id=invoice.company_id)
         invoice.einvoice_status = SalesInvoice.EInvoiceStatus.QUEUED
         invoice.save(update_fields=["einvoice_status"])
@@ -393,7 +401,10 @@ class InvoiceEinvoiceEwayActionsMixin:
         if claim == "already":
             return Response(self.get_serializer(invoice).data)
         if claim == "in_flight":
-            return Response(self.get_serializer(invoice).data)
+            return Response(
+                {"detail": "A statutory submission is already in progress."},
+                status=status.HTTP_409_CONFLICT,
+            )
         try:
             payload = build_eway_payload_from_invoice(
                 invoice,
@@ -491,6 +502,10 @@ class InvoiceEinvoiceEwayActionsMixin:
             raise BusinessRuleError("Only Owner can amend filing identity.")
         if invoice.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
             raise BusinessRuleError("Only completed invoices can amend filing identity.")
+        from .irn_guard import assert_no_live_irn, assert_no_live_eway
+
+        assert_no_live_irn(invoice, kind="invoice")
+        assert_no_live_eway(invoice, kind="invoice")
 
         reason = (request.data.get("reason") or "").strip()
         if not reason:
@@ -695,7 +710,10 @@ class NoteEinvoiceActionsMixin:
         if claim == "already":
             return Response(self.get_serializer(note).data)
         if claim == "in_flight":
-            return Response(self.get_serializer(note).data)
+            return Response(
+                {"detail": "A statutory submission is already in progress."},
+                status=status.HTTP_409_CONFLICT,
+            )
         try:
             payload = build_einvoice_payload_from_note(note)
         except EinvoiceValidationError as exc:

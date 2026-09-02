@@ -9,6 +9,9 @@ export type Employee = SchemaOr<
     name: string;
     code: string;
     salary: string;
+    basic?: string;
+    da?: string;
+    tdsRate?: string;
     status: string;
     pfApplicable: boolean;
     pfWageCeiling: string;
@@ -84,5 +87,20 @@ export async function updatePayRun(id: number, payload: { period: string }): Pro
 
 export async function completePayRun(id: number, payFromCash = true): Promise<PayRun> {
   const { data } = await apiClient.post(`${BASE}/pay-runs/${id}/complete/`, { payFromCash });
+  return unwrapData<PayRun>(data);
+}
+
+export async function cancelPayRun(id: number): Promise<PayRun> {
+  const { data } = await apiClient.post(`${BASE}/pay-runs/${id}/cancel/`);
+  return unwrapData<PayRun>(data);
+}
+
+export async function applyPayRunLop(
+  id: number,
+  entries: { employee: number; paidDays: string }[],
+): Promise<PayRun> {
+  const { data } = await apiClient.post(`${BASE}/pay-runs/${id}/lop/`, {
+    entries: entries.map((e) => ({ employee: e.employee, paidDays: e.paidDays })),
+  });
   return unwrapData<PayRun>(data);
 }

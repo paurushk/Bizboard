@@ -50,7 +50,7 @@ import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { t } from '@/i18n';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { formatMoney, toNumber } from '@/utils/money';
-import { canCancelDocuments, canViewFinancialReports } from '@/utils/permissions';
+import { canCancelDocuments, canCreateSales, canViewFinancialReports } from '@/utils/permissions';
 import { isAllowedPaymentUrl, isAllowedShareUrl, openShareUrl } from '@/utils/safeUrl';
 import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
 
@@ -451,7 +451,7 @@ export function InvoiceDetailPage() {
               {t('common.edit')}
             </Button>
           ) : null}
-          {inv.status === 'DRAFT' ? (
+          {inv.status === 'DRAFT' && canCreateSales(user) ? (
             <Button
               variant="contained"
               disabled={completeMutation.isPending}

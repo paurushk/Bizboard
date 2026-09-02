@@ -71,6 +71,22 @@ def _outstanding(invoice) -> Decimal:
     return Decimal(str(LedgerService.sales_invoice_outstanding(invoice) or 0))
 
 
+def _step_already_sent(invoice, bucket: int) -> bool:
+    from payments.models import DunningReminder
+
+    return DunningReminder.objects.filter(
+        invoice=invoice, days_overdue=bucket, status=DunningReminder.Status.SENT
+    ).exists()
+
+
+def _next_due_bucket(days_overdue: int, buckets: list[int], invoice) -> int | None:
+    """Lowest configured step where days_overdue >= bucket and that step is unsent."""
+    for bucket in buckets:
+        if days_overdue >= bucket and not _step_already_sent(invoice, bucket):
+            return bucket
+    return None
+
+
 def _already_sent_today(invoice, sent_on: date) -> bool:
     from payments.models import DunningReminder
 
@@ -218,7 +234,7 @@ def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
     if in_quiet_hours(company, now):
         return {"sent": 0, "skipped": 0, "reason": "quiet_hours"}
     as_of = _ist_today(now)
-    buckets = set(configured_days(company))
+    buckets = configured_days(company)
     max_n = int(getattr(company, "dunning_max_reminders", 3) or 3)
     sent = skipped = 0
     for invoice in eligible_invoices(company, as_of=as_of):
@@ -230,7 +246,8 @@ def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
             skipped += 1
             continue
         days_overdue = (as_of - invoice.due_date).days
-        if days_overdue not in buckets:
+        bucket = _next_due_bucket(days_overdue, buckets, invoice)
+        if bucket is None:
             continue
         if _already_sent_today(invoice, as_of):
             skipped += 1
@@ -244,7 +261,7 @@ def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
         if is_paid_pending_books(invoice):
             skipped += 1
             continue
-        result = remind_invoice(invoice, sent_on=as_of, days_overdue=days_overdue)
+        result = remind_invoice(invoice, sent_on=as_of, days_overdue=bucket)
         if result in ("whatsapp", "sms"):
             sent += 1
         else:
@@ -253,14 +270,20 @@ def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
 
 
 def run_dunning_all(*, now: datetime | None = None) -> dict:
+    from core.rls import iter_company_ids, set_rls_company
     from accounts.models import Company
 
     totals = {"sent": 0, "skipped": 0, "companies": 0}
-    for company in Company.objects.filter(dunning_enabled=True).iterator():
+    for cid in iter_company_ids():
+        set_rls_company(cid)
+        company = Company.objects.filter(pk=cid, dunning_enabled=True).first()
+        if company is None:
+            continue
         result = run_dunning_for_company(company, now=now)
         totals["sent"] += result.get("sent", 0)
         totals["skipped"] += result.get("skipped", 0)
         totals["companies"] += 1
+    set_rls_company(None)
     return totals
 
 

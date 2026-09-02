@@ -204,7 +204,8 @@ class PurchaseNotesService:
         # SalesNotesService.complete_credit_note — a CN cannot relieve more AP
         # than is actually still owed on the invoice.
         if note.purchase_invoice_id:
-            max_cn = _purchase_note_headroom(note.purchase_invoice, exclude_cn_id=note.pk)
+            inv = PurchaseInvoice.objects.select_for_update().get(pk=note.purchase_invoice_id)
+            max_cn = _purchase_note_headroom(inv, exclude_cn_id=note.pk)
             if note.grand_total > max_cn:
                 raise BusinessRuleError(
                     f"Credit note {note.grand_total} exceeds invoice remaining outstanding {max_cn}."
@@ -216,8 +217,14 @@ class PurchaseNotesService:
         if tax_enabled:
             missing_hsn = note.items.filter(hsn_code="").count()
             if missing_hsn:
-                raise BusinessRuleError(
-                    f"{missing_hsn} line(s) missing HSN — complete the HSN before finishing this note."
+                # CHG-02 pattern: a missing HSN on a purchase note is surfaced on
+                # the GSTR worksheet (HSN_MISSING) — it does not affect the 3B
+                # ITC aggregate — so warn on Complete instead of hard-blocking a
+                # legitimate note (e.g. a damaged-goods write-off for a product
+                # that has no HSN set). Sales already only hard-blocks for
+                # e-invoice notes.
+                warnings.append(
+                    f"{missing_hsn} line(s) missing HSN — add HSN before filing GSTR."
                 )
         # BB-000736 / BB-000699: period before number; no except-pass.
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
@@ -251,6 +258,16 @@ class PurchaseNotesService:
         if note.status != PurchaseCreditNote.Status.COMPLETED:
             raise BusinessRuleError("Only completed credit notes can be cancelled.")
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
+
+        if note.purchase_return_id:
+            from .models import PurchaseReturn
+
+            pr = PurchaseReturn.objects.filter(pk=note.purchase_return_id).first()
+            if pr is not None and pr.status == PurchaseReturn.Status.COMPLETED:
+                raise BusinessRuleError(
+                    "This credit note is linked to a completed purchase return. "
+                    "Cancel the purchase return instead — that will cancel this note."
+                )
 
         assert_period_allows_money_amend(note.company, note.note_date)
         if note.company.accounting_enabled:
@@ -328,8 +345,14 @@ class PurchaseNotesService:
         if tax_enabled:
             missing_hsn = note.items.filter(hsn_code="").count()
             if missing_hsn:
-                raise BusinessRuleError(
-                    f"{missing_hsn} line(s) missing HSN — complete the HSN before finishing this note."
+                # CHG-02 pattern: a missing HSN on a purchase note is surfaced on
+                # the GSTR worksheet (HSN_MISSING) — it does not affect the 3B
+                # ITC aggregate — so warn on Complete instead of hard-blocking a
+                # legitimate note (e.g. a damaged-goods write-off for a product
+                # that has no HSN set). Sales already only hard-blocks for
+                # e-invoice notes.
+                warnings.append(
+                    f"{missing_hsn} line(s) missing HSN — add HSN before filing GSTR."
                 )
         # BB-000736 / BB-000699: period before number; no except-pass.
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
@@ -420,10 +443,20 @@ class PurchaseNotesService:
                 gstin=resolve_series_gstin(order.company),
                 on_date=order.order_date,
             )
+        from inventory.services import InventoryService
+        from accounts.models import CompanyGstin
+
+        stamp = (
+            CompanyGstin.objects.filter(company=order.company, is_primary=True, is_active=True)
+            .order_by("-id")
+            .first()
+        ) or CompanyGstin.objects.filter(company=order.company, is_active=True).order_by("id").first()
         purchase = PurchaseInvoice.objects.create(
             company=order.company,
             supplier=order.supplier,
+            warehouse=InventoryService.default_warehouse(order.company),
             purchase_type=order.purchase_type,
+            company_gstin=stamp,
             payment_terms_days=order.payment_terms_days,
             additional_charges=order.additional_charges,
             invoice_discount=order.invoice_discount,

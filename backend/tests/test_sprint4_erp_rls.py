@@ -232,5 +232,8 @@ def test_bb_000551_rls_uses_session_not_local():
     assert "set_config('app.company_id', %s, true)" not in source
 
 
-def test_bb_000552_rls_stays_disabled_by_default():
-    assert getattr(settings, "POSTGRES_RLS_ENABLED", True) is False
+def test_bb_000552_rls_enabled_by_default():
+    # SYS-01: RLS is now ON by default (migration core.0020 covers every tenant
+    # table). It is a no-op on SQLite and can be turned off with
+    # POSTGRES_RLS_ENABLED=0 for the staged Postgres cut-over.
+    assert getattr(settings, "POSTGRES_RLS_ENABLED", False) is True

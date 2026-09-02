@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from core.permissions import get_company_user
+from core.serializers import CompanyPrimaryKeyRelatedField
 from masters.models import Product
 
 from .models import PurchaseInvoice, PurchaseItem, PurchaseReturn, PurchaseReturnItem
@@ -24,7 +25,7 @@ class CompanyScopedSerializerMixin:
 
 
 class PurchaseItemSerializer(serializers.ModelSerializer):
-    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
+    product = CompanyPrimaryKeyRelatedField(queryset=Product.objects.all())
     product_name = serializers.CharField(source="product.name", read_only=True)
 
     class Meta:
@@ -195,6 +196,8 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off",
             "price_mode", "is_reverse_charge", "itc_eligibility",
             "tds_rate", "tds_amount",
+            "company_gstin", "invoice_date", "warehouse", "supplier_bill_number",
+            "purchase_type",
         }
         money_changing = bool(money_fields & set(validated_data.keys()))
         items_in_request = items_data is not serializers.empty
@@ -251,28 +254,17 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
 
         if instance.status == PurchaseInvoice.Status.COMPLETED:
             if needs_amend:
+                from django.db import transaction
+
                 payload = prepared if prepared is not None else existing_lines_as_items_data(instance.items)
-                PurchaseService.set_items(instance, payload, user)
-                instance.refresh_from_db()
-                PurchaseService.restamp_fifo_layers_for_price_amend(instance)
-                # H9: reverse prior COMPLETE journals and re-post at amended totals.
-                if instance.company.accounting_enabled:
-                    from accounting.models import JournalEntry
-                    from accounting.services import PostingService
+                with transaction.atomic():
+                    PurchaseService.set_items(instance, payload, user)
+                    instance.refresh_from_db()
+                    PurchaseService.restamp_fifo_layers_for_price_amend(instance)
+                    # set_items already reversed+reposted via adjust_purchase_invoice_postings.
+                    from reporting.gst_periods import mark_period_dirty_if_snapshotted
 
-                    for entry in JournalEntry.objects.filter(
-                        company=instance.company,
-                        source_type="PURCHASE_INVOICE",
-                        source_id=instance.id,
-                        purpose="COMPLETE",
-                        status=JournalEntry.Status.POSTED,
-                    ):
-                        PostingService.reverse(entry, user, instance.invoice_date)
-                    PostingService.post_purchase(instance, user)
-                # BB-000275: money amend must dirty snapshotted GST periods.
-                from reporting.gst_periods import mark_period_dirty_if_snapshotted
-
-                mark_period_dirty_if_snapshotted(instance.company, instance.invoice_date)
+                    mark_period_dirty_if_snapshotted(instance.company, instance.invoice_date)
             return instance
 
         if prepared is not None:
@@ -283,7 +275,7 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
 
 
 class PurchaseReturnItemSerializer(serializers.ModelSerializer):
-    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
+    product = CompanyPrimaryKeyRelatedField(queryset=Product.objects.all())
     product_name = serializers.CharField(source="product.name", read_only=True)
 
     class Meta:

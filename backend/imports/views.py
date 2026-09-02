@@ -91,8 +91,13 @@ class ImportJobViewSet(
                 raise BusinessRuleError("Invalid customer.")
 
         raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        # A bill *upload* is never idempotency-deduped — re-uploading the same
+        # photo deliberately starts a fresh extraction job (the paired
+        # store_record below is likewise skipped for BILL_KINDS). Only structured
+        # master imports claim the key.
+        use_idempotency = bool(raw_key) and kind not in ImportJob.BILL_KINDS
         claimed = None
-        if raw_key and kind not in ImportJob.BILL_KINDS:
+        if use_idempotency:
             claimed = begin_record(
                 company=self.company, scope="import_job_create", raw_key=raw_key
             )
@@ -141,7 +146,7 @@ class ImportJobViewSet(
                     ImportService.validate(job)
                 response = Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
 
-            if raw_key and kind not in ImportJob.BILL_KINDS:
+            if use_idempotency:
                 store_record(
                     company=self.company,
                     scope="import_job_create",
@@ -152,7 +157,12 @@ class ImportJobViewSet(
                 created_ok = True
             return response
         finally:
-            if raw_key and kind not in ImportJob.BILL_KINDS and claimed is not None and not isinstance(claimed, Response) and not created_ok:
+            if (
+                use_idempotency
+                and claimed is not None
+                and not isinstance(claimed, Response)
+                and not created_ok
+            ):
                 release_record(company=self.company, scope="import_job_create", raw_key=raw_key)
     @action(detail=True, methods=["post"], url_path="retry-extract")
     def retry_extract(self, request, pk=None):

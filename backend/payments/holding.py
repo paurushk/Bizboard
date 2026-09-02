@@ -47,7 +47,13 @@ def books_hold_reason(exc) -> str:
     text = f"{codes} {err_detail(exc)}".lower()
     if HelpCode.CLOSED_PERIOD in text or "gst period" in text or "accounting period" in text:
         return "PERIOD_LOCKED"
-    if "utr" in text and ("already used" in text or "duplicate" in text):
+    if "utr" in text and (
+        "already used" in text
+        or "duplicate" in text
+        or "clash" in text
+        or "customer differs" in text
+        or "amount differs" in text
+    ):
         return "UTR_CLASH"
     return "BOOKS_ERROR"
 
@@ -114,12 +120,8 @@ def invoice_payment_state(invoice) -> str:
         payment_link__sales_invoice=invoice,
         status=GatewayPaymentStatus.CAPTURED,
     ).exists()
-    paid_link = PaymentLink.objects.filter(
-        sales_invoice=invoice,
-        status=PaymentLinkStatus.PAID,
-    ).exists()
-    if captured or paid_link:
-        return PAYMENT_STATE_PAID_PENDING_BOOKS
+    if captured:
+        return PAYMENT_STATE_PAID_PENDING_BOOKS if outstanding > 0 else PAYMENT_STATE_PAID
     return PAYMENT_STATE_UNPAID
 
 

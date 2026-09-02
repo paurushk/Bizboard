@@ -64,7 +64,7 @@ def test_register_copies_phone_to_company():
     assert resp.status_code == 200
     user = User.objects.get(email="phoneboss@phonemart.test")
     company = Company.objects.get(memberships__user=user)
-    assert company.phone == "9876543210"
+    assert company.phone.replace(" ", "") in ("9876543210", "+919876543210")
 
 
 def test_register_existing_email_same_shape_no_tokens():

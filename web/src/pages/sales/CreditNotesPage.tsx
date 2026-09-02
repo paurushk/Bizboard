@@ -1,10 +1,5 @@
 import { useState } from 'react';
 import Button from '@mui/material/Button';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
-import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import {
@@ -14,16 +9,19 @@ import {
   listSalesCreditNotesPage,
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DocumentListPage } from '@/components/DocumentListPage';
 import { printBlob } from '@/utils/blob';
 import { t } from '@/i18n';
-import { canCreateSales } from '@/utils/permissions';
+import { canCancelDocuments, canCreateSales } from '@/utils/permissions';
 
 const PAGE_SIZE = 50;
 
 export function CreditNotesPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const canWrite = canCreateSales(user);
+  const canCancel = canCancelDocuments(user);
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<number | null>(null);
@@ -60,7 +58,7 @@ export function CreditNotesPage() {
         loading={query.isLoading}
         error={error ?? (query.isError ? getErrorMessage(query.error) : null)}
         onRetry={() => void query.refetch()}
-        showCreate={canCreateSales(user)}
+        showCreate={canWrite}
         page={page}
         pageSize={PAGE_SIZE}
         count={query.data?.count}
@@ -77,8 +75,8 @@ export function CreditNotesPage() {
         }))}
         rowActions={(row) => (
           <>
-            {row.status === 'DRAFT' ? (
-              <Button size="small" onClick={() => complete.mutate(row.id)}>
+            {row.status === 'DRAFT' && canWrite ? (
+              <Button size="small" disabled={complete.isPending} onClick={() => complete.mutate(row.id)}>
                 {t('common.complete')}
               </Button>
             ) : null}
@@ -92,7 +90,7 @@ export function CreditNotesPage() {
                 {t('billing.print')}
               </Button>
             ) : null}
-            {row.status === 'COMPLETED' ? (
+            {row.status === 'COMPLETED' && canCancel ? (
               <Button size="small" color="warning" onClick={() => setConfirmCancelId(row.id)}>
                 {t('common.cancel')}
               </Button>
@@ -100,23 +98,16 @@ export function CreditNotesPage() {
           </>
         )}
       />
-      <Dialog open={confirmCancelId !== null} onClose={() => setConfirmCancelId(null)}>
-        <DialogTitle>{t('common.confirm')}</DialogTitle>
-        <DialogContent>
-          <Typography>Are you sure you want to cancel this credit note? This action cannot be undone.</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmCancelId(null)}>{t('common.cancel')}</Button>
-          <Button
-            color="error"
-            variant="contained"
-            disabled={cancel.isPending}
-            onClick={() => confirmCancelId && cancel.mutate(confirmCancelId)}
-          >
-            Confirm Cancel
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmDialog
+        open={confirmCancelId !== null}
+        title={t('common.confirm')}
+        body={t('history.confirmCancelCreditNote')}
+        confirmLabel={t('history.confirmCancelAction')}
+        confirmColor="error"
+        confirming={cancel.isPending}
+        onClose={() => setConfirmCancelId(null)}
+        onConfirm={() => confirmCancelId && cancel.mutate(confirmCancelId)}
+      />
     </>
   );
 }

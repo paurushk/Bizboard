@@ -53,6 +53,13 @@ class Subscription(TimeStampedModel):
             if self.trial_ends_at and self.trial_ends_at < timezone.now():
                 return True
             return False
+        if self.status == self.Status.ACTIVE:
+            if self.current_period_end and self.current_period_end < timezone.now():
+                return True
+            if self.current_period_end is None:
+                anchor = self.updated_at or timezone.now()
+                return timezone.now() >= anchor + timedelta(days=30)
+            return False
         if self.status == self.Status.PAST_DUE:
             # BB-000726: block PAST_DUE after optional grace from period end.
             grace_days = int(getattr(settings, "BILLING_PAST_DUE_GRACE_DAYS", 0) or 0)

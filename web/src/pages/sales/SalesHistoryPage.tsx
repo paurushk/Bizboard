@@ -43,7 +43,7 @@ import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { formatMoney } from '@/utils/money';
-import { canCreateSales } from '@/utils/permissions';
+import { canCreateSales, canCancelDocuments } from '@/utils/permissions';
 import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
 import { isSetupWizardEnabled } from '@/config/features';
 
@@ -144,6 +144,7 @@ export function SalesHistoryPage() {
   const showLoading = query.isPending || (query.isFetching && rows.length === 0);
   const showEmpty = !showLoading && !query.isError && rows.length === 0;
   const allowCreate = canCreateSales(user);
+  const allowCancel = canCancelDocuments(user);
   const canContinueSetup =
     isSetupWizardEnabled() &&
     user?.role === 'OWNER' &&
@@ -329,7 +330,7 @@ export function SalesHistoryPage() {
           <ListItemText>{t('common.open')}</ListItemText>
         </MenuItem>
 
-        {active?.status === 'DRAFT' || active?.status === 'COMPLETED' ? (
+        {allowCreate && (active?.status === 'DRAFT' || active?.status === 'COMPLETED') ? (
           <MenuItem
             onClick={() => {
               if (active) navigate(`/sales/history/${active.id}/edit`);
@@ -343,7 +344,7 @@ export function SalesHistoryPage() {
           </MenuItem>
         ) : null}
 
-        {active?.status === 'DRAFT' ? (
+        {allowCreate && active?.status === 'DRAFT' ? (
           <MenuItem
             onClick={() => {
               if (!active) return;
@@ -388,7 +389,7 @@ export function SalesHistoryPage() {
           </>
         ) : null}
 
-        {active?.status === 'COMPLETED' ? (
+        {active?.status === 'COMPLETED' && allowCancel ? (
           <MenuItem
             onClick={() => {
               if (!active) return;

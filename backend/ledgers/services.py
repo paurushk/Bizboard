@@ -265,7 +265,7 @@ class LedgerService:
             advances = LedgerService._party_account_net(
                 company, account_code="2300", customer=customer
             )
-            return ar + advances
+            return max(Decimal("0"), ar + advances)
         # Wave 3: sales returns restore stock only; AR relief is via auto credit notes.
         invoices = _sum(
             SalesInvoice.objects.filter(
@@ -569,7 +569,7 @@ class LedgerService:
             prepaid = LedgerService._party_account_net(
                 company, account_code="1250", supplier=supplier
             )
-            return -(ap + prepaid)
+            return max(Decimal("0"), -(ap + prepaid))
         inv_qs = PurchaseInvoice.objects.filter(
             company=company,
             supplier=supplier,
@@ -628,7 +628,7 @@ class LedgerService:
             )
             for row in rows:
                 nets[row["supplier_id"]] += (row["d"] or Decimal("0")) - (row["c"] or Decimal("0"))
-            return {sid: -net for sid, net in nets.items()}
+            return {sid: max(Decimal("0"), -net) for sid, net in nets.items()}
         invoices = dict(
             PurchaseInvoice.objects.filter(
                 company=company,
@@ -690,7 +690,7 @@ class LedgerService:
 
     @staticmethod
     def supplier_statement(company, supplier, date_from=None, date_to=None):
-        if getattr(company, "accounting_enabled", False):
+        if LedgerService._use_gl_outstanding(company):
             return LedgerService._gl_party_statement(
                 company,
                 account_codes=["2100", "1250"],

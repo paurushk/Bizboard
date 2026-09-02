@@ -6,7 +6,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.exceptions import BusinessRuleError
-from core.permissions import CanViewMastersCatalog, HasCompany, IsOwner
+from core.permissions import (
+    CanCreatePurchases,
+    CanCreateSales,
+    CanManageInventory,
+    CanViewMastersCatalog,
+    HasCompany,
+    IsOwner,
+)
 from core.services.gstin_verify import apply_verification, get_gstin_provider
 from core.viewsets import CompanyScopedViewSet
 
@@ -24,11 +31,32 @@ from .serializers import (
     UnitSerializer,
 )
 
-# BB-000195: short TTL list cache for hot masters reads (no write invalidation yet).
+# BB-000195: short TTL list cache for hot masters reads.
 _MASTERS_LIST_TTL = 60
 
 # BB-000297/Wave 12B: masters mutation is Owner-only; list/retrieve stay HasCompany.
 _MUTATE_ACTIONS = ("create", "update", "partial_update", "destroy")
+
+
+class _CachedMastersListMixin:
+    list_cache_kind = ""
+
+    def _bust_list_cache(self):
+        kind = getattr(self, "list_cache_kind", "") or ""
+        if kind:
+            cache.delete(f"masters:{kind}:{self.company.pk}")
+
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        self._bust_list_cache()
+
+    def perform_update(self, serializer):
+        super().perform_update(serializer)
+        self._bust_list_cache()
+
+    def perform_destroy(self, instance):
+        super().perform_destroy(instance)
+        self._bust_list_cache()
 
 
 def _barcode_svg(code: str) -> str:
@@ -64,9 +92,10 @@ class BrandViewSet(CompanyScopedViewSet):
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
 
 
-class UnitViewSet(CompanyScopedViewSet):
+class UnitViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
     queryset = Unit.objects.all()
     serializer_class = UnitSerializer
+    list_cache_kind = "units"
 
     def get_permissions(self):
         if getattr(self, "action", None) in _MUTATE_ACTIONS:
@@ -84,9 +113,10 @@ class UnitViewSet(CompanyScopedViewSet):
         return response
 
 
-class TaxRateViewSet(CompanyScopedViewSet):
+class TaxRateViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
     queryset = TaxRate.objects.all()
     serializer_class = TaxRateSerializer
+    list_cache_kind = "tax_rates"
 
     def get_permissions(self):
         if getattr(self, "action", None) in _MUTATE_ACTIONS:
@@ -129,7 +159,9 @@ class CustomerViewSet(CompanyScopedViewSet):
     serializer_class = CustomerSerializer
 
     def get_permissions(self):
-        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "verify_gstin"):
+        if getattr(self, "action", None) in _MUTATE_ACTIONS:
+            return [IsAuthenticated(), HasCompany(), CanCreateSales()]
+        if getattr(self, "action", None) == "verify_gstin":
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         # BB-000422: VIEWER must not browse party masters.
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
@@ -173,7 +205,9 @@ class SupplierViewSet(CompanyScopedViewSet):
     serializer_class = SupplierSerializer
 
     def get_permissions(self):
-        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "verify_gstin"):
+        if getattr(self, "action", None) in _MUTATE_ACTIONS:
+            return [IsAuthenticated(), HasCompany(), CanCreatePurchases()]
+        if getattr(self, "action", None) == "verify_gstin":
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         # BB-000422: VIEWER must not browse party masters.
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
@@ -215,7 +249,7 @@ class ProductViewSet(CompanyScopedViewSet):
 
     def get_permissions(self):
         if getattr(self, "action", None) in _MUTATE_ACTIONS:
-            return [IsAuthenticated(), HasCompany(), IsOwner()]
+            return [IsAuthenticated(), HasCompany(), CanManageInventory()]
         # BB-000422: VIEWER must not browse product catalog / prices.
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
 

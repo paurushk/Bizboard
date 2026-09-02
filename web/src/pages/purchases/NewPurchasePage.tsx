@@ -38,6 +38,7 @@ import {
   listPurchasesPage,
   listBatches,
   listCostCenters,
+  listCompanyGstins,
   listProductsPage,
   searchProducts,
   listStock,
@@ -166,6 +167,7 @@ export function NewPurchasePage() {
   const debouncedSupplierQuery = useDebouncedValue(supplierQuery, 300);
   const [warehouseId, setWarehouseId] = useState<number | ''>('');
   const [costCenterId, setCostCenterId] = useState<number | ''>('');
+  const [companyGstinId, setCompanyGstinId] = useState<number | ''>('');
   const [purchaseType, setPurchaseType] = useState<PurchaseType>('NON_GST');
   const [purchaseTypeTouched, setPurchaseTypeTouched] = useState(false);
   const [priceMode, setPriceMode] = useState<PriceMode>('EXCLUSIVE');
@@ -248,6 +250,7 @@ export function NewPurchasePage() {
     enabled: Boolean(supplierId),
   });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
+  const companyGstins = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
   const costCenters = useQuery({
     queryKey: ['cost-centers'],
     queryFn: listCostCenters,
@@ -375,6 +378,7 @@ export function NewPurchasePage() {
     setSupplierId(inv.supplier);
     setWarehouseId(inv.warehouse ?? '');
     setCostCenterId(inv.costCenter ?? '');
+    setCompanyGstinId((inv as { companyGstin?: number | null }).companyGstin ?? '');
     setPurchaseType(inv.purchaseType);
     setPriceMode((inv.priceMode as PriceMode) || 'EXCLUSIVE');
     setIsReverseCharge(!!inv.isReverseCharge);
@@ -677,6 +681,7 @@ export function NewPurchasePage() {
     supplier: Number(supplierId),
     warehouse: warehouseId ? Number(warehouseId) : undefined,
     costCenter: costCenterId ? Number(costCenterId) : undefined,
+    companyGstin: companyGstinId ? Number(companyGstinId) : undefined,
     purchaseType,
     priceMode,
     isReverseCharge,
@@ -757,10 +762,14 @@ export function NewPurchasePage() {
             ...(editingStatus ? { status: editingStatus } : {}),
             ...(editingStatus === 'COMPLETED' ? { confirmAmend: true } : {}),
             _completeIntent: shouldComplete,
+            _amountPaid: amountPaid,
+            _paymentMode: paymentMode,
+            _supplierId: Number(supplierId),
           },
           idempotencyKey: key,
           invoiceId: isEdit && editId ? editId : null,
           completeIntent: shouldComplete,
+          paymentMode,
         });
         setOutboxBanner(t('billing.savedOffline'));
       };
@@ -842,18 +851,24 @@ export function NewPurchasePage() {
         const toAllocate = Math.max(0, amountPaid - already);
         if (toAllocate > 0) {
           try {
-            const payment = await createSupplierPayment({
-              supplier: Number(supplierId),
-              amount: toAllocate,
-              mode: paymentMode,
-              paymentDate: invoiceDate,
-              notes: `Against ${invoice.number ?? invoice.id}`,
-            });
-            await createAllocation({
-              supplierPayment: payment.id,
-              purchaseInvoice: invoice.id,
-              amount: toAllocate,
-            });
+            const payment = await createSupplierPayment(
+              {
+                supplier: Number(supplierId),
+                amount: toAllocate,
+                mode: paymentMode,
+                paymentDate: invoiceDate,
+                notes: `Against ${invoice.number ?? invoice.id}`,
+              },
+              { idempotencyKey: `${key}-payment` },
+            );
+            await createAllocation(
+              {
+                supplierPayment: payment.id,
+                purchaseInvoice: invoice.id,
+                amount: toAllocate,
+              },
+              { idempotencyKey: `${key}-alloc` },
+            );
           } catch (err) {
             paymentWarning = [paymentWarning, getErrorMessage(err)].filter(Boolean).join(' ');
           }
@@ -872,7 +887,7 @@ export function NewPurchasePage() {
       const label = invoice.number?.trim() ? invoice.number : `#${invoice.id}`;
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
-        flashSaveAndNew(`Purchase ${label} saved — start the next one`, paymentWarning);
+        flashSaveAndNew(t('billing.purchaseSavedNext', { label }), paymentWarning);
         resetForm();
         navigate('/purchases/new', { replace: true });
         return;
@@ -881,8 +896,10 @@ export function NewPurchasePage() {
       const totalQty = lines.reduce((acc, l) => acc + (Number(l.quantity) || 0), 0);
       const flash =
         invoice.status === 'COMPLETED'
-          ? `Purchase ${label} saved — ${totalQty} items added to stock`
-          : `Draft ${label} saved${paymentWarning ? ` — complete failed: ${paymentWarning}` : ''}`;
+          ? t('billing.purchaseSavedStock', { label, count: String(totalQty) })
+          : paymentWarning
+            ? t('billing.draftSavedCompleteFailed', { label, warning: paymentWarning })
+            : t('billing.draftSaved', { label });
 
       try {
         await qc.fetchQuery({
@@ -1056,7 +1073,7 @@ export function NewPurchasePage() {
         grandTotal: preview.totals.grandTotal,
       }
     : preview.error
-      ? { ...totals, subtotal: 0, taxTotal: 0, cessTotal: 0, grandTotal: 0 }
+      ? totals
       : totals;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
   const isCompletedEdit = editingStatus === 'COMPLETED';
@@ -1264,6 +1281,23 @@ export function NewPurchasePage() {
                 </MenuItem>
               ))}
             </CompactField>
+            {(companyGstins.data ?? []).length > 0 ? (
+              <CompactField
+                select
+                label="Company GSTIN"
+                value={companyGstinId}
+                onChange={(e) => setCompanyGstinId(e.target.value ? Number(e.target.value) : '')}
+              >
+                <MenuItem value="">Primary / default</MenuItem>
+                {(companyGstins.data ?? [])
+                  .filter((row) => row.isActive !== false && row.is_active !== false)
+                  .map((row) => (
+                    <MenuItem key={row.id} value={row.id}>
+                      {row.gstin}{(row.isPrimary || row.is_primary) ? ' (primary)' : ''}
+                    </MenuItem>
+                  ))}
+              </CompactField>
+            ) : null}
             <CompactField
               select
               label="Cost center"

@@ -18,6 +18,16 @@ IN_FLIGHT_STATUS = 0
 # allowed to take it over. Must exceed the slowest protected operation
 # (large import commit, e-invoice round-trip). Bump this, not a magic literal.
 IN_FLIGHT_STALE_SECONDS = 15 * 60
+# Money creates must not be reclaimed while the first request may still be
+# committing — a stale delete + retry duplicates receipts/payments.
+MONEY_IDEMPOTENCY_SCOPES = frozenset({
+    "receipt_create",
+    "supplier_payment_create",
+    "allocation_create",
+    "invoice_create",
+    "purchase_create",
+    "stock_transfer_complete",
+})
 
 # PD-01: 4xx that are safe to retry with the same key after the condition clears
 # or the user supplies extra confirm flags.
@@ -118,7 +128,7 @@ def begin_record(*, company, scope: str, raw_key: str) -> IdempotencyRecord | Re
             from django.utils import timezone
 
             age = (timezone.now() - existing.created_at).total_seconds()
-            if age > IN_FLIGHT_STALE_SECONDS:
+            if age > IN_FLIGHT_STALE_SECONDS and scope not in MONEY_IDEMPOTENCY_SCOPES:
                 existing.delete()
                 try:
                     return IdempotencyRecord.objects.create(
@@ -199,9 +209,6 @@ def _response_error_code(response: Response) -> str:
 def _is_transient_4xx(*, status_code: int, code: str) -> bool:
     code_n = int(status_code or 0)
     if code_n in (
-        status.HTTP_401_UNAUTHORIZED,
-        status.HTTP_403_FORBIDDEN,
-        status.HTTP_404_NOT_FOUND,
         status.HTTP_429_TOO_MANY_REQUESTS,
     ):
         return True
@@ -230,7 +237,7 @@ def wrap_idempotent(*, request, company, scope: str, build):
 
     | Outcome | Store? |
     | 2xx | Yes |
-    | 5xx after build() returned | Yes |
+    | 5xx after build() returned | No — release |
     | 4xx deterministic (validation, credit-limit, GSTIN required) | Yes |
     | 4xx transient (closed_period, 429, retry) | No — release |
     | Raised unexpected exception + rollback | Release |

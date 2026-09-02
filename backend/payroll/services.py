@@ -220,8 +220,12 @@ def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> Pa
         existing_slip = locked.slips.filter(employee=emp).first()
         gross = getattr(existing_slip, "gross", None)
         paid_days = getattr(existing_slip, "paid_days", None)
-        # LOP endpoint used to stamp gross=0 as a placeholder — treat that as missing.
-        if paid_days is not None and (gross is None or gross == 0):
+        if paid_days is not None:
+            # Always start from contracted salary so LOP proration in
+            # compute_statutory is applied once (cancel→recomplete must not
+            # feed an already-prorated slip.gross back in).
+            gross = None
+        elif gross is not None and gross == 0:
             gross = None
         base_gross = _money(gross if gross is not None else emp.salary)
         computed = compute_statutory(

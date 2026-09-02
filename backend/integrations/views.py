@@ -74,8 +74,11 @@ class TallyPreviewView(APIView):
             except BusinessRuleError as exc:
                 return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         else:
-            run.status = IntegrationSyncRun.Status.PREVIEWED
-            run.save(update_fields=["status", "updated_at"])
+            force = bool(request.data.get("force"))
+            # Do not mark PREVIEWED while errors remain; commit stays blocked unless force=.
+            if not (run.errors and not force):
+                run.status = IntegrationSyncRun.Status.PREVIEWED
+                run.save(update_fields=["status", "updated_at"])
         return Response({
             "sync_run_id": run.id,
             "preview": run.preview,
@@ -92,11 +95,10 @@ class TallyCommitView(APIView):
         assert_tally_enabled(cu.company)
         run_id = request.data.get("sync_run_id") or request.data.get("syncRunId")
         force = bool(request.data.get("force"))
-        # BB-000452/411: force= bypasses preview errors — Owner-only + audit.
-        if force and cu.role != "OWNER":
+        if force:
             return Response(
-                {"detail": "force=true requires Owner."},
-                status=status.HTTP_403_FORBIDDEN,
+                {"detail": "force=true is not allowed. Clear preview errors and re-preview."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         try:
             run = IntegrationSyncRun.objects.get(pk=run_id, company=cu.company)

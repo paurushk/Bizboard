@@ -247,8 +247,8 @@ export async function cancelInvoiceEinvoice(
 ): Promise<SalesInvoice> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/invoices/${id}/cancel-einvoice/`, {
-      cnl_rsn: payload?.cnlRsn,
-      cnl_rem: payload?.cnlRem,
+      cnlRsn: payload?.cnlRsn,
+      cnlRem: payload?.cnlRem,
     });
     return unwrapData<SalesInvoice>(data);
   }, { ...mockInvoices[0], id, einvoiceStatus: 'CANCELLED', irn: undefined, ackNo: undefined });

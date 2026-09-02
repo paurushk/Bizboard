@@ -113,7 +113,7 @@ def _is_export_or_sez_supply(invoice) -> bool:
     return supply in _EXPORT_SEZ_SUPPLY
 
 
-def validate_einvoice_readiness(invoice: SalesInvoice) -> list[str]:
+def validate_einvoice_readiness(invoice: SalesInvoice, *, skip_item_validation: bool = False) -> list[str]:
     errors: list[str] = []
     if invoice.invoice_type != SalesInvoice.InvoiceType.GST:
         errors.append("Only GST invoices support e-Invoice.")
@@ -173,11 +173,12 @@ def validate_einvoice_readiness(invoice: SalesInvoice) -> list[str]:
     _pin(str(buyer_pin_src), "Customer", errors, required=not is_export_sez)
 
     items = list(invoice.items.all())
-    if not items:
-        errors.append("Invoice must have at least one line item.")
-    for idx, item in enumerate(items, start=1):
-        if not (item.hsn_code or "").strip():
-            errors.append(f"Line {idx}: HSN code is required.")
+    if not skip_item_validation:
+        if not items:
+            errors.append("Invoice must have at least one line item.")
+        for idx, item in enumerate(items, start=1):
+            if not (item.hsn_code or "").strip():
+                errors.append(f"Line {idx}: HSN code is required.")
 
     return errors
 
@@ -191,8 +192,8 @@ def _num(value: Decimal | int | float | str | None) -> str:
     return f"{q2(Decimal(str(value or 0))):.2f}"
 
 
-def build_einvoice_payload(invoice: SalesInvoice) -> dict:
-    errors = validate_einvoice_readiness(invoice)
+def build_einvoice_payload(invoice: SalesInvoice, *, skip_item_validation: bool = False) -> dict:
+    errors = validate_einvoice_readiness(invoice, skip_item_validation=skip_item_validation)
     if errors:
         raise EinvoiceValidationError(errors)
 
@@ -441,7 +442,9 @@ def build_einvoice_payload_from_note(note) -> dict:
     if errors:
         raise EinvoiceValidationError(errors)
     inv = note.sales_invoice
-    payload = build_einvoice_payload(inv)
+    # Build seller/buyer from the source invoice without re-validating invoice lines
+    # (the note may credit a subset; invoice ItemList is replaced below).
+    payload = build_einvoice_payload(inv, skip_item_validation=True)
     if isinstance(note, SalesDebitNote):
         typ = "DBN"
     else:

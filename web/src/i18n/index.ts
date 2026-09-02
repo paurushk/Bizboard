@@ -1,14 +1,10 @@
 import { useEffect, useState } from 'react';
 import { en, type MessageTree } from './en';
 import { hi } from './hi';
-import { ta } from './ta';
-import { gu } from './gu';
 
 const catalogs: Record<string, MessageTree> = {
   en,
   hi: hi as unknown as MessageTree,
-  ta: ta as unknown as MessageTree,
-  gu: gu as unknown as MessageTree,
 };
 
 const LOCALE_STORAGE_KEY = 'bizboard:locale';
@@ -19,6 +15,7 @@ const listeners = new Set<LocaleListener>();
 function loadStoredLocale(): string {
   if (typeof localStorage !== 'undefined') {
     const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (stored === 'ta' || stored === 'gu') return 'en';
     if (stored && catalogs[stored]) return stored;
   }
   return 'en';
@@ -83,5 +80,5 @@ export function useLocale(): string {
 
 export { en };
 export { hi };
-export { ta };
-export { gu };
+// ta / gu catalogs exist but are not GA — `loadStoredLocale` falls them back to
+// 'en'. Re-export them from here only once they are wired into `catalogs`.

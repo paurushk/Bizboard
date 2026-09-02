@@ -161,7 +161,7 @@ class AuditEvent(models.Model):
     # 64, not 16: audit actions are dotted namespaces now (e.g.
     # "tenant.restore_sandbox"). SQLite ignores varchar length; Postgres raised
     # DataError on the longer values (test_bb_000668 restore 500).
-    action = models.CharField(max_length=64, choices=Action.choices)
+    action = models.CharField(max_length=64)
     entity_type = models.CharField(max_length=64, blank=True)
     entity_id = models.CharField(max_length=64, blank=True)
     description = models.CharField(max_length=255, blank=True)

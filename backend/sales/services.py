@@ -60,6 +60,12 @@ def _validate_lines(items_data, company, *, check_active=True):
         product = line["product"]
         if product.company_id != company.id:
             raise BusinessRuleError("Invalid product reference.")
+        batch = line.get("batch")
+        if batch is not None:
+            if getattr(batch, "company_id", None) != company.id:
+                raise BusinessRuleError("Invalid batch reference.")
+            if getattr(batch, "product_id", None) not in (None, product.pk):
+                raise BusinessRuleError("Batch does not belong to this product.")
         if check_active and product.status != Product.Status.ACTIVE:
             raise BusinessRuleError(
                 f"Cannot sell inactive product '{product.name}'.",
@@ -79,6 +85,8 @@ def apply_tcs_fold(invoice) -> None:
     for the COMPLETE audit event. Unfold any prior fold first so amend/complete
     stays idempotent and credit-limit sees the TCS-inclusive total.
     """
+    from decimal import ROUND_HALF_UP
+
     two = Decimal("0.01")
     prior = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
     already_folded = bool(getattr(invoice, "tcs_in_grand_total", False)) and prior > 0
@@ -94,18 +102,30 @@ def apply_tcs_fold(invoice) -> None:
         + Decimal(str(invoice.igst_total or 0))
         + Decimal(str(getattr(invoice, "cess_total", 0) or 0))
     )
+    # BILL-06: 206C(1H) is on the whole sale consideration (CBDT circular
+    # 17/2020) — non-taxable freight / packing on the invoice is part of it and
+    # `taxable_total` does not include it.
+    _charges = Decimal(str(getattr(invoice, "additional_charges", 0) or 0))
+    if _charges > 0:
+        from core.services.charges import charges_are_taxable
+
+        if not charges_are_taxable(invoice):
+            consideration += _charges
     rate_amount = (
-        (consideration * tcs_rate / Decimal("100")).quantize(two) if tcs_rate > 0 else Decimal("0")
+        # BILL-05: ROUND_HALF_UP so TCS rounds the same way as every other money
+        # figure on the invoice (q2), not Decimal's default banker's rounding.
+        (consideration * tcs_rate / Decimal("100")).quantize(two, rounding=ROUND_HALF_UP)
+        if tcs_rate > 0
+        else Decimal("0")
     )
 
     invoice._tcs_override = None
     manual = bool(getattr(invoice, "tcs_amount_manual", False))
-    if manual and prior > 0:
-        # Operator-supplied amount — wins over the rate on every fold pass,
-        # including a re-fold after a prior system fold (already_folded).
+    if manual:
+        # Operator-supplied amount — including explicit 0 against a positive rate.
         explicit = prior
     else:
-        explicit = prior if (prior > 0 and not already_folded and not manual) else None
+        explicit = prior if (prior > 0 and not already_folded) else None
     if explicit is not None:
         invoice.tcs_amount = explicit
         if tcs_rate > 0 and rate_amount != explicit:
@@ -442,7 +462,17 @@ class SalesService:
                     f"Unknown batch '{batch_no}' for '{item.product.name}'."
                 ) from exc
         if batch_id or batch is not None:
-            return [(batch or item.batch, qty)]
+            chosen = batch or item.batch
+            warehouse = getattr(invoice, "warehouse", None)
+            available = InventoryService.available_quantity(
+                invoice.company, item.product, warehouse, chosen
+            )
+            if available < qty:
+                raise BusinessRuleError(
+                    f"Insufficient stock in batch '{getattr(chosen, 'batch_no', chosen)}' "
+                    f"for '{item.product.name}': available {available}, required {qty}."
+                )
+            return [(chosen, qty)]
 
         remaining = qty
         allocations = []
@@ -461,17 +491,22 @@ class SalesService:
                 break
         if not allocations:
             raise BusinessRuleError(f"No stock batch is available for '{item.product.name}'.")
-        if hasattr(item, "batch") and hasattr(item, "save"):
-            item.batch = allocations[0][0]
-            if hasattr(item, "batch_no"):
-                item.batch_no = item.batch.batch_no
-                item.save(update_fields=["batch", "batch_no"])
-            else:
-                item.save(update_fields=["batch"])
         if remaining > 0:
             raise BusinessRuleError(
                 f"Insufficient batched stock for '{item.product.name}': {remaining} unavailable."
             )
+        if hasattr(item, "batch") and hasattr(item, "save"):
+            item.batch = allocations[0][0]
+            if hasattr(item, "batch_no"):
+                nos = []
+                for lot, _qty in allocations:
+                    no = (getattr(lot, "batch_no", None) or "").strip()
+                    if no:
+                        nos.append(no)
+                item.batch_no = ",".join(nos)[:64]
+                item.save(update_fields=["batch", "batch_no"])
+            else:
+                item.save(update_fields=["batch"])
         return allocations
 
     @staticmethod
@@ -838,23 +873,18 @@ class SalesService:
                 from core.services.charges import charges_are_taxable
 
                 if not charges_are_taxable(invoice):
+                    # CHG-02: a non-GST charge on a B2B invoice is legal (a pure
+                    # reimbursement / exempt line) but must be disclosed, not
+                    # silently swelling the grand total. Warn instead of hard
+                    # blocking Complete; `build_gstr1` also flags it
+                    # (ADDITIONAL_CHARGES_NONTAXABLE) so the return isn't short
+                    # without the filer noticing. Set charges HSN + GST rate to
+                    # carry tax on it.
                     warnings.append(
-                        "B2B GST invoice has additional charges outside taxable value — "
-                        "set charges HSN and GST rate, or invoice value may not reconcile for GSTR."
+                        f"Additional charges of {invoice.additional_charges} carry no GST "
+                        "(no charges HSN / rate set) — they are added to the invoice total "
+                        "but will not appear as taxable value on GSTR-1."
                     )
-            # TAX-10: soft warning when taxable invoice meets e-Way threshold without e-Way.
-            eway_threshold = getattr(invoice.company, "eway_threshold_amount", None) or Decimal(
-                "50000"
-            )
-            if (
-                invoice.grand_total >= Decimal(str(eway_threshold))
-                and getattr(invoice, "eway_status", None)
-                != SalesInvoice.EwayStatus.GENERATED
-            ):
-                warnings.append(
-                    f"Invoice total ≥ ₹{eway_threshold}: e-Way Bill may be required — "
-                    "generate before goods movement if applicable."
-                )
         # C-02: converted challan lots must match even when stock posted on the challan.
         from .models import DeliveryChallan
 
@@ -862,8 +892,6 @@ class SalesService:
         stock_from_challan = DeliveryChallan.objects.filter(
             converted_invoice=invoice, stock_posted=True
         ).exists()
-        # Aggregate per product for the negative-stock check.
-        required = defaultdict(Decimal)
         for item in items:
             if item.product.status != Product.Status.ACTIVE:
                 raise BusinessRuleError(
@@ -872,14 +900,36 @@ class SalesService:
                 )
             if item.quantity <= 0:
                 raise BusinessRuleError("Quantity on each line must be greater than zero.")
-            required[item.product] += item.quantity
         if not stock_from_challan:
-            for product, qty in required.items():
-                warning = InventoryService.check_negative_stock(
-                    invoice.company, product, qty, invoice.warehouse
-                )
-                if warning:
-                    warnings.append(warning)
+            for item in items:
+                if item.product.track_batch and not getattr(item, "batch_id", None):
+                    remaining = item.quantity
+                    warehouse = invoice.warehouse
+                    for lot in InventoryValuationService.fefo_batches(
+                        invoice.company, item.product, warehouse
+                    ):
+                        available = InventoryService.available_quantity(
+                            invoice.company, item.product, warehouse, lot
+                        )
+                        remaining -= min(remaining, max(available, Decimal("0")))
+                        if remaining <= 0:
+                            break
+                    if remaining > 0:
+                        warning = InventoryService.check_negative_stock(
+                            invoice.company, item.product, remaining, warehouse
+                        )
+                        if warning:
+                            warnings.append(warning)
+                else:
+                    warning = InventoryService.check_negative_stock(
+                        invoice.company,
+                        item.product,
+                        item.quantity,
+                        invoice.warehouse,
+                        batch=getattr(item, "batch", None),
+                    )
+                    if warning:
+                        warnings.append(warning)
 
         stamp = invoice.company_gstin
         if stamp is None:
@@ -929,6 +979,20 @@ class SalesService:
                 )
             invoice.filing_place_of_supply = resolved_code or (invoice.customer.state or "").strip()
         apply_tcs_fold(invoice)
+        if tax_enabled:
+            # TAX-10: after TCS fold so the threshold sees the TCS-inclusive total.
+            eway_threshold = getattr(invoice.company, "eway_threshold_amount", None) or Decimal(
+                "50000"
+            )
+            if (
+                invoice.grand_total >= Decimal(str(eway_threshold))
+                and getattr(invoice, "eway_status", None)
+                != SalesInvoice.EwayStatus.GENERATED
+            ):
+                warnings.append(
+                    f"Invoice total ≥ ₹{eway_threshold}: e-Way Bill may be required — "
+                    "generate before goods movement if applicable."
+                )
         invoice.status = SalesInvoice.Status.COMPLETED
         invoice.completed_at = timezone.now()
         invoice.pdf_status = (
@@ -1077,12 +1141,14 @@ class SalesService:
                 # BB-000405: challan-stocked invoice — reverse linked challan SALE lots.
                 from sales.models import DeliveryChallan
 
-                linked = DeliveryChallan.objects.filter(
-                    company=invoice.company,
-                    converted_invoice=invoice,
-                    stock_posted=True,
-                ).first()
-                if linked:
+                linked_qs = list(
+                    DeliveryChallan.objects.filter(
+                        company=invoice.company,
+                        converted_invoice=invoice,
+                        stock_posted=True,
+                    )
+                )
+                for linked in linked_qs:
                     for move in StockMovement.objects.filter(
                         company=invoice.company,
                         movement_type=MovementType.SALE,
@@ -1213,8 +1279,18 @@ class SalesService:
             customer=quotation.customer,
             warehouse=InventoryService.default_warehouse(quotation.company),
             invoice_type=quotation.invoice_type,
-            company_gstin=stamp,
+            company_gstin=getattr(quotation, "company_gstin", None) or stamp,
+            supply_type=getattr(quotation, "supply_type", None) or SalesInvoice.SupplyType.B2B,
+            payment_terms_days=getattr(quotation, "payment_terms_days", 0) or 0,
+            additional_charges=getattr(quotation, "additional_charges", 0) or 0,
+            charges_hsn=getattr(quotation, "charges_hsn", "") or "",
+            charges_gst_rate=getattr(quotation, "charges_gst_rate", 0) or 0,
+            invoice_discount=getattr(quotation, "invoice_discount", 0) or 0,
+            invoice_discount_mode=getattr(quotation, "invoice_discount_mode", None)
+            or SalesInvoice.DiscountMode.AFTER_TAX,
+            auto_round_off=getattr(quotation, "auto_round_off", True),
             notes=quotation.notes,
+            terms_text=getattr(quotation, "terms_text", "") or "",
             created_by=user,
             updated_by=user,
         )
@@ -1232,6 +1308,8 @@ class SalesService:
                 "supply_nature": getattr(item, "supply_nature", None),
                 "hsn_code": getattr(item, "hsn_code", "") or "",
                 "unit_price_inclusive": getattr(item, "unit_price_inclusive", None),
+                "rate_override": getattr(item, "rate_override", False),
+                "rate_override_reason": getattr(item, "rate_override_reason", "") or "",
             }
             for item in quotation.items.select_related("product")
         ]
@@ -1269,8 +1347,20 @@ class SalesService:
         order = SalesOrder.objects.create(
             company=quotation.company,
             customer=quotation.customer,
+            warehouse=InventoryService.default_warehouse(quotation.company),
             invoice_type=quotation.invoice_type,
+            company_gstin=getattr(quotation, "company_gstin", None),
+            supply_type=getattr(quotation, "supply_type", None) or SalesInvoice.SupplyType.B2B,
+            payment_terms_days=getattr(quotation, "payment_terms_days", 0) or 0,
+            additional_charges=getattr(quotation, "additional_charges", 0) or 0,
+            charges_hsn=getattr(quotation, "charges_hsn", "") or "",
+            charges_gst_rate=getattr(quotation, "charges_gst_rate", 0) or 0,
+            invoice_discount=getattr(quotation, "invoice_discount", 0) or 0,
+            invoice_discount_mode=getattr(quotation, "invoice_discount_mode", None)
+            or SalesInvoice.DiscountMode.AFTER_TAX,
+            auto_round_off=getattr(quotation, "auto_round_off", True),
             notes=quotation.notes,
+            terms_text=getattr(quotation, "terms_text", "") or "",
             created_by=user,
             updated_by=user,
         )
@@ -1288,6 +1378,8 @@ class SalesService:
                 "supply_nature": getattr(item, "supply_nature", None),
                 "hsn_code": getattr(item, "hsn_code", "") or "",
                 "unit_price_inclusive": getattr(item, "unit_price_inclusive", None),
+                "rate_override": getattr(item, "rate_override", False),
+                "rate_override_reason": getattr(item, "rate_override_reason", "") or "",
             }
             for item in quotation.items.select_related("product")
         ]
