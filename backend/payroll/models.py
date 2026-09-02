@@ -25,7 +25,19 @@ class Employee(CompanyScopedModel):
     pf_wage_ceiling = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("15000.00"))
     esi_applicable = models.BooleanField(default=False)
     pt_state = models.CharField(max_length=64, blank=True)
+    # tds_rate is a flat-% override the payroll admin can set; when 0 and
+    # tax_regime is NEW, sec-192 TDS is projected from 12× the contracted gross
+    # (see payroll.services.annual_new_regime_tax). OLD regime + no override → 0
+    # (Chapter VI-A / HRA declarations are not collected yet).
     tds_rate = models.DecimalField(max_digits=6, decimal_places=3, default=0)
+
+    class TaxRegime(models.TextChoices):
+        NEW = "NEW", "New regime (default)"
+        OLD = "OLD", "Old regime"
+
+    tax_regime = models.CharField(
+        max_length=4, choices=TaxRegime.choices, default=TaxRegime.NEW
+    )
 
     class Meta:
         ordering = ["name"]
@@ -67,6 +79,12 @@ class PaySlip(models.Model):
     esi_employee = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     pt_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     pf_employer = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # PR-01: employer 12% split — EPS 8.33% (capped ₹1,250) + EPF residual —
+    # plus EPFO admin (A/c 2) and EDLI (A/c 21). pf_employer == eps + epf.
+    pf_employer_eps = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    pf_employer_epf = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    pf_admin_charges = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    edli_charges = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     esi_employer = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     tds_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 

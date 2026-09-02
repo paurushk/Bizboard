@@ -13,15 +13,45 @@ from .models import Employee, PayRun, PaySlip
 
 PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 MONEY = Decimal("0.01")
-PF_RATE = Decimal("0.12")
-ESI_EMPLOYEE_RATE = Decimal("0.0075")
-ESI_EMPLOYER_RATE = Decimal("0.0325")
-DEFAULT_PT_SLABS = [{"min": "15000.01", "max": None, "amount": "200"}]
 
-# R4-010: illustrative current monthly Professional Tax ladders for the states
-# that have more than one slab. These DO change — a company should override via
-# Company.payroll_pt_slabs; this is only the fallback when they haven't. The
-# `feb_amount` key on a slab is used for Maharashtra's February top-up.
+# --- EPF / EPS / EDLI (EPFO) ---------------------------------------------------
+# Employee: 12% of PF wages. Employer 12% splits into EPS 8.33% (of PF wages
+# capped at the pension ceiling ₹15,000 → max ₹1,250) and EPF 3.67% (the
+# residual). Establishment also pays admin (A/c 2) and EDLI (A/c 21).
+PF_EMPLOYEE_RATE = Decimal("0.12")
+PF_EMPLOYER_RATE = Decimal("0.12")
+EPS_RATE = Decimal("0.0833")
+EPS_WAGE_CEILING = Decimal("15000")
+EPS_MAX = Decimal("1250")           # 8.33% of 15,000
+PF_ADMIN_RATE = Decimal("0.005")    # A/c 2 — 0.50% of PF wages, min ₹500 / establishment / month
+PF_ADMIN_MIN_ESTABLISHMENT = Decimal("500")
+EDLI_RATE = Decimal("0.005")        # A/c 21 — 0.50% of EPS wages, capped at ₹75
+EDLI_MAX = Decimal("75")
+
+# --- ESI --------------------------------------------------------------------
+ESI_EMPLOYEE_RATE = Decimal("0.0075")   # 0.75%
+ESI_EMPLOYER_RATE = Decimal("0.0325")   # 3.25%
+ESI_WAGE_CEILING = Decimal("21000")
+
+# Backwards-compat alias (older callers / tests).
+PF_RATE = PF_EMPLOYEE_RATE
+
+# --- Professional Tax (state) --------------------------------------------------
+# PR-02: full state coverage. States/UTs that levy NO professional tax map to an
+# empty ladder (→ ₹0), so a Delhi/UP/Haryana employee is not charged the old
+# ₹200 default. Multi-slab states carry their current monthly ladders. These DO
+# change by state finance act — a company overrides via Company.payroll_pt_slabs;
+# this is the fallback. `feb_amount` handles Maharashtra's February ₹300 top-up.
+#
+# VERIFY WITH YOUR CA / the state PT act before relying on these for filing.
+_NO_PT_STATES = frozenset({
+    "delhi", "nct of delhi", "haryana", "uttar pradesh", "uttarakhand",
+    "rajasthan", "himachal pradesh", "jammu and kashmir", "jammu & kashmir",
+    "ladakh", "arunachal pradesh", "goa", "andaman and nicobar islands",
+    "chandigarh", "dadra and nagar haveli and daman and diu", "daman and diu",
+    "dadra and nagar haveli", "lakshadweep", "nagaland", "chhattisgarh",
+})
+
 _STATE_PT_SLABS = {
     "Maharashtra": [
         {"min": "0", "max": "7500", "amount": "0"},
@@ -43,6 +73,10 @@ _STATE_PT_SLABS = {
         {"min": "60000.01", "max": "75000", "amount": "1025"},
         {"min": "75000.01", "max": None, "amount": "1250"},
     ],
+    "Karnataka": [
+        {"min": "0", "max": "24999.99", "amount": "0"},
+        {"min": "25000", "max": None, "amount": "200"},
+    ],
     "Andhra Pradesh": [
         {"min": "0", "max": "15000", "amount": "0"},
         {"min": "15000.01", "max": "20000", "amount": "150"},
@@ -56,6 +90,98 @@ _STATE_PT_SLABS = {
     "Gujarat": [
         {"min": "0", "max": "12000", "amount": "0"},
         {"min": "12000.01", "max": None, "amount": "200"},
+    ],
+    "Kerala": [  # Kerala PT is half-yearly; monthly-equivalent ladder.
+        {"min": "0", "max": "1999.99", "amount": "0"},
+        {"min": "2000", "max": "2999.99", "amount": "20"},
+        {"min": "3000", "max": "4999.99", "amount": "30"},
+        {"min": "5000", "max": "7499.99", "amount": "50"},
+        {"min": "7500", "max": "9999.99", "amount": "75"},
+        {"min": "10000", "max": "12499.99", "amount": "100"},
+        {"min": "12500", "max": "16666.99", "amount": "125"},
+        {"min": "16667", "max": "20833.99", "amount": "166"},
+        {"min": "20834", "max": None, "amount": "208"},
+    ],
+    "Madhya Pradesh": [
+        {"min": "0", "max": "18750", "amount": "0"},
+        {"min": "18750.01", "max": "25000", "amount": "125"},
+        {"min": "25000.01", "max": "33333", "amount": "167"},
+        {"min": "33333.01", "max": None, "amount": "208", "feb_amount": "212"},
+    ],
+    "Bihar": [
+        {"min": "0", "max": "25000", "amount": "0"},
+        {"min": "25000.01", "max": "41666", "amount": "83.33"},
+        {"min": "41666.01", "max": "83333", "amount": "166.67"},
+        {"min": "83333.01", "max": None, "amount": "208.33"},
+    ],
+    "Assam": [
+        {"min": "0", "max": "10000", "amount": "0"},
+        {"min": "10000.01", "max": "15000", "amount": "150"},
+        {"min": "15000.01", "max": "25000", "amount": "180"},
+        {"min": "25000.01", "max": None, "amount": "208"},
+    ],
+    "Odisha": [
+        {"min": "0", "max": "13304", "amount": "0"},
+        {"min": "13304.01", "max": "25000", "amount": "125"},
+        {"min": "25000.01", "max": None, "amount": "200", "feb_amount": "300"},
+    ],
+    "Jharkhand": [
+        {"min": "0", "max": "25000", "amount": "0"},
+        {"min": "25000.01", "max": "41666", "amount": "100"},
+        {"min": "41666.01", "max": "66666", "amount": "150"},
+        {"min": "66666.01", "max": "83333", "amount": "175"},
+        {"min": "83333.01", "max": None, "amount": "208"},
+    ],
+    "Punjab": [
+        {"min": "0", "max": "20833", "amount": "0"},
+        {"min": "20833.01", "max": None, "amount": "200"},
+    ],
+    "Meghalaya": [
+        {"min": "0", "max": "4166", "amount": "0"},
+        {"min": "4166.01", "max": "6250", "amount": "16.50"},
+        {"min": "6250.01", "max": "8333", "amount": "25"},
+        {"min": "8333.01", "max": "12500", "amount": "41.50"},
+        {"min": "12500.01", "max": "16666", "amount": "62.50"},
+        {"min": "16666.01", "max": "20833", "amount": "83.33"},
+        {"min": "20833.01", "max": "25000", "amount": "104.16"},
+        {"min": "25000.01", "max": "29166", "amount": "125"},
+        {"min": "29166.01", "max": "33333", "amount": "150"},
+        {"min": "33333.01", "max": "37500", "amount": "175"},
+        {"min": "37500.01", "max": "41666", "amount": "200"},
+        {"min": "41666.01", "max": None, "amount": "208"},
+    ],
+    "Tripura": [
+        {"min": "0", "max": "7500", "amount": "0"},
+        {"min": "7500.01", "max": "15000", "amount": "150"},
+        {"min": "15000.01", "max": None, "amount": "208"},
+    ],
+    "Manipur": [
+        {"min": "0", "max": "4250", "amount": "0"},
+        {"min": "4250.01", "max": "6250", "amount": "100"},
+        {"min": "6250.01", "max": "8333", "amount": "167"},
+        {"min": "8333.01", "max": "10416", "amount": "200"},
+        {"min": "10416.01", "max": None, "amount": "208"},
+    ],
+    "Mizoram": [
+        {"min": "0", "max": "5000", "amount": "0"},
+        {"min": "5000.01", "max": "8000", "amount": "75"},
+        {"min": "8000.01", "max": "10000", "amount": "120"},
+        {"min": "10000.01", "max": "12000", "amount": "150"},
+        {"min": "12000.01", "max": "15000", "amount": "180"},
+        {"min": "15000.01", "max": None, "amount": "208"},
+    ],
+    "Sikkim": [
+        {"min": "0", "max": "20000", "amount": "0"},
+        {"min": "20000.01", "max": "30000", "amount": "125"},
+        {"min": "30000.01", "max": "40000", "amount": "150"},
+        {"min": "40000.01", "max": None, "amount": "200"},
+    ],
+    "Puducherry": [
+        {"min": "0", "max": "16666", "amount": "0"},
+        {"min": "16666.01", "max": "33333", "amount": "41.66"},
+        {"min": "33333.01", "max": "50000", "amount": "83.33"},
+        {"min": "50000.01", "max": "83333", "amount": "125"},
+        {"min": "83333.01", "max": None, "amount": "166.66"},
     ],
 }
 
@@ -120,12 +246,13 @@ def _resolve_pt_slabs(company, employee) -> list:
         raw = []
     if isinstance(raw, list) and raw:
         return list(raw)
-    # R4-010: fall back to a known multi-slab state ladder before the single
-    # Karnataka-style default.
+    key = state_key.strip().lower()
     for name, slabs in _STATE_PT_SLABS.items():
-        if state_key.strip().lower() == name.lower():
+        if key == name.lower():
             return list(slabs)
-    return list(DEFAULT_PT_SLABS)
+    # PR-02: a state that levies no professional tax (Delhi, Haryana, UP, …) or
+    # an unknown/blank state → no PT. Do NOT fall back to a flat ₹200.
+    return []
 
 
 def _pt_amount(gross: Decimal, slabs: list, *, month: int | None = None) -> Decimal:
@@ -141,13 +268,55 @@ def _pt_amount(gross: Decimal, slabs: list, *, month: int | None = None) -> Deci
     return _money(0)
 
 
-ESI_WAGE_CEILING = Decimal("21000")
+# --- Sec. 192 salary TDS (new tax regime, default from FY 2023-24) -----------
+# Annual: standard deduction ₹75,000; slabs 0/0-4L, 5% 4-8L, 10% 8-12L,
+# 15% 12-16L, 20% 16-20L, 25% 20-24L, 30% >24L; 87A rebate makes tax nil when
+# total income ≤ ₹12,00,000 (rebate capped at ₹60,000); 4% health & education
+# cess on top. This is a projection from salary alone — it does NOT know other
+# income, HRA, or Chapter VI-A declarations, so treat it as an estimate and let
+# `employee.tds_rate` (a flat % override) win when the payroll admin sets one.
+# VERIFY WITH YOUR CA before relying on it.
+NEW_REGIME_STD_DEDUCTION = Decimal("75000")
+NEW_REGIME_87A_INCOME_CAP = Decimal("1200000")
+NEW_REGIME_87A_MAX = Decimal("60000")
+NEW_REGIME_CESS = Decimal("0.04")
+_NEW_REGIME_SLABS = [
+    (Decimal("400000"), Decimal("0.00")),
+    (Decimal("800000"), Decimal("0.05")),
+    (Decimal("1200000"), Decimal("0.10")),
+    (Decimal("1600000"), Decimal("0.15")),
+    (Decimal("2000000"), Decimal("0.20")),
+    (Decimal("2400000"), Decimal("0.25")),
+    (None, Decimal("0.30")),
+]
+
+
+def annual_new_regime_tax(annual_income: Decimal) -> Decimal:
+    """Income tax + cess under the new regime for a projected annual income."""
+    taxable = max(Decimal("0"), _money(annual_income) - NEW_REGIME_STD_DEDUCTION)
+    tax = Decimal("0")
+    lower = Decimal("0")
+    for upper, rate in _NEW_REGIME_SLABS:
+        band_top = taxable if upper is None else min(taxable, upper)
+        if band_top > lower:
+            tax += (band_top - lower) * rate
+        lower = upper if upper is not None else lower
+        if upper is not None and taxable <= upper:
+            break
+    # 87A rebate — nil tax up to the income cap.
+    if taxable <= NEW_REGIME_87A_INCOME_CAP:
+        tax = max(Decimal("0"), tax - min(tax, NEW_REGIME_87A_MAX))
+    tax = tax * (Decimal("1") + NEW_REGIME_CESS)
+    return _money(tax)
 
 
 def compute_statutory(employee, company, *, gross=None, month: int | None = None, paid_days=None, period_days=None) -> dict:
     gross_full = _money(gross if gross is not None else employee.salary)
     pf_employee = _money(0)
-    pf_employer = _money(0)
+    pf_employer_eps = _money(0)
+    pf_employer_epf = _money(0)
+    pf_admin_charges = _money(0)
+    edli_charges = _money(0)
     esi_employee = _money(0)
     esi_employer = _money(0)
     prorate = Decimal("1")
@@ -158,31 +327,55 @@ def compute_statutory(employee, company, *, gross=None, month: int | None = None
             prorate = days / period
     gross_amt = _money(gross_full * prorate)
     if employee.pf_applicable:
-        ceiling = _money(employee.pf_wage_ceiling or Decimal("15000"))
-        # R4-007: PF wage base = Basic + DA when configured; else fall back to
-        # the gross salary (legacy behaviour). Prorate Basic+DA the same as gross.
+        ceiling = _money(employee.pf_wage_ceiling or EPS_WAGE_CEILING)
+        # PF wage base = Basic + DA when configured; else the (prorated) gross.
         basic_da = _money(getattr(employee, "basic", 0) or 0) + _money(getattr(employee, "da", 0) or 0)
         if basic_da > 0:
             basic_da = _money(basic_da * prorate)
         pf_wage = basic_da if basic_da > 0 else gross_amt
         wage_base = min(pf_wage, ceiling)
-        pf_employee = _money(wage_base * PF_RATE)
-        pf_employer = _money(wage_base * PF_RATE)
+        eps_base = min(pf_wage, EPS_WAGE_CEILING)
+        pf_employee = _money(wage_base * PF_EMPLOYEE_RATE)
+        # PR-01: employer 12% = EPS 8.33% (capped) + EPF residual; plus admin + EDLI.
+        pf_employer_eps = _money(min(eps_base * EPS_RATE, EPS_MAX))
+        pf_employer_epf = _money(wage_base * PF_EMPLOYER_RATE) - pf_employer_eps
+        if pf_employer_epf < 0:
+            pf_employer_epf = _money(0)
+        pf_admin_charges = _money(wage_base * PF_ADMIN_RATE)
+        edli_charges = _money(min(eps_base * EDLI_RATE, EDLI_MAX))
+    pf_employer = _money(pf_employer_eps + pf_employer_epf)
     if employee.esi_applicable:
-        esi_ceiling = _money(getattr(company, "esi_wage_ceiling", None) or Decimal("21000"))
+        esi_ceiling = _money(getattr(company, "esi_wage_ceiling", None) or ESI_WAGE_CEILING)
         # Eligibility is on full-month wages, not LOP-prorated gross.
         if gross_full <= esi_ceiling:
             esi_employee = _money(gross_amt * ESI_EMPLOYEE_RATE)
             esi_employer = _money(gross_amt * ESI_EMPLOYER_RATE)
     pt_amount = _pt_amount(gross_amt, _resolve_pt_slabs(company, employee), month=month)
+
+    # TDS: an explicit flat rate on the slip's gross always wins (payroll admin
+    # override). Otherwise, for the new regime, project 12× the contracted gross
+    # and take 1/12 of the annual liability. Old regime with no override → 0
+    # (declarations are not collected yet).
     tds_rate = _money(getattr(employee, "tds_rate", 0) or 0)
-    tds_amount = _money(gross_amt * tds_rate / Decimal("100")) if tds_rate else _money(0)
+    regime = (getattr(employee, "tax_regime", "NEW") or "NEW").upper()
+    if tds_rate:
+        tds_amount = _money(gross_amt * tds_rate / Decimal("100"))
+    elif regime == "NEW":
+        annual = _money(gross_full * Decimal("12"))
+        tds_amount = _money(annual_new_regime_tax(annual) / Decimal("12"))
+    else:
+        tds_amount = _money(0)
+
     deductions = _money(pf_employee + esi_employee + pt_amount + tds_amount)
     net = _money(gross_amt - deductions)
     return {
         "gross": gross_amt,
         "pf_employee": pf_employee,
         "pf_employer": pf_employer,
+        "pf_employer_eps": pf_employer_eps,
+        "pf_employer_epf": pf_employer_epf,
+        "pf_admin_charges": pf_admin_charges,
+        "edli_charges": edli_charges,
         "esi_employee": esi_employee,
         "esi_employer": esi_employer,
         "pt_amount": pt_amount,
@@ -252,6 +445,12 @@ def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> Pa
     total_pt = sum((getattr(s, "pt_amount", Decimal("0")) or Decimal("0") for s in slips), Decimal("0"))
     total_tds = sum((getattr(s, "tds_amount", Decimal("0")) or Decimal("0") for s in slips), Decimal("0"))
     total_pf_er = sum((getattr(s, "pf_employer", Decimal("0")) or Decimal("0") for s in slips), Decimal("0"))
+    total_pf_admin = sum(
+        (getattr(s, "pf_admin_charges", Decimal("0")) or Decimal("0") for s in slips), Decimal("0")
+    )
+    total_edli = sum(
+        (getattr(s, "edli_charges", Decimal("0")) or Decimal("0") for s in slips), Decimal("0")
+    )
     total_esi_er = sum((getattr(s, "esi_employer", Decimal("0")) or Decimal("0") for s in slips), Decimal("0"))
     company = locked.company
     if company.accounting_enabled and total_gross > 0:
@@ -262,11 +461,12 @@ def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> Pa
         PostingService._ensure_chart(company)
         expense = PostingService._account(company, "5800")
         credit_acct = PostingService._account(company, "1100" if pay_from_cash else "2150")
-        # BB-000703: employer PF/ESI — Dr expense / Cr same statutory payables.
-        total_expense = total_gross + total_pf_er + total_esi_er
+        # BB-000703 / PR-01: employer PF (EPS+EPF) + admin + EDLI + ESI are
+        # employer cost — Dr expense / Cr the statutory payables (2261 PF).
+        total_expense = total_gross + total_pf_er + total_pf_admin + total_edli + total_esi_er
         lines = [{"account": expense, "debit": total_expense}]
         for code, amount in (
-            ("2261", total_pf + total_pf_er),
+            ("2261", total_pf + total_pf_er + total_pf_admin + total_edli),
             ("2262", total_esi + total_esi_er),
             ("2263", total_pt),
             ("2265", total_tds),
