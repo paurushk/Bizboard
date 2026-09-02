@@ -165,6 +165,56 @@ class PostingService:
         )
 
     @classmethod
+    def _bank_gl_account(cls, company, bank_account, entry_date=None):
+        """ACC-01: resolve the GL ledger for a specific bank instrument.
+
+        Every ``BankAccount`` gets its own child ledger under 1500 Bank so the
+        trial balance, ledger drill-down and bank reconciliation are all
+        per-instrument instead of one commingled 1500 balance.
+
+        Cut-over, not backfill: entries dated before the company's
+        ``books_start_date`` keep posting to the 1500 aggregate — we do not
+        retro-split historical bank postings. Once the child ledgers carry the
+        opening balances as of the cut-over, everything from that date forward
+        is per-bank.
+        """
+        if bank_account is None:
+            return cls._account(company, "1500")
+        cutover = getattr(company, "books_start_date", None)
+        if cutover and entry_date and entry_date < cutover:
+            return cls._account(company, "1500")
+        existing = (
+            Account.objects.filter(company=company, bank_account=bank_account)
+            .first()
+        )
+        if existing is not None:
+            if not existing.is_active:
+                existing.is_active = True
+                existing.save(update_fields=["is_active", "updated_at"])
+            return existing
+        parent = cls._account(company, "1500")
+        code = f"1500-{bank_account.id}"
+        acct, _created = Account.objects.get_or_create(
+            company=company,
+            code=code,
+            defaults={
+                "name": f"Bank — {bank_account.name}"[:160],
+                "type": Account.Type.ASSET,
+                "parent": parent,
+                "is_system": True,
+                "is_control": False,
+                "bank_account": bank_account,
+                "is_active": True,
+            },
+        )
+        # An older row on this code without the O2O link — adopt it.
+        if acct.bank_account_id is None:
+            acct.bank_account = bank_account
+            acct.is_active = True
+            acct.save(update_fields=["bank_account", "is_active", "updated_at"])
+        return acct
+
+    @classmethod
     def _tax_component_lines(cls, company, mapping, *, side, cost_center=None):
         """Build debit/credit lines for (code, amount) pairs where amount > 0."""
         lines = []
@@ -816,7 +866,13 @@ class PostingService:
         Gateway MDR: bank receives amount − fee; fee posts to 5200 Bank Charges.
         """
         cls._ensure_chart(receipt.company)
-        code = "1500" if receipt.bank_account_id else "1100"
+        # ACC-01: per-bank ledger for a bank receipt; 1100 Cash otherwise.
+        if receipt.bank_account_id:
+            bank_acct = cls._bank_gl_account(
+                receipt.company, receipt.bank_account, receipt.receipt_date
+            )
+        else:
+            bank_acct = cls._account(receipt.company, "1100")
         amount = Decimal(str(receipt.amount or 0))
         fee = Decimal("0")
         gp = getattr(receipt, "gateway_payment", None)
@@ -827,11 +883,11 @@ class PostingService:
         bank_amt = amount - fee
         lines = []
         if bank_amt > 0:
-            lines.append({"account": cls._account(receipt.company, code), "debit": bank_amt})
+            lines.append({"account": bank_acct, "debit": bank_amt})
         if fee > 0:
             lines.append({"account": cls._account(receipt.company, "5200"), "debit": fee})
         if not lines:
-            lines.append({"account": cls._account(receipt.company, code), "debit": amount})
+            lines.append({"account": bank_acct, "debit": amount})
         lines.append({
             "account": cls._account(receipt.company, "2300"),
             "credit": amount,
@@ -845,7 +901,13 @@ class PostingService:
     def post_receipt_refund(cls, receipt, user=None, *, amount=None, purpose="REFUND"):
         """Invert post_receipt: Dr 2300 amount, Cr Bank net of MDR, reverse fee expense."""
         cls._ensure_chart(receipt.company)
-        code = "1500" if receipt.bank_account_id else "1100"
+        # ACC-01: mirror post_receipt — reverse the same per-bank ledger.
+        if receipt.bank_account_id:
+            bank_acct = cls._bank_gl_account(
+                receipt.company, receipt.bank_account, receipt.receipt_date
+            )
+        else:
+            bank_acct = cls._account(receipt.company, "1100")
         amount = Decimal(str(amount if amount is not None else receipt.amount or 0))
         if amount <= 0:
             return None
@@ -867,11 +929,11 @@ class PostingService:
             {"account": cls._account(receipt.company, "2300"), "debit": amount, "customer": receipt.customer},
         ]
         if bank_credit > 0:
-            lines.append({"account": cls._account(receipt.company, code), "credit": bank_credit})
+            lines.append({"account": bank_acct, "credit": bank_credit})
         if fee_share > 0:
             lines.append({"account": cls._account(receipt.company, "5200"), "credit": fee_share})
         if len(lines) == 1:
-            lines.append({"account": cls._account(receipt.company, code), "credit": amount})
+            lines.append({"account": bank_acct, "credit": amount})
         return cls.post(
             company=receipt.company,
             source_type="CUSTOMER_RECEIPT",
@@ -1094,7 +1156,13 @@ class PostingService:
     def post_supplier_payment(cls, payment, user=None):
         """BB-000382: unallocated supplier payment debits Supplier Advances (1250)."""
         cls._ensure_chart(payment.company)
-        code = "1500" if payment.bank_account_id else "1100"
+        # ACC-01: per-bank ledger for a bank payment; 1100 Cash otherwise.
+        if payment.bank_account_id:
+            bank_acct = cls._bank_gl_account(
+                payment.company, payment.bank_account, payment.payment_date
+            )
+        else:
+            bank_acct = cls._account(payment.company, "1100")
         tds = Decimal(str(getattr(payment, "tds_amount", 0) or 0))
         bank_amount = Decimal(str(payment.amount or 0))
         advance = bank_amount + tds
@@ -1103,7 +1171,7 @@ class PostingService:
             "debit": advance,
             "supplier": payment.supplier,
         },
-                 {"account": cls._account(payment.company, code), "credit": bank_amount}]
+                 {"account": bank_acct, "credit": bank_amount}]
         if tds > 0:
             lines.append({
                 "account": cls._account(payment.company, "2265"),
