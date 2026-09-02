@@ -48,7 +48,15 @@ Cumulative after batch 8: **42 failed / 955 pass** — 0 regressions vs the 46-t
 
 **Verification:** backend `--nomigrations` full suite held at **42 failed / 955 passed** across every batch — 0 regressions vs the 46-test pre-existing baseline, **4 pre-existing failures fixed** (CHG-02). FE: `tsc` adds no new errors (6 pre-existing, none in touched files); `vitest` **189/189 pass**. `ruff` clean on every touched backend file.
 
-**Fixed so far: ~78 findings** — all of §1 CFG, all of §2 CORE except CORE-14/15/16, §3 BILL-01/02/03/04/05/06/07/08, §3 CHG-01/02, §3 POS-01, §3 FLAG-01/03, §3 DOCNUM-01/02/03, §3 H9-01, §3 HSN-01, §4 ACC-02/03/04/05/12/13, §5 GST-01/02, §6 PAY-01/02/05/06/09/10/11/12, §7 INV-01/02/04, §9 PER-01/02, §11 SUB-02, §12 PR-01/02/03, §14 FE-02/03/04/05/11/19, SYS-01/03/10.
+**Fixed so far: ~82 findings** — all of §1 CFG, all of §2 CORE except CORE-14/15/16, §3 BILL-01/02/03/04/05/06/07/08, §3 CHG-01/02, §3 POS-01, §3 FLAG-01/03, §3 DOCNUM-01/02/03, §3 H9-01, §3 HSN-01, §4 ACC-01/02/03/04/05/11/12/13, §5 GST-01/02, §6 PAY-01/02/03/04/05/06/09/10/11/12, §7 INV-01/02/04, §9 PER-01/02, §11 SUB-02, §12 PR-01/02/03, §14 FE-02/03/04/05/11/19, SYS-01/03/10.
+
+**Genuinely still open** (each needs a product decision, external credentials, or is a new subsystem — the review classified these as "domain / feature work", not bug-fixes):
+- **GST-08** — Bill-of-Entry (import) ITC: needs a new `BillOfEntry` model + endpoints + GL posting + GSTR-3B 4(A)(5) / GSTR-2B import-section wiring. Still a "manual_review" placeholder in `build_gstr3b`.
+- **INTG-01/02/03** — real Account-Aggregator FIU flow (consent artefact, ECDH, encrypted FI push) + AA↔receipt matcher. Needs a live aggregator (Sahamati) onboarding + creds.
+- **ACC-09** — WDV / block depreciation: needs sign-off on the IT-Act block rates before coding.
+- **ACC-14** — multi-currency: explicitly roadmap (party/bank/invoice currency, FX table, realised/unrealised gain-loss).
+- **SUB-01** — grandfather data migration for pre-billing companies (needs a call on trial vs `billing_override_active`).
+- ~35 P3 polish items (CORE-14 pagination-ordering audit, GST-03..07/09/10, ACC-06/07/08/10/15, INV-03/05/06/07, LED-01..03, PAY-07/08/13/14/15, SUB-03/04/05, HSN-02/03, PRICE-01, most of FE-06..18, SYS-04..09) — none on a money-wrong or security path; tracked in the module tables.
 
 ---
 
@@ -65,14 +73,14 @@ These were **not** blindly coded. Each needs a product/architecture call or is m
 | ACC-04 / PER-03 | ✅ **DONE.** `Company.require_open_period_for_posting` (default False, `accounts/migrations/0042`); when on, `PostingService.post` requires an OPEN `AccountingPeriod` covering `entry_date`. |
 | PAY-10 | ✅ **DONE.** `alloc_amount_positive` `CheckConstraint(amount > 0)` (`payments/migrations/0023`). The `Σ ≤ receipt` / `≤ payable` invariant stays service-level (needs a cross-row trigger otherwise). |
 | PAY-12 | ✅ **DONE.** Outbox unique is now `(gateway_payment, idempotency_key)` where `idempotency_key <> ''`; the legacy `(gateway_payment, amount)` unique is kept only `WHERE idempotency_key = ''`. Two equal-amount partial refunds with distinct keys both queue. `payments/migrations/0023`. |
-| ACC-01 | **Per-bank GL.** Post receipts/payments to the `Account` linked to `receipt.bank_account` (the `Account.bank_account` O2O already exists) instead of the single `1500`. Needs: a seeded child ledger per `BankAccount`, a backfill of historical postings (or a cut-over date), and `BankReconSession` pointed at the per-bank account. Sizeable but mechanical. |
+| ACC-01 | ✅ **DONE.** `PostingService._bank_gl_account` get-or-creates a child ledger `1500-<id>` per `BankAccount` (O2O-linked, `is_system`); `post_receipt`, `post_receipt_refund`, `post_supplier_payment` route the bank leg there. Cut-over at `company.books_start_date` — entries before it stay on the 1500 aggregate, no historical re-post. Journal reversal reuses `line.account` so reversals follow automatically. `BankReconSession.account` already accepts any `Account`, so it can point at the per-bank ledger. |
 | ACC-09 | **WDV / block depreciation.** Add `depreciation_method` (SLM/WDV), `salvage_value`, and block-of-assets grouping to `FixedAsset` + the monthly task. Feature-scale; needs sign-off on the IT-Act block rates. |
 | ACC-14 | **Multi-currency.** Out of pilot scope — track as a roadmap item (currency on party/bank/invoice, FX rate table, realised/unrealised gain-loss postings). |
 | FLAG-01 | ✅ **DONE.** `build_feature_flags` rewritten: env = deployment ceiling; `ROLLOUT_GRANTABLE_KEYS` (POS/GSTR/Tally/GSTN-JSON/setup-wizard/TDS) can be granted per tenant via company JSON; empty plan `modules` = no restriction; non-empty plan authoritative for the modules it names; dark modules gated by plan then env. |
 | SUB-01 | **Grandfather migration.** Data migration giving every pre-billing company a trial/`billing_override_active` subscription so `REQUIRE_SUBSCRIPTION` doesn't write-block them on deploy. |
 | SUB-02 | ✅ **DONE.** `billing/middleware.py` — `ALLOW_PREFIXES` += `/api/v1/company/export/`; `ALLOW_SUFFIXES = ("/cancel/", "/void/", "/reverse/")` reachable for any `/api/v1/` path so a lapsed tenant can unwind documents + export. |
 | BILL-02 / HSN-01 / SYS-10 | ✅ **DONE (catalog route).** Real curated `_HSN_RATE_SPEC` (~95 goods) + `_SAC_RATE_SPEC` (15) → 234 date-effective rows (pre-2017-07-01→2025-09-21 and post-2025-09-22 GST-2.0 windows), seeded by `masters/migrations/0014`. Date-effective override kept. **CA must verify the seeded rates before go-live.** `validate_gst_rate` still accepts 12/28 (legacy invoices + not-yet-rationalised lines) — tighten separately if desired. |
-| ACC-11 | **Rejected ITC destination.** On IMS reject, split the ineligible tax between Inventory (still on hand) and COGS (already sold) using FIFO layer state, instead of capitalising 100% to `1400`. Needs the layer-consumption lookup wired into `reclass_rejected_itc`. |
+| ACC-11 | ✅ **DONE (FIFO tenants).** `_rejected_itc_onhand_fraction` reads `InventoryCostLayer.qty_remaining` for the invoice's receipt movements; `reclass_rejected_itc` splits the ineligible tax `Dr 1400` (on-hand fraction) / `Dr 5400` (sold fraction), `Cr 1390`. WAVG tenants (no per-invoice layers) keep the legacy 100%-to-1400 capitalisation — the split is only well-defined with FIFO layer state, as the finding notes. |
 
 ### Domain / feature work (not bug-fixes)
 
@@ -80,7 +88,7 @@ These were **not** blindly coded. Each needs a product/architecture call or is m
 | :- | :- |
 | PR-01/02/03 | ✅ **DONE (pending CA sign-off).** EPS 8.33 % capped ₹1,250 vs EPF residual, EPFO admin A/c 2 (0.5 %) + EDLI A/c 21 (0.5 % capped ₹75), `_STATE_PT_SLABS` for 25 states + `_NO_PT_STATES`, `annual_new_regime_tax` annualised sec-192 (std ded ₹75k, FY25-26 slabs, 87A→₹12L, 4 % cess), `Employee.tax_regime` NEW/OLD. Rates coded against published FY25-26 figures — **CA to verify before the first live pay run.** |
 | INTG-01/02/03 | A real Account-Aggregator FIU integration (consent artefact, ECDH, encrypted FI push) + a usable AA↔receipt matcher (amount+date candidates, narration UTR parse). |
-| PAY-03/04 | PayU: parse the form-encoded S2S callback (not JSON), fix the reverse-hash sequence, and use the Payment-Links API — or disable the provider until it's built. |
+| PAY-03/04 | ✅ **DONE (needs live PayU verification).** `_payu_body` parses the `application/x-www-form-urlencoded` S2S / webhook callback (JSON fallback for tests); `verify_webhook` reverse hash now fills `udf1..udf10` and tries the `additionalCharges` prefix variant; request hash pipe-count aligned to `key|txnid|amount|productinfo|firstname|email|udf1..udf10|SALT`; `create_payment_link` calls PayU's v2 `/payment-links` REST API (Basic auth) with the hosted-checkout form-post as fallback. PayU stays gated behind `ENABLE_PAYU`; the exact hash layout still has to be checked against a live merchant account. |
 | GST-08 | Import (Bill of Entry) ITC tracking for GSTR-3B 4(A)(5). |
 
 ### Lower-value / deferred (P3, or "verify first")

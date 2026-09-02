@@ -355,6 +355,46 @@ class PostingService:
         return (agg["debit"] or Decimal("0")) - (agg["credit"] or Decimal("0"))
 
     @classmethod
+    def _rejected_itc_onhand_fraction(cls, invoice):
+        """ACC-11: fraction (0..1) of this purchase invoice's received goods
+        still on hand, from FIFO cost-layer ``qty_remaining``.
+
+        Returns ``Decimal("1")`` (treat as fully on hand → capitalise to
+        Inventory, the legacy behaviour) when the invoice has no perpetual
+        stock movements — services, non-inventory items, or accounting-only
+        tenants.
+        """
+        from inventory.models import InventoryCostLayer, StockMovement
+
+        receipts = StockMovement.objects.filter(
+            company=invoice.company,
+            reference_type__iexact="purchase_invoice",
+            reference_id=str(invoice.pk),
+            quantity__gt=0,
+        )
+        received = sum(
+            (Decimal(str(q or 0)) for q in receipts.values_list("quantity", flat=True)),
+            Decimal("0"),
+        )
+        if received <= 0:
+            return Decimal("1")
+        layers = InventoryCostLayer.objects.filter(
+            company=invoice.company, source_movement__in=receipts
+        )
+        # No FIFO cost layers track this receipt (perpetual FIFO not in use for
+        # this tenant / item) — keep the legacy "capitalise 100% to Inventory".
+        layer_qtys = list(layers.values_list("qty_remaining", flat=True))
+        if not layer_qtys:
+            return Decimal("1")
+        on_hand = sum((Decimal(str(q or 0)) for q in layer_qtys), Decimal("0"))
+        frac = on_hand / received
+        if frac < 0:
+            return Decimal("0")
+        if frac > 1:
+            return Decimal("1")
+        return frac
+
+    @classmethod
     def reclass_rejected_itc(cls, invoice, *, user=None):
         """B-03 REJECT: clear parked 1390 into 1400, or reverse claimable Input GST to 5600.
 
@@ -372,8 +412,20 @@ class PostingService:
         if tax <= 0:
             return None
         if parked > 0:
+            # ACC-11: goods still on hand → capitalise the ineligible tax into
+            # Inventory (1400); goods already sold → the extra cost belongs in
+            # COGS (5400), since their original COGS was booked pre-capitalisation.
+            frac = cls._rejected_itc_onhand_fraction(invoice)
+            to_inventory = (tax * frac).quantize(Decimal("0.01"))
+            to_cogs = tax - to_inventory
+            debit_map = []
+            if to_inventory > 0:
+                debit_map.append(("1400", to_inventory))
+            if to_cogs > 0:
+                debit_map.append(("5400", to_cogs))
             debit_lines = cls._tax_component_lines(
-                invoice.company, (("1400", tax),), side="debit",
+                invoice.company, tuple(debit_map), side="debit",
+                cost_center=getattr(invoice, "cost_center", None),
             )
             credit_lines = cls._tax_component_lines(
                 invoice.company, (("1390", tax),), side="credit",

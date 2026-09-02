@@ -42,6 +42,25 @@ def _stable_refund_key(provider_payment_id: str, amount: Decimal) -> str:
     return "bb_rf_" + hashlib.sha256(f"{provider_payment_id}|{amt}".encode()).hexdigest()[:32]
 
 
+def _payu_body(body: bytes) -> dict:
+    """PAY-03: PayU's S2S / webhook callback is posted as
+    ``application/x-www-form-urlencoded`` (``key=..&txnid=..&status=..&hash=..``),
+    NOT JSON. Parse form-encoded first, fall back to JSON for hand-crafted
+    payloads / tests. Repeated keys collapse to the last value.
+    """
+    from urllib.parse import parse_qsl
+
+    raw = (body or b"").decode("utf-8", "replace").strip()
+    if not raw:
+        return {}
+    if raw[0] in "{[":
+        return _json_body(body)
+    pairs = parse_qsl(raw, keep_blank_values=True)
+    if not pairs:
+        return _json_body(body)
+    return {k: v for k, v in pairs}
+
+
 def get_disabled_providers() -> frozenset[str]:
     """Cashfree/PayU disabled unless ENABLE_* settings/env are true."""
     from django.conf import settings
@@ -599,9 +618,13 @@ class PayUGateway:
         firstname = kwargs.get("customer_name") or "Customer"
         email = kwargs.get("customer_email") or "noreply@bizboard.local"
         phone = kwargs.get("customer_phone") or "9999999999"
+        # key|txnid|amount|productinfo|firstname|email|udf1..udf10|SALT
+        # (10 empty udf fields → 11 pipes between email and SALT). The webhook
+        # reverse hash in verify_webhook mirrors this exact sequence.
         hash_seq = (
-            f"{self.merchant_key}|{txnid}|{amount}|{productinfo}|{firstname}|{email}|"
-            f"|||||||||||{self.merchant_salt}"
+            f"{self.merchant_key}|{txnid}|{amount}|{productinfo}|{firstname}|{email}"
+            + "|" * 11
+            + self.merchant_salt
         )
         payu_hash = hashlib.sha512(hash_seq.encode()).hexdigest()
         payload = {
@@ -618,12 +641,53 @@ class PayUGateway:
         }
         import requests
 
+        # PAY-03: prefer PayU's v2 Payment Links REST API (Basic auth, JSON
+        # response with a real shareable URL). Fall back to the legacy hosted
+        # checkout form-post for merchant accounts without Payment Links.
+        # NOTE: verify the request/response shape against a live PayU merchant
+        # account before enabling this provider in production.
+        links_base = self.api_base.replace("secure.payu.in", "info.payu.in")
+        try:
+            lr = requests.post(
+                f"{links_base}/payment-links",
+                json={
+                    "subAmount": str(amount),
+                    "description": productinfo,
+                    "source": "API",
+                    "isPartialPaymentAllowed": False,
+                    "transactionId": txnid,
+                    "customer": {"name": firstname, "email": email, "phone": phone},
+                    "successURL": kwargs.get("callback_url") or "",
+                    "failureURL": kwargs.get("callback_url") or "",
+                },
+                auth=(self.merchant_key, self.merchant_salt),
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise BusinessRuleError(f"PayU payment link request failed: {exc}") from exc
+        if lr.status_code < 400:
+            try:
+                data = lr.json()
+            except ValueError:
+                data = {}
+            result = (data.get("result") or data.get("paymentLink") or data) if isinstance(data, dict) else {}
+            url = (
+                result.get("paymentLink")
+                or result.get("paymentLinkUrl")
+                or result.get("shortUrl")
+                or ""
+            )
+            link_id = str(result.get("invoiceNumber") or result.get("id") or txnid)
+            if url:
+                return CreateLinkResult(provider_link_id=link_id, short_url=url, raw=data)
+        elif lr.status_code not in (404, 405, 501):
+            raise BusinessRuleError(f"PayU payment link failed (HTTP {lr.status_code}).")
+
         resp = requests.post(f"{self.api_base}/_payment", data=payload, timeout=30)
         if resp.status_code >= 400:
             raise BusinessRuleError(f"PayU payment link failed (HTTP {resp.status_code}).")
-        link_id = txnid
         short_url = resp.url if resp.url else f"{self.api_base}/_payment?txnid={txnid}"
-        return CreateLinkResult(provider_link_id=link_id, short_url=short_url, raw={"payload": payload})
+        return CreateLinkResult(provider_link_id=txnid, short_url=short_url, raw={"payload": payload})
 
     def cancel_payment_link(self, *, provider_link_id: str) -> None:
         raise BusinessRuleError(
@@ -634,9 +698,8 @@ class PayUGateway:
     def verify_webhook(self, *, headers: dict[str, str], body: bytes) -> bool:
         if not self.merchant_salt:
             return False
-        try:
-            data = json.loads(body.decode("utf-8"))
-        except json.JSONDecodeError:
+        data = _payu_body(body)
+        if not data:
             return False
         status_val = str(data.get("status") or "")
         email = str(data.get("email") or "")
@@ -644,18 +707,32 @@ class PayUGateway:
         productinfo = str(data.get("productinfo") or "")
         amount = str(data.get("amount") or "")
         txnid = str(data.get("txnid") or "")
-        received = str(data.get("hash") or "")
+        received = str(data.get("hash") or "").strip().lower()
         if not received:
             return False
+        udf = [str(data.get(f"udf{i}") or "") for i in range(1, 11)]
+        # PAY-04: reverse hash is the request sequence mirrored —
+        #   SALT|status|udf10|…|udf1|email|firstname|productinfo|amount|txnid|key
+        # If PayU echoes `additionalCharges`, it is prepended to the sequence.
+        # NOTE: PayU has several hash layouts by integration version — verify
+        # against a live merchant account before enabling this provider.
+        rev_udf = "|".join(reversed(udf))
         seq = (
-            f"{self.merchant_salt}|{status_val}|||||||||||{email}|{firstname}|{productinfo}|"
-            f"{amount}|{txnid}|{self.merchant_key}"
+            f"{self.merchant_salt}|{status_val}|{rev_udf}|{email}|{firstname}|"
+            f"{productinfo}|{amount}|{txnid}|{self.merchant_key}"
         )
-        expected = hashlib.sha512(seq.encode()).hexdigest()
-        return hmac.compare_digest(expected, received)
+        add_charges = str(data.get("additionalCharges") or "").strip()
+        candidates = [seq]
+        if add_charges:
+            candidates.append(f"{add_charges}|{seq}")
+        for cand in candidates:
+            expected = hashlib.sha512(cand.encode()).hexdigest()
+            if hmac.compare_digest(expected, received):
+                return True
+        return False
 
     def parse_webhook(self, *, body: bytes) -> WebhookEvent | None:
-        data = _json_body(body)
+        data = _payu_body(body)
         if not data:
             return None
         amount = Decimal(str(data.get("amount") or "0")).quantize(Decimal("0.01"))

@@ -288,3 +288,72 @@ def test_exact_accept_reclasses_1390_reject_clears_1390(tenant_a):
         purpose="ITC_REJECT",
         status="POSTED",
     ).exists()
+    # inv2 goods are still on hand → ineligible tax capitalised to Inventory (1400).
+    assert _net_code(tenant_a.company, inv2.id, "1400") > 0
+    assert _net_code(tenant_a.company, inv2.id, "5400") == Decimal("0")
+
+
+@pytest.mark.django_db
+def test_reject_splits_ineligible_tax_to_cogs_when_goods_already_sold(tenant_a):
+    """ACC-11: on IMS reject, tax for goods already sold hits COGS (5400),
+    not Inventory (1400)."""
+    from inventory.models import InventoryCostLayer
+
+    _enable_books(tenant_a)
+    # ACC-11 relies on per-invoice FIFO cost layers.
+    tenant_a.company.inventory_valuation_method = "FIFO"
+    tenant_a.company.save(update_fields=["inventory_valuation_method"])
+    supplier = make_supplier(tenant_a.company, gstin="29DDDDD0000D1Z7")
+    product = make_product(tenant_a.company, sku="ACC11", hsn_code="1001")
+    pi = create_draft_purchase(
+        tenant_a,
+        supplier,
+        [{"product": product.id, "quantity": "10", "unit_price": "100", "gst_rate": "18"}],
+    )
+    PurchaseInvoice.objects.filter(pk=pi["id"]).update(
+        invoice_date=f"{PERIOD}-06",
+        itc_eligibility=PurchaseInvoice.ItcEligibility.UNREVIEWED,
+    )
+    assert tenant_a.client.post(f"/api/v1/purchases/invoices/{pi['id']}/complete/").status_code == 200
+    invoice = PurchaseInvoice.objects.get(pk=pi["id"])
+
+    # Simulate the whole receipt being consumed by sales (FIFO layer drained).
+    layers = InventoryCostLayer.objects.filter(
+        company=tenant_a.company,
+        source_movement__reference_type__iexact="purchase_invoice",
+        source_movement__reference_id=str(invoice.pk),
+    )
+    assert layers.exists()
+    layers.update(qty_remaining=Decimal("0"))
+
+    row = _row(
+        tenant_a.company,
+        invoice_number=invoice.number,
+        supplier_gstin="29DDDDD0000D1Z7",
+        invoice_date=invoice.invoice_date,
+        taxable_value=invoice.taxable_total,
+        cgst=invoice.cgst_total,
+        sgst=invoice.sgst_total,
+        match_status=Gstr2bIngest.MatchStatus.MATCHED,
+        match_class=Gstr2bIngest.MatchClass.EXACT,
+        purchase_invoice=invoice,
+    )
+    apply_ims_action(row, "REJECT", remark="Not eligible", user=tenant_a.owner)
+
+    tax = invoice.cgst_total + invoice.sgst_total + invoice.igst_total
+    assert _net_code(tenant_a.company, invoice.id, "1390") == Decimal("0")
+
+    # Inspect only the ITC_REJECT entry: all of the ineligible tax went to COGS,
+    # none was capitalised to Inventory.
+    reject = JournalEntry.objects.get(
+        company=tenant_a.company,
+        source_type="PURCHASE_INVOICE",
+        source_id=invoice.id,
+        purpose="ITC_REJECT",
+        status="POSTED",
+    )
+    lines = {ln.account.code: (ln.debit or Decimal("0")) - (ln.credit or Decimal("0"))
+             for ln in reject.lines.all()}
+    assert lines.get("5400") == tax
+    assert "1400" not in lines
+    assert lines.get("1390") == -tax
