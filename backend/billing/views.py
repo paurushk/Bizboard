@@ -58,7 +58,12 @@ class CheckoutView(APIView):
         slug = (request.data.get("plan_slug") or request.data.get("planSlug") or "").strip()
         plan = None
         if plan_id:
-            plan = Plan.objects.filter(pk=plan_id, is_active=True).first()
+            # B9-018: a non-numeric plan_id must be a 400, not an ORM 500.
+            try:
+                plan_pk = int(str(plan_id).strip())
+            except (TypeError, ValueError):
+                raise BusinessRuleError("Unknown or inactive plan.")
+            plan = Plan.objects.filter(pk=plan_pk, is_active=True).first()
         elif slug:
             plan = Plan.objects.filter(slug=slug, is_active=True).first()
         if plan is None:

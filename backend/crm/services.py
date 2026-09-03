@@ -1,6 +1,6 @@
 """CRM preview helpers — lead convert + activities; not a full CRM suite."""
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 
@@ -42,6 +42,15 @@ def _unique_customer_by_email(company, email: str):
 def convert_lead(
     lead: Lead, user, *, won: bool = False, amount=None
 ) -> tuple[Lead, Opportunity, Customer]:
+    # B9-019: coerce the client-supplied amount once; a bad value is a 400.
+    if amount is not None and str(amount).strip() != "":
+        try:
+            amount = Decimal(str(amount))
+        except (InvalidOperation, TypeError, ValueError):
+            raise BusinessRuleError("Enter a valid opportunity amount.")
+    else:
+        amount = None
+
     # BB-000731: lock + idempotent re-convert (no duplicate customer/opportunity).
     lead = Lead.objects.select_for_update().get(pk=lead.pk)
     existing = (

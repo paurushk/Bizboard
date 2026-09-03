@@ -368,7 +368,14 @@ def _document_tax_date(document):
         if not val:
             continue
         if isinstance(val, str):
-            return date_cls.fromisoformat(str(val)[:10])
+            # B7-010: tolerate a non-ISO / malformed date string from an odd
+            # import or preview payload instead of raising ValueError -> 500.
+            from django.utils.dateparse import parse_date
+
+            parsed = parse_date(str(val)[:10])
+            if parsed is not None:
+                return parsed
+            continue
         if hasattr(val, "year"):
             return val
     return None

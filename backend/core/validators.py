@@ -64,9 +64,15 @@ def validate_hsn(value):
 
 
 def validate_gst_rate(value):
-    from decimal import Decimal
+    from decimal import Decimal, InvalidOperation
 
-    if Decimal(value) not in tuple(Decimal(r) for r in ALLOWED_GST_RATES):
+    try:
+        rate = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValidationError(
+            f"Invalid GST rate {value!r}. Allowed: {', '.join(ALLOWED_GST_RATES)}%."
+        )
+    if rate not in tuple(Decimal(r) for r in ALLOWED_GST_RATES):
         raise ValidationError(
             f"Invalid GST rate {value}. Allowed: {', '.join(ALLOWED_GST_RATES)}%."
         )
