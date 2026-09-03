@@ -841,6 +841,9 @@ export const hi = {
     cnl2: 'डेटा प्रविष्टि त्रुटि',
     cnl3: 'आदेश रद्द',
     cnl4: 'अन्य',
+    filingIdentity: 'फाइलिंग पहचान',
+    amendFilingIdentity: 'फाइलिंग पहचान संशोधित करें',
+    filingIdentityAmended: 'फाइलिंग पहचान संशोधित हुई',
   },
   receipts: {
     mode: 'मोड',

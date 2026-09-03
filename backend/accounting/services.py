@@ -55,6 +55,9 @@ CHART = (
     ("5600", "Loss on Disposal of Assets", "EXPENSE", True),
     ("5700", "Gain on Disposal of Assets", "INCOME", True),
     ("5800", "Salaries and Wages", "EXPENSE", True),
+    # ACC-14: manual FX gain/loss on settling a foreign-currency invoice at a
+    # rate different from the one it was booked at.
+    ("5900", "Foreign Exchange Gain / Loss", "EXPENSE", True),
     # BB-000382: advances (unallocated cash) — not AR/AP control.
     ("2300", "Customer Advances", "LIABILITY", True),
     ("1250", "Supplier Advances", "ASSET", True),
@@ -125,6 +128,7 @@ class PostingService:
             "5600", "5700",  # BB-000459 disposal P&L
             "2265", "2266", "1365", "1390",  # BB-000670 TDS/TCS + unreviewed ITC suspense
             "3100", "3200",
+            "5900",  # ACC-14 FX gain/loss
         )
         existing = set(
             Account.objects.filter(company=company, code__in=required, is_active=True)

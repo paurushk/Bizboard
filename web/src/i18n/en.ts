@@ -985,6 +985,9 @@ export const en = {
     cnl2: 'Data entry mistake',
     cnl3: 'Order cancelled',
     cnl4: 'Others',
+    filingIdentity: 'Filing identity',
+    amendFilingIdentity: 'Amend filing identity',
+    filingIdentityAmended: 'Filing identity amended',
   },
   receipts: {
     mode: 'Mode',

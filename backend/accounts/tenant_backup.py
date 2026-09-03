@@ -518,6 +518,7 @@ def wipe_logical_tenant_rows(company) -> None:
         SupplierPayment,
     )
     from purchases.models import (
+        BillOfEntry,
         PurchaseCreditNote,
         PurchaseDebitNote,
         PurchaseInvoice,
@@ -570,6 +571,7 @@ def wipe_logical_tenant_rows(company) -> None:
     PurchaseCreditNote.objects.filter(company=company).delete()
     PurchaseDebitNote.objects.filter(company=company).delete()
     PurchaseReturn.objects.filter(company=company).delete()
+    BillOfEntry.objects.filter(company=company).delete()
     PurchaseInvoice.objects.filter(company=company).delete()
     try:
         from crm.models import Lead, LeadActivity, Opportunity
@@ -1112,6 +1114,7 @@ def unbacked_live_counts(company, payload: dict[str, Any]) -> dict[str, int]:
     from masters.models import Customer, Product, Supplier
     from payments.models import CustomerReceipt, PaymentAllocation, PaymentLink, ReconMatch, SupplierPayment
     from purchases.models import (
+        BillOfEntry,
         PurchaseCreditNote,
         PurchaseDebitNote,
         PurchaseInvoice,
@@ -1158,6 +1161,7 @@ def unbacked_live_counts(company, payload: dict[str, Any]) -> dict[str, int]:
         ("purchase_credit_notes", PurchaseCreditNote),
         ("purchase_debit_notes", PurchaseDebitNote),
         ("purchase_returns", PurchaseReturn),
+        ("bills_of_entry", BillOfEntry),
         ("gstr2b", Gstr2bIngest),
         ("file_assets", FileAsset),
         ("payment_links", PaymentLink),

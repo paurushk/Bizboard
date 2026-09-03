@@ -38,10 +38,18 @@ export const apiClient = axios.create({
   withCredentials: true,
 });
 
+// FE-06: double-submit fallback. On a cross-origin API/SPA deploy the csrftoken
+// cookie is third-party and Safari ITP / Brave / "block third-party cookies"
+// drop it from document.cookie. /auth/csrf/ now also returns the token in its
+// body; we keep it in memory and use it when the cookie is unreadable.
+let csrfTokenFromBody: string | null = null;
+
 function readCsrfToken(): string | null {
-  if (typeof document === 'undefined') return null;
-  const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
+  if (typeof document !== 'undefined') {
+    const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    if (match) return decodeURIComponent(match[1]);
+  }
+  return csrfTokenFromBody;
 }
 
 let csrfPromise: Promise<void> | null = null;
@@ -55,14 +63,22 @@ export async function ensureCsrfCookie(force = false): Promise<void> {
   if (!csrfPromise) {
     csrfPromise = axios
       .get(`${baseURL}/auth/csrf/`, { withCredentials: true, timeout: 15000 })
-      .then(() => undefined)
+      .then((res) => {
+        const body = res.data as { csrfToken?: string } | undefined;
+        if (body?.csrfToken) csrfTokenFromBody = body.csrfToken;
+        return undefined;
+      })
       .finally(() => {
         csrfPromise = null;
       });
   }
   await csrfPromise;
   if (!readCsrfToken()) {
-    throw new Error('CSRF token is unavailable. Refresh the page and try again.');
+    throw new Error(
+      'CSRF token is unavailable. If the app and API are on different domains, ' +
+        'your browser may be blocking third-party cookies — host them on the same ' +
+        'site, or refresh the page and try again.',
+    );
   }
 }
 

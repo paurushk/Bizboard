@@ -43,7 +43,7 @@ import {
 import { useAuth } from '@/auth/AuthContext';
 import { EinvoiceEwayPanel } from '@/components/EinvoiceEwayPanel';
 import { safePaymentHref } from '@/utils/safeUrl';
-import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { DetailSkeleton, EmptyState, ErrorState } from '@/components/PageState';
 import { PdfStatusPoller } from '@/components/PdfStatusPoller';
 import { StatusChip } from '@/components/StatusChip';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
@@ -329,7 +329,7 @@ export function InvoiceDetailPage() {
         reason: amendReason.trim(),
       }),
     onSuccess: () => {
-      setMessage('Filing identity amended');
+      setMessage(t('einvoice.filingIdentityAmended'));
       setAmendOpen(false);
       setAmendReason('');
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
@@ -377,7 +377,7 @@ export function InvoiceDetailPage() {
   if (!invoiceIdValid) {
     return <ErrorState message={t('billing.invalidInvoice')} />;
   }
-  if (query.isLoading) return <LoadingState />;
+  if (query.isLoading) return <DetailSkeleton />;
   if (query.isError) {
     return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
@@ -868,9 +868,9 @@ export function InvoiceDetailPage() {
       {canAct && isOwner && inv.status === 'COMPLETED' ? (
         <Paper sx={{ p: 2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-            <Typography variant="h6">Filing identity</Typography>
+            <Typography variant="h6">{t('einvoice.filingIdentity')}</Typography>
             <Button variant="outlined" size="small" onClick={() => setAmendOpen(true)}>
-              Amend filing identity
+              {t('einvoice.amendFilingIdentity')}
             </Button>
           </Stack>
           <Stack spacing={0.5}>
@@ -963,7 +963,7 @@ export function InvoiceDetailPage() {
       ) : null}
 
       <Dialog open={amendOpen} onClose={() => setAmendOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Amend filing identity</DialogTitle>
+        <DialogTitle>{t('einvoice.amendFilingIdentity')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField

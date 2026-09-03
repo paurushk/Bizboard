@@ -553,14 +553,23 @@ class VerifyOtpView(APIView):
 
 
 class CsrfCookieView(APIView):
-    """BB-000602: GET /auth/csrf/ sets csrftoken for cookie-JWT mutating calls."""
+    """BB-000602: GET /auth/csrf/ sets csrftoken for cookie-JWT mutating calls.
+
+    FE-06: also return the token value in the body. When the API and SPA are on
+    different hosts the csrftoken cookie is third-party and Safari ITP / Brave /
+    "block third-party cookies" can drop it from `document.cookie`, so the SPA
+    reads the token from here and sends it as the `X-CSRFToken` header
+    (double-submit). Same-site hosting is still the recommended deploy.
+    """
 
     permission_classes = [AllowAny]
     authentication_classes = []
 
     def get(self, request):
+        from django.middleware.csrf import get_token
+
         _ensure_csrf_cookie(request)
-        return Response({"detail": "ok"})
+        return Response({"detail": "ok", "csrfToken": get_token(request)})
 
 
 class MeView(APIView):
