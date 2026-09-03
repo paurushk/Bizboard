@@ -90,6 +90,58 @@ def test_aa_ingest_and_list(tenant_a):
     assert listed.data["consents"][0]["consent_id"] == "consent-test-001"
 
 
+def test_aa_matcher_matches_on_narration_utr_and_unique_amount(tenant_a):
+    """INTG-02: match on a UTR parsed from the narration, and on a lone
+    amount+date candidate — not only reference == txn_id."""
+    from datetime import date
+
+    from banking.models import AaConsent, AaTransaction
+    from banking.services import match_aa_to_receipts
+    from masters.models import Customer
+    from payments.models import CustomerReceipt, ReceiptStatus
+
+    cust = Customer.objects.create(company=tenant_a.company, name="Imp Co")
+    consent = AaConsent.objects.create(company=tenant_a.company, consent_id="c-utr-1")
+
+    r_utr = CustomerReceipt.objects.create(
+        company=tenant_a.company, customer=cust, amount=Decimal("1500.00"),
+        receipt_date=date(2026, 6, 10), status=ReceiptStatus.POSTED,
+        utr="AXISP002391847", number="RCPT-1",
+    )
+    AaTransaction.objects.create(
+        company=tenant_a.company, consent=consent, txn_id="bankinternal-9001",
+        amount=Decimal("1500.00"), txn_date=date(2026, 6, 11),
+        raw={"narration": "UPI/CR/AXISP002391847/IMP CO"},
+    )
+
+    r_amt = CustomerReceipt.objects.create(
+        company=tenant_a.company, customer=cust, amount=Decimal("7321.55"),
+        receipt_date=date(2026, 6, 12), status=ReceiptStatus.POSTED, number="RCPT-2",
+    )
+    AaTransaction.objects.create(
+        company=tenant_a.company, consent=consent, txn_id="bankinternal-9002",
+        amount=Decimal("7321.55"), txn_date=date(2026, 6, 12),
+        raw={"narration": "NEFT/CR/UNKNOWN"},
+    )
+
+    # Ambiguous: two receipts of the same amount → left for a human.
+    for n in ("RCPT-3a", "RCPT-3b"):
+        CustomerReceipt.objects.create(
+            company=tenant_a.company, customer=cust, amount=Decimal("999.00"),
+            receipt_date=date(2026, 6, 12), status=ReceiptStatus.POSTED, number=n,
+        )
+    AaTransaction.objects.create(
+        company=tenant_a.company, consent=consent, txn_id="bankinternal-9003",
+        amount=Decimal("999.00"), txn_date=date(2026, 6, 12), raw={"narration": "IMPS/CR"},
+    )
+
+    matched = match_aa_to_receipts(company=tenant_a.company)
+    assert matched == 2
+    assert AaTransaction.objects.get(txn_id="bankinternal-9001").matched_payment_id == r_utr.id
+    assert AaTransaction.objects.get(txn_id="bankinternal-9002").matched_payment_id == r_amt.id
+    assert AaTransaction.objects.get(txn_id="bankinternal-9003").matched_payment_id is None
+
+
 def test_switch_company_multi_membership(tenant_a, tenant_b):
     user = tenant_a.owner
     # Same user active in two companies

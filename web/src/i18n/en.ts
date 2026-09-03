@@ -487,6 +487,8 @@ export const en = {
       'This returned invoice cannot be edited. Use a credit note or the original return for stock corrections.',
     completedBatchLocked:
       'Quantity on batch/serial items cannot be changed on a completed bill. Use a credit note or sales return. An Owner can still amend prices.',
+    previewUnavailableClientTotals:
+      'Server total preview is unavailable. The totals shown are calculated on this device; the server will recompute the authoritative totals when you complete the invoice.',
     skuMustBeUnique: 'SKU is required and must be unique.',
     hsnSacDigits: 'HSN/SAC must be 4, 6, or 8 digits',
     fefoBatch: 'FEFO batch',

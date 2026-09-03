@@ -98,6 +98,7 @@ RLS_TABLES = [
     "payroll_employee",
     "payroll_payrun",
     "payroll_payslip",
+    "purchases_billofentry",
     "purchases_purchasecreditnote",
     "purchases_purchasecreditnoteitem",
     "purchases_purchasedebitnote",

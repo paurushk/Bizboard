@@ -1384,12 +1384,41 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
         rcm_cess += _rcm_cess(note)
 
     outward = gstr1["totals"]
+
+    # GST-08: import ITC from completed Bills of Entry (GSTR-3B 4(A)(5)).
+    from purchases.models import BillOfEntry
+
+    boe_qs = BillOfEntry.objects.filter(
+        company=company,
+        status=BillOfEntry.Status.COMPLETED,
+        itc_eligibility=BillOfEntry.ItcEligibility.ELIGIBLE,
+    )
+    boe_rows = [b for b in boe_qs if b.resolved_itc_period() == period]
+    import_igst = sum((Decimal(str(b.igst_amount or 0)) for b in boe_rows), Decimal("0"))
+    import_cess = sum((Decimal(str(b.cess_amount or 0)) for b in boe_rows), Decimal("0"))
+    import_itc = {
+        "section": "4(A)(5) ITC on import of goods",
+        "count": len(boe_rows),
+        "igst": _money(import_igst),
+        "cess": _money(import_cess),
+        "total_tax": _money(import_igst + import_cess),
+        "source": "bills_of_entry",
+        "note": (
+            "IGST + compensation cess paid at customs on completed Bills of Entry "
+            "for this period. Basic Customs Duty is a cost, not ITC."
+        ),
+    }
+
     itc_available = {
-        "igst": _money(inward_igst),
+        "igst": _money(inward_igst + import_igst),
         "cgst": _money(inward_cgst),
         "sgst": _money(inward_sgst),
-        "cess": _money(inward_cess),
-        "total_tax": _money(inward_igst + inward_cgst + inward_sgst + inward_cess),
+        "cess": _money(inward_cess + import_cess),
+        "total_tax": _money(
+            inward_igst + import_igst + inward_cgst + inward_sgst + inward_cess + import_cess
+        ),
+        "domestic_igst": _money(inward_igst),
+        "import_igst": _money(import_igst),
     }
     # BB-000279: RCM books also post Dr Input ITC — surface as provisional until 2B.
     rcm_itc_provisional = {
@@ -1409,9 +1438,12 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
     }
     manual_review = [
         {
-            "section": "4(A)(5) ITC on imports",
+            "section": "4(A)(5) ITC on import of services",
             "status": "manual_review",
-            "note": "Import of goods/services ITC is not tracked — manual review required.",
+            "note": (
+                "Import of goods ITC is now tracked via Bills of Entry (see import_itc). "
+                "Import of services (self-invoiced RCM) still needs manual review."
+            ),
         },
         {
             "section": "4(B) ITC reversed / ineligible",
@@ -1462,6 +1494,7 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
         },
         "rcm_provisional": rcm_itc_provisional,
         "unreviewed_itc": unreviewed_itc,
+        "import_itc": import_itc,
         "manual_review": manual_review,
         # R4-004: the safe amount to actually claim is the lower of books ITC and
         # 2B-matched ITC per head — surface it explicitly rather than leaving the

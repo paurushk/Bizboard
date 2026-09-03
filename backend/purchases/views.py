@@ -22,8 +22,13 @@ from core.viewsets import CompanyScopedViewSet
 from masters.models import Product, Supplier
 from payments.models import PaymentAllocation
 
-from .models import PurchaseInvoice, PurchaseReturn
-from .serializers import PurchaseInvoiceSerializer, PurchaseReturnSerializer
+from .boe_services import BillOfEntryService
+from .models import BillOfEntry, PurchaseInvoice, PurchaseReturn
+from .serializers import (
+    BillOfEntrySerializer,
+    PurchaseInvoiceSerializer,
+    PurchaseReturnSerializer,
+)
 from .services import PurchaseService
 
 
@@ -259,3 +264,46 @@ class PurchaseReturnViewSet(CompanyScopedViewSet):
     def cancel(self, request, pk=None):
         purchase_return = PurchaseService.cancel_return(self.get_object(), request.user)
         return Response(self.get_serializer(purchase_return).data)
+
+
+class BillOfEntryViewSet(CompanyScopedViewSet):
+    """GST-08: customs Bill of Entry for imports of goods (ITC → GSTR-3B 4(A)(5))."""
+
+    queryset = BillOfEntry.objects.select_related("supplier")
+    serializer_class = BillOfEntrySerializer
+
+    def get_permissions(self):
+        action = getattr(self, "action", None)
+        if action == "cancel":
+            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        if action in ("create", "update", "partial_update", "destroy", "complete"):
+            return [IsAuthenticated(), HasCompany(), CanCreatePurchases()]
+        if action in ("list", "retrieve"):
+            return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        params = self.request.query_params
+        if params.get("status"):
+            qs = qs.filter(status=params["status"])
+        if params.get("supplier"):
+            qs = qs.filter(supplier_id=params["supplier"])
+        if params.get("period"):
+            qs = qs.filter(boe_date__startswith=params["period"])
+        return qs
+
+    def perform_destroy(self, instance):
+        if instance.status != BillOfEntry.Status.DRAFT:
+            raise BusinessRuleError("Only a draft Bill of Entry can be deleted; use Cancel instead.")
+        super().perform_destroy(instance)
+
+    @action(detail=True, methods=["post"])
+    def complete(self, request, pk=None):
+        boe = BillOfEntryService.complete(self.get_object(), request.user)
+        return Response(self.get_serializer(boe).data)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        boe = BillOfEntryService.cancel(self.get_object(), request.user)
+        return Response(self.get_serializer(boe).data)

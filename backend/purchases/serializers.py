@@ -342,3 +342,46 @@ class PurchaseReturnSerializer(CompanyScopedSerializerMixin, serializers.ModelSe
         if items_data is not None:
             PurchaseService.set_return_items(instance, [dict(l) for l in items_data], self.context["request"].user)
         return instance
+
+
+class BillOfEntrySerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
+    supplier_name = serializers.CharField(source="supplier.name", read_only=True)
+    claimable_itc = serializers.DecimalField(max_digits=16, decimal_places=2, read_only=True)
+    total_customs_paid = serializers.DecimalField(max_digits=16, decimal_places=2, read_only=True)
+
+    class Meta:
+        from .models import BillOfEntry
+
+        model = BillOfEntry
+        fields = [
+            "id", "supplier", "supplier_name", "boe_number", "boe_date", "port_code",
+            "reference", "assessable_value", "bcd_amount", "igst_amount", "cess_amount",
+            "itc_eligibility", "itc_period", "status", "completed_at", "cancelled_at",
+            "notes", "claimable_itc", "total_customs_paid", "created_at", "updated_at",
+        ]
+        read_only_fields = ["status", "completed_at", "cancelled_at"]
+
+    def validate_supplier(self, supplier):
+        if supplier is not None:
+            self.check_company_ref(supplier, "supplier")
+        return supplier
+
+    def validate_itc_period(self, value):
+        value = (value or "").strip()
+        if value:
+            import re
+
+            if not re.match(r"^\d{4}-\d{2}$", value):
+                raise serializers.ValidationError("itc_period must be YYYY-MM.")
+        return value
+
+    def _guard_editable(self, instance):
+        from core.exceptions import BusinessRuleError
+        from .models import BillOfEntry
+
+        if instance is not None and instance.status != BillOfEntry.Status.DRAFT:
+            raise BusinessRuleError("Only a draft Bill of Entry can be edited.")
+
+    def update(self, instance, validated_data):
+        self._guard_editable(instance)
+        return super().update(instance, validated_data)

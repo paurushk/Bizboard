@@ -43,7 +43,6 @@ import {
   listStock,
   listWarehouses,
   searchProducts,
-  updateCompany,
   updateSalesInvoice,
   uploadFile,
 } from '@/api/resources';
@@ -1026,11 +1025,15 @@ export function NewInvoicePage() {
   const activeCustomers = (customers.data?.results ?? []).filter((c) => c.status === 'ACTIVE');
   const canSave = lines.length > 0 && Boolean(customerId) && !saveMutation.isPending;
   const isCompletedEdit = editingStatus === 'COMPLETED';
+  // FE-07: if the server preview endpoint keeps erroring, don't strand a valid
+  // invoice — allow Complete with the on-device totals (the server recomputes
+  // authoritative totals on save regardless) but surface that it happened.
+  const previewFellBack = previewOnline && !preview.ready && preview.error != null;
   const canComplete =
     canSave &&
     posKnown &&
     (isCompletedEdit || stockShortfalls.length === 0) &&
-    (!previewOnline || preview.ready);
+    (!previewOnline || preview.ready || previewFellBack);
   const shownTotals = preview.totals
     ? {
         ...totals,
@@ -1105,10 +1108,11 @@ export function NewInvoicePage() {
     if (!file) return;
     try {
       const uploaded = await uploadFile(file, 'ATTACHMENT');
+      // FE-09: attach the signature to *this* invoice only. It used to also call
+      // updateCompany({ signature }) which silently changed the company-wide
+      // default for every future document. Set the default from Settings instead.
       setSignatureId(uploaded.id);
       setSignatureUrl(uploaded.url ?? null);
-      await updateCompany({ signature: uploaded.id });
-      void qc.invalidateQueries({ queryKey: ['company'] });
     } catch (err) {
       setError(getErrorMessage(err));
     }
@@ -1158,7 +1162,9 @@ export function NewInvoicePage() {
       documentId={isEdit ? editId ?? undefined : undefined}
       multiGodown={(warehouses.data?.length ?? 0) > 1}
       warning={
-        fromBillUpload
+        previewFellBack
+          ? t('billing.previewUnavailableClientTotals')
+          : fromBillUpload
           ? t('billUpload.reviewOnEditDisclaimerSales')
           : isEdit && editingStatus === 'COMPLETED' && lines.some((l) => l.trackBatch || l.trackSerial)
             ? t('billing.completedBatchLocked')

@@ -1273,6 +1273,69 @@ class PostingService:
     post_purchase_invoice = post_purchase
 
     @classmethod
+    def post_bill_of_entry(cls, boe, user=None):
+        """GST-08: customs Bill of Entry for an import of goods.
+
+          Dr 1330 Input IGST (import)   igst_amount   [only if ITC ELIGIBLE]
+          Dr 1370 Input Cess            cess_amount   [only if ITC ELIGIBLE]
+          Dr 5110 Purchase Charges      bcd_amount (+ igst+cess when INELIGIBLE)
+          Cr 2100 Accounts Payable      total customs paid
+
+        BCD is always a cost; IGST/cess are ITC when eligible, otherwise cost.
+        Idempotent on (BILL_OF_ENTRY, id, COMPLETE).
+        """
+        company = boe.company
+        if not getattr(company, "accounting_enabled", False):
+            return None
+        cls._ensure_chart(company)
+        igst = Decimal(str(boe.igst_amount or 0))
+        cess = Decimal(str(boe.cess_amount or 0))
+        bcd = Decimal(str(boe.bcd_amount or 0))
+        total = igst + cess + bcd
+        if total <= 0:
+            return None
+        eligible = boe.itc_eligibility == boe.ItcEligibility.ELIGIBLE
+        lines = []
+        cost_to_charges = bcd
+        if eligible:
+            if igst > 0:
+                lines.append({"account": cls._account(company, "1330"), "debit": igst})
+            if cess > 0:
+                lines.append({"account": cls._account(company, "1370"), "debit": cess})
+        else:
+            cost_to_charges += igst + cess
+        if cost_to_charges > 0:
+            lines.append({"account": cls._account(company, "5110"), "debit": cost_to_charges})
+        lines.append({
+            "account": cls._account(company, "2100"),
+            "credit": total,
+            "supplier": getattr(boe, "supplier", None),
+        })
+        return cls.post(
+            company=company,
+            source_type="BILL_OF_ENTRY",
+            source_id=boe.id,
+            purpose="COMPLETE",
+            entry_date=boe.boe_date,
+            user=user,
+            narration=f"Bill of Entry {boe.boe_number}",
+            lines=lines,
+        )
+
+    @classmethod
+    def reverse_bill_of_entry(cls, boe, user=None):
+        entry = JournalEntry.objects.filter(
+            company=boe.company,
+            source_type="BILL_OF_ENTRY",
+            source_id=boe.id,
+            purpose="COMPLETE",
+            status=JournalEntry.Status.POSTED,
+        ).first()
+        if entry is not None:
+            cls.reverse(entry, user=user, entry_date=entry.entry_date)
+        return entry
+
+    @classmethod
     def post_supplier_payment(cls, payment, user=None):
         """BB-000382: unallocated supplier payment debits Supplier Advances (1250)."""
         cls._ensure_chart(payment.company)
