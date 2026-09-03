@@ -32,7 +32,7 @@ ENV VITE_ENABLE_ACCOUNTING=$VITE_ENABLE_ACCOUNTING \
 
 RUN if [ -z "$VITE_API_BASE_URL" ] && [ -n "$VITE_API_BASE" ]; then export VITE_API_BASE_URL="$VITE_API_BASE"; fi && npm run build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.31-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
