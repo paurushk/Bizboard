@@ -103,6 +103,11 @@ def test_csrf_endpoint_sets_csrftoken_cookie():
     resp = APIClient().get("/api/v1/auth/csrf/")
     assert resp.status_code == 200
     assert "csrftoken" in resp.cookies
+    # FE-06: token also in the body for the cross-origin double-submit fallback.
+    # (get_token() returns the masked form the SPA sends as X-CSRFToken; the
+    # cookie stores the raw secret — Django validates one against the other.)
+    body_token = resp.data.get("csrfToken")
+    assert body_token and len(body_token) >= 32
 
 
 def test_cors_wildcard_with_credentials_rejected_regardless_of_admin():
