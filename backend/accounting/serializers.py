@@ -133,6 +133,7 @@ class BankReconSessionSerializer(serializers.ModelSerializer):
 
 class FixedAssetSerializer(serializers.ModelSerializer):
     monthly_depreciation = serializers.DecimalField(max_digits=16, decimal_places=2, read_only=True)
+    written_down_value = serializers.DecimalField(max_digits=16, decimal_places=2, read_only=True)
 
     class Meta:
         model = FixedAsset

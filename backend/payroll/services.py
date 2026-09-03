@@ -479,7 +479,7 @@ def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> Pa
             lines.append(net_line)
         PostingService.post(
             company=company,
-            source_type="PayRun",
+            source_type="PAY_RUN",
             source_id=locked.pk,
             purpose="PAYROLL",
             entry_date=pay_period_month_end(locked.period),
@@ -509,7 +509,7 @@ def cancel_pay_run(pay_run: PayRun, user) -> PayRun:
         entry = (
             JournalEntry.objects.filter(
                 company=locked.company,
-                source_type="PayRun",
+                source_type="PAY_RUN",
                 source_id=locked.pk,
                 purpose="PAYROLL",
                 status=JournalEntry.Status.POSTED,

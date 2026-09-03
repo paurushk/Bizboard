@@ -90,7 +90,13 @@ def _next_due_bucket(days_overdue: int, buckets: list[int], invoice) -> int | No
 def _already_sent_today(invoice, sent_on: date) -> bool:
     from payments.models import DunningReminder
 
-    return DunningReminder.objects.filter(invoice=invoice, sent_on=sent_on).exists()
+    # PAY-13: a SKIPPED row (missing phone earlier today) must not block a real
+    # send once the number is fixed — only SENT/FAILED count as "handled today".
+    return (
+        DunningReminder.objects.filter(invoice=invoice, sent_on=sent_on)
+        .exclude(status=DunningReminder.Status.SKIPPED)
+        .exists()
+    )
 
 
 def _reminder_count(invoice) -> int:
@@ -119,6 +125,12 @@ def eligible_invoices(company, *, as_of: date):
 def _record(invoice, *, sent_on, days_overdue, channel, status, error=""):
     from payments.models import DunningReminder
 
+    # PAY-13: don't pile up SKIPPED rows for the same invoice/day — the unique
+    # constraint no longer covers them, so de-dupe here instead.
+    if status == DunningReminder.Status.SKIPPED and DunningReminder.objects.filter(
+        invoice=invoice, sent_on=sent_on, status=DunningReminder.Status.SKIPPED
+    ).exists():
+        return None
     try:
         return DunningReminder.objects.create(
             company=invoice.company,

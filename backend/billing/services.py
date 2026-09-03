@@ -208,7 +208,10 @@ def _map_razorpay_status(rzp_status: str) -> str | None:
     if status in {"halted", "paused"}:
         return Subscription.Status.PAST_DUE
     if status == "pending":
-        return None
+        # SUB-04: Razorpay leaves a subscription `pending` when an auto-charge
+        # retry is failing. That is a payment problem — move it to PAST_DUE
+        # (write-grace still applies) rather than silently keeping the prior status.
+        return Subscription.Status.PAST_DUE
     if status in {"cancelled", "completed", "expired"}:
         return Subscription.Status.SUSPENDED
     return None

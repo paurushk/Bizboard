@@ -98,6 +98,26 @@ def _help_v2_allowlist() -> set[int]:
 
 
 def build_feature_flags(*, company=None, user=None) -> dict[str, bool]:
+    # FLAG-02: the SPA asks for flags on boot and on every company switch, and
+    # billing.plan_modules_for_company hits the DB each call. Memoise on the
+    # Company instance, keyed on the inputs that can change the result, so a
+    # test (or a within-request mutation) that edits feature_flags still recomputes.
+    cache_ok = company is not None and user is None
+    if cache_ok:
+        key = (getattr(company, "pk", None), repr(getattr(company, "feature_flags", None)))
+        cached = getattr(company, "_feature_flags_cache", None)
+        if cached is not None and cached[0] == key:
+            return dict(cached[1])
+    result = _build_feature_flags_uncached(company=company, user=user)
+    if cache_ok:
+        try:
+            company._feature_flags_cache = (key, dict(result))
+        except Exception:  # noqa: BLE001 — company may be a lightweight stub
+            pass
+    return result
+
+
+def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]:
     env = {key: _env_bool(key) for key in ENV_FLAG_KEYS}
     flags: dict[str, bool] = dict(env)
     if company is not None:

@@ -52,7 +52,9 @@ class DocumentTotalsModel(CompanyScopedModel):
     sgst_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     igst_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     cess_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
-    round_off = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0"))
+    # CORE-19: was max_digits=6 (±9999.99). Widened so a future "round to
+    # nearest ₹10 / ₹100" rule on a large invoice cannot overflow silently.
+    round_off = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     grand_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
 
     class Meta:

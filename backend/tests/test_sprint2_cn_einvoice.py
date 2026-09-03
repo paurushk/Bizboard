@@ -225,7 +225,11 @@ def test_bb_000639_seller_stamp_without_company_gstin(tenant_a):
     invoice = SalesInvoice.objects.select_related("company_gstin").get(pk=inv["id"])
     payload = build_einvoice_payload(invoice)
     assert payload["SellerDtls"]["Gstin"] == "29ABCDE1234F1ZW"
-    assert invoice.company.gstin == ""
+    # ACCT-02: creating the primary CompanyGstin now mirrors it into the
+    # Company.gstin scalar so direct scalar readers (billing / doc numbers /
+    # GSTR) stay consistent with the multi-GSTIN model.
+    invoice.company.refresh_from_db()
+    assert invoice.company.gstin == "29ABCDE1234F1ZW"
 
 
 def test_bb_000640_641_642_eway_distance_urp_taxonomy(tenant_a):

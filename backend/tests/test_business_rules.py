@@ -107,10 +107,19 @@ def test_referenced_product_soft_deletes(tenant_a):
 
 
 def test_invalid_hsn_rejected(tenant_a):
+    # CORE-15: 2-digit chapter codes are legal on a product master; a
+    # 3-digit / non-numeric code is not.
     resp = tenant_a.client.post("/api/v1/products/", {
-        "name": "Bad HSN", "sku": "BH-1", "hsn_code": "12", "gst_rate": "18",
+        "name": "Bad HSN", "sku": "BH-1", "hsn_code": "123", "gst_rate": "18",
     }, format="json")
     assert resp.status_code == 400
+
+
+def test_two_digit_hsn_accepted_on_product(tenant_a):
+    resp = tenant_a.client.post("/api/v1/products/", {
+        "name": "Chapter HSN", "sku": "CH-1", "hsn_code": "12", "gst_rate": "18",
+    }, format="json")
+    assert resp.status_code == 201, resp.data
 
 
 def test_invalid_gst_rate_rejected(tenant_a):

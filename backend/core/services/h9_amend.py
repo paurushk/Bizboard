@@ -5,23 +5,22 @@ from decimal import Decimal
 from core.exceptions import BusinessRuleError
 
 
-def assert_h9a_line_allowlist(existing_items, items_data):
-    """
-    Only unit_price / discount_percent may change.
-    Match by line id when present, else by product_id (order-independent).
+def _pair_amend_lines(existing_items, items_data):
+    """H9-02: the single source of truth for pairing amended payload lines to
+    existing rows — by line id when present, else FIFO by product_id. Both
+    ``assert_h9a_line_allowlist`` and ``lines_prices_unchanged`` use this so
+    they can never disagree on which old row a line maps to.
+
+    Returns ``[(line, old_item_or_None), ...]`` in payload order.
     """
     existing = list(existing_items)
-    if len(items_data) != len(existing):
-        raise BusinessRuleError(
-            "Completed document amend cannot add or remove lines (H9-A)."
-        )
-
     by_id = {i.id: i for i in existing if getattr(i, "id", None) is not None}
     by_product: dict[int, list] = {}
     for i in existing:
         by_product.setdefault(i.product_id, []).append(i)
 
     used_ids: set[int] = set()
+    pairs = []
     for line in items_data:
         product = line["product"]
         product_id = product.pk if hasattr(product, "pk") else int(product)
@@ -44,6 +43,24 @@ def assert_h9a_line_allowlist(existing_items, items_data):
                 old = candidate
                 used_ids.add(candidate.id)
                 break
+        pairs.append((line, old))
+    return pairs
+
+
+def assert_h9a_line_allowlist(existing_items, items_data):
+    """
+    Only unit_price / discount_percent may change.
+    Match by line id when present, else by product_id (order-independent).
+    """
+    existing = list(existing_items)
+    if len(items_data) != len(existing):
+        raise BusinessRuleError(
+            "Completed document amend cannot add or remove lines (H9-A)."
+        )
+
+    for line, old in _pair_amend_lines(existing, items_data):
+        product = line["product"]
+        product_id = product.pk if hasattr(product, "pk") else int(product)
         if old is None:
             raise BusinessRuleError(
                 "Completed document amend cannot change products (H9-A)."
@@ -127,21 +144,19 @@ def assert_h9a_line_allowlist(existing_items, items_data):
 
 
 def lines_prices_unchanged(existing_items, items_data) -> bool:
-    """True when product/qty/gst/price/discount all match (order-independent)."""
+    """True when product/qty/gst/price/discount all match (order-independent).
+
+    H9-02: uses the same id-first pairing as ``assert_h9a_line_allowlist`` so
+    two same-product lines can't make the two helpers disagree.
+    """
     existing = list(existing_items)
     if len(items_data) != len(existing):
         return False
-    by_product: dict[int, list] = {}
-    for i in existing:
-        by_product.setdefault(i.product_id, []).append(i)
-    by_product = {k: list(v) for k, v in by_product.items()}
-    for line in items_data:
+    for line, old in _pair_amend_lines(existing, items_data):
         product = line["product"]
         product_id = product.pk if hasattr(product, "pk") else int(product)
-        bucket = by_product.get(product_id) or []
-        if not bucket:
+        if old is None or old.product_id != product_id:
             return False
-        old = bucket.pop(0)
         if Decimal(str(line["quantity"])) != Decimal(str(old.quantity)):
             return False
         if Decimal(str(line.get("unit_price", old.unit_price))) != Decimal(str(old.unit_price)):

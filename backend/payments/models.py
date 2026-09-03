@@ -468,8 +468,12 @@ class DunningReminder(CompanyScopedModel):
     class Meta:
         ordering = ["-sent_on", "-id"]
         constraints = [
+            # PAY-13: one *effective* reminder (SENT/FAILED) per invoice per IST
+            # day. SKIPPED rows (missing phone, etc.) are excluded so a real
+            # attempt can still be recorded once the blocker is fixed the same day.
             models.UniqueConstraint(
                 fields=["invoice", "sent_on"],
+                condition=~models.Q(status="SKIPPED"),
                 name="uniq_dunning_invoice_per_day",
             )
         ]

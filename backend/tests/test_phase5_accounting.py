@@ -305,6 +305,51 @@ def test_fa_dispose_creates_gl_journal(books):
     assert asset.status == FixedAsset.Status.DISPOSED
 
 
+def test_fa_wdv_depreciation_respects_salvage_and_trues_up(books):
+    """ACC-09: WDV method charges opening-WDV × rate / 12, never below salvage;
+    SLM base is (cost − salvage); the last charge trues up to salvage exactly."""
+    from accounting.models import FixedAsset
+    from accounting.tasks import _depreciate_company_assets
+
+    seed_chart_of_accounts(books.company, books.owner)
+    asset_acct = PostingService._account(books.company, "1600")
+    accum_acct = PostingService._account(books.company, "1650")
+    expense_acct = PostingService._account(books.company, "5300")
+
+    wdv = FixedAsset.objects.create(
+        company=books.company, name="Plant", asset_account=asset_acct,
+        accumulated_depreciation_account=accum_acct, depreciation_expense_account=expense_acct,
+        acquisition_date="2026-01-01", acquisition_cost=Decimal("100000.00"),
+        useful_life_months=120, method=FixedAsset.Method.WDV,
+        wdv_annual_rate=Decimal("15.00"), salvage_value=Decimal("5000.00"),
+    )
+    # First month: 100000 * 15% / 12 = 1250.00
+    assert wdv.monthly_depreciation == Decimal("1250.00")
+
+    # WDV never charges the book value below salvage.
+    wdv.depreciated_amount = Decimal("94999.00")  # WDV = 5001, room to salvage = 1
+    wdv.save(update_fields=["depreciated_amount"])
+    assert wdv.monthly_depreciation == Decimal("1.00")
+    wdv.depreciated_amount = Decimal("95000.00")  # WDV == salvage
+    wdv.save(update_fields=["depreciated_amount"])
+    assert wdv.monthly_depreciation == Decimal("0.00")
+
+    slm = FixedAsset.objects.create(
+        company=books.company, name="Fixture", asset_account=asset_acct,
+        accumulated_depreciation_account=accum_acct, depreciation_expense_account=expense_acct,
+        acquisition_date="2026-01-01", acquisition_cost=Decimal("13000.00"),
+        useful_life_months=12, salvage_value=Decimal("1000.00"),
+        depreciated_amount=Decimal("11000.50"),  # one sub-rupee charge from done
+    )
+    # SLM base = 13000 - 1000 = 12000 over 12 months = 1000.00/month
+    assert slm.monthly_depreciation == Decimal("1000.00")
+
+    # One runner pass trues the book value to exactly salvage (no ₹0.01 tail).
+    _depreciate_company_assets(books.company.id)
+    slm.refresh_from_db()
+    assert slm.written_down_value == Decimal("1000.00")  # == salvage_value
+
+
 def test_fa_dispose_with_proceeds_gain(books):
     """BB-000459: proceeds > NBV credits Gain 5700."""
     from accounting.models import FixedAsset, JournalEntry

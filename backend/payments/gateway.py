@@ -300,9 +300,27 @@ class RazorpayAdapter:
         expected = hmac.new(self.webhook_secret.encode(), body, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, sig)
 
+    # PAY-08: only these Razorpay events move money state. Every other event a
+    # payment emits (payment.authorized, payment.downtime.*, subscription.*, …)
+    # is ignored so one payment's event stream can't double-book from downstream
+    # status inference. `payment_link_probe` events with no `event` key (bare
+    # entity bodies used in tests) are allowed through.
+    _RZP_MONEY_EVENTS = frozenset({
+        "payment.captured",
+        "payment.failed",
+        "payment_link.paid",
+        "order.paid",
+        "refund.processed",
+        "refund.created",
+        "refund.failed",
+    })
+
     def parse_webhook(self, *, body: bytes) -> WebhookEvent | None:
         data = _json_body(body)
         if not data:
+            return None
+        event = str(data.get("event") or "").strip().lower()
+        if event and event not in self._RZP_MONEY_EVENTS:
             return None
         payload = data.get("payload") or data
         payment = (payload.get("payment") or {}).get("entity") or payload.get("payment") or payload

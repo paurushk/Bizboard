@@ -1314,12 +1314,27 @@ class InventoryValuationService:
 
     @staticmethod
     def _heal_running_zero_cost(company, rows, warehouse, product):
+        # INV-05: heal rows whose running value is zero *or negative* for
+        # positive on-hand qty. A negative running value is always corruption
+        # (a movement that bypassed _apply_running_cost); zero is the common
+        # "never costed" case. Wrong-but-positive values still need
+        # rebuild_running_cost — that full replay is deliberately off the hot path.
         need = [
             r for r in rows
-            if Decimal(str(r.get("qty") or 0)) > 0 and Decimal(str(r.get("value") or 0)) == 0
+            if Decimal(str(r.get("qty") or 0)) > 0
+            and Decimal(str(r.get("value") or 0)) <= 0
         ]
         if not need:
             return
+        if any(Decimal(str(r.get("value") or 0)) < 0 for r in need):
+            import logging as _logging
+
+            _logging.getLogger(__name__).warning(
+                "Negative InventoryRunningCost value healed for company %s "
+                "(product=%s). Run rebuild_running_cost to fully reconcile.",
+                getattr(company, "id", None),
+                getattr(product, "id", product),
+            )
         if warehouse is not None:
             full = InventoryValuationService.valuation(
                 company, as_of=None, method="WAVG", warehouse=None, product=product,
@@ -1350,7 +1365,7 @@ class InventoryValuationService:
                 continue
             avg = sibling_val / sibling_qty
             for row in items:
-                if row["qty"] > 0 and row["value"] == 0:
+                if row["qty"] > 0 and row["value"] <= 0:
                     row["value"] = row["qty"] * avg
                     row["unit_cost"] = avg
 
@@ -1474,6 +1489,22 @@ class InventoryValuationService:
                         after, method, state, as_of=as_of, warehouse=warehouse,
                         product=product, company=company,
                     )
+                # INV-07: over the snapshot threshold but no snapshot for the
+                # prior period — fall through to a full replay from the start of
+                # history (slow, and silent until now). Surface it so a missed
+                # month-end cron / fresh deploy is visible.
+                import logging as _logging
+
+                _logging.getLogger(__name__).warning(
+                    "Inventory valuation for company %s as_of %s replayed from the "
+                    "beginning: no InventoryValuationSnapshot for period %s "
+                    "(%s movements > threshold %s). Run write_month_end_snapshot.",
+                    getattr(company, "id", None),
+                    as_of_date,
+                    period,
+                    movements.count(),
+                    snapshot_threshold,
+                )
             if use_business_date:
                 movements = movements.filter(movement_date__lte=as_of_date).order_by(
                     "movement_date", "id"

@@ -7,9 +7,14 @@ from django.core.exceptions import ValidationError
 GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 UDYAM_RE = re.compile(r"^UDYAM-[A-Z]{2}-\d{2}-\d{7}$")
-HSN_RE = re.compile(r"^\d{4}(\d{2})?(\d{2})?$")  # 4, 6 or 8 digits
-# PAY-13: UPI VPA — local-part @ PSP handle (e.g. shop@oksbi).
-UPI_VPA_RE = re.compile(r"^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$")
+# CORE-15: 2 (chapter), 4 (heading), 6 or 8 digits. 2-digit is a legal HSN
+# for very small suppliers on product masters; invoice-line serializers can
+# still require >= 4 where the law demands it.
+HSN_RE = re.compile(r"^\d{2}(\d{2})?(\d{2})?(\d{2})?$")
+# CORE-16: UPI VPA — local-part @ PSP handle (e.g. shop@oksbi). Local part
+# allows one or more of the safe set; PSP handle allows digits (some bank
+# handles are numeric-suffixed).
+UPI_VPA_RE = re.compile(r"^[a-zA-Z0-9.\-_]{1,256}@[a-zA-Z0-9]{2,64}$")
 
 ALLOWED_GST_RATES = ("0", "0.25", "3", "5", "12", "18", "28", "40")
 
@@ -55,7 +60,7 @@ def validate_udyam(value):
 
 def validate_hsn(value):
     if value and not HSN_RE.match(value):
-        raise ValidationError("Invalid HSN/SAC code — must be 4, 6 or 8 digits.")
+        raise ValidationError("Invalid HSN/SAC code — must be 2, 4, 6 or 8 digits.")
 
 
 def validate_gst_rate(value):

@@ -296,6 +296,45 @@ class CompanyGstin(TimeStampedModel):
     def __str__(self):
         return self.gstin or f"CompanyGstin#{self.pk}"
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self._mirror_primary_to_company()
+
+    def delete(self, *args, **kwargs):
+        company_id, was_primary = self.company_id, self.is_primary
+        super().delete(*args, **kwargs)
+        if was_primary:
+            CompanyGstin._resync_company_scalar(company_id)
+
+    def _mirror_primary_to_company(self):
+        # ACCT-02: `Company.gstin` / `Company.state` are read directly by
+        # billing, document_numbers and the GSTR builders. Keep the scalar in
+        # step with the primary CompanyGstin row so a multi-GSTIN tenant that
+        # manages registrations only through this model never breaks the
+        # scalar readers.
+        if self.is_primary and self.is_active:
+            fields = {"gstin": self.gstin}
+            if self.state:
+                fields["state"] = self.state
+            Company.objects.filter(pk=self.company_id).update(**fields)
+        else:
+            CompanyGstin._resync_company_scalar(self.company_id)
+
+    @staticmethod
+    def _resync_company_scalar(company_id):
+        primary = (
+            CompanyGstin.objects.filter(
+                company_id=company_id, is_primary=True, is_active=True
+            )
+            .exclude(gstin="")
+            .first()
+        )
+        if primary is not None:
+            fields = {"gstin": primary.gstin}
+            if primary.state:
+                fields["state"] = primary.state
+            Company.objects.filter(pk=company_id).update(**fields)
+
 
 class CompanyUser(TimeStampedModel):
     """RBAC membership — Owner/Admin or Sales Staff with permission flags (E0.8)."""

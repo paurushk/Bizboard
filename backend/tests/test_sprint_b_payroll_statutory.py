@@ -78,7 +78,7 @@ def test_complete_pay_run_persists_statutory_and_posts_gross_split(tenant_a):
     assert slip.pt_amount == Decimal("0.00")   # no PT state configured
     assert slip.net == Decimal("18050.00")
     entry = JournalEntry.objects.get(
-        company=tenant_a.company, source_type="PayRun", source_id=run.pk, purpose="PAYROLL",
+        company=tenant_a.company, source_type="PAY_RUN", source_id=run.pk, purpose="PAYROLL",
     )
     codes = {line.account.code: (line.debit, line.credit) for line in entry.lines.all()}
     # 20000 gross + 1800 PF er + 75 admin + 75 EDLI + 650 ESI er
@@ -131,7 +131,7 @@ def test_payroll_accrual_credits_wages_payable_for_net(tenant_a):
     )
     complete_pay_run(run, tenant_a.owner, pay_from_cash=False)
     entry = JournalEntry.objects.get(
-        company=tenant_a.company, source_type="PayRun", source_id=run.pk, purpose="PAYROLL",
+        company=tenant_a.company, source_type="PAY_RUN", source_id=run.pk, purpose="PAYROLL",
     )
     assert entry.lines.get(account__code="2150").credit == Decimal("18200.00")  # 20000 - PF 1800 (no PT)
     assert not entry.lines.filter(account__code="1100").exists()

@@ -143,7 +143,7 @@ def test_bb_000685_payrun_complete_is_idempotent(tenant_a):
     assert first.status_code == 200
     assert second.status_code == 400
     assert JournalEntry.objects.filter(
-        company=tenant_a.company, source_type="PayRun", source_id=run_id, purpose="PAYROLL",
+        company=tenant_a.company, source_type="PAY_RUN", source_id=run_id, purpose="PAYROLL",
     ).count() == 1
 
 
@@ -169,7 +169,7 @@ def test_bb_000683_payroll_journal_dated_period_month_end(tenant_a):
     run_id = _body(created)["id"]
     assert tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/").status_code == 200
     entry = JournalEntry.objects.get(
-        company=tenant_a.company, source_type="PayRun", source_id=run_id, purpose="PAYROLL",
+        company=tenant_a.company, source_type="PAY_RUN", source_id=run_id, purpose="PAYROLL",
     )
     assert str(entry.entry_date) == "2026-02-28"
 
@@ -189,7 +189,7 @@ def test_cancel_pay_run_reverses_journal_and_reopens_draft(tenant_a):
     assert _body(cancel_resp)["status"] == "DRAFT"
     # Check that original journal is marked REVERSED or a reversal entry was posted
     entry = JournalEntry.objects.get(
-        company=tenant_a.company, source_type="PayRun", source_id=run_id, purpose="PAYROLL",
+        company=tenant_a.company, source_type="PAY_RUN", source_id=run_id, purpose="PAYROLL",
     )
     assert entry.status == JournalEntry.Status.REVERSED
 

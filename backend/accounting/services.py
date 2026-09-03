@@ -858,6 +858,60 @@ class PostingService:
         )
 
     @classmethod
+    def post_bank_opening_balance(cls, bank_account, user=None):
+        """PAY-14: a bank account created with a non-zero opening balance needs a
+        GL opening entry (Dr per-bank ledger / Cr 3200 Opening Balance Equity),
+        otherwise the GL bank balance starts at 0 while the operational balance
+        shows the opening figure. Idempotent on (BANK_ACCOUNT, id, OPENING) —
+        re-posts to reflect an edited opening balance.
+        """
+        company = bank_account.company
+        if not getattr(company, "accounting_enabled", False):
+            return None
+        amount = Decimal(str(getattr(bank_account, "opening_balance", 0) or 0))
+        cls._ensure_chart(company)
+        existing = JournalEntry.objects.filter(
+            company=company,
+            source_type="BANK_ACCOUNT",
+            source_id=bank_account.id,
+            purpose="OPENING",
+            status=JournalEntry.Status.POSTED,
+        ).first()
+        if existing is not None:
+            prior = (
+                existing.lines.filter(account__code="3200")
+                .aggregate(c=Sum("credit"), d=Sum("debit"))
+            )
+            prior_amt = (prior["c"] or Decimal("0")) - (prior["d"] or Decimal("0"))
+            if prior_amt == amount:
+                return existing
+            cls.reverse(existing, user=user, entry_date=existing.entry_date)
+        if amount == 0:
+            return None
+        entry_date = getattr(bank_account, "opening_as_of", None) or cls._opening_entry_date(company)
+        bank_acct = cls._bank_gl_account(company, bank_account, entry_date)
+        if amount > 0:
+            lines = [
+                {"account": bank_acct, "debit": amount},
+                {"account": cls._account(company, "3200"), "credit": amount},
+            ]
+        else:
+            lines = [
+                {"account": cls._account(company, "3200"), "debit": -amount},
+                {"account": bank_acct, "credit": -amount},
+            ]
+        return cls.post(
+            company=company,
+            source_type="BANK_ACCOUNT",
+            source_id=bank_account.id,
+            purpose="OPENING",
+            entry_date=entry_date,
+            user=user,
+            narration=f"Opening balance — {bank_account.name}",
+            lines=lines,
+        )
+
+    @classmethod
     def post_sales_cogs(cls, invoice, amount, user=None):
         if not amount:
             return None
@@ -1059,6 +1113,20 @@ class PostingService:
         if charges <= 0:
             residual = Decimal(str(invoice.grand_total or 0)) - tax - line_taxable - round_off
             if residual >= Decimal("1"):
+                # ACC-06: a rupee-plus unexplained gap with no header
+                # `additional_charges` is booked to 5110 Purchase Charges as
+                # untracked freight — but only up to a sane bound. A larger gap
+                # is almost certainly a dropped line or a header/line tax drift;
+                # surface it instead of silently capitalising a data bug (sales
+                # has a ±5 paise guard — purchases needs a real one too).
+                grand = Decimal(str(invoice.grand_total or 0))
+                bound = max(Decimal("100"), (grand * Decimal("0.10")).quantize(Decimal("0.01")))
+                if residual > bound:
+                    raise BusinessRuleError(
+                        f"Purchase invoice does not reconcile: ₹{residual} is unaccounted "
+                        f"(grand total minus tax, line value and round-off). Add it as an "
+                        f"explicit additional charge or correct the lines before completing."
+                    )
                 charges = residual
             elif residual > 0:
                 # R3-012: a sub-rupee unexplained gap is line-rounding drift, not
@@ -1573,12 +1641,28 @@ class BooksHealthService:
                 blockers.append(alert)
         gst = build_gst_health(company, period)
         blockers.extend(a for a in gst["alerts"] if a.get("severity") == "critical")
-        from manufacturing.models import WorkOrder
         from calendar import monthrange
         from datetime import date as date_cls
 
-        wo_qs = WorkOrder.objects.filter(company=company, status=WorkOrder.Status.RELEASED)
-        if period:
+        from manufacturing.models import WorkOrder
+
+        # ACC-15: only block the close on open WIP when the Manufacturing module
+        # is enabled for this tenant. A tenant that turned the module off with a
+        # stale RELEASED work order must still be able to close periods.
+        try:
+            from core.services.feature_flags import build_feature_flags
+
+            mfg_on = bool(build_feature_flags(company=company).get("ENABLE_MANUFACTURING"))
+        except Exception:  # noqa: BLE001 — never let flag resolution block a close
+            from django.conf import settings
+
+            mfg_on = bool(getattr(settings, "ENABLE_MANUFACTURING", False))
+        wo_qs = (
+            WorkOrder.objects.filter(company=company, status=WorkOrder.Status.RELEASED)
+            if mfg_on
+            else WorkOrder.objects.none()
+        )
+        if period and mfg_on:
             try:
                 year, month = int(str(period)[:4]), int(str(period)[5:7])
                 period_end = date_cls(year, month, monthrange(year, month)[1])
@@ -1696,7 +1780,7 @@ class BooksHealthService:
                 )
                 or _has_missing(
                     PayRun.objects.filter(company=company, status=PayRun.Status.COMPLETED),
-                    "PayRun",
+                    "PAY_RUN",
                     "PAYROLL",
                 )
                 or _has_missing(

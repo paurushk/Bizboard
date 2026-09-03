@@ -83,6 +83,7 @@ class BankAccountViewSet(CompanyScopedViewSet):
             BankAccount.objects.filter(company=self.company, is_default=True).update(is_default=False)
         serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user)
         self._audit("CREATE", serializer.instance)
+        self._post_opening_balance(serializer.instance)
 
     def perform_update(self, serializer):
         if serializer.validated_data.get("is_default"):
@@ -91,6 +92,23 @@ class BankAccountViewSet(CompanyScopedViewSet):
             ).update(is_default=False)
         serializer.save(updated_by=self.request.user)
         self._audit("UPDATE", serializer.instance)
+        self._post_opening_balance(serializer.instance)
+
+    def _post_opening_balance(self, bank_account):
+        """PAY-14: keep the GL bank opening balance in step with the operational
+        opening_balance field (idempotent; re-posts on an edit)."""
+        if not getattr(self.company, "accounting_enabled", False):
+            return
+        try:
+            from accounting.services import PostingService
+
+            PostingService.post_bank_opening_balance(bank_account, user=self.request.user)
+        except Exception:  # noqa: BLE001 — a GL hiccup must not fail the bank-account save
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "Failed to post opening balance for bank account %s", bank_account.pk
+            )
 
 
 class CustomerReceiptViewSet(CompanyScopedViewSet):

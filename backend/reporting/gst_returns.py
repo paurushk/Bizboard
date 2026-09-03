@@ -186,6 +186,28 @@ def invoice_value_mismatch(invoice) -> bool:
     return abs(expected - grand) > Decimal("0.05")
 
 
+def note_value_mismatch(note) -> bool:
+    """GST-06: `invoice_value_mismatch` is written for invoices (TCS-in-grand,
+    invoice_discount_mode, additional_charges). A credit / debit note only ever
+    foots as taxable + tax ± round-off, so check that directly instead of
+    reusing the invoice formula (which, via getattr defaults, happens to work
+    today but would silently misjudge a note the moment a note grows one of
+    those fields).
+    """
+    taxable = Decimal(str(getattr(note, "taxable_total", 0) or 0))
+    tax = (
+        Decimal(str(getattr(note, "cgst_total", 0) or 0))
+        + Decimal(str(getattr(note, "sgst_total", 0) or 0))
+        + Decimal(str(getattr(note, "igst_total", 0) or 0))
+        + Decimal(str(getattr(note, "cess_total", 0) or 0))
+    )
+    round_off = Decimal(str(getattr(note, "round_off", 0) or 0))
+    tcs = Decimal(str(getattr(note, "tcs_amount", 0) or 0))
+    expected = q2(taxable + tax + round_off + tcs)
+    grand = q2(Decimal(str(getattr(note, "grand_total", 0) or 0)))
+    return abs(expected - grand) > Decimal("0.05")
+
+
 def _rate_buckets(items, invoice=None) -> dict[Decimal, dict]:
     buckets: dict[Decimal, dict] = defaultdict(
         lambda: {
@@ -198,12 +220,25 @@ def _rate_buckets(items, invoice=None) -> dict[Decimal, dict]:
     )
     restore_rcm = bool(invoice and getattr(invoice, "is_reverse_charge", False))
     rcm_igst = Decimal(str(getattr(invoice, "rcm_igst", 0) or 0)) if invoice else Decimal("0")
-    intra = rcm_igst == 0
+    rcm_cgst = Decimal(str(getattr(invoice, "rcm_cgst", 0) or 0)) if invoice else Decimal("0")
+    rcm_sgst = Decimal(str(getattr(invoice, "rcm_sgst", 0) or 0)) if invoice else Decimal("0")
+    # GST-04: don't infer intra/inter purely from `rcm_igst == 0` — a legacy row
+    # that never populated rcm_igst would then rebuild an inter-state RCM supply
+    # as CGST/SGST. Prefer the explicit memo split, then the invoice's own
+    # is_intra_state, then the heuristic.
+    if rcm_cgst > 0 or rcm_sgst > 0:
+        intra = True
+    elif rcm_igst > 0:
+        intra = False
+    else:
+        _is_intra = getattr(invoice, "is_intra_state", None) if invoice else None
+        intra = bool(_is_intra) if isinstance(_is_intra, bool) else (rcm_igst == 0)
     for item in items:
         nature = (getattr(item, "supply_nature", None) or "TAXABLE").upper()
         if nature in ("NIL", "EXEMPT", "NON_GST"):
             continue
-        rate = Decimal(str(item.gst_rate or 0))
+        # GST-03: bucket by the date-frozen legally-in-force rate when we have it.
+        rate = Decimal(str(getattr(item, "applied_rate", None) or item.gst_rate or 0))
         taxable = Decimal(str(item.taxable_amount or 0))
         cgst = Decimal(str(item.cgst or 0))
         sgst = Decimal(str(item.sgst or 0))
@@ -214,8 +249,10 @@ def _rate_buckets(items, invoice=None) -> dict[Decimal, dict]:
 
             tax = q2(taxable * rate / Decimal("100"))
             if intra:
+                # GST-04: symmetric split so the rate bucket foots CGST == SGST
+                # (the GSTN offline tool validates this per bucket — BILL-01).
                 half = q2(tax / 2)
-                cgst, sgst, igst = half, q2(tax) - half, Decimal("0")
+                cgst, sgst, igst = half, half, Decimal("0")
             else:
                 cgst, sgst, igst = Decimal("0"), Decimal("0"), tax
             # R1-016 / R4-001: rebuild cess from BOTH the ad-valorem rate and the
@@ -238,18 +275,32 @@ def _rate_buckets(items, invoice=None) -> dict[Decimal, dict]:
     return buckets
 
 
+def _gst_sales_invoices_base(company, date_from: date, date_to: date):
+    return SalesInvoice.objects.filter(
+        company=company,
+        status__in=(SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED),
+        invoice_type__in=GST_INVOICE_TYPES,
+        invoice_date__gte=date_from,
+        invoice_date__lte=date_to,
+        # BB-000335: Tally-migration opening balances are not real supplies —
+        # they must never inflate GSTR-1/3B outward tax liability.
+        is_opening_balance=False,
+    )
+
+
+def _gst_sales_gstin_stamps(company, date_from: date, date_to: date):
+    """GST-09: distinct company_gstin_id values for the period without the
+    heavy ``select_related`` / ``prefetch_related("items")`` payload."""
+    return list(
+        _gst_sales_invoices_base(company, date_from, date_to)
+        .values_list("company_gstin_id", flat=True)
+        .distinct()
+    )
+
+
 def _gst_sales_invoices(company, date_from: date, date_to: date, *, company_gstin_id=None):
     qs = (
-        SalesInvoice.objects.filter(
-            company=company,
-            status__in=(SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED),
-            invoice_type__in=GST_INVOICE_TYPES,
-            invoice_date__gte=date_from,
-            invoice_date__lte=date_to,
-            # BB-000335: Tally-migration opening balances are not real supplies —
-            # they must never inflate GSTR-1/3B outward tax liability.
-            is_opening_balance=False,
-        )
+        _gst_sales_invoices_base(company, date_from, date_to)
         .select_related("customer", "company_gstin")
         .prefetch_related("items")
     )
@@ -393,12 +444,21 @@ def assert_not_composition_for_regular_returns(company):
 
 
 def _resolve_filing_gstin_id(company, invoices, *, company_gstin=None):
-    """BB-000556: GSTR is per CompanyGstin stamp. Fail closed on mixed stamps."""
+    """BB-000556: GSTR is per CompanyGstin stamp. Fail closed on mixed stamps.
+
+    GST-09: ``invoices`` may be a materialised list OR an iterable of raw
+    ``company_gstin_id`` values (ints) — ``build_gstr1`` passes the latter from
+    a cheap ``.values_list(...).distinct()`` so the heavy prefetch query only
+    runs once.
+    """
     from accounts.models import CompanyGstin
     from core.exceptions import BusinessRuleError
 
     if company_gstin in (None, "", "all"):
-        stamp_ids = {getattr(inv, "company_gstin_id", None) for inv in invoices}
+        stamp_ids = {
+            v if isinstance(v, int) else getattr(v, "company_gstin_id", None)
+            for v in invoices
+        }
         stamp_ids.discard(None)
         if len(stamp_ids) > 1:
             raise BusinessRuleError(
@@ -426,8 +486,9 @@ def _resolve_filing_gstin_id(company, invoices, *, company_gstin=None):
 def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
     assert_not_composition_for_regular_returns(company)
     date_from, date_to = parse_period(period)
-    preview = list(_gst_sales_invoices(company, date_from, date_to))
-    stamp_id = _resolve_filing_gstin_id(company, preview, company_gstin=company_gstin)
+    stamp_id = _resolve_filing_gstin_id(
+        company, _gst_sales_gstin_stamps(company, date_from, date_to), company_gstin=company_gstin
+    )
     invoices = list(_gst_sales_invoices(company, date_from, date_to, company_gstin_id=stamp_id))
     credit_notes = list(_gst_credit_notes(company, date_from, date_to, company_gstin_id=stamp_id))
     debit_notes = list(_gst_debit_notes(company, date_from, date_to, company_gstin_id=stamp_id))
@@ -665,6 +726,45 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
     cancelled_invoices = list(cancelled_qs)
     cancelled_inv = len(cancelled_invoices)
 
+    # GST-05: an invoice whose invoice_date is in a *prior* period but which was
+    # cancelled in this one. It has dropped out of outward supplies, yet if that
+    # prior period's GSTR-1 was filed the supply is still on the portal — it
+    # needs a 9A amendment, not a silent disappearance.
+    prior_cancel_qs = SalesInvoice.objects.filter(
+        company=company,
+        status=SalesInvoice.Status.CANCELLED,
+        invoice_type__in=GST_INVOICE_TYPES,
+        invoice_date__lt=date_from,
+        cancelled_at__date__gte=date_from,
+        cancelled_at__date__lte=date_to,
+    )
+    if stamp_id is not None:
+        prior_cancel_qs = prior_cancel_qs.filter(company_gstin_id=stamp_id)
+    for inv in prior_cancel_qs:
+        orig_period = inv.invoice_date.strftime("%Y-%m")
+        filed = GstReturnSnapshot.objects.filter(
+            company=company,
+            period=orig_period,
+            return_type=GstReturnSnapshot.ReturnType.GSTR1,
+        ).exists()
+        issues.append({
+            "code": "PRIOR_PERIOD_INVOICE_CANCELLED",
+            "severity": "critical" if filed else "warning",
+            "document_type": "sales_invoice",
+            "document_id": inv.pk,
+            "number": inv.number or str(inv.pk),
+            "message": (
+                f"Invoice {inv.number or inv.pk} (dated {inv.invoice_date}, period "
+                f"{orig_period}) was cancelled on {inv.cancelled_at.date() if inv.cancelled_at else '?'}. "
+                + (
+                    f"GSTR-1 for {orig_period} was already filed — file a Table 9A "
+                    "amendment to reverse this outward supply."
+                    if filed
+                    else f"Amend or refile GSTR-1 for {orig_period} to drop this supply."
+                )
+            ),
+        })
+
     supecom_invoices = [
         inv
         for inv in invoices
@@ -739,11 +839,11 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
 
     matched_credit_notes = [
         n for n in credit_notes
-        if not invoice_value_mismatch(n) and not _note_parent_is_ecom(n) and not _rcm(n)
+        if not note_value_mismatch(n) and not _note_parent_is_ecom(n) and not _rcm(n)
     ]
     matched_debit_notes = [
         n for n in debit_notes
-        if not invoice_value_mismatch(n) and not _note_parent_is_ecom(n) and not _rcm(n)
+        if not note_value_mismatch(n) and not _note_parent_is_ecom(n) and not _rcm(n)
     ]
     outward_taxable = sum((inv.taxable_total for inv in matched_invoices), Decimal("0"))
     outward_cgst = sum((inv.cgst_total for inv in matched_invoices), Decimal("0"))
@@ -782,9 +882,12 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
     footing_delta = outward_taxable - section_taxable
     footing_mismatch = abs(footing_delta) > Decimal("0.01")
     if footing_mismatch:
+        # GST-07: a sub-rupee delta is rounding drift (warn); anything larger is
+        # a real bucketing bug that must block the file, not just caution.
+        footing_severity = "warning" if abs(footing_delta) <= Decimal("1") else "critical"
         issues.append({
             "code": "OUTWARD_FOOTING_MISMATCH",
-            "severity": "warning",
+            "severity": footing_severity,
             "document_type": "gstr1",
             "document_id": None,
             "number": period,
@@ -1192,6 +1295,30 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
         inv = getattr(note, "purchase_invoice", None)
         return inv is not None and getattr(inv, "itc_eligibility", "") == PurchaseInvoice.ItcEligibility.CLAIMABLE
 
+    # GST-10: ITC parked as UNREVIEWED is neither claimed in table 4 nor
+    # surfaced anywhere — a user reconciling against 2B has no line for it.
+    unreviewed_itc_rows = [
+        p
+        for p in non_rcm
+        if getattr(p, "itc_eligibility", "") == PurchaseInvoice.ItcEligibility.UNREVIEWED
+    ]
+    unreviewed_itc = {
+        "count": len(unreviewed_itc_rows),
+        "cgst": _money(sum((inv.cgst_total for inv in unreviewed_itc_rows), Decimal("0"))),
+        "sgst": _money(sum((inv.sgst_total for inv in unreviewed_itc_rows), Decimal("0"))),
+        "igst": _money(sum((inv.igst_total for inv in unreviewed_itc_rows), Decimal("0"))),
+        "cess": _money(
+            sum(
+                (Decimal(str(getattr(inv, "cess_total", 0) or 0)) for inv in unreviewed_itc_rows),
+                Decimal("0"),
+            )
+        ),
+        "note": (
+            "ITC on these purchases is parked pending IMS/2B review — not included "
+            "in table 4(A) claimable ITC above. Accept or reject each before filing."
+        ),
+    }
+
     inward_taxable = sum((inv.taxable_total for inv in non_rcm), Decimal("0"))
     inward_cgst = sum((inv.cgst_total for inv in itc_eligible), Decimal("0"))
     inward_sgst = sum((inv.sgst_total for inv in itc_eligible), Decimal("0"))
@@ -1334,6 +1461,7 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
             "source": itc_2b["source"],
         },
         "rcm_provisional": rcm_itc_provisional,
+        "unreviewed_itc": unreviewed_itc,
         "manual_review": manual_review,
         # R4-004: the safe amount to actually claim is the lower of books ITC and
         # 2B-matched ITC per head — surface it explicitly rather than leaving the

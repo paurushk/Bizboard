@@ -208,7 +208,7 @@ def test_bb_000683_payroll_je_uses_period_month_end(tenant_a):
         created_by=tenant_a.owner, updated_by=tenant_a.owner,
     )
     complete_pay_run(run, tenant_a.owner)
-    entry = JournalEntry.objects.get(company=tenant_a.company, source_type="PayRun", purpose="PAYROLL")
+    entry = JournalEntry.objects.get(company=tenant_a.company, source_type="PAY_RUN", purpose="PAYROLL")
     assert entry.entry_date == date(2026, 1, 31)
     assert pay_period_month_end("2026-01") == date(2026, 1, 31)
     debit = entry.lines.get(account__code="5800")
@@ -230,7 +230,7 @@ def test_bb_000567_payroll_accrual_uses_wages_payable(tenant_a):
         created_by=tenant_a.owner, updated_by=tenant_a.owner,
     )
     complete_pay_run(run, tenant_a.owner, pay_from_cash=False)
-    entry = JournalEntry.objects.get(company=tenant_a.company, source_type="PayRun", purpose="PAYROLL")
+    entry = JournalEntry.objects.get(company=tenant_a.company, source_type="PAY_RUN", purpose="PAYROLL")
     assert entry.lines.get(account__code="5800").debit == Decimal("2500.00")
     assert entry.lines.get(account__code="2150").credit == Decimal("2500.00")
     assert not entry.lines.filter(account__code="2100").exists()

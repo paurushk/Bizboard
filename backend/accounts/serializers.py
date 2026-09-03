@@ -383,6 +383,20 @@ class CompanyUserSerializer(serializers.ModelSerializer):
             "can_create_sales", "can_create_purchases", "can_create_payments",
             "can_post_journals",
         )
+        # ACCT-01: on a role change, re-apply that role's capability preset for
+        # any cap the request did not set explicitly — otherwise a promoted user
+        # (SALES_STAFF → ACCOUNTANT) silently lacks can_post_journals and a
+        # demoted user keeps elevated flags. Mutating `attrs` here means the
+        # invariant check below and the eventual save both see the corrected set.
+        role_changed = (
+            instance is not None and "role" in attrs and attrs["role"] != instance.role
+        )
+        if role_changed:
+            role_defaults = CompanyUser.capability_defaults_for_role(role)
+            if role_defaults:
+                for cap, default_val in role_defaults.items():
+                    if cap not in attrs:
+                        attrs[cap] = default_val
         caps = {}
         for field in cap_fields:
             if field in attrs:
