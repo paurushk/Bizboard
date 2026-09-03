@@ -119,7 +119,19 @@ let activeRefreshNotifyOnFailure = false;
 
 function isCsrfFailure(error: AxiosError): boolean {
   if (error.response?.status !== 403) return false;
-  const data = error.response.data;
+  const data = error.response.data as
+    | { error?: { code?: string; message?: string }; detail?: string; code?: string }
+    | string
+    | undefined;
+  // FE-18: prefer a structured signal so a reworded backend message doesn't
+  // stop first-mutation 403s from auto-recovering. DRF's CSRF failure carries
+  // `detail` starting "CSRF Failed:"; our envelope uses code "csrf_failed".
+  if (data && typeof data === 'object') {
+    const code = data.error?.code ?? data.code ?? '';
+    if (/csrf/i.test(code)) return true;
+    const detail = data.detail ?? data.error?.message ?? '';
+    if (typeof detail === 'string' && /csrf/i.test(detail)) return true;
+  }
   const blob =
     typeof data === 'string'
       ? data
