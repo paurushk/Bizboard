@@ -87,21 +87,37 @@ def execute_gateway_refund(self, outbox_id, company_id=None):
                 continue
         remaining = max(Decimal("0"), remaining)
         full = amount >= remaining
-        already_unwound = bool(raw.get("books_unwound")) or gp.status == GatewayPaymentStatus.REFUNDED
+        already_unwound = (
+            bool(raw.get("books_unwound"))
+            or gp.status == GatewayPaymentStatus.REFUNDED
+            or (key in (raw.get("applied_refund_keys") or []))
+        )
         with transaction.atomic():
             if not already_unwound:
+                # `refund_key` makes this idempotent for PARTIAL refunds too
+                # (B4-001): a retried task cannot double-unwind.
                 PaymentService._unwind_refund_books(
                     gp,
                     user=row.updated_by or row.created_by,
                     refund_amount=amount,
                     reason="outbox",
                     full=full,
+                    refund_key=key,
+                )
+                # Move gp -> REFUNDED / PARTIALLY_REFUNDED and record the
+                # partial-refund entry, same as the synchronous path.
+                PaymentService._finalise_refund_state(
+                    gp,
+                    refund_amount=amount,
+                    reason="outbox",
+                    full=full,
+                    user=row.updated_by or row.created_by,
                 )
             row.status = GatewayRefundOutboxStatus.SUCCEEDED
             row.last_error = ""
             row.next_attempt_at = None
             row.save(update_fields=["attempts", "status", "last_error", "next_attempt_at", "updated_at"])
-            if full:
+            if full and gp.status != GatewayPaymentStatus.REFUNDED:
                 gp.status = GatewayPaymentStatus.REFUNDED
                 gp.save(update_fields=["status", "updated_at"])
     except Exception as exc:
