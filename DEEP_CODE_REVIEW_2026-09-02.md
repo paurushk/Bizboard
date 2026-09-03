@@ -15,6 +15,14 @@ Environment note: local `.venv` was dead (no real Python 3.12); rebuilt via `uv`
 
 **Phase-5 update (2026-09-03):** RLS full rollout (106 tables + `rls_bypass` GUC for beat tasks + coverage test, `POSTGRES_RLS_ENABLED` default ON), real curated HSN/SAC rate catalog (234 rows / ~117 codes, pre- and post-GST-2.0 windows, CA-verify disclaimer), filing-grade payroll (EPS/EPF split + admin A/c 2 + EDLI A/c 21, per-state PT for 25 states incl. no-PT, annualised sec-192 new-regime TDS), plus the self-contained batch below.
 
+**Phase-6 update (2026-09-03): the P2/P3 long tail + the domain features.** ~40 more findings closed across 5 commits (`97c20c8` → `8e658d2`). Backend **1007 passed / 0 failed** (`--nomigrations`); `ruff` + `makemigrations --check` clean; FE `tsc` 0 / `vitest` 189/189.
+- **New subsystem — GST-08:** `BillOfEntry` model + `/api/v1/purchases/bills-of-entry/` CRUD + complete/cancel + GL posting; `build_gstr3b` now carries a real `import_itc` (4(A)(5)) block and folds import IGST/cess into available ITC.
+- **ACC-09:** WDV / block depreciation (`method`, `salvage_value`, `wdv_annual_rate`, `block_key`; SLM base = cost−salvage; final-month true-up; CA-verify the block rate).
+- **SUB-01:** data migration grandfathers every pre-billing tenant into a 60-day TRIAL.
+- **PAY-03/04:** PayU S2S callback parsed as form-encoded; reverse hash fills udf1..10 + additionalCharges; v2 payment-links API (still needs a live PayU merchant to verify the hash layout).
+- **INTG-02/03:** AA matcher now keys on a UTR/RRN from the narration + a unique amount+date candidate, each row in its own short transaction. **INTG-01:** `ReBITClient` scaffold with the real FI request/fetch sequence, fail-closed; decryption left `NotImplemented` (no unreviewed crypto shipped).
+- **The rest:** CORE-15/16/19, ACC-06/08/10/11/15, GST-03/04/05/06/07/09/10, PAY-08/13/14, SUB-04/05, LED-01/02/03, INV-05/07, FLAG-02, H9-02, ACCT-01/02, FE-07/09/18. See the per-module tables and the commit log for detail.
+
 Root-cause fixes that cleared clusters of the 46:
 - **FLAG-01** (feature-flag model rewritten to allow-grant): the WIP's `plan_modules` "omit-unlisted-dark ⇒ off" logic forced Manufacturing/Payroll/CRM off for any tenant on a plan with `modules: {}`, 404-ing ~22 tests. Now: env = deployment ceiling; empty plan modules = no restriction; non-empty plan is authoritative for the modules it names; company JSON can grant rollout flags per tenant.
 - **CHG-02** (missing-HSN / non-taxable-charges hard blocks → warnings): the WIP hard-blocked Complete on a sales invoice with untaxed additional charges, and on any GST purchase / purchase note with a line missing HSN. None of those are statutory blockers (GSTR flags them). ~8 tests.
@@ -48,15 +56,18 @@ Cumulative after batch 8: **42 failed / 955 pass** — 0 regressions vs the 46-t
 
 **Verification:** backend `--nomigrations` full suite held at **42 failed / 955 passed** across every batch — 0 regressions vs the 46-test pre-existing baseline, **4 pre-existing failures fixed** (CHG-02). FE: `tsc` adds no new errors (6 pre-existing, none in touched files); `vitest` **189/189 pass**. `ruff` clean on every touched backend file.
 
-**Fixed so far: ~82 findings** — all of §1 CFG, all of §2 CORE except CORE-14/15/16, §3 BILL-01/02/03/04/05/06/07/08, §3 CHG-01/02, §3 POS-01, §3 FLAG-01/03, §3 DOCNUM-01/02/03, §3 H9-01, §3 HSN-01, §4 ACC-01/02/03/04/05/11/12/13, §5 GST-01/02, §6 PAY-01/02/03/04/05/06/09/10/11/12, §7 INV-01/02/04, §9 PER-01/02, §11 SUB-02, §12 PR-01/02/03, §14 FE-02/03/04/05/11/19, SYS-01/03/10.
+**Fixed so far: ~122 findings** — all of §1 CFG, all of §2 CORE except CORE-14/17/18 (CORE-17/18 verified fine as-is), §3 BILL-01..08, §3 CHG-01/02, §3 POS-01, §3 FLAG-01/02/03, §3 DOCNUM-01/02/03, §3 H9-01/02, §3 HSN-01, §4 ACC-01..13 + ACC-15, §5 GST-01..10, §6 PAY-01..14 (PAY-07/15 verified fine), §7 INV-01/02/04/05/07, §8 LED-01/02/03, §9 PER-01/02/03, §10 ACCT-01/02 (ACCT-03/04 verified intentional), §11 SUB-01..05, §11 HSN-01, §12 PR-01/02/03, §13 INTG-01/02/03, §14 FE-02/03/04/05/07/08/09/10/11/14/15/18/19 (FE-08/10/14/15 verified already fixed), SYS-01/03/10.
 
-**Genuinely still open** (each needs a product decision, external credentials, or is a new subsystem — the review classified these as "domain / feature work", not bug-fixes):
-- **GST-08** — Bill-of-Entry (import) ITC: needs a new `BillOfEntry` model + endpoints + GL posting + GSTR-3B 4(A)(5) / GSTR-2B import-section wiring. Still a "manual_review" placeholder in `build_gstr3b`.
-- **INTG-01/02/03** — real Account-Aggregator FIU flow (consent artefact, ECDH, encrypted FI push) + AA↔receipt matcher. Needs a live aggregator (Sahamati) onboarding + creds.
-- **ACC-09** — WDV / block depreciation: needs sign-off on the IT-Act block rates before coding.
+**Genuinely still open** — a short list, all either a large architectural change or cosmetic polish; none produces wrong money or a security hole:
+- **CORE-14 / SYS pagination** — audit every list `get_queryset` for a deterministic `order_by`. Mechanical but wide; most list models already carry `Meta.ordering`.
 - **ACC-14** — multi-currency: explicitly roadmap (party/bank/invoice currency, FX table, realised/unrealised gain-loss).
-- **SUB-01** — grandfather data migration for pre-billing companies (needs a call on trial vs `billing_override_active`).
-- ~35 P3 polish items (CORE-14 pagination-ordering audit, GST-03..07/09/10, ACC-06/07/08/10/15, INV-03/05/06/07, LED-01..03, PAY-07/08/13/14/15, SUB-03/04/05, HSN-02/03, PRICE-01, most of FE-06..18, SYS-04..09) — none on a money-wrong or security path; tracked in the module tables.
+- **INTG-01 crypto** — the ReBIT FI-data decryption (X25519 / HKDF / AES-GCM) is left `NotImplementedError` on purpose: it needs an audited implementation validated against a live Sahamati sandbox. The transport flow shape is in place.
+- **PAY-03/04 hash layout** — the PayU request/response hash sequence is coded to the documented spec but must be checked against a live PayU merchant account before `ENABLE_PAYU`.
+- **FE-06** — CSRF over a cross-origin API/SPA deploy: needs same-site hosting or a double-submit token in the response body (architecture decision).
+- **FE-16** — i18n: newer pages carry hard-coded English JSX literals; needs a lint rule + a sweep of the ~300-page tree.
+- **FE-17 / FE-20** — post-refresh 401 debounce edge; skeleton screens. Polish.
+- **CA sign-off gates (unchanged):** the HSN rate catalog and the payroll statutory rates are coded to published figures and carry "verify with your CA" disclaimers; the FixedAsset WDV block rate is user-entered with the same disclaimer.
+- **BOE in tenant backup** — `BillOfEntry` is a brand-new model and is not yet in `accounts/tenant_backup.py`'s export/restore lists.
 
 ---
 
