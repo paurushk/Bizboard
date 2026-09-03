@@ -21,6 +21,7 @@ import TableViewOutlinedIcon from '@mui/icons-material/TableViewOutlined';
 import { useQuery } from '@tanstack/react-query';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { csvCell } from '@/utils/csv';
 import { listProducts, listProductsPage, listStock } from '@/api/resources';
 import { ItemFormDialog } from '@/pages/inventory/ItemFormDialog';
 import { useAuth } from '@/auth/AuthContext';
@@ -52,10 +53,6 @@ const STANDARD_COLUMNS: ColumnSpec[] = [
   { id: 'tracking', label: 'Tracking', group: 'standard' },
   { id: 'status', label: 'Status', group: 'standard' },
 ];
-
-function csvEscape(value: string) {
-  return `"${value.replace(/"/g, '""')}"`;
-}
 
 export function ProductsPage() {
   const navigate = useNavigate();
@@ -119,7 +116,7 @@ export function ProductsPage() {
         ...STANDARD_COLUMNS.filter((col) => prefs.isVisible(col.id)),
         ...visibleCustom.map((def) => ({ id: `cf:${def.key}`, label: def.label })),
       ];
-      const header = cols.map((col) => csvEscape(col.label)).join(',');
+      const header = cols.map((col) => csvCell(col.label)).join(',');
       const exported = await listProducts({
         q: search || undefined,
         cf: isItemCustomFieldsV2Enabled() ? cfFilters : undefined,
@@ -140,7 +137,7 @@ export function ProductsPage() {
             if (col.id.startsWith('cf:')) return customFieldCell(p.customFields, col.id.slice(3));
             return '';
           })
-          .map((value) => csvEscape(String(value)))
+          .map((value) => csvCell(value))
           .join(','),
       );
       const blob = new Blob([`${header}\n${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });

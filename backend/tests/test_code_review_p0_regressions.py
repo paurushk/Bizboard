@@ -161,6 +161,10 @@ def test_csv_safe_keeps_negative_amounts():
     assert csv_safe("=CMD") == "'=CMD"
     assert csv_safe("\tCMD") == "'\tCMD"
     assert csv_safe("\r=CMD") == "'\r=CMD"
+    # B7-008: a leading line feed must be neutralised too
+    assert csv_safe("\n=1+1") == "'\n=1+1"
+    assert csv_safe("\n\t@SUM") == "'\n\t@SUM"
+    assert csv_safe("plain text") == "plain text"
 
 
 def test_h9a_rejects_supply_nature_and_cess_changes():
