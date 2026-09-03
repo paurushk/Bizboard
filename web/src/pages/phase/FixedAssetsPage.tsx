@@ -14,12 +14,14 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 
 export function FixedAssetsPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ['fixed-assets'],
-    queryFn: async () => (await api.listFixedAssetsPage()).results,
+    queryFn: () => api.listFixedAssets(),
   });
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -55,7 +57,7 @@ export function FixedAssetsPage() {
       title={t('phase.fixedAssets')}
       subtitle={t('phase.fixedAssetsSubtitle')}
       actions={
-        <Button variant="contained" onClick={() => setOpen(true)}>
+        <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
           Add asset
         </Button>
       }
@@ -71,7 +73,7 @@ export function FixedAssetsPage() {
           { key: 'status', label: 'Status', status: true },
         ]}
         actions={(row) => row.status === 'ACTIVE' ? (
-          <Button size="small" color="error" onClick={() => dispose.mutate(Number(row.id))}>Dispose</Button>
+          <Button size="small" color="error" disabled={writesBlocked} onClick={() => dispose.mutate(Number(row.id))}>Dispose</Button>
         ) : null}
       />
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
@@ -85,7 +87,7 @@ export function FixedAssetsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={!name || !cost || create.isPending} onClick={() => create.mutate()}>
+          <Button variant="contained" disabled={writesBlocked || !name || !cost || create.isPending} onClick={() => create.mutate()}>
             Save
           </Button>
         </DialogActions>

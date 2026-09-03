@@ -1,6 +1,5 @@
 """D-04 — missing IMS/2B documents chase (not in books)."""
 
-from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
 from core.services.whatsapp import _normalize_phone, _wa_me_link
@@ -57,17 +56,13 @@ def request_whatsapp(company, period: str, *, user=None, phone: str = "") -> dic
     )
     dest = _normalize_phone(phone) or _normalize_phone(getattr(user, "phone", "") or "")
     if not dest:
-        dest = "91"
+        raise BusinessRuleError("No destination phone number for WhatsApp chase.")
     share_link = _wa_me_link(phone=dest, text=text)
-    now = timezone.now()
-    Gstr2bIngest.objects.filter(pk__in=[r.pk for r in rows]).update(
-        chase_status=Gstr2bIngest.ChaseStatus.REQUESTED,
-        chase_requested_at=now,
-    )
     return {
         "count": len(rows),
         "share_link": share_link,
         "mode": "link",
+        "status_updated": False,
         "items": [serialize_chase_row(r) for r in rows],
     }
 
@@ -95,7 +90,20 @@ def attach_photo_reply(company, ingest_id: int, uploaded_file, *, user=None) -> 
     try:
         BillImportService.start_extraction(job)
     except Exception:
-        pass
+        job.refresh_from_db()
+        if job.status != ImportJob.Status.FAILED:
+            job.status = ImportJob.Status.FAILED
+            job.save(update_fields=["status", "updated_at"])
+        row.chase_status = Gstr2bIngest.ChaseStatus.REQUESTED
+        row.chase_import_job_id = job.pk
+        row.save(update_fields=["chase_status", "chase_import_job_id", "updated_at"])
+        return {
+            "id": row.pk,
+            "status": row.chase_status,
+            "import_job_id": job.pk,
+            "import_status": job.status,
+            "error": "extraction_failed",
+        }
     job.refresh_from_db()
     row.chase_status = Gstr2bIngest.ChaseStatus.RECEIVED
     row.chase_import_job_id = job.pk

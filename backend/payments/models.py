@@ -188,6 +188,12 @@ class PaymentAllocation(CompanyScopedModel):
                 ),
                 name="alloc_xor_receipt_or_supplier_payment",
             ),
+            # PAY-10: a zero / negative allocation is always a bug (the service
+            # rejects it too — this is defense in depth).
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=0),
+                name="alloc_amount_positive",
+            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(sales_invoice__isnull=False, purchase_invoice__isnull=True)
@@ -265,6 +271,7 @@ class GatewayPaymentStatus(models.TextChoices):
     CAPTURED_PENDING_BOOKS = "CAPTURED_PENDING_BOOKS"
     FAILED = "FAILED"
     REFUNDED = "REFUNDED"
+    PARTIALLY_REFUNDED = "PARTIALLY_REFUNDED"
 
 
 class GatewayPayment(CompanyScopedModel):
@@ -411,14 +418,25 @@ class GatewayRefundOutbox(CompanyScopedModel):
     attempts = models.PositiveSmallIntegerField(default=0)
     last_error = models.TextField(blank=True)
     next_attempt_at = models.DateTimeField(null=True, blank=True)
+    idempotency_key = models.CharField(max_length=80, blank=True, default="")
 
     class Meta:
         ordering = ["-id"]
         indexes = [models.Index(fields=["company", "status", "next_attempt_at"])]
         constraints = [
+            # PAY-12: dedup on the idempotency key, not blindly on (payment,
+            # amount) — that blocked two legitimate equal-amount partial refunds.
+            # A retry of the *same* logical refund reuses its key; a distinct
+            # refund gets a distinct key.
             models.UniqueConstraint(
-                fields=["gateway_payment"],
-                name="uniq_refund_outbox_per_gateway_payment",
+                fields=["gateway_payment", "idempotency_key"],
+                condition=models.Q(idempotency_key__gt=""),
+                name="uniq_refund_outbox_per_idempotency_key",
+            ),
+            models.UniqueConstraint(
+                fields=["gateway_payment", "amount"],
+                condition=models.Q(idempotency_key=""),
+                name="uniq_refund_outbox_per_payment_amount",
             )
         ]
 
@@ -450,8 +468,12 @@ class DunningReminder(CompanyScopedModel):
     class Meta:
         ordering = ["-sent_on", "-id"]
         constraints = [
+            # PAY-13: one *effective* reminder (SENT/FAILED) per invoice per IST
+            # day. SKIPPED rows (missing phone, etc.) are excluded so a real
+            # attempt can still be recorded once the blocker is fixed the same day.
             models.UniqueConstraint(
                 fields=["invoice", "sent_on"],
+                condition=~models.Q(status="SKIPPED"),
                 name="uniq_dunning_invoice_per_day",
             )
         ]

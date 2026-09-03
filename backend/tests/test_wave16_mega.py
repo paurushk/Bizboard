@@ -83,6 +83,7 @@ def test_claimable_itc_from_matched_2b(tenant_a):
         sgst=Decimal("9"),
         match_status=Gstr2bIngest.MatchStatus.MATCHED,
         itc_eligibility=Gstr2bIngest.ItcEligibility.CLAIMABLE,
+        ims_action=Gstr2bIngest.ImsAction.ACCEPT,
     )
     itc = claimable_itc_from_2b(company, "2026-04")
     assert itc["claimable"] is True

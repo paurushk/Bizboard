@@ -37,7 +37,7 @@ import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { PurchaseInvoice } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
-import { canCreatePurchases } from '@/utils/permissions';
+import { canCreatePurchases, canCancelDocuments } from '@/utils/permissions';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 
 const PAGE_SIZE = 50;
@@ -112,6 +112,7 @@ export function PurchaseHistoryPage() {
   const showLoading = query.isPending || (query.isFetching && rows.length === 0);
   const showEmpty = !showLoading && !query.isError && rows.length === 0;
   const allowCreate = canCreatePurchases(user);
+  const allowCancel = canCancelDocuments(user);
 
   return (
     <Stack spacing={2}>
@@ -273,6 +274,7 @@ export function PurchaseHistoryPage() {
           </ListItemIcon>
           <ListItemText>{t('common.open')}</ListItemText>
         </MenuItem>
+        {allowCreate ? (
         <MenuItem
           disabled={!active || !(active.status === 'DRAFT' || active.status === 'COMPLETED')}
           onClick={() => {
@@ -285,6 +287,8 @@ export function PurchaseHistoryPage() {
           </ListItemIcon>
           <ListItemText>{t('common.edit')}</ListItemText>
         </MenuItem>
+        ) : null}
+        {allowCreate ? (
         <MenuItem
           disabled={!active || active.status !== 'DRAFT'}
           onClick={() => {
@@ -297,6 +301,8 @@ export function PurchaseHistoryPage() {
           </ListItemIcon>
           <ListItemText>{t('common.complete')}</ListItemText>
         </MenuItem>
+        ) : null}
+        {allowCancel ? (
         <MenuItem
           disabled={!active || active.status !== 'COMPLETED'}
           onClick={() => {
@@ -313,6 +319,7 @@ export function PurchaseHistoryPage() {
           </ListItemIcon>
           <ListItemText>{t('common.cancel')}</ListItemText>
         </MenuItem>
+        ) : null}
         <MenuItem
           disabled={!active || active.status !== 'DRAFT'}
           onClick={() => {

@@ -1,0 +1,70 @@
+{
+  "workflowResults": [
+    {
+      "workflow": "Procure-to-Pay",
+      "step": "1. Create Supplier",
+      "result": "FAIL",
+      "notes": "Add supplier button not accessible"
+    },
+    {
+      "workflow": "Procure-to-Pay",
+      "step": "2. Create Product",
+      "result": "FAIL",
+      "notes": "Add product button not found"
+    },
+    {
+      "workflow": "Procure-to-Pay",
+      "step": "4. Verify Supplier Ledger Surface",
+      "result": "PASS",
+      "notes": "Supplier ledger loaded"
+    },
+    {
+      "workflow": "Order-to-Cash",
+      "step": "3. Sales Order Surface",
+      "result": "PASS",
+      "notes": "Sales orders surface loaded"
+    },
+    {
+      "workflow": "Order-to-Cash",
+      "step": "5. Customer Ledger Verification",
+      "result": "PASS",
+      "notes": "Customer ledger rendered"
+    },
+    {
+      "workflow": "Accounting & Financials",
+      "step": "1. Chart of Accounts Tree/List",
+      "result": "FAIL",
+      "notes": "Loaded 0 ledger accounts"
+    },
+    {
+      "workflow": "Accounting & Financials",
+      "step": "2. Journal Entries Surface",
+      "result": "FAIL",
+      "notes": "Journal action present"
+    },
+    {
+      "workflow": "Accounting & Financials",
+      "step": "3. Trial Balance Sheet",
+      "result": "FAIL",
+      "notes": "Trial balance sheet table rendered"
+    },
+    {
+      "workflow": "Accounting & Financials",
+      "step": "4. Profit & Loss Statement",
+      "result": "PASS",
+      "notes": "P&L statement rendered"
+    },
+    {
+      "workflow": "Accounting & Financials",
+      "step": "5. Balance Sheet",
+      "result": "PASS",
+      "notes": "Balance sheet rendered"
+    },
+    {
+      "workflow": "Accounting & Financials",
+      "step": "6. Books Health Audit Check",
+      "result": "PASS",
+      "notes": "Books health check rendered"
+    }
+  ]
+}

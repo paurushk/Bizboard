@@ -17,12 +17,14 @@ import { formatMoney } from '@/utils/money';
 import { t } from '@/i18n';
 import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 
 export function JournalsPage() {
+  const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ['journals'],
-    queryFn: async () => (await api.listJournalsPage()).results,
+    queryFn: () => api.listJournals(),
   });
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: api.listAccounts });
   const [open, setOpen] = useState(false);
@@ -58,11 +60,19 @@ export function JournalsPage() {
   });
   const post = useMutation({
     mutationFn: (id: number) => api.postJournal(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['journals'] }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['journals'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   const reverse = useMutation({
     mutationFn: (id: number) => api.reverseJournal(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['journals'] }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['journals'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
@@ -71,11 +81,12 @@ export function JournalsPage() {
       title={t('phase.journals')}
       subtitle={t('phase.journalsSubtitle')}
       actions={
-        <Button variant="contained" onClick={() => setOpen(true)}>
+        <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
           New voucher
         </Button>
       }
     >
+      {error && !open ? <HelpErrorAlert message={error} /> : null}
       <DataTable
         rows={asRows(query.data)}
         empty="No journals yet."
@@ -87,11 +98,11 @@ export function JournalsPage() {
         ]}
         actions={(r) =>
           r.status === 'DRAFT' ? (
-            <Button size="small" variant="contained" onClick={() => post.mutate(Number(r.id))}>
+            <Button size="small" variant="contained" disabled={writesBlocked} onClick={() => post.mutate(Number(r.id))}>
               Post
             </Button>
           ) : r.status === 'POSTED' ? (
-            <Button size="small" color="warning" onClick={() => reverse.mutate(Number(r.id))}>
+            <Button size="small" color="warning" disabled={writesBlocked} onClick={() => reverse.mutate(Number(r.id))}>
               Reverse
             </Button>
           ) : null
@@ -143,7 +154,7 @@ export function JournalsPage() {
                 />
               </Stack>
             ))}
-            <Button size="small" onClick={() => setLines([...lines, { account: '', debit: '', credit: '' }])}>
+            <Button size="small" onClick={() => setLines([...lines, { account: '', debit: '', credit: '' }])} disabled={writesBlocked}>
               Add line
             </Button>
             <Alert severity={totals.balanced ? 'success' : 'warning'}>
@@ -155,7 +166,7 @@ export function JournalsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={!totals.balanced || create.isPending} onClick={() => create.mutate()}>
+          <Button variant="contained" disabled={writesBlocked || !totals.balanced || create.isPending} onClick={() => create.mutate()}>
             Save draft
           </Button>
         </DialogActions>

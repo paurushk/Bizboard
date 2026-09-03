@@ -81,32 +81,59 @@ def import_offline(company, payload: dict, *, replace: bool = False) -> dict:
         raise BusinessRuleError("'rows' must be a list.")
     if replace:
         Gstr2bIngest.objects.filter(company=company, period=period).delete()
+    valid_actions = set(Gstr2bIngest.ImsAction.values)
     created = 0
+    updated = 0
     for raw in rows:
         if not isinstance(raw, dict):
             continue
-        obj = Gstr2bIngest.objects.create(
-            company=company,
-            period=period,
-            supplier_gstin=(raw.get("supplier_gstin") or "")[:15],
-            invoice_number=(raw.get("invoice_number") or "")[:64],
-            invoice_date=_parse_date(raw.get("invoice_date")),
-            taxable_value=raw.get("taxable_value") or 0,
-            igst=raw.get("igst") or 0,
-            cgst=raw.get("cgst") or 0,
-            sgst=raw.get("sgst") or 0,
-            cess=raw.get("cess") or 0,
-            ims_action=(raw.get("ims_action") or Gstr2bIngest.ImsAction.NO_ACTION)[:16],
-            ims_remark=(raw.get("remark") or "")[:512],
-            match_class=(raw.get("match_class") or "")[:32],
-            itc_eligibility=(raw.get("itc_eligibility") or Gstr2bIngest.ItcEligibility.UNREVIEWED)[:12],
-            raw={**raw, "source": "OFFLINE"},
+        gstin = (raw.get("supplier_gstin") or "")[:15]
+        inv_no = (raw.get("invoice_number") or "").strip()[:64]
+        # The offline tool round-trips the reviewer's IMS decision — preserve
+        # ims_action / remark / match_class from the file. match_status and
+        # itc_eligibility stay derived (classify_and_match recomputes them).
+        action = str(raw.get("ims_action") or "").strip().upper()
+        if action not in valid_actions:
+            action = Gstr2bIngest.ImsAction.NO_ACTION
+        defaults = {
+            "invoice_date": _parse_date(raw.get("invoice_date")),
+            "taxable_value": raw.get("taxable_value") or 0,
+            "igst": raw.get("igst") or 0,
+            "cgst": raw.get("cgst") or 0,
+            "sgst": raw.get("sgst") or 0,
+            "cess": raw.get("cess") or 0,
+            "ims_action": action,
+            "ims_remark": (raw.get("remark") or "")[:512],
+            "match_class": (raw.get("match_class") or "")[:64],
+            "itc_eligibility": Gstr2bIngest.ItcEligibility.UNREVIEWED,
+            "match_status": Gstr2bIngest.MatchStatus.UNMATCHED,
+            "raw": {**raw, "source": "OFFLINE"},
+        }
+        lookup = {
+            "company": company,
+            "period": period,
+            "supplier_gstin": gstin,
+            "invoice_number": inv_no,
+        }
+        if not inv_no:
+            existing = Gstr2bIngest.objects.filter(**lookup).first()
+            if existing is not None:
+                for key, value in defaults.items():
+                    setattr(existing, key, value)
+                existing.save()
+                updated += 1
+                continue
+            Gstr2bIngest.objects.create(**lookup, **defaults)
+            created += 1
+            continue
+        _obj, was_created = Gstr2bIngest.objects.update_or_create(
+            **lookup, defaults=defaults
         )
-        if raw.get("match_status") in dict(Gstr2bIngest.MatchStatus.choices):
-            obj.match_status = raw["match_status"]
-            obj.save(update_fields=["match_status", "updated_at"])
-        created += 1
+        if was_created:
+            created += 1
+        else:
+            updated += 1
     from .ims import classify_and_match
 
     classify_and_match(company, period, persist=True)
-    return {"period": period, "created": created}
+    return {"period": period, "created": created, "updated": updated}

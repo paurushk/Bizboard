@@ -125,7 +125,7 @@ class SalesNotesService:
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
         assert_period_allows_money_amend(note.company, note.note_date)
-        inv = note.sales_invoice
+        inv = SalesInvoice.objects.select_for_update().get(pk=note.sales_invoice_id)
         if inv.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
             raise BusinessRuleError("Credit notes require a completed source invoice.")
         if note.note_date and inv.invoice_date and note.note_date < inv.invoice_date:
@@ -230,6 +230,15 @@ class SalesNotesService:
         from .irn_guard import assert_no_live_irn
 
         assert_no_live_irn(note, kind="credit note")
+        if note.sales_return_id:
+            from .models import SalesReturn
+
+            sr = SalesReturn.objects.filter(pk=note.sales_return_id).first()
+            if sr is not None and sr.status == SalesReturn.Status.COMPLETED:
+                raise BusinessRuleError(
+                    "This credit note is linked to a completed sales return. "
+                    "Cancel the sales return instead — that will cancel this note."
+                )
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
         assert_period_allows_money_amend(note.company, note.note_date)
@@ -482,10 +491,12 @@ class SalesNotesService:
             customer=order.customer,
             warehouse=order.warehouse or InventoryService.default_warehouse(order.company),
             invoice_type=order.invoice_type,
-            company_gstin=_single_active_company_gstin(order.company),
+            company_gstin=getattr(order, "company_gstin", None) or _single_active_company_gstin(order.company),
             supply_type=getattr(order, "supply_type", None) or SalesInvoice.SupplyType.B2B,
             payment_terms_days=order.payment_terms_days,
             additional_charges=order.additional_charges,
+            charges_hsn=getattr(order, "charges_hsn", "") or "",
+            charges_gst_rate=getattr(order, "charges_gst_rate", 0) or 0,
             invoice_discount=order.invoice_discount,
             invoice_discount_mode=order.invoice_discount_mode,
             auto_round_off=order.auto_round_off,
@@ -567,6 +578,8 @@ class SalesNotesService:
                 "discount_percent": item.discount_percent,
                 "gst_rate": item.gst_rate,
                 "cess_rate": getattr(item, "cess_rate", Decimal("0")),
+                "cess_amount": getattr(item, "cess_amount", Decimal("0")),
+                "supply_nature": getattr(item, "supply_nature", None),
                 "hsn_code": getattr(item, "hsn_code", "") or "",
                 "batch": getattr(item, "batch", None),
                 "batch_no": getattr(item, "batch_no", "") or "",
@@ -587,6 +600,12 @@ class SalesNotesService:
         order = SalesOrder.objects.select_for_update().get(pk=order.pk)
         if order.status not in (SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED):
             raise BusinessRuleError(f"Cannot cancel an order in status {order.status}.")
+        if DeliveryChallan.objects.filter(sales_order=order).exclude(
+            status=DeliveryChallan.Status.CANCELLED
+        ).exists():
+            raise BusinessRuleError(
+                "Cancel or reverse outstanding delivery challans before cancelling this order."
+            )
         if order.status == SalesOrder.Status.CONFIRMED:
             warehouse = order.warehouse or InventoryService.default_warehouse(order.company)
             for item in order.items.select_related("product"):
@@ -666,6 +685,8 @@ class SalesNotesService:
             from .models import SalesOrder
 
             order = SalesOrder.objects.select_for_update().get(pk=challan.sales_order_id)
+            if order.status == SalesOrder.Status.CANCELLED:
+                raise BusinessRuleError("Cannot complete a challan for a cancelled sales order.")
             warehouse = order.warehouse or InventoryService.default_warehouse(challan.company)
             if order.status == SalesOrder.Status.CONFIRMED:
                 for item in order.items.select_related("product"):
@@ -742,14 +763,27 @@ class SalesNotesService:
         if challan.customer.status == Customer.Status.BLOCKED:
             raise BusinessRuleError("Cannot create an invoice for a blocked customer.")
         # BB-000342 / BB-000399: composition/unregistered → NON_GST (Bill of Supply), not GST.
-        from accounts.models import Company
+        from accounts.models import Company, CompanyGstin
         from inventory.services import InventoryService
 
+        gstin = (getattr(challan.company, "gstin", None) or "").strip()
+        if not gstin:
+            stamp = getattr(challan, "company_gstin", None)
+            gstin = (getattr(stamp, "gstin", None) or "").strip()
+        if not gstin:
+            active = (
+                CompanyGstin.objects.filter(company=challan.company, is_active=True)
+                .exclude(gstin="")
+                .order_by("-is_primary", "id")
+                .first()
+            )
+            gstin = (getattr(active, "gstin", None) or "").strip() if active else ""
         reg = challan.company.registration_type
-        if reg == Company.RegistrationType.REGULAR and challan.company.gstin:
+        if reg == Company.RegistrationType.REGULAR and gstin:
             invoice_type = SalesInvoice.InvoiceType.GST
         else:
             invoice_type = SalesInvoice.InvoiceType.NON_GST
+        order = challan.sales_order
         invoice = SalesInvoice.objects.create(
             company=challan.company,
             customer=challan.customer,
@@ -757,7 +791,18 @@ class SalesNotesService:
             invoice_type=invoice_type,
             company_gstin=getattr(challan, "company_gstin", None)
             or _single_active_company_gstin(challan.company),
-            notes=challan.notes,
+            supply_type=getattr(order, "supply_type", None) or SalesInvoice.SupplyType.B2B,
+            payment_terms_days=getattr(order, "payment_terms_days", 0) if order else 0,
+            additional_charges=getattr(order, "additional_charges", 0) if order else Decimal("0"),
+            invoice_discount=getattr(order, "invoice_discount", 0) if order else Decimal("0"),
+            invoice_discount_mode=(
+                getattr(order, "invoice_discount_mode", None)
+                or SalesInvoice.DiscountMode.AFTER_TAX
+            ),
+            auto_round_off=getattr(order, "auto_round_off", True) if order else True,
+            price_mode=getattr(order, "price_mode", None) or SalesInvoice.PriceMode.EXCLUSIVE,
+            terms_text=getattr(order, "terms_text", "") if order else "",
+            notes=challan.notes or (getattr(order, "notes", "") if order else ""),
             vehicle_number=challan.vehicle_number,
             transporter_name=challan.transporter_name,
             transporter_id=challan.transporter_id,
@@ -773,6 +818,11 @@ class SalesNotesService:
                 "unit_price": item.unit_price,
                 "discount_percent": item.discount_percent,
                 "gst_rate": item.gst_rate,
+                "cess_rate": getattr(item, "cess_rate", Decimal("0")),
+                "cess_amount": getattr(item, "cess_amount", Decimal("0")),
+                "supply_nature": getattr(item, "supply_nature", None),
+                "hsn_code": getattr(item, "hsn_code", "") or "",
+                "unit_price_inclusive": getattr(item, "unit_price_inclusive", None),
                 # BB-000732: preserve lot/serial identity through conversion.
                 "batch": getattr(item, "batch", None),
                 "batch_no": getattr(item, "batch_no", "") or "",

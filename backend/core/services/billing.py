@@ -3,9 +3,13 @@ Invoice Service — shared tax/discount/rounding math used by sales & purchases
 (E3.2, E4.3). GST split: intra-state = CGST+SGST, inter-state = IGST.
 """
 
+import re
 from decimal import ROUND_HALF_UP, Decimal
 
 from core.exceptions import BusinessRuleError
+
+# Local GSTIN shape check (avoids importing core.validators for one regex).
+_GSTIN_SHAPE_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 
 TWO_PLACES = Decimal("0.01")
 RUPEE = Decimal("1")
@@ -124,8 +128,10 @@ def extract_state_code(value: str | None) -> str | None:
     trimmed = value.strip()
     if not trimmed:
         return None
-    # Full GSTIN: digits 0–1 are the state code when recognised.
-    if len(trimmed) == 15 and trimmed[:2].isdigit():
+    # Full GSTIN: digits 0–1 are the state code when recognised. BILL-08: require
+    # a GSTIN-shaped string, not merely 15 chars starting with two digits, so a
+    # free-text POS field that happens to be 15 chars long isn't read as a GSTIN.
+    if len(trimmed) == 15 and _GSTIN_SHAPE_RE.match(trimmed.upper()):
         code = trimmed[:2]
         return code if code in VALID_GST_STATE_CODES else None
     # Exact 2-digit place-of-supply / state code only.
@@ -159,8 +165,10 @@ def is_intra_state(
 ) -> bool:
     """
     Compare normalized GST state codes (from GSTIN digits or name map).
-    Missing party state/GSTIN still returns True for calc fallback — callers must
-    gate Complete via place_of_supply_known / company.assume_local_state_for_blank_party.
+    BB-000638: a truly blank / unmappable party place of supply returns **False**
+    (treat as inter-state for the calc fallback) — it is never silently assumed
+    intra. Callers gate Complete via place_of_supply_known /
+    company.assume_local_state_for_blank_party before relying on this.
     """
     # Prefer GSTIN state digits when present; else map state name/abbr to code.
     company_code = extract_state_code(company_gstin) or extract_state_code(company_state)
@@ -183,9 +191,15 @@ def is_intra_state(
 def _apply_line_tax(item, taxable: Decimal, rate: Decimal, *, tax_enabled: bool, intra_state: bool):
     tax = taxable * rate / Decimal("100") if tax_enabled else Decimal("0")
     if intra_state:
+        # BILL-01: CGST and SGST must be exactly equal for an intra-state supply
+        # (the GSTN offline tool / several GSPs validate CGST == SGST per rate
+        # bucket). Split symmetrically; any odd third-place paise is dropped from
+        # the line tax and re-absorbed by the document round-off leg. The old
+        # "cgst = floor(tax/2), sgst = q2(tax) - cgst" made the two legs differ
+        # by a paise and could bounce a return.
         half = q2(tax / 2)
         item.cgst = half
-        item.sgst = q2(tax) - half  # residual so halves sum to q2(tax)
+        item.sgst = half
         item.igst = Decimal("0.00")
     else:
         item.cgst = Decimal("0.00")
@@ -374,7 +388,9 @@ def apply_effective_gst_rate(document, item, *, tax_enabled: bool) -> None:
             item.applied_rate = Decimal(str(item.gst_rate or 0))
         item._billing_rate = Decimal(str(item.gst_rate or 0))  # noqa: SLF001
         return
-    if document.__class__.__name__ not in _RATEABLE_DOCS:
+    if document.__class__.__name__ not in _RATEABLE_DOCS and not getattr(
+        document, "_preview_rateable", False
+    ):
         if hasattr(item, "applied_rate"):
             item.applied_rate = Decimal(str(item.gst_rate or 0))
         return
@@ -514,6 +530,14 @@ def compute_document_totals(
     adjusted = list(taxables)
     if mode == DISCOUNT_BEFORE_TAX and inv_discount > 0 and items:
         taxable_sum = sum(taxables, Decimal("0"))
+        # BILL-03: reject an invoice-level discount larger than the line taxable
+        # base — a data-entry error, not a silent clamp to a ₹0 invoice. Mirrors
+        # the AFTER_TAX branch below.
+        if inv_discount > taxable_sum:
+            raise BusinessRuleError(
+                f"Invoice discount {q2(inv_discount)} exceeds the line taxable value "
+                f"{q2(taxable_sum)}."
+            )
         if taxable_sum > 0:
             remaining = min(inv_discount, taxable_sum)
             # First pass: proportional share, clamped to each line's own taxable.
@@ -611,10 +635,15 @@ def compute_document_totals(
         document.invoice_discount_mode = mode
 
     document.subtotal = q2(subtotal)
-    if mode == DISCOUNT_BEFORE_TAX:
-        document.discount_total = q2(line_discount_total)
-    else:
-        document.discount_total = q2(line_discount_total + inv_discount)
+    # BILL-04: one contract in both discount modes — `discount_total` is the sum
+    # of *line* discounts only; the document-level discount lives in
+    # `invoice_discount`. Then `subtotal − discount_total − invoice_discount +
+    # tax + charges ± round_off = grand_total` holds for AFTER_TAX *and*
+    # BEFORE_TAX (matches the frontend `calculateInvoiceTotals`, which already
+    # reports the two separately). Previously AFTER_TAX folded the invoice-level
+    # discount into `discount_total` and BEFORE_TAX did not, so a PDF could not
+    # foot one of the two modes.
+    document.discount_total = q2(line_discount_total)
     document.taxable_total = q2(taxable_total)
     document.cgst_total = q2(cgst_total)
     document.sgst_total = q2(sgst_total)
@@ -757,6 +786,9 @@ def build_totals_preview(
         charges_gst_rate = data.get("charges_gst_rate") or 0
         is_reverse_charge = bool(data.get("is_reverse_charge"))
         supply_type = data.get("supply_type") or ""
+        invoice_date = data.get("invoice_date") or data.get("bill_date")
+        status = "DRAFT"
+        _preview_rateable = True
 
     class _Item:
         pass
@@ -783,9 +815,14 @@ def build_totals_preview(
         item.cess = 0
         item.unit_price_inclusive = raw.get("unit_price_inclusive")
         item.supply_nature = raw.get("supply_nature") or "TAXABLE"
+        item.hsn_code = raw.get("hsn_code") or getattr(product, "hsn_code", "") or ""
+        item.product = product
+        item.rate_override = bool(raw.get("rate_override"))
+        item.rate_override_reason = raw.get("rate_override_reason") or ""
         items.append(item)
 
     doc = _Doc()
+    doc.company = company
     compute_document_totals(
         doc,
         items,
@@ -798,8 +835,18 @@ def build_totals_preview(
     )
     apply_rcm_memo_after_tax(doc, items)
     tcs_rate = Decimal(str(data.get("tcs_rate") or 0))
+    tcs_key_present = "tcs_amount" in data
+    tcs_manual = bool(data.get("tcs_amount_manual")) or tcs_key_present
+    if tcs_key_present:
+        raw_tcs = data.get("tcs_amount")
+        provided_tcs = Decimal(str(raw_tcs if raw_tcs not in (None, "") else 0))
+    else:
+        provided_tcs = None
     tcs_amount = Decimal("0")
-    if tcs_rate > 0:
+    if tcs_manual and provided_tcs is not None:
+        # Same precedence as apply_tcs_fold: explicit amount (including 0) wins.
+        tcs_amount = provided_tcs
+    elif tcs_rate > 0:
         consideration = (
             Decimal(str(doc.taxable_total or 0))
             + Decimal(str(doc.cgst_total or 0))
@@ -807,7 +854,16 @@ def build_totals_preview(
             + Decimal(str(doc.igst_total or 0))
             + Decimal(str(getattr(doc, "cess_total", 0) or 0))
         )
-        tcs_amount = (consideration * tcs_rate / Decimal("100")).quantize(Decimal("0.01"))
+        # BILL-06: mirror apply_tcs_fold — non-taxable additional charges are part
+        # of the 206C(1H) consideration and are not in taxable_total.
+        _charges = q2(Decimal(str(getattr(doc, "additional_charges", 0) or 0)))
+        if _charges > 0:
+            from core.services.charges import charges_are_taxable
+
+            if not charges_are_taxable(doc):
+                consideration += _charges
+        # BILL-05: ROUND_HALF_UP, consistent with q2 / the rest of the invoice.
+        tcs_amount = q2(consideration * tcs_rate / Decimal("100"))
     amount_due = Decimal(str(doc.grand_total or 0)) + tcs_amount
     return {
         "subtotal": doc.subtotal,

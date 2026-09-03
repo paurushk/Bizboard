@@ -68,6 +68,51 @@ def test_cashfree_payu_scaffold_fail_closed_or_http_error():
     ) is False
 
 
+def test_payu_s2s_callback_is_form_encoded_not_json():
+    """PAY-03: PayU posts its S2S callback as application/x-www-form-urlencoded.
+    The adapter must parse that (not only JSON) and its reverse hash must
+    validate a correctly-signed form body."""
+    from urllib.parse import urlencode
+
+    key, salt = "testkey", "testsalt"
+    fields = {
+        "key": key,
+        "txnid": "bb_payu_1",
+        "amount": "100.00",
+        "productinfo": "Invoice INV-1",
+        "firstname": "Asha",
+        "email": "asha@example.com",
+        "status": "success",
+        "mihpayid": "403993715512345678",
+        "udf1": "",
+        "udf2": "",
+    }
+    udf = [fields.get(f"udf{i}", "") for i in range(1, 11)]
+    rev_udf = "|".join(reversed(udf))
+    seq = (
+        f"{salt}|{fields['status']}|{rev_udf}|{fields['email']}|{fields['firstname']}|"
+        f"{fields['productinfo']}|{fields['amount']}|{fields['txnid']}|{key}"
+    )
+    fields["hash"] = hashlib.sha512(seq.encode()).hexdigest()
+    body = urlencode(fields).encode()
+
+    from payments.gateway import PayUGateway
+
+    adapter = PayUGateway({"merchant_key": key, "merchant_salt": salt})
+    assert adapter.verify_webhook(headers={}, body=body) is True
+
+    event = adapter.parse_webhook(body=body)
+    assert event is not None
+    assert event.provider_payment_id == "403993715512345678"
+    assert event.status == "CAPTURED"
+    assert event.payment_link_id == "bb_payu_1"
+
+    # A tampered amount must fail the signature.
+    tampered = dict(fields)
+    tampered["amount"] = "1.00"
+    assert adapter.verify_webhook(headers={}, body=urlencode(tampered).encode()) is False
+
+
 def test_razorpay_no_stub_on_missing_keys():
     with pytest.raises(BusinessRuleError):
         RazorpayAdapter({}).create_payment_link(

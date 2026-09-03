@@ -87,9 +87,12 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<void> {
     },
     { idempotencyKey: `${draft.idempotencyKey}-receipt` },
   );
-  await createAllocation({
-    receipt: receipt.id,
-    salesInvoice: completed.id,
-    amount: invoiceTotal,
-  });
+  await createAllocation(
+    {
+      receipt: receipt.id,
+      salesInvoice: completed.id,
+      amount: invoiceTotal,
+    },
+    { idempotencyKey: `${draft.idempotencyKey}-alloc` },
+  );
 }

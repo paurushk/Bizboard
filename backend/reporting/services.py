@@ -24,7 +24,6 @@ from sales.models import (
     SalesCreditNote,
     SalesDebitNote,
     SalesInvoice,
-    SalesReturn,
 )
 
 OPEN_SALES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
@@ -149,11 +148,14 @@ class ReportService:
         today = timezone.localdate()
         month_start = today.replace(day=1)
 
+        # BB-000688: a fully-returned invoice flips to status RETURNED — it must
+        # still count toward gross sales here (the credit-note subtraction below
+        # then nets it out), otherwise a return shows as negative sales.
         sales_today = SalesInvoice.objects.filter(
-            company=company, status=SalesInvoice.Status.COMPLETED, invoice_date=today
+            company=company, status__in=NET_SALES, invoice_date=today
         ).exclude(notes="TALLY_OPENING").aggregate(total=Sum("grand_total"), count=Count("id"))
         sales_month = SalesInvoice.objects.filter(
-            company=company, status=SalesInvoice.Status.COMPLETED, invoice_date__gte=month_start
+            company=company, status__in=NET_SALES, invoice_date__gte=month_start
         ).exclude(notes="TALLY_OPENING").aggregate(total=Sum("grand_total"), count=Count("id"))
         cn_today = (
             SalesCreditNote.objects.filter(

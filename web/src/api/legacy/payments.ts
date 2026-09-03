@@ -59,15 +59,20 @@ export async function listAllocationsPage(
   return fetchPage<PaymentAllocation>('/payments/allocations/', params);
 }
 
-export async function createAllocation(payload: {
-  receipt?: number;
-  supplierPayment?: number;
-  salesInvoice?: number;
-  purchaseInvoice?: number;
-  amount: number | string;
-}): Promise<PaymentAllocation> {
+export async function createAllocation(
+  payload: {
+    receipt?: number;
+    supplierPayment?: number;
+    salesInvoice?: number;
+    purchaseInvoice?: number;
+    amount: number | string;
+  },
+  options?: { idempotencyKey?: string },
+): Promise<PaymentAllocation> {
   return withMocks(async () => {
-    const { data } = await apiClient.post('/payments/allocations/', payload);
+    const { data } = await apiClient.post('/payments/allocations/', payload, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
+    });
     return unwrapData<PaymentAllocation>(data);
   }, { id: Date.now(), ...payload, amount: payload.amount });
 }
@@ -79,6 +84,9 @@ export async function listPaymentLinks(params?: Record<string, string>): Promise
 export async function listPaymentLinksPage(params?: PageParams): Promise<PageResult<import('@/types/domain').PaymentLink>> {
   return fetchPage<import('@/types/domain').PaymentLink>('/payments/links/', params);
 }
+
+export const listAllPaymentLinks = () =>
+  fetchAllPagesMasters<import('@/types/domain').PaymentLink>('/payments/links/');
 export const createPaymentLink = (payload: Record<string, unknown>) =>
   apiClient.post('/payments/links/', payload).then(({ data }) => unwrapData<import('@/types/domain').PaymentLink>(data));
 export const cancelPaymentLink = (id: number) => apiClient.post(`/payments/links/${id}/cancel/`).then(({ data }) => unwrapData(data));

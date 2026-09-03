@@ -126,6 +126,22 @@ def test_bb_000671_plan_modules_and_with_env_and_company_flags(tenant_a):
     assert flags["ENABLE_CRM"] is False
 
 
+@override_settings(ENABLE_MANUFACTURING=True, ENABLE_PAYROLL=True, ENABLE_CRM=True)
+def test_plan_modules_missing_dark_keys_fail_closed(tenant_a):
+    tenant_a.company.feature_flags = {}
+    tenant_a.company.save(update_fields=["feature_flags"])
+    plan = _plan(slug="crm-only", modules={"ENABLE_CRM": True})
+    Subscription.objects.create(
+        company=tenant_a.company,
+        plan=plan,
+        status=Subscription.Status.ACTIVE,
+    )
+    flags = build_feature_flags(company=tenant_a.company)
+    assert flags["ENABLE_CRM"] is True
+    assert flags["ENABLE_MANUFACTURING"] is False
+    assert flags["ENABLE_PAYROLL"] is False
+
+
 def test_bb_000671_owner_plans_checkout_portal(tenant_a):
     plan = _plan(slug="pro", price_paise=99900)
     listed = tenant_a.client.get("/api/v1/billing/plans/")
@@ -135,7 +151,8 @@ def test_bb_000671_owner_plans_checkout_portal(tenant_a):
     checkout = tenant_a.client.post("/api/v1/billing/checkout/", {"plan_id": plan.id}, format="json")
     assert checkout.status_code == 201, checkout.data
     assert checkout.data["checkout_order_id"]
-    assert checkout.data["subscription"]["status"] == Subscription.Status.PENDING
+    # Stub checkout (no live Razorpay) must not PENDING-brick the tenant.
+    assert checkout.data["subscription"]["status"] == Subscription.Status.TRIAL
 
     portal = tenant_a.client.get("/api/v1/billing/portal/")
     assert portal.status_code == 200

@@ -1,7 +1,9 @@
+from decimal import Decimal
+
 from django.db import models
 from django.utils import timezone
 
-from core.models import DocumentLineModel, DocumentTotalsModel
+from core.models import CompanyScopedModel, DocumentLineModel, DocumentTotalsModel
 
 
 class PurchaseInvoice(DocumentTotalsModel):
@@ -205,6 +207,7 @@ class PurchaseCreditNote(DocumentTotalsModel):
         max_length=32, choices=PurchaseNoteReason.choices, default=PurchaseNoteReason.CORRECTION_OF_INVOICE
     )
     reason_detail = models.CharField(max_length=255, blank=True)
+    additional_charges = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     invoice_discount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     invoice_discount_mode = models.CharField(
         max_length=12,
@@ -360,3 +363,77 @@ class PurchaseOrder(DocumentTotalsModel):
 class PurchaseOrderItem(DocumentLineModel):
     purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="purchase_order_items")
+
+
+class BillOfEntry(CompanyScopedModel):
+    """GST-08: customs Bill of Entry for imports of goods.
+
+    Tracks the IGST + compensation cess paid at customs so it flows into
+    GSTR-3B table 4(A)(5) (ITC on import of goods). Basic Customs Duty (BCD)
+    is a cost, not a credit — captured for the GL / landed-cost picture only.
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT"
+        COMPLETED = "COMPLETED"
+        CANCELLED = "CANCELLED"
+
+    class ItcEligibility(models.TextChoices):
+        ELIGIBLE = "ELIGIBLE"
+        INELIGIBLE = "INELIGIBLE"
+
+    supplier = models.ForeignKey(
+        "masters.Supplier", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="bills_of_entry",
+    )
+    boe_number = models.CharField(max_length=32, db_index=True)
+    boe_date = models.DateField(default=timezone.localdate)
+    port_code = models.CharField(max_length=12, blank=True)
+    reference = models.CharField(max_length=120, blank=True)
+    assessable_value = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
+    bcd_amount = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
+    igst_amount = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
+    cess_amount = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
+    itc_eligibility = models.CharField(
+        max_length=12, choices=ItcEligibility.choices, default=ItcEligibility.ELIGIBLE,
+    )
+    itc_period = models.CharField(
+        max_length=7, blank=True,
+        help_text="YYYY-MM period in which the import ITC is availed (defaults to boe_date month).",
+    )
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-boe_date", "-id"]
+        indexes = [models.Index(fields=["company", "status", "boe_date"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "boe_number"],
+                name="uniq_bill_of_entry_number_per_company",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(igst_amount__gte=0)
+                & models.Q(cess_amount__gte=0)
+                & models.Q(bcd_amount__gte=0),
+                name="bill_of_entry_amounts_non_negative",
+            ),
+        ]
+
+    def __str__(self):
+        return self.boe_number
+
+    @property
+    def total_customs_paid(self) -> Decimal:
+        return (self.bcd_amount or Decimal("0")) + (self.igst_amount or Decimal("0")) + (self.cess_amount or Decimal("0"))
+
+    @property
+    def claimable_itc(self) -> Decimal:
+        if self.itc_eligibility != self.ItcEligibility.ELIGIBLE:
+            return Decimal("0")
+        return (self.igst_amount or Decimal("0")) + (self.cess_amount or Decimal("0"))
+
+    def resolved_itc_period(self) -> str:
+        return self.itc_period or self.boe_date.strftime("%Y-%m")

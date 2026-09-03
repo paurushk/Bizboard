@@ -193,7 +193,9 @@ def test_w0_05_post_commit_500_stored(tenant_a):
     assert resp.status_code == 500
     resp2 = wrap_idempotent(request=req, company=tenant_a.company, scope="t_5", build=build)
     assert resp2.status_code == 500
-    assert len(calls) == 1
+    # 5xx is released so a retry can succeed; storing it would brick the key.
+    assert len(calls) == 2
+    assert get_record(company=tenant_a.company, scope="t_5", raw_key="five-xx") is None
 
 
 def test_w0_07_outstanding_nets_advances_and_foots_statement(tenant_a):

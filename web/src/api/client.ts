@@ -11,7 +11,8 @@ if (import.meta.env.PROD && import.meta.env.VITE_PILOT_ADVANCED === 'true') {
   throw new Error('VITE_PILOT_ADVANCED must not be enabled for production builds');
 }
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const baseURL =
+  import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || '/api/v1';
 
 /** BB-000055: persisted by useCompanySwitcher for X-Company-Id header. */
 export const ACTIVE_COMPANY_STORAGE_KEY = 'bizboard:active-company-id';
@@ -23,17 +24,32 @@ function readActiveCompanyId(): string | null {
   return raw;
 }
 
+/** FE-05: default request timeout. Raised from 30s → 60s so ordinary report
+ *  builds (GSTR packs) and bill-OCR calls are not aborted while the server is
+ *  still working. For the genuinely long operations (full tenant export, large
+ *  multi-page OCR) pass `{ timeout: LONG_TIMEOUT_MS }` on the individual call. */
+export const DEFAULT_TIMEOUT_MS = 60000;
+export const LONG_TIMEOUT_MS = 180000;
+
 export const apiClient = axios.create({
   baseURL,
   headers: { 'Content-Type': 'application/json' },
-  timeout: 30000,
+  timeout: DEFAULT_TIMEOUT_MS,
   withCredentials: true,
 });
 
+// FE-06: double-submit fallback. On a cross-origin API/SPA deploy the csrftoken
+// cookie is third-party and Safari ITP / Brave / "block third-party cookies"
+// drop it from document.cookie. /auth/csrf/ now also returns the token in its
+// body; we keep it in memory and use it when the cookie is unreadable.
+let csrfTokenFromBody: string | null = null;
+
 function readCsrfToken(): string | null {
-  if (typeof document === 'undefined') return null;
-  const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
+  if (typeof document !== 'undefined') {
+    const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    if (match) return decodeURIComponent(match[1]);
+  }
+  return csrfTokenFromBody;
 }
 
 let csrfPromise: Promise<void> | null = null;
@@ -47,14 +63,22 @@ export async function ensureCsrfCookie(force = false): Promise<void> {
   if (!csrfPromise) {
     csrfPromise = axios
       .get(`${baseURL}/auth/csrf/`, { withCredentials: true, timeout: 15000 })
-      .then(() => undefined)
+      .then((res) => {
+        const body = res.data as { csrfToken?: string } | undefined;
+        if (body?.csrfToken) csrfTokenFromBody = body.csrfToken;
+        return undefined;
+      })
       .finally(() => {
         csrfPromise = null;
       });
   }
   await csrfPromise;
   if (!readCsrfToken()) {
-    throw new Error('CSRF token is unavailable. Refresh the page and try again.');
+    throw new Error(
+      'CSRF token is unavailable. If the app and API are on different domains, ' +
+        'your browser may be blocking third-party cookies — host them on the same ' +
+        'site, or refresh the page and try again.',
+    );
   }
 }
 
@@ -111,7 +135,19 @@ let activeRefreshNotifyOnFailure = false;
 
 function isCsrfFailure(error: AxiosError): boolean {
   if (error.response?.status !== 403) return false;
-  const data = error.response.data;
+  const data = error.response.data as
+    | { error?: { code?: string; message?: string }; detail?: string; code?: string }
+    | string
+    | undefined;
+  // FE-18: prefer a structured signal so a reworded backend message doesn't
+  // stop first-mutation 403s from auto-recovering. DRF's CSRF failure carries
+  // `detail` starting "CSRF Failed:"; our envelope uses code "csrf_failed".
+  if (data && typeof data === 'object') {
+    const code = data.error?.code ?? data.code ?? '';
+    if (/csrf/i.test(code)) return true;
+    const detail = data.detail ?? data.error?.message ?? '';
+    if (typeof detail === 'string' && /csrf/i.test(detail)) return true;
+  }
   const blob =
     typeof data === 'string'
       ? data
@@ -155,14 +191,19 @@ async function doRefresh(opts?: { notifyOnFailure?: boolean }): Promise<string |
       return token;
     }
     return null;
-  } catch {
-    // NOTE (R5-003, deferred): a transient network error here also logs the
-    // user out. Softening that contradicts the BUG-407 / P0-111 test which
-    // deliberately asserts "any refresh failure clears the session" — needs a
-    // product decision + test update before changing.
-    clearTokens();
-    if (opts?.notifyOnFailure !== false || activeRefreshNotifyOnFailure) {
-      window.dispatchEvent(new Event('bizboard:session-expired'));
+  } catch (err) {
+    // BUG-407: only treat HTTP 401/403 from refresh as a real session expiry.
+    // Transient network (no response) must not log the user out.
+    const status = axios.isAxiosError(err)
+      ? err.response?.status
+      : err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { status?: number } }).response?.status
+        : undefined;
+    if (status === 401 || status === 403) {
+      clearTokens();
+      if (opts?.notifyOnFailure !== false || activeRefreshNotifyOnFailure) {
+        window.dispatchEvent(new Event('bizboard:session-expired'));
+      }
     }
     return null;
   }

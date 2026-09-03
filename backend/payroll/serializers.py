@@ -13,7 +13,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
         model = Employee
         fields = [
             "id", "name", "code", "salary", "basic", "da", "status",
-            "pf_applicable", "pf_wage_ceiling", "esi_applicable", "pt_state", "tds_rate",
+            "pf_applicable", "pf_wage_ceiling", "esi_applicable", "pt_state",
+            "tds_rate", "tax_regime",
             "created_at", "updated_at",
         ]
         read_only_fields = ["created_at", "updated_at"]
@@ -32,7 +33,9 @@ class PaySlipSerializer(serializers.ModelSerializer):
         fields = [
             "id", "employee", "employee_name", "gross", "period_days", "paid_days",
             "deductions", "net",
-            "pf_employee", "esi_employee", "pt_amount", "pf_employer", "esi_employer", "tds_amount",
+            "pf_employee", "esi_employee", "pt_amount", "pf_employer",
+            "pf_employer_eps", "pf_employer_epf", "pf_admin_charges", "edli_charges",
+            "esi_employer", "tds_amount",
         ]
 
 

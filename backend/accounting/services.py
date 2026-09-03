@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
@@ -55,6 +55,9 @@ CHART = (
     ("5600", "Loss on Disposal of Assets", "EXPENSE", True),
     ("5700", "Gain on Disposal of Assets", "INCOME", True),
     ("5800", "Salaries and Wages", "EXPENSE", True),
+    # ACC-14: manual FX gain/loss on settling a foreign-currency invoice at a
+    # rate different from the one it was booked at.
+    ("5900", "Foreign Exchange Gain / Loss", "EXPENSE", True),
     # BB-000382: advances (unallocated cash) — not AR/AP control.
     ("2300", "Customer Advances", "LIABILITY", True),
     ("1250", "Supplier Advances", "ASSET", True),
@@ -125,6 +128,7 @@ class PostingService:
             "5600", "5700",  # BB-000459 disposal P&L
             "2265", "2266", "1365", "1390",  # BB-000670 TDS/TCS + unreviewed ITC suspense
             "3100", "3200",
+            "5900",  # ACC-14 FX gain/loss
         )
         existing = set(
             Account.objects.filter(company=company, code__in=required, is_active=True)
@@ -146,6 +150,16 @@ class PostingService:
             return acct
         inactive = Account.objects.filter(company=company, code=code).first()
         if inactive is not None and getattr(inactive, "is_system", False):
+            # ACC-13: a system account is required for correct posting — reactivate
+            # it, but do not do so silently.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Reactivating deactivated system ledger account %s for company %s "
+                "(required by an accounting posting).",
+                code,
+                getattr(company, "id", None),
+            )
             inactive.is_active = True
             inactive.save(update_fields=["is_active", "updated_at"])
             return inactive
@@ -153,6 +167,56 @@ class PostingService:
             f"Required system ledger account '{code}' is missing or has been "
             "deactivated. Restore the chart of accounts before posting."
         )
+
+    @classmethod
+    def _bank_gl_account(cls, company, bank_account, entry_date=None):
+        """ACC-01: resolve the GL ledger for a specific bank instrument.
+
+        Every ``BankAccount`` gets its own child ledger under 1500 Bank so the
+        trial balance, ledger drill-down and bank reconciliation are all
+        per-instrument instead of one commingled 1500 balance.
+
+        Cut-over, not backfill: entries dated before the company's
+        ``books_start_date`` keep posting to the 1500 aggregate — we do not
+        retro-split historical bank postings. Once the child ledgers carry the
+        opening balances as of the cut-over, everything from that date forward
+        is per-bank.
+        """
+        if bank_account is None:
+            return cls._account(company, "1500")
+        cutover = getattr(company, "books_start_date", None)
+        if cutover and entry_date and entry_date < cutover:
+            return cls._account(company, "1500")
+        existing = (
+            Account.objects.filter(company=company, bank_account=bank_account)
+            .first()
+        )
+        if existing is not None:
+            if not existing.is_active:
+                existing.is_active = True
+                existing.save(update_fields=["is_active", "updated_at"])
+            return existing
+        parent = cls._account(company, "1500")
+        code = f"1500-{bank_account.id}"
+        acct, _created = Account.objects.get_or_create(
+            company=company,
+            code=code,
+            defaults={
+                "name": f"Bank — {bank_account.name}"[:160],
+                "type": Account.Type.ASSET,
+                "parent": parent,
+                "is_system": True,
+                "is_control": False,
+                "bank_account": bank_account,
+                "is_active": True,
+            },
+        )
+        # An older row on this code without the O2O link — adopt it.
+        if acct.bank_account_id is None:
+            acct.bank_account = bank_account
+            acct.is_active = True
+            acct.save(update_fields=["bank_account", "is_active", "updated_at"])
+        return acct
 
     @classmethod
     def _tax_component_lines(cls, company, mapping, *, side, cost_center=None):
@@ -279,27 +343,113 @@ class PostingService:
         )
 
     @classmethod
+    def _claimable_input_gst_parked(cls, invoice):
+        """Net debit on claimable Input GST (1310/1320/1330/1370) for this PI."""
+        from django.db.models import Sum
+
+        from accounting.models import JournalLine
+
+        agg = JournalLine.objects.filter(
+            entry__company=invoice.company,
+            entry__source_type="PURCHASE_INVOICE",
+            entry__source_id=invoice.id,
+            entry__status="POSTED",
+            account__code__in=("1310", "1320", "1330", "1370"),
+        ).aggregate(debit=Sum("debit"), credit=Sum("credit"))
+        return (agg["debit"] or Decimal("0")) - (agg["credit"] or Decimal("0"))
+
+    @classmethod
+    def _rejected_itc_onhand_fraction(cls, invoice):
+        """ACC-11: fraction (0..1) of this purchase invoice's received goods
+        still on hand, from FIFO cost-layer ``qty_remaining``.
+
+        Returns ``Decimal("1")`` (treat as fully on hand → capitalise to
+        Inventory, the legacy behaviour) when the invoice has no perpetual
+        stock movements — services, non-inventory items, or accounting-only
+        tenants.
+        """
+        from inventory.models import InventoryCostLayer, StockMovement
+
+        receipts = StockMovement.objects.filter(
+            company=invoice.company,
+            reference_type__iexact="purchase_invoice",
+            reference_id=str(invoice.pk),
+            quantity__gt=0,
+        )
+        received = sum(
+            (Decimal(str(q or 0)) for q in receipts.values_list("quantity", flat=True)),
+            Decimal("0"),
+        )
+        if received <= 0:
+            return Decimal("1")
+        layers = InventoryCostLayer.objects.filter(
+            company=invoice.company, source_movement__in=receipts
+        )
+        # No FIFO cost layers track this receipt (perpetual FIFO not in use for
+        # this tenant / item) — keep the legacy "capitalise 100% to Inventory".
+        layer_qtys = list(layers.values_list("qty_remaining", flat=True))
+        if not layer_qtys:
+            return Decimal("1")
+        on_hand = sum((Decimal(str(q or 0)) for q in layer_qtys), Decimal("0"))
+        frac = on_hand / received
+        if frac < 0:
+            return Decimal("0")
+        if frac > 1:
+            return Decimal("1")
+        return frac
+
+    @classmethod
     def reclass_rejected_itc(cls, invoice, *, user=None):
-        """B-03 REJECT: clear 1390 into inventory 1400 (same capitalize path as INELIGIBLE complete)."""
+        """B-03 REJECT: clear parked 1390 into 1400, or reverse claimable Input GST to 5600.
+
+        After IMS ACCEPT, tax sits on 1310/1320/1330 (not 1390). REJECT must then
+        credit those Input GST accounts and debit ineligible expense 5600.
+        """
         if not invoice.company.accounting_enabled:
             return None
         parked = cls._unreviewed_itc_parked(invoice)
-        if parked <= 0:
-            return None
-        tax = (
-            Decimal(str(invoice.cgst_total or 0))
-            + Decimal(str(invoice.sgst_total or 0))
-            + Decimal(str(invoice.igst_total or 0))
-            + Decimal(str(getattr(invoice, "cess_total", 0) or 0))
-        )
+        cgst = Decimal(str(invoice.cgst_total or 0))
+        sgst = Decimal(str(invoice.sgst_total or 0))
+        igst = Decimal(str(invoice.igst_total or 0))
+        cess = Decimal(str(getattr(invoice, "cess_total", 0) or 0))
+        tax = cgst + sgst + igst + cess
         if tax <= 0:
             return None
-        debit_lines = cls._tax_component_lines(
-            invoice.company, (("1400", tax),), side="debit",
-        )
-        credit_lines = cls._tax_component_lines(
-            invoice.company, (("1390", tax),), side="credit",
-        )
+        if parked > 0:
+            # ACC-11: goods still on hand → capitalise the ineligible tax into
+            # Inventory (1400); goods already sold → the extra cost belongs in
+            # COGS (5400), since their original COGS was booked pre-capitalisation.
+            frac = cls._rejected_itc_onhand_fraction(invoice)
+            to_inventory = (tax * frac).quantize(Decimal("0.01"))
+            to_cogs = tax - to_inventory
+            debit_map = []
+            if to_inventory > 0:
+                debit_map.append(("1400", to_inventory))
+            if to_cogs > 0:
+                debit_map.append(("5400", to_cogs))
+            debit_lines = cls._tax_component_lines(
+                invoice.company, tuple(debit_map), side="debit",
+                cost_center=getattr(invoice, "cost_center", None),
+            )
+            credit_lines = cls._tax_component_lines(
+                invoice.company, (("1390", tax),), side="credit",
+            )
+            narration = f"IMS reject — capitalize unreviewed ITC {invoice.number or invoice.id}"
+        elif cls._claimable_input_gst_parked(invoice) > 0:
+            # ACCEPT already moved 1390 → Input GST; reverse claimable ITC to expense.
+            debit_lines = cls._tax_component_lines(
+                invoice.company, (("5600", tax),), side="debit",
+            )
+            credit_lines = cls._tax_component_lines(
+                invoice.company,
+                (("1310", cgst), ("1320", sgst), ("1330", igst), ("1370", cess)),
+                side="credit",
+            )
+            narration = f"IMS reject — reverse claimable ITC to ineligible {invoice.number or invoice.id}"
+        else:
+            return None
+        if not debit_lines or not credit_lines:
+            return None
         return cls.post(
             company=invoice.company,
             source_type="PURCHASE_INVOICE",
@@ -307,7 +457,7 @@ class PostingService:
             purpose="ITC_REJECT",
             entry_date=invoice.invoice_date or timezone.localdate(),
             lines=[*debit_lines, *credit_lines],
-            narration=f"IMS reject — capitalize unreviewed ITC {invoice.number or invoice.id}",
+            narration=narration,
             user=user,
         )
 
@@ -339,14 +489,33 @@ class PostingService:
             status__in=blocking_statuses,
         ).exists():
             raise BusinessRuleError("Cannot post to a closed accounting period.")
+        # ACC-04: opt-in — the date must fall inside an OPEN period, not merely
+        # avoid a closed one (a back-dated entry to a year with no period rows
+        # otherwise bypasses period control entirely).
+        if getattr(company, "require_open_period_for_posting", False):
+            in_open = AccountingPeriod.objects.filter(
+                company=company,
+                start_date__lte=entry_date,
+                end_date__gte=entry_date,
+                status=AccountingPeriod.Status.OPEN,
+            ).exists()
+            if not in_open:
+                raise BusinessRuleError(
+                    f"{entry_date} is not inside an open accounting period. "
+                    "Create the period (or open it) before posting."
+                )
         # BB-000432: sequential journal numbers unique per company.
+        # ACC-12: allocate the voucher number *inside* the same savepoint that
+        # inserts the entry, so a concurrent-double-post IntegrityError rolls the
+        # series increment back too — otherwise every lost race burned a number
+        # and left a gap in a statutory sequence.
         from core.services.document_numbers import DocumentNumberService
 
-        number = DocumentNumberService.next_number(company, "JOURNAL_ENTRY")
         from django.db import IntegrityError
 
         try:
             with transaction.atomic():
+                number = DocumentNumberService.next_number(company, "JOURNAL_ENTRY")
                 entry = JournalEntry.objects.create(
                     company=company, number=number, entry_date=entry_date,
                     status=JournalEntry.Status.POSTED, source_type=source_type, source_id=source_id,
@@ -511,25 +680,88 @@ class PostingService:
 
     @classmethod
     def adjust_sales_invoice_postings(cls, invoice, user=None):
-        """When a completed sales invoice is amended, reverse prior GL postings and post fresh ones."""
+        """When a completed sales invoice is amended, reverse prior GL postings and post fresh ones.
+
+        ACC-02: each reversal is dated to the *original* entry's date, not
+        today, so an amend done in a later month does not leave the source
+        period overstated and the current month carrying an orphan reversal.
+        ACC-03: the COGS leg is reversed here too — re-post it from the reversed
+        entry's 5400 debit so callers that don't separately re-run COGS
+        (notes_services, recurring, import) don't leave COGS understated.
+        """
         if not invoice.company.accounting_enabled:
             return None
-        from accounting.models import JournalEntry
+        # The invoice was loaded by the viewset with `prefetch_related("items")`,
+        # so `set_items` mutated + bulk_updated fresh rows while `invoice.items`
+        # still caches the pre-amend lines. Evict that cache so `post_*` re-reads
+        # the amended taxable/tax values (else GL posts on stale amounts and the
+        # entry is unbalanced).
+        if hasattr(invoice, "_prefetched_objects_cache"):
+            invoice._prefetched_objects_cache.pop("items", None)
+        from decimal import Decimal as _D
 
+        from accounting.models import JournalEntry, JournalLine
+
+        reversed_cogs = _D("0")
         for entry in JournalEntry.objects.filter(
             company=invoice.company,
             source_type="SALES_INVOICE",
             source_id=invoice.id,
             status=JournalEntry.Status.POSTED,
         ):
-            cls.reverse(entry, user=user)
-        return cls.post_sales_invoice(invoice, user=user)
+            if entry.purpose == "COGS":
+                reversed_cogs += sum(
+                    (
+                        _D(str(line.debit or 0))
+                        for line in JournalLine.objects.filter(entry=entry, account__code="5400")
+                    ),
+                    _D("0"),
+                )
+            cls.reverse(entry, user=user, entry_date=entry.entry_date)
+        posted = cls.post_sales_invoice(invoice, user=user)
+        # Re-post COGS if a COGS entry was reversed and nothing else has already
+        # re-created it (post_sales_cogs is idempotent on the POSTED row).
+        if reversed_cogs > 0:
+            already = JournalEntry.objects.filter(
+                company=invoice.company,
+                source_type="SALES_INVOICE",
+                source_id=invoice.id,
+                purpose="COGS",
+                status=JournalEntry.Status.POSTED,
+            ).exists()
+            if not already:
+                try:
+                    from sales.cogs_service import CogsService
+
+                    fresh = sum(
+                        (
+                            _D(str(m.unit_cost or 0)) * abs(_D(str(m.quantity or 0)))
+                            for m in CogsService.invoice_sale_moves(invoice)
+                        ),
+                        _D("0"),
+                    )
+                except Exception:  # noqa: BLE001 — fall back to the reversed amount
+                    fresh = _D("0")
+                cls.post_sales_cogs(invoice, fresh or reversed_cogs, user)
+        return posted
 
     @classmethod
     def adjust_purchase_invoice_postings(cls, invoice, user=None):
-        """When a completed purchase invoice is amended, reverse prior GL postings and post fresh ones."""
+        """When a completed purchase invoice is amended, reverse prior GL postings and post fresh ones.
+
+        ACC-02: reversals inherit the original entry's date (see the sales
+        counterpart). `post_purchase` re-derives the ITC legs from the current
+        `itc_eligibility`, so an ITC_RECLASS/ITC_REJECT entry that is reversed
+        here does not need a blind re-post — the fresh `post_purchase` is
+        self-consistent with the invoice's current IMS state.
+        """
         if not invoice.company.accounting_enabled:
             return None
+        # Evict the viewset's prefetched `items` cache so `post_purchase` re-reads
+        # the amended line taxable/tax (else the GL entry is unbalanced — the
+        # header totals were recomputed but the cached lines were not).
+        if hasattr(invoice, "_prefetched_objects_cache"):
+            invoice._prefetched_objects_cache.pop("items", None)
         from accounting.models import JournalEntry
 
         for entry in JournalEntry.objects.filter(
@@ -538,8 +770,8 @@ class PostingService:
             source_id=invoice.id,
             status=JournalEntry.Status.POSTED,
         ):
-            cls.reverse(entry, user=user)
-        return cls.post_purchase_invoice(invoice, user=user)
+            cls.reverse(entry, user=user, entry_date=entry.entry_date)
+        return cls.post_purchase(invoice, user=user)
 
     @classmethod
     def post_opening_sales_invoice(cls, invoice, user=None):
@@ -630,6 +862,60 @@ class PostingService:
         )
 
     @classmethod
+    def post_bank_opening_balance(cls, bank_account, user=None):
+        """PAY-14: a bank account created with a non-zero opening balance needs a
+        GL opening entry (Dr per-bank ledger / Cr 3200 Opening Balance Equity),
+        otherwise the GL bank balance starts at 0 while the operational balance
+        shows the opening figure. Idempotent on (BANK_ACCOUNT, id, OPENING) —
+        re-posts to reflect an edited opening balance.
+        """
+        company = bank_account.company
+        if not getattr(company, "accounting_enabled", False):
+            return None
+        amount = Decimal(str(getattr(bank_account, "opening_balance", 0) or 0))
+        cls._ensure_chart(company)
+        existing = JournalEntry.objects.filter(
+            company=company,
+            source_type="BANK_ACCOUNT",
+            source_id=bank_account.id,
+            purpose="OPENING",
+            status=JournalEntry.Status.POSTED,
+        ).first()
+        if existing is not None:
+            prior = (
+                existing.lines.filter(account__code="3200")
+                .aggregate(c=Sum("credit"), d=Sum("debit"))
+            )
+            prior_amt = (prior["c"] or Decimal("0")) - (prior["d"] or Decimal("0"))
+            if prior_amt == amount:
+                return existing
+            cls.reverse(existing, user=user, entry_date=existing.entry_date)
+        if amount == 0:
+            return None
+        entry_date = getattr(bank_account, "opening_as_of", None) or cls._opening_entry_date(company)
+        bank_acct = cls._bank_gl_account(company, bank_account, entry_date)
+        if amount > 0:
+            lines = [
+                {"account": bank_acct, "debit": amount},
+                {"account": cls._account(company, "3200"), "credit": amount},
+            ]
+        else:
+            lines = [
+                {"account": cls._account(company, "3200"), "debit": -amount},
+                {"account": bank_acct, "credit": -amount},
+            ]
+        return cls.post(
+            company=company,
+            source_type="BANK_ACCOUNT",
+            source_id=bank_account.id,
+            purpose="OPENING",
+            entry_date=entry_date,
+            user=user,
+            narration=f"Opening balance — {bank_account.name}",
+            lines=lines,
+        )
+
+    @classmethod
     def post_sales_cogs(cls, invoice, amount, user=None):
         if not amount:
             return None
@@ -690,7 +976,13 @@ class PostingService:
         Gateway MDR: bank receives amount − fee; fee posts to 5200 Bank Charges.
         """
         cls._ensure_chart(receipt.company)
-        code = "1500" if receipt.bank_account_id else "1100"
+        # ACC-01: per-bank ledger for a bank receipt; 1100 Cash otherwise.
+        if receipt.bank_account_id:
+            bank_acct = cls._bank_gl_account(
+                receipt.company, receipt.bank_account, receipt.receipt_date
+            )
+        else:
+            bank_acct = cls._account(receipt.company, "1100")
         amount = Decimal(str(receipt.amount or 0))
         fee = Decimal("0")
         gp = getattr(receipt, "gateway_payment", None)
@@ -701,11 +993,11 @@ class PostingService:
         bank_amt = amount - fee
         lines = []
         if bank_amt > 0:
-            lines.append({"account": cls._account(receipt.company, code), "debit": bank_amt})
+            lines.append({"account": bank_acct, "debit": bank_amt})
         if fee > 0:
             lines.append({"account": cls._account(receipt.company, "5200"), "debit": fee})
         if not lines:
-            lines.append({"account": cls._account(receipt.company, code), "debit": amount})
+            lines.append({"account": bank_acct, "debit": amount})
         lines.append({
             "account": cls._account(receipt.company, "2300"),
             "credit": amount,
@@ -716,23 +1008,48 @@ class PostingService:
             lines=lines)
 
     @classmethod
-    def post_receipt_refund(cls, receipt, user=None):
-        """Refund customer receipt: Dr Customer Advances (2300) / Cr Bank (1500 or 1100)."""
+    def post_receipt_refund(cls, receipt, user=None, *, amount=None, purpose="REFUND"):
+        """Invert post_receipt: Dr 2300 amount, Cr Bank net of MDR, reverse fee expense."""
         cls._ensure_chart(receipt.company)
-        code = "1500" if receipt.bank_account_id else "1100"
-        amount = Decimal(str(receipt.amount or 0))
+        # ACC-01: mirror post_receipt — reverse the same per-bank ledger.
+        if receipt.bank_account_id:
+            bank_acct = cls._bank_gl_account(
+                receipt.company, receipt.bank_account, receipt.receipt_date
+            )
+        else:
+            bank_acct = cls._account(receipt.company, "1100")
+        amount = Decimal(str(amount if amount is not None else receipt.amount or 0))
         if amount <= 0:
             return None
+        full = Decimal(str(receipt.amount or 0))
+        fee = Decimal("0")
+        gp = getattr(receipt, "gateway_payment", None)
+        if gp is not None:
+            fee = max(Decimal("0"), Decimal(str(getattr(gp, "fee", 0) or 0)))
+        if full > 0 and fee > 0:
+            fee_share = (fee * amount / full).quantize(Decimal("0.01"))
+            if fee_share > fee:
+                fee_share = fee
+        else:
+            fee_share = Decimal("0")
+        if fee_share > amount:
+            fee_share = amount
+        bank_credit = amount - fee_share
         lines = [
             {"account": cls._account(receipt.company, "2300"), "debit": amount, "customer": receipt.customer},
-            {"account": cls._account(receipt.company, code), "credit": amount},
         ]
+        if bank_credit > 0:
+            lines.append({"account": bank_acct, "credit": bank_credit})
+        if fee_share > 0:
+            lines.append({"account": cls._account(receipt.company, "5200"), "credit": fee_share})
+        if len(lines) == 1:
+            lines.append({"account": bank_acct, "credit": amount})
         return cls.post(
             company=receipt.company,
             source_type="CUSTOMER_RECEIPT",
             source_id=receipt.id,
-            purpose="REFUND",
-            entry_date=timezone.localdate(),
+            purpose=purpose or "REFUND",
+            entry_date=receipt.receipt_date or timezone.localdate(),
             user=user,
             narration=f"Refund: {receipt.number}",
             lines=lines,
@@ -774,14 +1091,18 @@ class PostingService:
         """
         cls._ensure_chart(invoice.company)
         cc = invoice.cost_center
+        # SYS-03: `taxable_amount` is always present on a document line; a
+        # legitimately-zero line (100% discount / free sample) must stay zero,
+        # not fall through `or` to `line_total` (which includes tax).
         line_taxable = sum(
-            (Decimal(str(getattr(li, "taxable_amount", 0) or getattr(li, "line_total", 0) or 0))
+            (Decimal(str(getattr(li, "taxable_amount", None) if getattr(li, "taxable_amount", None) is not None else 0))
              for li in invoice.items.all()),
             Decimal("0"),
         )
-        # Prefer explicit taxable_total when present and lines empty-sum fallback.
+        # Fall back to the header taxable only when there are genuinely no line
+        # rows to sum (import edge), not when every line taxable is zero.
         header_taxable = Decimal(str(getattr(invoice, "taxable_total", 0) or 0))
-        if line_taxable <= 0 and header_taxable > 0:
+        if not invoice.items.exists() and header_taxable > 0:
             line_taxable = header_taxable
         cess = Decimal(str(getattr(invoice, "cess_total", 0) or 0))
         tax = (
@@ -796,6 +1117,20 @@ class PostingService:
         if charges <= 0:
             residual = Decimal(str(invoice.grand_total or 0)) - tax - line_taxable - round_off
             if residual >= Decimal("1"):
+                # ACC-06: a rupee-plus unexplained gap with no header
+                # `additional_charges` is booked to 5110 Purchase Charges as
+                # untracked freight — but only up to a sane bound. A larger gap
+                # is almost certainly a dropped line or a header/line tax drift;
+                # surface it instead of silently capitalising a data bug (sales
+                # has a ±5 paise guard — purchases needs a real one too).
+                grand = Decimal(str(invoice.grand_total or 0))
+                bound = max(Decimal("100"), (grand * Decimal("0.10")).quantize(Decimal("0.01")))
+                if residual > bound:
+                    raise BusinessRuleError(
+                        f"Purchase invoice does not reconcile: ₹{residual} is unaccounted "
+                        f"(grand total minus tax, line value and round-off). Add it as an "
+                        f"explicit additional charge or correct the lines before completing."
+                    )
                 charges = residual
             elif residual > 0:
                 # R3-012: a sub-rupee unexplained gap is line-rounding drift, not
@@ -939,11 +1274,82 @@ class PostingService:
             purpose="COMPLETE", entry_date=invoice.invoice_date, user=user, narration=invoice.number,
             lines=lines)
 
+    post_purchase_invoice = post_purchase
+
+    @classmethod
+    def post_bill_of_entry(cls, boe, user=None):
+        """GST-08: customs Bill of Entry for an import of goods.
+
+          Dr 1330 Input IGST (import)   igst_amount   [only if ITC ELIGIBLE]
+          Dr 1370 Input Cess            cess_amount   [only if ITC ELIGIBLE]
+          Dr 5110 Purchase Charges      bcd_amount (+ igst+cess when INELIGIBLE)
+          Cr 2100 Accounts Payable      total customs paid
+
+        BCD is always a cost; IGST/cess are ITC when eligible, otherwise cost.
+        Idempotent on (BILL_OF_ENTRY, id, COMPLETE).
+        """
+        company = boe.company
+        if not getattr(company, "accounting_enabled", False):
+            return None
+        cls._ensure_chart(company)
+        igst = Decimal(str(boe.igst_amount or 0))
+        cess = Decimal(str(boe.cess_amount or 0))
+        bcd = Decimal(str(boe.bcd_amount or 0))
+        total = igst + cess + bcd
+        if total <= 0:
+            return None
+        eligible = boe.itc_eligibility == boe.ItcEligibility.ELIGIBLE
+        lines = []
+        cost_to_charges = bcd
+        if eligible:
+            if igst > 0:
+                lines.append({"account": cls._account(company, "1330"), "debit": igst})
+            if cess > 0:
+                lines.append({"account": cls._account(company, "1370"), "debit": cess})
+        else:
+            cost_to_charges += igst + cess
+        if cost_to_charges > 0:
+            lines.append({"account": cls._account(company, "5110"), "debit": cost_to_charges})
+        lines.append({
+            "account": cls._account(company, "2100"),
+            "credit": total,
+            "supplier": getattr(boe, "supplier", None),
+        })
+        return cls.post(
+            company=company,
+            source_type="BILL_OF_ENTRY",
+            source_id=boe.id,
+            purpose="COMPLETE",
+            entry_date=boe.boe_date,
+            user=user,
+            narration=f"Bill of Entry {boe.boe_number}",
+            lines=lines,
+        )
+
+    @classmethod
+    def reverse_bill_of_entry(cls, boe, user=None):
+        entry = JournalEntry.objects.filter(
+            company=boe.company,
+            source_type="BILL_OF_ENTRY",
+            source_id=boe.id,
+            purpose="COMPLETE",
+            status=JournalEntry.Status.POSTED,
+        ).first()
+        if entry is not None:
+            cls.reverse(entry, user=user, entry_date=entry.entry_date)
+        return entry
+
     @classmethod
     def post_supplier_payment(cls, payment, user=None):
         """BB-000382: unallocated supplier payment debits Supplier Advances (1250)."""
         cls._ensure_chart(payment.company)
-        code = "1500" if payment.bank_account_id else "1100"
+        # ACC-01: per-bank ledger for a bank payment; 1100 Cash otherwise.
+        if payment.bank_account_id:
+            bank_acct = cls._bank_gl_account(
+                payment.company, payment.bank_account, payment.payment_date
+            )
+        else:
+            bank_acct = cls._account(payment.company, "1100")
         tds = Decimal(str(getattr(payment, "tds_amount", 0) or 0))
         bank_amount = Decimal(str(payment.amount or 0))
         advance = bank_amount + tds
@@ -952,7 +1358,7 @@ class PostingService:
             "debit": advance,
             "supplier": payment.supplier,
         },
-                 {"account": cls._account(payment.company, code), "credit": bank_amount}]
+                 {"account": bank_acct, "credit": bank_amount}]
         if tds > 0:
             lines.append({
                 "account": cls._account(payment.company, "2265"),
@@ -1302,9 +1708,35 @@ class BooksHealthService:
                 blockers.append(alert)
         gst = build_gst_health(company, period)
         blockers.extend(a for a in gst["alerts"] if a.get("severity") == "critical")
+        from calendar import monthrange
+        from datetime import date as date_cls
+
         from manufacturing.models import WorkOrder
 
-        if WorkOrder.objects.filter(company=company, status=WorkOrder.Status.RELEASED).exists():
+        # ACC-15: only block the close on open WIP when the Manufacturing module
+        # is enabled for this tenant. A tenant that turned the module off with a
+        # stale RELEASED work order must still be able to close periods.
+        try:
+            from core.services.feature_flags import build_feature_flags
+
+            mfg_on = bool(build_feature_flags(company=company).get("ENABLE_MANUFACTURING"))
+        except Exception:  # noqa: BLE001 — never let flag resolution block a close
+            from django.conf import settings
+
+            mfg_on = bool(getattr(settings, "ENABLE_MANUFACTURING", False))
+        wo_qs = (
+            WorkOrder.objects.filter(company=company, status=WorkOrder.Status.RELEASED)
+            if mfg_on
+            else WorkOrder.objects.none()
+        )
+        if period and mfg_on:
+            try:
+                year, month = int(str(period)[:4]), int(str(period)[5:7])
+                period_end = date_cls(year, month, monthrange(year, month)[1])
+                wo_qs = wo_qs.filter(Q(released_at__lte=period_end) | Q(released_at__isnull=True))
+            except (TypeError, ValueError):
+                pass
+        if wo_qs.exists():
             blockers.append({
                 "code": "OPEN_WIP",
                 "severity": "error",
@@ -1415,7 +1847,7 @@ class BooksHealthService:
                 )
                 or _has_missing(
                     PayRun.objects.filter(company=company, status=PayRun.Status.COMPLETED),
-                    "PayRun",
+                    "PAY_RUN",
                     "PAYROLL",
                 )
                 or _has_missing(

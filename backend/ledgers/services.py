@@ -9,9 +9,29 @@ When accounting is off or outstanding_basis is DOCUMENTS_ALWAYS: documents +
 allocations remain the source of truth.
 """
 
+import logging
 from decimal import Decimal
 
 from django.db.models import Case, DecimalField, F, Prefetch, Sum, Value, When
+
+_logger = logging.getLogger(__name__)
+
+
+def _floor_outstanding(raw: Decimal, *, kind: str, ref) -> Decimal:
+    """LED-03: outstanding figures are floored at 0 so an over-allocation /
+    double-payment data bug doesn't render as a negative balance. Floor it for
+    the caller, but surface the anomaly in the log instead of swallowing it
+    entirely so it can be chased down.
+    """
+    if raw < Decimal("-0.01"):
+        _logger.warning(
+            "Negative %s outstanding %.2f for %s — floored to 0. Likely "
+            "over-allocation or a double payment; reconcile the sub-ledger.",
+            kind,
+            raw,
+            ref,
+        )
+    return raw if raw > 0 else Decimal("0")
 
 from payments.models import (
     CustomerReceipt,
@@ -144,8 +164,9 @@ class LedgerService:
         tcs = Decimal("0")
         if not getattr(invoice, "tcs_in_grand_total", False):
             tcs = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
-        # BB-000097/288: never report negative open receivable.
-        return max(Decimal("0"), invoice.grand_total + tcs - credit_notes + debit_notes - allocated)
+        # BB-000097/288: never report negative open receivable (LED-03: but log it).
+        raw = invoice.grand_total + tcs - credit_notes + debit_notes - allocated
+        return _floor_outstanding(raw, kind="sales invoice", ref=getattr(invoice, "number", invoice.pk))
 
     @staticmethod
     def purchase_invoice_outstanding(invoice: PurchaseInvoice) -> Decimal:
@@ -174,24 +195,41 @@ class LedgerService:
         )
         allocated = _sum(PaymentAllocation.objects.filter(purchase_invoice=invoice, reversed_at__isnull=True))
         # BB-000281: when auto CNs exist for returns, do not also subtract return totals.
-        auto_cn_return_ids = set(
-            PurchaseCreditNote.objects.filter(
-                purchase_invoice=invoice,
-                status=PurchaseCreditNote.Status.COMPLETED,
-                purchase_return__isnull=False,
-            ).values_list("purchase_return_id", flat=True)
+        return_rows = list(
+            PurchaseReturn.objects.filter(
+                purchase_invoice=invoice, status=PurchaseReturn.Status.COMPLETED
+            ).values_list("pk", "grand_total")
         )
-        if auto_cn_return_ids:
-            linked_returns = _sum(
-                PurchaseReturn.objects.filter(
-                    pk__in=auto_cn_return_ids, status=PurchaseReturn.Status.COMPLETED
-                ),
-                "grand_total",
+        cn_rows = list(
+            PurchaseCreditNote.objects.filter(
+                purchase_invoice=invoice, status=PurchaseCreditNote.Status.COMPLETED
+            ).values_list("purchase_return_id", "grand_total")
+        )
+        linked_return_ids = {rid for rid, _ in cn_rows if rid is not None}
+        # LED-02: a legacy / auto CN that lost its purchase_return linkage would
+        # otherwise let the return be subtracted twice (once as a return, once as
+        # a CN) → supplier outstanding understated. Fall back to amount matching
+        # for unlinked CNs so each physical return is relieved once.
+        unlinked_cn_amounts = [amt for rid, amt in cn_rows if rid is None]
+        for pk, ret_total in return_rows:
+            if pk in linked_return_ids:
+                continue
+            match = next(
+                (a for a in unlinked_cn_amounts if abs(a - ret_total) <= Decimal("0.05")),
+                None,
+            )
+            if match is not None:
+                unlinked_cn_amounts.remove(match)
+                linked_return_ids.add(pk)
+        if linked_return_ids:
+            linked_returns = sum(
+                (t for pk, t in return_rows if pk in linked_return_ids), Decimal("0")
             )
             returns = max(Decimal("0"), returns - linked_returns)
         tds = Decimal(str(getattr(invoice, "tds_amount", 0) or 0))
         # BB-000097/288: never report negative open payable. Net payable = grand − TDS.
-        return max(Decimal("0"), invoice.grand_total - tds - returns - credit_notes + debit_notes - allocated)
+        raw = invoice.grand_total - tds - returns - credit_notes + debit_notes - allocated
+        return _floor_outstanding(raw, kind="purchase invoice", ref=getattr(invoice, "number", invoice.pk))
 
     # ---------------- Advances / credit-limit exposure ----------------
 
@@ -241,10 +279,25 @@ class LedgerService:
 
         When PD-02 GL outstanding is on, advances are already netted — do not
         subtract them a second time.
+
+        LED-01: a credit-limit decision must not ride on a GL figure that has
+        drifted from the sub-ledger. When the GL basis is in force, cross-check
+        against the document basis and take the *more conservative* (higher)
+        number for the limit check, logging the drift so it can be reconciled.
         """
-        outstanding = LedgerService.customer_outstanding(company, customer)
         if LedgerService._use_gl_outstanding(company):
-            return outstanding
+            gl_outstanding = LedgerService.customer_outstanding(company, customer)
+            doc_outstanding = LedgerService._customer_outstanding_documents(company, customer)
+            if abs(gl_outstanding - doc_outstanding) > Decimal("1"):
+                _logger.warning(
+                    "Customer %s credit exposure: GL %.2f vs documents %.2f — "
+                    "using the higher for the limit check; reconcile 1200/2300.",
+                    getattr(customer, "pk", customer),
+                    gl_outstanding,
+                    doc_outstanding,
+                )
+            return max(gl_outstanding, doc_outstanding)
+        outstanding = LedgerService.customer_outstanding(company, customer)
         return outstanding - LedgerService.customer_unallocated_receipts(company, customer)
 
     # ---------------- Customer ledger ----------------
@@ -265,7 +318,14 @@ class LedgerService:
             advances = LedgerService._party_account_net(
                 company, account_code="2300", customer=customer
             )
-            return ar + advances
+            return max(Decimal("0"), ar + advances)
+        return LedgerService._customer_outstanding_documents(company, customer)
+
+    @staticmethod
+    def _customer_outstanding_documents(company, customer) -> Decimal:
+        """Document-basis customer AR: invoices − allocations − completed CNs + DNs.
+        Used directly when books are off, and as the LED-01 cross-check for the
+        GL basis."""
         # Wave 3: sales returns restore stock only; AR relief is via auto credit notes.
         invoices = _sum(
             SalesInvoice.objects.filter(
@@ -303,7 +363,8 @@ class LedgerService:
             )
         )
         # BB-000097/288: floor at zero (over-allocation / note edge cases).
-        return max(Decimal("0"), invoices - credit_notes + debit_notes - allocated)
+        raw = invoices - credit_notes + debit_notes - allocated
+        return _floor_outstanding(raw, kind="customer", ref=getattr(customer, "pk", customer))
 
     @staticmethod
     def bulk_customer_outstanding(company) -> dict:
@@ -569,7 +630,7 @@ class LedgerService:
             prepaid = LedgerService._party_account_net(
                 company, account_code="1250", supplier=supplier
             )
-            return -(ap + prepaid)
+            return max(Decimal("0"), -(ap + prepaid))
         inv_qs = PurchaseInvoice.objects.filter(
             company=company,
             supplier=supplier,
@@ -607,7 +668,8 @@ class LedgerService:
             )
         )
         # BB-000097/288: floor at zero (over-allocation / note edge cases).
-        return max(Decimal("0"), invoices - returns - credit_notes + debit_notes - allocated)
+        raw = invoices - returns - credit_notes + debit_notes - allocated
+        return _floor_outstanding(raw, kind="supplier", ref=getattr(supplier, "pk", supplier))
 
     @staticmethod
     def bulk_supplier_outstanding(company) -> dict:
@@ -628,7 +690,7 @@ class LedgerService:
             )
             for row in rows:
                 nets[row["supplier_id"]] += (row["d"] or Decimal("0")) - (row["c"] or Decimal("0"))
-            return {sid: -net for sid, net in nets.items()}
+            return {sid: max(Decimal("0"), -net) for sid, net in nets.items()}
         invoices = dict(
             PurchaseInvoice.objects.filter(
                 company=company,
@@ -690,7 +752,7 @@ class LedgerService:
 
     @staticmethod
     def supplier_statement(company, supplier, date_from=None, date_to=None):
-        if getattr(company, "accounting_enabled", False):
+        if LedgerService._use_gl_outstanding(company):
             return LedgerService._gl_party_statement(
                 company,
                 account_codes=["2100", "1250"],

@@ -52,7 +52,9 @@ class DocumentTotalsModel(CompanyScopedModel):
     sgst_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     igst_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     cess_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
-    round_off = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0"))
+    # CORE-19: was max_digits=6 (±9999.99). Widened so a future "round to
+    # nearest ₹10 / ₹100" rule on a large invoice cannot overflow silently.
+    round_off = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     grand_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
 
     class Meta:
@@ -161,7 +163,7 @@ class AuditEvent(models.Model):
     # 64, not 16: audit actions are dotted namespaces now (e.g.
     # "tenant.restore_sandbox"). SQLite ignores varchar length; Postgres raised
     # DataError on the longer values (test_bb_000668 restore 500).
-    action = models.CharField(max_length=64, choices=Action.choices)
+    action = models.CharField(max_length=64)
     entity_type = models.CharField(max_length=64, blank=True)
     entity_id = models.CharField(max_length=64, blank=True)
     description = models.CharField(max_length=255, blank=True)

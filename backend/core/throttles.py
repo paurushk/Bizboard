@@ -30,6 +30,10 @@ class CompanyRateThrottle(SimpleRateThrottle):
 
     def get_cache_key(self, request, view):
         cu = get_company_user(request)
-        if cu is None:
-            return None
-        return self.cache_format % {"scope": self.scope, "ident": cu.company_id}
+        if cu is not None:
+            ident = cu.company_id
+        elif getattr(request, "user", None) is not None and request.user.is_authenticated:
+            ident = f"user-{request.user.pk}"
+        else:
+            ident = self.get_ident(request) or "anon"
+        return self.cache_format % {"scope": self.scope, "ident": ident}

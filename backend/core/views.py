@@ -6,11 +6,12 @@ from django.db import connection
 from django.http import FileResponse, Http404, HttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.exceptions import BusinessRuleError
+from core.exceptions import BusinessRuleError, CompanyRequired
 
 from .models import AuditEvent, FileAsset, Notification, StatutoryDocumentEvent
 from .permissions import CanManageFileAssets, CanViewFinancialReports, HasCompany, IsOwner, get_company_user
@@ -36,6 +37,32 @@ def bump_request_count() -> None:
 
 def get_request_count() -> int:
     return _REQUEST_COUNT
+
+
+_READY_PROBE_CACHE_KEY = "bizboard:ready_probe"
+_READY_PROBE_TTL = 15
+
+
+def probe_infra(*, use_cache: bool = True):
+    """Cached (celery_ok, pdf_queue_depth, workers_ok, beat_ok).
+
+    CORE-09: the underlying `_probe_celery_and_queue` broadcasts `inspect.ping`
+    to every worker. `HealthView` is public, so cache the result for a few
+    seconds — a burst of unauthenticated `?ready=1` requests then shares one
+    control-plane round trip instead of one per request.
+    """
+    if use_cache:
+        cached = cache.get(_READY_PROBE_CACHE_KEY)
+        if cached is not None:
+            return cached
+    celery_ok, depth, workers_ok = _probe_celery_and_queue()
+    beat_ok = _probe_celery_beat_ok()
+    result = (celery_ok, depth, workers_ok, beat_ok)
+    try:
+        cache.set(_READY_PROBE_CACHE_KEY, result, _READY_PROBE_TTL)
+    except Exception:  # noqa: BLE001 — cache write must not break the probe
+        pass
+    return result
 
 
 def _probe_celery_and_queue():
@@ -146,15 +173,25 @@ class HealthView(APIView):
         except Exception:  # noqa: BLE001
             cache_ok = False
 
-        celery_ok, pdf_queue_depth, workers_ok = _probe_celery_and_queue()
-        beat_ok = _probe_celery_beat_ok()
+        # CORE-09: authenticated owners get a fresh probe; everyone else (incl.
+        # unauthenticated callers) gets the ~15s-cached result so a burst of
+        # public `?ready=1` hits cannot hammer the Celery control plane.
+        # CORE-10: a multi-membership user with no active company must not turn
+        # a health check into a 409 — swallow CompanyRequired here.
+        cu = None
+        if getattr(request.user, "is_authenticated", False):
+            try:
+                cu = get_company_user(request)
+            except Exception:  # noqa: BLE001 — health must not 409/403
+                cu = None
+        is_owner = cu is not None and getattr(cu, "role", None) == "OWNER"
+        celery_ok, pdf_queue_depth, workers_ok, beat_ok = probe_infra(use_cache=not is_owner)
         if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
             beat_ok = True
 
         healthy = db_ok and cache_ok and celery_ok and beat_ok
         # BB-000626: unauthenticated / non-owner ready probe is boolean only.
-        cu = get_company_user(request) if request.user.is_authenticated else None
-        if not request.user.is_authenticated or cu is None or getattr(cu, "role", None) != "OWNER":
+        if not is_owner:
             return Response(
                 {"status": "ok" if healthy else "degraded", "version": "v1"},
                 status=status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -178,7 +215,7 @@ class HealthView(APIView):
 
 class FileAssetViewSet(
     mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
-    viewsets.GenericViewSet,
+    mixins.DestroyModelMixin, viewsets.GenericViewSet,
 ):
     serializer_class = FileAssetSerializer
     # BB-000421: VIEWER must not enumerate company PDFs / uploads.
@@ -192,6 +229,31 @@ class FileAssetViewSet(
         if kind:
             qs = qs.filter(kind=kind)
         return qs
+
+    def get_permissions(self):
+        # CORE-11: deleting a stored file (wrong upload / wrong kind) is
+        # Owner-only — the coarse CanManageFileAssets gate lets sales/purchase
+        # staff in, which is fine for upload/list but not for destroy.
+        if self.action == "destroy":
+            return [IsAuthenticated(), HasCompany(), IsOwner()]
+        return super().get_permissions()
+
+    def perform_destroy(self, instance):
+        # CORE-11: system-generated documents (invoice / note / challan PDFs,
+        # import/export files) are regenerable or audit-relevant — only allow
+        # deleting user attachments and logos.
+        if instance.kind not in (FileAsset.Kind.ATTACHMENT, FileAsset.Kind.LOGO):
+            raise BusinessRuleError(
+                "Only uploaded attachments and logos can be deleted; "
+                "system-generated documents are managed automatically."
+            )
+        stored = instance.file
+        instance.delete()
+        try:
+            if stored:
+                stored.delete(save=False)
+        except Exception:  # noqa: BLE001 — row is already gone; orphan file is harmless
+            pass
 
     def perform_create(self, serializer):
         uploaded = self.request.FILES.get("file")
@@ -211,6 +273,16 @@ class FileAssetViewSet(
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
         asset = self.get_object()
+        # CORE-12: the list/retrieve gate (CanManageFileAssets) lets anyone with
+        # sales OR purchase rights in — fine for their own attachments, but an
+        # EXPORT / IMPORT file (tenant backups, bulk imports) should need the
+        # export capability, and an OWNER always. Scope the actual download.
+        cu = get_company_user(request)
+        if asset.kind in (FileAsset.Kind.EXPORT, FileAsset.Kind.IMPORT):
+            if not (cu and (cu.role == "OWNER" or cu.can_export or cu.can_import)):
+                raise PermissionDenied(
+                    "Downloading import/export files requires the export or import permission."
+                )
         try:
             handle = asset.file.open("rb")
         except (FileNotFoundError, OSError) as exc:
@@ -288,7 +360,12 @@ class FeatureFlagsView(APIView):
     def get(self, request):
         from core.services.feature_flags import build_feature_flags
 
-        cu = get_company_user(request) if request.user and request.user.is_authenticated else None
+        cu = None
+        if request.user and request.user.is_authenticated:
+            try:
+                cu = get_company_user(request)
+            except CompanyRequired:
+                cu = None
         company = cu.company if cu is not None else None
         flags = build_feature_flags(
             company=company,
@@ -307,11 +384,8 @@ class MetricsView(APIView):
 
     def get(self, request):
         token = (getattr(settings, "METRICS_TOKEN", "") or "").strip()
-        env = (getattr(settings, "DJANGO_ENV", "") or "").strip().lower()
-        # R1-003: never serve an unauthenticated metrics endpoint in
-        # production/staging — if no token is configured, the endpoint does
-        # not exist as far as the outside world is concerned.
-        if not token and env in ("production", "staging"):
+        # Unauthenticated metrics are never public — empty token means 404.
+        if not token:
             return HttpResponse(status=404)
         if token:
             auth = request.headers.get("Authorization", "")

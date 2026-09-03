@@ -119,8 +119,10 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
 
     story = []
     story.append(Paragraph(company.name, styles["center_bold"]))
-    if company.gstin:
-        story.append(Paragraph(f"GSTIN: {company.gstin}", styles["center"]))
+    stamp = getattr(invoice, "company_gstin", None)
+    gstin = (getattr(stamp, "gstin", None) or company.gstin or "").strip()
+    if gstin:
+        story.append(Paragraph(f"GSTIN: {gstin}", styles["center"]))
     if company.phone:
         story.append(Paragraph(f"Ph: {company.phone}", styles["center"]))
     story.append(Spacer(1, 1 * mm))
@@ -154,7 +156,12 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
             Paragraph(format_money(item.line_total), styles["body_right"]),
         ])
         if show_tax and Decimal(item.gst_rate or 0) > 0:
-            line_tax = Decimal(item.cgst or 0) + Decimal(item.sgst or 0) + Decimal(item.igst or 0)
+            line_tax = (
+                Decimal(item.cgst or 0)
+                + Decimal(item.sgst or 0)
+                + Decimal(item.igst or 0)
+                + Decimal(getattr(item, "cess", 0) or 0)
+            )
             rate_label = format_money(item.gst_rate).rstrip("0").rstrip(".")
             line_rows.append([
                 Paragraph(
@@ -199,6 +206,12 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
         summary_rows.append([
             Paragraph("Discount", styles["body"]),
             Paragraph(format_money(invoice_discount), styles["body_right"]),
+        ])
+    tcs_amount = Decimal(getattr(invoice, "tcs_amount", 0) or 0)
+    if tcs_amount:
+        summary_rows.append([
+            Paragraph("TCS", styles["body"]),
+            Paragraph(format_money(tcs_amount), styles["body_right"]),
         ])
     if invoice.round_off and Decimal(invoice.round_off) != 0:
         summary_rows.append([

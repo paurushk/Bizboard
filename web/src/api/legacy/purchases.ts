@@ -1,7 +1,7 @@
 import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockPurchases } from '@/mocks/data';
 import type { LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchaseReturn, ReportResponse } from '@/types/domain';
-import { withMocks, fetchPage, fetchMoneyListFirstPage, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
+import { withMocks, fetchPage, fetchMoneyListFirstPage, fetchAllPagesMasters, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
 import { mapPreviewTotals, type PreviewTotals } from './sales';
 
 function emptyNoteTotals() {
@@ -31,6 +31,9 @@ export async function listPurchasesPage(
     previous: null,
   });
 }
+
+export const listAllPurchases = (params?: PageParams) =>
+  fetchAllPagesMasters<PurchaseInvoice>('/purchases/invoices/', params);
 
 export async function getPurchase(id: number | string): Promise<PurchaseInvoice> {
   return withMocks(async () => {

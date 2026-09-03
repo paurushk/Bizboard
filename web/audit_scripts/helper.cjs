@@ -22,6 +22,7 @@ async function createAuditBrowser(options = {}) {
     isMobile: isMobile,
     hasTouch: isMobile,
     deviceScaleFactor: 1,
+    serviceWorkers: 'block',
   });
 
   const page = await context.newPage();

@@ -88,6 +88,8 @@ const CustomerLedgerPage = lazy(() => import('@/pages/reports/CustomerLedgerPage
 const SupplierLedgerPage = lazy(() => import('@/pages/reports/SupplierLedgerPage').then((m) => ({ default: m.SupplierLedgerPage })));
 const Gstr1ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr1ReportPage })));
 const Gstr3bReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr3bReportPage })));
+const Gstr4ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr4ReportPage })));
+const Cmp08ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Cmp08ReportPage })));
 const Gstr6ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr6ReportPage })));
 const Gstr7ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr7ReportPage })));
 const Gstr8ReportPage = lazy(() => import('@/pages/reports/GstReturnPage').then((m) => ({ default: m.Gstr8ReportPage })));
@@ -120,6 +122,7 @@ const PaymentGatewayPage = lazy(() => import('@/pages/settings/PaymentGatewayPag
 const PaymentLinksPage = lazy(() => import('@/pages/payments/PaymentLinksPage').then((m) => ({ default: m.PaymentLinksPage })));
 const BankStatementsPage = lazy(() => import('@/pages/payments/BankStatementsPage').then((m) => ({ default: m.BankStatementsPage })));
 const BankReconPage = lazy(() => import('@/pages/payments/BankReconPage').then((m) => ({ default: m.BankReconPage })));
+const AccountAggregatorPage = lazy(() => import('@/pages/payments/AccountAggregatorPage').then((m) => ({ default: m.AccountAggregatorPage })));
 const CashBookPage = lazy(() => import('@/pages/reports/CashBookPage').then((m) => ({ default: m.CashBookPage })));
 const WarehousesPage = lazy(() => import('@/pages/inventory/WarehousesPage').then((m) => ({ default: m.WarehousesPage })));
 const StockTransferPage = lazy(() => import('@/pages/inventory/StockTransferPage').then((m) => ({ default: m.StockTransferPage })));
@@ -368,12 +371,12 @@ export function App() {
             <Route element={<RoleRoute allow={canViewSalesSurfaces} />}>
               <Route path="sales/quotations" element={<QuotationsPage />} />
               <Route path="sales/returns" element={<SalesReturnsPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={canCreateSales} />}>
               <Route path="sales/credit-notes/:id" element={<CreditNoteEditor />} />
               <Route path="sales/debit-notes/:id" element={<DebitNoteEditor />} />
               <Route path="sales/orders/:id" element={<SalesOrderEditor />} />
               <Route path="sales/delivery-challans/:id" element={<DeliveryChallanEditor />} />
-            </Route>
-            <Route element={<RoleRoute allow={canCreateSales} />}>
               <Route path="sales/credit-notes/new" element={<CreditNoteEditor />} />
               <Route path="sales/debit-notes/new" element={<DebitNoteEditor />} />
               <Route path="sales/orders/new" element={<SalesOrderEditor />} />
@@ -384,6 +387,7 @@ export function App() {
             </Route>
             <Route element={<RoleRoute allow={canViewBankRecon} />}>
               <Route path="payments/reconciliation" element={<BankReconPage />} />
+              <Route path="payments/account-aggregator" element={<AccountAggregatorPage />} />
               <Route path="payments/recon" element={<Navigate to="/payments/reconciliation" replace />} />
             </Route>
             <Route element={<RoleRoute allow={canCreatePayments} />}>
@@ -400,16 +404,16 @@ export function App() {
               <Route path="purchases/credit-notes/new" element={<PurchaseCreditNoteEditor />} />
               <Route path="purchases/debit-notes/new" element={<PurchaseDebitNoteEditor />} />
               <Route path="purchases/orders/new" element={<PurchaseOrderEditor />} />
+              <Route path="purchases/credit-notes/:id" element={<PurchaseCreditNoteEditor />} />
+              <Route path="purchases/debit-notes/:id" element={<PurchaseDebitNoteEditor />} />
+              <Route path="purchases/orders/:id" element={<PurchaseOrderEditor />} />
             </Route>
             <Route element={<RoleRoute allow={canViewPurchaseSurfaces} />}>
               <Route path="purchases/history" element={<PurchaseHistoryPage />} />
               <Route path="purchases/history/:id" element={<PurchaseDetailPage />} />
               <Route path="purchases/credit-notes" element={<PurchaseCreditNotesPage />} />
-              <Route path="purchases/credit-notes/:id" element={<PurchaseCreditNoteEditor />} />
               <Route path="purchases/debit-notes" element={<PurchaseDebitNotesPage />} />
-              <Route path="purchases/debit-notes/:id" element={<PurchaseDebitNoteEditor />} />
               <Route path="purchases/orders" element={<PurchaseOrdersPage />} />
-              <Route path="purchases/orders/:id" element={<PurchaseOrderEditor />} />
               <Route path="purchases/suppliers" element={<SuppliersPage />} />
             </Route>
             <Route element={<RoleRoute allow={canImport} />}>
@@ -454,6 +458,8 @@ export function App() {
             <Route element={<RoleRoute allow={allowGstrReports} />}>
               <Route path="reports/gstr1" element={<Gstr1ReportPage />} />
               <Route path="reports/gstr3b" element={<Gstr3bReportPage />} />
+              <Route path="reports/gstr4" element={<Gstr4ReportPage />} />
+              <Route path="reports/cmp08" element={<Cmp08ReportPage />} />
               <Route path="reports/gstr6" element={<Gstr6ReportPage />} />
               <Route path="reports/gstr7" element={<Gstr7ReportPage />} />
               <Route path="reports/gstr8" element={<Gstr8ReportPage />} />

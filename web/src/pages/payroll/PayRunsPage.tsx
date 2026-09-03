@@ -18,8 +18,11 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import {
+  applyPayRunLop,
   completePayRun,
+  cancelPayRun,
   createPayRun,
+  listEmployeesPage,
   listPayRunsPage,
   updatePayRun,
   type PayRun,
@@ -57,6 +60,8 @@ function PayRunsPageInner() {
   const [period, setPeriod] = useState(currentPeriod());
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lopRun, setLopRun] = useState<PayRun | null>(null);
+  const [paidDays, setPaidDays] = useState<Record<number, string>>({});
 
   const query = useQuery({
     queryKey: ['pay-runs', page],
@@ -82,6 +87,45 @@ function PayRunsPageInner() {
   const completeMutation = useMutation({
     mutationFn: (id: number) => completePayRun(id),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['pay-runs'] }),
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const employeesQuery = useQuery({
+    queryKey: ['employees', 'lop'],
+    queryFn: async () => {
+      const pageSize = 200;
+      const first = await listEmployeesPage({ page: 1, pageSize });
+      const total = first.count ?? first.results.length;
+      if (total <= pageSize) return first;
+      const pages = [first];
+      const lastPage = Math.ceil(total / pageSize);
+      for (let p = 2; p <= lastPage; p += 1) {
+        pages.push(await listEmployeesPage({ page: p, pageSize }));
+      }
+      return { ...first, results: pages.flatMap((page) => page.results) };
+    },
+    enabled: lopRun != null,
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: number) => cancelPayRun(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['pay-runs'] }),
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const lopMutation = useMutation({
+    mutationFn: () => {
+      if (!lopRun) throw new Error('no run');
+      const entries = Object.entries(paidDays)
+        .filter(([, days]) => days.trim() !== '')
+        .map(([id, days]) => ({ employee: Number(id), paidDays: days }));
+      return applyPayRunLop(lopRun.id, entries);
+    },
+    onSuccess: () => {
+      setLopRun(null);
+      setPaidDays({});
+      void qc.invalidateQueries({ queryKey: ['pay-runs'] });
+    },
     onError: (err) => setError(getErrorMessage(err)),
   });
 
@@ -150,6 +194,16 @@ function PayRunsPageInner() {
                           </Button>
                           <Button
                             size="small"
+                            disabled={writesBlocked}
+                            onClick={() => {
+                              setLopRun(run);
+                              setPaidDays({});
+                            }}
+                          >
+                            {t('payroll.lop')}
+                          </Button>
+                          <Button
+                            size="small"
                             disabled={writesBlocked || completeMutation.isPending}
                             onClick={() => {
                               if (!window.confirm(t('payroll.confirmComplete'))) return;
@@ -159,6 +213,19 @@ function PayRunsPageInner() {
                             {t('common.complete')}
                           </Button>
                         </>
+                      ) : null}
+                      {run.status === 'COMPLETED' ? (
+                        <Button
+                          size="small"
+                          color="warning"
+                          disabled={writesBlocked || cancelMutation.isPending}
+                          onClick={() => {
+                            if (!window.confirm(t('payroll.confirmCancel'))) return;
+                            cancelMutation.mutate(run.id);
+                          }}
+                        >
+                          {t('payroll.cancelPayRun')}
+                        </Button>
                       ) : null}
                     </TableCell>
                   </TableRow>
@@ -267,6 +334,34 @@ function PayRunsPageInner() {
             onClick={() => saveMutation.mutate()}
           >
             {t('common.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={lopRun != null} onClose={() => setLopRun(null)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('payroll.lop')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1} sx={{ mt: 1 }}>
+            {(employeesQuery.data?.results ?? []).map((emp) => (
+              <TextField
+                key={emp.id}
+                size="small"
+                type="number"
+                label={`${emp.name} — ${t('payroll.paidDays')}`}
+                value={paidDays[emp.id] ?? ''}
+                onChange={(e) => setPaidDays((prev) => ({ ...prev, [emp.id]: e.target.value }))}
+              />
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLopRun(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={writesBlocked || lopMutation.isPending}
+            onClick={() => lopMutation.mutate()}
+          >
+            {t('payroll.saveLop')}
           </Button>
         </DialogActions>
       </Dialog>

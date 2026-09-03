@@ -12,6 +12,7 @@ export function ConfirmDialog({
   body,
   confirmLabel,
   confirmColor = 'primary',
+  confirming = false,
   onConfirm,
   onClose,
 }: {
@@ -20,6 +21,7 @@ export function ConfirmDialog({
   body: string;
   confirmLabel?: string;
   confirmColor?: 'primary' | 'warning' | 'error';
+  confirming?: boolean;
   onConfirm: () => void;
   onClose: () => void;
 }) {
@@ -30,8 +32,8 @@ export function ConfirmDialog({
         <Typography variant="body2">{body}</Typography>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>{t('common.cancel')}</Button>
-        <Button color={confirmColor} variant="contained" onClick={onConfirm}>
+        <Button onClick={onClose} disabled={confirming}>{t('common.cancel')}</Button>
+        <Button color={confirmColor} variant="contained" disabled={confirming} onClick={onConfirm}>
           {confirmLabel ?? t('common.confirm')}
         </Button>
       </DialogActions>

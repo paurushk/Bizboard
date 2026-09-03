@@ -82,6 +82,17 @@ class RegisterSerializer(serializers.Serializer):
     def validate_gstin(self, value):
         return (value or "").strip().upper()
 
+    def validate_phone(self, value):
+        from accounts.otp_utils import canonicalize_user_phone
+
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        try:
+            return canonicalize_user_phone(raw)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
     def validate(self, attrs):
         from django.core.exceptions import ValidationError as DjangoValidationError
 
@@ -372,6 +383,20 @@ class CompanyUserSerializer(serializers.ModelSerializer):
             "can_create_sales", "can_create_purchases", "can_create_payments",
             "can_post_journals",
         )
+        # ACCT-01: on a role change, re-apply that role's capability preset for
+        # any cap the request did not set explicitly — otherwise a promoted user
+        # (SALES_STAFF → ACCOUNTANT) silently lacks can_post_journals and a
+        # demoted user keeps elevated flags. Mutating `attrs` here means the
+        # invariant check below and the eventual save both see the corrected set.
+        role_changed = (
+            instance is not None and "role" in attrs and attrs["role"] != instance.role
+        )
+        if role_changed:
+            role_defaults = CompanyUser.capability_defaults_for_role(role)
+            if role_defaults:
+                for cap, default_val in role_defaults.items():
+                    if cap not in attrs:
+                        attrs[cap] = default_val
         caps = {}
         for field in cap_fields:
             if field in attrs:
@@ -414,6 +439,20 @@ class InviteUserSerializer(serializers.Serializer):
                 "Cannot invite users as OWNER. Promote an existing member instead."
             )
         return role
+
+    def validate_phone(self, value):
+        from accounts.otp_utils import canonicalize_user_phone, phone_taken
+
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        try:
+            canon = canonicalize_user_phone(raw)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        if phone_taken(phone=canon):
+            raise serializers.ValidationError("A user with this phone number already exists.")
+        return canon
 
     def validate(self, attrs):
         caps = {k: v for k, v in attrs.items() if v is not None}
@@ -488,4 +527,12 @@ class CompanyGstinSerializer(serializers.ModelSerializer):
                 CompanyGstin.objects.select_for_update().filter(company=instance.company, is_primary=True).exclude(
                     pk=instance.pk
                 ).update(is_primary=False)
+            elif "is_primary" in validated_data and not validated_data.get("is_primary"):
+                still = CompanyGstin.objects.filter(
+                    company=instance.company, is_primary=True,
+                ).exclude(pk=instance.pk).exists()
+                if not still:
+                    raise serializers.ValidationError(
+                        {"is_primary": "At least one GSTIN must remain primary."}
+                    )
             return super().update(instance, validated_data)

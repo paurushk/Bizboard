@@ -162,10 +162,13 @@ describe('calculateInvoiceTotals', () => {
     const lineB = calculateLineTax({ quantity: 2, unitPrice: 100, gstRate: 18 });
     const totals = calculateInvoiceTotals([lineA, lineB]);
     expect(totals.taxableTotal).toBe(210.05);
-    expect(totals.cgstTotal + totals.sgstTotal).toBe(37.81);
-    // 210.05 + 37.81 = 247.86 → rounds to 248
+    // BILL-01: symmetric CGST==SGST split — line-A tax 1.809 → 0.90 / 0.90
+    // (the 0.9 paise is dropped from the line and re-absorbed by round-off).
+    expect(totals.cgstTotal).toBe(totals.sgstTotal);
+    expect(totals.cgstTotal + totals.sgstTotal).toBe(37.8);
+    // 210.05 + 37.80 = 247.85 → rounds to 248
     expect(totals.grandTotal).toBe(248);
-    expect(totals.roundOff).toBe(0.14);
+    expect(totals.roundOff).toBe(0.15);
   });
 
   it('BUG-418: applyRoundOff=false leaves the exact fractional total', () => {

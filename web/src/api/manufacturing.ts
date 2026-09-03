@@ -32,6 +32,10 @@ export type WorkOrder = SchemaOr<
     qty: string;
     status: string;
     warehouse: number | null;
+    serialNumbers?: string[];
+    batchNo?: string;
+    expDate?: string | null;
+    mfgDate?: string | null;
     createdAt: string;
     updatedAt: string;
   }
@@ -76,13 +80,24 @@ export async function updateWorkOrder(id: number, payload: Partial<WorkOrder>): 
   return unwrapData<WorkOrder>(data);
 }
 
-export async function releaseWorkOrder(id: number): Promise<WorkOrder> {
-  const { data } = await apiClient.post(`${BASE}/work-orders/${id}/release/`);
+export async function releaseWorkOrder(
+  id: number,
+  payload?: { componentSerials?: Record<string, string[]> },
+): Promise<WorkOrder> {
+  const { data } = await apiClient.post(`${BASE}/work-orders/${id}/release/`, {
+    componentSerials: payload?.componentSerials,
+  });
   return unwrapData<WorkOrder>(data);
 }
 
-export async function completeWorkOrder(id: number): Promise<WorkOrder> {
-  const { data } = await apiClient.post(`${BASE}/work-orders/${id}/complete/`);
+export async function completeWorkOrder(
+  id: number,
+  payload?: { serialNumbers?: string[]; batchNo?: string; expDate?: string | null; mfgDate?: string | null },
+): Promise<WorkOrder> {
+  if (payload && (payload.serialNumbers?.length || payload.batchNo || payload.expDate || payload.mfgDate)) {
+    await updateWorkOrder(id, payload);
+  }
+  const { data } = await apiClient.post(`${BASE}/work-orders/${id}/complete/`, payload ?? {});
   return unwrapData<WorkOrder>(data);
 }
 

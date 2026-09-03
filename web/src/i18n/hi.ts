@@ -71,6 +71,8 @@ export const hi = {
     supplierLedger: 'आपूर्तिकर्ता खाता',
     gstr1: 'GSTR-1',
     gstr3b: 'GSTR-3B',
+    gstr4: 'GSTR-4 (फाइलिंग इंजन नहीं)',
+    cmp08: 'CMP-08 (फाइलिंग इंजन नहीं)',
     gstr8: 'GSTR-8 (स्टब)',
     gstr6: 'GSTR-6 (स्टब)',
     gstr7: 'GSTR-7 (स्टब)',
@@ -103,6 +105,7 @@ export const hi = {
     paymentLinks: 'भुगतान लिंक',
     bankStatements: 'बैंक विवरण',
     bankReconciliation: 'बैंक समाधान',
+    accountAggregator: 'अकाउंट एग्रीगेटर',
     bankAccounts: 'बैंक खाते',
     paymentGateway: 'भुगतान गेटवे',
     billing: 'बिलिंग',
@@ -135,6 +138,7 @@ export const hi = {
     opportunities: 'अवसर',
     help: 'सहायता और सामान्य प्रश्न',
     helpHealth: 'सहायता स्वास्थ्य',
+    offlineOutbox: 'ऑफ़लाइन आउटबॉक्स',
   },
   help: {
     title: 'सहायता और सामान्य प्रश्न',
@@ -433,6 +437,16 @@ export const hi = {
     itcEligibility: 'ITC पात्रता',
     savedOffline: 'ऑफ़लाइन सहेजा गया — ऑनलाइन आने पर सिंक होगा।',
     offlineOutboxPending: 'ऑफ़लाइन इनवॉइस ड्राफ्ट सिंक की प्रतीक्षा में हैं।',
+    invoiceSaved: 'इनवॉइस {label} सहेजा गया',
+    invoiceSavedNext: 'इनवॉइस {label} सहेजा गया — अगला शुरू करें',
+    draftSaved: 'ड्राफ्ट {label} सहेजा गया',
+    draftSavedCompleteFailed: 'ड्राफ्ट {label} सहेजा गया — पूर्ण विफल: {warning}',
+    purchaseSaved: 'खरीद {label} सहेजी गई',
+    purchaseSavedNext: 'खरीद {label} सहेजी गई — अगली शुरू करें',
+    purchaseSavedStock: 'खरीद {label} सहेजी गई — {count} आइटम स्टॉक में जुड़े',
+    saveDisabledReason: 'सहेजने के लिए पक्ष और कम से कम एक पंक्ति चुनें',
+    completeDisabledReason:
+      'पूर्ण करने के लिए ग्राहक/आपूर्तिकर्ता और मान्य मात्रा वाली कम से कम एक पंक्ति चुनें',
     restoreDraft: 'पुनर्स्थापित करें',
     restorePurchaseDraft: 'इस डिवाइस पर {when} का बिना सहेजा खरीद ड्राफ्ट मिला।',
     mobileBillingTip: 'घने बिलिंग स्क्रीन के लिए लैंडस्केप या टैबलेट बेहतर रहता है।',
@@ -472,6 +486,8 @@ export const hi = {
       'यह लौटाया इनवॉइस संपादित नहीं हो सकता। स्टॉक सुधार के लिए क्रेडिट नोट या मूल रिटर्न का उपयोग करें।',
     completedBatchLocked:
       'पूर्ण बिल पर बैच/सीरियल आइटम की मात्रा नहीं बदल सकती। क्रेडिट नोट या सेल्स रिटर्न का उपयोग करें। मालिक अभी भी मूल्य संशोधित कर सकते हैं।',
+    previewUnavailableClientTotals:
+      'सर्वर टोटल प्रीव्यू उपलब्ध नहीं है। दिखाए गए टोटल इसी डिवाइस पर गणना किए गए हैं; इनवॉइस पूर्ण करने पर सर्वर आधिकारिक टोटल की पुनर्गणना करेगा।',
     skuMustBeUnique: 'SKU अनिवार्य है और यूनिक होना चाहिए।',
     hsnSacDigits: 'HSN/SAC 4, 6 या 8 अंकों का होना चाहिए',
     fefoBatch: 'FEFO बैच',
@@ -825,6 +841,9 @@ export const hi = {
     cnl2: 'डेटा प्रविष्टि त्रुटि',
     cnl3: 'आदेश रद्द',
     cnl4: 'अन्य',
+    filingIdentity: 'फाइलिंग पहचान',
+    amendFilingIdentity: 'फाइलिंग पहचान संशोधित करें',
+    filingIdentityAmended: 'फाइलिंग पहचान संशोधित हुई',
   },
   receipts: {
     mode: 'मोड',
@@ -834,9 +853,14 @@ export const hi = {
   payroll: {
     confirmRun: 'इस पेरोल रन को बही में पोस्ट करें? इस स्क्रीन से इसे पूर्ववत नहीं किया जा सकता।',
     confirmComplete: 'इस वेतन रन को पूर्ण करें?',
+    confirmCancel: 'इस वेतन रन को रद्द करें? पोस्टेड जर्नल वापस होंगे और रन ड्राफ्ट में लौटेगा।',
+    cancelPayRun: 'वेतन रन रद्द करें',
     payMonth: 'वेतन महीना',
     calendarYear: 'कैलेंडर वर्ष',
     payRun: 'वेतन रन',
+    lop: 'भुगतान कटौती (LOP)',
+    paidDays: 'भुगतान दिन',
+    saveLop: 'भुगतान दिन सहेजें',
   },
   inventory: {
     godown: 'गोडाउन',
@@ -878,11 +902,31 @@ export const hi = {
     stubTitle: 'फाइलिंग इंजन नहीं',
     stubBody:
       'यह रिटर्न प्रकार लागू नहीं है। API supported: false के साथ खाली पेलोड देता है। GSTN फाइलिंग के लिए उपयोग न करें।',
+    rawPayload: 'तकनीकी पेलोड',
+  },
+  aaHonesty: {
+    title: 'इस ऐप में सहमति UI नहीं है',
+    body: 'पार्टनर के लिए Account Aggregator ingest API मौजूद हैं। यह वेब ऐप AA सहमति नहीं लेता। बैंक स्टेटमेंट अपलोड और समाधान का उपयोग करें।',
   },
   history: {
     loadMore: 'और लोड करें',
     confirmCancel: '{label} रद्द करें? यह पूर्ववत नहीं हो सकता।',
     confirmDeleteDraft: 'ड्राफ्ट {label} हटाएँ? यह पूर्ववत नहीं हो सकता।',
+    confirmCancelCreditNote:
+      'क्या आप इस क्रेडिट नोट को रद्द करना चाहते हैं? यदि यह एक पूर्ण सेल्स रिटर्न से बना है, तो पहले रिटर्न रद्द करें। यह क्रिया पूर्ववत नहीं हो सकती।',
+    confirmCancelDebitNote:
+      'क्या आप इस डेबिट नोट को रद्द करना चाहते हैं? यह क्रिया पूर्ववत नहीं हो सकती।',
+    confirmCancelDeliveryChallan:
+      'क्या आप इस डिलीवरी चालान को रद्द करना चाहते हैं? यह क्रिया पूर्ववत नहीं हो सकती।',
+    confirmCancelPurchaseCreditNote:
+      'क्या आप इस खरीद क्रेडिट नोट को रद्द करना चाहते हैं? यह क्रिया पूर्ववत नहीं हो सकती।',
+    confirmCancelPurchaseDebitNote:
+      'क्या आप इस खरीद डेबिट नोट को रद्द करना चाहते हैं? यह क्रिया पूर्ववत नहीं हो सकती।',
+    confirmCancelPurchaseOrder:
+      'क्या आप इस खरीद ऑर्डर को रद्द करना चाहते हैं? यह क्रिया पूर्ववत नहीं हो सकती।',
+    confirmCancelSalesOrder:
+      'क्या आप इस बिक्री ऑर्डर को रद्द करना चाहते हैं? यह क्रिया पूर्ववत नहीं हो सकती।',
+    confirmCancelAction: 'रद्द करने की पुष्टि',
   },
   dashboard: {
     todaySales: 'आज की बिक्री',
@@ -969,6 +1013,17 @@ export const hi = {
     activityCall: 'कॉल',
     activityEmail: 'ईमेल',
     convertWon: 'जीती हुई डील के रूप में बदलें',
+    markAsWon: 'जीती हुई चिह्नित करें',
+    basic: 'बेसिक',
+    da: 'महंगाई भत्ता',
+    tdsRate: 'TDS दर %',
+    batchNo: 'बैच नंबर',
+    expDate: 'समाप्ति तिथि',
+    mfgDate: 'निर्माण तिथि',
+    serialNumbers: 'सीरियल नंबर',
+    serialNumbersHint: 'प्रति पंक्ति एक सीरियल (पूर्ण पर तैयार माल)।',
+    componentSerials: 'घटक सीरियल',
+    componentSerialsHint: 'प्रति घटक एक पंक्ति: componentId: serial1, serial2',
   },
   import: {
     title: 'डेटा आयात',
@@ -1183,6 +1238,7 @@ export const hi = {
     saved: 'सफलतापूर्वक सहेजा गया',
     cancelled: 'दस्तावेज़ रद्द',
     cancelDocument: 'दस्तावेज़ रद्द करें',
+    toChallan: 'चालान में',
     convertedToInvoice: 'ड्राफ्ट इनवॉइस #{id} में बदला गया',
     creditLimitWarning:
       'क्रेडिट सीमा चेतावनी: {exposure} एक्सपोज़र (बकाया + यह इनवॉइस) बनाम {limit} सीमा ({pct}%)।',
@@ -1301,6 +1357,7 @@ export const hi = {
     export: 'निर्यात सहायता डाउनलोड',
   },
   locale: {
+    language: 'भाषा',
     switchToHindi: 'हिंदी',
     switchToEnglish: 'English',
     switchToTamil: 'தமிழ் (beta)',
@@ -1308,6 +1365,11 @@ export const hi = {
     companySwitcher: 'कंपनी बदलें',
     companyRequired: 'कंपनी चुनें',
     companyRequiredHelp: 'आप एक से अधिक कंपनी में हैं। जारी रखने के लिए एक चुनें।',
+  },
+  errorBoundary: {
+    title: 'कुछ गलत हो गया',
+    body: 'एक अप्रत्याशित त्रुटि हुई। पृष्ठ पुनः लोड करने से आमतौर पर ठीक हो जाता है।',
+    reload: 'पुनः लोड करें',
   },
   preview: {
     manufacturing: 'केवल पूर्वावलोकन — पूर्ण MES नहीं।',

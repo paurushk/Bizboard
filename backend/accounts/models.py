@@ -46,6 +46,27 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
+    def save(self, *args, **kwargs):
+        raw = (self.phone or "").strip()
+        if raw:
+            from accounts.otp_utils import canonicalize_user_phone
+
+            try:
+                self.phone = canonicalize_user_phone(raw)
+            except ValueError:
+                import re
+
+                digits = re.sub(r"\D", "", raw)
+                if digits.startswith("0") and len(digits) == 11:
+                    self.phone = canonicalize_user_phone(digits[1:])
+                else:
+                    from django.core.exceptions import ValidationError
+
+                    raise ValidationError({"phone": "Enter a valid mobile number (E.164 or 10-digit Indian)."})
+        else:
+            self.phone = ""
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return self.email
 
@@ -173,6 +194,10 @@ class Company(TimeStampedModel):
     stock_on_delivery_challan = models.BooleanField(default=False)
     # Phase 5 — light accounting
     accounting_enabled = models.BooleanField(default=False)
+    # ACC-04: when on, PostingService.post / assert_period_allows_money_amend
+    # reject a date that is not inside an OPEN AccountingPeriod (not just one
+    # that is explicitly CLOSED). Off by default for back-compat.
+    require_open_period_for_posting = models.BooleanField(default=False)
     # R3-017: effective date for opening-balance journals (opening stock, opening
     # AR/AP). Falls back to the current FY start when unset.
     books_start_date = models.DateField(null=True, blank=True)
@@ -231,11 +256,11 @@ class Company(TimeStampedModel):
 
     @property
     def is_gst_registered(self):
-        # BB-000607: registration lives on Company, not CompanyGstin.
-        return (
-            self.registration_type != self.RegistrationType.UNREGISTERED
-            and bool(self.gstin)
-        )
+        if self.registration_type == self.RegistrationType.UNREGISTERED:
+            return False
+        if self.gstin:
+            return True
+        return self.gstins.filter(is_active=True).exclude(gstin="").exists()
 
 
 class CompanyGstin(TimeStampedModel):
@@ -270,6 +295,45 @@ class CompanyGstin(TimeStampedModel):
 
     def __str__(self):
         return self.gstin or f"CompanyGstin#{self.pk}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self._mirror_primary_to_company()
+
+    def delete(self, *args, **kwargs):
+        company_id, was_primary = self.company_id, self.is_primary
+        super().delete(*args, **kwargs)
+        if was_primary:
+            CompanyGstin._resync_company_scalar(company_id)
+
+    def _mirror_primary_to_company(self):
+        # ACCT-02: `Company.gstin` / `Company.state` are read directly by
+        # billing, document_numbers and the GSTR builders. Keep the scalar in
+        # step with the primary CompanyGstin row so a multi-GSTIN tenant that
+        # manages registrations only through this model never breaks the
+        # scalar readers.
+        if self.is_primary and self.is_active:
+            fields = {"gstin": self.gstin}
+            if self.state:
+                fields["state"] = self.state
+            Company.objects.filter(pk=self.company_id).update(**fields)
+        else:
+            CompanyGstin._resync_company_scalar(self.company_id)
+
+    @staticmethod
+    def _resync_company_scalar(company_id):
+        primary = (
+            CompanyGstin.objects.filter(
+                company_id=company_id, is_primary=True, is_active=True
+            )
+            .exclude(gstin="")
+            .first()
+        )
+        if primary is not None:
+            fields = {"gstin": primary.gstin}
+            if primary.state:
+                fields["state"] = primary.state
+            Company.objects.filter(pk=company_id).update(**fields)
 
 
 class CompanyUser(TimeStampedModel):

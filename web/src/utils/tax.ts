@@ -77,9 +77,11 @@ export function calculateLineTax(input: LineTaxInput): LineTaxResult {
   const intraState = input.intraState ?? true;
 
   if (intraState) {
+    // BILL-01: CGST == SGST exactly for an intra-state supply (GSTN
+    // validation); split symmetrically and let round-off absorb any odd paise.
     const half = roundMoney(taxRaw / 2);
     const cgst = half;
-    const sgst = roundMoney(taxRaw) - half;
+    const sgst = half;
     return {
       gross,
       discountAmount,
@@ -151,9 +153,11 @@ function applyLineTaxOnTaxable(
   }
   const taxRaw = taxableAmount * (gstRate / 100);
   if (intraState) {
+    // BILL-01: CGST == SGST exactly for an intra-state supply (GSTN
+    // validation); split symmetrically and let round-off absorb any odd paise.
     const half = roundMoney(taxRaw / 2);
     const cgst = half;
-    const sgst = roundMoney(taxRaw) - half;
+    const sgst = half;
     return {
       taxableAmount,
       cgst,
@@ -196,7 +200,10 @@ export function extractExclusiveFromInclusiveLine(input: {
   if (specific > 0) {
     netInclusive = roundMoney(Math.max(0, netInclusive - specific));
   }
-  const rate = input.gstRate + (specific > 0 ? 0 : (input.cessRate ?? 0));
+  // FE-03: match `core.services.billing.extract_exclusive_from_inclusive_line` —
+  // the ad-valorem cess rate stays in the extraction denominator even when a
+  // per-unit specific cess is also present (specific is peeled separately, above).
+  const rate = input.gstRate + (input.cessRate ?? 0);
   const taxableAmount =
     rate > 0 ? roundMoney((netInclusive * 100) / (100 + rate)) : netInclusive;
   const exclusiveUnitPrice = roundMoney(taxableAmount / qty);
@@ -260,22 +267,49 @@ export function calculateInvoiceTotals(
   }));
 
   if (mode === 'BEFORE_TAX' && invoiceDiscount > 0 && working.length > 0) {
-    const taxableSum = roundMoney(working.reduce((s, l) => s + l.taxableAmount, 0));
+    const originalTaxables = working.map((l) => l.taxableAmount);
+    const taxableSum = roundMoney(originalTaxables.reduce((s, t) => s + t, 0));
     if (taxableSum > 0) {
+      // FE-02: allocate the invoice-level discount exactly as
+      // `core.services.billing.compute_document_totals` does — a proportional
+      // pass clamped to each line's own taxable, then spread any residual across
+      // the lines that still have headroom (never dump it on the last line,
+      // which the backend explicitly moved away from in R1-020).
       const remaining = Math.min(invoiceDiscount, taxableSum);
+      const adjusted = [...originalTaxables];
       let allocated = 0;
-      working = working.map((l, i) => {
-        if (i === working.length - 1) {
-          const last = roundMoney(remaining - allocated);
-          const taxableAmount = roundMoney(Math.max(0, l.taxableAmount - last));
-          return { ...l, ...applyLineTaxOnTaxable(taxableAmount, l.gstRate, l.intraState, l.cessRate) };
+      for (let i = 0; i < adjusted.length; i += 1) {
+        let share = roundMoney((originalTaxables[i] / taxableSum) * remaining);
+        share = Math.min(share, adjusted[i]);
+        adjusted[i] = roundMoney(adjusted[i] - share);
+        allocated = roundMoney(allocated + share);
+      }
+      let residual = roundMoney(remaining - allocated);
+      let guard = 0;
+      while (residual > 0 && guard < adjusted.length + 2) {
+        guard += 1;
+        const headroom = adjusted.map((v, i) => (v > 0 ? i : -1)).filter((i) => i >= 0);
+        if (headroom.length === 0) break;
+        const per = roundMoney(residual / headroom.length);
+        if (per <= 0) {
+          for (const i of headroom) {
+            if (residual <= 0) break;
+            const take = Math.min(0.01, adjusted[i], residual);
+            adjusted[i] = roundMoney(adjusted[i] - take);
+            residual = roundMoney(residual - take);
+          }
+          break;
         }
-        const share = roundMoney((l.taxableAmount / taxableSum) * remaining);
-        const capped = Math.min(share, l.taxableAmount);
-        allocated = roundMoney(allocated + capped);
-        const taxableAmount = roundMoney(l.taxableAmount - capped);
-        return { ...l, ...applyLineTaxOnTaxable(taxableAmount, l.gstRate, l.intraState, l.cessRate) };
-      });
+        for (const i of headroom) {
+          const take = Math.min(per, adjusted[i], residual);
+          adjusted[i] = roundMoney(adjusted[i] - take);
+          residual = roundMoney(residual - take);
+        }
+      }
+      working = working.map((l, i) => ({
+        ...l,
+        ...applyLineTaxOnTaxable(adjusted[i], l.gstRate, l.intraState, l.cessRate),
+      }));
     }
   }
 

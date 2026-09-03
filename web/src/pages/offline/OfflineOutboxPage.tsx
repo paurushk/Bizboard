@@ -20,8 +20,10 @@ import {
   removeDraft,
   type OutboxDraft,
 } from '@/offline/invoiceDraftCache';
-import { completePurchase, completeSalesInvoice, createPurchase, createSalesInvoice, updatePurchase, updateSalesInvoice, postStockCount, updateStockCount, completeTransfer } from '@/api/resources';
 import { flushPosDraft } from '@/offline/flushPosCheckout';
+import { flushInvoiceDraft } from '@/pages/sales/invoice/useInvoiceOffline';
+import { flushPurchaseDraft } from '@/pages/purchases/usePurchaseOffline';
+import { flushStockDraft } from '@/pages/inventory/useStockOffline';
 import { getErrorMessage } from '@/api/client';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
@@ -64,26 +66,7 @@ export function OfflineOutboxPage() {
     try {
       const result = await flushOutbox(companyId, userId, async (draft) => {
         if (draft.kind === 'purchase') {
-          const payload = { ...(draft.payload as Record<string, unknown>) };
-          const completeIntent =
-            Boolean(draft.completeIntent) || Boolean(payload._completeIntent);
-          const confirmBlankPos = Boolean(payload._confirmBlankPos || payload.confirmBlankPos);
-          const confirmGstinTotalChange = Boolean(
-            payload._confirmGstinTotalChange || payload.confirmGstinTotalChange,
-          );
-          delete payload._completeIntent;
-          delete payload._confirmBlankPos;
-          delete payload._confirmGstinTotalChange;
-          delete payload.status;
-          let purchase;
-          if (draft.invoiceId) {
-            purchase = await updatePurchase(draft.invoiceId, payload as never);
-          } else {
-            purchase = await createPurchase(payload as never, { idempotencyKey: draft.idempotencyKey });
-          }
-          if (completeIntent && purchase.status === 'DRAFT') {
-            await completePurchase(purchase.id, { confirmBlankPos, confirmGstinTotalChange });
-          }
+          await flushPurchaseDraft(draft);
           return;
         }
         if (draft.kind === 'pos') {
@@ -91,49 +74,11 @@ export function OfflineOutboxPage() {
           return;
         }
         if (draft.kind === 'invoice') {
-          const payload = { ...draft.payload } as Record<string, unknown>;
-          const completeIntent =
-            Boolean(draft.completeIntent) || Boolean(payload._completeIntent);
-          const confirmSalesRcm = Boolean(payload._confirmSalesRcm || payload.confirmSalesRcm);
-          delete payload._completeIntent;
-          delete payload._confirmSalesRcm;
-          let invoice;
-          if (draft.invoiceId) {
-            invoice = await updateSalesInvoice(draft.invoiceId, payload as never);
-          } else {
-            invoice = await createSalesInvoice(payload as never, {
-              idempotencyKey: draft.idempotencyKey,
-            });
-          }
-          if (completeIntent && invoice.status === 'DRAFT') {
-            await completeSalesInvoice(invoice.id, {
-              confirmSalesRcm,
-              confirmBlankPos: Boolean(payload.confirmBlankPos || payload._confirmBlankPos),
-              confirmGstinTotalChange: Boolean(
-                payload.confirmGstinTotalChange || payload._confirmGstinTotalChange,
-              ),
-            });
-          }
+          await flushInvoiceDraft(draft);
           return;
         }
-        if (draft.kind === 'stock_count') {
-          const sessionId = Number(draft.payload.sessionId);
-          const lines = draft.payload.lines as Record<string, string> | undefined;
-          if (lines && Object.keys(lines).length) {
-            await updateStockCount(sessionId, {
-              lines: Object.entries(lines).map(([id, countedQty]) => ({ id: Number(id), countedQty })),
-            });
-          }
-          const resolve = String(draft.payload.resolveConflicts || '');
-          await postStockCount(
-            sessionId,
-            resolve ? { resolveConflicts: resolve } : {},
-            { idempotencyKey: draft.idempotencyKey },
-          );
-          return;
-        }
-        if (draft.kind === 'stock_transfer') {
-          await completeTransfer(Number(draft.payload.transferId));
+        if (draft.kind === 'stock_count' || draft.kind === 'stock_transfer') {
+          await flushStockDraft(draft);
           return;
         }
         throw new Error(t('pos.syncFailed'));
@@ -166,7 +111,12 @@ export function OfflineOutboxPage() {
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('offlineOutbox.title')}</Typography>
-        <Button variant="contained" disabled={busy || !navigator.onLine} onClick={() => void syncNow()}>
+        <Button
+          variant="contained"
+          disabled={busy || !navigator.onLine}
+          aria-busy={busy}
+          onClick={() => void syncNow()}
+        >
           {t('offlineOutbox.syncNow')}
         </Button>
       </Stack>

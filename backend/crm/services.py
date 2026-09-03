@@ -4,9 +4,38 @@ from decimal import Decimal
 
 from django.db import transaction
 
+from accounts.otp_utils import phone_lookup_values
+from core.exceptions import BusinessRuleError
 from masters.models import Customer
 
 from .models import Lead, Opportunity
+
+
+def _unique_customer_by_phone(company, phone: str):
+    variants = phone_lookup_values(phone)
+    if not variants:
+        return None
+    matches = list(Customer.objects.filter(company=company, phone__in=variants)[:2])
+    if len(matches) >= 2:
+        raise BusinessRuleError(
+            "Multiple customers share this phone. Link the lead to a customer before converting."
+        )
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _unique_customer_by_email(company, email: str):
+    if not email:
+        return None
+    matches = list(Customer.objects.filter(company=company, email__iexact=email)[:2])
+    if len(matches) >= 2:
+        raise BusinessRuleError(
+            "Multiple customers share this email. Link the lead to a customer before converting."
+        )
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 @transaction.atomic
@@ -21,10 +50,16 @@ def convert_lead(
         .first()
     )
     if existing is not None:
+        updates = []
         if won and existing.stage != Opportunity.Stage.WON:
             existing.stage = Opportunity.Stage.WON
+            updates.append("stage")
+        if amount is not None:
+            existing.amount = Decimal(str(amount))
+            updates.append("amount")
+        if updates:
             existing.updated_by = user
-            existing.save(update_fields=["stage", "updated_by", "updated_at"])
+            existing.save(update_fields=updates + ["updated_by", "updated_at"])
         customer = lead.customer
         if customer is None:
             customer = existing.customer
@@ -35,9 +70,9 @@ def convert_lead(
     else:
         existing_cust = None
         if lead.phone:
-            existing_cust = Customer.objects.filter(company=lead.company, phone=lead.phone).first()
-        if not existing_cust and lead.email:
-            existing_cust = Customer.objects.filter(company=lead.company, email__iexact=lead.email).first()
+            existing_cust = _unique_customer_by_phone(lead.company, lead.phone)
+        if existing_cust is None and lead.email:
+            existing_cust = _unique_customer_by_email(lead.company, lead.email)
         if existing_cust is not None:
             customer = existing_cust
             updates = []

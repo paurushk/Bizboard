@@ -9,7 +9,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
-import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
@@ -83,7 +83,7 @@ export function DocumentListPage({
           </Button>
         ) : null}
       </Stack>
-      {loading ? <LoadingState /> : null}
+      {loading ? <ListSkeleton /> : null}
       {error ? <ErrorState message={String(error)} error={error} onRetry={onRetry} /> : null}
       {!loading && !error && rows?.length === 0 ? <EmptyState /> : null}
       {rows && rows.length > 0 ? (

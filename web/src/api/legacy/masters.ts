@@ -1,4 +1,4 @@
-import { apiClient, unwrapData } from '../client';
+import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockCustomers, mockProducts, mockReceipts, mockSupplierPayments, mockSuppliers } from '@/mocks/data';
 import type { Customer, CustomerReceipt, Product, Supplier, SupplierPayment, Unit } from '@/types/domain';
 import { withMocks, fetchPage, fetchMoneyListFirstPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
@@ -288,16 +288,21 @@ export async function listSupplierPaymentsPage(params?: PageParams): Promise<Pag
   });
 }
 
-export async function createSupplierPayment(payload: {
-  supplier: number;
-  amount: number | string;
-  mode: string;
-  paymentDate?: string;
-  reference?: string;
-  notes?: string;
-}): Promise<SupplierPayment> {
+export async function createSupplierPayment(
+  payload: {
+    supplier: number;
+    amount: number | string;
+    mode: string;
+    paymentDate?: string;
+    reference?: string;
+    notes?: string;
+  },
+  options?: { idempotencyKey?: string },
+): Promise<SupplierPayment> {
   return withMocks(async () => {
-    const { data } = await apiClient.post('/payments/supplier-payments/', payload);
+    const { data } = await apiClient.post('/payments/supplier-payments/', payload, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
+    });
     return unwrapData<SupplierPayment>(data);
   }, {
     id: Date.now(),

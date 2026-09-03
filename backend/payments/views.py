@@ -1,5 +1,5 @@
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 from rest_framework import mixins, status, viewsets
@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.exceptions import BusinessRuleError
-from core.idempotency import get_record, replay_record, store_record
+from core.idempotency import begin_record, release_record, store_record
 from core.permissions import (
     CanCancelDocuments,
     CanCreatePayments,
@@ -83,6 +83,7 @@ class BankAccountViewSet(CompanyScopedViewSet):
             BankAccount.objects.filter(company=self.company, is_default=True).update(is_default=False)
         serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user)
         self._audit("CREATE", serializer.instance)
+        self._post_opening_balance(serializer.instance)
 
     def perform_update(self, serializer):
         if serializer.validated_data.get("is_default"):
@@ -91,6 +92,23 @@ class BankAccountViewSet(CompanyScopedViewSet):
             ).update(is_default=False)
         serializer.save(updated_by=self.request.user)
         self._audit("UPDATE", serializer.instance)
+        self._post_opening_balance(serializer.instance)
+
+    def _post_opening_balance(self, bank_account):
+        """PAY-14: keep the GL bank opening balance in step with the operational
+        opening_balance field (idempotent; re-posts on an edit)."""
+        if not getattr(self.company, "accounting_enabled", False):
+            return
+        try:
+            from accounting.services import PostingService
+
+            PostingService.post_bank_opening_balance(bank_account, user=self.request.user)
+        except Exception:  # noqa: BLE001 — a GL hiccup must not fail the bank-account save
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "Failed to post opening balance for bank account %s", bank_account.pk
+            )
 
 
 class CustomerReceiptViewSet(CompanyScopedViewSet):
@@ -119,30 +137,35 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
         """BB-000610 / BB-000654: durable idempotency + period gate."""
         raw_key = (request.headers.get("Idempotency-Key") or "").strip()
         if raw_key:
-            prior = get_record(company=self.company, scope="receipt_create", raw_key=raw_key)
-            if prior is not None:
-                return replay_record(prior)
+            claimed = begin_record(company=self.company, scope="receipt_create", raw_key=raw_key)
+            if isinstance(claimed, Response):
+                return claimed
 
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        from reporting.gst_periods import assert_period_allows_money_amend, period_complete_warning
+        try:
+            serializer.is_valid(raise_exception=True)
+            from reporting.gst_periods import assert_period_allows_money_amend, period_complete_warning
 
-        receipt_date = serializer.validated_data.get("receipt_date")
-        assert_period_allows_money_amend(self.company, receipt_date)
-        warning = period_complete_warning(self.company, receipt_date)
-        bank_account = serializer.validated_data.get("bank_account")
-        receipt = PaymentService.create_receipt(
-            company=self.company,
-            customer=serializer.validated_data["customer"],
-            amount=serializer.validated_data["amount"],
-            mode=serializer.validated_data.get("mode", "CASH"),
-            receipt_date=serializer.validated_data.get("receipt_date"),
-            reference=serializer.validated_data.get("reference", ""),
-            utr=serializer.validated_data.get("utr", ""),
-            notes=serializer.validated_data.get("notes", ""),
-            bank_account=bank_account,
-            user=request.user,
-        )
+            receipt_date = serializer.validated_data.get("receipt_date")
+            assert_period_allows_money_amend(self.company, receipt_date)
+            warning = period_complete_warning(self.company, receipt_date)
+            bank_account = serializer.validated_data.get("bank_account")
+            receipt = PaymentService.create_receipt(
+                company=self.company,
+                customer=serializer.validated_data["customer"],
+                amount=serializer.validated_data["amount"],
+                mode=serializer.validated_data.get("mode", "CASH"),
+                receipt_date=serializer.validated_data.get("receipt_date"),
+                reference=serializer.validated_data.get("reference", ""),
+                utr=serializer.validated_data.get("utr", ""),
+                notes=serializer.validated_data.get("notes", ""),
+                bank_account=bank_account,
+                user=request.user,
+            )
+        except Exception:
+            if raw_key:
+                release_record(company=self.company, scope="receipt_create", raw_key=raw_key)
+            raise
         self._audit("CREATE", receipt)
         data = self.get_serializer(receipt).data
         if warning:
@@ -194,31 +217,36 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
     def create(self, request, *args, **kwargs):
         raw_key = (request.headers.get("Idempotency-Key") or "").strip()
         if raw_key:
-            prior = get_record(company=self.company, scope="supplier_payment_create", raw_key=raw_key)
-            if prior is not None:
-                return replay_record(prior)
+            claimed = begin_record(company=self.company, scope="supplier_payment_create", raw_key=raw_key)
+            if isinstance(claimed, Response):
+                return claimed
 
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        from reporting.gst_periods import assert_period_allows_money_amend, period_complete_warning
+        try:
+            serializer.is_valid(raise_exception=True)
+            from reporting.gst_periods import assert_period_allows_money_amend, period_complete_warning
 
-        assert_period_allows_money_amend(self.company, serializer.validated_data.get("payment_date"))
-        warning = period_complete_warning(self.company, serializer.validated_data.get("payment_date"))
-        payment = PaymentService.create_supplier_payment(
-            company=self.company,
-            supplier=serializer.validated_data["supplier"],
-            amount=serializer.validated_data["amount"],
-            mode=serializer.validated_data.get("mode", "CASH"),
-            payment_date=serializer.validated_data.get("payment_date"),
-            reference=serializer.validated_data.get("reference", ""),
-            utr=serializer.validated_data.get("utr", ""),
-            notes=serializer.validated_data.get("notes", ""),
-            bank_account=serializer.validated_data.get("bank_account"),
-            tds_section=serializer.validated_data.get("tds_section", ""),
-            tds_rate=serializer.validated_data.get("tds_rate"),
-            tds_amount=serializer.validated_data.get("tds_amount"),
-            user=request.user,
-        )
+            assert_period_allows_money_amend(self.company, serializer.validated_data.get("payment_date"))
+            warning = period_complete_warning(self.company, serializer.validated_data.get("payment_date"))
+            payment = PaymentService.create_supplier_payment(
+                company=self.company,
+                supplier=serializer.validated_data["supplier"],
+                amount=serializer.validated_data["amount"],
+                mode=serializer.validated_data.get("mode", "CASH"),
+                payment_date=serializer.validated_data.get("payment_date"),
+                reference=serializer.validated_data.get("reference", ""),
+                utr=serializer.validated_data.get("utr", ""),
+                notes=serializer.validated_data.get("notes", ""),
+                bank_account=serializer.validated_data.get("bank_account"),
+                tds_section=serializer.validated_data.get("tds_section", ""),
+                tds_rate=serializer.validated_data.get("tds_rate"),
+                tds_amount=serializer.validated_data.get("tds_amount"),
+                user=request.user,
+            )
+        except Exception:
+            if raw_key:
+                release_record(company=self.company, scope="supplier_payment_create", raw_key=raw_key)
+            raise
         self._audit("CREATE", payment)
         data = self.get_serializer(payment).data
         if warning:
@@ -468,9 +496,15 @@ class GatewayPaymentViewSet(CompanyScopedViewSet):
         gp = self.get_object()
         amount = request.data.get("amount")
         reason = request.data.get("reason") or ""
+        parsed_amount = None
+        if amount is not None and str(amount).strip() != "":
+            try:
+                parsed_amount = Decimal(str(amount))
+            except (InvalidOperation, TypeError, ValueError):
+                raise ValidationError({"amount": "Enter a valid refund amount."})
         gp = PaymentService.refund_gateway_payment(
             gateway_payment=gp,
-            amount=Decimal(str(amount)) if amount is not None else None,
+            amount=parsed_amount,
             user=request.user,
             reason=reason,
         )

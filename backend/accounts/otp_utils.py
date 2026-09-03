@@ -38,6 +38,11 @@ def phone_lookup_values(phone: str) -> list[str]:
         if len(digits) == 10:
             variants.add(f"+91{digits}")
             variants.add(f"91{digits}")
+        if digits.startswith("0") and len(digits) == 11:
+            national = digits[1:]
+            variants.add(national)
+            variants.add(f"+91{national}")
+            variants.add(f"91{national}")
     return [v for v in variants if v]
 
 
@@ -54,3 +59,49 @@ def normalize_e164(phone: str) -> str:
     if digits.startswith("91") and len(digits) == 12:
         return f"+{digits}"
     raise ValueError("Phone must be E.164 (e.g. +919876543210).")
+
+
+def canonicalize_user_phone(phone: str) -> str:
+    """Blank stays blank; otherwise E.164 so unique+lookup cannot collide."""
+    raw = (phone or "").strip()
+    if not raw:
+        return ""
+    return normalize_e164(raw)
+
+
+def phone_taken(*, phone: str, exclude_pk=None) -> bool:
+    """True when any user already owns this number (any format)."""
+    from accounts.models import User
+
+    variants = phone_lookup_values(phone)
+    if not variants:
+        return False
+    qs = User.objects.filter(phone__in=variants)
+    if exclude_pk is not None:
+        qs = qs.exclude(pk=exclude_pk)
+    return qs.exists()
+
+
+def resolve_user_by_phone(phone: str, *, active_only: bool = True):
+    """Pick the canonical E.164 row when duplicate formats still exist."""
+    from accounts.models import User
+
+    variants = phone_lookup_values(phone)
+    if not variants:
+        return None
+    qs = User.objects.filter(phone__in=variants)
+    if active_only:
+        qs = qs.filter(is_active=True)
+    rows = list(qs.order_by("id"))
+    if not rows:
+        return None
+    try:
+        canon = canonicalize_user_phone(phone)
+    except ValueError:
+        canon = ""
+    for user in rows:
+        if canon and user.phone == canon:
+            return user
+        if user.phone.startswith("+"):
+            return user
+    return rows[0]

@@ -25,14 +25,35 @@ class InventoryService:
         if warehouse:
             return warehouse
         # Safe for legacy/import callers and newly-created companies before the
-        # data migration runs. The uniqueness constraint protects normal use.
-        warehouse, _ = Warehouse.objects.get_or_create(
-            company=company, code="DEFAULT",
-            defaults={"name": "Default Godown", "is_default": True},
+        # data migration runs. Do not promote DEFAULT to is_default when another
+        # warehouse already holds the unique default (serializer race).
+        try:
+            warehouse, _created = Warehouse.objects.get_or_create(
+                company=company, code="DEFAULT",
+                defaults={"name": "Default Godown", "is_default": True},
+            )
+        except IntegrityError:
+            warehouse = Warehouse.objects.filter(company=company, is_default=True).first()
+            if warehouse:
+                return warehouse
+            warehouse = Warehouse.objects.get(company=company, code="DEFAULT")
+        if warehouse.is_default:
+            return warehouse
+        other = (
+            Warehouse.objects.filter(company=company, is_default=True)
+            .exclude(pk=warehouse.pk)
+            .first()
         )
-        if not warehouse.is_default:
-            warehouse.is_default = True
+        if other is not None:
+            return other
+        warehouse.is_default = True
+        try:
             warehouse.save(update_fields=["is_default"])
+        except IntegrityError:
+            other = Warehouse.objects.filter(company=company, is_default=True).first()
+            if other:
+                return other
+            raise
         return warehouse
 
     @staticmethod
@@ -479,6 +500,9 @@ class InventoryService:
             "delivery_challan_cancel",
             "work_order_cancel",
             "stock_transfer_cancel",
+            "purchase_return_cancel",
+            "purchase_return_damaged_cancel",
+            "sales_return_damaged_cancel",
         )
         if delta > 0 and cancel_restore:
             return
@@ -524,6 +548,7 @@ class InventoryService:
             "purchase_return_damaged",
             "stock_transfer_cancel",
             "work_order_cancel",
+            "sales_return_cancel",
         ):
             return
         if delta < 0:
@@ -585,8 +610,13 @@ class InventoryService:
                 movement.layer_peels = peels
 
     @staticmethod
-    def restore_fifo_peels(outbound_movement, inbound_movement=None) -> None:
-        """BB-000601: put peeled qty back on the original layers (no new inbound layer)."""
+    def restore_fifo_peels(outbound_movement, inbound_movement=None, *, qty=None) -> None:
+        """BB-000601: put peeled qty back on the original layers (no new inbound layer).
+
+        When ``inbound_movement`` (or ``qty``) is set, only that quantity is
+        restored — a partial sales return must not put the whole SALE peel stack
+        back (N-001).
+        """
         from .models import InventoryCostLayer
 
         if outbound_movement is None:
@@ -594,49 +624,97 @@ class InventoryService:
         method = getattr(outbound_movement.company, "inventory_valuation_method", "WAVG") or "WAVG"
         if method != "FIFO":
             return
+        cap = qty
+        if cap is None and inbound_movement is not None:
+            cap = abs(Decimal(str(inbound_movement.quantity or 0)))
+        remaining = None if cap is None else Decimal(str(cap))
+        if remaining is not None and remaining <= 0:
+            return
         peels = outbound_movement.layer_peels or []
         if peels:
             for peel in peels:
+                peel_qty = Decimal(str(peel.get("qty") or 0))
+                if peel_qty <= 0:
+                    continue
+                take = peel_qty if remaining is None else min(remaining, peel_qty)
+                if take <= 0:
+                    break
                 layer = (
                     InventoryCostLayer.objects.select_for_update()
                     .filter(pk=peel.get("layer_id"))
                     .first()
                 )
                 if layer is None:
-                    qty = Decimal(str(peel.get("qty") or 0))
-                    if qty <= 0:
-                        continue
                     InventoryCostLayer.objects.create(
                         company=outbound_movement.company,
                         warehouse=outbound_movement.warehouse,
                         product=outbound_movement.product,
                         batch=outbound_movement.batch,
-                        qty_remaining=qty,
+                        qty_remaining=take,
                         unit_cost=Decimal(str(peel.get("unit_cost") or outbound_movement.unit_cost or 0)),
                         source_movement=inbound_movement,
                         created_by=getattr(outbound_movement, "created_by", None),
                         updated_by=getattr(outbound_movement, "created_by", None),
                     )
-                    continue
-                layer.qty_remaining += Decimal(str(peel.get("qty") or 0))
-                layer.save(update_fields=["qty_remaining", "updated_at"])
+                else:
+                    layer.qty_remaining += take
+                    layer.save(update_fields=["qty_remaining", "updated_at"])
+                if remaining is not None:
+                    remaining -= take
             return
         if inbound_movement is None:
             return
-        qty = abs(Decimal(str(inbound_movement.quantity or 0)))
-        if qty <= 0:
+        fallback_qty = abs(Decimal(str(inbound_movement.quantity or 0)))
+        if remaining is not None:
+            fallback_qty = min(remaining, fallback_qty)
+        if fallback_qty <= 0:
             return
         InventoryCostLayer.objects.create(
             company=inbound_movement.company,
             warehouse=inbound_movement.warehouse,
             product=inbound_movement.product,
             batch=inbound_movement.batch,
-            qty_remaining=qty,
+            qty_remaining=fallback_qty,
             unit_cost=Decimal(str(outbound_movement.unit_cost or inbound_movement.unit_cost or 0)),
             source_movement=inbound_movement,
             created_by=inbound_movement.created_by,
             updated_by=inbound_movement.created_by,
         )
+
+    @staticmethod
+    def unrestore_fifo_peels(outbound_movement, qty) -> None:
+        """Undo a prior restore_fifo_peels for ``qty`` (sales-return cancel)."""
+        from .models import InventoryCostLayer
+
+        if outbound_movement is None:
+            return
+        method = getattr(outbound_movement.company, "inventory_valuation_method", "WAVG") or "WAVG"
+        if method != "FIFO":
+            return
+        remaining = abs(Decimal(str(qty or 0)))
+        if remaining <= 0:
+            return
+        peels = outbound_movement.layer_peels or []
+        if not peels:
+            return
+        for peel in peels:
+            if remaining <= 0:
+                break
+            peel_qty = Decimal(str(peel.get("qty") or 0))
+            if peel_qty <= 0:
+                continue
+            take = min(remaining, peel_qty)
+            layer = (
+                InventoryCostLayer.objects.select_for_update()
+                .filter(pk=peel.get("layer_id"))
+                .first()
+            )
+            if layer is None:
+                remaining -= take
+                continue
+            layer.qty_remaining = max(Decimal("0"), layer.qty_remaining - take)
+            layer.save(update_fields=["qty_remaining", "updated_at"])
+            remaining -= take
 
     @staticmethod
     def retire_source_layers(source_movement, quantity) -> None:
@@ -669,6 +747,40 @@ class InventoryService:
                 f"Cannot reverse stock: source FIFO layer for '{source_movement.product.name}' "
                 f"has already been issued (short {remaining})."
             )
+
+    @staticmethod
+    def restore_source_layers(source_movement, quantity) -> None:
+        """Inverse of retire_source_layers: put qty back on layers from that inbound."""
+        from .models import InventoryCostLayer
+
+        if source_movement is None:
+            return
+        method = getattr(source_movement.company, "inventory_valuation_method", "WAVG") or "WAVG"
+        if method != "FIFO":
+            return
+        qty = Decimal(str(quantity))
+        if qty <= 0:
+            return
+        layers = list(
+            InventoryCostLayer.objects.select_for_update()
+            .filter(source_movement=source_movement)
+            .order_by("id")
+        )
+        if layers:
+            layers[0].qty_remaining += qty
+            layers[0].save(update_fields=["qty_remaining", "updated_at"])
+            return
+        InventoryCostLayer.objects.create(
+            company=source_movement.company,
+            warehouse=source_movement.warehouse,
+            product=source_movement.product,
+            batch=source_movement.batch,
+            qty_remaining=qty,
+            unit_cost=Decimal(str(source_movement.unit_cost or 0)),
+            source_movement=source_movement,
+            created_by=getattr(source_movement, "created_by", None),
+            updated_by=getattr(source_movement, "created_by", None),
+        )
 
     @staticmethod
     def available_quantity(company, product, warehouse=None, batch=None) -> Decimal:
@@ -746,8 +858,21 @@ class InventoryService:
             raise BusinessRuleError("Warehouse does not belong to this company.")
 
         if product.track_batch and batch is None:
+            lots = list(InventoryValuationService.fefo_batches(company, product, warehouse))
+            lot_ids = [getattr(lot, "pk", None) for lot in lots if getattr(lot, "pk", None)]
+            if lot_ids:
+                list(
+                    StockBalance.objects.select_for_update()
+                    .filter(
+                        company=company,
+                        warehouse=warehouse,
+                        product=product,
+                        batch_id__in=lot_ids,
+                    )
+                    .order_by("id")
+                )
             remaining = qty
-            for lot in InventoryValuationService.fefo_batches(company, product, warehouse):
+            for lot in lots:
                 if remaining <= 0:
                     break
                 available = InventoryService.available_quantity(company, product, warehouse, lot)
@@ -757,13 +882,11 @@ class InventoryService:
                         company, warehouse, product, take, user=user, batch=lot
                     )
                     remaining -= take
-            if remaining > 0 and company.negative_stock_policy == "BLOCK":
+            if remaining > 0:
                 raise BusinessRuleError(
                     f"Insufficient batched stock for '{product.name}': available short {remaining}."
                 )
-            if remaining > 0:
-                # FEFO remainder stays unreserved rather than parking on unbatched stock.
-                return None
+            return None
 
         try:
             balance, _ = StockBalance.objects.get_or_create(
@@ -779,10 +902,7 @@ class InventoryService:
             raise BusinessRuleError(
                 f"Insufficient stock for '{product.name}': available {available}, required {qty}."
             )
-        take = min(qty, max(available, Decimal("0")))
-        if take <= 0:
-            return balance
-        balance.reserved = balance.reserved + take
+        balance.reserved = balance.reserved + qty
         balance.save(update_fields=["reserved"])
         return balance
 
@@ -862,7 +982,6 @@ class InventoryService:
             so_qs = so_qs.filter(sales_order__warehouse=warehouse)
         so_qty = so_qs.aggregate(total=Sum("quantity"))["total"] or Decimal("0")
         if so_qty > 0 and product.track_batch:
-            # Allocate confirmed SO qty across FEFO lots like reserve_stock.
             remaining = so_qty
             for lot in InventoryValuationService.fefo_batches(company, product, warehouse):
                 if remaining <= 0:
@@ -874,14 +993,33 @@ class InventoryService:
                     or Decimal("0")
                 )
                 take = min(remaining, max(Decimal("0"), lot_on_hand))
-                if batch_id := getattr(lot, "id", None):
-                    if batch is not None and getattr(batch, "id", batch) == batch_id:
-                        reserved = take
+                lot_balance, _ = StockBalance.objects.get_or_create(
+                    company=company, warehouse=warehouse, product=product, batch=lot,
+                )
+                lot_balance.on_hand = lot_on_hand
+                lot_balance.reserved = take
+                lot_balance.save(update_fields=["on_hand", "reserved"])
                 remaining -= take
             if batch is None:
-                reserved = Decimal("0")  # unbatched row holds none when FEFO used
+                reserved = Decimal("0")
+            else:
+                reserved = balance.reserved
+                try:
+                    refreshed = StockBalance.objects.get(
+                        company=company, warehouse=warehouse, product=product, batch=batch
+                    )
+                    reserved = refreshed.reserved
+                except StockBalance.DoesNotExist:
+                    reserved = Decimal("0")
         elif so_qty > 0 and batch is None:
             reserved = so_qty
+        else:
+            reserved = Decimal("0") if product.track_batch and batch is None else reserved
+        # Re-read after possible per-lot writes above.
+        if so_qty > 0 and product.track_batch and batch is not None:
+            balance.refresh_from_db(fields=["reserved", "on_hand"])
+            reserved = balance.reserved
+        balance.on_hand = total
         balance.reserved = min(max(reserved, Decimal("0")), max(balance.on_hand, Decimal("0")))
         balance.save(update_fields=["on_hand", "reserved"])
         return balance
@@ -948,7 +1086,7 @@ class SerialNumberService:
         return numbers
 
     @classmethod
-    def receive(cls, *, company, product, warehouse, numbers, quantity, user=None):
+    def receive(cls, *, company, product, warehouse, numbers, quantity, user=None, allow_reactivate_scrap=False):
         for value in cls._numbers(numbers, quantity, product):
             try:
                 serial, created = SerialNumber.objects.select_for_update().get_or_create(
@@ -968,6 +1106,12 @@ class SerialNumberService:
                 )
                 created = False
             if not created:
+                if serial.status == SerialNumber.Status.SCRAPPED and allow_reactivate_scrap:
+                    serial.status = SerialNumber.Status.AVAILABLE
+                    serial.warehouse = warehouse
+                    serial.updated_by = user
+                    serial.save(update_fields=["status", "warehouse", "updated_by", "updated_at"])
+                    continue
                 raise BusinessRuleError(f"Serial number '{value}' already exists.")
 
     @classmethod
@@ -1015,10 +1159,21 @@ class StockTransferService:
                     numbers=line.serial_numbers, quantity=line.quantity,
                     source=SerialNumber.Status.AVAILABLE, target=SerialNumber.Status.AVAILABLE, user=user,
                 )
-                SerialNumber.objects.filter(
-                    company=transfer.company, product=line.product,
-                    serial_number__in=line.serial_numbers,
-                ).update(warehouse=transfer.to_warehouse, updated_by=user)
+                locked = list(
+                    SerialNumber.objects.select_for_update().filter(
+                        company=transfer.company,
+                        product=line.product,
+                        serial_number__in=line.serial_numbers,
+                    )
+                )
+                if any(s.status != SerialNumber.Status.AVAILABLE for s in locked):
+                    raise BusinessRuleError(
+                        "A serial on this transfer is no longer available."
+                    )
+                for serial in locked:
+                    serial.warehouse = transfer.to_warehouse
+                    serial.updated_by = user
+                    serial.save(update_fields=["warehouse", "updated_by", "updated_at"])
             cost = InventoryValuationService.unit_cost(
                 transfer.company, line.product,
                 warehouse=transfer.from_warehouse, batch=line.batch,
@@ -1159,12 +1314,27 @@ class InventoryValuationService:
 
     @staticmethod
     def _heal_running_zero_cost(company, rows, warehouse, product):
+        # INV-05: heal rows whose running value is zero *or negative* for
+        # positive on-hand qty. A negative running value is always corruption
+        # (a movement that bypassed _apply_running_cost); zero is the common
+        # "never costed" case. Wrong-but-positive values still need
+        # rebuild_running_cost — that full replay is deliberately off the hot path.
         need = [
             r for r in rows
-            if Decimal(str(r.get("qty") or 0)) > 0 and Decimal(str(r.get("value") or 0)) == 0
+            if Decimal(str(r.get("qty") or 0)) > 0
+            and Decimal(str(r.get("value") or 0)) <= 0
         ]
         if not need:
             return
+        if any(Decimal(str(r.get("value") or 0)) < 0 for r in need):
+            import logging as _logging
+
+            _logging.getLogger(__name__).warning(
+                "Negative InventoryRunningCost value healed for company %s "
+                "(product=%s). Run rebuild_running_cost to fully reconcile.",
+                getattr(company, "id", None),
+                getattr(product, "id", product),
+            )
         if warehouse is not None:
             full = InventoryValuationService.valuation(
                 company, as_of=None, method="WAVG", warehouse=None, product=product,
@@ -1195,21 +1365,22 @@ class InventoryValuationService:
                 continue
             avg = sibling_val / sibling_qty
             for row in items:
-                if row["qty"] > 0 and row["value"] == 0:
+                if row["qty"] > 0 and row["value"] <= 0:
                     row["value"] = row["qty"] * avg
                     row["unit_cost"] = avg
 
     @classmethod
     def write_month_end_snapshot(cls, company, period):
-        """Persist month-end qty/value for historical as_of above SNAPSHOT_THRESHOLD."""
+        """Persist month-end qty/value for historical as_of above SNAPSHOT_THRESHOLD.
+
+        INV-04: the full replay (never a prior snapshot) is requested with a
+        per-call ``snapshot_threshold`` argument — mutating the class attribute
+        as a flag was not safe under concurrent ``valuation()`` calls in other
+        workers.
+        """
         year, month = (int(p) for p in str(period).split("-")[:2])
         as_of = cls._month_end(year, month)
-        saved = cls.SNAPSHOT_THRESHOLD
-        cls.SNAPSHOT_THRESHOLD = 10**12
-        try:
-            rows = cls.valuation(company, as_of=as_of)
-        finally:
-            cls.SNAPSHOT_THRESHOLD = saved
+        rows = cls.valuation(company, as_of=as_of, snapshot_threshold=10**12)
         InventoryValuationSnapshot.objects.filter(company=company, period=period).delete()
         InventoryValuationSnapshot.objects.bulk_create(
             [
@@ -1230,9 +1401,12 @@ class InventoryValuationService:
         return len(rows)
 
     @staticmethod
-    def valuation(company, *, as_of=None, method=None, warehouse=None, product=None):
+    def valuation(company, *, as_of=None, method=None, warehouse=None, product=None,
+                  snapshot_threshold=None):
         from core.exceptions import BusinessRuleError
 
+        if snapshot_threshold is None:
+            snapshot_threshold = InventoryValuationService.SNAPSHOT_THRESHOLD
         method = method or company.inventory_valuation_method
         if method not in ("WAVG", "FIFO"):
             raise BusinessRuleError(
@@ -1277,7 +1451,7 @@ class InventoryValuationService:
         movements = base.select_related("product", "batch", "warehouse")
         if as_of:
             as_of_date = InventoryValuationService._coerce_date(as_of)
-            if movements.count() > InventoryValuationService.SNAPSHOT_THRESHOLD:
+            if movements.count() > snapshot_threshold:
                 period, period_end = InventoryValuationService._snapshot_period_for(as_of_date)
                 snaps = InventoryValuationSnapshot.objects.filter(
                     company=company, period=period
@@ -1315,6 +1489,22 @@ class InventoryValuationService:
                         after, method, state, as_of=as_of, warehouse=warehouse,
                         product=product, company=company,
                     )
+                # INV-07: over the snapshot threshold but no snapshot for the
+                # prior period — fall through to a full replay from the start of
+                # history (slow, and silent until now). Surface it so a missed
+                # month-end cron / fresh deploy is visible.
+                import logging as _logging
+
+                _logging.getLogger(__name__).warning(
+                    "Inventory valuation for company %s as_of %s replayed from the "
+                    "beginning: no InventoryValuationSnapshot for period %s "
+                    "(%s movements > threshold %s). Run write_month_end_snapshot.",
+                    getattr(company, "id", None),
+                    as_of_date,
+                    period,
+                    movements.count(),
+                    snapshot_threshold,
+                )
             if use_business_date:
                 movements = movements.filter(movement_date__lte=as_of_date).order_by(
                     "movement_date", "id"
@@ -1358,6 +1548,14 @@ class InventoryValuationService:
                     zero_cost_transfer_in.add(key)
             elif qty < 0:
                 issue = -qty
+                # INV-01: the pre-issue average, used to cost any portion of the
+                # issue that exceeds stock on hand so `value` stays ≈ `qty ×
+                # unit_cost` instead of drifting when a tenant permits oversell.
+                pre_avg = (
+                    entry["value"] / entry["qty"]
+                    if entry["qty"] > 0
+                    else (entry.get("_last_avg") or Decimal("0"))
+                )
                 if method == "FIFO":
                     cost = Decimal("0")
                     remaining = issue
@@ -1368,12 +1566,22 @@ class InventoryValuationService:
                         remaining -= take
                         if remaining == 0:
                             break
+                    # Layers exhausted (oversell): cost the shortfall at the last
+                    # known unit cost so value does not stay stale while qty goes
+                    # negative.
+                    if remaining > 0:
+                        cost += remaining * pre_avg
                     entry["value"] -= cost
                     entry["layers"] = [l for l in entry["layers"] if l[0] > 0]
                 else:
-                    average = entry["value"] / entry["qty"] if entry["qty"] else Decimal("0")
-                    entry["value"] -= issue * average
+                    entry["value"] -= issue * pre_avg
                 entry["qty"] -= issue
+                if pre_avg > 0:
+                    entry["_last_avg"] = pre_avg
+                # Keep value coherent with qty once stock is negative (avoids a
+                # positive value sitting against a negative qty and vice versa).
+                if entry["qty"] <= 0:
+                    entry["value"] = entry["qty"] * (entry.get("_last_avg") or Decimal("0"))
         # Legacy transfers posted unit_cost 0 on TRANSFER_IN. Report remaining
         # dest qty at sibling-warehouse WAVG so stock value is not silently 0.
         if zero_cost_transfer_in:
@@ -1413,7 +1621,10 @@ class InventoryValuationService:
                         if key in zero_cost_transfer_in and row["qty"] > 0 and row["value"] == 0:
                             row["value"] = row["qty"] * avg
         return [
-            {**row, "unit_cost": (row["value"] / row["qty"] if row["qty"] else Decimal("0"))}
+            {
+                **{k: v for k, v in row.items() if not k.startswith("_")},
+                "unit_cost": (row["value"] / row["qty"] if row["qty"] else Decimal("0")),
+            }
             for row in state.values()
         ]
 

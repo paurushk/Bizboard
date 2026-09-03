@@ -97,3 +97,51 @@ def test_cn_keeps_original_rate(tenant_a):
     )
     assert cn.status_code in (200, 201), cn.data
     assert Decimal(str(cn.data["items"][0]["unit_price"])) == Decimal("92")
+
+
+def test_overlapping_slabs_rejected(tenant_a):
+    product = make_product(tenant_a.company, selling_price="120")
+    resp = tenant_a.client.post(
+        "/api/v1/masters/price-lists/",
+        {
+            "name": "Overlap",
+            "items": [
+                {
+                    "product": product.id,
+                    "unit_price": "100",
+                    "min_qty": "1",
+                    "max_qty": "20",
+                },
+                {
+                    "product": product.id,
+                    "unit_price": "90",
+                    "min_qty": "10",
+                    "max_qty": "30",
+                },
+            ],
+        },
+        format="json",
+    )
+    assert resp.status_code == 400, resp.data
+    assert "overlap" in str(resp.data).lower()
+
+
+def test_max_qty_below_min_qty_rejected(tenant_a):
+    product = make_product(tenant_a.company, selling_price="120")
+    resp = tenant_a.client.post(
+        "/api/v1/masters/price-lists/",
+        {
+            "name": "Inverted",
+            "items": [
+                {
+                    "product": product.id,
+                    "unit_price": "100",
+                    "min_qty": "10",
+                    "max_qty": "5",
+                },
+            ],
+        },
+        format="json",
+    )
+    assert resp.status_code == 400, resp.data
+    assert "max_qty" in str(resp.data).lower() or "min_qty" in str(resp.data).lower()

@@ -12,18 +12,63 @@ from django.db.models import Q, Sum
 from reporting.models import Gstr2bIngest
 
 
+def _indian_fy_start_year(d) -> int:
+    if d is None:
+        return 0
+    return d.year if d.month >= 4 else d.year - 1
+
+
+def _invoice_still_matches_2b(row, inv) -> bool:
+    """True when the linked PI still exists and tax/taxable/date still agree."""
+    if inv is None:
+        return False
+    from purchases.models import PurchaseInvoice
+
+    if inv.status not in (PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED):
+        return False
+    row_tax = (
+        Decimal(str(row.cgst or 0))
+        + Decimal(str(row.sgst or 0))
+        + Decimal(str(row.igst or 0))
+        + Decimal(str(getattr(row, "cess", 0) or 0))
+    )
+    inv_tax = (
+        Decimal(str(inv.cgst_total or 0))
+        + Decimal(str(inv.sgst_total or 0))
+        + Decimal(str(inv.igst_total or 0))
+        + Decimal(str(getattr(inv, "cess_total", 0) or 0))
+    )
+    if abs(inv_tax - row_tax) > Decimal("1.00"):
+        return False
+    if abs(Decimal(str(inv.taxable_total or 0)) - Decimal(str(row.taxable_value or 0))) > Decimal("1.00"):
+        return False
+    if row.invoice_date and inv.invoice_date:
+        if abs((inv.invoice_date - row.invoice_date).days) > 3:
+            return False
+        if _indian_fy_start_year(inv.invoice_date) != _indian_fy_start_year(row.invoice_date):
+            return False
+    return True
+
+
 def match_gstr2b_to_purchases(company, period: str, *, persist: bool = True) -> dict:
     """Match ingested 2B rows to purchase invoices by GSTIN + number + amount.
 
     BB-000637: ZIP/CA-pack downloads must call with persist=False (read-only preview).
     BB-000716: prefer unique amount+date match; PARTIAL does not sticky-link wrong PI.
+    MATCHED rows are re-checked: a linked PI that no longer matches is rematched.
     """
     from purchases.models import PurchaseInvoice
 
-    rows = list(Gstr2bIngest.objects.filter(company=company, period=period))
+    rows = list(
+        Gstr2bIngest.objects.filter(company=company, period=period).select_related(
+            "purchase_invoice"
+        )
+    )
     matched = 0
     for row in rows:
-        if row.match_status == Gstr2bIngest.MatchStatus.MATCHED:
+        if row.match_status == Gstr2bIngest.MatchStatus.MATCHED and _invoice_still_matches_2b(
+            row, row.purchase_invoice
+        ):
             matched += 1
             continue
         qs = PurchaseInvoice.objects.filter(
@@ -35,6 +80,10 @@ def match_gstr2b_to_purchases(company, period: str, *, persist: bool = True) -> 
         )
         candidates = list(qs)
         if not candidates:
+            if persist and row.match_status == Gstr2bIngest.MatchStatus.MATCHED:
+                row.match_status = Gstr2bIngest.MatchStatus.UNMATCHED
+                row.purchase_invoice = None
+                row.save(update_fields=["match_status", "purchase_invoice", "updated_at"])
             continue
         row_tax = (
             Decimal(str(row.cgst or 0))
@@ -63,9 +112,13 @@ def match_gstr2b_to_purchases(company, period: str, *, persist: bool = True) -> 
             fy_matched = [
                 inv
                 for inv in exact
-                if inv.invoice_date and inv.invoice_date.year == row.invoice_date.year
+                if inv.invoice_date
+                and _indian_fy_start_year(inv.invoice_date) == _indian_fy_start_year(row.invoice_date)
+                and abs((inv.invoice_date - row.invoice_date).days) <= 3
             ]
             exact = dated if dated else fy_matched
+        else:
+            exact = []
         # Never MATCH on GSTIN+number alone — require unique amount (±₹1) and date/FY when present.
         if len(exact) == 1:
             status = Gstr2bIngest.MatchStatus.MATCHED
@@ -88,11 +141,17 @@ def claimable_itc_from_2b(company, period: str, *, company_gstin_id=None) -> dic
     """ITC amounts only from MATCHED 2B rows (feeds GSTR-3B)."""
     from purchases.models import PurchaseInvoice
 
+    # ITC eligibility here follows the 2B row's own state (MATCHED + CLAIMABLE +
+    # IMS ACCEPT). A linked books PurchaseInvoice is not required — a matched 2B
+    # line stands on its own — but when one IS linked, an INELIGIBLE / REVERSED /
+    # opening / RCM books invoice still overrides it (the excludes below keep
+    # unlinked NULL-FK rows).
     qs = Gstr2bIngest.objects.filter(
         company=company,
         period=period,
         match_status=Gstr2bIngest.MatchStatus.MATCHED,
         itc_eligibility=Gstr2bIngest.ItcEligibility.CLAIMABLE,
+        ims_action=Gstr2bIngest.ImsAction.ACCEPT,
     ).exclude(
         purchase_invoice__itc_eligibility__in=[
             PurchaseInvoice.ItcEligibility.INELIGIBLE,
@@ -123,13 +182,15 @@ def claimable_itc_from_2b(company, period: str, *, company_gstin_id=None) -> dic
         cess=Sum("cess"),
         taxable=Sum("taxable_value"),
     )
+    claimable_n = qs.count()
     return {
         "cgst": agg["cgst"] or Decimal("0"),
         "sgst": agg["sgst"] or Decimal("0"),
         "igst": agg["igst"] or Decimal("0"),
         "cess": agg["cess"] or Decimal("0"),
         "taxable": agg["taxable"] or Decimal("0"),
-        "claimable": True,
+        "claimable": claimable_n > 0,
+        "claimable_rows": claimable_n,
         "source": "gstr2b_matched",
     }
 

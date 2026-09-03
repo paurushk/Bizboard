@@ -108,10 +108,13 @@ def test_bb_000703_704_payroll_employer_and_esi_ceiling(tenant_a):
     )
     run = PayRun.objects.create(company=company, period="2026-04")
     complete_pay_run(run, tenant_a.owner)
-    entry = JournalEntry.objects.get(company=company, source_type="PayRun", purpose="PAYROLL")
+    entry = JournalEntry.objects.get(company=company, source_type="PAY_RUN", purpose="PAYROLL")
     expense = JournalLine.objects.filter(entry=entry, account__code="5800").aggregate(d=Sum("debit"))["d"]
     slips_gross = sum((s.gross for s in run.slips.all()), Decimal("0"))
-    employer = sum((s.pf_employer + s.esi_employer for s in run.slips.all()), Decimal("0"))
+    employer = sum(
+        (s.pf_employer + s.pf_admin_charges + s.edli_charges + s.esi_employer for s in run.slips.all()),
+        Decimal("0"),
+    )
     assert expense == slips_gross + employer
 
 

@@ -33,7 +33,7 @@ from core.services.audit import AuditService
 from core.services.sms import SmsProvider
 
 from .models import Company, CompanyGstin, CompanyUser, InviteJti, OtpChallenge, PasswordResetJti, User
-from .otp_utils import hash_otp, normalize_e164, phone_lookup_values, verify_otp
+from .otp_utils import hash_otp, normalize_e164, phone_lookup_values, resolve_user_by_phone, verify_otp
 from .serializers import (
     CompanyGstinSerializer,
     CompanySerializer,
@@ -241,11 +241,17 @@ class RegisterView(APIView):
         existing = User.objects.filter(email__iexact=data["email"]).first()
         if existing:
             return Response(_register_payload(), status=status.HTTP_200_OK)
+        from accounts.otp_utils import phone_taken
+
+        # Same generic 200 as email collision — do not leak phone occupancy.
+        if data.get("phone") and phone_taken(phone=data["phone"]):
+            return Response(_register_payload(), status=status.HTTP_200_OK)
         try:
-            user = User.objects.create_user(
-                email=data["email"], password=data["password"],
-                full_name=data.get("full_name", ""), phone=data.get("phone", ""),
-            )
+            with transaction.atomic():
+                user = User.objects.create_user(
+                    email=data["email"], password=data["password"],
+                    full_name=data.get("full_name", ""), phone=data.get("phone", ""),
+                )
         except IntegrityError:
             return Response(_register_payload(), status=status.HTTP_200_OK)
         company = Company.objects.create(
@@ -268,6 +274,10 @@ class RegisterView(APIView):
         from inventory.services import InventoryService
 
         InventoryService.default_warehouse(company)
+        if getattr(settings, "REQUIRE_SUBSCRIPTION", False):
+            from billing.services import ensure_register_trial
+
+            ensure_register_trial(company)
         AuditService.log(company=company, user=user, action="CREATE",
                          entity_type="Company", entity_id=company.id,
                          description="Company registered")
@@ -507,14 +517,19 @@ class VerifyOtpView(APIView):
                 challenge.save(update_fields=["attempts"])
                 invalid = True
             else:
+                user = resolve_user_by_phone(phone)
+                if not user or not user.has_usable_password():
+                    raise OtpExpiredError()
+                _ensure_active_company(user)
+                membership = _active_membership(user)
+                if membership is None:
+                    raise OtpExpiredError()
                 challenge.consumed = True
                 challenge.save(update_fields=["consumed"])
         if invalid:
             raise OtpInvalidError()
-        user = User.objects.filter(phone__in=phone_lookup_values(phone), is_active=True).order_by("id").first()
+        user = resolve_user_by_phone(phone)
         if not user:
-            raise OtpExpiredError()
-        if not user.has_usable_password():
             raise OtpExpiredError()
         _ensure_active_company(user)
         membership = _active_membership(user)
@@ -538,14 +553,23 @@ class VerifyOtpView(APIView):
 
 
 class CsrfCookieView(APIView):
-    """BB-000602: GET /auth/csrf/ sets csrftoken for cookie-JWT mutating calls."""
+    """BB-000602: GET /auth/csrf/ sets csrftoken for cookie-JWT mutating calls.
+
+    FE-06: also return the token value in the body. When the API and SPA are on
+    different hosts the csrftoken cookie is third-party and Safari ITP / Brave /
+    "block third-party cookies" can drop it from `document.cookie`, so the SPA
+    reads the token from here and sends it as the `X-CSRFToken` header
+    (double-submit). Same-site hosting is still the recommended deploy.
+    """
 
     permission_classes = [AllowAny]
     authentication_classes = []
 
     def get(self, request):
+        from django.middleware.csrf import get_token
+
         _ensure_csrf_cookie(request)
-        return Response({"detail": "ok"})
+        return Response({"detail": "ok", "csrfToken": get_token(request)})
 
 
 class MeView(APIView):
@@ -619,8 +643,19 @@ class SwitchCompanyView(APIView):
             raise ValidationError({"company_id": "No active membership for this company."})
         request.user.active_company_id = membership.company_id
         request.user.save(update_fields=["active_company_id"])
-        if hasattr(request, "_company_user"):
-            delattr(request, "_company_user")
+        # Bust the get_company_user cache on both the DRF Request and the wrapped
+        # Django HttpRequest — PostgresRlsMiddleware may have populated it on the
+        # latter before the view ran. `delattr` only ever hit the DRF object.
+        for _target in (request, getattr(request, "_request", None)):
+            if _target is not None:
+                _target.__dict__.pop("_company_user", None)
+                _target.__dict__.pop("_company_user_uid", None)
+        old_refresh = request.COOKIES.get(settings.JWT_REFRESH_COOKIE_NAME)
+        if old_refresh:
+            try:
+                RefreshToken(old_refresh).blacklist()
+            except Exception:
+                pass
         AuditService.log(
             company=membership.company,
             user=request.user,
@@ -822,12 +857,9 @@ class AcceptInviteView(APIView):
                     if not user.check_password(provided_pw):
                         raise ValidationError({"password": "Incorrect password for this account."})
                 else:
-                    # In test environments without password, allow test client if configured; else require authentication
-                    env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
-                    if env in ("production", "staging"):
-                        raise ValidationError({
-                            "password": "This account already has a password. Enter your password or sign in first."
-                        })
+                    raise ValidationError({
+                        "password": "This account already has a password. Enter your password or sign in first."
+                    })
             if not membership.is_active:
                 _enforce_plan_seat_limit(membership.company)
                 membership.is_active = True
@@ -920,15 +952,29 @@ def _invite_caps(data: dict) -> dict:
 
 
 def _enforce_plan_seat_limit(company) -> None:
-    """BB-000727: reject invite/create when active members >= plan.seat_limit."""
-    from billing.services import subscription_for_company
+    """Reject invite/accept when active members >= plan.seat_limit.
 
-    sub = subscription_for_company(company)
-    if sub is None or sub.plan_id is None:
-        return
-    limit = int(getattr(sub.plan, "seat_limit", 0) or 0)
-    if limit <= 0:
-        return
+    Concurrent accepts serialize on the company (and subscription) row.
+    ``seat_limit <= 0`` on a plan is explicit unlimited. No subscription uses
+    ``UNSUBSCRIBED_SEAT_LIMIT`` (default 1), not unlimited.
+    """
+    from billing.models import Subscription
+
+    Company.objects.select_for_update().get(pk=company.pk)
+    sub = (
+        Subscription.objects.select_for_update()
+        .select_related("plan")
+        .filter(company_id=company.pk)
+        .first()
+    )
+    if sub is not None and sub.plan_id is not None:
+        limit = int(getattr(sub.plan, "seat_limit", 0) or 0)
+        if limit <= 0:
+            return
+    else:
+        limit = int(getattr(settings, "UNSUBSCRIBED_SEAT_LIMIT", 1) or 0)
+        if limit <= 0:
+            return
     active = CompanyUser.objects.filter(company=company, is_active=True).count()
     if active >= limit:
         raise ValidationError({
@@ -952,90 +998,91 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         company = get_company_user(request).company
-        _enforce_plan_seat_limit(company)
-        existing_user = User.objects.filter(email__iexact=data["email"]).first()
-        if existing_user is not None:
-            existing_membership = CompanyUser.objects.filter(company=company, user=existing_user).first()
-            if existing_membership is not None and existing_membership.is_active:
-                raise ValidationError({"email": "This user is already a member of this company."})
+        with transaction.atomic():
+            _enforce_plan_seat_limit(company)
+            existing_user = User.objects.filter(email__iexact=data["email"]).first()
+            if existing_user is not None:
+                existing_membership = CompanyUser.objects.filter(company=company, user=existing_user).first()
+                if existing_membership is not None and existing_membership.is_active:
+                    raise ValidationError({"email": "This user is already a member of this company."})
+                role = data["role"]
+                caps = _invite_caps(data)
+                if existing_membership is not None:
+                    for key, value in caps.items():
+                        setattr(existing_membership, key, value)
+                    existing_membership.role = role
+                    existing_membership.is_active = False
+                    existing_membership.save()
+                    membership = existing_membership
+                else:
+                    membership = CompanyUser.objects.create(
+                        company=company, user=existing_user, role=role, is_active=False, **caps,
+                    )
+                AuditService.log(
+                    company=company, user=request.user, action="CREATE",
+                    entity_type="CompanyUser", entity_id=membership.id,
+                    description="Consent invite for existing user",
+                )
+                body = CompanyUserSerializer(membership).data
+                token = _make_invite_token(
+                    user_id=existing_user.id, company_id=company.id, membership_id=membership.id,
+                )
+                body["invite_url"] = _invite_url(token)
+                body["consent_required"] = True
+                django_env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
+                if django_env in ("production", "staging"):
+                    body["invite_hint"] = (
+                        "Share invite_url with the existing user so they can consent "
+                        "and join this company."
+                    )
+                else:
+                    body["invite_token"] = token
+                    body["invite_hint"] = (
+                        "Share invite_token; the existing user must POST /api/v1/auth/invite/accept/ "
+                        "to consent and join this company."
+                    )
+                return Response(body, status=status.HTTP_201_CREATED)
+            # BB-000306 / BB-000366: password optional — forbidden in production/staging.
+            password = (data.get("password") or "").strip()
+            django_env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
+            if password and django_env in ("production", "staging"):
+                raise ValidationError({
+                    "password": "Invite passwords are disabled in production. "
+                                "Omit password; the invitee must set one via password-change after login token.",
+                })
+            user = User.objects.create_user(
+                email=data["email"],
+                password=password or None,
+                full_name=data.get("full_name", ""),
+                phone=data.get("phone", ""),
+            )
+            if not password:
+                user.set_unusable_password()
+                user.save(update_fields=["password"])
             role = data["role"]
             caps = _invite_caps(data)
-            if existing_membership is not None:
-                for key, value in caps.items():
-                    setattr(existing_membership, key, value)
-                existing_membership.role = role
-                existing_membership.is_active = False
-                existing_membership.save()
-                membership = existing_membership
-            else:
-                membership = CompanyUser.objects.create(
-                    company=company, user=existing_user, role=role, is_active=False, **caps,
-                )
-            AuditService.log(
-                company=company, user=request.user, action="CREATE",
-                entity_type="CompanyUser", entity_id=membership.id,
-                description="Consent invite for existing user",
+            membership = CompanyUser.objects.create(
+                company=company, user=user, role=role, is_active=False, **caps,
             )
+            AuditService.log(company=company, user=request.user, action="CREATE",
+                             entity_type="CompanyUser", entity_id=membership.id)
             body = CompanyUserSerializer(membership).data
             token = _make_invite_token(
-                user_id=existing_user.id, company_id=company.id, membership_id=membership.id,
+                user_id=user.id, company_id=company.id, membership_id=membership.id,
             )
             body["invite_url"] = _invite_url(token)
-            body["consent_required"] = True
             django_env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
             if django_env in ("production", "staging"):
                 body["invite_hint"] = (
-                    "Share invite_url with the existing user so they can consent "
-                    "and join this company."
+                    "Share invite_url with the user; it expires in 7 days."
                 )
             else:
                 body["invite_token"] = token
                 body["invite_hint"] = (
-                    "Share invite_token; the existing user must POST /api/v1/auth/invite/accept/ "
-                    "to consent and join this company."
+                    "Share invite_token with the user; they must POST /api/v1/auth/invite/accept/ "
+                    "with token + new_password within 7 days."
                 )
             return Response(body, status=status.HTTP_201_CREATED)
-        # BB-000306 / BB-000366: password optional — forbidden in production/staging.
-        password = (data.get("password") or "").strip()
-        django_env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
-        if password and django_env in ("production", "staging"):
-            raise ValidationError({
-                "password": "Invite passwords are disabled in production. "
-                            "Omit password; the invitee must set one via password-change after login token.",
-            })
-        user = User.objects.create_user(
-            email=data["email"],
-            password=password or None,
-            full_name=data.get("full_name", ""),
-            phone=data.get("phone", ""),
-        )
-        if not password:
-            user.set_unusable_password()
-            user.save(update_fields=["password"])
-        role = data["role"]
-        caps = _invite_caps(data)
-        membership = CompanyUser.objects.create(
-            company=company, user=user, role=role, is_active=False, **caps,
-        )
-        AuditService.log(company=company, user=request.user, action="CREATE",
-                         entity_type="CompanyUser", entity_id=membership.id)
-        body = CompanyUserSerializer(membership).data
-        token = _make_invite_token(
-            user_id=user.id, company_id=company.id, membership_id=membership.id,
-        )
-        body["invite_url"] = _invite_url(token)
-        django_env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
-        if django_env in ("production", "staging"):
-            body["invite_hint"] = (
-                "Share invite_url with the user; it expires in 7 days."
-            )
-        else:
-            body["invite_token"] = token
-            body["invite_hint"] = (
-                "Share invite_token with the user; they must POST /api/v1/auth/invite/accept/ "
-                "with token + new_password within 7 days."
-            )
-        return Response(body, status=status.HTTP_201_CREATED)
 
     def perform_update(self, serializer):
         instance = serializer.instance
@@ -1043,11 +1090,13 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
         new_role = serializer.validated_data.get("role", instance.role)
         new_active = serializer.validated_data.get("is_active", instance.is_active)
         stays_active_owner = new_role == CompanyUser.Role.OWNER and new_active
-        if was_active_owner and not stays_active_owner:
-            if _active_owner_count(instance.company, exclude_pk=instance.pk) == 0:
-                raise ValidationError({"detail": "Cannot remove the company's last active Owner."})
-        # BB-000084: membership company is immutable.
-        updated = serializer.save(company=get_company_user(self.request).company)
+        with transaction.atomic():
+            if was_active_owner and not stays_active_owner:
+                if _active_owner_count(instance.company, exclude_pk=instance.pk) == 0:
+                    raise ValidationError({"detail": "Cannot remove the company's last active Owner."})
+            if new_active and not instance.is_active:
+                _enforce_plan_seat_limit(instance.company)
+            updated = serializer.save(company=get_company_user(self.request).company)
         AuditService.log(company=updated.company, user=self.request.user, action="UPDATE",
                          entity_type="CompanyUser", entity_id=updated.id)
 
@@ -1122,7 +1171,7 @@ class RequestPasswordResetView(APIView):
             if "@" in identifier:
                 user = User.objects.filter(email__iexact=identifier, is_active=True).first()
             else:
-                user = User.objects.filter(phone__in=phone_lookup_values(identifier), is_active=True).first()
+                user = resolve_user_by_phone(identifier)
             if user is not None and user.has_usable_password():
                 jti = str(uuid.uuid4())
                 token = signing.dumps({"uid": user.pk, "jti": jti}, salt=_PASSWORD_RESET_SALT)

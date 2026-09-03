@@ -41,9 +41,44 @@ type WoForm = {
   bom: number | '';
   qty: string;
   warehouse: number | '';
+  batchNo: string;
+  expDate: string;
+  mfgDate: string;
 };
 
-const emptyForm = (): WoForm => ({ bom: '', qty: '1', warehouse: '' });
+const emptyForm = (): WoForm => ({ bom: '', qty: '1', warehouse: '', batchNo: '', expDate: '', mfgDate: '' });
+
+function parseSerials(text: string): string[] {
+  return text
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function parseComponentSerials(text: string): Record<string, string[]> | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, string[]>;
+      }
+    } catch {
+      return undefined;
+    }
+  }
+  const map: Record<string, string[]> = {};
+  for (const line of trimmed.split('\n')) {
+    const idx = line.indexOf(':');
+    if (idx < 0) continue;
+    const id = line.slice(0, idx).trim();
+    const rest = line.slice(idx + 1);
+    if (!id) continue;
+    map[id] = parseSerials(rest);
+  }
+  return Object.keys(map).length ? map : undefined;
+}
 
 export function WorkOrdersPage() {
   return (
@@ -63,6 +98,8 @@ function WorkOrdersPageInner() {
   const [confirm, setConfirm] = useState<{ action: 'release' | 'complete' | 'cancel'; id: number } | null>(
     null,
   );
+  const [serialText, setSerialText] = useState('');
+  const [componentSerialsText, setComponentSerialsText] = useState('');
 
   const query = useQuery({
     queryKey: ['work-orders', page],
@@ -94,6 +131,9 @@ function WorkOrdersPageInner() {
         bom: Number(form.bom),
         qty: form.qty,
         warehouse: form.warehouse ? Number(form.warehouse) : null,
+        batchNo: form.batchNo || undefined,
+        expDate: form.expDate || null,
+        mfgDate: form.mfgDate || null,
       };
       if (editing) return updateWorkOrder(editing.id, payload);
       return createWorkOrder(payload);
@@ -108,13 +148,26 @@ function WorkOrdersPageInner() {
   });
 
   const releaseMutation = useMutation({
-    mutationFn: (id: number) => releaseWorkOrder(id),
+    mutationFn: ({ id, componentSerials }: { id: number; componentSerials?: Record<string, string[]> }) =>
+      releaseWorkOrder(id, { componentSerials }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['work-orders'] }),
     onError: (err) => setError(getErrorMessage(err)),
   });
 
   const completeMutation = useMutation({
-    mutationFn: (id: number) => completeWorkOrder(id),
+    mutationFn: ({
+      id,
+      serialNumbers,
+      batchNo,
+      expDate,
+      mfgDate,
+    }: {
+      id: number;
+      serialNumbers?: string[];
+      batchNo?: string;
+      expDate?: string | null;
+      mfgDate?: string | null;
+    }) => completeWorkOrder(id, { serialNumbers, batchNo, expDate, mfgDate }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['work-orders'] }),
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -138,6 +191,9 @@ function WorkOrdersPageInner() {
       bom: wo.bom,
       qty: wo.qty,
       warehouse: wo.warehouse ?? '',
+      batchNo: wo.batchNo ?? '',
+      expDate: wo.expDate ?? '',
+      mfgDate: wo.mfgDate ?? '',
     });
     setOpen(true);
   };
@@ -196,7 +252,11 @@ function WorkOrdersPageInner() {
                         <Button
                           size="small"
                           disabled={releaseMutation.isPending}
-                          onClick={() => setConfirm({ action: 'release', id: wo.id })}
+                          onClick={() => {
+                            setSerialText('');
+                            setComponentSerialsText('');
+                            setConfirm({ action: 'release', id: wo.id });
+                          }}
                         >
                           {t('erp.release')}
                         </Button>
@@ -207,7 +267,10 @@ function WorkOrdersPageInner() {
                         <Button
                           size="small"
                           disabled={completeMutation.isPending}
-                          onClick={() => setConfirm({ action: 'complete', id: wo.id })}
+                          onClick={() => {
+                            setSerialText('');
+                            setConfirm({ action: 'complete', id: wo.id });
+                          }}
                         >
                           {t('common.complete')}
                         </Button>
@@ -300,6 +363,25 @@ function WorkOrdersPageInner() {
                 </MenuItem>
               ))}
             </TextField>
+            <TextField
+              label={t('erp.batchNo')}
+              value={form.batchNo}
+              onChange={(e) => setForm((f) => ({ ...f, batchNo: e.target.value }))}
+            />
+            <TextField
+              type="date"
+              label={t('erp.expDate')}
+              value={form.expDate}
+              onChange={(e) => setForm((f) => ({ ...f, expDate: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              type="date"
+              label={t('erp.mfgDate')}
+              value={form.mfgDate}
+              onChange={(e) => setForm((f) => ({ ...f, mfgDate: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -313,29 +395,80 @@ function WorkOrdersPageInner() {
           </Button>
         </DialogActions>
       </Dialog>
+      <Dialog
+        open={confirm?.action === 'release' || confirm?.action === 'complete'}
+        onClose={() => setConfirm(null)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          {confirm?.action === 'release' ? t('erp.release') : t('common.complete')}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2">
+              {confirm?.action === 'release' ? t('erp.confirmReleaseWo') : t('erp.confirmCompleteWo')}
+            </Typography>
+            {confirm?.action === 'release' ? (
+              <TextField
+                label={t('erp.componentSerials')}
+                helperText={t('erp.componentSerialsHint')}
+                multiline
+                minRows={3}
+                value={componentSerialsText}
+                onChange={(e) => setComponentSerialsText(e.target.value)}
+              />
+            ) : (
+              <TextField
+                label={t('erp.serialNumbers')}
+                helperText={t('erp.serialNumbersHint')}
+                multiline
+                minRows={3}
+                value={serialText}
+                onChange={(e) => setSerialText(e.target.value)}
+              />
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirm(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={releaseMutation.isPending || completeMutation.isPending}
+            onClick={() => {
+              if (!confirm) return;
+              if (confirm.action === 'release') {
+                releaseMutation.mutate({
+                  id: confirm.id,
+                  componentSerials: parseComponentSerials(componentSerialsText),
+                });
+              } else if (confirm.action === 'complete') {
+                const wo = rows.find((r) => r.id === confirm.id);
+                completeMutation.mutate({
+                  id: confirm.id,
+                  serialNumbers: parseSerials(serialText),
+                  batchNo: wo?.batchNo || form.batchNo || undefined,
+                  expDate: wo?.expDate || form.expDate || null,
+                  mfgDate: wo?.mfgDate || form.mfgDate || null,
+                });
+              }
+              setConfirm(null);
+            }}
+          >
+            {t('common.confirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <ConfirmDialog
-        open={Boolean(confirm)}
-        title={
-          confirm?.action === 'release'
-            ? t('erp.release')
-            : confirm?.action === 'complete'
-              ? t('common.complete')
-              : t('common.cancel')
-        }
-        body={
-          confirm?.action === 'release'
-            ? t('erp.confirmReleaseWo')
-            : confirm?.action === 'complete'
-              ? t('erp.confirmCompleteWo')
-              : t('erp.confirmCancelWo')
-        }
-        confirmColor={confirm?.action === 'cancel' ? 'warning' : 'primary'}
+        open={confirm?.action === 'cancel'}
+        title={t('common.cancel')}
+        body={t('erp.confirmCancelWo')}
+        confirmColor="warning"
+        confirming={cancelMutation.isPending}
         onClose={() => setConfirm(null)}
         onConfirm={() => {
           if (!confirm) return;
-          if (confirm.action === 'release') releaseMutation.mutate(confirm.id);
-          else if (confirm.action === 'complete') completeMutation.mutate(confirm.id);
-          else cancelMutation.mutate(confirm.id);
+          cancelMutation.mutate(confirm.id);
           setConfirm(null);
         }}
       />

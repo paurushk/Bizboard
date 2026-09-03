@@ -31,6 +31,13 @@ import { listDrafts } from '@/offline/invoiceDraftCache';
 const DRAWER_WIDTH = 272;
 const MOBILE_BILLING_TIP_KEY = 'bizboard.dismiss.mobileBillingTip';
 
+function navPathSelected(pathname: string, path?: string): boolean {
+  if (!path) return false;
+  if (pathname === path) return true;
+  if (path !== '/' && pathname.startsWith(`${path}/`)) return true;
+  return false;
+}
+
 /** Re-render shell copy when locale changes without a full reload (FE-18). */
 function useLocaleTick() {
   const [, setTick] = useState(0);
@@ -58,7 +65,7 @@ function NavSection({
       <ListItemButton
         component={NavLink}
         to={item.path ?? '/'}
-        selected={location.pathname === item.path}
+        selected={navPathSelected(location.pathname, item.path)}
         onClick={onNavigate}
       >
         <ListItemText primary={t(item.labelKey)} />
@@ -83,7 +90,7 @@ function NavSection({
               key={child.id}
               component={NavLink}
               to={child.path ?? '/'}
-              selected={location.pathname === child.path}
+              selected={navPathSelected(location.pathname, child.path)}
               sx={{ pl: 4 }}
               onClick={onNavigate}
             >

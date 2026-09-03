@@ -90,6 +90,7 @@ describe('refresh token rejection (BUG-407 / P0-111)', () => {
   });
 
   it('clears tokens and dispatches session-expired when refresh returns 401', async () => {
+    document.cookie = 'csrftoken=test-csrf';
     let expired = false;
     const onExpired = () => {
       expired = true;
@@ -117,6 +118,38 @@ describe('refresh token rejection (BUG-407 / P0-111)', () => {
     expect(getAccessToken()).toBeNull();
     expect(getRefreshToken()).toBeNull();
     expect(expired).toBe(true);
+
+    window.removeEventListener('bizboard:session-expired', onExpired);
+  });
+
+  it('does not clear session on a transient network error (no response)', async () => {
+    document.cookie = 'csrftoken=test-csrf';
+    let expired = false;
+    const onExpired = () => {
+      expired = true;
+    };
+    window.addEventListener('bizboard:session-expired', onExpired);
+
+    vi.spyOn(axios, 'post').mockRejectedValueOnce(
+      Object.assign(new AxiosError('Network Error'), { code: 'ERR_NETWORK' }),
+    );
+
+    apiClient.defaults.adapter = async (config) => {
+      const error = new AxiosError('Unauthorized');
+      error.config = config as InternalAxiosRequestConfig;
+      error.response = {
+        status: 401,
+        data: { detail: 'token expired' },
+        headers: {},
+        config: config as InternalAxiosRequestConfig,
+        statusText: 'Unauthorized',
+      };
+      throw error;
+    };
+
+    await expect(apiClient.get('/customers/')).rejects.toBeTruthy();
+    expect(getAccessToken()).toBe('cookie');
+    expect(expired).toBe(false);
 
     window.removeEventListener('bizboard:session-expired', onExpired);
   });

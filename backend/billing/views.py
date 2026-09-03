@@ -145,6 +145,22 @@ class RazorpayWebhookView(APIView):
             return Response({"ok": True, "ignored": True})
         rzp_id = str(entity.get("id") or "")
         rzp_status = str(entity.get("status") or "")
+
+        # SUB-05: event-level replay guard. Razorpay may redeliver a webhook; a
+        # replayed event for the same subscription id re-applies stale state.
+        # Dedup on the event id (header, else a body hash) for 24h.
+        from django.core.cache import cache
+
+        event_id = (
+            request.headers.get("X-Razorpay-Event-Id")
+            or str(payload.get("id") or "")
+            or hashlib.sha256(body).hexdigest()
+        )
+        dedup_key = "bizboard:billing_webhook_seen:" + hashlib.sha256(
+            f"{rzp_id}|{rzp_status}|{event_id}".encode()
+        ).hexdigest()
+        if not cache.add(dedup_key, "1", timeout=24 * 60 * 60):
+            return Response({"ok": True, "duplicate": True})
         sub = apply_razorpay_subscription_status(
             razorpay_subscription_id=rzp_id,
             rzp_status=rzp_status,

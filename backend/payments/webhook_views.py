@@ -162,6 +162,32 @@ def payment_webhook(request, provider: str):
     if event.payment_link_id and event.payment_link_id != link.provider_link_id:
         return Response({"detail": "payment_link_id mismatch."}, status=status.HTTP_400_BAD_REQUEST)
 
+    # PAY-02/PAY-05: provider-agnostic replay guard. A captured valid signed body
+    # can otherwise be re-delivered indefinitely; downstream state checks are the
+    # backstop but this stops the re-processing (and the repeated
+    # refund_gateway_payment call) at the door. Keyed on the provider event id
+    # when present, else on (provider, payment id, status) + a body hash.
+    import hashlib
+
+    from django.core.cache import cache
+
+    _event_id = ""
+    _raw = getattr(event, "raw", None)
+    if isinstance(_raw, dict):
+        _event_id = str(
+            _raw.get("id")
+            or _raw.get("event_id")
+            or ((_raw.get("data") or {}).get("event") if isinstance(_raw.get("data"), dict) else "")
+            or ""
+        ).strip()
+    _event_id = _event_id or headers.get("X-Razorpay-Event-Id") or headers.get("x-razorpay-event-id") or ""
+    _dedup_key = "bizboard:webhook_seen:" + hashlib.sha256(
+        f"{provider}|{event.provider_payment_id}|{event.status}|{_event_id}".encode()
+        + (b"" if _event_id else hashlib.sha256(body).digest())
+    ).hexdigest()
+    if not cache.add(_dedup_key, "1", timeout=24 * 60 * 60):
+        return Response({"ok": True, "duplicate": True, "status": event.status})
+
     if event.status == "REFUNDED":
         from .models import GatewayPayment
 
@@ -187,6 +213,7 @@ def payment_webhook(request, provider: str):
         return Response({"ok": True, "ignored": True, "status": event.status})
 
     from payments.holding import (
+        books_hold_reason,
         err_detail,
         gateway_holding_enabled,
         park_gateway_payment,
@@ -211,6 +238,8 @@ def payment_webhook(request, provider: str):
         ).first()
         if gateway_holding_enabled():
             if gp is None:
+                from payments.services import redact_gateway_payload
+
                 gp = GatewayPayment.objects.create(
                     company=company,
                     provider=provider,
@@ -219,10 +248,10 @@ def payment_webhook(request, provider: str):
                     fee=event.fee,
                     status=GatewayPaymentStatus.CREATED,
                     payment_link=link,
-                    raw_payload=event.raw,
+                    raw_payload=redact_gateway_payload(event.raw),  # PAY-11
                 )
             if gp.status != GatewayPaymentStatus.CAPTURED:
-                park_gateway_payment(gp, "BOOKS_ERROR", err_detail(exc))
+                park_gateway_payment(gp, books_hold_reason(exc), err_detail(exc))
             return Response({"ok": True, "gateway_payment_id": gp.id, "status": gp.status})
         return Response({"detail": str(exc.detail)}, status=status.HTTP_400_BAD_REQUEST)
     return Response({"ok": True, "gateway_payment_id": gp.id, "status": gp.status})

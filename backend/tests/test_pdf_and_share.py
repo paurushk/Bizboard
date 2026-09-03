@@ -59,8 +59,8 @@ def test_amount_in_words_indian():
 
 
 def test_tax_breakup_mixed_rates(tenant_a):
-    p12 = make_product(tenant_a.company, sku="P12", gst_rate="12", hsn_code="3004")
-    p18 = make_product(tenant_a.company, sku="P18", gst_rate="18", hsn_code="8471")
+    p12 = make_product(tenant_a.company, sku="P12", gst_rate="12", hsn_code="8501")
+    p18 = make_product(tenant_a.company, sku="P18", gst_rate="18", hsn_code="8502")
     add_stock(tenant_a, p12, "10")
     add_stock(tenant_a, p18, "10")
     customer = make_customer(tenant_a.company, state="Karnataka")

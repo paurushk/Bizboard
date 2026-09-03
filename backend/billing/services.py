@@ -41,6 +41,29 @@ def plan_modules_for_company(company) -> dict | None:
     return modules if isinstance(modules, dict) else None
 
 
+def ensure_register_trial(company) -> Subscription | None:
+    """Give a new tenant a time-boxed TRIAL so REQUIRE_SUBSCRIPTION does not write-block them."""
+    if Subscription.objects.filter(company=company).exists():
+        return None
+    days = int(getattr(settings, "BILLING_TRIAL_DAYS", 14) or 14)
+    plan, _ = Plan.objects.get_or_create(
+        slug="trial",
+        defaults={
+            "name": "Trial",
+            "seat_limit": 3,
+            "price_paise": 0,
+            "is_active": True,
+            "modules": {},
+        },
+    )
+    return Subscription.objects.create(
+        company=company,
+        plan=plan,
+        status=Subscription.Status.TRIAL,
+        trial_ends_at=timezone.now() + timedelta(days=days),
+    )
+
+
 def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, str]:
     """Create/update subscription. Returns (subscription, checkout_order_id)."""
     now = timezone.now()
@@ -55,32 +78,59 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
 
     # Do not overwrite ACTIVE/TRIAL to PENDING — that write-blocks a paying tenant.
     live = {Subscription.Status.ACTIVE, Subscription.Status.TRIAL}
+    live_razorpay = bool(razorpay_key and razorpay_secret and plan.razorpay_plan_id)
     sub = Subscription.objects.filter(company=company).first()
+    created_new = False
+    snapshot = None
     if sub is None:
-        # BB-000725: stay PENDING until Razorpay webhook (never ACTIVE on stub checkout).
-        sub = Subscription.objects.create(
-            company=company,
-            plan=plan,
-            status=Subscription.Status.PENDING,
-            current_period_end=None,
-            trial_ends_at=None,
-        )
+        if live_razorpay:
+            sub = Subscription.objects.create(
+                company=company,
+                plan=plan,
+                status=Subscription.Status.PENDING,
+                current_period_end=None,
+                trial_ends_at=None,
+            )
+        else:
+            days = int(getattr(settings, "BILLING_TRIAL_DAYS", 14) or 14)
+            sub = Subscription.objects.create(
+                company=company,
+                plan=plan,
+                status=Subscription.Status.TRIAL,
+                current_period_end=None,
+                trial_ends_at=now + timedelta(days=days),
+            )
+        created_new = True
     else:
-        sub.plan = plan
-        if sub.status not in live:
-            sub.status = Subscription.Status.PENDING
-            sub.current_period_end = None
-            sub.trial_ends_at = None
-        sub.save(update_fields=["plan", "status", "current_period_end", "trial_ends_at", "updated_at"])
+        snapshot = (sub.status, sub.current_period_end, sub.trial_ends_at, sub.plan_id)
+        if live_razorpay and sub.status in live:
+            # Keep the live plan until Razorpay confirms the new subscription.
+            pass
+        else:
+            sub.plan = plan
+            if live_razorpay and sub.status not in live:
+                sub.status = Subscription.Status.PENDING
+                sub.current_period_end = None
+                sub.trial_ends_at = None
+            sub.save(update_fields=["plan", "status", "current_period_end", "trial_ends_at", "updated_at"])
 
     checkout_order_id = stub_order
     if razorpay_key and razorpay_secret and plan.razorpay_plan_id:
-        remote_id = _create_razorpay_subscription(plan, company)
+        try:
+            remote_id = _create_razorpay_subscription(plan, company)
+        except Exception:
+            if created_new:
+                sub.delete()
+            elif snapshot is not None:
+                sub.status, sub.current_period_end, sub.trial_ends_at, sub.plan_id = snapshot
+                sub.save(update_fields=["plan", "status", "current_period_end", "trial_ends_at", "updated_at"])
+            raise
         if remote_id:
+            sub.plan = plan
             sub.razorpay_subscription_id = remote_id
             if sub.status not in live:
                 sub.status = Subscription.Status.PENDING
-            sub.save(update_fields=["razorpay_subscription_id", "status", "updated_at"])
+            sub.save(update_fields=["plan", "razorpay_subscription_id", "status", "updated_at"])
             checkout_order_id = remote_id
     return sub, checkout_order_id
 
@@ -153,10 +203,15 @@ def _map_razorpay_status(rzp_status: str) -> str | None:
     status = (rzp_status or "").strip().lower()
     if status == "active":
         return Subscription.Status.ACTIVE
+    if status == "authenticated":
+        return None
     if status in {"halted", "paused"}:
         return Subscription.Status.PAST_DUE
     if status == "pending":
-        return None
+        # SUB-04: Razorpay leaves a subscription `pending` when an auto-charge
+        # retry is failing. That is a payment problem — move it to PAST_DUE
+        # (write-grace still applies) rather than silently keeping the prior status.
+        return Subscription.Status.PAST_DUE
     if status in {"cancelled", "completed", "expired"}:
         return Subscription.Status.SUSPENDED
     return None

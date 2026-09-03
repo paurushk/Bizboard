@@ -90,19 +90,37 @@ jobs:
       # relying on someone remembering to run `npm audit` manually.
       - run: npm audit --omit=dev --audit-level=high
 
-  # BB-000748: lightweight mobile gate (no full Gradle assemble).
+  # BB-000748: lightweight mobile gate (no Android SDK / Gradle assemble).
   mobile:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
       - name: Assert mobile package.json
+        working-directory: .
         run: |
           test -f mobile/package.json
           node -e "require('./mobile/package.json')"
+      - name: Install mobile deps
+        run: npm ci
+      - name: Typecheck or test
+        run: |
+          if [ -f tsconfig.json ]; then
+            npx tsc --noEmit
+          elif node -e "const s=require('./package.json').scripts||{}; process.exit(s.test ? 0 : 1)"; then
+            npm test
+          else
+            echo "No tsconfig.json or npm test script; npm ci succeeded."
+          fi
       - name: Assert Capacitor config + allowBackup=false
+        working-directory: .
         run: |
           test -f mobile/capacitor.config.ts
           grep -q 'android:allowBackup="false"' mobile/android/app/src/main/AndroidManifest.xml
@@ -194,6 +212,7 @@ jobs:
             'POSTGRES_PASSWORD=ci-only-not-for-prod' \
             'REDIS_PASSWORD=ci-redis-not-for-prod' > .env
       - run: docker compose config
+      - run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config
       - run: docker compose build
 
   # BB-000477: optional load harness presence check (not a soak).

@@ -40,7 +40,7 @@ services:
     # Prefer digest-pinned images in real deploy (example):
     # image: ghcr.io/org/bizboard-api@sha256:...
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/?ready=1')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')"]
       interval: 10s
       timeout: 5s
       retries: 10

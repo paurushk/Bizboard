@@ -116,7 +116,7 @@ def test_payrun_complete_posts_journal_when_accounting_enabled(tenant_a):
     complete = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/")
     assert complete.status_code == 200, complete.data
     assert JournalEntry.objects.filter(
-        company=tenant_a.company, source_type="PayRun", source_id=run_id,
+        company=tenant_a.company, source_type="PAY_RUN", source_id=run_id,
     ).exists()
 
 

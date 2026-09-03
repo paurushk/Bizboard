@@ -53,7 +53,7 @@ export async function universalSearch(q: string): Promise<SearchResult[]> {
         type: 'invoice',
         title: inv.number ?? String(inv.id),
         subtitle: inv.kind,
-        path: `/sales/history/${inv.id}`,
+        path: inv.kind === 'purchase' ? `/purchases/history/${inv.id}` : `/sales/history/${inv.id}`,
       });
     }
     return results;
@@ -358,20 +358,20 @@ export const listCostCenters = () => fetchAllPagesMasters<Record<string, unknown
 export const createCostCenter = (payload: Record<string, unknown>) => apiClient.post('/accounting/cost-centers/', payload).then(({ data }) => unwrapData(data));
 
 export async function listFixedAssets(params?: Record<string, string>): Promise<Record<string, unknown>[]> {
-  return fetchMoneyListFirstPage<Record<string, unknown>>('/accounting/fixed-assets/', params);
+  return fetchAllPagesMasters<Record<string, unknown>>('/accounting/fixed-assets/', params);
 }
 
 export async function listFixedAssetsPage(params?: PageParams): Promise<PageResult<Record<string, unknown>>> {
-  return fetchPage<Record<string, unknown>>('/accounting/fixed-assets/', params);
+  return fetchPage<Record<string, unknown>>('/accounting/fixed-assets/', { pageSize: 200, ...params });
 }
 export const createFixedAsset = (payload: Record<string, unknown>) => apiClient.post('/accounting/fixed-assets/', payload).then(({ data }) => unwrapData(data));
 export const disposeFixedAsset = (id: number) => apiClient.post(`/accounting/fixed-assets/${id}/dispose/`).then(({ data }) => unwrapData(data));
 export async function listAccountingPeriods(params?: Record<string, string>): Promise<Record<string, unknown>[]> {
-  return fetchMoneyListFirstPage<Record<string, unknown>>('/accounting/periods/', params);
+  return fetchAllPagesMasters<Record<string, unknown>>('/accounting/periods/', params);
 }
 
 export async function listAccountingPeriodsPage(params?: PageParams): Promise<PageResult<Record<string, unknown>>> {
-  return fetchPage<Record<string, unknown>>('/accounting/periods/', params);
+  return fetchPage<Record<string, unknown>>('/accounting/periods/', { pageSize: 200, ...params });
 }
 export const createAccountingPeriod = (payload: Record<string, unknown>) => apiClient.post('/accounting/periods/', payload).then(({ data }) => unwrapData(data));
 export const updateAccountingPeriod = (id: number, payload: Record<string, unknown>) => apiClient.patch(`/accounting/periods/${id}/`, payload).then(({ data }) => unwrapData(data));

@@ -62,6 +62,8 @@ ENABLE_CRM = True
 ENABLE_TDS = True
 ENABLE_GSTR = True
 ENABLE_TALLY = True
+# Fixture tenants (owner+staff, no plan) still invite in tests; production default is 1.
+UNSUBSCRIBED_SEAT_LIMIT = 0
 OTP_PEPPER = os.environ.get("OTP_PEPPER", "test-otp-pepper-not-for-prod")
 GSP_FERNET_KEY = os.environ.get(
     "GSP_FERNET_KEY",

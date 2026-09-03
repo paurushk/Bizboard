@@ -23,8 +23,10 @@ def charge_line(document, *, intra_state: bool):
     rate = Decimal(str(document.charges_gst_rate or 0))
     tax = q2(charges * rate / Decimal("100"))
     if intra_state:
+        # BILL-01/CHG-01: symmetric split so CGST == SGST on the synthetic
+        # freight/packing line too.
         half = q2(tax / 2)
-        cgst, sgst, igst = half, q2(tax) - half, Decimal("0.00")
+        cgst, sgst, igst = half, half, Decimal("0.00")
     else:
         cgst = sgst = Decimal("0.00")
         igst = tax

@@ -302,7 +302,17 @@ class StockTransferViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
-        return Response(self.get_serializer(StockTransferService.complete(self.get_object(), request.user)).data)
+        def build():
+            return Response(
+                self.get_serializer(StockTransferService.complete(self.get_object(), request.user)).data
+            )
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="stock_transfer_complete",
+            build=build,
+        )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -337,9 +347,9 @@ class SerialNumberViewSet(CompanyScopedViewSet):
         serial = self.get_object()
         target = request.data.get("status")
         allowed = {
-            SerialNumber.Status.AVAILABLE: {SerialNumber.Status.SOLD, SerialNumber.Status.SCRAPPED},
+            SerialNumber.Status.AVAILABLE: {SerialNumber.Status.SCRAPPED},
             SerialNumber.Status.SOLD: {SerialNumber.Status.RETURNED},
-            SerialNumber.Status.RETURNED: {SerialNumber.Status.AVAILABLE, SerialNumber.Status.SCRAPPED},
+            SerialNumber.Status.RETURNED: {SerialNumber.Status.SCRAPPED},
             SerialNumber.Status.SCRAPPED: set(),
         }
         if target not in allowed.get(serial.status, set()):
@@ -350,6 +360,41 @@ class SerialNumberViewSet(CompanyScopedViewSet):
 
             if not Warehouse.objects.filter(company=self.company, pk=warehouse_id).exists():
                 return Response({"detail": "Warehouse does not belong to this company."}, status=status.HTTP_400_BAD_REQUEST)
+        from_status = serial.status
+        warehouse = serial.warehouse
+        if warehouse_id:
+            warehouse = Warehouse.objects.filter(company=self.company, pk=warehouse_id).first() or warehouse
+        if target == SerialNumber.Status.RETURNED and from_status == SerialNumber.Status.SOLD:
+            InventoryService.post_movement(
+                company=self.company,
+                warehouse=warehouse,
+                product=serial.product,
+                quantity=Decimal("1"),
+                movement_type=MovementType.SALES_RETURN,
+                reference_type="serial_manual_return",
+                reference_id=serial.pk,
+                reason=f"Serial {serial.serial_number} returned",
+                user=request.user,
+            )
+        if target == SerialNumber.Status.SCRAPPED and from_status in (
+            SerialNumber.Status.AVAILABLE,
+            SerialNumber.Status.RETURNED,
+        ):
+            on_hand = InventoryService.available_quantity(
+                self.company, serial.product, warehouse
+            )
+            if from_status == SerialNumber.Status.AVAILABLE or on_hand >= 1:
+                InventoryService.post_movement(
+                    company=self.company,
+                    warehouse=warehouse,
+                    product=serial.product,
+                    quantity=Decimal("-1"),
+                    movement_type=MovementType.ADJUSTMENT,
+                    reference_type="serial_scrap",
+                    reference_id=serial.pk,
+                    reason=f"Serial {serial.serial_number} scrapped",
+                    user=request.user,
+                )
         serial.status = target
         serial.warehouse_id = warehouse_id
         serial.updated_by = request.user

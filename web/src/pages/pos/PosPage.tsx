@@ -143,6 +143,7 @@ function draftLinesFromCart(
       line.priceAlreadyConverted,
     ),
     gstRate: taxEnabled ? toNumber(line.product.gstRate) : 0,
+    cessRate: taxEnabled ? toNumber((line.product as { cessRate?: number }).cessRate) : 0,
     discountPercent: line.discountPercent || 0,
     unitName: line.unitName,
   }));
@@ -489,6 +490,7 @@ export function PosPage() {
             unitPrice: line.unitPrice,
             unitPriceInclusive: isInclusive ? line.unitPrice : undefined,
             gstRate: taxEnabled ? line.gstRate : 0,
+            cessRate: taxEnabled ? toNumber((line as { cessRate?: number }).cessRate) : 0,
             discountPercent: line.discountPercent ?? 0,
             unitName: line.unitName || undefined,
           })),
@@ -532,11 +534,14 @@ export function PosPage() {
           },
           { idempotencyKey: receiptKey },
         );
-        await createAllocation({
-          receipt: receipt.id,
-          salesInvoice: completed.id,
-          amount: invoiceTotal,
-        });
+        await createAllocation(
+          {
+            receipt: receipt.id,
+            salesInvoice: completed.id,
+            amount: invoiceTotal,
+          },
+          { idempotencyKey: key ? `${key}-alloc` : undefined },
+        );
         await finishSale(completed, key);
       } catch (err) {
         setError(getErrorMessage(err));
@@ -596,11 +601,14 @@ export function PosPage() {
         },
         { idempotencyKey: receiptKey },
       );
-      await createAllocation({
-        receipt: receipt.id,
-        salesInvoice: upiPending.invoiceId,
-        amount: upiPending.amount,
-      });
+      await createAllocation(
+        {
+          receipt: receipt.id,
+          salesInvoice: upiPending.invoiceId,
+          amount: upiPending.amount,
+        },
+        { idempotencyKey: `${receiptKey}-alloc` },
+      );
       await finishSale(
         { id: upiPending.invoiceId, number: upiPending.invoiceNumber },
         upiPending.key,
@@ -1317,7 +1325,11 @@ export function PosPage() {
       </Dialog>
       <Dialog
         open={Boolean(upiPending)}
-        onClose={() => setUpiPending(null)}
+        onClose={(_event, reason) => {
+          if (reason === 'backdropClick' || reason === 'escapeKeyDown') return;
+          setUpiPending(null);
+        }}
+        disableEscapeKeyDown
         TransitionProps={{ onExited: () => searchRef.current?.focus() }}
       >
         <DialogTitle>{t('pos.upiTitle')}</DialogTitle>

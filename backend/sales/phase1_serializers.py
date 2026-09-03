@@ -204,8 +204,10 @@ class SalesOrderSerializer(CompanyScopedSerializerMixin, serializers.ModelSerial
         fields = [
             "id", "number", "status", "customer", "customer_name", "warehouse", "invoice_type",
             "order_date", "expected_delivery", "payment_terms_days",
-            "additional_charges", "invoice_discount", "invoice_discount_mode",
+            "additional_charges", "charges_hsn", "charges_gst_rate",
+            "invoice_discount", "invoice_discount_mode",
             "auto_round_off", "notes", "terms_text", "items",
+            "supply_type", "company_gstin",
             "converted_invoice", "created_at", "updated_at",
         ] + TOTAL_READONLY
         read_only_fields = ["number", "status", "converted_invoice"] + TOTAL_READONLY
@@ -218,6 +220,11 @@ class SalesOrderSerializer(CompanyScopedSerializerMixin, serializers.ModelSerial
         if warehouse is not None:
             self.check_company_ref(warehouse, "warehouse")
         return warehouse
+
+    def validate_company_gstin(self, company_gstin):
+        if company_gstin is not None:
+            self.check_company_ref(company_gstin, "company_gstin")
+        return company_gstin
 
     def create(self, validated_data):
         items_data = validated_data.pop("items")

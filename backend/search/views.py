@@ -35,7 +35,7 @@ class UniversalSearchView(APIView):
 
     def get(self, request):
         q = (request.query_params.get("q") or "").strip()
-        if not q:
+        if len(q) < 2:
             return Response({"customers": [], "suppliers": [], "products": [], "invoices": []})
         cu = get_company_user(request)
         company = cu.company
@@ -111,8 +111,8 @@ class UniversalSearchView(APIView):
             "products": [
                 {
                     "id": p.id, "name": p.name, "sku": p.sku, "barcode": p.barcode,
-                    **({"selling_price": p.selling_price} if show_pricing else {}),
-                    "gst_rate": p.gst_rate, "status": p.status,
+                    **({"selling_price": p.selling_price, "gst_rate": p.gst_rate} if show_pricing else {}),
+                    "status": p.status,
                 }
                 for p in products
             ],

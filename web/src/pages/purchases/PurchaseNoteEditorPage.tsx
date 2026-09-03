@@ -48,6 +48,8 @@ import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
+import { useAuth } from '@/auth/AuthContext';
+import { canCancelDocuments, canCreatePurchases } from '@/utils/permissions';
 import type { NoteReason, Product, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, Supplier } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
@@ -60,6 +62,9 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
   const listPath = isCredit ? '/purchases/credit-notes' : '/purchases/debit-notes';
   const queryKey = isCredit ? 'purchase-credit-notes' : 'purchase-debit-notes';
 
+  const { user } = useAuth();
+  const canWrite = canCreatePurchases(user);
+  const canCancel = canCancelDocuments(user);
   const { id: editIdParam } = useParams();
   const editId = editIdParam ? Number(editIdParam) : null;
   const isEdit = Number.isFinite(editId) && (editId as number) > 0;
@@ -209,7 +214,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     [lineTaxes, intraState],
   );
 
-  const canSave = Boolean(supplierId) && lines.length > 0;
+  const canSave = Boolean(supplierId) && lines.length > 0 && canWrite;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
 
   const addLine = () => {
@@ -308,7 +313,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
       onPrimarySave={() => saveMutation.mutate(primarySave.mode === 'complete' ? 'complete' : 'draft')}
       onDraft={() => saveMutation.mutate('draft')}
       extraActions={
-        readOnly && editingStatus === 'COMPLETED' ? (
+        readOnly && editingStatus === 'COMPLETED' && canCancel ? (
           <Button color="warning" size="small" disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate()}>
             {t('phase1.cancelDocument')}
           </Button>

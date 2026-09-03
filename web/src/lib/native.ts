@@ -45,6 +45,11 @@ function waitFrame(): Promise<void> {
 export async function scanBarcode(): Promise<string | null> {
   const Detector = (globalThis as unknown as { BarcodeDetector?: new (opts: { formats: string[] }) => { detect: (src: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector;
   if (typeof Detector !== 'function' || typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    if (isNative()) {
+      throw new Error(
+        'Barcode scanning is not available in this packaged build. Type the code, or use Chrome on the web.',
+      );
+    }
     return null;
   }
   let stream: MediaStream | null = null;

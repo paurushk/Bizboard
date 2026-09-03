@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 
+from core.exceptions import BusinessRuleError
 from masters.models import PriceListItem
 
 
@@ -10,6 +11,49 @@ def _qty(value) -> Decimal:
         return Decimal("1")
     q = Decimal(str(value))
     return q if q > 0 else Decimal("1")
+
+
+def _range_hi(max_qty):
+    if max_qty is None or str(max_qty) == "":
+        return None
+    return Decimal(str(max_qty))
+
+
+def ranges_overlap(min_a, max_a, min_b, max_b) -> bool:
+    lo_a = Decimal(str(min_a or 1))
+    lo_b = Decimal(str(min_b or 1))
+    hi_a = _range_hi(max_a)
+    hi_b = _range_hi(max_b)
+    if hi_a is not None and hi_a < lo_b:
+        return False
+    if hi_b is not None and hi_b < lo_a:
+        return False
+    return True
+
+
+def assert_slab_bounds(min_qty, max_qty) -> None:
+    min_q = Decimal(str(min_qty or 1))
+    hi = _range_hi(max_qty)
+    if hi is not None and hi < min_q:
+        raise BusinessRuleError("max_qty cannot be less than min_qty.")
+
+
+def assert_slab_payloads(items) -> None:
+    """Reject max<min and overlapping qty ranges for the same product in a payload."""
+    by_product: dict = {}
+    for item in items or []:
+        product = item.get("product") if isinstance(item, dict) else getattr(item, "product", None)
+        product_id = product.pk if hasattr(product, "pk") else int(product)
+        min_q = item.get("min_qty") if isinstance(item, dict) else getattr(item, "min_qty", 1)
+        max_q = item.get("max_qty") if isinstance(item, dict) else getattr(item, "max_qty", None)
+        assert_slab_bounds(min_q, max_q)
+        others = by_product.setdefault(product_id, [])
+        for o_min, o_max in others:
+            if ranges_overlap(min_q, max_q, o_min, o_max):
+                raise BusinessRuleError(
+                    "Quantity slabs for this product overlap on the same price list."
+                )
+        others.append((min_q, max_q))
 
 
 def _matching_slab(*, price_list_id, product, quantity: Decimal):

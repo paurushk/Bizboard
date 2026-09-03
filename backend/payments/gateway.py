@@ -22,6 +22,45 @@ from core.services.gsp_secrets import decrypt_gsp_credentials, encrypt_gsp_crede
 _SANDBOX_ALLOWED_ENVS = frozenset({"development", "test", "local"})
 
 
+def _json_body(body: bytes) -> dict:
+    """PAY-06: a provider shipping a new / malformed payload shape must yield a
+    clean 400 ("Unrecognized payload"), not an uncaught 500 in the webhook view.
+    """
+    try:
+        data = json.loads((body or b"").decode("utf-8") or "{}")
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _stable_refund_key(provider_payment_id: str, amount: Decimal) -> str:
+    """PAY-09: never issue a non-idempotent refund. Callers normally pass an
+    explicit key (``refund_idempotency_key(gp.id, amount)``); if one is omitted
+    fall back to a deterministic key so a retried refund cannot double-pay.
+    """
+    amt = str(Decimal(str(amount or 0)).quantize(Decimal("0.01")))
+    return "bb_rf_" + hashlib.sha256(f"{provider_payment_id}|{amt}".encode()).hexdigest()[:32]
+
+
+def _payu_body(body: bytes) -> dict:
+    """PAY-03: PayU's S2S / webhook callback is posted as
+    ``application/x-www-form-urlencoded`` (``key=..&txnid=..&status=..&hash=..``),
+    NOT JSON. Parse form-encoded first, fall back to JSON for hand-crafted
+    payloads / tests. Repeated keys collapse to the last value.
+    """
+    from urllib.parse import parse_qsl
+
+    raw = (body or b"").decode("utf-8", "replace").strip()
+    if not raw:
+        return {}
+    if raw[0] in "{[":
+        return _json_body(body)
+    pairs = parse_qsl(raw, keep_blank_values=True)
+    if not pairs:
+        return _json_body(body)
+    return {k: v for k, v in pairs}
+
+
 def get_disabled_providers() -> frozenset[str]:
     """Cashfree/PayU disabled unless ENABLE_* settings/env are true."""
     from django.conf import settings
@@ -176,7 +215,9 @@ class SandboxAdapter:
         return hmac.compare_digest(expected, sig)
 
     def parse_webhook(self, *, body: bytes) -> WebhookEvent | None:
-        data = json.loads(body.decode("utf-8"))
+        data = _json_body(body)
+        if not data:
+            return None
         return WebhookEvent(
             provider_payment_id=str(data.get("payment_id") or data.get("id") or ""),
             amount=Decimal(str(data.get("amount", "0"))),
@@ -187,6 +228,7 @@ class SandboxAdapter:
         )
 
     def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]:
+        idempotency_key = idempotency_key or _stable_refund_key(provider_payment_id, amount)
         return {"id": f"rfnd_sandbox_{secrets.token_hex(6)}", "payment_id": provider_payment_id, "amount": str(amount)}
 
     def cancel_payment_link(self, *, provider_link_id: str) -> None:
@@ -258,8 +300,28 @@ class RazorpayAdapter:
         expected = hmac.new(self.webhook_secret.encode(), body, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, sig)
 
+    # PAY-08: only these Razorpay events move money state. Every other event a
+    # payment emits (payment.authorized, payment.downtime.*, subscription.*, …)
+    # is ignored so one payment's event stream can't double-book from downstream
+    # status inference. `payment_link_probe` events with no `event` key (bare
+    # entity bodies used in tests) are allowed through.
+    _RZP_MONEY_EVENTS = frozenset({
+        "payment.captured",
+        "payment.failed",
+        "payment_link.paid",
+        "order.paid",
+        "refund.processed",
+        "refund.created",
+        "refund.failed",
+    })
+
     def parse_webhook(self, *, body: bytes) -> WebhookEvent | None:
-        data = json.loads(body.decode("utf-8"))
+        data = _json_body(body)
+        if not data:
+            return None
+        event = str(data.get("event") or "").strip().lower()
+        if event and event not in self._RZP_MONEY_EVENTS:
+            return None
         payload = data.get("payload") or data
         payment = (payload.get("payment") or {}).get("entity") or payload.get("payment") or payload
         link = (payload.get("payment_link") or {}).get("entity") or payload.get("payment_link") or {}
@@ -293,6 +355,7 @@ class RazorpayAdapter:
         )
 
     def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]:
+        idempotency_key = idempotency_key or _stable_refund_key(provider_payment_id, amount)
         if not self.key_id or not self.key_secret:
             raise BusinessRuleError("Razorpay credentials are not configured.")
         import base64
@@ -303,7 +366,7 @@ class RazorpayAdapter:
         amount_paise = int(Decimal(amount).quantize(Decimal("0.01")) * 100)
         headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
         if idempotency_key:
-            headers["X-Razorpay-Idempotency"] = idempotency_key[:64]
+            headers["X-Razorpay-Idempotency-Key"] = idempotency_key[:64]
         body = {"amount": amount_paise}
         if idempotency_key:
             body["receipt"] = idempotency_key[:40]
@@ -339,6 +402,27 @@ class RazorpayAdapter:
             )
 
 
+def cashfree_order_id_for_refund(provider_payment_id: str, raw=None) -> str:
+    """Cashfree refunds are POST /orders/{order_id}/refunds.
+
+    Historical webhooks stored cf_payment_id as provider_payment_id; prefer
+    cf_order_id / order_id from the captured webhook payload when present.
+    """
+    if isinstance(raw, dict):
+        data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+        order = data.get("order") if isinstance(data.get("order"), dict) else {}
+        oid = str(
+            data.get("cf_order_id")
+            or data.get("order_id")
+            or order.get("order_id")
+            or order.get("cf_order_id")
+            or ""
+        ).strip()
+        if oid:
+            return oid
+    return (provider_payment_id or "").strip()
+
+
 class CashfreeGateway:
     name = "cashfree"
 
@@ -354,7 +438,7 @@ class CashfreeGateway:
         amount = kwargs["amount"]
         payload = {
             "link_id": kwargs.get("reference") or f"bb_{secrets.token_hex(6)}",
-            "link_amount": float(Decimal(amount).quantize(Decimal("0.01"))),
+            "link_amount": float(format(Decimal(amount).quantize(Decimal("0.01")), "f")),
             "link_currency": "INR",
             "link_purpose": kwargs.get("description") or "Payment",
             "customer_details": {
@@ -415,7 +499,11 @@ class CashfreeGateway:
     def verify_webhook(self, *, headers: dict[str, str], body: bytes) -> bool:
         sig = headers.get("x-webhook-signature") or headers.get("X-Webhook-Signature") or ""
         ts = headers.get("x-webhook-timestamp") or headers.get("X-Webhook-Timestamp") or ""
-        if not self.webhook_secret or not sig or not ts:
+        # PAY-01: fail closed on a dedicated webhook secret — do NOT fall back to
+        # the API secret_key (Cashfree signs webhooks with a separate secret;
+        # the Razorpay adapter refuses this same fallback, BB-000307).
+        secret = self.webhook_secret
+        if not secret or not sig or not ts:
             return False
         try:
             ts_int = int(float(ts))
@@ -423,12 +511,14 @@ class CashfreeGateway:
             return False
         from datetime import datetime, timezone as dt_tz
 
-        age = abs(datetime.now(tz=dt_tz.utc).timestamp() - ts_int)
-        if age > 300:
+        now = datetime.now(tz=dt_tz.utc).timestamp()
+        # Cashfree documents unix milliseconds (13 digits); seconds are 10.
+        ts_sec = ts_int / 1000.0 if ts_int > 10**12 else float(ts_int)
+        if abs(now - ts_sec) > 300:
             return False
         signed = ts + body.decode("utf-8")
         digest = hmac.new(
-            self.webhook_secret.encode(), signed.encode(), hashlib.sha256
+            secret.encode(), signed.encode(), hashlib.sha256
         ).digest()
         import base64
 
@@ -436,14 +526,22 @@ class CashfreeGateway:
         return hmac.compare_digest(expected, sig)
 
     def parse_webhook(self, *, body: bytes) -> WebhookEvent | None:
-        data = json.loads(body.decode("utf-8"))
+        data = _json_body(body)
+        if not data:
+            return None
         link = data.get("data") or data
         payment = {}
         if isinstance(link, dict):
             payment = link.get("payment") or {}
+        if not isinstance(payment, dict):
+            payment = {}
+        if not isinstance(link, dict):
+            link = {}
+        order = link.get("order") if isinstance(link.get("order"), dict) else {}
         amount_raw = (
             payment.get("payment_amount")
             or payment.get("amount")
+            or order.get("order_amount")
             or link.get("payment_amount")
             or link.get("order_amount")
             or link.get("link_amount")
@@ -451,10 +549,31 @@ class CashfreeGateway:
             or "0"
         )
         amount = Decimal(str(amount_raw)).quantize(Decimal("0.01"))
-        status_raw = str(link.get("link_status") or link.get("order_status") or "").upper()
+        status_raw = str(
+            payment.get("payment_status")
+            or link.get("link_status")
+            or link.get("order_status")
+            or order.get("order_status")
+            or ""
+        ).upper()
         status_map = {"PAID": "CAPTURED", "SUCCESS": "CAPTURED", "FAILED": "FAILED", "REFUNDED": "REFUNDED"}
+        order_id = str(
+            link.get("cf_order_id")
+            or link.get("order_id")
+            or order.get("order_id")
+            or order.get("cf_order_id")
+            or ""
+        )
+        payment_id = str(
+            payment.get("cf_payment_id")
+            or payment.get("payment_id")
+            or link.get("cf_payment_id")
+            or link.get("payment_id")
+            or ""
+        )
+        # Refunds are POST /orders/{order_id}/refunds — persist order id, not cf_payment_id.
         return WebhookEvent(
-            provider_payment_id=str(link.get("cf_payment_id") or link.get("payment_id") or ""),
+            provider_payment_id=order_id or payment_id,
             amount=amount,
             fee=Decimal("0"),
             status=status_map.get(status_raw, status_raw),
@@ -462,15 +581,17 @@ class CashfreeGateway:
             raw=data,
         )
 
-    def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]:
+    def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "", raw=None) -> dict[str, Any]:
+        idempotency_key = idempotency_key or _stable_refund_key(provider_payment_id, amount)
         if not self.app_id or not self.secret_key:
             raise BusinessRuleError("Cashfree credentials are not configured.")
         import requests
 
+        order_id = cashfree_order_id_for_refund(provider_payment_id, raw)
         refund_amount = str(Decimal(amount).quantize(Decimal("0.01")))
         refund_id = (idempotency_key or f"bb_rf_{secrets.token_hex(8)}")[:40]
         resp = requests.post(
-            f"{self.api_base}/orders/{provider_payment_id}/refunds",
+            f"{self.api_base}/orders/{order_id}/refunds",
             headers={
                 "x-client-id": self.app_id,
                 "x-client-secret": self.secret_key,
@@ -515,9 +636,13 @@ class PayUGateway:
         firstname = kwargs.get("customer_name") or "Customer"
         email = kwargs.get("customer_email") or "noreply@bizboard.local"
         phone = kwargs.get("customer_phone") or "9999999999"
+        # key|txnid|amount|productinfo|firstname|email|udf1..udf10|SALT
+        # (10 empty udf fields → 11 pipes between email and SALT). The webhook
+        # reverse hash in verify_webhook mirrors this exact sequence.
         hash_seq = (
-            f"{self.merchant_key}|{txnid}|{amount}|{productinfo}|{firstname}|{email}|"
-            f"|||||||||||{self.merchant_salt}"
+            f"{self.merchant_key}|{txnid}|{amount}|{productinfo}|{firstname}|{email}"
+            + "|" * 11
+            + self.merchant_salt
         )
         payu_hash = hashlib.sha512(hash_seq.encode()).hexdigest()
         payload = {
@@ -534,12 +659,53 @@ class PayUGateway:
         }
         import requests
 
+        # PAY-03: prefer PayU's v2 Payment Links REST API (Basic auth, JSON
+        # response with a real shareable URL). Fall back to the legacy hosted
+        # checkout form-post for merchant accounts without Payment Links.
+        # NOTE: verify the request/response shape against a live PayU merchant
+        # account before enabling this provider in production.
+        links_base = self.api_base.replace("secure.payu.in", "info.payu.in")
+        try:
+            lr = requests.post(
+                f"{links_base}/payment-links",
+                json={
+                    "subAmount": str(amount),
+                    "description": productinfo,
+                    "source": "API",
+                    "isPartialPaymentAllowed": False,
+                    "transactionId": txnid,
+                    "customer": {"name": firstname, "email": email, "phone": phone},
+                    "successURL": kwargs.get("callback_url") or "",
+                    "failureURL": kwargs.get("callback_url") or "",
+                },
+                auth=(self.merchant_key, self.merchant_salt),
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise BusinessRuleError(f"PayU payment link request failed: {exc}") from exc
+        if lr.status_code < 400:
+            try:
+                data = lr.json()
+            except ValueError:
+                data = {}
+            result = (data.get("result") or data.get("paymentLink") or data) if isinstance(data, dict) else {}
+            url = (
+                result.get("paymentLink")
+                or result.get("paymentLinkUrl")
+                or result.get("shortUrl")
+                or ""
+            )
+            link_id = str(result.get("invoiceNumber") or result.get("id") or txnid)
+            if url:
+                return CreateLinkResult(provider_link_id=link_id, short_url=url, raw=data)
+        elif lr.status_code not in (404, 405, 501):
+            raise BusinessRuleError(f"PayU payment link failed (HTTP {lr.status_code}).")
+
         resp = requests.post(f"{self.api_base}/_payment", data=payload, timeout=30)
         if resp.status_code >= 400:
             raise BusinessRuleError(f"PayU payment link failed (HTTP {resp.status_code}).")
-        link_id = txnid
         short_url = resp.url if resp.url else f"{self.api_base}/_payment?txnid={txnid}"
-        return CreateLinkResult(provider_link_id=link_id, short_url=short_url, raw={"payload": payload})
+        return CreateLinkResult(provider_link_id=txnid, short_url=short_url, raw={"payload": payload})
 
     def cancel_payment_link(self, *, provider_link_id: str) -> None:
         raise BusinessRuleError(
@@ -550,9 +716,8 @@ class PayUGateway:
     def verify_webhook(self, *, headers: dict[str, str], body: bytes) -> bool:
         if not self.merchant_salt:
             return False
-        try:
-            data = json.loads(body.decode("utf-8"))
-        except json.JSONDecodeError:
+        data = _payu_body(body)
+        if not data:
             return False
         status_val = str(data.get("status") or "")
         email = str(data.get("email") or "")
@@ -560,18 +725,34 @@ class PayUGateway:
         productinfo = str(data.get("productinfo") or "")
         amount = str(data.get("amount") or "")
         txnid = str(data.get("txnid") or "")
-        received = str(data.get("hash") or "")
+        received = str(data.get("hash") or "").strip().lower()
         if not received:
             return False
+        udf = [str(data.get(f"udf{i}") or "") for i in range(1, 11)]
+        # PAY-04: reverse hash is the request sequence mirrored —
+        #   SALT|status|udf10|…|udf1|email|firstname|productinfo|amount|txnid|key
+        # If PayU echoes `additionalCharges`, it is prepended to the sequence.
+        # NOTE: PayU has several hash layouts by integration version — verify
+        # against a live merchant account before enabling this provider.
+        rev_udf = "|".join(reversed(udf))
         seq = (
-            f"{self.merchant_salt}|{status_val}|||||||||||{email}|{firstname}|{productinfo}|"
-            f"{amount}|{txnid}|{self.merchant_key}"
+            f"{self.merchant_salt}|{status_val}|{rev_udf}|{email}|{firstname}|"
+            f"{productinfo}|{amount}|{txnid}|{self.merchant_key}"
         )
-        expected = hashlib.sha512(seq.encode()).hexdigest()
-        return hmac.compare_digest(expected, received)
+        add_charges = str(data.get("additionalCharges") or "").strip()
+        candidates = [seq]
+        if add_charges:
+            candidates.append(f"{add_charges}|{seq}")
+        for cand in candidates:
+            expected = hashlib.sha512(cand.encode()).hexdigest()
+            if hmac.compare_digest(expected, received):
+                return True
+        return False
 
     def parse_webhook(self, *, body: bytes) -> WebhookEvent | None:
-        data = json.loads(body.decode("utf-8"))
+        data = _payu_body(body)
+        if not data:
+            return None
         amount = Decimal(str(data.get("amount") or "0")).quantize(Decimal("0.01"))
         status_raw = str(data.get("status") or "failed").lower()
         status_map = {"success": "CAPTURED", "captured": "CAPTURED", "failed": "FAILED", "refunded": "REFUNDED"}
@@ -585,6 +766,7 @@ class PayUGateway:
         )
 
     def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]:
+        idempotency_key = idempotency_key or _stable_refund_key(provider_payment_id, amount)
         if not self.merchant_key or not self.merchant_salt:
             raise BusinessRuleError("PayU credentials are not configured.")
         import requests
@@ -598,6 +780,10 @@ class PayUGateway:
             "command": command,
             "var1": provider_payment_id,
             "var2": refund_amount,
+            # cancel_refund_transaction: var3 is the merchant token. Pass the
+            # stable idempotency_key so retries are unique-but-stable and a
+            # double-submit is less likely to create a second refund.
+            "var3": (idempotency_key or "")[:64],
             "hash": payu_hash,
         }
         resp = requests.post(
@@ -648,6 +834,7 @@ class _DisabledProviderAdapter:
         )
 
     def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]:
+        idempotency_key = idempotency_key or _stable_refund_key(provider_payment_id, amount)
         raise BusinessRuleError(f"Payment provider '{self.name}' is not enabled.")
 
 

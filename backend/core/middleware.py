@@ -96,7 +96,7 @@ class PostgresRlsMiddleware:
         if not getattr(settings, "POSTGRES_RLS_ENABLED", False):
             return self.get_response(request)
 
-        from core.rls import set_help_staff_all, set_rls_company
+        from core.rls import set_rls_company
 
         if not getattr(getattr(request, "user", None), "is_authenticated", False):
             try:
@@ -121,11 +121,14 @@ class PostgresRlsMiddleware:
         try:
             return self.get_response(request)
         finally:
-            # R1-009: a pooled connection must never carry this request's
-            # app.company_id into the next request that reuses it (which might
-            # be unauthenticated or a different tenant). Clear it, fail closed.
+            # R1-009 / SYS-01: a pooled connection must never carry this
+            # request's app.company_id (or help_staff_all / rls_bypass) into the
+            # next request that reuses it (which might be unauthenticated or a
+            # different tenant). Clear them all, fail closed.
             try:
-                set_rls_company(None)
-                set_help_staff_all(False)
-            except Exception:  # noqa: BLE001
-                pass
+                from core.rls import clear_all_rls_gucs
+
+                clear_all_rls_gucs()
+            except Exception:
+                logger.exception("Failed to clear RLS session GUCs")
+                raise

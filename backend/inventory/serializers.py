@@ -136,6 +136,7 @@ class WarehouseSerializer(serializers.ModelSerializer):
 
 class BatchLotSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
+    product = CompanyPrimaryKeyRelatedField(queryset=Product.objects.all())
 
     class Meta:
         model = BatchLot
@@ -233,6 +234,10 @@ class SerialNumberSerializer(serializers.ModelSerializer):
     # a warehouse was actually set. Same join-a-display-name pattern as elsewhere.
     product_name = serializers.CharField(source="product.name", read_only=True, default=None)
     warehouse_name = serializers.CharField(source="warehouse.name", read_only=True, default=None)
+    product = CompanyPrimaryKeyRelatedField(queryset=Product.objects.all())
+    warehouse = CompanyPrimaryKeyRelatedField(
+        queryset=Warehouse.objects.all(), required=False, allow_null=True,
+    )
 
     class Meta:
         model = SerialNumber

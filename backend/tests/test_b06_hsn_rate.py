@@ -130,3 +130,39 @@ def test_backscan_lists_misrated_lines_with_rupee_delta(tenant_a):
         {"date_from": "2025-09-22", "date_to": "2025-09-30"},
     )
     assert resp.status_code == 200, resp.data
+
+
+@pytest.mark.django_db
+def test_preview_totals_uses_hsn_catalog_rate(tenant_a):
+    seed_starter_hsn_rates()
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
+    tenant_a.company.state = "Karnataka"
+    tenant_a.company.save(update_fields=["gstin", "state"])
+    product = make_product(
+        tenant_a.company, sku="HSN-PREVIEW-1905", hsn_code="1905", gst_rate="18"
+    )
+    add_stock(tenant_a, product, "10")
+    customer, _ = Customer.objects.get_or_create(
+        company=tenant_a.company,
+        gstin="29AAAAA0000A1Z5",
+        defaults={"name": "Rate Test Buyer", "state": "Karnataka"},
+    )
+    payload = {
+        "customer": customer.id,
+        "invoice_type": "GST",
+        "invoice_date": "2025-09-23",
+        "items": [
+            {
+                "product": product.id,
+                "quantity": "1",
+                "unit_price": "100",
+                "gst_rate": "18",
+            }
+        ],
+    }
+    preview = tenant_a.client.post(
+        "/api/v1/sales/invoices/preview-totals/", payload, format="json"
+    )
+    assert preview.status_code == 200, preview.data
+    # Catalog cutover 22 Sep 2025: 1905 bills at 5%, not the line's 18%.
+    assert Decimal(str(preview.data["cgst_total"])) + Decimal(str(preview.data["sgst_total"])) == Decimal("5.00")

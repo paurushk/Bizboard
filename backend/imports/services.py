@@ -1338,8 +1338,31 @@ class ImportService:
     @staticmethod
     def _commit_customers(job, preview, user):
         now = timezone.now()
-        Customer.objects.bulk_create(
-            [
+        created = 0
+        existing_gstin = {
+            (c.gstin or "").strip().upper()
+            for c in Customer.objects.filter(company=job.company).exclude(gstin="")
+        }
+        existing_phone = {
+            (c.phone or "").strip()
+            for c in Customer.objects.filter(company=job.company).exclude(phone="")
+        }
+        existing_name = {
+            (c.name or "").strip().lower()
+            for c in Customer.objects.filter(company=job.company)
+        }
+        rows = []
+        for row in preview:
+            gstin = (row.get("gstin") or "").strip().upper()
+            phone = (row.get("phone") or "").strip()
+            name = (row.get("name") or "").strip()
+            if gstin and gstin in existing_gstin:
+                continue
+            if phone and phone in existing_phone:
+                continue
+            if name.lower() in existing_name:
+                continue
+            rows.append(
                 Customer(
                     company=job.company,
                     name=row["name"],
@@ -1353,17 +1376,44 @@ class ImportService:
                     created_at=now,
                     updated_at=now,
                 )
-                for row in preview
-            ],
-            batch_size=BULK_BATCH,
-        )
-        return len(preview)
+            )
+            if gstin:
+                existing_gstin.add(gstin)
+            if phone:
+                existing_phone.add(phone)
+            existing_name.add(name.lower())
+        if rows:
+            Customer.objects.bulk_create(rows, batch_size=BULK_BATCH)
+            created = len(rows)
+        return created
 
     @staticmethod
     def _commit_suppliers(job, preview, user):
         now = timezone.now()
-        Supplier.objects.bulk_create(
-            [
+        existing_gstin = {
+            (s.gstin or "").strip().upper()
+            for s in Supplier.objects.filter(company=job.company).exclude(gstin="")
+        }
+        existing_phone = {
+            (s.phone or "").strip()
+            for s in Supplier.objects.filter(company=job.company).exclude(phone="")
+        }
+        existing_name = {
+            (s.name or "").strip().lower()
+            for s in Supplier.objects.filter(company=job.company)
+        }
+        rows = []
+        for row in preview:
+            gstin = (row.get("gstin") or "").strip().upper()
+            phone = (row.get("phone") or "").strip()
+            name = (row.get("name") or "").strip()
+            if gstin and gstin in existing_gstin:
+                continue
+            if phone and phone in existing_phone:
+                continue
+            if name.lower() in existing_name:
+                continue
+            rows.append(
                 Supplier(
                     company=job.company,
                     name=row["name"],
@@ -1377,11 +1427,15 @@ class ImportService:
                     created_at=now,
                     updated_at=now,
                 )
-                for row in preview
-            ],
-            batch_size=BULK_BATCH,
-        )
-        return len(preview)
+            )
+            if gstin:
+                existing_gstin.add(gstin)
+            if phone:
+                existing_phone.add(phone)
+            existing_name.add(name.lower())
+        if rows:
+            Supplier.objects.bulk_create(rows, batch_size=BULK_BATCH)
+        return len(rows)
 
     @staticmethod
     def _resolve_units(company, preview, user):
@@ -2500,7 +2554,7 @@ class BillImportService:
         )
 
     @staticmethod
-    def _parse_bill_date(value: str, *, required: bool = False):
+    def _parse_bill_date(value: str, *, required: bool = True):
         value = (value or "").strip()
         if not value:
             if required:
@@ -2598,7 +2652,7 @@ class BillImportService:
             purchase_type=PurchaseInvoice.PurchaseType.GST,
             invoice_date=BillImportService._parse_bill_date(
                 str(preview.get("bill_date") or ""),
-                required=bool(str(preview.get("bill_date") or "").strip()),
+                required=True,
             ),
             supplier_bill_number=str(preview.get("bill_number") or "")[:64],
             notes="Created from purchase bill upload",
@@ -2656,7 +2710,7 @@ class BillImportService:
             invoice_type=SalesInvoice.InvoiceType.GST,
             invoice_date=BillImportService._parse_bill_date(
                 str(preview.get("bill_date") or ""),
-                required=bool(str(preview.get("bill_date") or "").strip()),
+                required=True,
             ),
             notes=f"Created from sales bill upload (bill #{str(preview.get('bill_number') or '')[:64]})",
             created_by=user,

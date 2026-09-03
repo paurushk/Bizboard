@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
+import Skeleton from '@mui/material/Skeleton';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { t } from '@/i18n';
@@ -12,6 +13,36 @@ export function LoadingState({ label }: { label?: string }) {
     <Stack alignItems="center" justifyContent="center" spacing={2} sx={{ py: 8 }}>
       <CircularProgress size={36} />
       <Typography color="text.secondary">{label ?? t('common.loading')}</Typography>
+    </Stack>
+  );
+}
+
+/**
+ * FE-20: a content-shaped placeholder for data-heavy list pages. Reads as the
+ * page filling in rather than a spinner sitting on a blank screen.
+ */
+export function ListSkeleton({ rows = 8 }: { rows?: number }) {
+  return (
+    <Stack spacing={1} sx={{ py: 1 }} aria-busy aria-label={t('common.loading')}>
+      <Skeleton variant="rounded" height={40} />
+      {Array.from({ length: rows }).map((_, i) => (
+        <Skeleton key={i} variant="rounded" height={52} />
+      ))}
+    </Stack>
+  );
+}
+
+/** FE-20: detail-page placeholder — a header block plus a few field rows. */
+export function DetailSkeleton() {
+  return (
+    <Stack spacing={2} sx={{ py: 1 }} aria-busy aria-label={t('common.loading')}>
+      <Skeleton variant="text" width="40%" sx={{ fontSize: '1.75rem' }} />
+      <Skeleton variant="rounded" height={96} />
+      <Stack spacing={1}>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} variant="text" width={`${90 - i * 8}%`} />
+        ))}
+      </Stack>
     </Stack>
   );
 }

@@ -45,11 +45,15 @@ def test_bb_000725_require_subscription_blocks_when_no_sub(tenant_a):
 
 
 @override_settings(REQUIRE_SUBSCRIPTION=False, RAZORPAY_KEY_ID="", RAZORPAY_KEY_SECRET="")
-def test_bb_000725_checkout_without_razorpay_stays_pending(tenant_a):
+def test_bb_000725_checkout_without_razorpay_does_not_brick_tenant(tenant_a):
+    # BB-000671 decision (see test_bb_000671_owner_plans_checkout_portal):
+    # when Razorpay is not configured at all, a stub checkout must NOT leave the
+    # tenant PENDING (which blocks all writes) — it grants a time-boxed TRIAL so
+    # a self-hosted / pre-payment tenant can keep working.
     plan = _plan(slug="f3-pending")
     sub, _order = start_or_update_subscription(company=tenant_a.company, plan=plan)
-    assert sub.status == Subscription.Status.PENDING
-    assert company_writes_blocked(tenant_a.company) is True
+    assert sub.status == Subscription.Status.TRIAL
+    assert company_writes_blocked(tenant_a.company) is False
 
 
 @override_settings(BILLING_PAST_DUE_GRACE_DAYS=0)

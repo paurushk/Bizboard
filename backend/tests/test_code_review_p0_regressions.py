@@ -77,7 +77,8 @@ def test_cr004_gstr3b_31a_excludes_sales_rcm(tenant_a):
     assert any(row.get("rchrg") == "Y" for row in g1.get("b2b") or [])
     g3 = build_gstr3b(tenant_a.company, PERIOD, gstr1=g1)
     a = g3["outward_supplies"]["a_taxable_other_than_zero_rated"]
-    assert Decimal(str(a["taxable_value"])) == Decimal("0.00")
+    assert Decimal(str(a["taxable_value"])) == Decimal("1000.00")
+    assert Decimal(str(a["cgst"])) + Decimal(str(a["sgst"])) + Decimal(str(a["igst"])) == Decimal("0.00")
 
 
 def test_cr029_gstr1_doc_cancelled_counts_series(tenant_a):
@@ -158,6 +159,36 @@ def test_csv_safe_keeps_negative_amounts():
     assert csv_safe(Decimal("-12.50")) == Decimal("-12.50")
     assert csv_safe("-12.50") == "-12.50"
     assert csv_safe("=CMD") == "'=CMD"
+    assert csv_safe("\tCMD") == "'\tCMD"
+    assert csv_safe("\r=CMD") == "'\r=CMD"
+
+
+def test_h9a_rejects_supply_nature_and_cess_changes():
+    from core.exceptions import BusinessRuleError
+    from core.services.h9_amend import assert_h9a_line_allowlist
+
+    class _Line:
+        id = 1
+        product_id = 10
+        quantity = Decimal("1")
+        gst_rate = Decimal("18")
+        supply_nature = "TAXABLE"
+        cess_rate = Decimal("0")
+        cess_amount = Decimal("0")
+
+    base = {"id": 1, "product": 10, "quantity": "1", "gst_rate": "18"}
+    with pytest.raises(BusinessRuleError, match="supply nature"):
+        assert_h9a_line_allowlist([_Line()], [{**base, "supply_nature": "NIL"}])
+    with pytest.raises(BusinessRuleError, match="cess rates"):
+        assert_h9a_line_allowlist([_Line()], [{**base, "cess_rate": "12"}])
+    with pytest.raises(BusinessRuleError, match="cess amounts"):
+        assert_h9a_line_allowlist([_Line()], [{**base, "cess_amount": "5"}])
+
+
+def test_wrap_idempotent_docstring_releases_5xx():
+    from core.idempotency import wrap_idempotent
+
+    assert "5xx after build() returned | No" in (wrap_idempotent.__doc__ or "")
 
 
 def test_gstr2b_reupload_does_not_duplicate(tenant_a):

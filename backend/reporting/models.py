@@ -165,6 +165,16 @@ class Gstr2bIngest(TimeStampedModel):
                 condition=~models.Q(invoice_number=""),
                 name="uniq_gstr2b_ingest_doc",
             ),
+            models.UniqueConstraint(
+                fields=["company", "period", "supplier_gstin", "invoice_date"],
+                condition=models.Q(invoice_number="") & models.Q(invoice_date__isnull=False),
+                name="uniq_gstr2b_ingest_blank_doc",
+            ),
+            models.UniqueConstraint(
+                fields=["company", "period", "supplier_gstin"],
+                condition=models.Q(invoice_number="") & models.Q(invoice_date__isnull=True),
+                name="uniq_gstr2b_ingest_blank_null_date",
+            ),
         ]
         ordering = ["-id"]
 

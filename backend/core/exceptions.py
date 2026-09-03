@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError
 from rest_framework import status
 from rest_framework.exceptions import APIException
@@ -129,19 +130,66 @@ def api_exception_handler(exc, context):
     from rest_framework.response import Response
 
     if isinstance(exc, IntegrityError):
-        # A DB-level unique/foreign-key constraint firing (e.g. a duplicate
-        # GSTIN/barcode conditional UniqueConstraint that DRF can't
-        # auto-validate) should surface as a clean 400, not an unhandled 500.
-        from django.db import transaction as db_transaction
+        # A DB-level constraint firing (a conditional UniqueConstraint DRF can't
+        # auto-validate, a NOT NULL / FK / CHECK violation) should surface as a
+        # clean 400, not an unhandled 500.
+        from django.db import connection, transaction as db_transaction
 
-        db_transaction.set_rollback(True)
+        if connection.in_atomic_block:
+            db_transaction.set_rollback(True)
+        # CORE-07: don't tell the user "duplicate value" for a NOT NULL / FK /
+        # CHECK failure — inspect the driver message and pick an accurate one.
+        raw = str(getattr(exc, "__cause__", None) or exc).lower()
+        if "unique" in raw or "duplicate" in raw:
+            code, message = (
+                "integrity_error",
+                "This conflicts with an existing record (duplicate value).",
+            )
+        elif "not null" in raw or "null value" in raw:
+            code, message = (
+                "integrity_error",
+                "A required value is missing.",
+            )
+        elif "foreign key" in raw or "violates foreign key" in raw:
+            code, message = (
+                "integrity_error",
+                "This references a record that does not exist.",
+            )
+        elif "check constraint" in raw:
+            code, message = (
+                "integrity_error",
+                "A value is outside the allowed range for this field.",
+            )
+        else:
+            code, message = "integrity_error", "This change conflicts with a data constraint."
+        return Response(
+            {"success": False, "error": {"code": code, "message": message, "details": None}},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if isinstance(exc, DjangoValidationError):
+        # CORE-08: a django.core.exceptions.ValidationError raised outside a
+        # serializer (a service calling model.full_clean(), a validators.py
+        # helper) would otherwise become a raw 500. Map it to the 400 envelope.
+        from django.db import connection, transaction as db_transaction
+
+        if connection.in_atomic_block:
+            db_transaction.set_rollback(True)
+        if hasattr(exc, "message_dict"):
+            details = exc.message_dict
+            message = "; ".join(
+                f"{k}: {', '.join(str(m) for m in v)}" for k, v in exc.message_dict.items()
+            )
+        else:
+            details = {"non_field_errors": list(exc.messages)}
+            message = "; ".join(str(m) for m in exc.messages)
         return Response(
             {
                 "success": False,
                 "error": {
-                    "code": "integrity_error",
-                    "message": "This conflicts with an existing record (duplicate value).",
-                    "details": None,
+                    "code": "validation_error",
+                    "message": message or "Validation failed.",
+                    "details": details,
                 },
             },
             status=status.HTTP_400_BAD_REQUEST,

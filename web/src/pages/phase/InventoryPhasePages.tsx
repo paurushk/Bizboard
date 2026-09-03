@@ -26,6 +26,7 @@ import type { Product } from '@/types/domain';
 import { t } from '@/i18n';
 import { useAuth } from '@/auth/AuthContext';
 import { enqueueDraft } from '@/offline/invoiceDraftCache';
+import { useStockOffline } from '@/pages/inventory/useStockOffline';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import {
   asRows,
@@ -129,6 +130,7 @@ export function WarehousesPage() {
 export function StockTransferPage() {
   const { writesBlocked } = useSubscriptionGate();
   const { user } = useAuth();
+  useStockOffline(user?.companyId ?? 0, user?.id ?? 0);
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['transfers'], queryFn: api.listTransfers });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: api.listWarehouses });
@@ -183,7 +185,7 @@ export function StockTransferPage() {
         });
         return { offline: true };
       }
-      return api.completeTransfer(id);
+      return api.completeTransfer(id, { idempotencyKey: `stock-transfer-${id}` });
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['transfers'] }),
   });

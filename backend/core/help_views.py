@@ -17,7 +17,7 @@ from rest_framework.views import APIView
 
 from core.models import HelpEvent, HelpFeedback
 from core.permissions import HasCompany, get_company_user
-from core.rls import set_help_staff_all
+# (RLS bypass is imported lazily where used — SYS-01)
 
 _MAX_PROPS_BYTES = 2048
 _TTR_ROW_CAP = 8000
@@ -111,13 +111,15 @@ def _no_company():
 
 @contextmanager
 def _staff_all_rls(enabled: bool):
-    if enabled:
-        set_help_staff_all(True)
-    try:
+    # SYS-01: unified RLS bypass GUC (the per-table policy now checks
+    # app.rls_bypass, not the old help-only app.help_staff_all).
+    if not enabled:
         yield
-    finally:
-        if enabled:
-            set_help_staff_all(False)
+        return
+    from core.rls import rls_bypass
+
+    with rls_bypass():
+        yield
 
 
 class HelpEventsView(APIView):

@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { enqueueDraft } from '@/offline/invoiceDraftCache';
+import { useStockOffline } from '@/pages/inventory/useStockOffline';
 import { parseStockCountConflicts, type QtyConflict } from '@/pages/inventory/godownConflict';
 import { StockConflictModal } from '@/pages/inventory/StockConflictModal';
 import * as api from '@/api/resources';
@@ -30,6 +31,7 @@ import { asRows, DataTable, PageShell, type Row } from '@/pages/phase/phaseShare
 export function StockCountPage() {
   const { writesBlocked } = useSubscriptionGate();
   const { user } = useAuth();
+  useStockOffline(user?.companyId ?? 0, user?.id ?? 0);
   const qc = useQueryClient();
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: api.listWarehouses });
   const counts = useQuery({ queryKey: ['stock-counts'], queryFn: api.listStockCounts });

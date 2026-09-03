@@ -51,6 +51,21 @@ class AccountingPeriod(CompanyScopedModel):
         ordering = ["-start_date"]
         constraints = [models.UniqueConstraint(fields=["company", "start_date", "end_date"], name="uniq_accounting_period")]
 
+    def clean(self):
+        # ACC-05: reject overlapping periods per company (serializer enforces this
+        # on the API path; this covers management commands / data loads).
+        if self.start_date and self.end_date:
+            if self.end_date < self.start_date:
+                raise ValidationError("end_date must not precede start_date.")
+            if self.company_id:
+                clash = AccountingPeriod.objects.filter(
+                    company_id=self.company_id,
+                    start_date__lte=self.end_date,
+                    end_date__gte=self.start_date,
+                ).exclude(pk=self.pk)
+                if clash.exists():
+                    raise ValidationError("This period overlaps an existing accounting period.")
+
 
 class CostCenter(CompanyScopedModel):
     name = models.CharField(max_length=128)
@@ -98,11 +113,23 @@ class JournalEntry(CompanyScopedModel):
         ]
         indexes = [models.Index(fields=["company", "entry_date", "status"])]
 
+    def assert_balanced(self):
+        """ACC-10: the authoritative balance check is in ``PostingService.post``
+        (before the entry is committed). This is a belt-and-braces re-check
+        callable *after* lines are attached — e.g. from data-repair scripts or
+        a books-health sweep. ``clean()`` cannot do it: it runs before the
+        lines exist. Kept as an explicit method so nothing mistakes the old
+        no-op ``clean()`` for a real guard.
+        """
+        totals = self.lines.aggregate(debit=models.Sum("debit"), credit=models.Sum("credit"))
+        if (totals["debit"] or Decimal("0")) != (totals["credit"] or Decimal("0")):
+            raise ValidationError("Posted journal entries must be balanced.")
+
     def clean(self):
-        if self.status == self.Status.POSTED:
-            totals = self.lines.aggregate(debit=models.Sum("debit"), credit=models.Sum("credit"))
-            if (totals["debit"] or Decimal("0")) != (totals["credit"] or Decimal("0")):
-                raise ValidationError("Posted journal entries must be balanced.")
+        # Intentionally not re-checking balance here — see assert_balanced().
+        # At clean()/full_clean() time an unsaved entry has no lines yet, so the
+        # old aggregate check was always vacuously true (ACC-10).
+        return None
 
 
 class JournalLine(models.Model):
@@ -164,6 +191,10 @@ class FixedAsset(CompanyScopedModel):
         ACTIVE = "ACTIVE"
         DISPOSED = "DISPOSED"
 
+    class Method(models.TextChoices):
+        SLM = "SLM", "Straight line"
+        WDV = "WDV", "Written down value"
+
     name = models.CharField(max_length=160)
     asset_account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name="fixed_assets")
     accumulated_depreciation_account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name="depreciating_assets")
@@ -175,9 +206,40 @@ class FixedAsset(CompanyScopedModel):
     last_depreciation_error = models.TextField(blank=True, default="")
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.ACTIVE)
     disposed_at = models.DateField(null=True, blank=True)
+    # ACC-09: WDV / block depreciation. `salvage_value` is the residual the
+    # asset is never depreciated below (SLM base = cost − salvage; WDV floor).
+    # `wdv_annual_rate` is the Income-Tax block rate as a percent (e.g. 15, 40) —
+    # VERIFY THE RATE AND BLOCK GROUPING WITH YOUR CA. `block_key` groups assets
+    # into an IT-Act block of assets for reporting.
+    method = models.CharField(max_length=3, choices=Method.choices, default=Method.SLM)
+    salvage_value = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
+    wdv_annual_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    block_key = models.CharField(max_length=64, blank=True, default="")
+
+    @property
+    def depreciable_base(self) -> Decimal:
+        base = (self.acquisition_cost or Decimal("0")) - (self.salvage_value or Decimal("0"))
+        return base if base > 0 else Decimal("0")
+
+    @property
+    def written_down_value(self) -> Decimal:
+        return (self.acquisition_cost or Decimal("0")) - (self.depreciated_amount or Decimal("0"))
 
     @property
     def monthly_depreciation(self):
+        """This month's charge, before the remaining-balance clamp the runner
+        applies. SLM: (cost − salvage) / life. WDV: opening WDV × rate / 12,
+        never taking the book value below salvage."""
+        if (self.method or self.Method.SLM) == self.Method.WDV:
+            rate = Decimal(str(self.wdv_annual_rate or 0))
+            if rate <= 0:
+                return Decimal("0.00")
+            opening = self.written_down_value
+            room = opening - (self.salvage_value or Decimal("0"))
+            if room <= 0:
+                return Decimal("0.00")
+            charge = (opening * rate / Decimal("100") / Decimal("12")).quantize(Decimal("0.01"))
+            return min(charge, room) if charge > 0 else Decimal("0.00")
         if not self.useful_life_months:
             return Decimal("0.00")
-        return (self.acquisition_cost / self.useful_life_months).quantize(Decimal("0.01"))
+        return (self.depreciable_base / self.useful_life_months).quantize(Decimal("0.01"))

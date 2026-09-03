@@ -23,10 +23,20 @@ def _depreciate_company_assets(company_id) -> int:
                 locked = FixedAsset.objects.select_for_update().get(pk=asset.pk)
                 if locked.status != FixedAsset.Status.ACTIVE:
                     continue
-                remaining = locked.acquisition_cost - locked.depreciated_amount
+                # ACC-09: never depreciate below salvage; true up a sub-rupee
+                # residual on the last charge so the book value lands exactly on
+                # salvage instead of leaving a ₹0.01-scale tail forever.
+                from decimal import Decimal as _D
+
+                floor = locked.salvage_value or _D("0")
+                remaining = locked.acquisition_cost - locked.depreciated_amount - floor
+                if remaining <= 0:
+                    continue
                 amount = min(locked.monthly_depreciation, remaining)
                 if amount <= 0:
                     continue
+                if remaining - amount <= _D("1"):
+                    amount = remaining
                 purpose = f"DEPRECIATION-{timezone.localdate():%Y-%m}"
                 already_posted = JournalEntry.objects.filter(
                     company=locked.company,

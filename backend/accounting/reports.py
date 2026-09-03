@@ -1,7 +1,7 @@
 from decimal import Decimal
 import logging
 
-from django.db.models import F, Sum
+from django.db.models import F, Q, Sum
 
 from .models import Account, JournalEntry, JournalLine
 
@@ -335,8 +335,7 @@ def close_financial_year(company, fy_end, user=None):
     if WorkOrder.objects.filter(
         company=company,
         status=WorkOrder.Status.RELEASED,
-        released_at__lte=fy_end,
-    ).exists():
+    ).filter(Q(released_at__lte=fy_end) | Q(released_at__isnull=True)).exists():
         raise BusinessRuleError(
             "Financial-year close blocked: OPEN_WIP — released work orders exist. Complete or cancel them first."
         )

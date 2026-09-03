@@ -716,6 +716,16 @@ class Gstr2bIngestViewSet(viewsets.ModelViewSet):
     serializer_class = Gstr2bIngestSerializer
     http_method_names = ["get", "post", "patch", "head", "options"]
 
+    def get_permissions(self):
+        action = getattr(self, "action", None)
+        if action in (
+            "create", "partial_update", "update", "ims_act", "ims_bulk_accept",
+            "ims_offline_import", "match", "upload", "ims_gsp_pull",
+            "chase_whatsapp", "chase_photo",
+        ):
+            return [IsAuthenticated(), HasCompany(), IsOwner()]
+        return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+
     @property
     def company(self):
         return get_company_user(self.request).company
@@ -778,13 +788,7 @@ class Gstr2bIngestViewSet(viewsets.ModelViewSet):
                     defaults=defaults,
                 )
             else:
-                obj = Gstr2bIngest.objects.create(
-                    company=self.company,
-                    period=period,
-                    supplier_gstin=supplier,
-                    invoice_number=invoice_number,
-                    **defaults,
-                )
+                continue
             created.append(obj.pk)
         return Response({"period": period, "created": len(created), "ids": created})
 

@@ -5,11 +5,12 @@ from .phase1_views import (
     PurchaseDebitNoteViewSet,
     PurchaseOrderViewSet,
 )
-from .views import PurchaseInvoiceViewSet, PurchaseReturnViewSet
+from .views import BillOfEntryViewSet, PurchaseInvoiceViewSet, PurchaseReturnViewSet
 
 router = DefaultRouter()
 router.register("invoices", PurchaseInvoiceViewSet, basename="purchase-invoices")
 router.register("returns", PurchaseReturnViewSet, basename="purchase-returns")
+router.register("bills-of-entry", BillOfEntryViewSet, basename="bills-of-entry")
 router.register("credit-notes", PurchaseCreditNoteViewSet, basename="purchase-credit-notes")
 router.register("debit-notes", PurchaseDebitNoteViewSet, basename="purchase-debit-notes")
 router.register("orders", PurchaseOrderViewSet, basename="purchase-orders")

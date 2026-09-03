@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from core.exceptions import BusinessRuleError
-from core.permissions import HasCompany, IsOwner, get_company_user
+from core.permissions import CanViewFinancialReports, HasCompany, IsOwner, get_company_user
 from .attention import build_attention_rows, snooze_attention_row
 
 from .assistant import confirm_proposed_action, dismiss_proposed_action, run_assistant_turn
@@ -17,6 +17,7 @@ from .models import (
     AssistantThread,
     BusinessAlertEvent,
     BusinessHealthSnapshot,
+    DailyBusinessSummary,
 )
 from .serializers import (
     AiUsageLedgerSerializer,
@@ -78,13 +79,16 @@ class DailySummaryView(APIView):
             from datetime import date as date_cls
 
             for_date = date_cls.fromisoformat(date_str)
-        # UXW2-001: always regenerate for the requested (or today) date so the
-        # Dashboard banner cannot serve a stale Insights snapshot that disagrees
-        # with live KPI cards.
-        from django.utils import timezone
-
         for_date = for_date or timezone.localdate()
-        obj = generate_daily_summary(company, for_date=for_date)
+        existing = DailyBusinessSummary.objects.filter(
+            company=company, summary_date=for_date
+        ).first()
+        # GET is cached for the date. Regenerate only when missing or empty (stale).
+        # Owner POST below force-generates.
+        if existing is None or not existing.kpis:
+            obj = generate_daily_summary(company, for_date=for_date)
+        else:
+            obj = existing
         return Response(DailyBusinessSummarySerializer(obj).data)
 
     def post(self, request):
@@ -270,7 +274,7 @@ class AssistantDismissActionView(APIView):
 class AttentionFeedView(APIView):
     """B-05: ranked AttentionRow feed. Not AI-gated — capability-filtered."""
 
-    permission_classes = [IsAuthenticated, HasCompany]
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
 
     def get(self, request):
         cu = get_company_user(request)
@@ -279,7 +283,7 @@ class AttentionFeedView(APIView):
 
 
 class AttentionSnoozeView(APIView):
-    permission_classes = [IsAuthenticated, HasCompany]
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
 
     def post(self, request):
         cu = get_company_user(request)

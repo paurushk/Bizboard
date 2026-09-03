@@ -224,7 +224,29 @@ class Quotation(DocumentTotalsModel):
     )
     quotation_date = models.DateField(default=timezone.localdate)
     valid_until = models.DateField(null=True, blank=True)
+    payment_terms_days = models.PositiveIntegerField(default=0)
+    additional_charges = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    charges_hsn = models.CharField(max_length=8, blank=True)
+    charges_gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    invoice_discount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    invoice_discount_mode = models.CharField(
+        max_length=12,
+        choices=SalesInvoice.DiscountMode.choices,
+        default=SalesInvoice.DiscountMode.AFTER_TAX,
+    )
+    auto_round_off = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
+    terms_text = models.TextField(blank=True)
+    supply_type = models.CharField(
+        max_length=8, choices=SalesInvoice.SupplyType.choices, default=SalesInvoice.SupplyType.B2B, blank=True
+    )
+    company_gstin = models.ForeignKey(
+        "accounts.CompanyGstin",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="quotations",
+    )
     converted_invoice = models.ForeignKey(
         SalesInvoice, null=True, blank=True, on_delete=models.SET_NULL, related_name="source_quotations"
     )
@@ -250,6 +272,9 @@ class Quotation(DocumentTotalsModel):
 class QuotationItem(DocumentLineModel):
     quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="quotation_items")
+    hsn_code = models.CharField(max_length=8, blank=True)
+    supply_nature = models.CharField(max_length=12, blank=True, default="TAXABLE")
+    unit_price_inclusive = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
 
 class SalesReturn(DocumentTotalsModel):
@@ -506,6 +531,18 @@ class SalesOrder(DocumentTotalsModel):
         default=SalesInvoice.DiscountMode.AFTER_TAX,
     )
     auto_round_off = models.BooleanField(default=True)
+    charges_hsn = models.CharField(max_length=8, blank=True)
+    charges_gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    supply_type = models.CharField(
+        max_length=8, choices=SalesInvoice.SupplyType.choices, default=SalesInvoice.SupplyType.B2B, blank=True
+    )
+    company_gstin = models.ForeignKey(
+        "accounts.CompanyGstin",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="sales_orders",
+    )
     notes = models.TextField(blank=True)
     terms_text = models.TextField(blank=True)
     converted_invoice = models.ForeignKey(
