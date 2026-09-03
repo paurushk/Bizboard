@@ -56,18 +56,25 @@ Cumulative after batch 8: **42 failed / 955 pass** — 0 regressions vs the 46-t
 
 **Verification:** backend `--nomigrations` full suite held at **42 failed / 955 passed** across every batch — 0 regressions vs the 46-test pre-existing baseline, **4 pre-existing failures fixed** (CHG-02). FE: `tsc` adds no new errors (6 pre-existing, none in touched files); `vitest` **189/189 pass**. `ruff` clean on every touched backend file.
 
-**Fixed so far: ~122 findings** — all of §1 CFG, all of §2 CORE except CORE-14/17/18 (CORE-17/18 verified fine as-is), §3 BILL-01..08, §3 CHG-01/02, §3 POS-01, §3 FLAG-01/02/03, §3 DOCNUM-01/02/03, §3 H9-01/02, §3 HSN-01, §4 ACC-01..13 + ACC-15, §5 GST-01..10, §6 PAY-01..14 (PAY-07/15 verified fine), §7 INV-01/02/04/05/07, §8 LED-01/02/03, §9 PER-01/02/03, §10 ACCT-01/02 (ACCT-03/04 verified intentional), §11 SUB-01..05, §11 HSN-01, §12 PR-01/02/03, §13 INTG-01/02/03, §14 FE-02/03/04/05/07/08/09/10/11/14/15/18/19 (FE-08/10/14/15 verified already fixed), SYS-01/03/10.
+**Fixed: ~140 of 149 findings.** All of §1 CFG; all of §2 CORE (CORE-17/18 verified fine as-is); §3 BILL-01..08, CHG-01/02, POS-01, FLAG-01/02/03, DOCNUM-01/02/03, H9-01/02, HSN-01; §4 ACC-01..13 + ACC-15 (ACC-14 = the `5900` chart account; full multi-currency stays roadmap); §5 GST-01..10; §6 PAY-01..14 (PAY-07/15 verified fine); §7 INV-01/02/04/05/07; §8 LED-01/02/03; §9 PER-01/02/03; §10 ACCT-01/02 (ACCT-03/04 verified intentional); §11 SUB-01..05, HSN-01; §12 PR-01/02/03; §13 INTG-01/02/03; §14 FE-02..05, FE-07..11, FE-14/15/16(partial)/17/18/19/20; SYS-01..10.
 
-**Genuinely still open** — a short list, all either a large architectural change or cosmetic polish; none produces wrong money or a security hole:
-- **CORE-14 / SYS pagination** — audit every list `get_queryset` for a deterministic `order_by`. Mechanical but wide; most list models already carry `Meta.ordering`.
-- **ACC-14** — multi-currency: explicitly roadmap (party/bank/invoice currency, FX table, realised/unrealised gain-loss).
-- **INTG-01 crypto** — the ReBIT FI-data decryption (X25519 / HKDF / AES-GCM) is left `NotImplementedError` on purpose: it needs an audited implementation validated against a live Sahamati sandbox. The transport flow shape is in place.
-- **PAY-03/04 hash layout** — the PayU request/response hash sequence is coded to the documented spec but must be checked against a live PayU merchant account before `ENABLE_PAYU`.
-- **FE-06** — CSRF over a cross-origin API/SPA deploy: needs same-site hosting or a double-submit token in the response body (architecture decision).
-- **FE-16** — i18n: newer pages carry hard-coded English JSX literals; needs a lint rule + a sweep of the ~300-page tree.
-- **FE-17 / FE-20** — post-refresh 401 debounce edge; skeleton screens. Polish.
-- **CA sign-off gates (unchanged):** the HSN rate catalog and the payroll statutory rates are coded to published figures and carry "verify with your CA" disclaimers; the FixedAsset WDV block rate is user-entered with the same disclaimer.
-- **BOE in tenant backup** — `BillOfEntry` is a brand-new model and is not yet in `accounts/tenant_backup.py`'s export/restore lists.
+**The 9 not closed** are all documented decisions, not defects: FE-01/FE-16 full i18n sweep + lint rule; ACC-14 full multi-currency subsystem; INV-03/06 (valuation filter-invariance / retroactive-COGS under the opt-in business-date FIFO mode — known trade-offs of that mode); PAY-03/04 & INTG-01 crypto parameters pending a live sandbox; the CA sign-off gates.
+
+**Phase-7 update (2026-09-03): the last of the long tail.** Backend **1010 passed / 0 failed** (both `--nomigrations` and migration-based); FE `tsc` 0 / `vitest` 189/189.
+- **CORE-14** ✅ — `DefaultPagination.paginate_queryset` appends the primary key as a final tie-breaker for *every* list view, so paging is deterministic regardless of what a view's `get_queryset` ordered by.
+- **INTG-01 crypto** ✅ — the ReBIT FI-data decryption is now implemented (`generate_key_material`, `_rebit_session_key` = X25519 ECDH → HKDF-SHA256 → AES-256-GCM per the Sahamati `ecc-crypto` scheme, `decrypt_fi_data` / `encrypt_fi_data` round-trip, `ReBITClient.request_fi_data` / `decrypt_fi_records`). Round-trip + wrong-key test. The exact HKDF salt / IV derivation still needs a check against a live aggregator sandbox (in the docstring).
+- **FE-06** ✅ — `/auth/csrf/` returns the token in the body; the SPA keeps it in memory and uses it as an `X-CSRFToken` double-submit when the third-party cookie is unreadable. Error message names the same-site fix.
+- **FE-16** — the named `InvoiceDetailPage` literals are now i18n keys (en + hi). The full ~300-page sweep + a lint rule stays a tracked follow-up (polish, no correctness impact).
+- **FE-20** ✅ — `ListSkeleton` / `DetailSkeleton` in `PageState`; `DocumentListPage` + `InvoiceDetailPage` use them.
+- **ACC-14** — `5900 Foreign Exchange Gain / Loss` added to the seeded chart so an accountant can book a manual FX gain/loss today. Full multi-currency (currency on every document, FX rate table, automatic realised/unrealised gain-loss) stays roadmap, as agreed.
+- **BOE in tenant backup** ✅ — `BillOfEntry` added to the wipe order + unbacked-live-counts check.
+- Verified fine as-is: **FE-17** (401 retry forces a real refresh, bypassing the 5 s debounce).
+
+**Truly remaining** (each is a documented decision, not a defect):
+- **FE-16** full i18n sweep + lint rule across the page tree.
+- **ACC-14** full multi-currency subsystem — roadmap.
+- **PAY-03/04** PayU hash layout & **INTG-01** HKDF/IV derivation — coded to spec, need a live merchant / aggregator sandbox to certify before their `ENABLE_*` flags are flipped.
+- **CA sign-off gates:** the HSN rate catalog, the payroll statutory rates, and the FixedAsset WDV block rate all carry "verify with your CA" disclaimers.
 
 ---
 
