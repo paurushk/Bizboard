@@ -24,7 +24,9 @@ from .serializers import (
 from .services.files import FileService
 
 _HEALTH_CACHE_KEY = "bizboard:healthcheck"
-_CELERY_QUEUE = "celery"
+# B7-020: read the queue name from Celery config so a future task_routes / a
+# dedicated queue doesn't silently make the reported depth always 0.
+_CELERY_QUEUE = getattr(settings, "CELERY_TASK_DEFAULT_QUEUE", None) or "celery"
 
 # BB-000753: process-local request counter for /metrics (plain text; no prometheus_client dep).
 _REQUEST_COUNT = 0

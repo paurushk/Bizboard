@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from django.db import IntegrityError
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 IST = ZoneInfo("Asia/Kolkata")
 DEFAULT_DUNNING_DAYS = (3, 7, 14)
@@ -80,8 +83,11 @@ def _step_already_sent(invoice, bucket: int) -> bool:
 
 
 def _next_due_bucket(days_overdue: int, buckets: list[int], invoice) -> int | None:
-    """Lowest configured step where days_overdue >= bucket and that step is unsent."""
-    for bucket in buckets:
+    """B4-026: the STRONGEST configured step warranted by the current age that
+    is still unsent — so an invoice first picked up at 40 days overdue escalates
+    straight to the "14 days" tier instead of getting three gentle nudges for
+    3/7/14 spread over three days and then capping out."""
+    for bucket in sorted(buckets, reverse=True):
         if days_overdue >= bucket and not _step_already_sent(invoice, bucket):
             return bucket
     return None
@@ -194,13 +200,21 @@ def remind_invoice(invoice, *, sent_on: date, days_overdue: int) -> str:
     if getattr(company, "dunning_channel_whatsapp", True):
         try:
             if _send_whatsapp(invoice, body):
-                _record(
+                if _record(
                     invoice,
                     sent_on=sent_on,
                     days_overdue=days_overdue,
                     channel="WHATSAPP",
                     status="SENT",
-                )
+                ) is None:
+                    # B4-034: another worker already has a reminder row for this
+                    # (invoice, day). The message went out but must not inflate
+                    # the "sent" counter as if it were a fresh reminder.
+                    logger.warning(
+                        "dunning: duplicate WhatsApp reminder for invoice %s on %s (row already exists)",
+                        invoice.pk, sent_on,
+                    )
+                    return "duplicate"
                 return "whatsapp"
         except Exception as exc:
             last_wa = str(exc)[:400]
@@ -211,13 +225,18 @@ def remind_invoice(invoice, *, sent_on: date, days_overdue: int) -> str:
     if getattr(company, "dunning_channel_sms", True):
         try:
             if _send_sms(invoice, body):
-                _record(
+                if _record(
                     invoice,
                     sent_on=sent_on,
                     days_overdue=days_overdue,
                     channel="SMS",
                     status="SENT",
-                )
+                ) is None:
+                    logger.warning(
+                        "dunning: duplicate SMS reminder for invoice %s on %s (row already exists)",
+                        invoice.pk, sent_on,
+                    )
+                    return "duplicate"
                 return "sms"
         except Exception as exc:
             _record(
@@ -277,6 +296,8 @@ def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
         if result in ("whatsapp", "sms"):
             sent += 1
         else:
+            # B4-034: "duplicate" (a lost DunningReminder insert race) and
+            # "failed" both count as skipped, not sent.
             skipped += 1
     return {"sent": sent, "skipped": skipped, "reason": "ok"}
 

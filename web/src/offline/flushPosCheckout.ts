@@ -6,6 +6,7 @@ import {
   createSalesInvoice,
   deleteSalesInvoice,
   getCompany,
+  getSalesInvoice,
 } from '@/api/resources';
 import { todayIso } from '@/components/billing';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
@@ -67,14 +68,48 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<void> {
   );
   let completed;
   try {
-    completed = await completeSalesInvoice(invoice.id, { confirmBlankPos: true });
+    // F1-001: carry the same idempotency key `complete` sees on every retry
+    // of this draft. The backend's `sales_invoice_complete` scope is
+    // idempotent (core/idempotency.py) — a retry with this key replays the
+    // stored response from a completion that already happened server-side
+    // instead of re-running SalesService.complete() against an
+    // already-COMPLETED invoice.
+    completed = await completeSalesInvoice(invoice.id, {
+      confirmBlankPos: true,
+      idempotencyKey: `${draft.idempotencyKey}-complete`,
+    });
   } catch (err) {
+    // F1-001: belt-and-suspenders for the case an idempotency record can't
+    // be found (key mismatch, record cleared) but the invoice genuinely
+    // did complete server-side before this process died — e.g. the create
+    // above returned the pre-existing invoice from *its* idempotency
+    // replay, so completeSalesInvoice's own key was never actually used
+    // for a first attempt. Fetch and check status before assuming failure;
+    // only delete (and only the still-DRAFT invoice this flush created)
+    // when it genuinely never completed.
+    let existing;
     try {
-      await deleteSalesInvoice(invoice.id);
+      existing = await getSalesInvoice(invoice.id);
     } catch {
-      /* leftover draft if delete is blocked */
+      /* probe failed too — handled below, fall through without deleting */
     }
-    throw err;
+    if (existing?.status === 'COMPLETED') {
+      completed = existing;
+    } else if (existing) {
+      // Confirmed still DRAFT — genuinely failed, safe to clean up.
+      try {
+        await deleteSalesInvoice(invoice.id);
+      } catch {
+        /* leftover draft if delete is blocked */
+      }
+      throw err;
+    } else {
+      // Status truly unknown (the probe itself failed, e.g. still
+      // offline) — don't guess. Leave the invoice alone and rethrow so
+      // this draft stays queued as failed and gets retried (idempotently)
+      // on the next flush pass, instead of risking a delete of a real sale.
+      throw err;
+    }
   }
   const invoiceTotal = toNumber(completed.grandTotal);
   const receipt = await createReceipt(

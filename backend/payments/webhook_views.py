@@ -53,9 +53,9 @@ def public_payment_link(request, token: str):
     if link.status == PaymentLinkStatus.CANCELLED and not received:
         return Response({"detail": "This payment link was cancelled."}, status=status.HTTP_410_GONE)
     if link.expires_at and link.expires_at < timezone.now() and not received:
-        if link.status != PaymentLinkStatus.EXPIRED:
-            link.status = PaymentLinkStatus.EXPIRED
-            link.save(update_fields=["status", "updated_at"])
+        # B4-023: a "safe" GET must not perform a write. Report expiry from
+        # expires_at directly; the canonical status transition is owned by the
+        # webhook path / a periodic sweep, not by an unauthenticated read.
         return Response({"detail": "This payment link has expired."}, status=status.HTTP_410_GONE)
     company = link.company
     from payments.upi import upi_qr_fields
@@ -185,8 +185,25 @@ def payment_webhook(request, provider: str):
         f"{provider}|{event.provider_payment_id}|{event.status}|{_event_id}".encode()
         + (b"" if _event_id else hashlib.sha256(body).digest())
     ).hexdigest()
-    if not cache.add(_dedup_key, "1", timeout=24 * 60 * 60):
+    # B4-031: the cache is a fast-path only now — a positive hit still short-
+    # circuits, but a miss no longer proves "not a replay". The durable check
+    # is the ProcessedWebhookEvent unique-constraint insert below, which is
+    # correct even if the cache backend is per-process, evicted, or briefly
+    # down (the exact gap that let a replayed `refund` event double-unwind).
+    if cache.get(_dedup_key):
         return Response({"ok": True, "duplicate": True, "status": event.status})
+    from django.db import IntegrityError
+
+    from .models import ProcessedWebhookEvent
+
+    try:
+        ProcessedWebhookEvent.objects.create(
+            dedup_key=_dedup_key, provider=provider, company=company
+        )
+    except IntegrityError:
+        cache.set(_dedup_key, "1", timeout=24 * 60 * 60)
+        return Response({"ok": True, "duplicate": True, "status": event.status})
+    cache.set(_dedup_key, "1", timeout=24 * 60 * 60)
 
     if event.status == "REFUNDED":
         from .models import GatewayPayment

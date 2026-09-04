@@ -49,6 +49,7 @@ class Command(BaseCommand):
                 raise CommandError("period must be YYYY-MM.") from None
 
         total_rows = 0
+        fifo_mismatches = 0
         for company in companies.iterator():
             with transaction.atomic():
                 n = InventoryService.rebuild_running_cost(company)
@@ -57,5 +58,26 @@ class Command(BaseCommand):
             if options["write_snapshots"]:
                 snaps = InventoryValuationService.write_month_end_snapshot(company, period)
                 self.stdout.write(f"company {company.pk}: {snaps} snapshot rows for {period}")
+            # B8-001: for FIFO tenants, also assert the live InventoryCostLayer
+            # totals agree with an independent full-ledger replay. Reported as
+            # a warning (not raised) — unlike the WAVG rebuild above, layers
+            # are peeled perpetually by every movement and aren't rebuilt by
+            # this command, so a mismatch here needs investigation, not a
+            # blind rebuild.
+            mismatches = InventoryValuationService.verify_fifo_layers(company)
+            if mismatches:
+                fifo_mismatches += len(mismatches)
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"company {company.pk}: {len(mismatches)} FIFO layer/replay "
+                        f"value mismatch(es) — " + "; ".join(mismatches[:8])
+                    )
+                )
 
         self.stdout.write(self.style.SUCCESS(f"Rebuilt running cost for {companies.count()} company(ies)."))
+        if fifo_mismatches:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"{fifo_mismatches} total FIFO layer/replay value mismatch(es) — see above."
+                )
+            )

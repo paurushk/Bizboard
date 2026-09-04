@@ -12,9 +12,7 @@ from core.exceptions import BusinessRuleError
 from core.csv_utils import csv_safe
 from core.idempotency import (
     begin_record,
-    get_record,
     release_record,
-    replay_record,
     store_record,
 )
 from core.models import FileAsset
@@ -196,18 +194,28 @@ class ImportJobViewSet(
         """Commit requires Owner or explicit import permission (§5.5)."""
         raw_key = (request.headers.get("Idempotency-Key") or "").strip()
         if raw_key:
-            existing = get_record(
+            # B3-013: claim an in-flight placeholder (not a bare get_record) so a
+            # concurrent retry while the first commit is still running replays
+            # instead of committing a second draft invoice.
+            claimed = begin_record(
                 company=self.company, scope="import_job_commit", raw_key=raw_key
             )
-            if existing is not None:
-                return replay_record(existing)
+            if isinstance(claimed, Response):
+                return claimed
 
-        job = self.get_object()
-        if job.kind in ImportJob.BILL_KINDS and request.data:
-            # Allow last-minute supplier/customer / line tweaks on commit body.
-            BillImportService.update_preview(job, request.data, user=request.user)
-            job.refresh_from_db()
-        result = ImportService.commit(job, request.user)
+        try:
+            job = self.get_object()
+            if job.kind in ImportJob.BILL_KINDS and request.data:
+                # Allow last-minute supplier/customer / line tweaks on commit body.
+                BillImportService.update_preview(job, request.data, user=request.user)
+                job.refresh_from_db()
+            result = ImportService.commit(job, request.user)
+        except Exception:
+            if raw_key:
+                release_record(
+                    company=self.company, scope="import_job_commit", raw_key=raw_key
+                )
+            raise
         job.refresh_from_db()
         if isinstance(result, dict):
             response = Response({

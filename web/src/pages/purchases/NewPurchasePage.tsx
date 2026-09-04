@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -43,12 +43,11 @@ import {
   searchProducts,
   listStock,
   listWarehouses,
-  updateCompany,
   updatePurchase,
   updateSupplier,
   uploadFile,
 } from '@/api/resources';
-import { getErrorCode, getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
+import { getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { isValidGstin, isValidHsnSac } from '@/utils/gst';
@@ -62,6 +61,7 @@ import {
 } from '@/offline/invoiceDraftCache';
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
 import { usePurchaseOffline } from '@/pages/purchases/usePurchaseOffline';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { DocumentTaxSummary } from '@/components/DocumentTaxSummary';
@@ -177,6 +177,9 @@ export function NewPurchasePage() {
   const [invoiceDate, setInvoiceDate] = useState(todayIso());
   const [paymentTermsDays, setPaymentTermsDays] = useState(30);
   const [dueDate, setDueDate] = useState(() => addDaysIso(todayIso(), 30));
+  // F2-008: stop recomputing the due date from invoiceDate + terms once it is
+  // explicitly set (by the user or a loaded bill).
+  const dueDateTouched = useRef(false);
   const [showPaymentTerms, setShowPaymentTerms] = useState(true);
 
   // BUG-502/514: prefix/nextNumber are read-only display-only previews, same
@@ -387,6 +390,7 @@ export function NewPurchasePage() {
     setInvoiceDate(inv.invoiceDate);
     setPaymentTermsDays(inv.paymentTermsDays ?? 0);
     setDueDate(inv.dueDate ?? addDaysIso(inv.invoiceDate, inv.paymentTermsDays ?? 0));
+    dueDateTouched.current = Boolean(inv.dueDate);
     setShowPaymentTerms(Boolean(inv.dueDate || inv.paymentTermsDays));
     setNotes(inv.notes ?? '');
     setShowNotes(Boolean(inv.notes));
@@ -508,6 +512,7 @@ export function NewPurchasePage() {
   }, [isEdit, termsText]);
 
   useEffect(() => {
+    if (dueDateTouched.current) return;
     setDueDate(addDaysIso(invoiceDate, paymentTermsDays || 0));
   }, [invoiceDate, paymentTermsDays]);
 
@@ -650,6 +655,13 @@ export function NewPurchasePage() {
     setAmountPaid(0);
     setMarkFullyPaid(false);
     setPaymentMode('CASH');
+    // F2-005: also reset the statutory fields resetForm was missing — a stale
+    // stamped GSTIN / TDS section+amount would post onto the next bill.
+    setCompanyGstinId('');
+    setShowTds(false);
+    setTdsSection('');
+    setTdsRate(0);
+    setTdsAmount(0);
     if (companyId && userId) {
       void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
     }
@@ -677,7 +689,7 @@ export function NewPurchasePage() {
     }, 800);
   };
 
-  const buildPayload = () => ({
+  const buildPayload = useCallback(() => ({
     supplier: Number(supplierId),
     warehouse: warehouseId ? Number(warehouseId) : undefined,
     costCenter: costCenterId ? Number(costCenterId) : undefined,
@@ -722,13 +734,22 @@ export function NewPurchasePage() {
         ? { serialNumbers: parseSerialNumbersText(l.serialNumbersText) }
         : {}),
     })),
-  });
+  }), [
+    additionalCharges, autoRoundOff, companyGstinId, costCenterId, dueDate, invoiceDate,
+    invoiceDiscount, invoiceDiscountMode, isReverseCharge, itcEligibility, lines, notes,
+    paymentTermsDays, priceMode, purchaseType, showBank, showQr, showTerms, signatureId,
+    supplierBillNumber, supplierId, tdsAmount, tdsRate, tdsSection, termsText, warehouseId,
+  ]);
 
   const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
+  // F2-030: buildPayload() maps every line and builds nested item objects —
+  // memoize it so the preview payload is only rebuilt when an input that
+  // actually feeds it changes, not on every render of a large bill.
+  const previewPayload = useMemo(() => buildPayload(), [buildPayload]);
   const preview = usePreviewTotals(
     'purchase',
     previewOnline && supplierId && lines.some((l) => l.product)
-      ? (buildPayload() as Record<string, unknown>)
+      ? (previewPayload as Record<string, unknown>)
       : null,
   );
 
@@ -790,50 +811,24 @@ export function NewPurchasePage() {
           invoice = await updatePurchase(editId, payload);
         }
         // mode 'save' (completed edit) persists without completing — same path as draft.
+        // F2-035: completeWithConfirms loops over known confirm codes in any
+        // order (was a hand-nested try/catch that only recovered one code per
+        // level — a third code, or the two codes in the other order, used to
+        // dead-end on a raw error / swallowed warning instead of prompting).
         if (shouldComplete && invoice.status === 'DRAFT') {
           try {
-            invoice = await completePurchase(invoice.id);
+            invoice = await completeWithConfirms((extra) => completePurchase(invoice.id, extra));
           } catch (err) {
-            const code = getErrorCode(err);
-            if (code === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-              invoice = await completePurchase(invoice.id, { confirmGstinTotalChange: true });
-            } else if (getErrorCode(err) === 'place_of_supply_unresolved' && window.confirm(t('billing.confirmBlankPos'))) {
-              try {
-                invoice = await completePurchase(invoice.id, { confirmBlankPos: true });
-              } catch (err2) {
-                if (getErrorCode(err2) === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-                  invoice = await completePurchase(invoice.id, { confirmBlankPos: true, confirmGstinTotalChange: true });
-                } else {
-                  completeWarning = getErrorMessage(err2);
-                }
-              }
-            } else {
-              completeWarning = getErrorMessage(err);
-            }
+            completeWarning = getErrorMessage(err);
           }
         }
       } else {
         invoice = await createPurchase(payload, { idempotencyKey: key });
         if (shouldComplete) {
           try {
-            invoice = await completePurchase(invoice.id);
+            invoice = await completeWithConfirms((extra) => completePurchase(invoice.id, extra));
           } catch (err) {
-            const code = getErrorCode(err);
-            if (code === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-              invoice = await completePurchase(invoice.id, { confirmGstinTotalChange: true });
-            } else if (code === 'place_of_supply_unresolved' && window.confirm(t('billing.confirmBlankPos'))) {
-              try {
-                invoice = await completePurchase(invoice.id, { confirmBlankPos: true });
-              } catch (err2) {
-                if (getErrorCode(err2) === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-                  invoice = await completePurchase(invoice.id, { confirmBlankPos: true, confirmGstinTotalChange: true });
-                } else {
-                  completeWarning = getErrorMessage(err2);
-                }
-              }
-            } else {
-              completeWarning = getErrorMessage(err);
-            }
+            completeWarning = getErrorMessage(err);
           }
         }
       }
@@ -902,9 +897,14 @@ export function NewPurchasePage() {
             : t('billing.draftSaved', { label });
 
       try {
+        // F2-001/F2-026: warm the key PurchaseHistoryPage actually reads
+        // (['purchases', page]) — the old ['purchases'] warm never matched it
+        // AND collided with the array-shaped ['purchases'] reads in the note
+        // editor / supplier payments, crashing those with `.filter is not a
+        // function`.
         await qc.fetchQuery({
-          queryKey: ['purchases'],
-          queryFn: () => listPurchasesPage(),
+          queryKey: ['purchases', 1],
+          queryFn: () => listPurchasesPage({ page: 1 }),
           staleTime: 0,
         });
       } catch {
@@ -1028,10 +1028,17 @@ export function NewPurchasePage() {
     setLines((prev) =>
       prev.map((l) => {
         if (l.key !== key) return l;
-        if (opts?.fromDiscountAmount && patch.discountAmount != null) {
+        const changesGross = patch.quantity != null || patch.unitPrice != null;
+        if (
+          (opts?.fromDiscountAmount && patch.discountAmount != null) ||
+          // F2-032: re-derive the percent from the absolute discount against
+          // the new gross when qty/price changes on a discounted line.
+          (changesGross && (l.discountAmount ?? 0) > 0)
+        ) {
           const gross = roundMoney((patch.quantity ?? l.quantity) * (patch.unitPrice ?? l.unitPrice));
-          const amount = Math.min(Math.max(0, patch.discountAmount), gross);
-          const percent = gross > 0 ? roundMoney((amount / gross) * 100) : 0;
+          const rawAmount = patch.discountAmount ?? l.discountAmount ?? 0;
+          const amount = Math.min(Math.max(0, rawAmount), gross);
+          const percent = gross > 0 ? Math.min(100, roundMoney((amount / gross) * 100)) : 0;
           return recomputeLine(l, intraState, {
             ...patch,
             discountPercent: percent,
@@ -1043,41 +1050,95 @@ export function NewPurchasePage() {
     );
   };
 
-  useEffect(() => {
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (lines.length === 0) return;
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [lines.length]);
+  // F3-015: the tab-close/refresh warning now lives in UnsavedChangesGuard
+  // itself (rendered below with the same `when`), so this page doesn't need
+  // its own beforeunload listener.
 
   const activeSuppliers = (suppliers.data?.results ?? []).filter(
     (c) => c.isActive !== false && (c as unknown as { is_active?: boolean }).is_active !== false,
   );
   const canSave = lines.length > 0 && Boolean(supplierId) && !saveMutation.isPending;
   const missingPurchaseBatch = lines.some((l) => l.trackBatch && !l.batchNo.trim());
-  const canComplete = canSave && posKnown && !missingPurchaseBatch && (!previewOnline || preview.ready);
-  const shownTotals = preview.totals
-    ? {
-        ...totals,
-        subtotal: preview.totals.subtotal,
-        taxableTotal: preview.totals.taxableTotal,
-        cgstTotal: preview.totals.cgstTotal,
-        sgstTotal: preview.totals.sgstTotal,
-        igstTotal: preview.totals.igstTotal,
-        cessTotal: preview.totals.cessTotal,
-        taxTotal: preview.totals.taxTotal,
-        roundOff: preview.totals.roundOff,
-        grandTotal: preview.totals.grandTotal,
-      }
-    : preview.error
-      ? totals
-      : totals;
+  // F2-018: mirror NewInvoicePage (FE-07) — if the server preview endpoint keeps
+  // erroring, don't strand a valid bill. Allow Complete with on-device totals
+  // (the server recomputes authoritative totals on save) but surface that it
+  // happened via the warning banner below.
+  const previewFellBack = previewOnline && !preview.ready && preview.error != null;
+  const canComplete =
+    canSave &&
+    posKnown &&
+    !missingPurchaseBatch &&
+    (!previewOnline || preview.ready || previewFellBack);
+  const shownTotals = useMemo(
+    () =>
+      preview.totals
+        ? {
+            ...totals,
+            subtotal: preview.totals.subtotal,
+            taxableTotal: preview.totals.taxableTotal,
+            cgstTotal: preview.totals.cgstTotal,
+            sgstTotal: preview.totals.sgstTotal,
+            igstTotal: preview.totals.igstTotal,
+            cessTotal: preview.totals.cessTotal,
+            taxTotal: preview.totals.taxTotal,
+            roundOff: preview.totals.roundOff,
+            grandTotal: preview.totals.grandTotal,
+          }
+        : totals,
+    [preview.totals, totals],
+  );
+
+  // F2-019: drive the RCM tax-liability alert and the payable figure from the
+  // authoritative source (server preview when available), not the client float
+  // path. Tax columns stay in `shownTotals`; payable-to-supplier is taxable +
+  // charges - (after-tax) discount, all from `shownTotals`.
+  const rcmDisplay = useMemo(() => {
+    if (!rcmPreview) return null;
+    const charges = roundMoney(additionalCharges);
+    const discount = roundMoney(invoiceDiscount);
+    const rawPayable =
+      invoiceDiscountMode === 'BEFORE_TAX'
+        ? roundMoney(shownTotals.taxableTotal + charges)
+        : roundMoney(shownTotals.taxableTotal + charges - discount);
+    const clamped = Math.max(0, rawPayable);
+    return {
+      rcmTaxable: shownTotals.taxableTotal,
+      rcmTaxTotal: shownTotals.taxTotal,
+      rcmCgst: shownTotals.cgstTotal,
+      rcmSgst: shownTotals.sgstTotal,
+      rcmIgst: shownTotals.igstTotal,
+      payable: autoRoundOff ? Math.round(clamped) : roundMoney(clamped),
+    };
+  }, [
+    rcmPreview,
+    shownTotals,
+    additionalCharges,
+    invoiceDiscount,
+    invoiceDiscountMode,
+    autoRoundOff,
+  ]);
   const primarySave = primarySaveAction({ isEdit, editingStatus });
   const isCompletedEdit = editingStatus === 'COMPLETED';
   const canAmendMoney = isCompletedEdit && isOwner;
+
+  // F2-050: register the keydown listener once; feed it fresh state via a ref
+  // and guard duplicate submits synchronously.
+  const kbdRef = useRef({
+    canComplete: false,
+    primaryMode: primarySave.mode,
+    isPending: saveMutation.isPending,
+    mutate: saveMutation.mutate,
+  });
+  kbdRef.current = {
+    canComplete,
+    primaryMode: primarySave.mode,
+    isPending: saveMutation.isPending,
+    mutate: saveMutation.mutate,
+  };
+  const kbdSubmittingRef = useRef(false);
+  useEffect(() => {
+    if (!saveMutation.isPending) kbdSubmittingRef.current = false;
+  }, [saveMutation.isPending]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1090,15 +1151,20 @@ export function NewPurchasePage() {
         return;
       }
       const meta = e.ctrlKey || e.metaKey;
+      const kbd = kbdRef.current;
       if (meta && e.key.toLowerCase() === 's' && !e.shiftKey) {
         e.preventDefault();
-        if (!saveMutation.isPending) saveMutation.mutate('draft');
+        if (!kbd.isPending && !kbdSubmittingRef.current) {
+          kbdSubmittingRef.current = true;
+          kbd.mutate('draft');
+        }
         return;
       }
-      if (meta && e.key === 'Enter' && !e.shiftKey && canComplete) {
+      if (meta && e.key === 'Enter' && !e.shiftKey && kbd.canComplete) {
         e.preventDefault();
-        if (!saveMutation.isPending) {
-          saveMutation.mutate(primarySave.mode === 'complete' ? 'complete' : 'complete_new');
+        if (!kbd.isPending && !kbdSubmittingRef.current) {
+          kbdSubmittingRef.current = true;
+          kbd.mutate(kbd.primaryMode === 'complete' ? 'complete' : 'complete_new');
         }
         return;
       }
@@ -1114,16 +1180,17 @@ export function NewPurchasePage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canComplete, primarySave.mode, saveMutation]);
+  }, []);
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;
     try {
       const uploaded = await uploadFile(file, 'ATTACHMENT');
+      // F2-002: attach the signature to *this* document only — mirrors the
+      // FE-09 sales fix. Calling updateCompany({ signature }) here silently
+      // re-branded every future company document. Set the default in Settings.
       setSignatureId(uploaded.id);
       setSignatureUrl(uploaded.url ?? null);
-      await updateCompany({ signature: uploaded.id });
-      void qc.invalidateQueries({ queryKey: ['company'] });
     } catch (err) {
       setError(getErrorMessage(err));
     }
@@ -1145,7 +1212,9 @@ export function NewPurchasePage() {
       documentId={isEdit ? editId ?? undefined : undefined}
       multiGodown={(warehouses.data?.length ?? 0) > 1}
       warning={
-        fromBillUpload
+        previewFellBack
+          ? t('billing.previewUnavailableClientTotals')
+          : fromBillUpload
           ? t('billUpload.reviewOnEditDisclaimer')
           : isEdit && editingStatus === 'COMPLETED'
             ? t('billing.editingCompletedWarning')
@@ -1417,7 +1486,10 @@ export function NewPurchasePage() {
                     label={t('billing.dueDate')}
                     type="date"
                     value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
+                    onChange={(e) => {
+                      dueDateTouched.current = true;
+                      setDueDate(e.target.value);
+                    }}
                     InputLabelProps={{ shrink: true }}
                   />
                 </Stack>
@@ -1625,7 +1697,7 @@ export function NewPurchasePage() {
           <Typography fontWeight={700}>
             {t('billing.totalAmount')}{' '}
             {formatMoney(
-              preview.totals?.grandTotal ?? (rcmPreview ? rcmPreview.payable : totals.grandTotal),
+              preview.totals?.grandTotal ?? (rcmDisplay ? rcmDisplay.payable : totals.grandTotal),
             )}
           </Typography>
         </Box>
@@ -1684,8 +1756,8 @@ export function NewPurchasePage() {
                   <Typography variant="subtitle2">TDS withheld</Typography>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
                     <TextField size="small" label="Section" value={tdsSection} onChange={(e) => setTdsSection(e.target.value)} placeholder="194C" />
-                    <TextField size="small" type="number" label="Rate %" value={tdsRate || ''} onChange={(e) => setTdsRate(Number(e.target.value) || 0)} />
-                    <TextField size="small" type="number" label="TDS amount" value={tdsAmount || ''} onChange={(e) => setTdsAmount(Number(e.target.value) || 0)} />
+                    <TextField size="small" type="number" label="Rate %" inputProps={{ min: 0, max: 100, step: 0.01 }} value={tdsRate || ''} onChange={(e) => setTdsRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
+                    <TextField size="small" type="number" label="TDS amount" inputProps={{ min: 0 }} value={tdsAmount || ''} onChange={(e) => setTdsAmount(Math.max(0, Number(e.target.value) || 0))} />
                   </Stack>
                 </Paper>
               )}
@@ -1751,7 +1823,7 @@ export function NewPurchasePage() {
         <DocumentTaxSummary
           totals={shownTotals}
           displayGrandTotal={preview.totals?.grandTotal ?? displayGrandTotal}
-          totalLabel={rcmPreview ? 'Payable (RCM, excl. tax)' : t('billing.totalAmount')}
+          totalLabel={rcmDisplay ? 'Payable (RCM, excl. tax)' : t('billing.totalAmount')}
           additionalCharges={additionalCharges}
           onAdditionalChargesChange={setAdditionalCharges}
           invoiceDiscount={invoiceDiscount}
@@ -1765,12 +1837,12 @@ export function NewPurchasePage() {
           isCompletedEdit={isCompletedEdit}
           canAmendMoney={canAmendMoney}
           extraAlerts={
-            rcmPreview ? (
+            rcmDisplay ? (
               <Alert severity="info">
-                Reverse charge: tax liability {formatMoney(rcmPreview.rcmTaxTotal)} (CGST{' '}
-                {formatMoney(rcmPreview.rcmCgst)}, SGST {formatMoney(rcmPreview.rcmSgst)}, IGST{' '}
-                {formatMoney(rcmPreview.rcmIgst)}). Payable to supplier (excl. tax):{' '}
-                {formatMoney(rcmPreview.payable)}.
+                Reverse charge: tax liability {formatMoney(rcmDisplay.rcmTaxTotal)} (CGST{' '}
+                {formatMoney(rcmDisplay.rcmCgst)}, SGST {formatMoney(rcmDisplay.rcmSgst)}, IGST{' '}
+                {formatMoney(rcmDisplay.rcmIgst)}). Payable to supplier (excl. tax):{' '}
+                {formatMoney(rcmDisplay.payable)}.
               </Alert>
             ) : null
           }

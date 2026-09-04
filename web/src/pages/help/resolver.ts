@@ -152,9 +152,13 @@ function resolveHelpQueryUncached(trimmed: string): ResolverResult {
         categoryHint: top.intent.category,
       };
     }
-    if (top.score >= CONFIDENT) {
-      const state = top.intent.type === 6 && (top.intent.diagnosis?.length ?? 0) > 0 ? 'diagnostic' : 'confident';
-      return { state, intent: top.intent, hits: hits.slice(0, 5), chips: [], categoryHint: top.intent.category };
+    // F3-052: the two top hits are genuinely tied (gap < AMBIGUOUS_GAP) and
+    // there are no disambiguation chips to show. type-6 intents still offer a
+    // real chooser via DiagnosisPicker, so let those through as 'diagnostic' —
+    // but a plain intent must not be answered as 'confident' on a coin flip;
+    // fall through to 'no-match' (which shows the tied hits, not a picked one).
+    if (top.score >= CONFIDENT && top.intent.type === 6 && (top.intent.diagnosis?.length ?? 0) > 0) {
+      return { state: 'diagnostic', intent: top.intent, hits: hits.slice(0, 5), chips: [], categoryHint: top.intent.category };
     }
     return {
       state: 'no-match',

@@ -1,6 +1,6 @@
 """CRM preview helpers — lead convert + activities; not a full CRM suite."""
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 
@@ -42,6 +42,15 @@ def _unique_customer_by_email(company, email: str):
 def convert_lead(
     lead: Lead, user, *, won: bool = False, amount=None
 ) -> tuple[Lead, Opportunity, Customer]:
+    # B9-019: coerce the client-supplied amount once; a bad value is a 400.
+    if amount is not None and str(amount).strip() != "":
+        try:
+            amount = Decimal(str(amount))
+        except (InvalidOperation, TypeError, ValueError):
+            raise BusinessRuleError("Enter a valid opportunity amount.")
+    else:
+        amount = None
+
     # BB-000731: lock + idempotent re-convert (no duplicate customer/opportunity).
     lead = Lead.objects.select_for_update().get(pk=lead.pk)
     existing = (
@@ -49,6 +58,12 @@ def convert_lead(
         .order_by("id")
         .first()
     )
+    # B9-014: a lost lead must not be silently resurrected into a customer +
+    # opportunity. Re-open it first if it really is live again.
+    if existing is None and lead.status == Lead.Status.LOST:
+        raise BusinessRuleError(
+            "This lead is marked LOST. Change its status before converting it."
+        )
     if existing is not None:
         updates = []
         if won and existing.stage != Opportunity.Stage.WON:
@@ -91,6 +106,13 @@ def convert_lead(
                 customer.save(update_fields=updates)
         else:
             state = getattr(lead, "state", None) or getattr(lead.company, "state", "") or ""
+            # B9-038: a GST-registered company can't raise an invoice for a
+            # customer with no state (place-of-supply fails far downstream).
+            reg = getattr(lead.company, "registration_type", "REGULAR")
+            if not state and reg != "UNREGISTERED":
+                raise BusinessRuleError(
+                    "Set the lead's state before converting — it's required for GST invoicing."
+                )
             gstin = getattr(lead, "gstin", "") or ""
             address = getattr(lead, "address", "") or ""
             customer = Customer.objects.create(

@@ -179,6 +179,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "core.middleware.MaxBodySizeMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -314,6 +315,11 @@ REST_FRAMEWORK = {
         # and get exhausted by the OTP_MAX_ATTEMPTS=5 lockout path itself.
         "otp_verify": "20/min",
         "register": "5/min",
+        # B6-012: tight budget for current-password verification (change-password
+        # / delete-account) so a stolen short-lived access token can't brute-force it.
+        "sensitive_action": "10/min",
+        "accept_invite": "20/min",  # B6-025: onboarding-appropriate, own bucket
+        "telemetry": "120/min",  # B9-032: shop-floor event ingest, own bucket
         # Per-company (CompanyRateThrottle) budgets for expensive reports.
         "gst_reports": "30/min",
         "heavy_reports": "60/min",
@@ -440,6 +446,14 @@ CELERY_TASK_PUBLISH_RETRY_POLICY = {
     "interval_step": 0.2,
     "interval_max": 0.2,
 }
+# B7-002: a hung network call inside a task must not pin a worker slot forever.
+# Soft limit raises SoftTimeLimitExceeded (catchable for cleanup); hard limit
+# kills the worker process. Bill extraction is the known-long task — override
+# per-task where needed.
+CELERY_TASK_SOFT_TIME_LIMIT = _env_int("CELERY_TASK_SOFT_TIME_LIMIT", 600)
+CELERY_TASK_TIME_LIMIT = _env_int("CELERY_TASK_TIME_LIMIT", 660)
+# B7-002: bound the SMTP socket so send_email_notification can't block a worker.
+EMAIL_TIMEOUT = _env_int("EMAIL_TIMEOUT", 10)
 # BB-000234: explicit timezone for beat (Django TIME_ZONE is Asia/Kolkata).
 # BB-000377: default beat TZ to Asia/Kolkata (matches Django TIME_ZONE).
 # CFG-01: CELERY_ENABLE_UTC defaults False, so every crontab() below is
@@ -464,6 +478,11 @@ CELERY_BEAT_SCHEDULE = {
         # 00:05 IST on the 1st of the month.
         "task": "accounting.tasks.post_monthly_depreciation",
         "schedule": crontab(day_of_month=1, hour=0, minute=5),
+    },
+    # B8-005: near-expiry sweep + customer alerts (was a side effect of a GET).
+    "inventory-expiry-bands": {
+        "task": "inventory.tasks.record_expiry_bands_task",
+        "schedule": crontab(hour=7, minute=0),
     },
     "celery-beat-heartbeat": {
         "task": "core.tasks.celery_beat_heartbeat",
@@ -512,8 +531,9 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "billing@bizboard.loca
 # OTP
 OTP_EXPIRY_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5
-# Opt-in debug echo (logs phone suffix only — never the code). Forbidden in
-# production/staging (checked below).
+# B7-012: opt-in debug echo — logs the PLAINTEXT OTP code at DEBUG level so a
+# dev/CI can log in without SMS. Hard-rejected in production/staging (checked
+# below); never enable it anywhere with real log shipping.
 OTP_DEBUG_ECHO = _env_bool("OTP_DEBUG_ECHO")
 # BB-000332: OTP enablement independent of debug echo (echo still forbidden in prod).
 OTP_ENABLED = _env_bool("OTP_ENABLED")
@@ -602,6 +622,12 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = int(
 FILE_UPLOAD_MAX_MEMORY_SIZE = int(
     os.environ.get("FILE_UPLOAD_MAX_MEMORY_SIZE", str(15 * 1024 * 1024)) or (15 * 1024 * 1024)
 )
+# B7-006: hard request-body ceiling enforced by MaxBodySizeMiddleware before the
+# body is spooled. Above the largest legitimate upload (20 MB) + multipart
+# overhead; the reverse proxy client_max_body_size is the other layer.
+MAX_REQUEST_BODY_SIZE = int(
+    os.environ.get("MAX_REQUEST_BODY_SIZE", str(25 * 1024 * 1024)) or (25 * 1024 * 1024)
+)
 
 # TLS / secure cookies when behind HTTPS terminator, production, or staging (BB-000296).
 _use_tls = _env_bool("USE_TLS")
@@ -612,9 +638,13 @@ if _use_tls or DJANGO_ENV in ("production", "staging"):
     # app does not redirect by default. Set SECURE_SSL_REDIRECT=1 to opt in to
     # an app-level backstop when the edge is not trusted to do it.
     SECURE_SSL_REDIRECT = _env_bool("SECURE_SSL_REDIRECT")
+    # B7-007: staging on HTTPS should also send HSTS (shorter max-age so a
+    # mis-config is quick to roll back), not just production / USE_TLS.
     if DJANGO_ENV == "production" or _use_tls:
         SECURE_HSTS_SECONDS = 31536000
         SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    elif DJANGO_ENV == "staging":
+        SECURE_HSTS_SECONDS = 3600
 
 # BB-000257: refresh token in httpOnly cookie
 JWT_REFRESH_COOKIE_NAME = os.environ.get("JWT_REFRESH_COOKIE_NAME", "bb_refresh")
@@ -771,9 +801,12 @@ IDENTITY_SANDBOX_BASE_URL = (os.environ.get("IDENTITY_SANDBOX_BASE_URL") or "").
 FIU_BASE_URL = (os.environ.get("FIU_BASE_URL") or "").rstrip("/")
 FIU_API_KEY = (os.environ.get("FIU_API_KEY") or "").strip()
 
-# Optional ClamAV host for media scan (compose profile clamav)
+# ClamAV host for the media upload scan. In production an unconfigured scanner
+# is fail-open — FileService._clamav_scan refuses uploads unless CLAMAV_OPTIONAL
+# is set (M1-012). The prod compose overlay ships a clamav service by default.
 CLAMAV_HOST = os.environ.get("CLAMAV_HOST", "").strip()
 CLAMAV_PORT = _env_int("CLAMAV_PORT", 3310)
+CLAMAV_OPTIONAL = _env_bool("CLAMAV_OPTIONAL")
 
 # Wave 17E — WhatsApp Cloud API (falls back to wa.me when unset)
 WHATSAPP_TOKEN = _env_value("WHATSAPP_TOKEN")

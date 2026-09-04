@@ -10,6 +10,7 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { useAuth } from '@/auth/AuthContext';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState } from '@/components/PageState';
 import { t } from '@/i18n';
 import {
@@ -41,6 +42,20 @@ export function OfflineOutboxPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<OutboxDraft | null>(null);
+  // F2-055: re-enable "Sync now" as soon as connectivity returns.
+  const [online, setOnline] = useState(
+    typeof navigator === 'undefined' ? true : navigator.onLine,
+  );
+  useEffect(() => {
+    const set = () => setOnline(navigator.onLine);
+    window.addEventListener('online', set);
+    window.addEventListener('offline', set);
+    return () => {
+      window.removeEventListener('online', set);
+      window.removeEventListener('offline', set);
+    };
+  }, []);
 
   const companyId = user?.companyId;
   const userId = user?.id;
@@ -103,8 +118,12 @@ export function OfflineOutboxPage() {
 
   const deleteOne = async (draft: OutboxDraft) => {
     if (!companyId || !userId) return;
-    await removeDraft(companyId, userId, draft.idempotencyKey);
-    await reload();
+    try {
+      await removeDraft(companyId, userId, draft.idempotencyKey);
+      await reload();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
   };
 
   return (
@@ -113,7 +132,7 @@ export function OfflineOutboxPage() {
         <Typography variant="h4">{t('offlineOutbox.title')}</Typography>
         <Button
           variant="contained"
-          disabled={busy || !navigator.onLine}
+          disabled={busy || !online}
           aria-busy={busy}
           onClick={() => void syncNow()}
         >
@@ -149,7 +168,11 @@ export function OfflineOutboxPage() {
                       {localOnly ? t('offlineOutbox.localAutosave') : t('offlineOutbox.queued')}
                     </TableCell>
                     <TableCell align="right">
-                      <Button size="small" color="warning" onClick={() => void deleteOne(row)}>
+                      <Button
+                        size="small"
+                        color="warning"
+                        onClick={() => (localOnly ? void deleteOne(row) : setConfirmDelete(row))}
+                      >
                         {t('common.delete')}
                       </Button>
                     </TableCell>
@@ -160,6 +183,19 @@ export function OfflineOutboxPage() {
           </Table>
         </Paper>
       )}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={t('offlineOutbox.deleteTitle')}
+        body={t('offlineOutbox.deleteBody')}
+        confirmLabel={t('common.delete')}
+        confirmColor="error"
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          const row = confirmDelete;
+          setConfirmDelete(null);
+          if (row) void deleteOne(row);
+        }}
+      />
     </Stack>
   );
 }

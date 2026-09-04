@@ -55,13 +55,21 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
 
     year, month = period.split("-")
     y, m = int(year), int(month)
+    # B5-018: a supplier who reports a March invoice in the April 2B otherwise
+    # shows as MISSING_IN_BOOKS even though the bill is booked in March. Match
+    # book keys across the whole surrounding Indian FY, not just the 2B month.
+    from datetime import date as _date
+
+    from .gstr2b import _indian_fy_start_year
+
+    fy_start_year = _indian_fy_start_year(_date(y, m, 1))
     book_keys = {
         ((gstin or "").upper(), (number or "").strip())
         for gstin, number in PurchaseInvoice.objects.filter(
             company=company,
             status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
-            invoice_date__year=y,
-            invoice_date__month=m,
+            invoice_date__gte=_date(fy_start_year, 4, 1),
+            invoice_date__lt=_date(fy_start_year + 1, 4, 1),
             is_opening_balance=False,
         ).exclude(number="").values_list("supplier__gstin", "number")
     }
@@ -151,6 +159,11 @@ def apply_ims_action(row: Gstr2bIngest, action: str, *, remark: str = "", user=N
     if action == Gstr2bIngest.ImsAction.REJECT and not (remark or "").strip():
         raise BusinessRuleError("REJECT requires a remark (the defect).")
 
+    # B5-013: remember what this row's action was before we overwrite it, so an
+    # ACCEPT that follows this row's own prior REJECT can tell "ineligible
+    # because I rejected it" apart from any other reason the linked invoice
+    # might independently be INELIGIBLE — only the former should auto-restore.
+    previous_ims_action = row.ims_action
     now = timezone.now()
     row.ims_action = action
     row.ims_remark = (remark or "")[:512]
@@ -165,6 +178,16 @@ def apply_ims_action(row: Gstr2bIngest, action: str, *, remark: str = "", user=N
                 from purchases.models import PurchaseInvoice
 
                 if inv.itc_eligibility == PurchaseInvoice.ItcEligibility.UNREVIEWED:
+                    inv.itc_eligibility = PurchaseInvoice.ItcEligibility.CLAIMABLE
+                    inv.save(update_fields=["itc_eligibility", "updated_at"])
+                elif (
+                    previous_ims_action == Gstr2bIngest.ImsAction.REJECT
+                    and inv.itc_eligibility == PurchaseInvoice.ItcEligibility.INELIGIBLE
+                ):
+                    # B5-013: this row's own prior REJECT is what made the invoice
+                    # INELIGIBLE — a re-ACCEPT (mis-click recovery) restores it,
+                    # mirroring the UNREVIEWED->CLAIMABLE path just above instead
+                    # of permanently stranding the books ITC.
                     inv.itc_eligibility = PurchaseInvoice.ItcEligibility.CLAIMABLE
                     inv.save(update_fields=["itc_eligibility", "updated_at"])
                 if inv.itc_eligibility == PurchaseInvoice.ItcEligibility.CLAIMABLE:
@@ -223,11 +246,6 @@ def bulk_accept_exact(company, period: str, *, user=None, remark: str = "") -> d
         "chunks": len(chunks),
         "chunk_size": IMS_BULK_CHUNK,
     }
-
-
-def deemed_accept_on_period_lock(company, period: str, *, user=None) -> int:
-    """Period lock no longer auto-ACCEPTS IMS rows — ITC requires an explicit decision."""
-    return 0
 
 
 def credit_at_risk(company, period: str, *, as_of: date | None = None) -> dict:
@@ -312,20 +330,37 @@ def supplier_scorecard(company, period: str) -> list[dict]:
         if row.acted_at and row.created_at:
             bucket["correction_days"].append((row.acted_at.date() - row.created_at.date()).days)
 
-    out = []
-    for gstin, bucket in by_gstin.items():
-        supplier = Supplier.objects.filter(company=company, gstin__iexact=gstin).first()
-        purchase_value = Decimal("0")
-        missing = 0
-        if supplier:
-            qs = PurchaseInvoice.objects.filter(
+    # B5-016: one Supplier lookup + one aggregated purchase-value query for
+    # every GSTIN in this period, instead of a `.first()` and a Python-side
+    # sum over PurchaseInvoice rows per distinct GSTIN.
+    # Match case-insensitively (mirrors the original per-row `gstin__iexact`)
+    # by uppercasing in Python rather than one `iexact` query per GSTIN.
+    suppliers_by_gstin = {
+        (s.gstin or "").upper(): s
+        for s in Supplier.objects.filter(company=company).exclude(gstin="")
+    }
+    supplier_ids = [s.id for s in suppliers_by_gstin.values()]
+    purchase_value_by_supplier: dict[int, Decimal] = {}
+    if supplier_ids:
+        from django.db.models import Sum
+
+        for row in (
+            PurchaseInvoice.objects.filter(
                 company=company,
-                supplier=supplier,
+                supplier_id__in=supplier_ids,
                 status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
                 invoice_date__year=y,
                 invoice_date__month=m,
             )
-            purchase_value = sum((Decimal(str(p.grand_total or 0)) for p in qs), Decimal("0"))
+            .values("supplier_id")
+            .annotate(total=Sum("grand_total"))
+        ):
+            purchase_value_by_supplier[row["supplier_id"]] = row["total"] or Decimal("0")
+
+    out = []
+    for gstin, bucket in by_gstin.items():
+        supplier = suppliers_by_gstin.get(gstin)
+        purchase_value = purchase_value_by_supplier.get(supplier.id, Decimal("0")) if supplier else Decimal("0")
         days = bucket["correction_days"]
         avg = (sum(days) / len(days)) if days else 0
         out.append({

@@ -27,11 +27,17 @@ export function DiagnosisPicker({
   intent,
   context,
   initialLeafId,
+  visited,
 }: {
   intent: HelpIntent;
   context?: HelpContext;
   initialLeafId?: string;
+  /** F3-053: intentIds already rendered on this recursion path — guards a
+   * cross-intent diagnosis cycle (A -> B -> A) authored into intents.ts,
+   * which the direct-self-reference check alone doesn't catch. */
+  visited?: Set<string>;
 }) {
+  const seen = visited ?? new Set<string>([intent.intentId]);
   const startPath = useMemo(
     () => (initialLeafId ? findDiagnosisPath(intent, initialLeafId) : []),
     [intent, initialLeafId],
@@ -53,7 +59,7 @@ export function DiagnosisPicker({
     const target = leaf.intentId ? getHelpIntent(leaf.intentId) : undefined;
     const nestedTree =
       target &&
-      target.intentId !== intent.intentId &&
+      !seen.has(target.intentId) &&
       target.type === 6 &&
       (target.diagnosis?.length ?? 0) > 0;
     return (
@@ -62,7 +68,11 @@ export function DiagnosisPicker({
           {t('common.back')}
         </Button>
         {nestedTree && target ? (
-          <DiagnosisPicker intent={target} context={context} />
+          <DiagnosisPicker
+            intent={target}
+            context={context}
+            visited={new Set(seen).add(target.intentId)}
+          />
         ) : target ? (
           <IntentBody intent={target} context={context} />
         ) : (

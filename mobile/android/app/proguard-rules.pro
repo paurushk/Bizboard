@@ -12,9 +12,10 @@
 #   public *;
 #}
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# M1-018: preserve line-number info for release crash stack traces — without
+# this, a release-only crash (a stray @JavascriptInterface / reflection use
+# that R8 stripped) is unsymbolicated and unreadable even with mapping.txt.
+-keepattributes SourceFile,LineNumberTable
 
 # If you keep the line number information, uncomment this to
 # hide the original source file name.

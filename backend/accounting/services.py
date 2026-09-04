@@ -53,10 +53,16 @@ CHART = (
     ("5500", "Round Off", "EXPENSE", True),
     # BB-000459: disposal P&L — never write NBV off to Depreciation (5300).
     ("5600", "Loss on Disposal of Assets", "EXPENSE", True),
+    # B1-020: 5700 is an INCOME account that deliberately sits inside the 5xxx
+    # "Expenses" code block (kept here to avoid renumbering a live chart). P&L
+    # groups strictly on `type`, so this is safe — but do NOT infer account
+    # nature from `code.startswith("5")` anywhere; always branch on `type`.
     ("5700", "Gain on Disposal of Assets", "INCOME", True),
     ("5800", "Salaries and Wages", "EXPENSE", True),
     # ACC-14: manual FX gain/loss on settling a foreign-currency invoice at a
-    # rate different from the one it was booked at.
+    # rate different from the one it was booked at. B1-020: typed EXPENSE but
+    # legitimately carries a credit (gain) balance too — again, never classify
+    # this account by its code range.
     ("5900", "Foreign Exchange Gain / Loss", "EXPENSE", True),
     # BB-000382: advances (unallocated cash) — not AR/AP control.
     ("2300", "Customer Advances", "LIABILITY", True),
@@ -87,13 +93,20 @@ def seed_chart_of_accounts(company, user=None):
                       "created_by": user, "updated_by": user},
         )
         accounts[code] = account
+    # B1-019: only set `parent` when it's currently unset — this call runs on
+    # many hot paths (`_ensure_chart`/`_account` fallback on any miss) for
+    # companies whose accounts already exist, so an unconditional/`!=` write
+    # here means dozens of UPDATEs per document Complete in the worst case,
+    # and silently reverts any deliberate manual re-parenting of a system
+    # account (the `!=` form did that too — only a NULL check is safe).
     for code, _, _, _ in CHART:
         if len(code) == 4 and code.endswith("00") and code[1:] != "000":
-            accounts[code].parent = accounts[f"{code[0]}000"]
-            accounts[code].save(update_fields=["parent"])
+            if accounts[code].parent_id is None:
+                accounts[code].parent = accounts[f"{code[0]}000"]
+                accounts[code].save(update_fields=["parent"])
     for code, parent_code in _CHART_PARENTS.items():
         if code in accounts and parent_code in accounts:
-            if accounts[code].parent_id != accounts[parent_code].id:
+            if accounts[code].parent_id is None:
                 accounts[code].parent = accounts[parent_code]
                 accounts[code].save(update_fields=["parent"])
     return accounts
@@ -242,7 +255,9 @@ class PostingService:
         negative round_off posts to the opposite side so the entry stays
         balanced (see post_sales_invoice / post_purchase / post_note).
         """
-        amt = Decimal(str(round_off or 0))
+        # B1-033: quantize to the 2dp column before building the line so a
+        # long-tailed input / arithmetic result can't unbalance the entry.
+        amt = Decimal(str(round_off or 0)).quantize(Decimal("0.01"))
         if amt == 0:
             return None
         line = {"account": cls._account(company, "5500")}
@@ -464,9 +479,23 @@ class PostingService:
 
     @classmethod
     @transaction.atomic
-    def post(cls, *, company, source_type, source_id, purpose, entry_date, lines, narration="", user=None, allow_soft_closed=False):
+    def post(cls, *, company, source_type, source_id, purpose, entry_date, lines, narration="", user=None, allow_soft_closed=False, allow_pre_books_start=False):
         if not company.accounting_enabled:
             return None
+        # B1-032: nothing may post before the company's books-start / cut-over
+        # date, except the opening-balance entries that legitimately sit on it.
+        cutover = getattr(company, "books_start_date", None)
+        if (
+            cutover
+            and entry_date
+            and entry_date < cutover
+            and not allow_pre_books_start
+            and "OPENING" not in (purpose or "").upper()
+        ):
+            raise BusinessRuleError(
+                f"{entry_date} is before the books start date ({cutover}). "
+                "Adjust the date or the books start date."
+            )
         # R3-009: `uniq_accounting_source_posting` (company, source_type,
         # source_id, purpose | source_id NOT NULL & status=POSTED) is the real
         # guard against a concurrent double-post — this `.first()` is only the
@@ -633,7 +662,7 @@ class PostingService:
         )
         hdr_tax = hdr_cgst + hdr_sgst + hdr_igst + hdr_cess
         line_tax = line_cgst + line_sgst + line_igst + line_cess
-        tax_drift = hdr_tax - line_tax  # ±, |x| ≤ 0.05
+        tax_drift = (hdr_tax - line_tax).quantize(Decimal("0.01"))  # B1-033; ±, |x| ≤ 0.05
         tax = hdr_tax
         tcs_amount = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
         tcs_folded = bool(getattr(invoice, "tcs_in_grand_total", False))
@@ -701,6 +730,21 @@ class PostingService:
         from decimal import Decimal as _D
 
         from accounting.models import JournalEntry, JournalLine
+
+        # B1-025: an opening-balance invoice was posted as "opening AR vs
+        # equity, no P&L" (post_opening_sales_invoice) — reversing its entries
+        # and unconditionally falling through to post_sales_invoice below would
+        # repost it as a full revenue/tax/COGS sale, misstating revenue and
+        # equity for the opening period.
+        if getattr(invoice, "is_opening_balance", False):
+            for entry in JournalEntry.objects.filter(
+                company=invoice.company,
+                source_type="SALES_INVOICE",
+                source_id=invoice.id,
+                status=JournalEntry.Status.POSTED,
+            ):
+                cls.reverse(entry, user=user, entry_date=entry.entry_date)
+            return cls.post_opening_sales_invoice(invoice, user=user)
 
         reversed_cogs = _D("0")
         for entry in JournalEntry.objects.filter(
@@ -771,6 +815,11 @@ class PostingService:
             status=JournalEntry.Status.POSTED,
         ):
             cls.reverse(entry, user=user, entry_date=entry.entry_date)
+        # B1-025: same opening-balance guard as adjust_sales_invoice_postings —
+        # an opening purchase invoice was posted as "opening AP vs equity, no
+        # inventory/P&L" and must be re-posted the same way, not as a full purchase.
+        if getattr(invoice, "is_opening_balance", False):
+            return cls.post_opening_purchase_invoice(invoice, user=user)
         return cls.post_purchase(invoice, user=user)
 
     @classmethod
@@ -1008,7 +1057,7 @@ class PostingService:
             lines=lines)
 
     @classmethod
-    def post_receipt_refund(cls, receipt, user=None, *, amount=None, purpose="REFUND"):
+    def post_receipt_refund(cls, receipt, user=None, *, amount=None, purpose="REFUND", entry_date=None):
         """Invert post_receipt: Dr 2300 amount, Cr Bank net of MDR, reverse fee expense."""
         cls._ensure_chart(receipt.company)
         # ACC-01: mirror post_receipt — reverse the same per-bank ledger.
@@ -1049,7 +1098,7 @@ class PostingService:
             source_type="CUSTOMER_RECEIPT",
             source_id=receipt.id,
             purpose=purpose or "REFUND",
-            entry_date=receipt.receipt_date or timezone.localdate(),
+            entry_date=entry_date or receipt.receipt_date or timezone.localdate(),
             user=user,
             narration=f"Refund: {receipt.number}",
             lines=lines,
@@ -1649,8 +1698,12 @@ class PostingService:
             raise BusinessRuleError("Only an unreversed posted journal may be reversed.")
         if allow_soft_closed is None:
             allow_soft_closed = entry.source_type != "MANUAL_JOURNAL"
+        # B1-023: default the reversal to the *original* entry's date so a
+        # prior-month journal is not left overstated with an orphan reversal in
+        # the current month. The document-side callers already pass this; the
+        # manual API `reverse` action did not.
         reversal = cls.post(company=entry.company, source_type="JOURNAL_REVERSAL", source_id=entry.id,
-            purpose="REVERSE", entry_date=entry_date or timezone.localdate(), user=user,
+            purpose="REVERSE", entry_date=entry_date or entry.entry_date or timezone.localdate(), user=user,
             allow_soft_closed=allow_soft_closed,
             narration=f"Reversal of {entry.number}",
             lines=[{

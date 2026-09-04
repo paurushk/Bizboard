@@ -8,6 +8,7 @@ import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { nextIndianFyEnd } from '@/utils/fy';
 import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
@@ -21,7 +22,7 @@ export function PeriodsPage() {
   const [name, setName] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
-  const [fyEnd, setFyEnd] = useState('2026-03-31');
+  const [fyEnd, setFyEnd] = useState(nextIndianFyEnd());
   const [error, setError] = useState('');
   const create = useMutation({
     mutationFn: () => api.createAccountingPeriod({ name, startDate: start, endDate: end }),

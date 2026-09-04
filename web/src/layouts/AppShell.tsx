@@ -18,6 +18,7 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import { Outlet, NavLink, Link as RouterLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { UniversalSearch } from '@/components/UniversalSearch';
 import { CompanySwitcher } from '@/components/CompanySwitcher';
 import { CompanyRequiredDialog } from '@/components/CompanyRequiredDialog';
@@ -53,7 +54,10 @@ function NavSection({
   onNavigate?: () => void;
 }) {
   const location = useLocation();
-  const childActive = item.children?.some((c) => c.path && location.pathname.startsWith(c.path));
+  // F1-018: exact / segment-boundary match, not a bare startsWith — otherwise
+  // a child path that is a prefix of an unrelated route (`/sales` vs
+  // `/sales-returns`) keeps the section wrongly expanded.
+  const childActive = item.children?.some((c) => navPathSelected(location.pathname, c.path));
   const [open, setOpen] = useState(Boolean(childActive));
 
   useEffect(() => {
@@ -317,7 +321,15 @@ export function AppShell() {
             {t('billing.mobileBillingTip')}
           </Alert>
         ) : null}
-        <Outlet />
+        {/* F3-044: a per-route boundary keyed by pathname — a render-time
+            crash on one page now shows an inline fallback in place of just
+            that page's content; nav, company switcher, and the rest of the
+            shell (all siblings, outside this boundary) stay usable, and
+            navigating to a different route remounts the boundary fresh
+            instead of being stuck on the old crash until a full reload. */}
+        <ErrorBoundary key={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
         <CompanyRequiredDialog />
       </Box>
     </Box>

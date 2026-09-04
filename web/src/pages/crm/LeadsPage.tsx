@@ -143,12 +143,14 @@ function LeadsPageInner() {
   });
 
   const openCreate = () => {
+    setError(null);
     setEditing(null);
     setForm(emptyForm);
     setOpen(true);
   };
 
   const openEdit = (lead: Lead) => {
+    setError(null);
     setEditing(lead);
     setForm({
       name: lead.name,
@@ -209,13 +211,14 @@ function LeadsPageInner() {
                     <Button size="small" onClick={() => openEdit(lead)} disabled={writesBlocked}>
                       {t('common.edit')}
                     </Button>
-                    <Button size="small" onClick={() => setTimelineLead(lead)}>
+                    <Button size="small" onClick={() => { setError(null); setTimelineLead(lead); }}>
                       {t('erp.activities')}
                     </Button>
                     <Button
                       size="small"
                       disabled={writesBlocked || convertMutation.isPending}
                       onClick={() => {
+                        setError(null);
                         setConvertLeadRow(lead);
                         setConvertAmount('0');
                         setConvertWon(true);
@@ -249,7 +252,7 @@ function LeadsPageInner() {
         </Stack>
       ) : null}
 
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={open} onClose={() => { setError(null); setOpen(false); }} fullWidth maxWidth="sm">
         <DialogTitle>{editing ? t('common.edit') : t('common.create')} lead</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -302,7 +305,7 @@ function LeadsPageInner() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+          <Button onClick={() => { setError(null); setOpen(false); }}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
             disabled={!form.name || writesBlocked || saveMutation.isPending}
@@ -315,7 +318,7 @@ function LeadsPageInner() {
 
       <Dialog
         open={Boolean(timelineLead)}
-        onClose={() => setTimelineLead(null)}
+        onClose={() => { setError(null); setTimelineLead(null); }}
         fullWidth
         maxWidth="sm"
       >
@@ -341,7 +344,7 @@ function LeadsPageInner() {
             ))}
             <TextField
               select
-              label={t('common.status')}
+              label={t('erp.activityKind')}
               value={activityKind}
               onChange={(e) => setActivityKind(e.target.value)}
             >
@@ -361,7 +364,7 @@ function LeadsPageInner() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setTimelineLead(null)}>{t('common.cancel')}</Button>
+          <Button onClick={() => { setError(null); setTimelineLead(null); }}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
             disabled={!activityBody.trim() || writesBlocked || activityMutation.isPending}
@@ -371,7 +374,7 @@ function LeadsPageInner() {
           </Button>
         </DialogActions>
       </Dialog>
-      <Dialog open={Boolean(convertLeadRow)} onClose={() => setConvertLeadRow(null)} fullWidth maxWidth="xs">
+      <Dialog open={Boolean(convertLeadRow)} onClose={() => { setError(null); setConvertLeadRow(null); }} fullWidth maxWidth="xs">
         <DialogTitle>{t('erp.convertLead')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -392,7 +395,7 @@ function LeadsPageInner() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConvertLeadRow(null)}>{t('common.cancel')}</Button>
+          <Button onClick={() => { setError(null); setConvertLeadRow(null); }}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
             disabled={writesBlocked || convertMutation.isPending || !convertLeadRow}

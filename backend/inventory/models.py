@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -83,9 +83,16 @@ class StockMovement(models.Model):
     warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="stock_movements")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="stock_movements")
     batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.PROTECT, related_name="stock_movements")
-    movement_type = models.CharField(max_length=20, choices=MovementType.choices)
+    movement_type = models.CharField(max_length=32, choices=MovementType.choices)  # B8-037: headroom
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
-    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    # B8-004: was decimal_places=2 — _apply_cost_layers stamps a FIFO issue
+    # cost quantized to 4dp (matching InventoryCostLayer.unit_cost and
+    # layer_peels[*].unit_cost), but the column truncated it back to paise on
+    # every write. COGS read back via move.unit_cost * qty (GL posting,
+    # valuation's _replay, manufacturing's _issue_cost_total) lost up to
+    # ₹0.005/unit versus the peel detail — widened to match, no data loss
+    # (every existing 2dp value is already a valid 4dp value).
+    unit_cost = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     reference_type = models.CharField(max_length=64, blank=True)
     reference_id = models.CharField(max_length=64, blank=True)
     reason = models.CharField(max_length=255, blank=True)
@@ -129,6 +136,31 @@ class StockMovement(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValueError("Stock movements are append-only and cannot be deleted.")
+
+    @classmethod
+    def stamp_cost(cls, pk, *, unit_cost, layer_peels=None):
+        """B8-029: the one documented exception to append-only above.
+
+        The FIFO cost of an issue is only known once its layers have been
+        peeled, which needs the movement's own pk (for `source_movement` on
+        any layer it creates) — so the row is created first with whatever
+        cost the caller had at hand, then re-stamped here once the real
+        peeled cost is computed (inventory/services.py `_apply_cost_layers`;
+        also used by sales/cogs_service.py's zero-cost fallback, which has no
+        peel detail to attach — pass layer_peels=None to leave it untouched).
+        This is a row-locked, single-purpose update — never route ad-hoc
+        field changes through it, and never `.update()` a StockMovement any
+        other way.
+        """
+        fields = {"unit_cost": unit_cost}
+        if layer_peels is not None:
+            fields["layer_peels"] = layer_peels
+        with transaction.atomic():
+            # Materialize under FOR UPDATE first — .update() alone issues a
+            # bare UPDATE with no preceding SELECT, so chaining it directly
+            # onto select_for_update() would not actually take the lock.
+            cls.objects.select_for_update().filter(pk=pk).values_list("pk", flat=True).first()
+            cls.objects.filter(pk=pk).update(**fields)
 
 
 class StockBalance(models.Model):

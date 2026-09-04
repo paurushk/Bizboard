@@ -24,6 +24,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import {
   cancelPurchase,
   completePurchase,
@@ -79,7 +80,9 @@ export function PurchaseHistoryPage() {
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['purchases'] });
 
   const completeMutation = useMutation({
-    mutationFn: (id: number) => completePurchase(id),
+    // F2-017: same confirm-retry helper the editor uses.
+    mutationFn: (id: number) =>
+      completeWithConfirms((extra) => completePurchase(id, extra)),
     onSuccess: (inv) => {
       setMessage(`Purchase ${purchaseNumberLabel(inv)} completed`);
       invalidate();
@@ -155,7 +158,7 @@ export function PurchaseHistoryPage() {
       {rows.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <VirtualizedTable rowCount={rows.length} rowHeight={52}>
-            {(virtualRows) => (
+            {({ rows: virtualRows, totalSize, measureElement }) => (
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -172,9 +175,15 @@ export function PurchaseHistoryPage() {
             <TableBody>
               {/* Companion fix to UXW2B-007 — see SalesHistoryPage for the full explanation:
                   without these spacer rows, scrolling past the first screenful showed blank
-                  space instead of the (correctly computed) later rows. */}
-              {virtualRows.length > 0 ? (
-                <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden>
+                  space instead of the (correctly computed) later rows.
+                  F3-042: spacer heights derive from the virtualizer's real
+                  measured totalSize, not `rows.length * rowHeight` — a row that
+                  wraps to two lines no longer desyncs the spacers. */}
+              {/* F2-034: matches SalesHistoryPage's guard — without the
+                  `start > 0` check this rendered a dead height-0 spacer row
+                  on every page load (before any scrolling). */}
+              {virtualRows.length > 0 && virtualRows[0].start > 0 ? (
+                <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden role="presentation">
                   <TableCell style={{ padding: 0, border: 0 }} colSpan={6} />
                 </TableRow>
               ) : null}
@@ -182,7 +191,13 @@ export function PurchaseHistoryPage() {
                 const p = rows[vRow.index];
                 if (!p) return null;
                 return (
-                <TableRow key={p.id} hover style={{ height: vRow.size }}>
+                <TableRow
+                  key={p.id}
+                  hover
+                  data-index={vRow.index}
+                  ref={measureElement}
+                  style={{ height: vRow.size }}
+                >
                   <TableCell>{p.invoiceDate}</TableCell>
                   <TableCell>
                     <Typography
@@ -221,7 +236,7 @@ export function PurchaseHistoryPage() {
               {virtualRows.length > 0 ? (
                 <TableRow
                   style={{
-                    height: Math.max(0, rows.length * 52 - virtualRows[virtualRows.length - 1].end),
+                    height: Math.max(0, totalSize - virtualRows[virtualRows.length - 1].end),
                     padding: 0,
                     border: 0,
                   }}

@@ -154,6 +154,130 @@ describe('refresh token rejection (BUG-407 / P0-111)', () => {
     window.removeEventListener('bizboard:session-expired', onExpired);
   });
 
+  it('F1-016: retries the original request after a successful 401 refresh', async () => {
+    document.cookie = 'csrftoken=test-csrf';
+    vi.spyOn(axios, 'post').mockResolvedValueOnce({
+      status: 200,
+      data: { access: 'fresh-access' },
+    } as never);
+
+    let calls = 0;
+    apiClient.defaults.adapter = async (config) => {
+      calls += 1;
+      if (calls === 1) {
+        const error = new AxiosError('Unauthorized');
+        error.config = config as InternalAxiosRequestConfig;
+        error.response = {
+          status: 401,
+          data: { detail: 'token expired' },
+          headers: {},
+          config: config as InternalAxiosRequestConfig,
+          statusText: 'Unauthorized',
+        };
+        throw error;
+      }
+      return {
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: config as InternalAxiosRequestConfig,
+        data: { success: true, data: [{ id: 1 }] },
+      };
+    };
+
+    const resp = await apiClient.get('/customers/');
+    expect(calls).toBe(2);
+    expect(resp.data).toEqual({ success: true, data: [{ id: 1 }] });
+    // getAccessToken() is a "session established" sentinel under cookie auth
+    // (see auth/session.ts setAccessToken — the actual token string is never
+    // surfaced/stored), so the only meaningful assertion here is that a
+    // session was established at all, not the literal refreshed value.
+    expect(getAccessToken()).toBe('cookie');
+  });
+
+  it('F1-016: the _retry guard stops a second refresh when the retried request still 401s', async () => {
+    document.cookie = 'csrftoken=test-csrf';
+    const postSpy = vi
+      .spyOn(axios, 'post')
+      .mockResolvedValueOnce({ status: 200, data: { access: 'fresh-access' } } as never);
+
+    apiClient.defaults.adapter = async (config) => {
+      const error = new AxiosError('Unauthorized');
+      error.config = config as InternalAxiosRequestConfig;
+      error.response = {
+        status: 401,
+        data: { detail: 'token expired' },
+        headers: {},
+        config: config as InternalAxiosRequestConfig,
+        statusText: 'Unauthorized',
+      };
+      throw error;
+    };
+
+    await expect(apiClient.get('/customers/')).rejects.toBeTruthy();
+    // Refresh fired exactly once — the retried request's own 401 does not
+    // trigger a second refresh (original._retry is already set), so this
+    // never loops.
+    expect(postSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('F1-016: a CSRF-shaped 403 auto-retries once after re-fetching the CSRF cookie', async () => {
+    document.cookie = '';
+    const getSpy = vi.spyOn(axios, 'get').mockResolvedValueOnce({
+      status: 200,
+      data: { csrfToken: 'fresh-csrf' },
+    } as never);
+
+    let calls = 0;
+    apiClient.defaults.adapter = async (config) => {
+      calls += 1;
+      if (calls === 1) {
+        const error = new AxiosError('Forbidden');
+        error.config = config as InternalAxiosRequestConfig;
+        error.response = {
+          status: 403,
+          data: { error: { code: 'csrf_failed', message: 'CSRF Failed: CSRF token missing.' } },
+          headers: {},
+          config: config as InternalAxiosRequestConfig,
+          statusText: 'Forbidden',
+        };
+        throw error;
+      }
+      return {
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: config as InternalAxiosRequestConfig,
+        data: { success: true },
+      };
+    };
+
+    const resp = await apiClient.post('/customers/', { name: 'X' });
+    expect(calls).toBe(2);
+    expect(resp.data).toEqual({ success: true });
+    expect(getSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('F1-016: silentRefreshAccessToken debounces within MIN_REFRESH_INTERVAL_MS and returns "cookie"', async () => {
+    document.cookie = 'csrftoken=test-csrf';
+    // `mockResolvedValue` (not `...Once`): a debounce bug that lets a second
+    // network call through must not fall out of the mock and hit a real URL.
+    const postSpy = vi
+      .spyOn(axios, 'post')
+      .mockResolvedValue({ status: 200, data: { access: 'fresh-access' } } as never);
+
+    const { silentRefreshAccessToken } = await import('@/api/client');
+    // `force: true` guarantees a real refresh here regardless of whatever
+    // `lastRefreshSuccessTime` a previous test in this file left behind —
+    // the debounce guarantee under test is about the *next* call only.
+    await silentRefreshAccessToken({ force: true });
+    const callsAfterFirst = postSpy.mock.calls.length;
+
+    const second = await silentRefreshAccessToken();
+    expect(second).toBe('cookie');
+    expect(postSpy.mock.calls.length).toBe(callsAfterFirst);
+  });
+
   it('BB-000229: does not refresh-retry failed login', async () => {
     const postSpy = vi.spyOn(axios, 'post');
 

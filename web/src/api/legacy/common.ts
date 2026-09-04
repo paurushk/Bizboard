@@ -136,13 +136,13 @@ export async function fetchNextPage<T>(nextUrl: string): Promise<{ results: T[];
   return { results: asList(body), next: getNextUrl(body) };
 }
 
-export async function fetchMoneyListFirstPage<T>(
-  path: string,
-  params?: Record<string, string>,
-): Promise<T[]> {
-  return fetchAllPagesMasters<T>(path, params);
-}
-
+// F1-005: this used to also be exported as `fetchMoneyListFirstPage` — a name
+// that told callers (and reviewers) it fetches one page, when it actually
+// walks every page serially and throws only after MAX_PAGES. Every call site
+// now names it for what it does. Genuine single-page / windowed loading for
+// the highest-volume lists is tracked separately (F2-025/F3-018); this alone
+// doesn't fix the serial-fetch cost, but a caller can no longer mistake it
+// for a bounded call while auditing or extending one of these list functions.
 export async function fetchAllPagesMasters<T>(
   path: string,
   params?: PageParams,
@@ -150,7 +150,10 @@ export async function fetchAllPagesMasters<T>(
   const first = await listPage<T>(path, params);
   let results = first.results;
   let next = first.next;
-  const MAX_PAGES = 5000;
+  // Lowered from 5000 — a legitimate list this deep needs windowed/paginated
+  // loading (F2-025/F3-018), not a 5000-request serial fetch that blocks the
+  // calling view for minutes before it even hits the old ceiling.
+  const MAX_PAGES = 500;
   let guard = 0;
   while (next && guard < MAX_PAGES) {
     const page = await fetchNextPage<T>(next);

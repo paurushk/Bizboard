@@ -55,18 +55,25 @@ function parseSerials(text: string): string[] {
     .filter(Boolean);
 }
 
+// F3-068: distinguish "no input" (undefined — release with no component
+// serials, valid) from "unparseable input" (throws — must block release and
+// show the user why, not silently drop what they pasted).
+class ComponentSerialsParseError extends Error {}
+
 function parseComponentSerials(text: string): Record<string, string[]> | undefined {
   const trimmed = text.trim();
   if (!trimmed) return undefined;
   if (trimmed.startsWith('{')) {
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(trimmed) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, string[]>;
-      }
+      parsed = JSON.parse(trimmed);
     } catch {
-      return undefined;
+      throw new ComponentSerialsParseError(t('erp.componentSerialsInvalidJson'));
     }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, string[]>;
+    }
+    throw new ComponentSerialsParseError(t('erp.componentSerialsInvalidJson'));
   }
   const map: Record<string, string[]> = {};
   for (const line of trimmed.split('\n')) {
@@ -438,10 +445,14 @@ function WorkOrdersPageInner() {
             onClick={() => {
               if (!confirm) return;
               if (confirm.action === 'release') {
-                releaseMutation.mutate({
-                  id: confirm.id,
-                  componentSerials: parseComponentSerials(componentSerialsText),
-                });
+                let componentSerials: Record<string, string[]> | undefined;
+                try {
+                  componentSerials = parseComponentSerials(componentSerialsText);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err));
+                  return;
+                }
+                releaseMutation.mutate({ id: confirm.id, componentSerials });
               } else if (confirm.action === 'complete') {
                 const wo = rows.find((r) => r.id === confirm.id);
                 completeMutation.mutate({

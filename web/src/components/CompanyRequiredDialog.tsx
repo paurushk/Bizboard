@@ -8,6 +8,8 @@ import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemText from '@mui/material/ListItemText';
 import Typography from '@mui/material/Typography';
+import Alert from '@mui/material/Alert';
+import { getErrorMessage } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { useCompanySwitcher } from '@/hooks/useCompanySwitcher';
 import { t } from '@/i18n';
@@ -31,10 +33,12 @@ function parseMemberships(detail: unknown): MembershipChoice[] {
 
 /** D-01: 409 COMPANY_REQUIRED opens a picker; switch then reload (no interceptor retry loop). */
 export function CompanyRequiredDialog() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { switchCompany, memberships } = useCompanySwitcher();
   const [open, setOpen] = useState(false);
   const [choices, setChoices] = useState<MembershipChoice[]>([]);
+  const [error, setError] = useState('');
+  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     const onRequired = (ev: Event) => {
@@ -48,8 +52,17 @@ export function CompanyRequiredDialog() {
 
   const pick = useCallback(
     async (companyId: number) => {
-      await switchCompany(companyId);
-      window.location.reload();
+      // F3-043: surface a failed switch instead of swallowing the rejection,
+      // and keep the dialog open so the user can retry.
+      setError('');
+      setSwitching(true);
+      try {
+        await switchCompany(companyId);
+        window.location.reload();
+      } catch (err) {
+        setError(getErrorMessage(err));
+        setSwitching(false);
+      }
     },
     [switchCompany],
   );
@@ -58,22 +71,30 @@ export function CompanyRequiredDialog() {
   const rows = choices.length ? choices : memberships.map((m) => ({ id: m.companyId, name: m.companyName, role: m.role }));
 
   return (
-    <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
+    // F3-043: this dialog gates a page that has no company context — it must not
+    // be dismissable into a dead screen. No backdrop/escape close; the only way
+    // out other than picking a company is to sign out.
+    <Dialog open={open} fullWidth maxWidth="xs">
       <DialogTitle>{t('locale.companyRequired')}</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           {t('locale.companyRequiredHelp')}
         </Typography>
+        {error ? (
+          <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError('')}>
+            {error}
+          </Alert>
+        ) : null}
         <List>
           {rows.map((m) => (
-            <ListItemButton key={m.id} onClick={() => void pick(m.id)}>
+            <ListItemButton key={m.id} disabled={switching} onClick={() => void pick(m.id)}>
               <ListItemText primary={m.name} secondary={m.role} />
             </ListItemButton>
           ))}
         </List>
       </DialogContent>
       <DialogActions>
-        <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+        <Button onClick={() => void logout()}>{t('auth.logout')}</Button>
       </DialogActions>
     </Dialog>
   );

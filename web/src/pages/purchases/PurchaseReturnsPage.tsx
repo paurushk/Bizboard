@@ -17,11 +17,12 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import {
   completePurchaseReturn,
   createPurchaseReturn,
   getPurchase,
+  listPurchaseReturns,
   listPurchaseReturnsPage,
   listPurchasesPage,
 } from '@/api/resources';
@@ -95,7 +96,23 @@ export function PurchaseReturnsPage() {
     }
     const full = pur.items?.length ? pur : await getPurchase(pur.id);
     setPurchase(full);
-    setLines(invoiceItemsToSourceLines(full.items));
+    // F2-013: net off quantities already returned on prior return documents.
+    const returnedByProduct = new Map<number, number>();
+    try {
+      const prior = await listPurchaseReturns({ purchaseInvoice: String(full.id) });
+      for (const ret of prior) {
+        if (ret.status === 'CANCELLED') continue;
+        for (const it of ret.items ?? []) {
+          returnedByProduct.set(
+            it.product,
+            (returnedByProduct.get(it.product) ?? 0) + Number(it.quantity || 0),
+          );
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
+    setLines(invoiceItemsToSourceLines(full.items, returnedByProduct));
   };
 
   const createMutation = useMutation({
@@ -103,6 +120,7 @@ export function PurchaseReturnsPage() {
       if (!purchase) throw new Error(t('phase1.selectPurchaseInvoice'));
       const selected = activeSourceLines(lines);
       if (selected.length === 0) throw new Error(t('phase1.selectInvoiceLines'));
+      const key = userGestureIdempotencyKey();
       const draft = await createPurchaseReturn({
         supplier: purchase.supplier,
         purchaseInvoice: purchase.id,
@@ -115,8 +133,8 @@ export function PurchaseReturnsPage() {
           gstRate: l.gstRate,
           condition: l.condition || 'SELLABLE',
         })),
-      });
-      return completePurchaseReturn(draft.id);
+      }, { idempotencyKey: key });
+      return completePurchaseReturn(draft.id, { idempotencyKey: `${key}-complete` });
     },
     onSuccess: () => {
       setOpen(false);

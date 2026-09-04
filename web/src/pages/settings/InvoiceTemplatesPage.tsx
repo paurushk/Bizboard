@@ -17,6 +17,7 @@ import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 
 const LAYOUT_LEGEND = [
   'Seller header with GSTIN, phone, and address',
@@ -63,8 +64,12 @@ export function InvoiceTemplatesPage() {
   }
   if (!query.data) return <EmptyState />;
 
+  // F3-015: single-field form — dirty is just "differs from the loaded value".
+  const dirty = terms !== (query.data.invoiceTerms ?? '');
+
   return (
     <Stack spacing={2}>
+      <UnsavedChangesGuard when={dirty} />
       <Typography variant="h4">{t('nav.invoiceTemplates')}</Typography>
       {message ? <Alert severity="success">{message}</Alert> : null}
       {error ? <HelpErrorAlert message={error} /> : null}

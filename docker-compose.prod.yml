@@ -1,17 +1,22 @@
 # BB-000368: production overlay — require secrets file; use with:
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# Ops checklist (BB-000440 / BB-000470): terminate TLS at the edge; pin image
-# digests in deploy manifests (not mutable :sha tags alone), e.g.:
-#   image: ghcr.io/org/bizboard-api@sha256:<digest from GHCR>
-# Verify beat heartbeat key `bizboard:celery_beat_heartbeat` is fresh (<180s);
+# M1-011: this overlay is digest-driven — every backend service runs the exact
+# image named by BIZBOARD_API_IMAGE, which MUST be a digest reference:
+#   BIZBOARD_API_IMAGE=ghcr.io/<org>/bizboard-api@sha256:<digest from GHCR>
+# `build:` stays in docker-compose.yml (the dev/CI path); production never
+# builds on the host. Compose errors out here if the var is unset.
+#
+# Ops checklist (BB-000440 / BB-000470): terminate TLS at the edge;
+# verify beat heartbeat key `bizboard:celery_beat_heartbeat` is fresh (<180s);
 # run one-shot `migrate` before rolling api:
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile migrate run --rm migrate
 # CSRF_COOKIE_SECURE is True when DJANGO_ENV=production — require HTTPS at the edge.
 services:
   migrate:
     profiles: ["migrate"]
-    build: ./backend
+    image: ${BIZBOARD_API_IMAGE:?set BIZBOARD_API_IMAGE to a ghcr.io/...@sha256:<digest> reference}
+    pull_policy: always
     env_file:
       - path: .env
         required: true
@@ -27,18 +32,34 @@ services:
     depends_on:
       db:
         condition: service_healthy
+  # M1-012: virus scanning is part of the standard prod stack (no profile), and
+  # FileService._clamav_scan fails closed in production when CLAMAV_HOST is unset.
+  clamav:
+    profiles: !reset []
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
   api:
+    image: ${BIZBOARD_API_IMAGE:?set BIZBOARD_API_IMAGE to a ghcr.io/...@sha256:<digest> reference}
+    pull_policy: always
     env_file:
       - path: .env
         required: true
     environment:
       DJANGO_ENV: production
       DJANGO_DEBUG: "0"
+      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
     # BB-000124: prod API must NOT migrate on start — use `--profile migrate` job first.
     command: >
       gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout 120
-    # Prefer digest-pinned images in real deploy (example):
-    # image: ghcr.io/org/bizboard-api@sha256:...
+    depends_on:
+      clamav:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')"]
       interval: 10s
@@ -46,13 +67,19 @@ services:
       retries: 10
       start_period: 20s
   worker:
+    image: ${BIZBOARD_API_IMAGE:?set BIZBOARD_API_IMAGE to a ghcr.io/...@sha256:<digest> reference}
+    pull_policy: always
     env_file:
       - path: .env
         required: true
     environment:
       DJANGO_ENV: production
       DJANGO_DEBUG: "0"
+      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
   beat:
+    image: ${BIZBOARD_API_IMAGE:?set BIZBOARD_API_IMAGE to a ghcr.io/...@sha256:<digest> reference}
+    pull_policy: always
     env_file:
       - path: .env
         required: true

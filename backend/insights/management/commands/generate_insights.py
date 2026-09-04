@@ -11,8 +11,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         today = timezone.localdate()
         n = 0
+        failed = 0
         for company in Company.objects.filter(ai_features_enabled=True):
-            generate_daily_summary(company, for_date=today)
-            snapshot_health(company, as_of=today)
-            n += 1
-        self.stdout.write(self.style.SUCCESS(f"Generated insights for {n} companies on {today}"))
+            # B9-042: one tenant with bad data must not abort the run for all
+            # subsequent tenants (the Celery fan-out path is already isolated).
+            try:
+                generate_daily_summary(company, for_date=today)
+                snapshot_health(company, as_of=today)
+                n += 1
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                self.stderr.write(f"insights failed for company {company.pk}: {exc}")
+        self.stdout.write(
+            self.style.SUCCESS(f"Generated insights for {n} companies on {today}")
+        )
+        if failed:
+            raise SystemExit(1)

@@ -82,11 +82,10 @@ class SalesCreditNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
         def _run():
+            # B2-010: SalesNotesService.complete_credit_note already posts the
+            # note; the second post_note here was dead code kept alive only by
+            # PostingService dedup — a future key change would double-post.
             note, warnings = SalesNotesService.complete_credit_note(self.get_object(), request.user)
-            if note.company.accounting_enabled:
-                from accounting.services import PostingService
-
-                PostingService.post_note(note, source_type="SALES_CREDIT_NOTE", direction="SALES_CREDIT", user=request.user)
             data = self.get_serializer(note).data
             data["warnings"] = warnings
             return Response(data)
@@ -179,15 +178,11 @@ class SalesDebitNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, C
         confirm = request.data.get("confirm_additional_debit") in (True, "true", "True", 1, "1")
 
         def _run():
+            # B2-010: complete_debit_note already posts the note (dedup-only
+            # second call removed).
             note, warnings = SalesNotesService.complete_debit_note(
                 self.get_object(), request.user, confirm_additional_debit=confirm
             )
-            if note.company.accounting_enabled:
-                from accounting.services import PostingService
-
-                PostingService.post_note(
-                    note, source_type="SALES_DEBIT_NOTE", direction="SALES_DEBIT", user=request.user
-                )
             data = self.get_serializer(note).data
             data["warnings"] = warnings
             return Response(data)

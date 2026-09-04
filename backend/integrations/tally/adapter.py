@@ -27,6 +27,13 @@ DISCLAIMER = (
 )
 OPENING_NOTE = "TALLY_OPENING"
 OPENING_SKU = "__TALLY_OPENING__"
+# B9-026: export is capped at 5000 rows (see `_CAP` below); import had no
+# equivalent, so an uncapped upload commits its whole party/product loop
+# inside one `select_for_update` transaction (see `_commit_tally_preview_inner`),
+# risking a multi-minute lock hold / OOM / all-or-nothing rollback on a large
+# migration file. This bounds the worst case at the cheapest point — before
+# any parsing/DB work happens at all.
+MAX_IMPORT_ROWS = 5000
 
 
 def _dec(v, default="0") -> Decimal:
@@ -93,6 +100,11 @@ def _rows_from_upload(file_bytes: bytes, filename: str = "") -> list[dict[str, s
 
 
 def parse_tally_masters_rows(rows: list[dict[str, str]]) -> dict[str, Any]:
+    if len(rows) > MAX_IMPORT_ROWS:
+        raise BusinessRuleError(
+            f"This file has {len(rows)} rows, which is over the {MAX_IMPORT_ROWS}-row import "
+            "limit. Split it into smaller files and import them one at a time."
+        )
     customers, suppliers, products, errors = [], [], [], []
     for i, row in enumerate(rows, start=2):
         et = (row.get("entity_type") or row.get("type") or "").lower()
@@ -228,6 +240,39 @@ def _post_commit_recon(company, preview: dict, created: dict) -> dict:
             "pass": bool(ar_ok and ap_ok),
         },
     }
+
+
+def _match_or_create_party(model, *, company, row, user, warnings: list[str]):
+    """B9-002: Customer/Supplier have no unique (company, name) — a tenant with
+    two parties of the same name makes get_or_create raise MultipleObjectsReturned
+    (→ 500, whole import rolled back). Match on imported GSTIN first, then a
+    single name hit; on an ambiguous name, warn and create a fresh record rather
+    than raising or silently patching the wrong party.
+    """
+    name = (row.get("name") or "").strip()
+    gstin = (row.get("gstin") or "").strip()
+    label = model.__name__
+    if gstin:
+        hit = model.objects.filter(company=company, gstin=gstin).first()
+        if hit is not None:
+            return hit, False
+    name_matches = list(model.objects.filter(company=company, name=name)[:2])
+    if len(name_matches) == 1:
+        return name_matches[0], False
+    if len(name_matches) > 1:
+        warnings.append(
+            f"{label} '{name}' matched {len(name_matches)}+ existing records by name — "
+            "created a new record; merge manually if needed."
+        )
+    obj = model.objects.create(
+        company=company,
+        name=name,
+        phone=row.get("phone") or "",
+        gstin=gstin,
+        state=row.get("state") or company.state or "",
+        created_by=user,
+    )
+    return obj, True
 
 
 def _opening_balance_product(company, user, unit: Unit) -> Product:
@@ -468,15 +513,8 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
     opening_product = _opening_balance_product(company, user, unit)
 
     for row in preview.get("customers") or []:
-        cust, was_created = Customer.objects.get_or_create(
-            company=company,
-            name=row["name"],
-            defaults={
-                "phone": row.get("phone") or "",
-                "gstin": row.get("gstin") or "",
-                "state": row.get("state") or company.state or "",
-                "created_by": user,
-            },
+        cust, was_created = _match_or_create_party(
+            Customer, company=company, row=row, user=user, warnings=warnings,
         )
         if was_created:
             created["customers"] += 1
@@ -500,15 +538,8 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
             created["opening_ar"] += 1
 
     for row in preview.get("suppliers") or []:
-        sup, was_created = Supplier.objects.get_or_create(
-            company=company,
-            name=row["name"],
-            defaults={
-                "phone": row.get("phone") or "",
-                "gstin": row.get("gstin") or "",
-                "state": row.get("state") or company.state or "",
-                "created_by": user,
-            },
+        sup, was_created = _match_or_create_party(
+            Supplier, company=company, row=row, user=user, warnings=warnings,
         )
         if was_created:
             created["suppliers"] += 1
@@ -617,7 +648,9 @@ def build_tally_export_csv(company, date_from=None, date_to=None) -> bytes:
         "voucher_type", "date", "voucher_number", "party_name", "party_gstin",
         "taxable", "cgst", "sgst", "igst", "grand_total", "disclaimer",
     ])
-    for inv in qs[:5000]:
+    _CAP = 5000
+    total = qs.count()
+    for inv in qs[:_CAP]:
         writer.writerow([
             csv_safe("Sales"),
             csv_safe(inv.invoice_date.isoformat() if inv.invoice_date else ""),
@@ -630,6 +663,16 @@ def build_tally_export_csv(company, date_from=None, date_to=None) -> bytes:
             csv_safe(str(inv.igst_total)),
             csv_safe(str(inv.grand_total)),
             csv_safe(DISCLAIMER),
+        ])
+    if total > _CAP:
+        # B9-040: don't truncate silently — mark the cap so a user reconciling
+        # the file knows rows are missing and narrows the date range.
+        writer.writerow([
+            csv_safe("TRUNCATED"),
+            "", "", "", "", "", "", "", "", "",
+            csv_safe(
+                f"Export capped at {_CAP} of {total} vouchers — narrow the date range."
+            ),
         ])
     return buf.getvalue().encode("utf-8")
 
@@ -663,9 +706,15 @@ def create_upload_run(company, user, uploaded_file) -> IntegrationSyncRun:
     return run
 
 
+_XML_ILLEGAL = {c: None for c in range(0x20) if c not in (0x09, 0x0A, 0x0D)}
+
+
 def _xml_escape(text: str) -> str:
+    # B9-041: also strip XML-illegal C0 control chars (keep tab/newline/CR) —
+    # a bad imported name would otherwise produce a document Tally rejects.
     return (
         str(text or "")
+        .translate(_XML_ILLEGAL)
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
@@ -688,19 +737,38 @@ def post_tally_xml(url: str, xml_body: str, *, timeout: int = 30) -> dict[str, A
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise BusinessRuleError("Tally URL is invalid.")
     host = parsed.hostname.lower()
-    allowed_host = urlparse(allowed).hostname.lower() if allowed else ""
     try:
         ip = ipaddress.ip_address(host)
         is_loopback = ip.is_loopback
     except ValueError:
+        # B9-027: the "test env" bypass also requires DEBUG — a spoofed
+        # DJANGO_ENV in a non-debug deployment no longer opens any host.
         is_loopback = (
             host in {"localhost", "127.0.0.1", "::1"}
             or host.endswith(".test")
             or host.endswith(".localhost")
-            or getattr(settings, "DJANGO_ENV", "") == "test"
+            or (
+                getattr(settings, "DJANGO_ENV", "") == "test"
+                and bool(getattr(settings, "DEBUG", False))
+            )
         )
-    if allowed_host:
-        if host != allowed_host:
+    if allowed:
+        # B9-027: compare scheme + host + port (not host only) and require the
+        # request path to sit under the configured base path.
+        a = urlparse(allowed)
+        allowed_host = (a.hostname or "").lower()
+        allowed_scheme = a.scheme or "http"
+        allowed_port = a.port or (443 if allowed_scheme == "https" else 80)
+        req_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        base_path = (a.path or "/").rstrip("/") or "/"
+        req_path = parsed.path or "/"
+        same_origin = (
+            host == allowed_host
+            and parsed.scheme == allowed_scheme
+            and req_port == allowed_port
+        )
+        path_ok = req_path == base_path or req_path.startswith(base_path + "/") or base_path == "/"
+        if not (same_origin and path_ok):
             raise BusinessRuleError("Tally URL is not on the server allowlist.")
     elif not is_loopback:
         raise BusinessRuleError("Tally HTTP push is limited to localhost unless TALLY_URL is set.")

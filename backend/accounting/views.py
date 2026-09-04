@@ -1,7 +1,8 @@
 from decimal import Decimal
 from io import BytesIO
 
-from django.db.models import Sum
+from django.db import transaction
+from django.db.models import ProtectedError, Sum
 from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import action
@@ -60,7 +61,14 @@ class AccountViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     def perform_destroy(self, instance):
         if instance.is_system:
             raise BusinessRuleError("System accounts cannot be deleted.")
-        super().perform_destroy(instance)
+        try:
+            super().perform_destroy(instance)
+        except ProtectedError:
+            # B1-004: account is referenced by postings / fixed assets / recon.
+            raise BusinessRuleError(
+                "This account is used by existing postings and cannot be "
+                "deleted. Deactivate it instead."
+            )
 
 
 class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
@@ -75,6 +83,10 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
 
     def perform_create(self, serializer):
         serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user)
+
+    def perform_update(self, serializer):
+        # B1-030: keep updated_by fresh and re-run the serializer overlap guard.
+        serializer.save(company=self.company, updated_by=self.request.user)
 
     @action(detail=True, methods=["post"], url_path="soft-close")
     def soft_close(self, request, pk=None):
@@ -94,6 +106,17 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         period = self.get_object()
         if period.status == AccountingPeriod.Status.CLOSED:
             raise BusinessRuleError("Period is already closed.")
+        # B1-022: no non-contiguous close — an earlier OPEN period would let
+        # back-dated entries land in it after this one is "closed".
+        earlier_open = AccountingPeriod.objects.filter(
+            company=self.company,
+            end_date__lt=period.start_date,
+            status=AccountingPeriod.Status.OPEN,
+        ).order_by("start_date").first()
+        if earlier_open is not None:
+            raise BusinessRuleError(
+                f"Close {earlier_open.name} first — periods must be closed in order."
+            )
         BooksHealthService.assert_period_close_allowed(
             self.company, period=BooksHealthService._period_label(period),
         )
@@ -115,6 +138,16 @@ class CostCenterViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     def perform_create(self, serializer):
         serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user)
 
+    def perform_destroy(self, instance):
+        try:
+            super().perform_destroy(instance)
+        except ProtectedError:
+            # B1-004: cost centre is referenced by journal lines.
+            raise BusinessRuleError(
+                "This cost centre is used by existing postings and cannot be "
+                "deleted. Deactivate it instead."
+            )
+
 
 class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     """BB-000085: company-scoped journals (was bare ModelViewSet)."""
@@ -124,28 +157,26 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     http_method_names = ["get", "post", "head", "options"]
 
     def get_permissions(self):
-        # BB-000200/316: mutate / post / reverse journals requires Owner or can_post_journals.
-        if getattr(self, "action", None) in (
-            "create", "update", "partial_update", "destroy", "post", "reverse",
-        ):
+        # BB-000200/316: create / post / reverse journals requires Owner or
+        # can_post_journals. (B1-015: PUT/PATCH/DELETE are not routable here —
+        # see http_method_names — so they are not in the map.)
+        if getattr(self, "action", None) in ("create", "post", "reverse"):
             return [IsAuthenticated(), HasCompany(), CanPostJournals()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
     def get_queryset(self):
         return super().get_queryset().prefetch_related("lines")
 
+    @transaction.atomic
     def create(self, request, *args, **kwargs):
+        # B1-002: header + lines must be all-or-nothing, and next_number's
+        # select_for_update guard needs an open transaction to be effective.
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         lines = serializer.validated_data.pop("lines")
-        # BB-000276: reject cross-tenant account / cost_center FKs.
-        for line in lines:
-            account = line.get("account")
-            if account is not None and account.company_id != self.company.id:
-                raise BusinessRuleError("Account must belong to this company.")
-            cost_center = line.get("cost_center")
-            if cost_center is not None and cost_center.company_id != self.company.id:
-                raise BusinessRuleError("Cost center must belong to this company.")
+        # B1-031: cross-tenant account / cost_center / bank_statement_line checks
+        # live in JournalLineSerializer (validate_account / validate_cost_center;
+        # bank_statement_line is read-only per B1-003) — no duplicate view loop.
         number = (serializer.validated_data.get("number") or "").strip()
         if not number:
             from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
@@ -172,12 +203,12 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         totals = entry.lines.aggregate(debit=Sum("debit"), credit=Sum("credit"))
         if not entry.lines.exists() or (totals["debit"] or 0) != (totals["credit"] or 0):
             raise BusinessRuleError("Journal lines must balance before posting.")
-        if AccountingPeriod.objects.filter(
-            company=self.company, start_date__lte=entry.entry_date,
-            end_date__gte=entry.entry_date,
-            status__in=(AccountingPeriod.Status.CLOSED, AccountingPeriod.Status.SOFT_CLOSED),
-        ).exists():
-            raise BusinessRuleError("Cannot post to a closed accounting period.")
+        # B1-006: use the shared period guard so the manual post path enforces
+        # the GST-period lock and the ACC-04 "must be an open period" opt-in,
+        # not just the AccountingPeriod CLOSED/SOFT_CLOSED check it had.
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(self.company, entry.entry_date)
         entry.status = JournalEntry.Status.POSTED
         entry.source_type, entry.source_id, entry.purpose = "MANUAL_JOURNAL", entry.id, "POST"
         entry.posted_at, entry.posted_by = timezone.now(), request.user
@@ -389,22 +420,61 @@ class AccountingReportView(AccountingEnabledMixin, APIView):
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
     def get(self, request, report):
-        as_of = request.query_params.get("as_of")
-        date_from, date_to = request.query_params.get("from"), request.query_params.get("to")
+        # B1-010: parse/validate params in the view — a raw "?as_of=abc" or
+        # "?cost_center=x" otherwise flows straight into an ORM date/int lookup
+        # and 500s.
+        from datetime import date as _date
+
+        def _qp_date(name):
+            raw = (request.query_params.get(name) or "").strip()
+            if not raw:
+                return None
+            try:
+                return _date.fromisoformat(raw[:10])
+            except ValueError as exc:
+                raise BusinessRuleError(f"{name} must be YYYY-MM-DD.") from exc
+
+        def _qp_cost_center():
+            raw = (request.query_params.get("cost_center") or "").strip()
+            if not raw:
+                return None
+            try:
+                return int(raw)
+            except (TypeError, ValueError) as exc:
+                raise BusinessRuleError("cost_center must be an integer id.") from exc
+
+        as_of = _qp_date("as_of")
+        date_from, date_to = _qp_date("from"), _qp_date("to")
+        cost_center = _qp_cost_center()
         if report == "trial-balance":
             return self._report_response(report, trial_balance(self.company, as_of), request)
         if report == "profit-and-loss":
-            return self._report_response(report, profit_and_loss(self.company, date_from, date_to, request.query_params.get("cost_center")), request)
+            return self._report_response(report, profit_and_loss(self.company, date_from, date_to, cost_center), request)
         if report == "balance-sheet":
             return self._report_response(
-                report, balance_sheet(self.company, as_of, request.query_params.get("cost_center")), request,
+                report, balance_sheet(self.company, as_of, cost_center), request,
             )
         if report == "cash-flow":
             return self._report_response(
-                report, cash_flow(self.company, date_from, date_to, request.query_params.get("cost_center")), request,
+                report, cash_flow(self.company, date_from, date_to, cost_center), request,
             )
         if report == "books-health":
-            return Response(BooksHealthService.control_balances(self.company))
+            # B1-016/B1-026: control_balances() is a heavy fixed-cost call
+            # (AR/AP nets, ~8 `_has_missing` .exists() subqueries, depreciation
+            # alerts, advance-recon) with no memoisation — a dashboard polling
+            # this endpoint hammers the DB every call. Short-cache the GET
+            # response only; period_close_blockers (the safety-critical
+            # close-gate caller) still calls control_balances() fresh every
+            # time so a real AR/AP mismatch is never masked by a stale cache.
+            from django.core.cache import cache
+
+            cache_key = f"bizboard:books-health:{self.company.id}"
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+            payload = BooksHealthService.control_balances(self.company)
+            cache.set(cache_key, payload, timeout=20)
+            return Response(payload)
         raise BusinessRuleError("Unknown accounting report.")
 
     def _report_response(self, report, payload, request):
@@ -415,16 +485,32 @@ class AccountingReportView(AccountingEnabledMixin, APIView):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = report.replace("-", " ").title()
-        sheet.append(["Code", "Account", "Type", "Debit", "Credit", "Balance"])
-        rows = payload.get("rows", [])
-        if isinstance(rows, dict):
-            rows = [row for group in rows.values() for row in group]
-        for row in rows:
-            sheet.append([
-                row.get("account_code", ""), row.get("account_name", ""),
-                row.get("account_type", ""), row.get("debit", 0),
-                row.get("credit", 0), row.get("balance", 0),
-            ])
+        if "rows" not in payload and any(
+            k in payload for k in ("operating_activities", "net_cash_flow")
+        ):
+            # B1-017: cash-flow has no flat "rows" list — flatten the activity
+            # buckets so the workbook isn't just a header row.
+            sheet.append(["Section", "Metric", "Amount"])
+            for section in (
+                "operating_activities",
+                "investing_activities",
+                "financing_activities",
+            ):
+                bucket = payload.get(section) or {}
+                for metric, amount in bucket.items():
+                    sheet.append([section.replace("_", " ").title(), metric, amount])
+            sheet.append(["", "Net cash flow", payload.get("net_cash_flow", 0)])
+        else:
+            sheet.append(["Code", "Account", "Type", "Debit", "Credit", "Balance"])
+            rows = payload.get("rows", [])
+            if isinstance(rows, dict):
+                rows = [row for group in rows.values() for row in group]
+            for row in rows:
+                sheet.append([
+                    row.get("account_code", ""), row.get("account_name", ""),
+                    row.get("account_type", ""), row.get("debit", 0),
+                    row.get("credit", 0), row.get("balance", 0),
+                ])
         output = BytesIO()
         workbook.save(output)
         response = HttpResponse(

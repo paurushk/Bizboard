@@ -3,7 +3,7 @@
 import csv
 import hashlib
 import io
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
@@ -365,6 +365,7 @@ def _validate_row(
     products_by_sku=None,
     skus_with_opening=None,
     extra_serial_counts=None,
+    warehouse_index=None,
 ):
     """Validate one CSV row. seen_* sets track within-file duplicates for products."""
     errors = []
@@ -387,7 +388,10 @@ def _validate_row(
             if value:
                 try:
                     num = Decimal(value)
-                    if field in (
+                    if not num.is_finite():
+                        # B3-014: Infinity parses and passes every >= 0 check.
+                        errors.append(f"{field} must be a finite number")
+                    elif field in (
                         "purchase_price", "selling_price", "mrp", "wholesale_price",
                         "default_discount_percent", "reorder_level", "unit_cost",
                     ) and num < 0:
@@ -455,12 +459,24 @@ def _validate_row(
         if item_type in {"service", "services"} and (godown or batch_no or expiry or track_batch or track_serial):
             errors.append("service items cannot have godown, batch, or serial tracking")
         elif godown:
-            from inventory.item_stock import match_warehouse
+            # B3-023: `warehouse_index` (built once per file, not per row) is
+            # preferred when the caller supplies it — avoids a `match_warehouse`
+            # DB round-trip (which itself issues two queries) for every row of
+            # a godown-heavy file.
+            if warehouse_index is not None:
+                by_key, active_names = warehouse_index
+                match = by_key.get(godown.casefold())
+                if match is None:
+                    errors.append(f"Godown '{godown}' not found. Available: {active_names}.")
+                elif not match.is_active:
+                    errors.append(f"Godown '{match.name}' is inactive. Available: {active_names}.")
+            else:
+                from inventory.item_stock import match_warehouse
 
-            try:
-                match_warehouse(company, godown)
-            except BusinessRuleError as exc:
-                errors.append(str(getattr(exc, "detail", None) or exc))
+                try:
+                    match_warehouse(company, godown)
+                except BusinessRuleError as exc:
+                    errors.append(str(getattr(exc, "detail", None) or exc))
         if sku:
             key = sku.casefold()
             if seen_skus is not None and key in seen_skus:
@@ -551,7 +567,9 @@ def _validate_row(
         else:
             try:
                 qty = Decimal(qty_raw)
-                if qty <= 0:
+                if not qty.is_finite():
+                    errors.append("quantity must be a finite number")
+                elif qty <= 0:
                     errors.append("quantity must be > 0")
                 else:
                     serials = _parse_serial_numbers(row.get("serial_no"))
@@ -570,10 +588,28 @@ def _validate_row(
 
 
 def _as_decimal(value, default="0"):
+    # B3-015: strip Indian-style thousands separators ("1,250" / "1,25,000")
+    # so a formatted qty/rate cell doesn't fail to parse and silently drop the
+    # whole line — collect_extras() already does this for extra/pack columns,
+    # this is the same normalisation for the canonical quantity/unit_price path.
+    raw = str(value if value not in (None, "") else default).strip()
+    if "," in raw and raw.count(",") != 0:
+        stripped = raw.replace(",", "")
+        try:
+            Decimal(stripped)
+        except (InvalidOperation, AttributeError):
+            pass
+        else:
+            raw = stripped
     try:
-        return Decimal(str(value if value not in (None, "") else default).strip())
+        result = Decimal(raw)
     except (InvalidOperation, AttributeError):
         raise BusinessRuleError(f"Invalid number: {value!r}")
+    # B3-014: Decimal("Infinity") / Decimal("NaN") construct fine and slip past
+    # the >= 0 guards; reject them before they reach bulk_create / post_opening.
+    if not result.is_finite():
+        raise BusinessRuleError(f"Invalid number: {value!r}")
+    return result
 
 
 def _parse_extraction_confidence(value) -> float:
@@ -591,6 +627,11 @@ def _normalize_gst_rate(
     if required and value in (None, ""):
         prefix = f"Row {row}: " if row is not None else ""
         raise BusinessRuleError(f"{prefix}GST rate is required and cannot be invented.")
+    # B3-001: supplier exports very commonly write the GST cell as "18%",
+    # "18 %", "18.00%". Strip a trailing percent sign / whitespace before
+    # parsing so a formatting quirk doesn't abort the whole upload.
+    if isinstance(value, str):
+        value = value.strip().rstrip("%").strip()
     rate = _as_decimal(value, "18")
     if rate not in ALLOWED_GST:
         # Snap common OCR noise to nearest allowed rate, else 18.
@@ -613,12 +654,22 @@ def _preview_bill_line(raw_line: dict, *, index: int, rate_warnings: list[str]) 
     line_warnings: list[str] = []
     qty = _line_get(raw_line, "quantity")
     gst_raw = _line_get(raw_line, "gst_rate", "gstRate")
+    gst_unparseable = False
     if gst_raw:
-        gst_rate = str(_normalize_gst_rate(gst_raw, warnings=line_warnings, row=index))
+        try:
+            gst_rate = str(_normalize_gst_rate(gst_raw, warnings=line_warnings, row=index))
+        except (BusinessRuleError, InvalidOperation):
+            # B3-001: one bad GST cell must not abort the whole job — exclude
+            # just this line, like every other unreadable field.
+            gst_rate = ""
+            gst_unparseable = True
+            line_warnings.append(
+                f"Row {index}: GST rate {gst_raw!r} is not a number — line excluded."
+            )
     else:
         gst_rate = ""
     # Prefer explicit include from LLM normalize; otherwise require readable qty+GST.
-    if "include" in raw_line:
+    if "include" in raw_line and not gst_unparseable:
         include = bool(raw_line.get("include"))
     else:
         include = bool(qty) and bool(gst_rate)
@@ -776,19 +827,24 @@ def _skip_simple_qty_template(template: SupplierBillTemplate | None, lines: list
 
 def _resolve_import_company_gstin(company, preview: dict, *, kind: str):
     """Stamp filing identity from buyer GSTIN (sales) or primary CompanyGstin."""
-    wanted = ""
+    known = {
+        (g or "").upper()
+        for g in CompanyGstin.objects.filter(company=company, is_active=True).values_list("gstin", flat=True)
+    }
+    if getattr(company, "gstin", ""):
+        known.add(company.gstin.upper())
     if kind == ImportJob.Kind.SALES_BILL:
-        wanted = str(preview.get("buyer_gstin") or "").strip().upper()
+        # B3-007: on a sales invoice the company IS the supplier/issuer, so the
+        # filing identity is the "supplier" GSTIN on the document — validated
+        # against the company's own GSTIN set, exactly like the purchase branch
+        # validates buyer_gstin. buyer_gstin here is the customer's.
+        wanted = str(
+            preview.get("company_gstin") or preview.get("supplier_gstin") or ""
+        ).strip().upper()
     else:
         wanted = str(preview.get("company_gstin") or preview.get("buyer_gstin") or "").strip().upper()
-        known = {
-            (g or "").upper()
-            for g in CompanyGstin.objects.filter(company=company, is_active=True).values_list("gstin", flat=True)
-        }
-        if getattr(company, "gstin", ""):
-            known.add(company.gstin.upper())
-        if wanted and wanted not in known:
-            wanted = ""
+    if wanted and wanted not in known:
+        wanted = ""
     qs = CompanyGstin.objects.filter(company=company, is_active=True)
     if wanted:
         hit = qs.filter(gstin__iexact=wanted).first()
@@ -857,7 +913,10 @@ def _xlsx_kv_meta(rows: list) -> dict:
         value = row[1] if len(row) > 1 and row[1] not in (None, "") else ""
         if not value:
             continue
-        text = str(value).strip()
+        # B3-011: a genuine Excel date cell must become an ISO date string, not
+        # "2026-03-15 00:00:00", so the bill date can be committed without a
+        # manual edit.
+        text = _cell_to_import_text(value)
         for field, aliases in _INVOICE_META_ALIASES.items():
             if label in aliases and field not in meta:
                 meta[field] = text
@@ -876,7 +935,23 @@ def _xlsx_best_bill_rows(workbook) -> tuple[list[dict], dict]:
     candidates: list[tuple[int, int, list[dict]]] = []
     meta: dict[str, str] = {}
     for sheet in workbook.worksheets:
-        materialized = [tuple(row) for row in sheet.iter_rows(values_only=True)]
+        # B3-004: cap what we materialise into worker memory, matching the
+        # master-import path's guards. A crafted / huge bill sheet otherwise
+        # loads every row and JSON-serialises it onto the job.
+        materialized = []
+        cells = 0
+        for idx, row in enumerate(sheet.iter_rows(values_only=True)):
+            if idx > MAX_IMPORT_ROWS:
+                raise BusinessRuleError(
+                    f"Bill import exceeds {MAX_IMPORT_ROWS} rows. Split the file and retry."
+                )
+            row = tuple(row)
+            cells += len(row)
+            if cells > MAX_IMPORT_CELLS:
+                raise BusinessRuleError(
+                    f"Bill import exceeds {MAX_IMPORT_CELLS} cells. Split the file and retry."
+                )
+            materialized.append(row)
         if not materialized:
             continue
         header = [str(h or "").strip().lower() for h in materialized[0]]
@@ -1011,7 +1086,18 @@ def _read_structured_bill(raw: bytes, filename: str) -> tuple[list[dict], dict]:
     """Deterministic CSV/XLSX row reader for the bill-import 'I have an
     export' path (§4.1) — no LLM involved, exact by construction."""
     name = (filename or "").lower()
-    if name.endswith((".xlsx", ".xlsm")):
+    head = raw[:8]
+    # B3-006: decide by content, not just the filename. A .xls (OLE2) file — or
+    # any upload whose browser content-type is application/vnd.ms-excel — that
+    # doesn't end in .xlsx falls through to the CSV branch, where cp1252
+    # "decodes" the binary into garbage rows. Sniff the magic bytes first.
+    is_zip = head.startswith(b"PK\x03\x04")  # xlsx/xlsm is a zip container
+    is_ole2 = head.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")  # legacy .xls
+    if is_ole2:
+        raise BusinessRuleError(
+            "Legacy .xls files aren't supported — re-save as .xlsx or export CSV."
+        )
+    if is_zip or name.endswith((".xlsx", ".xlsm")):
         from openpyxl import load_workbook
 
         workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
@@ -1022,7 +1108,19 @@ def _read_structured_bill(raw: bytes, filename: str) -> tuple[list[dict], dict]:
     except BusinessRuleError:
         raise
     reader = csv.DictReader(io.StringIO(text))
-    rows = [{(k or "").strip().lower(): v for k, v in row.items()} for row in reader]
+    rows = []
+    cells = 0
+    for idx, row in enumerate(reader):
+        if idx > MAX_IMPORT_ROWS:
+            raise BusinessRuleError(
+                f"Bill import exceeds {MAX_IMPORT_ROWS} rows. Split the file and retry."
+            )
+        cells += len(row)
+        if cells > MAX_IMPORT_CELLS:
+            raise BusinessRuleError(
+                f"Bill import exceeds {MAX_IMPORT_CELLS} cells. Split the file and retry."
+            )
+        rows.append({(k or "").strip().lower(): v for k, v in row.items()})
     return rows, {}
 
 
@@ -1219,6 +1317,18 @@ class ImportService:
 
         extra_serial_counts = _extra_serial_counts(extra_sheets)
 
+        # B3-023: build once instead of one `match_warehouse` DB round-trip
+        # (itself two queries) per row for a godown-heavy file.
+        from inventory.models import Warehouse
+
+        warehouses = list(Warehouse.objects.filter(company=job.company))
+        _by_key = {}
+        for w in warehouses:
+            _by_key[w.name.casefold()] = w
+            if w.code:
+                _by_key[w.code.casefold()] = w
+        warehouse_index = (_by_key, ", ".join(w.name for w in warehouses if w.is_active) or "(none)")
+
         header_map = {}
         cf_defs = []
         if job.kind == ImportJob.Kind.PRODUCTS:
@@ -1239,7 +1349,7 @@ class ImportService:
                 seen_skus=seen_skus, seen_barcodes=seen_barcodes,
                 existing_skus=existing_skus, existing_barcodes=existing_barcodes,
                 products_by_sku=products_by_sku, skus_with_opening=skus_with_opening,
-                extra_serial_counts=extra_serial_counts,
+                extra_serial_counts=extra_serial_counts, warehouse_index=warehouse_index,
             )
             if job.kind == ImportJob.Kind.PRODUCTS and header_map:
                 row_errors.extend(_custom_field_row_errors(row, header_map, cf_defs))
@@ -1294,10 +1404,11 @@ class ImportService:
                 code=HelpCode.IMPORT_INVALID_ROWS,
             )
         preview = job.preview if isinstance(job.preview, list) else []
+        skipped = []
         if job.kind == ImportJob.Kind.CUSTOMERS:
-            created = ImportService._commit_customers(job, preview, user)
+            created, skipped = ImportService._commit_customers(job, preview, user)
         elif job.kind == ImportJob.Kind.SUPPLIERS:
-            created = ImportService._commit_suppliers(job, preview, user)
+            created, skipped = ImportService._commit_suppliers(job, preview, user)
         elif job.kind == ImportJob.Kind.PRODUCTS:
             created = ImportService._commit_products(job, preview, user)
         elif job.kind == ImportJob.Kind.OPENING_STOCK:
@@ -1305,6 +1416,12 @@ class ImportService:
         else:
             raise BusinessRuleError(f"Unsupported import kind '{job.kind}'.")
 
+        if skipped:
+            # B3-018: surface "skipped (already exists)" rows in job.errors so
+            # the response / error CSV shows them; created < valid_rows is no
+            # longer silent.
+            job.errors = list(job.errors or []) + skipped
+            job.error_rows = len(job.errors)
         job.preview = preview
         job.status = ImportJob.Status.COMMITTED
         job.committed_at = timezone.now()
@@ -1352,15 +1469,19 @@ class ImportService:
             for c in Customer.objects.filter(company=job.company)
         }
         rows = []
-        for row in preview:
+        skipped = []  # B3-018: report duplicates instead of silently dropping
+        for idx, row in enumerate(preview, start=1):
             gstin = (row.get("gstin") or "").strip().upper()
             phone = (row.get("phone") or "").strip()
             name = (row.get("name") or "").strip()
             if gstin and gstin in existing_gstin:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a customer with GSTIN {gstin} already exists"], "skipped": True})
                 continue
             if phone and phone in existing_phone:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a customer with phone {phone} already exists"], "skipped": True})
                 continue
             if name.lower() in existing_name:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a customer named '{name}' already exists"], "skipped": True})
                 continue
             rows.append(
                 Customer(
@@ -1385,7 +1506,7 @@ class ImportService:
         if rows:
             Customer.objects.bulk_create(rows, batch_size=BULK_BATCH)
             created = len(rows)
-        return created
+        return created, skipped
 
     @staticmethod
     def _commit_suppliers(job, preview, user):
@@ -1403,15 +1524,19 @@ class ImportService:
             for s in Supplier.objects.filter(company=job.company)
         }
         rows = []
-        for row in preview:
+        skipped = []  # B3-018
+        for idx, row in enumerate(preview, start=1):
             gstin = (row.get("gstin") or "").strip().upper()
             phone = (row.get("phone") or "").strip()
             name = (row.get("name") or "").strip()
             if gstin and gstin in existing_gstin:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a supplier with GSTIN {gstin} already exists"], "skipped": True})
                 continue
             if phone and phone in existing_phone:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a supplier with phone {phone} already exists"], "skipped": True})
                 continue
             if name.lower() in existing_name:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a supplier named '{name}' already exists"], "skipped": True})
                 continue
             rows.append(
                 Supplier(
@@ -1435,7 +1560,7 @@ class ImportService:
             existing_name.add(name.lower())
         if rows:
             Supplier.objects.bulk_create(rows, batch_size=BULK_BATCH)
-        return len(rows)
+        return len(rows), skipped
 
     @staticmethod
     def _resolve_units(company, preview, user):
@@ -1701,12 +1826,12 @@ class ImportService:
             if has_opening
         ]
         ImportService._post_opening_items(job, opening_items, user)
-        ImportService._post_extra_opening(job, created_products, user)
+        ImportService._post_extra_opening(job, created_products, updates, user)
         return len(preview)
 
 
     @staticmethod
-    def _post_extra_opening(job, created_products, user):
+    def _post_extra_opening(job, created_products, updates, user):
         extra = job.extra_sheets or {}
         lots = extra.get("opening_lots") or []
         serials = extra.get("opening_serials") or []
@@ -1716,7 +1841,14 @@ class ImportService:
         from inventory.services import InventoryService
         from masters.models import Product as ProductModel
 
-        by_sku = {(p.sku or "").casefold(): p for p in created_products if p.sku}
+        # B3-002: opening_lots / opening_serials rows for a SKU that already
+        # existed (so the row landed in `updates`, not `created_products`)
+        # previously had no matching entry here at all -- they passed
+        # `_validate_extra_sheets` (which checks against every preview SKU,
+        # created or updated) but were silently dropped at commit. Index
+        # both buckets so an existing product's opening lots/serials post.
+        all_products = list(created_products) + list(updates)
+        by_sku = {(p.sku or "").casefold(): p for p in all_products if p.sku}
         batched_skus = {
             str(r.get("sku") or r.get("item code") or "").strip().casefold()
             for r in lots
@@ -1724,17 +1856,17 @@ class ImportService:
         }
         if batched_skus:
             ProductModel.objects.filter(
-                company=job.company, sku__in=[p.sku for p in created_products if (p.sku or "").casefold() in batched_skus]
+                company=job.company, sku__in=[p.sku for p in all_products if (p.sku or "").casefold() in batched_skus]
             ).update(track_batch=True)
-            for product in created_products:
+            for product in all_products:
                 if (product.sku or "").casefold() in batched_skus:
                     product.track_batch = True
         serial_skus = {str(r.get("sku") or r.get("item code") or "").strip().casefold() for r in serials}
         if serial_skus:
             ProductModel.objects.filter(
-                company=job.company, sku__in=[p.sku for p in created_products if (p.sku or "").casefold() in serial_skus]
+                company=job.company, sku__in=[p.sku for p in all_products if (p.sku or "").casefold() in serial_skus]
             ).update(track_serial=True)
-            for product in created_products:
+            for product in all_products:
                 if (product.sku or "").casefold() in serial_skus:
                     product.track_serial = True
         for raw in lots:
@@ -2118,8 +2250,22 @@ class BillImportService:
     def start_extraction(job: ImportJob):
         if job.kind not in ImportJob.BILL_KINDS:
             raise BusinessRuleError("Only purchase/sales bill jobs can be extracted.")
-        if job.status not in (ImportJob.Status.UPLOADED, ImportJob.Status.FAILED):
-            raise BusinessRuleError("Extraction can only start from UPLOADED or FAILED.")
+        allowed = {ImportJob.Status.UPLOADED, ImportJob.Status.FAILED}
+        # B3-005: a hard worker kill (OOM / SIGKILL / lost broker message)
+        # strands the job in EXTRACTING with no recovery path. Treat an
+        # EXTRACTING job whose last update predates the task hard limit (plus a
+        # margin) as retryable rather than permanently wedged.
+        if job.status == ImportJob.Status.EXTRACTING and job.updated_at is not None:
+            from django.utils import timezone as _tz
+
+            stale_after = timedelta(seconds=480 + 120)
+            if _tz.now() - job.updated_at > stale_after:
+                allowed.add(ImportJob.Status.EXTRACTING)
+        if job.status not in allowed:
+            raise BusinessRuleError(
+                "Extraction can only start from UPLOADED or FAILED "
+                "(or a stalled EXTRACTING job)."
+            )
         job.status = ImportJob.Status.EXTRACTING
         job.failure_reason = ""
         job.errors = []
@@ -2152,7 +2298,7 @@ class BillImportService:
             raise BusinessRuleError("The file has no data rows.")
 
         raw_lines = [_map_structured_row(row) for row in rows]
-        preview_lines, errors = BillImportService._build_preview_lines(raw_lines)
+        preview_lines, errors, rate_warnings = BillImportService._build_preview_lines(raw_lines)
         answers = _infer_qty_answers(preview_lines, tolerance=Decimal("0.50")) or {}
         if not answers.get("qty_formula"):
             from imports.qty_formula import _union_keys
@@ -2177,8 +2323,31 @@ class BillImportService:
             "column_headers": list(rows[0].keys()) if rows else [],
             "printed_line_count": len(preview_lines),
             "resolved_formula": formula_key,
+            # B3-003: apply_extraction (the LLM path) sets resolved_answers so
+            # _save_bill_template can round-trip a non-enum qty_formula (e.g.
+            # "cs+quantity") into column_mapping["qty_formula"]. This
+            # structured path computed `answers` above but never surfaced it,
+            # so formula_enum() silently downgraded anything but the two
+            # hard-coded formulas to SIMPLE and the learned template lost the
+            # inference -- corrupting quantities on every later bill from the
+            # same GSTIN via the LLM path's _template_answers() fallback.
+            "resolved_answers": answers,
             "lines": preview_lines,
         }
+        if rate_warnings:
+            preview["warnings"] = rate_warnings
+        # B3-021: run the GSTIN-based purchase/sales direction sanity check on
+        # the structured path too (it was only wired into the LLM path).
+        direction_warning = _infer_direction_warning(
+            job.kind,
+            {
+                "supplier_gstin": preview.get("supplier_gstin"),
+                "buyer_gstin": preview.get("buyer_gstin"),
+            },
+            job.company,
+        )
+        if direction_warning:
+            preview["direction_warning"] = direction_warning
         included = [ln for ln in preview_lines if ln.get("include")]
         job.preview = preview
         job.errors = errors
@@ -2192,7 +2361,10 @@ class BillImportService:
         return job
 
     @staticmethod
-    def _build_preview_lines(raw_lines: list[dict]) -> tuple[list[dict], list[dict]]:
+    def _build_preview_lines(raw_lines: list[dict]) -> tuple[list[dict], list[dict], list[str]]:
+        # B3-016: the rate_warnings list used to be built and thrown away —
+        # return it so callers can surface it as preview["warnings"], the same
+        # way the LLM path already does.
         preview_lines, errors = [], []
         rate_warnings: list[str] = []
         for index, raw_line in enumerate(raw_lines, start=1):
@@ -2203,7 +2375,7 @@ class BillImportService:
                     errors.append({"row": index, "errors": line_errors, "data": line})
                     line["include"] = False
             preview_lines.append(line)
-        return preview_lines, errors
+        return preview_lines, errors, rate_warnings
 
     @staticmethod
     def apply_extraction(job: ImportJob, payload: dict):
@@ -2236,7 +2408,9 @@ class BillImportService:
         if direction_warning:
             preview["direction_warning"] = direction_warning
 
-        preview_lines, errors = BillImportService._build_preview_lines(raw_lines)
+        preview_lines, errors, rate_warnings = BillImportService._build_preview_lines(raw_lines)
+        if rate_warnings:
+            preview["warnings"] = rate_warnings
         if _skip_simple_qty_template(template, preview_lines):
             template = None
         tolerance = template.rounding_tolerance if template is not None else Decimal("0.50")
@@ -2305,10 +2479,31 @@ class BillImportService:
 
         preview = dict(job.preview or {})
         clarifications = list(job.clarifications or [])
-        resolved_answers = {k: v for k, v in answers.items() if v not in (None, "")}
+        # B3-019: an answer must be one of the options offered for that
+        # clarification — a bogus value otherwise flows into the qty formula.
+        options_by_field = {
+            item.get("field"): {
+                str(o.get("value"))
+                for o in (item.get("options") or [])
+                if isinstance(o, dict)
+            }
+            for item in clarifications
+        }
+        resolved_answers = {}
+        for k, v in answers.items():
+            if v in (None, ""):
+                continue
+            allowed = options_by_field.get(k)
+            if allowed and str(v) not in allowed:
+                raise BusinessRuleError(
+                    f"'{v}' is not a valid answer for clarification '{k}'."
+                )
+            resolved_answers[k] = v
         for item in clarifications:
             field = item.get("field")
-            if field in answers:
+            if field in answers and str(answers[field]) in (
+                options_by_field.get(field) or {str(answers[field])}
+            ):
                 item["answer"] = answers[field]
             if item.get("answer"):
                 resolved_answers[field] = item["answer"]
@@ -2355,6 +2550,14 @@ class BillImportService:
             preview["supplier_gstin"] = str(data.get("supplier_gstin") or "").strip()
         if "customer_name" in data:
             preview["customer_name"] = str(data.get("customer_name") or "").strip()
+        # B3-024: _resolve_customer (SALES_BILL commit) and the direction-
+        # warning / import-company-GSTIN checks all key off buyer_gstin /
+        # buyer_name specifically — a mis-read buyer GSTIN had no way to be
+        # corrected before commit because this endpoint didn't accept them.
+        if "buyer_gstin" in data:
+            preview["buyer_gstin"] = str(data.get("buyer_gstin") or "").strip().upper()
+        if "buyer_name" in data:
+            preview["buyer_name"] = str(data.get("buyer_name") or "").strip()
         if "bill_number" in data:
             preview["bill_number"] = str(data.get("bill_number") or "").strip()
         if "bill_date" in data:
@@ -2562,6 +2765,9 @@ class BillImportService:
                     "Bill date is missing or could not be parsed. Set bill date before committing."
                 )
             return timezone.localdate()
+        # B3-011: tolerate an ISO datetime ("2026-03-15 00:00:00" / "...T00:00:00")
+        # that slipped through from an Excel date cell.
+        value = value.replace("T", " ").split(" ", 1)[0].strip()
         parsed = parse_date(value)
         if parsed:
             return parsed
@@ -2626,7 +2832,12 @@ class BillImportService:
         supplier = BillImportService._resolve_supplier(job, user)
         items_data = []
         products_created = 0
-        for line in lines:
+        # B3-025: the preview-time normalize already snapped/warned on an
+        # off-slab rate, but that warning lives on the ImportJob, not the
+        # invoice the bookkeeper actually opens later. Re-collect any snap
+        # here too so it's visible on the created document, not silent.
+        rate_warnings: list[str] = []
+        for idx, line in enumerate(lines, start=1):
             product, created = BillImportService._match_or_create_product(
                 job.company, line, user, direction="PURCHASE"
             )
@@ -2642,9 +2853,14 @@ class BillImportService:
                 "quantity": _as_decimal(line.get("quantity")),
                 "unit_price": _as_decimal(line.get("unit_price"), "0"),
                 "discount_percent": Decimal("0"),
-                "gst_rate": _normalize_gst_rate(line.get("gst_rate"), required=True),
+                "gst_rate": _normalize_gst_rate(
+                    line.get("gst_rate"), required=True, warnings=rate_warnings, row=idx,
+                ),
             })
 
+        notes = "Created from purchase bill upload"
+        if rate_warnings:
+            notes += " — " + "; ".join(rate_warnings)
         invoice = PurchaseInvoice.objects.create(
             company=job.company,
             supplier=supplier,
@@ -2655,7 +2871,7 @@ class BillImportService:
                 required=True,
             ),
             supplier_bill_number=str(preview.get("bill_number") or "")[:64],
-            notes="Created from purchase bill upload",
+            notes=notes,
             attachment=job.file,
             created_by=user,
             updated_by=user,
@@ -2671,6 +2887,7 @@ class BillImportService:
                 "products_created": products_created,
                 "lines": len(items_data),
                 "purchase_invoice_id": invoice.pk,
+                **({"gst_rate_warnings": rate_warnings} if rate_warnings else {}),
             },
         )
         return {
@@ -2684,7 +2901,10 @@ class BillImportService:
         customer = BillImportService._resolve_customer(job, user)
         items_data = []
         products_created = 0
-        for line in lines:
+        # B3-025: see _commit_purchase — surface any commit-time rate snap on
+        # the created document, not just the (harder to find) ImportJob.
+        rate_warnings: list[str] = []
+        for idx, line in enumerate(lines, start=1):
             product, created = BillImportService._match_or_create_product(
                 job.company, line, user, direction="SALES"
             )
@@ -2700,9 +2920,14 @@ class BillImportService:
                 "quantity": _as_decimal(line.get("quantity")),
                 "unit_price": _as_decimal(line.get("unit_price"), "0"),
                 "discount_percent": Decimal("0"),
-                "gst_rate": _normalize_gst_rate(line.get("gst_rate"), required=True),
+                "gst_rate": _normalize_gst_rate(
+                    line.get("gst_rate"), required=True, warnings=rate_warnings, row=idx,
+                ),
             })
 
+        notes = f"Created from sales bill upload (bill #{str(preview.get('bill_number') or '')[:64]})"
+        if rate_warnings:
+            notes += " — " + "; ".join(rate_warnings)
         invoice = SalesInvoice.objects.create(
             company=job.company,
             customer=customer,
@@ -2712,7 +2937,7 @@ class BillImportService:
                 str(preview.get("bill_date") or ""),
                 required=True,
             ),
-            notes=f"Created from sales bill upload (bill #{str(preview.get('bill_number') or '')[:64]})",
+            notes=notes,
             created_by=user,
             updated_by=user,
         )
@@ -2727,6 +2952,7 @@ class BillImportService:
                 "products_created": products_created,
                 "lines": len(items_data),
                 "sales_invoice_id": invoice.pk,
+                **({"gst_rate_warnings": rate_warnings} if rate_warnings else {}),
             },
         )
         return {

@@ -22,7 +22,7 @@ import { DisclaimerBanner, PageHeader } from '@/components/insights';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { isHelpV2Enabled } from '@/config/features';
-import { isAllowedShareUrl } from '@/utils/safeUrl';
+import { isAllowedShareUrl, safeAppPath } from '@/utils/safeUrl';
 
 export function InsightsAssistantPage() {
   const qc = useQueryClient();
@@ -167,7 +167,7 @@ export function InsightsAssistantPage() {
                         size="small"
                         label={c.label}
                         component={RouterLink}
-                        to={c.path}
+                        to={safeAppPath(c.path)}
                         clickable
                       />
                     ))}

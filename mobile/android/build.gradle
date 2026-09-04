@@ -25,5 +25,6 @@ allprojects {
 }
 
 task clean(type: Delete) {
-    delete rootProject.buildDir
+    // M1-029: rootProject.buildDir is deprecated in Gradle 8, removed in 9.
+    delete rootProject.layout.buildDirectory
 }

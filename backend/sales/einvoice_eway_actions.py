@@ -46,7 +46,22 @@ def _require_einvoice_enabled(company):
 
 def _claim_einvoice_submit(invoice, *, allow_queued_retry=False):
     """Atomically claim QUEUED so only one IRP submit runs. Returns 'claimed'|'already'|'in_flight'."""
+    from datetime import timedelta as _td
+
+    from django.utils import timezone as _tz
+
     model = type(invoice)
+    # B2-004: even on the sync retry path, a QUEUED row that was updated in the
+    # last 2 minutes is a genuine in-flight submit — don't let a double-click
+    # fire a second IRP request. Only a *stale* QUEUED job is retryable.
+    invoice.refresh_from_db()
+    if (
+        invoice.einvoice_status == SalesInvoice.EInvoiceStatus.QUEUED
+        and not invoice.irn
+        and invoice.updated_at
+        and _tz.now() - invoice.updated_at < _td(minutes=2)
+    ):
+        return "in_flight"
     qs = model.objects.filter(pk=invoice.pk, irn="")
     if not allow_queued_retry:
         qs = qs.exclude(
@@ -117,6 +132,22 @@ def _cancel_irn_via_gsp(document, request):
 def _require_eway_enabled(company):
     if not company.eway_enabled:
         raise BusinessRuleError("e-Way Bill is not enabled for this company.")
+
+
+def _eway_cancel_reason(request):
+    """Optional NIC e-Way cancel reason + remarks (F3-046).
+
+    Kept optional for backward compatibility with callers that cancel with an
+    empty body. NIC codes: 1=Duplicate, 2=Order cancelled, 3=Data entry
+    mistake, 4=Others. Returns ``(cnl_rsn, cnl_rem)`` for the audit trail.
+    """
+    cnl_rsn = str(request.data.get("cnl_rsn") or request.data.get("CnlRsn") or "").strip()
+    cnl_rem = (request.data.get("cnl_rem") or request.data.get("CnlRem") or "").strip()
+    if cnl_rsn and cnl_rsn not in {"1", "2", "3", "4"}:
+        raise BusinessRuleError(
+            "cnl_rsn must be 1=Duplicate, 2=Order cancelled, 3=Data entry mistake, or 4=Others."
+        )
+    return (cnl_rsn or "2"), cnl_rem
 
 
 def _assert_sandbox_gsp_allowed(company):
@@ -194,6 +225,11 @@ class InvoiceEinvoiceEwayActionsMixin:
         claim = _claim_einvoice_submit(invoice, allow_queued_retry=True)
         if claim == "already":
             return Response(self.get_serializer(invoice).data)
+        if claim == "in_flight":
+            return Response(
+                {"detail": "An e-invoice submission is already in progress."},
+                status=status.HTTP_409_CONFLICT,
+            )
         try:
             payload = build_einvoice_payload(invoice)
         except EinvoiceValidationError as exc:
@@ -205,11 +241,17 @@ class InvoiceEinvoiceEwayActionsMixin:
         try:
             result = get_irp_adapter(invoice.company).submit(payload)
             verify_irn_result(result)
-        except BusinessRuleError as exc:
+        except Exception as exc:
+            # B2-005: a non-BusinessRuleError adapter failure (timeout, HTTP 5xx,
+            # bad JSON) otherwise leaves the invoice stuck in QUEUED forever.
             invoice.einvoice_status = SalesInvoice.EInvoiceStatus.FAILED
-            invoice.einvoice_error = str(exc)[:500]
+            invoice.einvoice_error = str(getattr(exc, "detail", exc))[:500]
             invoice.save(update_fields=["einvoice_status", "einvoice_error"])
-            raise
+            if isinstance(exc, BusinessRuleError):
+                raise
+            raise BusinessRuleError(
+                f"e-invoice submission failed: {str(exc)[:300]}"
+            ) from exc
         invoice.irn = result.irn
         invoice.ack_no = result.ack_no
         invoice.ack_date = result.ack_date
@@ -405,10 +447,18 @@ class InvoiceEinvoiceEwayActionsMixin:
                 {"detail": "A statutory submission is already in progress."},
                 status=status.HTTP_409_CONFLICT,
             )
+        veh = (request.data.get("vehicle_number") or invoice.vehicle_number or "").strip()
+        tid = (request.data.get("transporter_id") or getattr(invoice, "transporter_id", "") or "").strip()
+        # B2-014: NIC needs Part-B at *submit* time (the preview endpoint may run
+        # before the user fills these in).
+        if not veh and not tid:
+            raise BusinessRuleError(
+                "Provide a vehicle number or a transporter id before submitting the e-Way bill."
+            )
         try:
             payload = build_eway_payload_from_invoice(
                 invoice,
-                vehicle_number=(request.data.get("vehicle_number") or invoice.vehicle_number or "").strip(),
+                vehicle_number=veh,
                 transporter_name=(request.data.get("transporter_name") or invoice.transporter_name or "").strip(),
             )
         except EwayValidationError as exc:
@@ -441,6 +491,7 @@ class InvoiceEinvoiceEwayActionsMixin:
         _require_eway_enabled(invoice.company)
         if not invoice.eway_bill_no:
             raise BusinessRuleError("No e-Way Bill to cancel.")
+        cnl_rsn, cnl_rem = _eway_cancel_reason(request)
         cancelled_no = invoice.eway_bill_no
         get_eway_adapter(invoice.company).cancel(cancelled_no)
         invoice.eway_status = SalesInvoice.EwayStatus.CANCELLED
@@ -452,7 +503,12 @@ class InvoiceEinvoiceEwayActionsMixin:
             entity_type="salesinvoice",
             entity_id=invoice.pk,
             event_type=StatutoryDocumentEvent.EventType.EWAY,
-            payload={"action": "cancelled", "eway_bill_no": cancelled_no},
+            payload={
+                "action": "cancelled",
+                "eway_bill_no": cancelled_no,
+                "cnl_rsn": cnl_rsn,
+                "cnl_rem": cnl_rem,
+            },
             user=request.user,
         )
         return Response(self.get_serializer(invoice).data)
@@ -616,6 +672,16 @@ class ChallanEwayActionsMixin:
         challan = self.get_object()
         _assert_sandbox_gsp_allowed(challan.company)
         _require_eway_enabled(challan.company)
+        # B2-002: same idempotency / in-flight guard as the invoice path — a
+        # double-click must not submit the challan to the GSP twice.
+        claim = _claim_eway_submit(challan)
+        if claim == "already":
+            return Response(self.get_serializer(challan).data)
+        if claim == "in_flight":
+            return Response(
+                {"detail": "A statutory submission is already in progress."},
+                status=status.HTTP_409_CONFLICT,
+            )
         try:
             payload = build_eway_payload_from_challan(challan)
         except EwayValidationError as exc:
@@ -624,7 +690,17 @@ class ChallanEwayActionsMixin:
             challan.save(update_fields=["eway_status", "eway_error"])
             raise BusinessRuleError("; ".join(exc.errors)) from exc
 
-        result = get_eway_adapter(challan.company).submit(payload)
+        try:
+            result = get_eway_adapter(challan.company).submit(payload)
+        except Exception as exc:
+            challan.eway_status = SalesInvoice.EwayStatus.FAILED
+            challan.eway_error = str(getattr(exc, "detail", exc))[:500]
+            challan.save(update_fields=["eway_status", "eway_error"])
+            if isinstance(exc, BusinessRuleError):
+                raise
+            raise BusinessRuleError(
+                f"e-Way submission failed: {str(exc)[:300]}"
+            ) from exc
         challan.eway_bill_no = result.eway_bill_no
         challan.eway_valid_upto = result.eway_valid_upto
         challan.eway_status = SalesInvoice.EwayStatus.GENERATED
@@ -639,12 +715,22 @@ class ChallanEwayActionsMixin:
         _require_eway_enabled(challan.company)
         if not challan.eway_bill_no:
             raise BusinessRuleError("No e-Way Bill to cancel.")
+        cnl_rsn, cnl_rem = _eway_cancel_reason(request)
         cancelled_no = challan.eway_bill_no
         get_eway_adapter(challan.company).cancel(cancelled_no)
         challan.eway_status = SalesInvoice.EwayStatus.CANCELLED
         challan.eway_bill_no = ""
         challan.eway_valid_upto = None
         challan.save(update_fields=["eway_status", "eway_bill_no", "eway_valid_upto"])
+        AuditService.log(
+            company=challan.company,
+            user=request.user,
+            action="UPDATE",
+            entity_type="deliverychallan",
+            entity_id=challan.pk,
+            description="eway.cancelled",
+            metadata={"eway_bill_no": cancelled_no, "cnl_rsn": cnl_rsn, "cnl_rem": cnl_rem},
+        )
         return Response(self.get_serializer(challan).data)
 
     @action(detail=True, methods=["post"], url_path="mark-eway-generated")
@@ -724,11 +810,16 @@ class NoteEinvoiceActionsMixin:
         try:
             result = get_irp_adapter(note.company).submit(payload)
             verify_irn_result(result)
-        except BusinessRuleError as exc:
+        except Exception as exc:
+            # B2-005: same fail-to-FAILED as the invoice path.
             note.einvoice_status = SalesInvoice.EInvoiceStatus.FAILED
-            note.einvoice_error = str(exc)[:500]
+            note.einvoice_error = str(getattr(exc, "detail", exc))[:500]
             note.save(update_fields=["einvoice_status", "einvoice_error"])
-            raise
+            if isinstance(exc, BusinessRuleError):
+                raise
+            raise BusinessRuleError(
+                f"e-invoice submission failed: {str(exc)[:300]}"
+            ) from exc
         note.irn = result.irn
         note.ack_no = result.ack_no
         note.ack_date = result.ack_date

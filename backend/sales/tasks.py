@@ -136,10 +136,12 @@ def generate_challan_pdf(self, challan_id, company_id=None):
     from .models import DeliveryChallan, SalesInvoice
     from .pdf import render_delivery_challan
 
+    qs = DeliveryChallan.objects.select_related(
+        "company", "customer", "sales_order",
+    ).prefetch_related("items__product")
     try:
-        challan = DeliveryChallan.objects.select_related(
-            "company", "customer", "sales_order",
-        ).prefetch_related("items__product").get(pk=challan_id)
+        # B2-016: honour the tenant-scope guard the sibling PDF tasks apply.
+        challan = qs.get(pk=challan_id, company_id=company_id) if company_id else qs.get(pk=challan_id)
     except DeliveryChallan.DoesNotExist:
         return
     try:

@@ -1,7 +1,7 @@
 import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockCustomers, mockProducts, mockReceipts, mockSupplierPayments, mockSuppliers } from '@/mocks/data';
 import type { Customer, CustomerReceipt, Product, Supplier, SupplierPayment, Unit } from '@/types/domain';
-import { withMocks, fetchPage, fetchMoneyListFirstPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
+import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
 
 export async function listCustomers(params?: { q?: string }): Promise<Customer[]> {
   return withMocks(async () => fetchAllPagesMasters<Customer>('/customers/', params), mockCustomers);
@@ -184,6 +184,17 @@ function filterProducts(q?: string, cf?: Record<string, string[]>): Product[] {
   return rows;
 }
 
+export async function getProduct(id: number | string): Promise<Product> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get(`/products/${id}/`);
+    return unwrapData<Product>(data);
+  }, () => {
+    const found = mockProducts.find((p) => p.id === Number(id));
+    if (!found) throw new Error('Product not found');
+    return found;
+  });
+}
+
 export async function listProductCustomFieldValues(): Promise<Record<string, string[]>> {
   return withMocks(
     async () => {
@@ -269,12 +280,12 @@ export async function updateProduct(id: number, payload: Partial<Product>): Prom
 }
 
 export async function listReceipts(): Promise<CustomerReceipt[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<CustomerReceipt>('/payments/receipts/'), mockReceipts);
+  return withMocks(async () => fetchAllPagesMasters<CustomerReceipt>('/payments/receipts/'), mockReceipts);
 }
 
 export async function listSupplierPayments(params?: Record<string, string>): Promise<SupplierPayment[]> {
   return withMocks(
-    async () => fetchMoneyListFirstPage<SupplierPayment>('/payments/supplier-payments/', params),
+    async () => fetchAllPagesMasters<SupplierPayment>('/payments/supplier-payments/', params),
     mockSupplierPayments,
   );
 }

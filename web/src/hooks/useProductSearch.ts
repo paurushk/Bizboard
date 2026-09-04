@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listProductsPage } from '@/api/resources';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { t } from '@/i18n';
 import type { Product } from '@/types/domain';
 
 /** Cap for product Autocomplete server search (BB-000118). */
@@ -54,10 +55,10 @@ export function useProductSearch(opts: UseProductSearchOptions = {}) {
 
   const helperText = !enabled
     ? productQuery.trim().length > 0
-      ? `Type at least ${minChars} characters to search`
-      : 'Type to search products'
+      ? t('productSearch.typeAtLeast', { count: minChars })
+      : t('productSearch.typeToSearch')
     : truncated
-      ? `Showing first ${pageSize} matches — refine your search`
+      ? t('productSearch.showingFirst', { count: pageSize })
       : undefined;
 
   return {

@@ -20,15 +20,6 @@ def accumulate_hsn_line(hsn_buckets: dict, item, *, sign: Decimal = Decimal("1")
     hsn_buckets[key]["cess"] += sign * Decimal(str(getattr(item, "cess", 0) or 0))
 
 
-def apply_after_tax_header_discount(hsn_buckets: dict, invoice, items) -> None:
-    """AFTER_TAX cash discount must not reduce GSTR Table 12 taxable value.
-
-    GST taxable is determined before cash discount. Subtracting the discount from
-    HSN taxable while leaving GST unscaled understates Table 12. Intentionally a no-op.
-    """
-    return
-
-
 def _supply_type_of(inv) -> str:
     st = (getattr(inv, "supply_type", None) or "").strip().upper()
     if st and st != "B2B":
@@ -203,10 +194,12 @@ def build_note_rate_rows(
         _is_b2b,
         _money,
         _rate_buckets,
-        invoice_value_mismatch,
+        note_value_mismatch,
     )
 
-    if invoice_value_mismatch(note):
+    # B5-006: use the note-aware predicate (matches the GSTR-1 liability filter)
+    # so a note isn't in the CDNR/CDNUR section rows but out of the header totals.
+    if note_value_mismatch(note):
         issues.append({
             "code": "INVOICE_VALUE_MISMATCH",
             "severity": "critical",

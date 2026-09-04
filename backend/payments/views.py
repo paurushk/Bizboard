@@ -1,7 +1,7 @@
 
 from decimal import Decimal, InvalidOperation
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -309,45 +309,65 @@ class PaymentAllocationViewSet(
         return qs
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        # B4-006: honour Idempotency-Key like the receipt / supplier-payment
+        # creates do, and translate the partial-unique IntegrityError on a
+        # duplicate (receipt, invoice) into a clean 4xx instead of a 500.
+        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        if raw_key:
+            claimed = begin_record(company=self.company, scope="allocation_create", raw_key=raw_key)
+            if isinstance(claimed, Response):
+                return claimed
 
-        receipt = data.get("receipt")
-        payment = data.get("supplier_payment")
-        if not receipt and not payment:
-            raise ValidationError("Either 'receipt' or 'supplier_payment' is required.")
-        if receipt and payment:
-            raise ValidationError("Provide exactly one of 'receipt' or 'supplier_payment'.")
-        if receipt and receipt.company_id != self.company.id:
-            raise BusinessRuleError("Invalid receipt reference.")
-        if payment and payment.company_id != self.company.id:
-            raise BusinessRuleError("Invalid payment reference.")
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            data = serializer.validated_data
 
-        from reporting.gst_periods import assert_period_allows_money_amend, period_complete_warning
+            receipt = data.get("receipt")
+            payment = data.get("supplier_payment")
+            if not receipt and not payment:
+                raise ValidationError("Either 'receipt' or 'supplier_payment' is required.")
+            if receipt and payment:
+                raise ValidationError("Provide exactly one of 'receipt' or 'supplier_payment'.")
+            if receipt and receipt.company_id != self.company.id:
+                raise BusinessRuleError("Invalid receipt reference.")
+            if payment and payment.company_id != self.company.id:
+                raise BusinessRuleError("Invalid payment reference.")
 
-        gate_date = None
-        if receipt is not None:
-            gate_date = receipt.receipt_date
-        elif payment is not None:
-            gate_date = payment.payment_date
-        assert_period_allows_money_amend(self.company, gate_date)
-        warning = period_complete_warning(self.company, gate_date)
+            from reporting.gst_periods import assert_period_allows_money_amend, period_complete_warning
 
-        if receipt:
-            allocation = PaymentService.allocate_receipt(
-                receipt=receipt,
-                sales_invoice=data["sales_invoice"],
-                amount=data["amount"],
-                user=request.user,
-            )
-        else:
-            allocation = PaymentService.allocate_supplier_payment(
-                payment=payment,
-                purchase_invoice=data["purchase_invoice"],
-                amount=data["amount"],
-                user=request.user,
-            )
+            gate_date = None
+            if receipt is not None:
+                gate_date = receipt.receipt_date
+            elif payment is not None:
+                gate_date = payment.payment_date
+            assert_period_allows_money_amend(self.company, gate_date)
+            warning = period_complete_warning(self.company, gate_date)
+
+            try:
+                if receipt:
+                    allocation = PaymentService.allocate_receipt(
+                        receipt=receipt,
+                        sales_invoice=data["sales_invoice"],
+                        amount=data["amount"],
+                        user=request.user,
+                    )
+                else:
+                    allocation = PaymentService.allocate_supplier_payment(
+                        payment=payment,
+                        purchase_invoice=data["purchase_invoice"],
+                        amount=data["amount"],
+                        user=request.user,
+                    )
+            except IntegrityError as exc:
+                raise BusinessRuleError(
+                    "This receipt/payment is already allocated to that invoice."
+                ) from exc
+        except Exception:
+            if raw_key:
+                release_record(company=self.company, scope="allocation_create", raw_key=raw_key)
+            raise
+
         AuditService.log(
             company=self.company,
             user=request.user,
@@ -358,7 +378,16 @@ class PaymentAllocationViewSet(
         data = self.get_serializer(allocation).data
         if warning:
             data["warnings"] = [warning]
-        return Response(data, status=status.HTTP_201_CREATED)
+        response = Response(data, status=status.HTTP_201_CREATED)
+        if raw_key:
+            store_record(
+                company=self.company,
+                scope="allocation_create",
+                raw_key=raw_key,
+                response=response,
+                resource_id=str(allocation.pk),
+            )
+        return response
 
     @action(detail=True, methods=["post"])
     def unallocate(self, request, pk=None):
@@ -590,9 +619,12 @@ class BankStatementViewSet(CompanyScopedViewSet):
         if not bank_account:
             raise BusinessRuleError("Bank account not found.")
         content = upload.read()
-        rows = parse_bank_csv(content, preset=preset)
+        rows, skipped = parse_bank_csv(content, preset=preset)
         if not rows:
-            raise BusinessRuleError("No parsable rows found in the CSV.")
+            detail = "No parsable rows found in the CSV."
+            if skipped:
+                detail += " Skipped: " + "; ".join(skipped[:10])
+            raise BusinessRuleError(detail)
 
         with transaction.atomic():
             statement = BankStatement.objects.create(
@@ -620,7 +652,16 @@ class BankStatementViewSet(CompanyScopedViewSet):
                     updated_by=request.user,
                 )
         self._audit("CREATE", statement)
-        return Response(self.get_serializer(statement).data, status=status.HTTP_201_CREATED)
+        data = self.get_serializer(statement).data
+        if skipped:
+            # B4-015: don't let a partial import look "complete".
+            data["skipped_rows"] = skipped
+            data["skipped_count"] = len(skipped)
+            data["warning"] = (
+                f"{len(rows)} rows imported, {len(skipped)} skipped "
+                f"({'; '.join(skipped[:5])}{'…' if len(skipped) > 5 else ''})."
+            )
+        return Response(data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="commit")
     def commit(self, request, pk=None):
@@ -759,7 +800,9 @@ class ReconViewSet(viewsets.ViewSet):
             suggestions = suggest_matches(company=self.company, line=line)
             if suggestions:
                 line.match_status = BankLineMatchStatus.SUGGESTED
-                line.save(update_fields=["match_status"])
+                line.updated_by = request.user
+                # B4-033: stamp updated_at/updated_by like _confirm_match does.
+                line.save(update_fields=["match_status", "updated_by", "updated_at"])
                 updated += 1
             out.append(
                 {
@@ -894,6 +937,7 @@ class GatewaySettingsView(APIView):
         from payments.gateway import DISABLED_PROVIDERS, sandbox_forbidden_env
 
         company = get_company_user(request).company
+        touched: set[str] = set()  # B4-030: only save the fields we changed
         if "provider" in request.data:
             provider = str(request.data.get("provider") or "razorpay")[:32].lower()
             if provider in DISABLED_PROVIDERS:
@@ -905,6 +949,7 @@ class GatewaySettingsView(APIView):
                     "Payment provider 'sandbox' cannot be enabled outside development/test/local."
                 )
             company.payment_gateway_provider = provider
+            touched.add("payment_gateway_provider")
         if "test_mode" in request.data:
             test_mode = bool(request.data.get("test_mode"))
             if test_mode and sandbox_forbidden_env():
@@ -912,19 +957,25 @@ class GatewaySettingsView(APIView):
                     "payment_gateway_test_mode cannot be enabled outside development/test/local."
                 )
             company.payment_gateway_test_mode = test_mode
+            touched.add("payment_gateway_test_mode")
         if "require_payment_reference" in request.data:
             company.require_payment_reference = bool(request.data.get("require_payment_reference"))
+            touched.add("require_payment_reference")
         if "auto_match_bank_exact" in request.data:
             company.auto_match_bank_exact = bool(request.data.get("auto_match_bank_exact"))
+            touched.add("auto_match_bank_exact")
         if request.data.get("clear_credentials"):
             company.payment_gateway_credentials_encrypted = ""
+            touched.add("payment_gateway_credentials_encrypted")
         creds = request.data.get("credentials")
         if isinstance(creds, dict):
             existing = decrypt_gateway_credentials(company.payment_gateway_credentials_encrypted or "")
             # BB-000367: ignore empty strings (do not wipe secrets); explicit clear_credentials only.
             existing.update({k: v for k, v in creds.items() if v is not None and str(v).strip() != ""})
             company.payment_gateway_credentials_encrypted = encrypt_gateway_credentials(existing)
-        company.save()
+            touched.add("payment_gateway_credentials_encrypted")
+        if touched:
+            company.save(update_fields=[*touched, "updated_at"])
         AuditService.log(
             company=company,
             user=request.user,

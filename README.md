@@ -44,6 +44,13 @@ Self-serve path: Register then Login, then guided /setup when ENABLE_SETUP_WIZAR
 
 ## Local development
 
+Optional (M1-034): enable the repo's git hooks — currently just a guard against
+accidentally committing a populated `.env` at the repo root:
+
+```sh
+git config core.hooksPath .githooks
+```
+
 ### Docker (recommended)
 
 1. Copy `.env.example` to `.env` and replace development secrets.

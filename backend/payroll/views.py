@@ -13,7 +13,7 @@ from decimal import Decimal, InvalidOperation
 from .models import Employee, PayRun, PaySlip
 from .permissions import assert_payroll_enabled
 from .serializers import EmployeeSerializer, PayRunSerializer
-from .services import cancel_pay_run, complete_pay_run
+from .services import cancel_pay_run, complete_pay_run, post_pay_run_gl
 
 
 class EmployeeViewSet(CompanyScopedViewSet):
@@ -25,6 +25,16 @@ class EmployeeViewSet(CompanyScopedViewSet):
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         assert_payroll_enabled(get_company_user(request).company)
+
+    def perform_destroy(self, instance):
+        # B9-020: PaySlip.employee is PROTECT — deleting an employee with
+        # payroll history raised an unhandled ProtectedError (500).
+        if PaySlip.objects.filter(employee=instance).exists():
+            raise BusinessRuleError(
+                "This employee has payroll history and cannot be deleted. "
+                "Set them inactive instead."
+            )
+        super().perform_destroy(instance)
 
 
 class PayRunViewSet(CompanyScopedViewSet):
@@ -115,6 +125,17 @@ class PayRunViewSet(CompanyScopedViewSet):
             pay_from_cash = pay_from_cash.lower() not in ("0", "false", "no")
         try:
             pay_run = complete_pay_run(pay_run, request.user, pay_from_cash=pay_from_cash)
+        except BusinessRuleError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        pay_run = PayRun.objects.prefetch_related("slips__employee").get(pk=pay_run.pk)
+        return Response(self.get_serializer(pay_run).data)
+
+    @action(detail=True, methods=["post"], url_path="post-gl")
+    def post_gl(self, request, pk=None):
+        """B9-037: post the payroll journal for a run completed while accounting
+        was off (no GL entry exists yet)."""
+        try:
+            pay_run = post_pay_run_gl(self.get_object(), request.user)
         except BusinessRuleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         pay_run = PayRun.objects.prefetch_related("slips__employee").get(pk=pay_run.pk)

@@ -52,6 +52,9 @@ export function InvoiceSourceLineTable({
 
   const addLine = (src: InvoiceSourceLine) => {
     if (lines.some((l) => l.key === src.key && l.included)) return;
+    // F2-042: a line with nothing left to credit/return (maxQty <= 0) would be
+    // "added" at quantity 0 — visible but inert. Don't add it.
+    if ((src.maxQty ?? 0) <= 0) return;
     const existing = lines.find((l) => l.key === src.key);
     if (existing) {
       onChange(
@@ -111,7 +114,7 @@ export function InvoiceSourceLineTable({
                           onChange={(e) =>
                             updateLine(line.key, { quantity: Number(e.target.value) })
                           }
-                          inputProps={{ min: 1, max: line.maxQty, style: { width: 72 } }}
+                          inputProps={{ min: 0, max: line.maxQty, step: "any", style: { width: 72 } }}
                           helperText={`max ${line.maxQty}`}
                           FormHelperTextProps={{ sx: { m: 0, textAlign: 'right' } }}
                         />
@@ -236,7 +239,7 @@ export function InvoiceReturnLineTable({
                     size="small"
                     value={line.quantity}
                     onChange={(e) => updateLine(line.key, { quantity: Number(e.target.value) })}
-                    inputProps={{ min: 1, max: line.maxQty, style: { width: 72 } }}
+                    inputProps={{ min: 0, max: line.maxQty, step: "any", style: { width: 72 } }}
                   />
                 )}
               </TableCell>

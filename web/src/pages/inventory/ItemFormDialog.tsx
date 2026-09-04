@@ -47,6 +47,7 @@ import { isValidHsnSac, normalizeGstRate, GST_RATE_OPTIONS } from '@/utils/gst';
 import { STANDARD_UNITS, formatUnitLabel } from '@/constants/unitLabels';
 import { activeCustomFieldDefs, type ItemCustomFieldDef } from './itemCustomFieldDefaults';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 
 type Tracking = 'NONE' | 'BATCH' | 'SERIAL';
 type TabKey = 'basic' | 'stock' | 'pricing' | 'custom';
@@ -186,6 +187,8 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
   const defaultWarehouseId = String(warehouses[0]?.id ?? '');
   const [tab, setTab] = useState<TabKey>('basic');
   const [form, setForm] = useState<FormState>(() => buildForm(product, defaultWarehouseId));
+  // F3-015: JSON-diff dirty tracking — this form isn't react-hook-form.
+  const [baselineFormJson, setBaselineFormJson] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [hsnOpen, setHsnOpen] = useState(false);
   const [hsnQuery, setHsnQuery] = useState('');
@@ -234,7 +237,11 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
     if (!open) return;
     setTab('basic');
     setError(null);
-    setForm(buildForm(product, defaultWarehouseId, customDefs));
+    const fresh = buildForm(product, defaultWarehouseId, customDefs);
+    setForm(fresh);
+    // F3-015: snapshot this as the "clean" baseline for the unsaved-changes
+    // guard below.
+    setBaselineFormJson(JSON.stringify(fresh));
     // Reset only when the dialog opens or the edited product changes — not when
     // company defs / godowns finish loading, which would wipe in-progress edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -326,9 +333,16 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
         setError('Allow pop-ups to print the barcode.');
         return;
       }
-      win.document.write(
-        `<html><body style="text-align:center;font-family:sans-serif;padding:24px"><img src="${url}" alt="${code}" /><div style="margin-top:8px">${code}</div></body></html>`,
-      );
+      // F3-013: build the popup with DOM APIs, not string-interpolated HTML —
+      // a barcode value like `"><img onerror=...>` executed as script.
+      win.document.body.style.cssText = 'text-align:center;font-family:sans-serif;padding:24px';
+      const img = win.document.createElement('img');
+      img.src = url;
+      img.alt = code;
+      const label = win.document.createElement('div');
+      label.style.marginTop = '8px';
+      label.textContent = code;
+      win.document.body.append(img, label);
       win.document.close();
       win.focus();
       win.print();
@@ -380,20 +394,26 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
       if (!product && !isService && form.trackInventory) {
         try {
           const defaultCost = Number(form.purchasePrice) > 0 ? Number(form.purchasePrice) : undefined;
+        // F3-010: a stable key per opening-stock lot so a retry after a partial
+        // failure ("item saved, but opening stock failed") skips the lots that
+        // already succeeded instead of doubling them.
         if (form.tracking === 'BATCH') {
-          for (const lot of form.lots) {
+          for (const [i, lot] of form.lots.entries()) {
             const qty = Number(lot.quantity);
             if (qty <= 0) continue;
-            await createOpeningStock({
-              product: saved.id,
-              quantity: qty,
-              unitCost: lot.unitCost ? Number(lot.unitCost) : defaultCost,
-              warehouse: Number(lot.warehouseId) || undefined,
-              batchNo: lot.batchNo,
-              expiryDate: lot.expiryDate || undefined,
-              manufacturingDate: lot.manufacturingDate || undefined,
-              asOf: lot.asOf || undefined,
-            });
+            await createOpeningStock(
+              {
+                product: saved.id,
+                quantity: qty,
+                unitCost: lot.unitCost ? Number(lot.unitCost) : defaultCost,
+                warehouse: Number(lot.warehouseId) || undefined,
+                batchNo: lot.batchNo,
+                expiryDate: lot.expiryDate || undefined,
+                manufacturingDate: lot.manufacturingDate || undefined,
+                asOf: lot.asOf || undefined,
+              },
+              { idempotencyKey: `opening-${saved.id}-b${i}-${lot.warehouseId || 'x'}-${lot.batchNo || 'x'}` },
+            );
           }
         } else if (form.tracking === 'SERIAL') {
           const grouped = new Map<string, SerialRow[]>();
@@ -403,22 +423,28 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
             grouped.set(key, [...(grouped.get(key) ?? []), row]);
           }
           for (const [warehouseId, rows] of grouped) {
-            await createOpeningStock({
-              product: saved.id,
-              quantity: rows.length,
-              warehouse: Number(warehouseId) || undefined,
-              serialNumbers: rows.map((row) => row.serialNo.trim()),
-              unitCost: rows[0]?.unitCost ? Number(rows[0].unitCost) : defaultCost,
-              asOf: rows[0]?.asOf,
-            });
+            await createOpeningStock(
+              {
+                product: saved.id,
+                quantity: rows.length,
+                warehouse: Number(warehouseId) || undefined,
+                serialNumbers: rows.map((row) => row.serialNo.trim()),
+                unitCost: rows[0]?.unitCost ? Number(rows[0].unitCost) : defaultCost,
+                asOf: rows[0]?.asOf,
+              },
+              { idempotencyKey: `opening-${saved.id}-s-${warehouseId || 'x'}` },
+            );
           }
         } else if (Number(form.openingStock) > 0) {
-          await createOpeningStock({
-            product: saved.id,
-            quantity: Number(form.openingStock),
-            unitCost: defaultCost,
-            warehouse: Number(form.warehouseId) || undefined,
-          });
+          await createOpeningStock(
+            {
+              product: saved.id,
+              quantity: Number(form.openingStock),
+              unitCost: defaultCost,
+              warehouse: Number(form.warehouseId) || undefined,
+            },
+            { idempotencyKey: `opening-${saved.id}-simple-${form.warehouseId || 'x'}` },
+          );
         }
         } catch (err) {
           throw new Error(`Item saved, but opening stock failed: ${getErrorMessage(err)}`);
@@ -432,7 +458,11 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
       void qc.invalidateQueries({ queryKey: ['stock'] });
       onSaved(keepOpen);
       if (keepOpen) {
-        setForm(buildForm(null, defaultWarehouseId, customDefs));
+        // F3-015: reset the dirty baseline along with the form — otherwise the
+        // fresh blank form reads as "dirty" against the just-saved product's data.
+        const fresh = buildForm(null, defaultWarehouseId, customDefs);
+        setForm(fresh);
+        setBaselineFormJson(JSON.stringify(fresh));
         setTab('basic');
       }
     },
@@ -452,8 +482,11 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
       return { ...current, serials };
     });
 
+  const dirty = open && JSON.stringify(form) !== baselineFormJson;
+
   return (
     <>
+      <UnsavedChangesGuard when={dirty} />
       <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
         <DialogTitle>
           {product ? t('common.edit') : t('empty.createItem')}
@@ -944,7 +977,13 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                 onChange={(e) => setForm((current) => ({ ...current, wholesalePrice: e.target.value }))}
               />
               <TextField select label="GST rate" value={form.gstRate} onChange={(e) => setForm((current) => ({ ...current, gstRate: e.target.value }))}>
-                {GST_RATE_OPTIONS.map((rate) => (
+                {/* F3-012: if an HSN picker (or a legacy product) set a rate not
+                    in the standard slabs, still render it as an option so the
+                    field doesn't go blank. */}
+                {(GST_RATE_OPTIONS.some((r) => r.value === form.gstRate)
+                  ? GST_RATE_OPTIONS
+                  : [...GST_RATE_OPTIONS, { value: form.gstRate, label: `${form.gstRate}%` }]
+                ).map((rate) => (
                   <MenuItem key={rate.value} value={rate.value}>
                     {rate.label}
                   </MenuItem>

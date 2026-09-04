@@ -93,6 +93,14 @@ RLS_TABLES = [
     "payments_gatewayrefundoutbox",
     "payments_paymentallocation",
     "payments_paymentlink",
+    # B4-031 / RLS-coverage follow-up: added to the codebase after this
+    # migration first ran, so its actual RLS policy comes from
+    # core/migrations/0022_rls_processed_webhook_event.py, which re-applies
+    # the identical policy SQL against a live DB — this list entry only
+    # makes tests/test_rls_coverage.py (which imports this module's
+    # RLS_TABLES directly) recognize the table as covered, and documents
+    # what a from-scratch install's full migration history produces.
+    "payments_processedwebhookevent",
     "payments_reconmatch",
     "payments_supplierpayment",
     "payroll_employee",

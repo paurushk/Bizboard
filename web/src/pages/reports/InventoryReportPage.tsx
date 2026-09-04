@@ -1,11 +1,5 @@
 import Button from '@mui/material/Button';
-import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
@@ -14,8 +8,8 @@ import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { canExport } from '@/utils/permissions';
-import { formatMoney, toNumber } from '@/utils/money';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { DataTable } from '@/pages/phase/phaseShared';
 
 function downloadBlobUrl(url: string, filename: string) {
   const a = document.createElement('a');
@@ -39,15 +33,15 @@ type InventoryRow = {
   stockValue?: string | number;
 };
 
-const COLUMNS: { key: keyof InventoryRow; label: string; align?: 'right'; money?: boolean }[] = [
+const COLUMNS: { key: keyof InventoryRow; label: string; money?: boolean }[] = [
   { key: 'product', label: 'Product' },
   { key: 'sku', label: 'SKU' },
   { key: 'warehouse', label: 'Godown' },
-  { key: 'onHand', label: 'On hand', align: 'right' },
-  { key: 'reserved', label: 'Reserved', align: 'right' },
-  { key: 'available', label: 'Available', align: 'right' },
-  { key: 'reorderLevel', label: 'Reorder', align: 'right' },
-  { key: 'stockValue', label: 'Stock value', align: 'right', money: true },
+  { key: 'onHand', label: 'On hand' },
+  { key: 'reserved', label: 'Reserved' },
+  { key: 'available', label: 'Available' },
+  { key: 'reorderLevel', label: 'Reorder' },
+  { key: 'stockValue', label: 'Stock value', money: true },
 ];
 
 export function InventoryReportPage() {
@@ -92,36 +86,9 @@ export function InventoryReportPage() {
       ) : null}
       {query.data?.rows?.length === 0 ? <EmptyState description={t('empty.reports')} /> : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                {COLUMNS.map((col) => (
-                  <TableCell key={col.key} align={col.align}>
-                    {col.label}
-                  </TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((row, idx) => (
-                <TableRow key={idx}>
-                  {COLUMNS.map((col) => {
-                    const raw = row[col.key];
-                    const display = col.money
-                      ? formatMoney(toNumber(raw as string | number))
-                      : String(raw ?? '—');
-                    return (
-                      <TableCell key={col.key} align={col.align}>
-                        {display}
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Paper>
+        // F3-017: one row per product/warehouse company-wide — window the
+        // DOM rows via phaseShared.DataTable's virtualized mode.
+        <DataTable rows={rows} columns={COLUMNS} empty={t('empty.reports')} virtualized />
       ) : null}
     </Stack>
   );

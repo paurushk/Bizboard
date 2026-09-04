@@ -19,7 +19,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useParams, useSearchParams } from 'react-router-dom';
-import { getErrorCode, getErrorMessage } from '@/api/client';
+import { getErrorMessage } from '@/api/client';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   amendInvoiceFilingIdentity,
@@ -29,11 +29,11 @@ import {
   cancelPaymentLink,
   downloadInvoicePdf,
   downloadInvoiceThermalPdf,
+  getCustomer,
   getInvoiceAudit,
   getSalesInvoice,
   getUpiQr,
   listAllocationsPage,
-  listCustomers,
   listPaymentLinksPage,
   shareInvoice,
   sharePaymentLink,
@@ -49,6 +49,7 @@ import { StatusChip } from '@/components/StatusChip';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { t } from '@/i18n';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canCancelDocuments, canCreateSales, canViewFinancialReports } from '@/utils/permissions';
 import { isAllowedPaymentUrl, isAllowedShareUrl, openShareUrl } from '@/utils/safeUrl';
@@ -92,9 +93,13 @@ export function InvoiceDetailPage() {
     enabled: invoiceIdValid,
   });
 
-  const customers = useQuery({
-    queryKey: ['customers'],
-    queryFn: () => listCustomers(),
+  // F2-025: fetch the single customer this invoice belongs to by id
+  // instead of paging through the entire customer list just to find it.
+  const customerId = query.data?.customer;
+  const customerQuery = useQuery({
+    queryKey: ['customer', customerId],
+    queryFn: () => getCustomer(customerId as number),
+    enabled: !!customerId,
   });
 
   const showAudit = canViewFinancialReports(user);
@@ -123,35 +128,18 @@ export function InvoiceDetailPage() {
   useEffect(() => {
     if (prefilled || !query.data) return;
     const fromOffer = query.data.whatsappOffer?.phone?.trim();
-    const customer = (customers.data ?? []).find((c) => c.id === query.data.customer);
+    const customer = customerQuery.data;
     if (fromOffer) setSharePhone(fromOffer);
     else if (customer?.phone) setSharePhone(customer.phone);
     if (customer?.email) setShareEmail(customer.email);
-    if (fromOffer || customer || customers.isFetched) setPrefilled(true);
-  }, [query.data, customers.data, customers.isFetched, prefilled]);
+    if (fromOffer || customer || customerQuery.isFetched) setPrefilled(true);
+  }, [query.data, customerQuery.data, customerQuery.isFetched, prefilled]);
 
   const completeMutation = useMutation({
-    mutationFn: async () => {
-      try {
-        return await completeSalesInvoice(invoiceId);
-      } catch (err) {
-        const code = getErrorCode(err);
-        if (code === 'place_of_supply_unresolved' && window.confirm(t('billing.confirmBlankPos'))) {
-          try {
-            return await completeSalesInvoice(invoiceId, { confirmBlankPos: true });
-          } catch (err2) {
-            if (getErrorCode(err2) === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-              return await completeSalesInvoice(invoiceId, { confirmBlankPos: true, confirmGstinTotalChange: true });
-            }
-            throw err2;
-          }
-        }
-        if (code === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-          return await completeSalesInvoice(invoiceId, { confirmGstinTotalChange: true });
-        }
-        throw err;
-      }
-    },
+    // F2-035: completeWithConfirms loops over known confirm codes in any
+    // order — the hand-nested try/catch here only recovered
+    // place_of_supply_unresolved -> GSTIN_TOTAL_CHANGED in that exact order.
+    mutationFn: () => completeWithConfirms((extra) => completeSalesInvoice(invoiceId, extra)),
     onSuccess: (data) => {
       const warns = (data?.warnings ?? []).filter(Boolean).join(' ');
       setMessage(warns ? `${t('billing.invoiceCompleted')} ${warns}` : t('billing.invoiceCompleted'));
@@ -306,6 +294,12 @@ export function InvoiceDetailPage() {
       ? t('common.whatsapp')
       : t('common.whatsappLinkHint');
 
+  // F2-036: this calls the same updateSalesInvoice endpoint NewInvoicePage
+  // uses for an amend (which on a COMPLETED doc requires Owner +
+  // confirmAmend), but with none of that guard — it works today only
+  // because the backend treats vehicle/transporter fields as non-amending.
+  // Not user-visible, but if that backend allowlist ever changes this call
+  // needs its own confirmAmend wiring or a dedicated transport-update route.
   const transportMutation = useMutation({
     mutationFn: () =>
       updateSalesInvoice(invoiceId, {

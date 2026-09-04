@@ -325,31 +325,54 @@ class RazorpayAdapter:
         payload = data.get("payload") or data
         payment = (payload.get("payment") or {}).get("entity") or payload.get("payment") or payload
         link = (payload.get("payment_link") or {}).get("entity") or payload.get("payment_link") or {}
-        # BB-000413: Razorpay amounts are always paise — normalize any JSON type.
-        amount_paise_raw = payment.get("amount") or data.get("amount") or 0
-        try:
-            amount_paise = Decimal(str(amount_paise_raw))
-        except Exception:
-            amount_paise = Decimal("0")
-        amount = (amount_paise / Decimal("100")).quantize(Decimal("0.01"))
-        status_map = {
-            "captured": "CAPTURED",
-            "paid": "CAPTURED",
-            "failed": "FAILED",
-            "refunded": "REFUNDED",
-        }
-        st = str(payment.get("status") or data.get("status") or "").lower()
-        fee_raw = payment.get("fee") or 0
-        try:
-            fee_paise = Decimal(str(fee_raw))
-        except Exception:
-            fee_paise = Decimal("0")
-        fee = (fee_paise / Decimal("100")).quantize(Decimal("0.01"))
+        refund = (payload.get("refund") or {}).get("entity") or payload.get("refund") or {}
+
+        def _paise(raw) -> Decimal:
+            # BB-000413: Razorpay amounts are always paise — normalize any JSON type.
+            try:
+                return (Decimal(str(raw or 0)) / Decimal("100")).quantize(Decimal("0.01"))
+            except Exception:
+                return Decimal("0")
+
+        fee = _paise(payment.get("fee"))
+
+        # B4-004 / B4-005: classify by the Razorpay *event name*, not by inferring
+        # from the payment entity's status. A `refund.*` event's `payment.amount`
+        # is the whole captured amount — reading it as the refund amount makes a
+        # partial refund look like a full unwind. Only bare probe bodies (no
+        # `event` key) fall back to entity-status inference.
+        if event.startswith("refund."):
+            status = "REFUNDED"
+            amount = _paise(refund.get("amount"))
+            provider_payment_id = str(
+                refund.get("payment_id") or payment.get("id") or data.get("id") or ""
+            )
+        elif event == "payment.failed":
+            status = "FAILED"
+            amount = _paise(payment.get("amount") or data.get("amount"))
+            provider_payment_id = str(payment.get("id") or data.get("id") or "")
+        elif event in ("payment.captured", "payment_link.paid", "order.paid"):
+            status = "CAPTURED"
+            amount = _paise(payment.get("amount") or data.get("amount"))
+            provider_payment_id = str(payment.get("id") or data.get("id") or "")
+        else:
+            # bare entity probe body — no event name
+            status_map = {
+                "captured": "CAPTURED",
+                "paid": "CAPTURED",
+                "failed": "FAILED",
+                "refunded": "REFUNDED",
+            }
+            st = str(payment.get("status") or data.get("status") or "").lower()
+            status = status_map.get(st, st.upper())
+            amount = _paise(payment.get("amount") or data.get("amount"))
+            provider_payment_id = str(payment.get("id") or data.get("id") or "")
+
         return WebhookEvent(
-            provider_payment_id=str(payment.get("id") or data.get("id") or ""),
+            provider_payment_id=provider_payment_id,
             amount=amount,
             fee=fee,
-            status=status_map.get(st, st.upper()),
+            status=status,
             payment_link_id=str(link.get("id") or data.get("payment_link_id") or ""),
             raw=data,
         )
@@ -438,7 +461,9 @@ class CashfreeGateway:
         amount = kwargs["amount"]
         payload = {
             "link_id": kwargs.get("reference") or f"bb_{secrets.token_hex(6)}",
-            "link_amount": float(format(Decimal(amount).quantize(Decimal("0.01")), "f")),
+            # B4-028: send the exact quantized amount as a string — no float
+            # round-trip. Cashfree accepts string amounts.
+            "link_amount": str(Decimal(str(amount)).quantize(Decimal("0.01"))),
             "link_currency": "INR",
             "link_purpose": kwargs.get("description") or "Payment",
             "customer_details": {

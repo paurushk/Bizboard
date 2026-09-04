@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import zipfile
 from calendar import monthrange
 from collections import defaultdict
@@ -27,7 +28,6 @@ from .models import GstReturnPeriod, GstReturnSnapshot
 from .gst_returns_sections import (
     accumulate_hsn_line,
     append_b2_outward_rows,
-    apply_after_tax_header_discount,
     build_note_rate_rows,
     new_hsn_buckets,
 )
@@ -632,7 +632,6 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
 
         for item in items:
             accumulate_hsn_line(hsn_buckets, item)
-        apply_after_tax_header_discount(hsn_buckets, inv, items)
 
         append_b2_outward_rows(
             company=company,
@@ -692,7 +691,9 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
             "igst": _money(vals["igst"]),
             "cess": _money(vals.get("cess", Decimal("0"))),
         }
-        for (pos, rate), vals in sorted(b2cs_buckets.items())
+        # B5-017: rate is a string bucket key — sorting the raw tuple sorted
+        # rate lexically ("18.00" < "5.00"). Sort by the numeric rate instead.
+        for (pos, rate), vals in sorted(b2cs_buckets.items(), key=lambda kv: (kv[0][0], Decimal(kv[0][1])))
         if vals["taxable_value"] or vals["cgst"] or vals["sgst"] or vals["igst"] or vals.get("cess")
     ]
 
@@ -711,7 +712,10 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
             "igst": _money(vals["igst"]),
             "cess": _money(vals.get("cess", Decimal("0"))),
         }
-        for (hsn_code, rate, uqc), vals in sorted(hsn_buckets.items())
+        # B5-017: same lexical-vs-numeric rate issue as b2cs above.
+        for (hsn_code, rate, uqc), vals in sorted(
+            hsn_buckets.items(), key=lambda kv: (kv[0][0], Decimal(kv[0][1]), kv[0][2])
+        )
     ]
 
     cancelled_qs = SalesInvoice.objects.filter(
@@ -845,6 +849,26 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         n for n in debit_notes
         if not note_value_mismatch(n) and not _note_parent_is_ecom(n) and not _rcm(n)
     ]
+    # B5-001: RCM *outward* supplies carry no output-tax liability for the
+    # supplier (recipient pays), but their taxable value is still turnover —
+    # GSTR-3B 3.1(a) counts it and the GSTR-1 sections carry these rows with
+    # rchrg="Y". Fold the taxable value (tax columns stay zero) into the header
+    # so it foots against the sections and against 3B, instead of raising a
+    # false-critical OUTWARD_FOOTING_MISMATCH on every notified-RCM company.
+    rcm_outward_invoices = [
+        inv for inv in invoices
+        if not invoice_value_mismatch(inv)
+        and not (getattr(inv, "ecommerce_operator_gstin", None) or "").strip()
+        and _rcm(inv)
+    ]
+    rcm_outward_credit_notes = [
+        n for n in credit_notes
+        if not note_value_mismatch(n) and not _note_parent_is_ecom(n) and _rcm(n)
+    ]
+    rcm_outward_debit_notes = [
+        n for n in debit_notes
+        if not note_value_mismatch(n) and not _note_parent_is_ecom(n) and _rcm(n)
+    ]
     outward_taxable = sum((inv.taxable_total for inv in matched_invoices), Decimal("0"))
     outward_cgst = sum((inv.cgst_total for inv in matched_invoices), Decimal("0"))
     outward_sgst = sum((inv.sgst_total for inv in matched_invoices), Decimal("0"))
@@ -862,6 +886,14 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         outward_sgst += note.sgst_total
         outward_igst += note.igst_total
         outward_cess += Decimal(str(getattr(note, "cess_total", 0) or 0))
+
+    # B5-001: RCM outward — taxable value only, no tax on the supplier's return.
+    for inv in rcm_outward_invoices:
+        outward_taxable += inv.taxable_total
+    for note in rcm_outward_credit_notes:
+        outward_taxable -= note.taxable_total
+    for note in rcm_outward_debit_notes:
+        outward_taxable += note.taxable_total
 
     section_taxable = (
         sum(Decimal(r["taxable_value"]) for r in b2b)
@@ -1932,11 +1964,22 @@ def build_gstr9(company, fy_label: str, *, company_gstin=None) -> dict:
                 + Decimal(str(row.igst or 0))
                 + Decimal(str(getattr(row, "cess", 0) or 0))
             )
-        for inv in non_rcm:
-            supplier_gstin = (getattr(getattr(inv, "supplier", None), "gstin", None) or "").strip()
-            notes = (getattr(inv, "notes", "") or "").upper()
-            if (not supplier_gstin and Decimal(str(inv.igst_total or 0)) > 0) or "IMPORT" in notes:
-                itc8_import += Decimal(str(inv.igst_total or 0)) + Decimal(str(getattr(inv, "cess_total", 0) or 0))
+        # B5-019: drive import-ITC off the same BillOfEntry linkage the 3B
+        # import_itc figure above (GST-08) already uses, instead of a fragile
+        # "blank supplier GSTIN + IGST>0, or 'IMPORT' anywhere in free-text
+        # notes" heuristic — that swept in ordinary domestic IGST purchases
+        # from unregistered suppliers and any invoice whose notes happened to
+        # mention the word "import".
+        from purchases.models import BillOfEntry as _BillOfEntry
+
+        boe_period_qs = _BillOfEntry.objects.filter(
+            company=company,
+            status=_BillOfEntry.Status.COMPLETED,
+            itc_eligibility=_BillOfEntry.ItcEligibility.ELIGIBLE,
+        )
+        for boe in boe_period_qs:
+            if boe.resolved_itc_period() == period:
+                itc8_import += Decimal(str(boe.igst_amount or 0)) + Decimal(str(boe.cess_amount or 0))
         period_inward_taxable = sum((inv.taxable_total for inv in non_rcm), Decimal("0"))
         period_inward_tax = sum(
             (
@@ -2105,9 +2148,12 @@ def to_gstn_json(payload: dict) -> dict:
     rt = (payload.get("return_type") or "").upper().replace("_", "-")
     company = payload.get("company") or {}
     gstin = company.get("gstin") or ""
-    period = payload.get("period") or payload.get("fy") or ""
+    # B5-014: only derive `fp` from a real monthly period (YYYY-MM). A GSTR-9
+    # payload's `fy` is "2025-26" — also length 7 with a dash at [4] — and was
+    # producing fp="262025" (month "26").
+    period = payload.get("period") or ""
     fp = ""
-    if len(period) == 7 and period[4] == "-":
+    if re.fullmatch(r"\d{4}-\d{2}", period) and 1 <= int(period[5:7]) <= 12:
         year, month = period.split("-")
         fp = f"{month}{year}"
     # GST-02: `build_gstr1` already keeps unresolved-POS invoices out of the

@@ -34,6 +34,7 @@ import {
   type ImsAction,
   type ItcEligibility,
 } from '@/api/gstr2b';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DisclaimerBanner, KpiStat, PageHeader } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
@@ -58,6 +59,7 @@ export function Gstr2bPage() {
   const [actRow, setActRow] = useState<{ id: number; action: ImsAction } | null>(null);
   const [remark, setRemark] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmBulk, setConfirmBulk] = useState(false);
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['gstr2b'] });
@@ -208,6 +210,7 @@ export function Gstr2bPage() {
 
       <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
         <TextField
+          type="month"
           label={t('reports.period')}
           value={period}
           onChange={(e) => {
@@ -215,7 +218,8 @@ export function Gstr2bPage() {
             setPage(1);
           }}
           size="small"
-          sx={{ width: 140 }}
+          InputLabelProps={{ shrink: true }}
+          sx={{ width: 160 }}
         />
         <TextField
           select
@@ -237,7 +241,7 @@ export function Gstr2bPage() {
         <Button variant="outlined" onClick={() => matchMutation.mutate()} disabled={matchMutation.isPending}>
           {t('ims.matchPurchases')}
         </Button>
-        <Button variant="contained" onClick={() => bulkMutation.mutate()} disabled={bulkMutation.isPending}>
+        <Button variant="contained" onClick={() => setConfirmBulk(true)} disabled={bulkMutation.isPending}>
           {t('ims.bulkAcceptExact')}
         </Button>
         <Button variant="outlined" onClick={() => fileRef.current?.click()} disabled={importMutation.isPending}>
@@ -269,7 +273,7 @@ export function Gstr2bPage() {
       {rows.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <VirtualizedTable rowCount={rows.length} rowHeight={64}>
-            {(virtualRows) => (
+            {({ rows: virtualRows, totalSize, measureElement }) => (
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -295,7 +299,12 @@ export function Gstr2bPage() {
                     const tax =
                       Number(row.igst || 0) + Number(row.cgst || 0) + Number(row.sgst || 0) + Number(row.cess || 0);
                     return (
-                      <TableRow key={row.id} style={{ height: vRow.size }}>
+                      <TableRow
+                        key={row.id}
+                        data-index={vRow.index}
+                        ref={measureElement}
+                        style={{ height: vRow.size }}
+                      >
                         <TableCell>{row.supplierGstin}</TableCell>
                         <TableCell>
                           {row.invoiceNumber}
@@ -354,7 +363,7 @@ export function Gstr2bPage() {
                   {virtualRows.length > 0 ? (
                     <TableRow
                       style={{
-                        height: Math.max(0, rows.length * 64 - virtualRows[virtualRows.length - 1].end),
+                        height: Math.max(0, totalSize - virtualRows[virtualRows.length - 1].end),
                         padding: 0,
                         border: 0,
                       }}
@@ -480,6 +489,18 @@ export function Gstr2bPage() {
           <Button onClick={() => setMessage(null)}>{t('common.close')}</Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={confirmBulk}
+        title={t('ims.bulkAcceptExact')}
+        body={`This accepts every exact-match GSTR-2B row for ${period} and claims its ITC. Review individual rows if unsure.`}
+        confirmLabel={t('ims.bulkAcceptExact')}
+        confirming={bulkMutation.isPending}
+        onClose={() => setConfirmBulk(false)}
+        onConfirm={() => {
+          setConfirmBulk(false);
+          bulkMutation.mutate();
+        }}
+      />
     </Stack>
   );
 }

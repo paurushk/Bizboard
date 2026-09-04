@@ -21,11 +21,12 @@ import {
   previewTallyImport,
   uploadTallyMasters,
 } from '@/api/resources';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DisclaimerBanner, PageHeader } from '@/components/insights';
 import { ErrorState } from '@/components/PageState';
-import { t } from '@/i18n';
-
-const STEPS = ['Upload', 'Map', 'Commit', 'Export aid'];
+import { VirtualizedTable } from '@/components/VirtualizedTable';
+import { triggerBlobDownload } from '@/utils/blob';
+import { t, useLocale } from '@/i18n';
 
 type PreviewParty = {
   name: string;
@@ -64,10 +65,23 @@ type MapRow = {
 
 export function TallyMigrationPage() {
   const [step, setStep] = useState(0);
+  // F3-056: translate the stepper labels and rebuild them on a language switch
+  // rather than pinning English strings at module load.
+  useLocale();
+  const steps = [
+    t('import.stepUpload'),
+    t('import.stepMap'),
+    t('import.stepCommit'),
+    t('import.stepExportAid'),
+  ];
   const [syncRunId, setSyncRunId] = useState<number | null>(null);
   const [preview, setPreview] = useState<PreviewShape | null>(null);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [committed, setCommitted] = useState(false);
+  const [confirmCommit, setConfirmCommit] = useState(false);
+  // F3-050: "Ignore error rows" silently discards every row the import
+  // flagged — confirm with a count so it isn't a one-click silent drop.
+  const [confirmIgnoreErrors, setConfirmIgnoreErrors] = useState(false);
 
   const mapRows = useMemo(() => {
     if (!preview) return [] as MapRow[];
@@ -166,33 +180,27 @@ export function TallyMigrationPage() {
   const downloadExport = useMutation({
     mutationFn: () => exportTallyAid(),
     onSuccess: (blob) => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'bizboard_tally_export_aid.csv';
-      a.click();
-      URL.revokeObjectURL(url);
+      // F3-051: deferred-revoke helper (was revoking the object URL synchronously).
+      triggerBlobDownload(blob, 'bizboard_tally_export_aid.csv');
       setStep(3);
     },
   });
 
-  const downloadErrors = async () => {
-    if (!syncRunId) return;
-    const { data, headers } = await apiClient.get(`/integrations/tally/runs/${syncRunId}/errors/`, {
-      params: { as: 'csv' },
-      responseType: 'blob',
-    });
-    const ct = String(headers['content-type'] || '');
-    if (ct.includes('application/json')) {
-      throw new Error('Failed to download error report');
-    }
-    const url = URL.createObjectURL(data as Blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `tally_errors_${syncRunId}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  // F3-051: a mutation so a failed error-report download surfaces via ErrorState
+  // instead of an unhandled rejection from `void downloadErrors()`.
+  const downloadErrors = useMutation({
+    mutationFn: async () => {
+      if (!syncRunId) throw new Error('No sync run');
+      const { data, headers } = await apiClient.get(
+        `/integrations/tally/runs/${syncRunId}/errors/`,
+        { params: { as: 'csv' }, responseType: 'blob' },
+      );
+      if (String(headers['content-type'] || '').includes('application/json')) {
+        throw new Error('Failed to download error report');
+      }
+      triggerBlobDownload(data as Blob, `tally_errors_${syncRunId}.csv`);
+    },
+  });
 
   const counts = (preview?.counts ?? {}) as Record<string, number>;
   const errorCount = preview?.errors?.length ?? counts.errors ?? 0;
@@ -228,7 +236,7 @@ export function TallyMigrationPage() {
       <PageHeader title={t('tally.title')} />
       <DisclaimerBanner severity="warning">{t('tally.disclaimer')}</DisclaimerBanner>
       <Stepper activeStep={step} alternativeLabel>
-        {STEPS.map((label) => (
+        {steps.map((label) => (
           <Step key={label}>
             <StepLabel>{label}</StepLabel>
           </Step>
@@ -267,47 +275,72 @@ export function TallyMigrationPage() {
             {counts.suppliers ?? preview.suppliers?.length ?? 0} · Products:{' '}
             {counts.products ?? preview.products?.length ?? 0} · Errors: {errorCount}
           </Typography>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Type</TableCell>
-                <TableCell>Name</TableCell>
-                <TableCell>SKU</TableCell>
-                <TableCell>Opening</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {mapRows.map((r) => (
-                <TableRow key={`${r.list}-${r.idx}`}>
-                  <TableCell>{r.kind}</TableCell>
-                  <TableCell>
-                    <TextField
-                      size="small"
-                      value={r.name}
-                      onChange={(e) => updateMappedName(r.list, r.idx, e.target.value)}
-                      fullWidth
-                      disabled={committed}
-                      inputProps={{ 'aria-label': `${r.kind} name` }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {r.list === 'products' ? (
-                      <TextField
-                        size="small"
-                        value={r.sku ?? ''}
-                        onChange={(e) => updateMappedSku(r.idx, e.target.value)}
-                        disabled={committed}
-                        inputProps={{ 'aria-label': 'product sku' }}
-                      />
-                    ) : (
-                      '—'
-                    )}
-                  </TableCell>
-                  <TableCell>{r.opening ?? '—'}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          {/* F3-050: a Tally import can carry thousands of customers/
+              suppliers/products — window the DOM rows instead of rendering
+              every mapping row (each with a live-editable TextField) at once. */}
+          <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+            <VirtualizedTable rowCount={mapRows.length} rowHeight={52}>
+              {({ rows: virtualRows, totalSize, measureElement }) => (
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Type</TableCell>
+                      <TableCell>Name</TableCell>
+                      <TableCell>SKU</TableCell>
+                      <TableCell>Opening</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {virtualRows.length && virtualRows[0].start > 0 ? (
+                      <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden>
+                        <TableCell style={{ padding: 0, border: 0 }} colSpan={4} />
+                      </TableRow>
+                    ) : null}
+                    {virtualRows.map((vRow) => {
+                      const r = mapRows[vRow.index];
+                      return (
+                        <TableRow key={`${r.list}-${r.idx}`} data-index={vRow.index} ref={measureElement}>
+                          <TableCell>{r.kind}</TableCell>
+                          <TableCell>
+                            <TextField
+                              size="small"
+                              value={r.name}
+                              onChange={(e) => updateMappedName(r.list, r.idx, e.target.value)}
+                              fullWidth
+                              disabled={committed}
+                              inputProps={{ 'aria-label': `${r.kind} name` }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {r.list === 'products' ? (
+                              <TextField
+                                size="small"
+                                value={r.sku ?? ''}
+                                onChange={(e) => updateMappedSku(r.idx, e.target.value)}
+                                disabled={committed}
+                                inputProps={{ 'aria-label': 'product sku' }}
+                              />
+                            ) : (
+                              '—'
+                            )}
+                          </TableCell>
+                          <TableCell>{r.opening ?? '—'}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {virtualRows.length ? (
+                      <TableRow
+                        style={{ height: totalSize - virtualRows[virtualRows.length - 1].end, padding: 0, border: 0 }}
+                        aria-hidden
+                      >
+                        <TableCell style={{ padding: 0, border: 0 }} colSpan={4} />
+                      </TableRow>
+                    ) : null}
+                  </TableBody>
+                </Table>
+              )}
+            </VirtualizedTable>
+          </Paper>
           {(preview.errors?.length ?? 0) > 0 ? (
             <Stack spacing={0.5} sx={{ mt: 1 }}>
               {preview.errors!.slice(0, 5).map((err, i) => (
@@ -327,13 +360,18 @@ export function TallyMigrationPage() {
             </Button>
             {errorCount > 0 ? (
               <>
-                <Button variant="outlined" color="warning" onClick={() => void downloadErrors()}>
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  disabled={downloadErrors.isPending}
+                  onClick={() => downloadErrors.mutate()}
+                >
                   Download error report
                 </Button>
                 <Button
                   variant="outlined"
                   disabled={ignoreErrors.isPending || committed}
-                  onClick={() => ignoreErrors.mutate()}
+                  onClick={() => setConfirmIgnoreErrors(true)}
                 >
                   Ignore error rows
                 </Button>
@@ -342,14 +380,47 @@ export function TallyMigrationPage() {
             <Button
               variant="contained"
               disabled={!syncRunId || commit.isPending || errorCount > 0 || committed}
-              onClick={() => commit.mutate()}
+              onClick={() => setConfirmCommit(true)}
             >
               {t('tally.commit')}
             </Button>
           </Stack>
+          <ConfirmDialog
+            open={confirmCommit}
+            title={t('tally.commit')}
+            body={
+              `This creates ${counts.customers ?? 0} customers, ${counts.suppliers ?? 0} suppliers, ` +
+              `${counts.products ?? 0} products and their opening balances / stock for this company. ` +
+              `It cannot be undone from the app.`
+            }
+            confirmLabel={t('tally.commit')}
+            confirmColor="error"
+            confirming={commit.isPending}
+            onClose={() => setConfirmCommit(false)}
+            onConfirm={() => {
+              setConfirmCommit(false);
+              commit.mutate();
+            }}
+          />
+          <ConfirmDialog
+            open={confirmIgnoreErrors}
+            title="Ignore error rows?"
+            body={`This discards ${errorCount} row(s) that failed to map — they will NOT be imported. This cannot be undone from the app.`}
+            confirmLabel="Ignore error rows"
+            confirmColor="warning"
+            confirming={ignoreErrors.isPending}
+            onClose={() => setConfirmIgnoreErrors(false)}
+            onConfirm={() => {
+              setConfirmIgnoreErrors(false);
+              ignoreErrors.mutate();
+            }}
+          />
           {saveMap.isError ? <ErrorState message={getErrorMessage(saveMap.error)} error={saveMap.error} /> : null}
           {ignoreErrors.isError ? <ErrorState message={getErrorMessage(ignoreErrors.error)} error={ignoreErrors.error} /> : null}
           {commit.isError ? <ErrorState message={getErrorMessage(commit.error)} error={commit.error} /> : null}
+          {downloadErrors.isError ? (
+            <ErrorState message={getErrorMessage(downloadErrors.error)} error={downloadErrors.error} />
+          ) : null}
           {created ? (
             <Stack spacing={0.5} sx={{ mt: 2 }}>
               <Typography variant="subtitle2">Commit summary</Typography>

@@ -20,8 +20,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useCustomerSearch } from '@/hooks/usePartySearch';
 import type { Customer, SalesInvoice } from '@/types/domain';
 import { isValidIfsc } from '@/utils/gst';
 import { formatMoney, toNumber } from '@/utils/money';
@@ -168,7 +170,7 @@ export function PaymentGatewayPage() {
   const webhooks = (q.data?.webhookPaths as Record<string, string>) || {};
   return (
     <PageShell title={t('phase.paymentGateway')} subtitle={t('phase.paymentGatewaySubtitle')}>
-      {msg ? <Alert severity={msg.includes('saved') ? 'success' : 'error'}>{msg}</Alert> : null}
+      {msg ? <Alert severity={m.isError ? 'error' : 'success'}>{msg}</Alert> : null}
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack spacing={2}>
           <TextField
@@ -264,7 +266,11 @@ export function PaymentLinksPage() {
   const cancel = useMutation({
     mutationFn: (id: number) => api.cancelPaymentLink(id),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['payment-links'] }),
+    onError: (e) => setError(getErrorMessage(e)),
   });
+  // F2-003 / F3-003: Refund moves real money and Cancel voids a live link —
+  // both require an explicit confirmation with the amount + customer shown.
+  const [confirmLink, setConfirmLink] = useState<{ mode: 'refund' | 'cancel'; row: Row } | null>(null);
   const [shareId, setShareId] = useState<number | null>(null);
   const [shareRecipient, setShareRecipient] = useState('');
   const [shareChannel, setShareChannel] = useState<'WHATSAPP' | 'EMAIL'>('WHATSAPP');
@@ -368,13 +374,18 @@ export function PaymentLinksPage() {
                 <Button size="small" disabled={writesBlocked} onClick={() => setShareId(Number(r.id))}>
                   Send
                 </Button>
-                <Button size="small" color="error" disabled={writesBlocked} onClick={() => cancel.mutate(Number(r.id))}>
+                <Button size="small" color="error" disabled={writesBlocked} onClick={() => setConfirmLink({ mode: 'cancel', row: r })}>
                   Cancel
                 </Button>
               </>
             ) : null}
             {r.status === 'PAID' ? (
-              <Button size="small" color="warning" disabled={writesBlocked || refund.isPending} onClick={() => refund.mutate(Number(r.id))}>
+              <Button
+                size="small"
+                color="warning"
+                disabled={writesBlocked || refund.isPending}
+                onClick={() => setConfirmLink({ mode: 'refund', row: r })}
+              >
                 Refund
               </Button>
             ) : null}
@@ -416,12 +427,33 @@ export function PaymentLinksPage() {
                 <TextField {...params} label="Customer (if no invoice)" placeholder="Type 2+ characters to search…" />
               )}
             />
-            <TextField label="Amount" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} helperText="Leave blank to use full invoice outstanding" />
+            <TextField
+              label="Amount"
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputProps={{ min: 0, step: 'any', inputMode: 'decimal' }}
+              error={amount !== '' && !(Number(amount) > 0)}
+              helperText={
+                amount !== '' && !(Number(amount) > 0)
+                  ? 'Enter a positive amount or leave blank.'
+                  : 'Leave blank to use full invoice outstanding'
+              }
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={writesBlocked || create.isPending || (!invoice && !customer)} onClick={() => create.mutate()}>
+          <Button
+            variant="contained"
+            disabled={
+              writesBlocked ||
+              create.isPending ||
+              (!invoice && !customer) ||
+              (amount !== '' && !(Number(amount) > 0))
+            }
+            onClick={() => create.mutate()}
+          >
             Create
           </Button>
         </DialogActions>
@@ -454,6 +486,30 @@ export function PaymentLinksPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={confirmLink !== null}
+        title={confirmLink?.mode === 'refund' ? 'Refund this payment?' : 'Cancel this payment link?'}
+        body={
+          confirmLink?.mode === 'refund'
+            ? `This issues a real refund of ${formatMoney(
+                toNumber(String(confirmLink?.row.amount ?? '')),
+              )} to ${String(confirmLink?.row.customerName ?? 'the customer')}. This cannot be undone.`
+            : `Link ${String(confirmLink?.row.token ?? '')} for ${formatMoney(
+                toNumber(String(confirmLink?.row.amount ?? '')),
+              )} will be voided and can no longer be paid.`
+        }
+        confirmLabel={confirmLink?.mode === 'refund' ? 'Refund' : 'Cancel link'}
+        confirmColor="error"
+        confirming={confirmLink?.mode === 'refund' ? refund.isPending : cancel.isPending}
+        onClose={() => setConfirmLink(null)}
+        onConfirm={() => {
+          if (!confirmLink) return;
+          const id = Number(confirmLink.row.id);
+          if (confirmLink.mode === 'refund') refund.mutate(id);
+          else cancel.mutate(id);
+          setConfirmLink(null);
+        }}
+      />
     </PageShell>
   );
 }
@@ -486,7 +542,11 @@ export function BankStatementsPage() {
   });
   const commit = useMutation({
     mutationFn: (id: number) => api.commitBankStatement(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank-statements'] }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['bank-statements'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
@@ -545,34 +605,38 @@ export function BankReconPage() {
   const { writesBlocked } = useSubscriptionGate();
   const canWrite = canCreatePayments(user) && !writesBlocked;
   const qc = useQueryClient();
-  const customers = useQuery({ queryKey: ['customers'], queryFn: () => api.listCustomers() });
   const health = useQuery({ queryKey: ['payment-health'], queryFn: api.getPaymentHealth });
   const query = useQuery({
     queryKey: ['payment-recon'],
-    queryFn: async () => {
-      const data = await api.listRecon();
-      if (Array.isArray(data) && data.length && (data[0] as Row).line) return data as Row[];
-      return data as Row[];
-    },
+    queryFn: () => api.listRecon() as Promise<Row[]>,
   });
   const [createLine, setCreateLine] = useState<Row | null>(null);
-  const [createCustomer, setCreateCustomer] = useState('');
+  const [createCustomer, setCreateCustomer] = useState<Customer | null>(null);
+  // F2-025: search-as-you-type instead of loading every customer up front.
+  const createCustomerSearch = useCustomerSearch({ selected: createCustomer });
+  const [reconErr, setReconErr] = useState('');
   const confirm = useMutation({
     mutationFn: (payload: Record<string, unknown>) => api.confirmRecon(payload),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['payment-recon'] }),
+    onSuccess: () => {
+      setReconErr('');
+      void qc.invalidateQueries({ queryKey: ['payment-recon'] });
+    },
+    onError: (e) => setReconErr(getErrorMessage(e)),
   });
   const createFromLine = useMutation({
     mutationFn: () =>
       api.createReceiptFromReconLine({
-        line: createLine?.id ?? (createLine as Row | null)?.id,
-        customer: Number(createCustomer),
+        line: createLine?.id,
+        customer: createCustomer?.id,
       }),
     onSuccess: () => {
+      setReconErr('');
       setCreateLine(null);
-      setCreateCustomer('');
+      setCreateCustomer(null);
       void qc.invalidateQueries({ queryKey: ['payment-recon'] });
       void qc.invalidateQueries({ queryKey: ['payment-health'] });
     },
+    onError: (e) => setReconErr(getErrorMessage(e)),
   });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
@@ -580,6 +644,11 @@ export function BankReconPage() {
   const aging = (health.data?.unmatchedAging as Record<string, number>) || {};
   return (
     <PageShell title={t('phase.bankRecon')} subtitle={t('phase.bankReconSubtitle')}>
+      {reconErr ? (
+        <Alert severity="error" sx={{ mb: 1 }} onClose={() => setReconErr('')}>
+          {reconErr}
+        </Alert>
+      ) : null}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }}>
         {[
           ['0–7 days', aging.days_0_7 ?? aging.days07 ?? 0],
@@ -631,34 +700,54 @@ export function BankReconPage() {
                       ) : null}
                     </Stack>
                   </Stack>
-                  {!suggestions.length ? (
+                  {/* F2-014: once a line is MATCHED, drop all match actions — a
+                      second confirm double-books it. */}
+                  {String(line.matchStatus) === 'MATCHED' ? null : !suggestions.length ? (
                     <Alert severity="warning">No confident suggestions</Alert>
                   ) : (
-                    suggestions.map((s) => (
+                    suggestions.map((s) => {
+                      const lineAmt = toNumber(line.amount as string | number);
+                      const sugAmt = toNumber(s.amount as string | number);
+                      const amountsDiffer = Math.abs(lineAmt - sugAmt) > 0.01;
+                      return (
                       <Stack key={`${s.type}-${s.id}`} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
                         <Chip size="small" label={`${Math.round(Number(s.confidence))}%`} color={Number(s.confidence) >= 90 ? 'success' : 'default'} />
                         <Typography variant="body2" sx={{ flex: 1 }}>
-                          {String(s.type)} {String(s.number)} · {String(s.party)} · {formatMoney(toNumber(s.amount as string | number))}
+                          {String(s.type)} {String(s.number)} · {String(s.party)} · {formatMoney(sugAmt)}
+                          {amountsDiffer ? (
+                            <Typography component="span" variant="caption" color="warning.main" sx={{ ml: 1 }}>
+                              (differs from bank line by {formatMoney(Math.abs(lineAmt - sugAmt))})
+                            </Typography>
+                          ) : null}
                         </Typography>
                         {canWrite ? (
                         <Button
                           size="small"
                           variant="contained"
                           disabled={confirm.isPending}
-                          onClick={() =>
+                          onClick={() => {
+                            if (
+                              amountsDiffer &&
+                              !window.confirm(
+                                `The bank line is ${formatMoney(lineAmt)} but this ${String(s.type)} is ${formatMoney(sugAmt)}. Match them anyway?`,
+                              )
+                            ) {
+                              return;
+                            }
                             confirm.mutate({
                               line: line.id,
                               receipt: s.type === 'receipt' ? s.id : undefined,
                               supplierPayment: s.type === 'supplier_payment' ? s.id : undefined,
                               confidence: s.confidence,
-                            })
-                          }
+                            });
+                          }}
                         >
                           Confirm
                         </Button>
                         ) : null}
                       </Stack>
-                    ))
+                      );
+                    })
                   )}
                 </Stack>
               </Paper>
@@ -675,18 +764,23 @@ export function BankReconPage() {
                 ? `${String(createLine.txnDate)} · ${formatMoney(toNumber(createLine.amount as string | number))}`
                 : ''}
             </Typography>
-            <TextField
-              select
-              label="Customer"
+            <Autocomplete
+              options={createCustomerSearch.options}
+              getOptionLabel={(o: Customer) => o.name}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
               value={createCustomer}
-              onChange={(e) => setCreateCustomer(e.target.value)}
-            >
-              {(customers.data ?? []).map((c) => (
-                <MenuItem key={c.id} value={c.id}>
-                  {c.name}
-                </MenuItem>
-              ))}
-            </TextField>
+              onChange={(_, v) => setCreateCustomer(v)}
+              onInputChange={(_, v) => createCustomerSearch.setQuery(v)}
+              filterOptions={(opts) => opts}
+              loading={createCustomerSearch.isFetching}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Customer"
+                  helperText={!createCustomerSearch.enabled ? t('common.typeToSearch') : undefined}
+                />
+              )}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -780,6 +874,9 @@ export function CashBookPage() {
       <DataTable
         rows={rows}
         empty="No cash movements in this period."
+        // F3-016: an unbounded date range can return every cash movement —
+        // window the DOM rows instead of rendering them all at once.
+        virtualized
         columns={[
           { key: 'date', label: 'Date' },
           { key: 'type', label: 'Type' },

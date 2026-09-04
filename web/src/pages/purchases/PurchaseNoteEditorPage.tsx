@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -26,8 +26,8 @@ import {
   getPurchase,
   getPurchaseCreditNote,
   getPurchaseDebitNote,
+  getSupplier,
   listPurchases,
-  listSuppliers,
   updatePurchaseCreditNote,
   updatePurchaseDebitNote,
 } from '@/api/resources';
@@ -38,12 +38,15 @@ import {
   SimpleTotalsPanel,
   makeLine,
   primarySaveAction,
+  recomputeLine,
   todayIso,
   useBillingSaveFeedback,
   type DraftLine,
 } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { StatusChip } from '@/components/StatusChip';
+import { useSupplierSearch } from '@/hooks/usePartySearch';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
@@ -73,6 +76,9 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
   const { message, error, clearFeedback, flashError, setMessage } = useBillingSaveFeedback();
 
   const [loaded, setLoaded] = useState(false);
+  // F2-041: suppress UnsavedChangesGuard for the programmatic navigate() after
+  // a deliberate save/cancel — those aren't "discarding" anything.
+  const skipLeaveGuard = useRef(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [purchaseInvoiceId, setPurchaseInvoiceId] = useState<number | ''>('');
@@ -86,8 +92,16 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
   const [pendingQty, setPendingQty] = useState('1');
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
-  const purchases = useQuery({ queryKey: ['purchases'], queryFn: () => listPurchases({ status: 'COMPLETED' }) });
+  // F2-025: server-searched supplier picker (was listSuppliers() pulling every
+  // row into the Autocomplete) — selectedSupplierQuery keeps the already-set
+  // party resolved even when it falls outside the current search results.
+  const selectedSupplierQuery = useQuery({
+    queryKey: ['supplier', supplierId],
+    queryFn: () => getSupplier(supplierId as number),
+    enabled: Boolean(supplierId),
+  });
+  const supplierSearch = useSupplierSearch({ selected: selectedSupplierQuery.data ?? null });
+  const purchases = useQuery({ queryKey: ['purchases', 'completed'], queryFn: () => listPurchases({ status: 'COMPLETED' }) });
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const existing = useQuery({
@@ -97,7 +111,8 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
   });
 
   const readOnly = editingStatus != null && editingStatus !== 'DRAFT';
-  const selectedSupplier = suppliers.data?.find((s) => s.id === Number(supplierId));
+  const selectedSupplier =
+    selectedSupplierQuery.data ?? supplierSearch.options.find((s) => s.id === Number(supplierId));
   const intraState = isIntraState(
     company.data?.gstin || company.data?.state,
     selectedSupplier?.gstin || selectedSupplier?.state,
@@ -145,6 +160,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
           mfgDate: '',
           mrp: 0,
           quantity: qty,
+          maxQty: qty,
           unitPrice,
           gstRate: toNumber(item.gstRate),
           cessRate: toNumber(item.cessRate),
@@ -154,7 +170,17 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
       }),
     );
     setLoaded(true);
-  }, [existing.data, loaded, intraState]);
+    // F2-040: intentionally NOT keyed on intraState — see the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing.data, loaded]);
+
+  // F2-040: the selected supplier (and so intraState) may not have resolved yet at
+  // hydration time, leaving every line at zero tax; also covers switching the
+  // supplier after lines already exist, which otherwise leaves them stale.
+  useEffect(() => {
+    if (!loaded) return;
+    setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
+  }, [intraState, loaded]);
 
   const onPurchasePick = async (pur: PurchaseInvoice | null) => {
     setPurchaseInvoiceId(pur?.id ?? '');
@@ -186,6 +212,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
           mfgDate: '',
           mrp: 0,
           quantity: qty,
+          maxQty: qty,
           unitPrice,
           gstRate: toNumber(item.gstRate),
           cessRate: toNumber(item.cessRate),
@@ -214,7 +241,14 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     [lineTaxes, intraState],
   );
 
-  const canSave = Boolean(supplierId) && lines.length > 0 && canWrite;
+  // F2-012: at least one line must carry a positive quantity, and it must be
+  // within the source purchase quantity.
+  const effectiveLines = lines.filter((l) => Number(l.quantity) > 0);
+  const anyOverCap = lines.some(
+    (l) => l.maxQty != null && Number(l.quantity) > l.maxQty + 1e-9,
+  );
+  const canSave =
+    Boolean(supplierId) && effectiveLines.length > 0 && !anyOverCap && canWrite;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
 
   const addLine = () => {
@@ -233,15 +267,18 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     reason,
     reasonDetail: reason === 'OTHERS' ? reasonDetail : '',
     notes,
-    items: lines.map((l) => ({
-      ...(l.lineId != null ? { id: l.lineId } : {}),
-      product: l.product,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-      gstRate: l.gstRate,
-      cessRate: l.cessRate ?? 0,
-      sourceItem: l.sourceItemId ?? null,
-    })),
+    // F2-012: never send zero-qty lines.
+    items: lines
+      .filter((l) => Number(l.quantity) > 0)
+      .map((l) => ({
+        ...(l.lineId != null ? { id: l.lineId } : {}),
+        product: l.product,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        gstRate: l.gstRate,
+        cessRate: l.cessRate ?? 0,
+        sourceItem: l.sourceItemId ?? null,
+      })),
   });
 
   const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
@@ -278,15 +315,22 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     onSuccess: (doc) => {
       setMessage(t('phase1.saved'));
       void qc.invalidateQueries({ queryKey: [queryKey] });
-      if (!isEdit) void navigate(`${listPath}/${doc.id}`, { replace: true });
-      else setEditingStatus(doc.status);
+      if (!isEdit) {
+        skipLeaveGuard.current = true;
+        void navigate(`${listPath}/${doc.id}`, { replace: true });
+      } else {
+        setEditingStatus(doc.status);
+      }
     },
     onError: (err) => flashError(getErrorMessage(err)),
   });
 
   const cancelMutation = useMutation({
     mutationFn: () => (isCredit ? cancelPurchaseCreditNote(editId as number) : cancelPurchaseDebitNote(editId as number)),
-    onSuccess: () => void navigate(listPath),
+    onSuccess: () => {
+      skipLeaveGuard.current = true;
+      void navigate(listPath);
+    },
     onError: (err) => flashError(getErrorMessage(err)),
   });
 
@@ -322,14 +366,25 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
         ) : null
       }
     >
+      <UnsavedChangesGuard when={!skipLeaveGuard.current && (effectiveLines.length > 0 || Boolean(supplierId))} />
       <Stack spacing={2}>
         <Autocomplete
-          options={suppliers.data ?? []}
+          options={supplierSearch.options}
           getOptionLabel={(o: Supplier) => o.name}
-          value={suppliers.data?.find((s) => s.id === Number(supplierId)) ?? null}
+          value={selectedSupplier ?? null}
           onChange={(_, v) => setSupplierId(v?.id ?? '')}
+          onInputChange={(_, v) => supplierSearch.setQuery(v)}
+          filterOptions={(opts) => opts}
+          loading={supplierSearch.isFetching}
           disabled={readOnly}
-          renderInput={(params) => <TextField {...params} label={t('billing.supplier')} required />}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label={t('billing.supplier')}
+              required
+              helperText={!supplierSearch.enabled ? t('common.typeToSearch') : undefined}
+            />
+          )}
         />
         {!isEdit ? (
           <Autocomplete
@@ -371,11 +426,24 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
                       <NumericField
                         size="small"
                         value={l.quantity}
+                        min={0}
                         onValueChange={(v: number) =>
                           setLines((prev) =>
-                            prev.map((x) => (x.key === l.key ? { ...x, quantity: v } : x)),
+                            prev.map((x) =>
+                              x.key === l.key
+                                ? {
+                                    ...x,
+                                    // F2-012: clamp to (0, source quantity].
+                                    quantity: Math.min(
+                                      Math.max(0, v),
+                                      x.maxQty ?? Number.POSITIVE_INFINITY,
+                                    ),
+                                  }
+                                : x,
+                            ),
                           )
                         }
+                        helperText={l.maxQty != null ? `max ${l.maxQty}` : undefined}
                         sx={{ width: 100 }}
                       />
                     ) : (

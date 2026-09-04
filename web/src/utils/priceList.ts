@@ -1,4 +1,4 @@
-import { toNumber } from '@/utils/money';
+import { roundMoney, toNumber } from '@/utils/money';
 
 export type PriceListSlab = {
   product: number;
@@ -45,6 +45,8 @@ export function resolveListUnitPrice(
   if (!hit) return null;
   let price = toNumber(hit.unitPrice ?? hit.unit_price);
   const disc = toNumber(hit.discountPct ?? hit.discount_pct);
-  if (disc) price = Math.round(price * (100 - disc)) / 100;
+  // F1-022: use the shared money rounding so a slab discount foots with every
+  // other total on screen.
+  if (disc) price = roundMoney((price * (100 - disc)) / 100);
   return { unitPrice: price, listName: list.name ?? '' };
 }

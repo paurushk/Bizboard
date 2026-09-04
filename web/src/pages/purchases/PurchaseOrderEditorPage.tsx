@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -22,7 +22,7 @@ import {
   createPurchaseOrder,
   getCompany,
   getPurchaseOrder,
-  listSuppliers,
+  getSupplier,
   updatePurchaseOrder,
 } from '@/api/resources';
 import {
@@ -36,7 +36,9 @@ import {
   type DraftLine,
 } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { StatusChip } from '@/components/StatusChip';
+import { useSupplierSearch } from '@/hooks/usePartySearch';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
@@ -55,6 +57,9 @@ export function PurchaseOrderEditorPage() {
   const { message, error, clearFeedback, flashError, setMessage } = useBillingSaveFeedback();
 
   const [loaded, setLoaded] = useState(false);
+  // F2-038: suppress UnsavedChangesGuard for the programmatic navigate() after
+  // a deliberate save/convert/cancel — those aren't "discarding" anything.
+  const skipLeaveGuard = useRef(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [purchaseType, setPurchaseType] = useState<PurchaseType>('NON_GST');
@@ -71,7 +76,15 @@ export function PurchaseOrderEditorPage() {
     if (isEdit || purchaseTypeTouched || !company.data) return;
     setPurchaseType(preferredInvoiceType(company.data.registrationType));
   }, [company.data, isEdit, purchaseTypeTouched]);
-  const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
+  // F2-025: server-searched supplier picker (was listSuppliers() pulling every
+  // row into the Autocomplete) — selectedSupplierQuery keeps the already-set
+  // party resolved even when it falls outside the current search results.
+  const selectedSupplierQuery = useQuery({
+    queryKey: ['supplier', supplierId],
+    queryFn: () => getSupplier(supplierId as number),
+    enabled: Boolean(supplierId),
+  });
+  const supplierSearch = useSupplierSearch({ selected: selectedSupplierQuery.data ?? null });
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const existing = useQuery({
@@ -81,7 +94,8 @@ export function PurchaseOrderEditorPage() {
   });
 
   const readOnly = editingStatus != null && editingStatus !== 'DRAFT';
-  const selectedSupplier = suppliers.data?.find((s) => s.id === Number(supplierId));
+  const selectedSupplier =
+    selectedSupplierQuery.data ?? supplierSearch.options.find((s) => s.id === Number(supplierId));
   const intraState = isIntraState(
     company.data?.gstin || company.data?.state,
     selectedSupplier?.gstin || selectedSupplier?.state,
@@ -136,7 +150,17 @@ export function PurchaseOrderEditorPage() {
       }),
     );
     setLoaded(true);
-  }, [existing.data, loaded, intraState]);
+    // F2-040: intentionally NOT keyed on intraState — see the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing.data, loaded]);
+
+  // F2-040: the selected supplier (and so intraState) may not have resolved
+  // yet at hydration time, leaving every line at zero tax; also covers switching the
+  // supplier after lines already exist, which otherwise leaves them stale.
+  useEffect(() => {
+    if (!loaded) return;
+    setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
+  }, [intraState, loaded]);
 
   const lineTaxes = useMemo(
     () =>
@@ -199,8 +223,12 @@ export function PurchaseOrderEditorPage() {
     onSuccess: (order) => {
       setMessage(t('phase1.saved'));
       void qc.invalidateQueries({ queryKey: ['purchase-orders'] });
-      if (!isEdit) void navigate(`/purchases/orders/${order.id}`, { replace: true });
-      else setEditingStatus(order.status);
+      if (!isEdit) {
+        skipLeaveGuard.current = true;
+        void navigate(`/purchases/orders/${order.id}`, { replace: true });
+      } else {
+        setEditingStatus(order.status);
+      }
     },
     onError: (err) => flashError(getErrorMessage(err)),
   });
@@ -209,6 +237,7 @@ export function PurchaseOrderEditorPage() {
     mutationFn: () => convertPurchaseOrder(editId as number),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['purchase-orders'] });
+      skipLeaveGuard.current = true;
       void navigate('/purchases/history');
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -216,7 +245,10 @@ export function PurchaseOrderEditorPage() {
 
   const cancelMutation = useMutation({
     mutationFn: () => cancelPurchaseOrder(editId as number),
-    onSuccess: () => void navigate('/purchases/orders'),
+    onSuccess: () => {
+      skipLeaveGuard.current = true;
+      void navigate('/purchases/orders');
+    },
     onError: (err) => flashError(getErrorMessage(err)),
   });
 
@@ -257,14 +289,25 @@ export function PurchaseOrderEditorPage() {
         </>
       }
     >
+      <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(supplierId))} />
       <Stack spacing={2}>
         <Autocomplete
-          options={suppliers.data ?? []}
+          options={supplierSearch.options}
           getOptionLabel={(o: Supplier) => o.name}
-          value={suppliers.data?.find((s) => s.id === Number(supplierId)) ?? null}
+          value={selectedSupplier ?? null}
           onChange={(_, v) => setSupplierId(v?.id ?? '')}
+          onInputChange={(_, v) => supplierSearch.setQuery(v)}
+          filterOptions={(opts) => opts}
+          loading={supplierSearch.isFetching}
           disabled={readOnly}
-          renderInput={(params) => <TextField {...params} label={t('billing.supplier')} required />}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label={t('billing.supplier')}
+              required
+              helperText={!supplierSearch.enabled ? t('common.typeToSearch') : undefined}
+            />
+          )}
         />
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
           <TextField

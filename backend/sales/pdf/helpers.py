@@ -119,11 +119,15 @@ def build_upi_qr_png(upi_id: str, amount: Decimal | None = None, note: str = "")
     upi_id = (upi_id or "").strip()
     if not upi_id:
         return None
-    params = [f"pa={upi_id}", "cu=INR"]
+    # B2-019: URL-encode every param value — a note like "Invoice INV/2026&x"
+    # otherwise corrupts the intent.
+    from urllib.parse import quote
+
+    params = [f"pa={quote(upi_id, safe='')}", "cu=INR"]
     if amount is not None and Decimal(amount) > 0:
         params.append(f"am={Decimal(amount).quantize(Decimal('0.01'))}")
     if note:
-        params.append(f"tn={note[:40]}")
+        params.append(f"tn={quote(note[:40], safe='')}")
     payload = "upi://pay?" + "&".join(params)
 
     import qrcode

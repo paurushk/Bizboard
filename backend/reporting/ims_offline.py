@@ -80,6 +80,35 @@ def import_offline(company, payload: dict, *, replace: bool = False) -> dict:
     if not isinstance(rows, list):
         raise BusinessRuleError("'rows' must be a list.")
     if replace:
+        # B5-004: a QuerySet .delete() cascades past ImsActionHistory's
+        # append-only model guard and silently wipes the ACCEPT/REJECT audit
+        # trail for the period. Archive that history to the audit log before the
+        # cascade so it is not lost without a trace.
+        from reporting.models import ImsActionHistory
+
+        history = [
+            {
+                "id": h["id"],
+                "ingest_id": h["ingest_id"],
+                "action": h["action"],
+                "remark": h["remark"],
+                "created_at": h["created_at"].isoformat() if h["created_at"] else None,
+                "acted_by_id": h["acted_by_id"],
+            }
+            for h in ImsActionHistory.objects.filter(
+                ingest__company=company, ingest__period=period
+            ).values("id", "ingest_id", "action", "remark", "created_at", "acted_by_id")
+        ]
+        if history:
+            from core.services.audit import AuditService
+
+            AuditService.log(
+                action="ims_offline_replace_archived_history",
+                company=company,
+                entity_type="GstReturnPeriod",
+                description=f"replace import for {period}",
+                metadata={"period": period, "archived_history": history},
+            )
         Gstr2bIngest.objects.filter(company=company, period=period).delete()
     valid_actions = set(Gstr2bIngest.ImsAction.values)
     created = 0
@@ -95,6 +124,19 @@ def import_offline(company, payload: dict, *, replace: bool = False) -> dict:
         action = str(raw.get("ims_action") or "").strip().upper()
         if action not in valid_actions:
             action = Gstr2bIngest.ImsAction.NO_ACTION
+        # B5-003: the offline file round-trips the reviewer's decision, and
+        # row_to_offline already serialises itc_eligibility. Force-resetting it
+        # to UNREVIEWED on re-import collapses GSTR-3B matched-2B ITC to 0 (books
+        # stay posted -> return diverges). Preserve a valid eligibility from the
+        # file; keep CLAIMABLE for ACCEPT rows.
+        valid_elig = set(Gstr2bIngest.ItcEligibility.values)
+        file_elig = str(raw.get("itc_eligibility") or "").strip().upper()
+        if file_elig in valid_elig:
+            elig = file_elig
+        elif action == Gstr2bIngest.ImsAction.ACCEPT:
+            elig = Gstr2bIngest.ItcEligibility.CLAIMABLE
+        else:
+            elig = Gstr2bIngest.ItcEligibility.UNREVIEWED
         defaults = {
             "invoice_date": _parse_date(raw.get("invoice_date")),
             "taxable_value": raw.get("taxable_value") or 0,
@@ -105,7 +147,7 @@ def import_offline(company, payload: dict, *, replace: bool = False) -> dict:
             "ims_action": action,
             "ims_remark": (raw.get("remark") or "")[:512],
             "match_class": (raw.get("match_class") or "")[:64],
-            "itc_eligibility": Gstr2bIngest.ItcEligibility.UNREVIEWED,
+            "itc_eligibility": elig,
             "match_status": Gstr2bIngest.MatchStatus.UNMATCHED,
             "raw": {**raw, "source": "OFFLINE"},
         }

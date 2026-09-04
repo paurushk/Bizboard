@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -46,7 +46,7 @@ import {
   updateSalesInvoice,
   uploadFile,
 } from '@/api/resources';
-import { getErrorCode, getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
+import { getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
 import { trackInvoiceComplete } from '@/lib/telemetry';
 import { useAuth } from '@/auth/AuthContext';
 import {
@@ -97,6 +97,7 @@ import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { HelpHint } from '@/pages/help/HelpHint';
 import { makeInvoiceLine } from '@/pages/sales/invoice/makeInvoiceLine';
 import { useInvoiceOffline } from '@/pages/sales/invoice/useInvoiceOffline';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 
 const COL_PREFS_KEY = 'bizboard.billing.batchCols';
 
@@ -104,39 +105,14 @@ async function completeInvoiceWithConfirms(
   id: number,
   base: { confirmSalesRcm?: boolean },
 ): Promise<SalesInvoice> {
+  // F2-035: delegate to the shared completeWithConfirms loop instead of a
+  // hand-nested try/catch that only recovered one confirm code per level —
+  // GSTIN_TOTAL_CHANGED then place_of_supply_unresolved (or a third code) at
+  // the second retry used to rethrow instead of prompting.
   const started = Date.now();
-  const run = (extra: { confirmBlankPos?: boolean; confirmGstinTotalChange?: boolean } = {}) =>
-    completeSalesInvoice(id, { ...base, ...extra });
-  const timed = async (fn: () => Promise<SalesInvoice>) => {
-    const invoice = await fn();
-    trackInvoiceComplete(Date.now() - started);
-    return invoice;
-  };
-  try {
-    return await timed(() => run());
-  } catch (err) {
-    const extra: { confirmBlankPos?: boolean; confirmGstinTotalChange?: boolean } = {};
-    const code = getErrorCode(err);
-    if (code === 'place_of_supply_unresolved' && window.confirm(t('billing.confirmBlankPos'))) {
-      extra.confirmBlankPos = true;
-    } else if (code === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-      extra.confirmGstinTotalChange = true;
-    } else {
-      throw err;
-    }
-    try {
-      return await timed(() => run(extra));
-    } catch (err2) {
-      const code2 = getErrorCode(err2);
-      if (code2 === 'GSTIN_TOTAL_CHANGED' && !extra.confirmGstinTotalChange && window.confirm(t('billing.confirmGstinTotalChange'))) {
-        return await timed(() => run({ ...extra, confirmGstinTotalChange: true }));
-      }
-      if (code2 === 'place_of_supply_unresolved' && !extra.confirmBlankPos && window.confirm(t('billing.confirmBlankPos'))) {
-        return await timed(() => run({ ...extra, confirmBlankPos: true }));
-      }
-      throw err2;
-    }
-  }
+  const invoice = await completeWithConfirms((extra) => completeSalesInvoice(id, { ...base, ...extra }));
+  trackInvoiceComplete(Date.now() - started);
+  return invoice;
 }
 
 export function NewInvoicePage() {
@@ -202,6 +178,9 @@ export function NewInvoicePage() {
   const [invoiceDate, setInvoiceDate] = useState(todayIso());
   const [paymentTermsDays, setPaymentTermsDays] = useState(30);
   const [dueDate, setDueDate] = useState(() => addDaysIso(todayIso(), 30));
+  // F2-008: once the user (or a loaded invoice) sets an explicit due date, stop
+  // recomputing it from invoiceDate + terms.
+  const dueDateTouched = useRef(false);
   const [showPaymentTerms, setShowPaymentTerms] = useState(true);
   const [showAdvancedTax, setShowAdvancedTax] = useState(false);
 
@@ -324,13 +303,18 @@ export function NewInvoicePage() {
     staleTime: 60_000,
   });
   const availableByProduct = useMemo(() => {
+    // F2-009: the BLOCK gate must compare against the SELECTED warehouse, not
+    // the company-wide total — stock sitting in another godown doesn't help the
+    // line being sold from `warehouseId` (and the backend re-checks per-godown).
+    const wh = warehouseId ? Number(warehouseId) : null;
     const map = new Map<number, number>();
     for (const s of stockBalances.data ?? []) {
+      if (wh != null && Number(s.warehouse) !== wh) continue;
       const id = Number(s.product);
       map.set(id, (map.get(id) ?? 0) + toNumber(s.available ?? s.onHand));
     }
     return map;
-  }, [stockBalances.data]);
+  }, [stockBalances.data, warehouseId]);
   const stockShortfalls = useMemo(() => {
     if (company.data?.negativeStockPolicy !== 'BLOCK') return [];
     const needed = new Map<number, { name: string; qty: number }>();
@@ -385,6 +369,9 @@ export function NewInvoicePage() {
     setInvoiceDate(inv.invoiceDate);
     setPaymentTermsDays(inv.paymentTermsDays ?? 0);
     setDueDate(inv.dueDate ?? addDaysIso(inv.invoiceDate, inv.paymentTermsDays ?? 0));
+    // A saved invoice carries an authoritative due date — don't let the
+    // invoiceDate/terms effect overwrite it on edit-hydration (F2-008).
+    dueDateTouched.current = Boolean(inv.dueDate);
     setShowPaymentTerms(Boolean(inv.dueDate || inv.paymentTermsDays));
     setNotes(inv.notes ?? '');
     setShowNotes(Boolean(inv.notes));
@@ -509,6 +496,7 @@ export function NewInvoicePage() {
   }, [company.data, termsText, isEdit]);
 
   useEffect(() => {
+    if (dueDateTouched.current) return;
     setDueDate(addDaysIso(invoiceDate, paymentTermsDays || 0));
   }, [invoiceDate, paymentTermsDays]);
 
@@ -671,11 +659,23 @@ export function NewInvoicePage() {
     setAmountReceived(0);
     setMarkFullyPaid(false);
     setPaymentMode('CASH');
+    // F2-005: reset every statutory field too — leaving these set carried
+    // reverse-charge / TCS / e-commerce GSTIN / a non-default stamped GSTIN
+    // onto the next, unrelated invoice (wrong GST filing).
+    setCompanyGstinId('');
+    setSupplyType('B2B');
+    setIsReverseCharge(false);
+    setConfirmSalesRcm(false);
+    setEcommerceOperatorGstin('');
+    setShowTcs(false);
+    setTcsSection('');
+    setTcsRate(0);
+    setTcsAmount(0);
     void qc.invalidateQueries({ queryKey: ['sales-invoice-number-series'] });
     barcodeRef.current?.focus();
   };
 
-  const buildPayload = () => ({
+  const buildPayload = useCallback(() => ({
     customer: Number(customerId),
     warehouse: warehouseId ? Number(warehouseId) : undefined,
     companyGstin: companyGstinId ? Number(companyGstinId) : undefined,
@@ -732,13 +732,22 @@ export function NewInvoicePage() {
         ? { serialNumbers: parseSerialNumbersText(l.serialNumbersText) }
         : {}),
     })),
-  });
+  }), [
+    additionalCharges, autoRoundOff, chargesGstRate, chargesHsn, companyGstinId, costCenterId,
+    customerId, dueDate, ecommerceOperatorGstin, invoiceDate, invoiceDiscount, invoiceDiscountMode,
+    invoiceType, isReverseCharge, lines, notes, paymentTermsDays, priceMode, showBank, showQr,
+    showTerms, signatureId, supplyType, tcsAmount, tcsRate, tcsSection, termsText, warehouseId,
+  ]);
 
   const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
+  // F2-030: buildPayload() maps every line and builds nested item objects —
+  // memoize it so the preview payload is only rebuilt when an input that
+  // actually feeds it changes, not on every render of a large invoice.
+  const previewPayload = useMemo(() => buildPayload(), [buildPayload]);
   const preview = usePreviewTotals(
     'sales',
     previewOnline && customerId && lines.some((l) => l.product)
-      ? (buildPayload() as Record<string, unknown>)
+      ? (previewPayload as Record<string, unknown>)
       : null,
   );
 
@@ -883,11 +892,13 @@ export function NewInvoicePage() {
             ? t('billing.draftSavedCompleteFailed', { label, warning: paymentWarning })
             : t('billing.draftSaved', { label });
 
-      // Warm list cache before SPA navigate so history isn't blank until hard refresh.
+      // Warm list cache before SPA navigate so history isn't blank until hard
+      // refresh. F2-026: the history page keys on ['sales-invoices', page] with
+      // page 1 and pageSize 50 — warm that exact key, not the bare one.
       try {
         await qc.fetchQuery({
-          queryKey: ['sales-invoices'],
-          queryFn: () => listSalesInvoicesPage(),
+          queryKey: ['sales-invoices', 1],
+          queryFn: () => listSalesInvoicesPage({ page: 1, pageSize: 50 }),
           staleTime: 0,
         });
       } catch {
@@ -986,19 +997,33 @@ export function NewInvoicePage() {
       prev.map((l) => {
         if (l.key !== key) return l;
         let nextPatch = patch;
-        if (patch.quantity != null && patch.unitPrice == null) {
+        // A caller-supplied unitPrice is a direct user edit — remember it so a
+        // later qty change doesn't clobber the override (F2-007).
+        if (patch.unitPrice != null) {
+          nextPatch = { ...patch, priceEdited: true };
+        }
+        if (patch.quantity != null && patch.unitPrice == null && !l.priceEdited) {
           const resolved = resolveListUnitPrice(
             priceLists.data as import('@/utils/priceList').PriceListRow[] | undefined,
             selectedCustomer?.priceList,
             l.product,
             Number(patch.quantity),
           );
-          if (resolved) nextPatch = { ...patch, unitPrice: resolved.unitPrice };
+          if (resolved) nextPatch = { ...nextPatch, unitPrice: resolved.unitPrice };
         }
-        if (opts?.fromDiscountAmount && nextPatch.discountAmount != null) {
+        const changesGross =
+          nextPatch.quantity != null || nextPatch.unitPrice != null;
+        if (
+          (opts?.fromDiscountAmount && nextPatch.discountAmount != null) ||
+          // F2-032: a qty/price change on a line that carries an absolute
+          // discount amount must re-derive the percent against the new gross,
+          // not recompute the amount from the now-stale percent.
+          (changesGross && (l.discountAmount ?? 0) > 0)
+        ) {
           const gross = roundMoney((nextPatch.quantity ?? l.quantity) * (nextPatch.unitPrice ?? l.unitPrice));
-          const amount = Math.min(Math.max(0, nextPatch.discountAmount), gross);
-          const percent = gross > 0 ? roundMoney((amount / gross) * 100) : 0;
+          const rawAmount = nextPatch.discountAmount ?? l.discountAmount ?? 0;
+          const amount = Math.min(Math.max(0, rawAmount), gross);
+          const percent = gross > 0 ? Math.min(100, roundMoney((amount / gross) * 100)) : 0;
           return recomputeLine(l, intraState, {
             ...nextPatch,
             discountPercent: percent,
@@ -1010,17 +1035,10 @@ export function NewInvoicePage() {
     );
   };
 
-  useEffect(() => {
-    // BUG-513: warn before an accidental tab close/refresh discards a
-    // half-built invoice — no confirmation existed at all previously.
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (skipLeaveGuard.current || (lines.length === 0 && !customerId)) return;
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [lines.length, customerId]);
+  // BUG-513/F3-015: the tab-close/refresh warning now lives in
+  // UnsavedChangesGuard itself (rendered below with the same `when`), so
+  // every page that renders the guard gets it for free instead of each
+  // hand-rolling its own beforeunload listener.
 
   const activeCustomers = (customers.data?.results ?? []).filter((c) => c.status === 'ACTIVE');
   const canSave = lines.length > 0 && Boolean(customerId) && !saveMutation.isPending;
@@ -1057,6 +1075,29 @@ export function NewInvoicePage() {
   const primarySave = primarySaveAction({ isEdit, editingStatus });
   const canAmendMoney = isCompletedEdit && isOwner;
 
+  // F2-050: keep the shortcut handler's inputs in a ref so the keydown listener
+  // is registered exactly once (no per-render add/remove churn), and add a
+  // synchronous submit guard so a fast double Ctrl+S can't enqueue twice before
+  // React commits `isPending`.
+  const kbdRef = useRef({
+    canSave: false,
+    canComplete: false,
+    primaryMode: primarySave.mode,
+    isPending: saveMutation.isPending,
+    mutate: saveMutation.mutate,
+  });
+  kbdRef.current = {
+    canSave,
+    canComplete,
+    primaryMode: primarySave.mode,
+    isPending: saveMutation.isPending,
+    mutate: saveMutation.mutate,
+  };
+  const kbdSubmittingRef = useRef(false);
+  useEffect(() => {
+    if (!saveMutation.isPending) kbdSubmittingRef.current = false;
+  }, [saveMutation.isPending]);
+
   useEffect(() => {
     // Wave 18D (BB-000182): billing keyboard shortcuts — see README Wave 18 note.
     const onKey = (e: KeyboardEvent) => {
@@ -1069,9 +1110,13 @@ export function NewInvoicePage() {
         return;
       }
       const meta = e.ctrlKey || e.metaKey;
+      const kbd = kbdRef.current;
       if (meta && e.key.toLowerCase() === 's' && !e.shiftKey) {
         e.preventDefault();
-        if (!saveMutation.isPending && canSave) saveMutation.mutate('draft');
+        if (!kbd.isPending && !kbdSubmittingRef.current && kbd.canSave) {
+          kbdSubmittingRef.current = true;
+          kbd.mutate('draft');
+        }
         return;
       }
       // FE-19: Complete files GST, posts the GL entry and decrements stock — do
@@ -1083,11 +1128,14 @@ export function NewInvoicePage() {
         e.key === 'Enter' &&
         !e.shiftKey &&
         !inEditableField &&
-        canComplete &&
-        primarySave.mode === 'complete'
+        kbd.canComplete &&
+        kbd.primaryMode === 'complete'
       ) {
         e.preventDefault();
-        if (!saveMutation.isPending) saveMutation.mutate('complete');
+        if (!kbd.isPending && !kbdSubmittingRef.current) {
+          kbdSubmittingRef.current = true;
+          kbd.mutate('complete');
+        }
         return;
       }
       if (meta && e.shiftKey && e.key.toLowerCase() === 'l') {
@@ -1102,7 +1150,7 @@ export function NewInvoicePage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canComplete, canSave, primarySave.mode, saveMutation]);
+  }, []);
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;
@@ -1451,7 +1499,10 @@ export function NewInvoicePage() {
                     label={t('billing.dueDate')}
                     type="date"
                     value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
+                    onChange={(e) => {
+                      dueDateTouched.current = true;
+                      setDueDate(e.target.value);
+                    }}
                     InputLabelProps={{ shrink: true }}
                   />
                 </Stack>
@@ -1711,8 +1762,8 @@ export function NewInvoicePage() {
                   <Typography variant="subtitle2">TCS collected (206C)</Typography>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
                     <TextField size="small" label="Section" value={tcsSection} onChange={(e) => setTcsSection(e.target.value)} placeholder="206C" />
-                    <TextField size="small" type="number" label="Rate %" value={tcsRate || ''} onChange={(e) => setTcsRate(Number(e.target.value) || 0)} />
-                    <TextField size="small" type="number" label="TCS amount" value={tcsAmount || ''} onChange={(e) => setTcsAmount(Number(e.target.value) || 0)} />
+                    <TextField size="small" type="number" label="Rate %" inputProps={{ min: 0, max: 100, step: 0.01 }} value={tcsRate || ''} onChange={(e) => setTcsRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
+                    <TextField size="small" type="number" label="TCS amount" inputProps={{ min: 0 }} value={tcsAmount || ''} onChange={(e) => setTcsAmount(Math.max(0, Number(e.target.value) || 0))} />
                   </Stack>
                 </Paper>
               )}

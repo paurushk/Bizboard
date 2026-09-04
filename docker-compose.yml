@@ -50,6 +50,8 @@ services:
 
   api:
     build: ./backend
+    # M1-014: stable tag so CI (and ops) can scan / reference the built image.
+    image: bizboard-api:latest
     restart: unless-stopped
     # BB-000714: api must NOT migrate on start — use `--profile migrate` first.
     command: >
@@ -212,11 +214,11 @@ services:
     # only pass in CI, which checks out the whole repo; run them there, not here.
     volumes:
       - pip_cache:/pip-cache
-    entrypoint:
-      - /bin/sh
-      - -lc
-      - 'pip install --quiet -c constraints.txt -r requirements-dev.txt && exec "$@"'
-      - --
+    # M1-033: docker-entrypoint-test.sh drops from root to the unprivileged
+    # `app` user (chowning the pip-cache volume first) before installing dev
+    # requirements and running the actual command — this entrypoint override
+    # used to bypass the image's privilege drop entirely and run as root.
+    entrypoint: ["/app/docker-entrypoint-test.sh"]
     command: ["pytest", "-q"]
     restart: "no"
     depends_on:
@@ -250,7 +252,10 @@ services:
     image: nginx:1.27-alpine
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-80}:80"
+      # M1-004: bind to loopback by default — this listener is plain HTTP and
+      # must sit behind a TLS edge. A deploy that fronts it with a real HTTPS
+      # terminator sets APP_BIND=0.0.0.0 (or an explicit LAN IP) deliberately.
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-80}:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - media_data:/var/www/media:ro

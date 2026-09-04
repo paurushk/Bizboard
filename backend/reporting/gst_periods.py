@@ -37,9 +37,8 @@ def mark_period_dirty_if_snapshotted(company, doc_date) -> GstReturnPeriod | Non
 
 
 def soft_close_period(company, period: str, user) -> GstReturnPeriod:
-    from reporting.ims import deemed_accept_on_period_lock
-
-    deemed_accept_on_period_lock(company, period, user=user)
+    # B5-022: period lock no longer auto-ACCEPTs IMS rows (ITC needs an explicit
+    # decision) — the old deemed_accept_on_period_lock() call was a dead no-op.
     obj = get_or_create_period(company, period)
     obj.status = GstReturnPeriod.Status.SOFT_CLOSED
     obj.closed_at = timezone.now()
@@ -54,20 +53,15 @@ def reopen_period(company, period: str) -> GstReturnPeriod:
     obj.closed_at = None
     obj.closed_by = None
     obj.save(update_fields=["status", "closed_at", "closed_by", "updated_at"])
-    # PER-02: soft-close ran `deemed_accept_on_period_lock`, which posts IMS
-    # accept / ITC-reclass journals. Reopening only flips the status flag — those
-    # postings intentionally stay (reversing already-availed ITC on a reopen
-    # would be worse than leaving it). Record the asymmetry so it is visible in
-    # the audit trail rather than silent.
+    # PER-02: reopening only flips the status flag. Any IMS accept / ITC-reclass
+    # journals were posted by an explicit reviewer decision (soft-close itself
+    # posts nothing) and intentionally stay. Record the reopen in the audit trail.
     import logging
 
     from core.models import AuditEvent
 
     logging.getLogger(__name__).info(
-        "GST period %s reopened for company %s; IMS deemed-accept / ITC-reclass "
-        "journals posted at close are retained.",
-        period,
-        getattr(company, "id", None),
+        "GST period %s reopened for company %s.", period, getattr(company, "id", None),
     )
     try:
         AuditEvent.objects.create(
@@ -76,8 +70,8 @@ def reopen_period(company, period: str) -> GstReturnPeriod:
             entity_type="GstReturnPeriod",
             entity_id=str(obj.pk),
             description=(
-                f"Reopened GST period {period}. Deemed-accept / ITC-reclass "
-                "journals from the close are not reversed."
+                f"Reopened GST period {period}. Any ITC-reclass journals from "
+                "explicit IMS decisions are retained (not reversed)."
             ),
         )
     except Exception:  # noqa: BLE001 — audit write must not break the reopen
@@ -143,3 +137,20 @@ def assert_period_allows_money_amend(company, doc_date, *, allow_soft_closed=Fal
             f"Cannot amend money fields: accounting period covering {doc_date} is {blocking.status}.",
             code=HelpCode.CLOSED_PERIOD,
         )
+
+    # ACC-04 (B1-006): opt-in — the date must fall inside an OPEN period, not
+    # merely avoid a closed one. Mirrors PostingService.post so the manual
+    # journal-post action and every other caller enforce it consistently.
+    if getattr(company, "require_open_period_for_posting", False):
+        in_open = AccountingPeriod.objects.filter(
+            company=company,
+            start_date__lte=doc_date,
+            end_date__gte=doc_date,
+            status=AccountingPeriod.Status.OPEN,
+        ).exists()
+        if not in_open:
+            raise BusinessRuleError(
+                f"{doc_date} is not inside an open accounting period. "
+                "Create the period (or open it) before posting.",
+                code=HelpCode.CLOSED_PERIOD,
+            )

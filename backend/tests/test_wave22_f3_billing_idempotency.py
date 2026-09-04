@@ -138,7 +138,12 @@ def test_bb_000730_idempotency_inflight_placeholder_conflict(tenant_a):
 
 def test_stale_inflight_idempotency_record_is_replaced(tenant_a):
     company = tenant_a.company
-    scope = "sales_invoice_create"
+    # B6-014: "sales_invoice_create" used to stand in here as an arbitrary
+    # non-money scope, but it's a real scope name that belongs in (and, after
+    # B6-014, now is in) MONEY_IDEMPOTENCY_SCOPES — using it made this test
+    # exercise the exact stale-reclaim gap B6-014 closed. A scope genuinely
+    # outside the money set is what this test is actually about.
+    scope = "some_non_money_scope"
     key = "f3-stale-key"
     first = begin_record(company=company, scope=scope, raw_key=key)
     assert isinstance(first, IdempotencyRecord)
@@ -149,3 +154,21 @@ def test_stale_inflight_idempotency_record_is_replaced(tenant_a):
     assert isinstance(second, IdempotencyRecord)
     assert second.pk != first.pk
     assert not IdempotencyRecord.objects.filter(pk=first.pk).exists()
+
+
+def test_stale_inflight_money_scope_is_not_reclaimed(tenant_a):
+    """B6-014: a money-creating scope must stay claimed past the 15-min stale
+    window — the first request may still legitimately be committing (a large
+    import commit, a slow invoice complete). Reclaiming it lets a client retry
+    double-run the same non-idempotent-by-construction operation."""
+    company = tenant_a.company
+    scope = "sales_invoice_create"
+    key = "f3-money-stale-key"
+    first = begin_record(company=company, scope=scope, raw_key=key)
+    assert isinstance(first, IdempotencyRecord)
+    IdempotencyRecord.objects.filter(pk=first.pk).update(
+        created_at=timezone.now() - timedelta(minutes=16),
+    )
+    with pytest.raises(IdempotencyInFlightError):
+        begin_record(company=company, scope=scope, raw_key=key)
+    assert IdempotencyRecord.objects.filter(pk=first.pk).exists()

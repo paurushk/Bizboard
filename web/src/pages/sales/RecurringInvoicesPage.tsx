@@ -8,6 +8,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { useAuth } from '@/auth/AuthContext';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
@@ -35,6 +36,10 @@ export function RecurringInvoicesPage() {
   const [qty, setQty] = useState('1');
   const [price, setPrice] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [confirmRun, setConfirmRun] = useState<number | null>(null);
+  // F2-043: remember which schedule's "Run now" is in flight so only that row's
+  // button shows the pending state instead of disabling every row at once.
+  const [runningId, setRunningId] = useState<number | null>(null);
   const create = useMutation({
     mutationFn: () =>
       api.createRecurringSchedule({
@@ -43,7 +48,13 @@ export function RecurringInvoicesPage() {
         nextRunAt,
         isActive: true,
         lineTemplate: {
-          items: [{ product: Number(productId), quantity: qty, unitPrice: price || undefined }],
+          items: [
+            {
+              product: Number(productId),
+              quantity: Number(qty),
+              unitPrice: price === '' ? undefined : Number(price),
+            },
+          ],
         },
       }),
     onSuccess: () => {
@@ -61,6 +72,7 @@ export function RecurringInvoicesPage() {
       void qc.invalidateQueries({ queryKey: ['recurring-schedules'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
+    onSettled: () => setRunningId(null),
   });
   const deactivate = useMutation({
     mutationFn: (id: number) => api.updateRecurringSchedule(id, { isActive: false }),
@@ -94,9 +106,38 @@ export function RecurringInvoicesPage() {
               <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
             ))}
           </TextField>
-          <TextField size="small" label={t('common.qty')} value={qty} onChange={(e) => setQty(e.target.value)} sx={{ width: 80 }} />
-          <TextField size="small" label={t('billing.priceShort')} value={price} onChange={(e) => setPrice(e.target.value)} sx={{ width: 100 }} />
-          <Button variant="contained" disabled={!customer || !productId || !nextRunAt || create.isPending} onClick={() => create.mutate()}>
+          <TextField
+            size="small"
+            type="number"
+            label={t('common.qty')}
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+            inputProps={{ min: 0.001, step: 'any', inputMode: 'decimal' }}
+            error={qty !== '' && !(Number(qty) > 0)}
+            sx={{ width: 90 }}
+          />
+          <TextField
+            size="small"
+            type="number"
+            label={t('billing.priceShort')}
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            inputProps={{ min: 0, step: 'any', inputMode: 'decimal' }}
+            error={price !== '' && Number(price) < 0}
+            sx={{ width: 110 }}
+          />
+          <Button
+            variant="contained"
+            disabled={
+              !customer ||
+              !productId ||
+              !nextRunAt ||
+              !(Number(qty) > 0) ||
+              (price !== '' && Number(price) < 0) ||
+              create.isPending
+            }
+            onClick={() => create.mutate()}
+          >
             {t('recurring.saveTemplate')}
           </Button>
         </Stack>
@@ -114,12 +155,34 @@ export function RecurringInvoicesPage() {
         ]}
         actions={(row) => (
           <Stack direction="row" spacing={1} justifyContent="flex-end">
-            <Button size="small" disabled={!canWrite || runNow.isPending} onClick={() => runNow.mutate(Number(row.id))}>{t('recurring.runNow')}</Button>
+            <Button
+              size="small"
+              disabled={!canWrite || runningId !== null}
+              onClick={() => setConfirmRun(Number(row.id))}
+            >
+              {runningId === Number(row.id) ? t('common.loading') : t('recurring.runNow')}
+            </Button>
             {row.isActive !== false && canWrite ? (
               <Button size="small" color="warning" onClick={() => deactivate.mutate(Number(row.id))}>{t('recurring.deactivate')}</Button>
             ) : null}
           </Stack>
         )}
+      />
+      <ConfirmDialog
+        open={confirmRun !== null}
+        title={t('recurring.runNow')}
+        body="This generates a live invoice for this schedule right now."
+        confirmLabel={t('recurring.runNow')}
+        confirming={runNow.isPending}
+        onClose={() => setConfirmRun(null)}
+        onConfirm={() => {
+          const id = confirmRun;
+          setConfirmRun(null);
+          if (id != null) {
+            setRunningId(id);
+            runNow.mutate(id);
+          }
+        }}
       />
     </PageShell>
   );

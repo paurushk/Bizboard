@@ -196,3 +196,15 @@ def test_tcs_complete_folds_grand_posts_gl_and_einvoice_othchrg(books):
     assert Decimal(str(payload["ValDtls"]["OthChrg"])) == inv.tcs_amount + Decimal(str(inv.additional_charges or 0))
     assert Decimal(str(payload["ValDtls"]["TotInvVal"])) == inv.grand_total
 
+    # B2-001: TCS-fold idempotency — complete() is guarded by a row-locked
+    # DRAFT-only status check, so re-calling it on the same (now COMPLETED)
+    # invoice must refuse rather than fold TCS into an already-folded total
+    # a second time.
+    tcs_amount_before = inv.tcs_amount
+    grand_total_before = inv.grand_total
+    again = books.client.post(f"/api/v1/sales/invoices/{draft['id']}/complete/")
+    assert again.status_code == 400
+    inv.refresh_from_db()
+    assert inv.tcs_amount == tcs_amount_before
+    assert inv.grand_total == grand_total_before
+

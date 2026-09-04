@@ -36,7 +36,14 @@ function getByPath(obj: unknown, path: string): string | undefined {
 /** Resolve an i18n key (dot path). English is the default catalog. */
 export function t(key: string, vars?: Record<string, string | number>): string {
   const catalog = catalogs[locale] ?? en;
-  let value = getByPath(catalog, key) ?? getByPath(en, key) ?? key;
+  const resolved = getByPath(catalog, key) ?? getByPath(en, key);
+  let value = resolved ?? key;
+  // F1-023: a key missing from BOTH the active catalog and the English
+  // fallback previously rendered silently as the raw dot-path (e.g.
+  // "status.PARTIALLY_PAID") with no signal anywhere that it was untranslated.
+  if (resolved === undefined && import.meta.env.DEV) {
+    console.warn(`[i18n] missing key: "${key}"`);
+  }
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
       value = value.replaceAll(`{${k}}`, () => String(v));

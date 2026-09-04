@@ -38,9 +38,28 @@ def _file_to_images(raw: bytes, content_type: str, filename: str) -> list[bytes]
             )
         pages_to_read = page_count
         images = []
+        # B3-010: clamp the render scale so a page with a huge media box can't
+        # rasterise to a multi-hundred-megapixel bitmap and OOM the worker. Cap
+        # the long edge at ~2600 px; reject an absurd page outright.
+        MAX_LONG_EDGE_PX = 2600
+        MAX_PAGE_POINTS = 20000  # ~278 inches — nothing legitimate is this big
         for index in range(pages_to_read):
             page = pdf[index]
-            bitmap = page.render(scale=2)
+            try:
+                pw, ph = float(page.get_width()), float(page.get_height())
+            except Exception:
+                pw = ph = 0.0
+            long_pts = max(pw, ph)
+            if long_pts > MAX_PAGE_POINTS:
+                raise BusinessRuleError(
+                    f"PDF page {index + 1} is {long_pts:.0f}pt on its long edge — "
+                    "that is not a scannable bill."
+                )
+            scale = 2.0
+            if long_pts > 0:
+                scale = min(2.0, MAX_LONG_EDGE_PX / long_pts)
+                scale = max(scale, 0.25)
+            bitmap = page.render(scale=scale)
             pil_image = bitmap.to_pil()
             from io import BytesIO
 

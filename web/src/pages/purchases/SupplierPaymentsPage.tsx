@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -45,7 +45,7 @@ export function SupplierPaymentsPage() {
   });
   const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
   const purchases = useQuery({
-    queryKey: ['purchases'],
+    queryKey: ['purchases', 'completed'],
     queryFn: () => listAllPurchases({ status: 'COMPLETED' }),
   });
 
@@ -59,6 +59,21 @@ export function SupplierPaymentsPage() {
   const [allocAmount, setAllocAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  // F2-049: keep the allocation default clamped to min(payment, invoice balance)
+  // as the payment amount / selected purchase change, instead of a one-shot
+  // snapshot taken when the purchase was picked.
+  useEffect(() => {
+    if (!purchase) {
+      setAllocAmount('');
+      return;
+    }
+    const cap = Math.min(
+      toNumber(amount),
+      toNumber(purchase.balance ?? purchase.grandTotal),
+    );
+    setAllocAmount(cap > 0 ? String(cap) : '');
+  }, [amount, purchase]);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -78,11 +93,23 @@ export function SupplierPaymentsPage() {
         { idempotencyKey: key },
       );
       if (purchase && Number(allocAmount) > 0) {
+        // F2-023: mirror ReceiptsPage — an over-typed allocation must not exceed
+        // the payment amount or the invoice balance.
+        const alloc = Number(allocAmount);
+        const cap = Math.min(
+          paymentAmount,
+          toNumber(purchase.balance ?? purchase.grandTotal),
+        );
+        if (alloc > cap + 0.001) {
+          throw new Error(
+            `Allocation ${alloc.toFixed(2)} exceeds the lesser of the payment amount and the invoice balance (${cap.toFixed(2)}).`,
+          );
+        }
         await createAllocation(
           {
             supplierPayment: payment.id,
             purchaseInvoice: purchase.id,
-            amount: Number(allocAmount),
+            amount: alloc,
           },
           { idempotencyKey: `${key}-alloc` },
         );
@@ -239,14 +266,7 @@ export function SupplierPaymentsPage() {
               options={openPurchases}
               getOptionLabel={(o) => `${o.number ?? o.id} · ${formatMoney(o.grandTotal)}`}
               value={purchase}
-              onChange={(_, v) => {
-                setPurchase(v);
-                if (v) {
-                  setAllocAmount(
-                    String(Math.min(toNumber(amount), toNumber(v.balance ?? v.grandTotal))),
-                  );
-                }
-              }}
+              onChange={(_, v) => setPurchase(v)}
               renderInput={(params) => (
                 <TextField {...params} label="Allocate to purchase (optional)" />
               )}

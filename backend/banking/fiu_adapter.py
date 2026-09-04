@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.utils import timezone
@@ -86,10 +86,16 @@ def fetch_live_transactions_for_consent(*, consent_id: str, fi_type: str) -> lis
                 txn_date = date.fromisoformat(raw_date[:10])
             except ValueError:
                 pass
+        try:  # B4-019: skip a row with a garbage amount, don't crash the pull
+            amount = Decimal(str(row.get("amount") or "0").replace(",", ""))
+            if not amount.is_finite():
+                continue
+        except (InvalidOperation, ValueError, TypeError):
+            continue
         out.append(
             MockFiTransaction(
                 txn_id=txn_id,
-                amount=Decimal(str(row.get("amount") or "0")),
+                amount=amount,
                 txn_date=txn_date,
                 narration=str(row.get("narration") or ""),
                 raw={"fi_type": fi_type, "consent_id": consent_id, **row},

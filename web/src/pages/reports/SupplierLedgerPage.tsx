@@ -36,7 +36,7 @@ export function SupplierLedgerPage() {
     enabled: Boolean(supplier?.id),
   });
 
-  const filteredEntries = useMemo(() => ledger.data?.entries ?? [], [ledger.data?.entries]);
+  const entries = useMemo(() => ledger.data?.entries ?? [], [ledger.data?.entries]);
 
   const handleWhatsAppShare = () => {
     if (!supplier || !ledger.data) return;
@@ -45,7 +45,7 @@ export function SupplierLedgerPage() {
       formattedPhone = `91${formattedPhone}`;
     }
     const text = encodeURIComponent(
-      `Hello ${supplier.name},\nAccount statement summary:\nTotal Payable Balance: ₹${ledger.data.outstanding}`,
+      `Hello ${supplier.name},\nAccount statement summary:\nTotal Payable Balance: ${formatMoney(ledger.data.outstanding)}`,
     );
     const url = formattedPhone ? `https://wa.me/${formattedPhone}?text=${text}` : `https://wa.me/?text=${text}`;
     openShareUrl(url);
@@ -54,7 +54,12 @@ export function SupplierLedgerPage() {
   return (
     <Stack spacing={2}>
       <Typography variant="h4">{t('nav.supplierLedger')}</Typography>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }}>
+      <Stack
+        className="no-print"
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={2}
+        alignItems={{ xs: 'stretch', md: 'center' }}
+      >
         <Autocomplete
           options={suppliers.data ?? []}
           getOptionLabel={(o) => `${o.name}${o.phone ? ` (${o.phone})` : ''}`}
@@ -118,9 +123,12 @@ export function SupplierLedgerPage() {
             </Stack>
           </Paper>
 
-          {filteredEntries.length === 0 ? (
+          {entries.length === 0 ? (
             <EmptyState description="No transactions found for the selected date range." />
           ) : (
+            // F3-017: deliberately NOT virtualized — the Print button above
+            // relies on every row being in the DOM (a windowed list would
+            // only print the currently-visible rows).
             <Paper sx={{ overflow: 'auto' }}>
               <Table size="small">
                 <TableHead>
@@ -128,13 +136,13 @@ export function SupplierLedgerPage() {
                     <TableCell>{t('common.date')}</TableCell>
                     <TableCell>Type</TableCell>
                     <TableCell>{t('common.number')}</TableCell>
-                    <TableCell align="right">Paid (−) / डेबिट</TableCell>
-                    <TableCell align="right">Billed (+) / क्रेडिट</TableCell>
+                    <TableCell align="right">{t('reports.supplierPaidAmount')}</TableCell>
+                    <TableCell align="right">{t('reports.supplierBilledAmount')}</TableCell>
                     <TableCell align="right">{t('reports.dueBalance')}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredEntries.map((e, idx) => (
+                  {entries.map((e, idx) => (
                     <TableRow key={`${e.date}-${e.number}-${idx}`}>
                       <TableCell>{e.date}</TableCell>
                       <TableCell>{e.type}</TableCell>

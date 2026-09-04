@@ -120,13 +120,20 @@ def set_rls_company_for_task(sender=None, task_id=None, task=None, args=None, kw
     # Prefer company_id from kwargs — set GUC without any tenant SELECT.
     company_id = merged.get("company_id")
     if company_id is None:
-        for key in _DOC_ID_KEYS:
-            pk = merged.get(key)
-            if pk is None:
-                continue
-            company_id = _company_id_from_document(key, pk)
-            if company_id is not None:
-                break
+        # B7-005: the document -> company_id fallback SELECTs a tenant row
+        # *before* the RLS GUC is set. On Postgres with FORCE RLS that SELECT
+        # returns nothing (company_id stays None -> task runs tenant-blind).
+        # Run the lookup under rls_bypass so it can actually resolve the owner.
+        from core.rls import rls_bypass
+
+        with rls_bypass():
+            for key in _DOC_ID_KEYS:
+                pk = merged.get(key)
+                if pk is None:
+                    continue
+                company_id = _company_id_from_document(key, pk)
+                if company_id is not None:
+                    break
     from core.rls import set_rls_company
 
     set_rls_company(company_id)

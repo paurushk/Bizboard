@@ -92,7 +92,7 @@ export function StatutoryEventsPage() {
       {rows.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <VirtualizedTable rowCount={rows.length} rowHeight={48}>
-            {(virtualRows) => (
+            {({ rows: virtualRows, totalSize, measureElement }) => (
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -107,7 +107,8 @@ export function StatutoryEventsPage() {
                   {/* Companion fix to UXW2B-007 — see SalesHistoryPage for the full
                       explanation: without these spacer rows, scrolling past the first
                       screenful showed blank space instead of the (correctly computed)
-                      later rows. */}
+                      later rows. F3-042: spacer heights derive from the virtualizer's
+                      real measured totalSize, not `rows.length * rowHeight`. */}
                   {virtualRows.length > 0 ? (
                     <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden>
                       <TableCell style={{ padding: 0, border: 0 }} colSpan={5} />
@@ -117,7 +118,13 @@ export function StatutoryEventsPage() {
                     const row = rows[vRow.index];
                     if (!row) return null;
                     return (
-                      <TableRow key={row.id} hover style={{ height: vRow.size }}>
+                      <TableRow
+                        key={row.id}
+                        hover
+                        data-index={vRow.index}
+                        ref={measureElement}
+                        style={{ height: vRow.size }}
+                      >
                         <TableCell>{row.createdAt ?? '—'}</TableCell>
                         <TableCell>{row.eventType}</TableCell>
                         <TableCell>{row.entityType}</TableCell>
@@ -129,7 +136,7 @@ export function StatutoryEventsPage() {
                   {virtualRows.length > 0 ? (
                     <TableRow
                       style={{
-                        height: Math.max(0, rows.length * 48 - virtualRows[virtualRows.length - 1].end),
+                        height: Math.max(0, totalSize - virtualRows[virtualRows.length - 1].end),
                         padding: 0,
                         border: 0,
                       }}

@@ -169,3 +169,25 @@ def test_tally_tenant_isolation(tenant_a, tenant_b):
         format="json",
     )
     assert bad.status_code in (403, 404)
+
+
+@pytest.mark.django_db
+def test_parse_tally_masters_rejects_over_row_cap():
+    """B9-026: an uncapped import file commits its whole party/product loop
+    inside one long-held select_for_update transaction — reject it at parse
+    time instead of letting it reach the commit transaction at all."""
+    from integrations.tally.adapter import MAX_IMPORT_ROWS, parse_tally_masters_rows
+    from core.exceptions import BusinessRuleError
+
+    rows = [{"entity_type": "customer", "name": f"Customer {i}"} for i in range(MAX_IMPORT_ROWS + 1)]
+    with pytest.raises(BusinessRuleError):
+        parse_tally_masters_rows(rows)
+
+
+@pytest.mark.django_db
+def test_parse_tally_masters_allows_exactly_row_cap():
+    from integrations.tally.adapter import MAX_IMPORT_ROWS, parse_tally_masters_rows
+
+    rows = [{"entity_type": "customer", "name": f"Customer {i}"} for i in range(MAX_IMPORT_ROWS)]
+    preview = parse_tally_masters_rows(rows)
+    assert preview["counts"]["customers"] == MAX_IMPORT_ROWS

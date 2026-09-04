@@ -36,7 +36,9 @@ class PlanListView(APIView):
 
 
 class SubscriptionDetailView(APIView):
-    permission_classes = [IsAuthenticated, HasCompany]
+    # B9-021: exposes razorpay_subscription_id / current_period_end — owner-only,
+    # consistent with PlanListView / CheckoutView / PortalView.
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
 
     def get(self, request):
         cu = get_company_user(request)
@@ -58,7 +60,12 @@ class CheckoutView(APIView):
         slug = (request.data.get("plan_slug") or request.data.get("planSlug") or "").strip()
         plan = None
         if plan_id:
-            plan = Plan.objects.filter(pk=plan_id, is_active=True).first()
+            # B9-018: a non-numeric plan_id must be a 400, not an ORM 500.
+            try:
+                plan_pk = int(str(plan_id).strip())
+            except (TypeError, ValueError):
+                raise BusinessRuleError("Unknown or inactive plan.")
+            plan = Plan.objects.filter(pk=plan_pk, is_active=True).first()
         elif slug:
             plan = Plan.objects.filter(slug=slug, is_active=True).first()
         if plan is None:
@@ -150,6 +157,9 @@ class RazorpayWebhookView(APIView):
         # replayed event for the same subscription id re-applies stale state.
         # Dedup on the event id (header, else a body hash) for 24h.
         from django.core.cache import cache
+        from django.db import IntegrityError
+
+        from payments.models import ProcessedWebhookEvent
 
         event_id = (
             request.headers.get("X-Razorpay-Event-Id")
@@ -159,8 +169,20 @@ class RazorpayWebhookView(APIView):
         dedup_key = "bizboard:billing_webhook_seen:" + hashlib.sha256(
             f"{rzp_id}|{rzp_status}|{event_id}".encode()
         ).hexdigest()
-        if not cache.add(dedup_key, "1", timeout=24 * 60 * 60):
+        # B9-034: cache.add alone is per-process for LocMemCache (the default
+        # outside a shared Redis deployment) — a redelivery landing on a
+        # different gunicorn worker sailed straight past it. Same durable
+        # backstop as payments/webhook_views.py's B4-031 fix: the unique
+        # constraint on ProcessedWebhookEvent.dedup_key makes a second insert
+        # fail atomically regardless of which worker or cache state sees it.
+        if cache.get(dedup_key):
             return Response({"ok": True, "duplicate": True})
+        try:
+            ProcessedWebhookEvent.objects.create(dedup_key=dedup_key, provider="razorpay_subscription")
+        except IntegrityError:
+            cache.set(dedup_key, "1", timeout=24 * 60 * 60)
+            return Response({"ok": True, "duplicate": True})
+        cache.set(dedup_key, "1", timeout=24 * 60 * 60)
         sub = apply_razorpay_subscription_status(
             razorpay_subscription_id=rzp_id,
             rzp_status=rzp_status,

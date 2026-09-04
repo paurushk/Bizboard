@@ -376,7 +376,13 @@ def build_einvoice_payload(invoice: SalesInvoice, *, skip_item_validation: bool 
             "LglNm": customer.name,
             "TrdNm": customer.name,
             "Addr1": customer.billing_address.strip(),
-            "Loc": customer.state or "",
+            # B2-021: NIC Loc is the place/city/town, not the state name.
+            "Loc": (
+                getattr(customer, "city", "")
+                or getattr(customer, "billing_city", "")
+                or customer.state
+                or ""
+            ),
             "Pin": buyer_pin,
             "Stcd": buyer_stcd,
             "Pos": buyer_pos,
@@ -465,7 +471,14 @@ def build_einvoice_payload_from_note(note) -> dict:
                 buyer["Stcd"] = code
                 buyer["Pos"] = code
         if note_pos:
-            buyer["Pos"] = extract_state_code(note_pos) or note_pos[:2]
+            # B2-022: no `[:2]` fallback — "Karnataka" must resolve to a numeric
+            # state code, not "Ka", which NIC rejects.
+            resolved_pos = extract_state_code(note_pos)
+            if not resolved_pos:
+                raise EinvoiceValidationError(
+                    [f"Note place of supply '{note_pos}' is not a resolvable state code."]
+                )
+            buyer["Pos"] = resolved_pos
         payload["BuyerDtls"] = buyer
     payload["PrecDocDtls"] = [{
         "InvNo": inv.number or "",

@@ -24,3 +24,32 @@ a {
 * {
   box-sizing: border-box;
 }
+
+/* F3-063: scope printouts to page content. window.print() on the ledger /
+   stock-count screens otherwise carries the app bar, side nav and toolbar
+   buttons onto the page. */
+@media print {
+  body {
+    background: #fff;
+    overflow: visible;
+  }
+
+  header.MuiAppBar-root,
+  nav[aria-label] {
+    display: none !important;
+  }
+
+  main {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  @page {
+    margin: 12mm;
+  }
+}

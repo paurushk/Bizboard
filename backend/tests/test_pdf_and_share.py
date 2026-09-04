@@ -572,3 +572,33 @@ def test_thermal_pdf_rejects_draft(tenant_a):
     ])
     resp = tenant_a.client.get(f"/api/v1/sales/invoices/{inv['id']}/thermal-pdf/")
     assert resp.status_code == 400
+
+
+# B2-001: pdf_esc() is used across every sales PDF renderer (gst_tax_invoice,
+# note_documents, thermal_receipt) and had no direct test anywhere — a
+# customer/product name with `&`/`<` in it is exactly the input that breaks
+# ReportLab's Paragraph XML if it isn't escaped.
+def test_pdf_esc_escapes_xml_special_chars():
+    from sales.pdf.helpers import pdf_esc
+
+    assert pdf_esc("R&D <Solutions> Pvt Ltd") == "R&amp;D &lt;Solutions&gt; Pvt Ltd"
+    assert pdf_esc(None) == ""
+
+
+def test_pdf_renders_with_ampersand_and_angle_bracket_in_customer_name(tenant_a):
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
+    tenant_a.company.save(update_fields=["gstin"])
+    data, _product = _complete(
+        tenant_a, customer_kwargs={"name": "R&D <Solutions> Pvt Ltd"},
+    )
+    download = tenant_a.client.get(f"/api/v1/sales/invoices/{data['id']}/pdf/")
+    assert download.status_code == 200
+    content = b"".join(download.streaming_content)
+    assert content.startswith(b"%PDF")
+    text = _pdf_text(content)
+    assert "R&D" in text
+    assert "Solutions" in text
+
+    thermal = tenant_a.client.get(f"/api/v1/sales/invoices/{data['id']}/thermal-pdf/")
+    assert thermal.status_code == 200
+    assert b"".join(thermal.streaming_content).startswith(b"%PDF")

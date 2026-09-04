@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -25,25 +26,32 @@ import {
   type Bom,
   type BomLine,
 } from '@/api/manufacturing';
-import { listProducts } from '@/api/resources';
+import { getProduct } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
+import { useProductSearch } from '@/hooks/useProductSearch';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import type { Product } from '@/types/domain';
 
 const PAGE_SIZE = 50;
 const BOM_STATUSES = ['DRAFT', 'ACTIVE', 'ARCHIVED'] as const;
 
-const emptyLine = (): BomLine => ({ component: 0, qty: '1' });
+// F2-025: the local form keeps a resolved Product alongside each line's raw
+// id so the component Autocomplete can show a name without loading the
+// entire product catalog (was listProducts() pulling every product).
+type BomLineForm = BomLine & { componentProduct?: Product | null };
+
+const emptyLine = (): BomLineForm => ({ component: 0, qty: '1', componentProduct: null });
 
 type BomForm = {
   product: number | '';
   name: string;
   status: string;
-  lines: BomLine[];
+  lines: BomLineForm[];
 };
 
 const emptyForm = (): BomForm => ({
@@ -74,15 +82,30 @@ function BomsPageInner() {
     queryKey: ['boms', page],
     queryFn: () => listBomsPage({ page, pageSize: PAGE_SIZE }),
   });
-  const productsQuery = useQuery({ queryKey: ['products'], queryFn: () => listProducts() });
+  const rows = useMemo(() => query.data?.results ?? [], [query.data]);
 
-  const productMap = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const p of productsQuery.data ?? []) map.set(p.id, p.name);
-    return map;
-  }, [productsQuery.data]);
+  // F2-025: resolve just the product names needed for the current page of
+  // rows, instead of loading the entire product catalog up front.
+  const [productMap, setProductMap] = useState<Map<number, string>>(new Map());
+  useEffect(() => {
+    const ids = Array.from(new Set(rows.map((r) => r.product))).filter((id) => !productMap.has(id));
+    if (!ids.length) return;
+    let cancelled = false;
+    void Promise.all(ids.map((id) => getProduct(id).catch(() => null))).then((resolved) => {
+      if (cancelled) return;
+      setProductMap((prev) => {
+        const next = new Map(prev);
+        for (const p of resolved) if (p) next.set(p.id, p.name);
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [rows, productMap]);
 
-  const rows = query.data?.results ?? [];
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const productSearch = useProductSearch({ selected: selectedProduct });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -110,18 +133,32 @@ function BomsPageInner() {
   const openCreate = () => {
     setEditing(null);
     setForm(emptyForm());
+    setSelectedProduct(null);
     setOpen(true);
   };
 
   const openEdit = (bom: Bom) => {
     setEditing(bom);
+    const lines: BomLineForm[] = bom.lines.length ? bom.lines.map((l) => ({ ...l, componentProduct: null })) : [emptyLine()];
     setForm({
       product: bom.product,
       name: bom.name,
       status: bom.status,
-      lines: bom.lines.length ? bom.lines.map((l) => ({ ...l })) : [emptyLine()],
+      lines,
     });
+    setSelectedProduct(null);
     setOpen(true);
+    // F2-025: resolve the assembled product + each line's component by id
+    // rather than pulling the whole catalog to find their names.
+    void getProduct(bom.product).then(setSelectedProduct).catch(() => {});
+    const ids = Array.from(new Set(lines.map((l) => l.component).filter((id) => id > 0)));
+    void Promise.all(ids.map((id) => getProduct(id).catch(() => null))).then((resolved) => {
+      const byId = new Map(resolved.filter((p): p is Product => !!p).map((p) => [p.id, p]));
+      setForm((f) => ({
+        ...f,
+        lines: f.lines.map((l) => (byId.has(l.component) ? { ...l, componentProduct: byId.get(l.component) } : l)),
+      }));
+    });
   };
 
   return (
@@ -200,20 +237,22 @@ function BomsPageInner() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {error ? <HelpErrorAlert message={error} /> : null}
-            <TextField
-              select
-              label={t('nav.products')}
-              required
-              value={form.product}
-              onChange={(e) => setForm((f) => ({ ...f, product: Number(e.target.value) }))}
-            >
-              <MenuItem value="">—</MenuItem>
-              {(productsQuery.data ?? []).map((p) => (
-                <MenuItem key={p.id} value={p.id}>
-                  {p.name}
-                </MenuItem>
-              ))}
-            </TextField>
+            <Autocomplete
+              options={productSearch.options}
+              getOptionLabel={(o: Product) => o.name}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              value={selectedProduct}
+              onChange={(_, v) => {
+                setSelectedProduct(v);
+                setForm((f) => ({ ...f, product: v?.id ?? '' }));
+              }}
+              onInputChange={(_, v) => productSearch.setProductQuery(v)}
+              filterOptions={(opts) => opts}
+              loading={productSearch.isFetching}
+              renderInput={(params) => (
+                <TextField {...params} label={t('nav.products')} required helperText={productSearch.helperText} />
+              )}
+            />
             <TextField
               label={t('common.name')}
               required
@@ -234,50 +273,28 @@ function BomsPageInner() {
             </TextField>
             <Typography variant="subtitle2">{t('erp.components')}</Typography>
             {form.lines.map((line, idx) => (
-              <Stack key={idx} direction="row" spacing={1} alignItems="center">
-                <TextField
-                  select
-                  label={t('nav.products')}
-                  sx={{ flex: 2 }}
-                  value={line.component || ''}
-                  onChange={(e) =>
-                    setForm((f) => {
-                      const lines = [...f.lines];
-                      lines[idx] = { ...lines[idx], component: Number(e.target.value) };
-                      return { ...f, lines };
-                    })
-                  }
-                >
-                  <MenuItem value="">—</MenuItem>
-                  {(productsQuery.data ?? []).map((p) => (
-                    <MenuItem key={p.id} value={p.id}>
-                      {p.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  label={t('erp.qty')}
-                  type="number"
-                  sx={{ flex: 1 }}
-                  value={line.qty}
-                  onChange={(e) =>
-                    setForm((f) => {
-                      const lines = [...f.lines];
-                      lines[idx] = { ...lines[idx], qty: e.target.value };
-                      return { ...f, lines };
-                    })
-                  }
-                />
-                <IconButton
-                  aria-label={t('common.remove')}
-                  disabled={form.lines.length <= 1}
-                  onClick={() =>
-                    setForm((f) => ({ ...f, lines: f.lines.filter((_, i) => i !== idx) }))
-                  }
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </Stack>
+              <BomLineFields
+                key={idx}
+                line={line}
+                removeDisabled={form.lines.length <= 1}
+                onChangeComponent={(p) =>
+                  setForm((f) => {
+                    const lines = [...f.lines];
+                    lines[idx] = { ...lines[idx], component: p?.id ?? 0, componentProduct: p };
+                    return { ...f, lines };
+                  })
+                }
+                onChangeQty={(qty) =>
+                  setForm((f) => {
+                    const lines = [...f.lines];
+                    lines[idx] = { ...lines[idx], qty };
+                    return { ...f, lines };
+                  })
+                }
+                onRemove={() =>
+                  setForm((f) => ({ ...f, lines: f.lines.filter((_, i) => i !== idx) }))
+                }
+              />
             ))}
             <Button
               variant="outlined"
@@ -299,6 +316,52 @@ function BomsPageInner() {
           </Button>
         </DialogActions>
       </Dialog>
+    </Stack>
+  );
+}
+
+// F2-025: one search hook instance per row (rules-of-hooks requires a real
+// component, not a per-item call inside form.lines.map).
+function BomLineFields({
+  line,
+  removeDisabled,
+  onChangeComponent,
+  onChangeQty,
+  onRemove,
+}: {
+  line: BomLineForm;
+  removeDisabled: boolean;
+  onChangeComponent: (product: Product | null) => void;
+  onChangeQty: (qty: string) => void;
+  onRemove: () => void;
+}) {
+  const search = useProductSearch({ selected: line.componentProduct ?? undefined });
+  return (
+    <Stack direction="row" spacing={1} alignItems="center">
+      <Autocomplete
+        options={search.options}
+        getOptionLabel={(o: Product) => o.name}
+        isOptionEqualToValue={(o, v) => o.id === v.id}
+        value={line.componentProduct ?? null}
+        onChange={(_, v) => onChangeComponent(v)}
+        onInputChange={(_, v) => search.setProductQuery(v)}
+        filterOptions={(opts) => opts}
+        loading={search.isFetching}
+        sx={{ flex: 2 }}
+        renderInput={(params) => (
+          <TextField {...params} label={t('nav.products')} helperText={search.helperText} />
+        )}
+      />
+      <TextField
+        label={t('erp.qty')}
+        type="number"
+        sx={{ flex: 1 }}
+        value={line.qty}
+        onChange={(e) => onChangeQty(e.target.value)}
+      />
+      <IconButton aria-label={t('common.remove')} disabled={removeDisabled} onClick={onRemove}>
+        <DeleteIcon />
+      </IconButton>
     </Stack>
   );
 }

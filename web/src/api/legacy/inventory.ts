@@ -45,9 +45,14 @@ export async function createStockAdjustment(payload: StockAdjustment): Promise<v
   }, undefined);
 }
 
-export async function createOpeningStock(payload: import('@/types/domain').OpeningStockInput): Promise<void> {
+export async function createOpeningStock(
+  payload: import('@/types/domain').OpeningStockInput,
+  options?: { idempotencyKey?: string },
+): Promise<void> {
   return withMocks(async () => {
-    await apiClient.post('/inventory/opening-stock/', payload);
+    await apiClient.post('/inventory/opening-stock/', payload, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
+    });
   }, undefined);
 }
 
@@ -73,6 +78,8 @@ export const getExpiryAlerts = (days = 30, warehouse?: number) =>
 export const writeOffExpiry = (payload: { product: number; warehouse?: number; batch: number; quantity: number }) =>
   apiClient.post('/inventory/alerts/expiry/', payload).then(({ data }) => unwrapData(data));
 export const listStockCounts = () => fetchAllPagesMasters<Record<string, unknown>>('/inventory/stock-counts/');
+export const getStockCount = (id: number) =>
+  apiClient.get(`/inventory/stock-counts/${id}/`).then(({ data }) => unwrapData<Record<string, unknown>>(data));
 export const createStockCount = (payload: Record<string, unknown>) =>
   apiClient.post('/inventory/stock-counts/', payload).then(({ data }) => unwrapData(data));
 export const updateStockCount = (id: number, payload: Record<string, unknown>) =>

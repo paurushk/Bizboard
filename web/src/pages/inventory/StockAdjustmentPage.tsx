@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -74,6 +74,7 @@ export function StockAdjustmentPage() {
   });
   const selectedWarehouseId = watch('warehouse');
   const adjustmentType = watch('adjustmentType');
+  const enteredQty = Number(watch('quantity')) || 0;
   const reasonPreset = watch('reasonPreset');
 
   const currentStockEntry = selectedProduct
@@ -84,10 +85,20 @@ export function StockAdjustmentPage() {
       )
     : null;
   const currentRecordedQty = currentStockEntry ? toNumber(currentStockEntry.onHand) : 0;
+  // F3-064: show the resulting balance live and warn when it would go negative.
+  const projectedQty =
+    currentRecordedQty + (adjustmentType === 'ADD' ? enteredQty : -enteredQty);
 
+  const warehouseSeeded = useRef(false);
   useEffect(() => {
+    // F3-014: seed the default godown ONCE — re-forcing it whenever
+    // warehouses.data re-resolves discards a manually chosen warehouse.
+    if (warehouseSeeded.current) return;
     const defaultWarehouse = warehouses.data?.find((warehouse) => warehouse.isDefault);
-    if (defaultWarehouse) setValue('warehouse', defaultWarehouse.id);
+    if (defaultWarehouse) {
+      setValue('warehouse', defaultWarehouse.id);
+      warehouseSeeded.current = true;
+    }
   }, [warehouses.data, setValue]);
 
   const mutation = useMutation({
@@ -137,7 +148,21 @@ export function StockAdjustmentPage() {
       spacing={2}
       component="form"
       noValidate
-      onSubmit={handleSubmit((values) => mutation.mutate(values))}
+      onSubmit={handleSubmit((values) => {
+        // F3-064: a REDUCE (shrinkage / theft / write-off) is destructive and
+        // irreversible without a counter-adjustment — confirm it, and spell out
+        // a resulting negative balance.
+        if (values.adjustmentType === 'REDUCE') {
+          const q = Number(values.quantity) || 0;
+          const after = currentRecordedQty - q;
+          const warn =
+            after < 0
+              ? `Reduce ${q} — the recorded balance would go to ${after} (negative). Continue?`
+              : `Reduce stock by ${q}? Recorded balance ${currentRecordedQty} → ${after}.`;
+          if (!window.confirm(warn)) return;
+        }
+        mutation.mutate(values);
+      })}
     >
       <Typography variant="h4">{t('nav.stockAdjustment')}</Typography>
       {message ? <Alert severity="success">{message}</Alert> : null}
@@ -199,11 +224,21 @@ export function StockAdjustmentPage() {
             )}
           />
           {selectedProduct ? (
-            <Alert severity="info" sx={{ py: 0.5 }}>
+            <Alert
+              severity={enteredQty > 0 && projectedQty < 0 ? 'warning' : 'info'}
+              sx={{ py: 0.5 }}
+            >
               {t('adjustments.currentRecordedBalance')}:{' '}
               <strong>
                 {currentRecordedQty} {selectedProduct.unitName || 'units'}
               </strong>
+              {enteredQty > 0 ? (
+                <>
+                  {' → '}
+                  <strong>{projectedQty}</strong>
+                  {projectedQty < 0 ? ' (would go negative)' : ''}
+                </>
+              ) : null}
             </Alert>
           ) : null}
 

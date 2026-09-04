@@ -1,12 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
-import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -15,44 +9,10 @@ import { exportReport, getPurchaseRegister } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
-import { formatMoney } from '@/utils/money';
 import { canExport } from '@/utils/permissions';
+import { downloadReportUrl, formatColumnHeader, isMoneyColumn } from '@/utils/reportFormat';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
-
-function downloadBlobUrl(url: string, filename: string) {
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
-
-function formatColumnHeader(key: string): string {
-  const customMap: Record<string, string> = {
-    invoice_number: 'Invoice No.',
-    invoice_date: 'Date',
-    bill_number: 'Bill No.',
-    customer_name: 'Customer',
-    supplier_name: 'Supplier',
-    grand_total: 'Total Amount',
-    taxable_amount: 'Taxable Amt',
-    cgst_amount: 'CGST',
-    sgst_amount: 'SGST',
-    igst_amount: 'IGST',
-    total_tax: 'Total Tax',
-    net_total: 'Net Total',
-    due_date: 'Due Date',
-    payment_status: 'Payment Status',
-    party_gstin: 'GSTIN',
-  };
-  if (customMap[key]) return customMap[key];
-  return key
-    .replace(/_/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
+import { DataTable } from '@/pages/phase/phaseShared';
 
 export function PurchaseReportPage() {
   const { user } = useAuth();
@@ -67,8 +27,20 @@ export function PurchaseReportPage() {
   const exportMutation = useMutation({
     mutationFn: () =>
       exportReport('purchases', { dateFrom: dateFrom || undefined, dateTo: dateTo || undefined }),
-    onSuccess: (r) => downloadBlobUrl(r.url, 'purchase-register.csv'),
+    onSuccess: (r) => downloadReportUrl(r.url, 'purchase-register.csv'),
   });
+
+  // F3-017: an unbounded date range can return the entire register —
+  // window the DOM rows via phaseShared.DataTable's virtualized mode.
+  const columns = useMemo(
+    () =>
+      (query.data?.rows?.[0] ? Object.keys(query.data.rows[0]) : []).map((key) => ({
+        key,
+        label: formatColumnHeader(key),
+        money: isMoneyColumn(key),
+      })),
+    [query.data?.rows],
+  );
 
   return (
     <Stack spacing={2}>
@@ -111,34 +83,7 @@ export function PurchaseReportPage() {
       ) : null}
       {query.data?.rows?.length === 0 ? <EmptyState description={t('empty.reports')} /> : null}
       {query.data && query.data.rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                {Object.keys(query.data.rows[0]).map((key) => (
-                  <TableCell key={key}>{formatColumnHeader(key)}</TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {query.data.rows.map((row, idx) => (
-                <TableRow key={idx}>
-                  {Object.entries(row).map(([key, value]) => (
-                    <TableCell key={key}>
-                      {/* UXW2B-006: "id"/"...Id" columns are plain numbers, not money — don't
-                          run them through the currency formatter just because they're numeric. */}
-                      {!/(^id$|Id$)/.test(key) &&
-                      (typeof value === 'number' ||
-                        (typeof value === 'string' && /total|amount|tax/i.test(key)))
-                        ? formatMoney(value as string | number)
-                        : String(value ?? '—')}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Paper>
+        <DataTable rows={query.data.rows} columns={columns} empty={t('empty.reports')} virtualized />
       ) : null}
     </Stack>
   );

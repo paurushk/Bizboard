@@ -41,6 +41,7 @@ import {
   downloadInvoiceThermalPdf,
   getCompany,
   getCustomer,
+  getSalesInvoice,
   getUpiQr,
   listCustomersPage,
   listPriceLists,
@@ -287,10 +288,19 @@ export function PosPage() {
 
   const intraState = useMemo(() => {
     const party = selectedCustomer.data;
-    return isIntraState(company.data?.gstin ?? company.data?.state, party?.gstin ?? party?.state, {
-      assumeLocalStateForBlankParty: !!company.data?.assumeLocalStateForBlankParty,
-    });
-  }, [company.data, selectedCustomer.data]);
+    const resolved = isIntraState(
+      company.data?.gstin ?? company.data?.state,
+      party?.gstin ?? party?.state,
+      { assumeLocalStateForBlankParty: !!company.data?.assumeLocalStateForBlankParty },
+    );
+    // F2-027: a blank-place-of-supply walk-in RETAIL sale is completed with
+    // confirmBlankPos, and the server then applies assume-local (CGST+SGST).
+    // Show that tax in the tender panel so the displayed total matches what
+    // will actually post — otherwise the cash receipt is booked larger than
+    // the cash taken (till shortage on every such sale).
+    if (resolved === null && taxEnabled) return true;
+    return resolved;
+  }, [company.data, selectedCustomer.data, taxEnabled]);
 
   const isInclusive = company.data?.priceMode === 'INCLUSIVE';
 
@@ -381,10 +391,11 @@ export function PosPage() {
     } catch {
       matches = (products.data ?? []).filter((p) => p.status === 'ACTIVE');
     }
+    // F2-052: only auto-add on an exact barcode/SKU hit. A partial search that
+    // happens to return a single fuzzy match must NOT be added silently.
     const exact =
       matches.find((p) => (p.barcode ?? '').toLowerCase() === q.toLowerCase()) ??
-      matches.find((p) => p.sku.toLowerCase() === q.toLowerCase()) ??
-      (matches.length === 1 ? matches[0] : undefined);
+      matches.find((p) => p.sku.toLowerCase() === q.toLowerCase());
     if (exact) {
       addProduct(exact);
       return;
@@ -499,15 +510,55 @@ export function PosPage() {
       );
       try {
         const started = Date.now();
-        const completedInv = await completeSalesInvoice(invoice.id, { confirmBlankPos });
+        // F2-004: a stable key derived from the create key means a retry
+        // that reaches the server again (rather than minting a fresh key,
+        // see `checkout`) replays the already-completed response instead
+        // of erroring on "already completed".
+        const completedInv = await completeSalesInvoice(invoice.id, {
+          confirmBlankPos,
+          idempotencyKey: key ? `${key}-complete` : undefined,
+        });
         trackInvoiceComplete(Date.now() - started);
         return completedInv;
       } catch (err) {
+        // F2-004: `completeSalesInvoice` may have actually succeeded
+        // server-side with the response lost in transit (the flaky
+        // connection POS is built for). Blindly deleting + rethrowing used
+        // to strand that now-COMPLETED-but-unpaid invoice: the cashier's
+        // retry then minted a brand-new idempotency key (`checkout` always
+        // does), creating a *second* completed invoice — double stock
+        // decrement, and the first invoice never got a receipt/allocation.
+        // Probe the invoice's own status before deciding.
+        let existing;
         try {
-          await deleteSalesInvoice(invoice.id);
+          existing = await getSalesInvoice(invoice.id);
         } catch {
-          /* leftover draft if delete is blocked */
+          /* can't confirm either way -- handled below */
         }
+        if (existing?.status === 'COMPLETED') {
+          return existing;
+        }
+        if (existing) {
+          // Confirmed still DRAFT -- genuinely failed, safe to clean up.
+          try {
+            await deleteSalesInvoice(invoice.id);
+          } catch {
+            /* leftover draft if delete is blocked */
+          }
+          throw err;
+        }
+        // Status truly unknown (the probe itself failed too, e.g. still
+        // offline) -- don't guess. Deleting could discard a real sale and
+        // a blind cart retry could double-charge, so surface it the same
+        // way the UPI "collect later" path does instead of silently
+        // erroring: the cashier can look it up and finish it manually.
+        const recovered = unpaidRecoverFromAbort({
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.number,
+        });
+        if (recovered) setUnpaidRecover(recovered);
+        setCart([]);
+        setIdempotencyKey(null);
         throw err;
       }
     },
@@ -1230,13 +1281,26 @@ export function PosPage() {
               {[100, 200, 500, 2000].map((amt) => (
                 <Chip
                   key={amt}
-                  label={`₹${amt}`}
+                  label={`+₹${amt}`}
                   size="small"
                   clickable
-                  onClick={() => setCashTendered(amt)}
-                  color={cashTendered === amt ? 'primary' : 'default'}
+                  // F2-051: notes build up the tender (500 + 500) — additive,
+                  // not absolute, so an ₹850 bill isn't dropped below total.
+                  onClick={() =>
+                    setCashTendered((prev) => {
+                      const base = prev === '' ? 0 : toNumber(prev);
+                      return base + amt;
+                    })
+                  }
                 />
               ))}
+              <Chip
+                label={t('common.clear')}
+                size="small"
+                clickable
+                variant="outlined"
+                onClick={() => setCashTendered('')}
+              />
             </Stack>
             <Stack direction="row" justifyContent="space-between">
               <Typography color="text.secondary">{t('pos.change')}</Typography>
@@ -1282,6 +1346,11 @@ export function PosPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
             {t('pos.confirmBlankPosBody')}
           </Typography>
+          {taxEnabled ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              {t('pos.confirmBlankPosTaxNote')}
+            </Typography>
+          ) : null}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setBlankPosMode(null)}>{t('common.cancel')}</Button>

@@ -83,23 +83,19 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
     created_new = False
     snapshot = None
     if sub is None:
-        if live_razorpay:
-            sub = Subscription.objects.create(
-                company=company,
-                plan=plan,
-                status=Subscription.Status.PENDING,
-                current_period_end=None,
-                trial_ends_at=None,
-            )
-        else:
-            days = int(getattr(settings, "BILLING_TRIAL_DAYS", 14) or 14)
-            sub = Subscription.objects.create(
-                company=company,
-                plan=plan,
-                status=Subscription.Status.TRIAL,
-                current_period_end=None,
-                trial_ends_at=now + timedelta(days=days),
-            )
+        # B9-017: a brand-new subscription starts on a short TRIAL, not PENDING —
+        # a webhook that never lands then just lets the trial expire on schedule
+        # instead of permanently write-blocking a tenant who paid.
+        days = int(
+            getattr(settings, "BILLING_CHECKOUT_TRIAL_DAYS", 3) or 3
+        ) if live_razorpay else int(getattr(settings, "BILLING_TRIAL_DAYS", 14) or 14)
+        sub = Subscription.objects.create(
+            company=company,
+            plan=plan,
+            status=Subscription.Status.TRIAL,
+            current_period_end=None,
+            trial_ends_at=now + timedelta(days=days),
+        )
         created_new = True
     else:
         snapshot = (sub.status, sub.current_period_end, sub.trial_ends_at, sub.plan_id)
@@ -116,6 +112,7 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
 
     checkout_order_id = stub_order
     if razorpay_key and razorpay_secret and plan.razorpay_plan_id:
+        prior_remote_id = (sub.razorpay_subscription_id or "").strip()
         try:
             remote_id = _create_razorpay_subscription(plan, company)
         except Exception:
@@ -126,6 +123,10 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
                 sub.save(update_fields=["plan", "status", "current_period_end", "trial_ends_at", "updated_at"])
             raise
         if remote_id:
+            # B9-001: retire the old Razorpay subscription so the customer is
+            # not billed on two subscriptions after a plan switch.
+            if prior_remote_id and prior_remote_id != remote_id:
+                _cancel_razorpay_subscription(prior_remote_id, at_cycle_end=True)
             sub.plan = plan
             sub.razorpay_subscription_id = remote_id
             if sub.status not in live:
@@ -169,6 +170,40 @@ def _create_razorpay_subscription(plan: Plan, company) -> str:
 
         raise BusinessRuleError("Could not create Razorpay subscription. Try again or contact support.") from exc
     return str(payload.get("id") or "")
+
+
+def _cancel_razorpay_subscription(subscription_id: str, *, at_cycle_end: bool = True) -> None:
+    """B9-001: cancel the tenant's previous Razorpay subscription so a plan
+    switch does not leave two subscriptions billing the same customer. Best
+    effort — a failure here must not block the new subscription."""
+    import base64
+    import json
+    from urllib.request import Request, urlopen
+
+    sid = (subscription_id or "").strip()
+    key = (getattr(settings, "RAZORPAY_KEY_ID", "") or "").strip()
+    secret = (getattr(settings, "RAZORPAY_KEY_SECRET", "") or "").strip()
+    if not sid or not key or not secret:
+        return
+    body = json.dumps({"cancel_at_cycle_end": 1 if at_cycle_end else 0}).encode("utf-8")
+    req = Request(
+        f"https://api.razorpay.com/v1/subscriptions/{sid}/cancel",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Basic " + base64.b64encode(f"{key}:{secret}".encode()).decode(),
+        },
+    )
+    try:
+        with urlopen(req, timeout=15):  # noqa: S310 — fixed Razorpay HTTPS URL
+            pass
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Could not cancel prior Razorpay subscription %s", sid
+        )
 
 
 def apply_razorpay_subscription_status(

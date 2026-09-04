@@ -106,7 +106,22 @@ def rls_bypass():
 def clear_all_rls_gucs() -> None:
     """Reset every RLS session GUC — called by middleware at the end of a request
     so a pooled connection never carries one tenant's context into the next.
+
+    B6-002: clear each GUC independently. A failure resetting one must not skip
+    the others — a pooled connection still carrying `app.rls_bypass=1` or
+    `app.help_staff_all=1` would serve the next request with isolation
+    effectively disabled. `DISCARD ALL` is a backstop when any reset raised.
     """
-    set_rls_company(None)
-    set_help_staff_all(False)
-    set_rls_bypass(False)
+    failed = False
+    for fn, arg in ((set_rls_company, None), (set_help_staff_all, False), (set_rls_bypass, False)):
+        try:
+            fn(arg)
+        except Exception:
+            failed = True
+            logger.exception("clear_all_rls_gucs: %s failed", getattr(fn, "__name__", fn))
+    if failed and getattr(settings, "POSTGRES_RLS_ENABLED", False) and connection.vendor == "postgresql":
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("DISCARD ALL")
+        except Exception:
+            logger.exception("clear_all_rls_gucs: DISCARD ALL backstop failed")

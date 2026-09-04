@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
+import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
@@ -24,14 +25,15 @@ import { getErrorMessage, newIdempotencyKey } from '@/api/client';
 import {
   answerImportClarifications,
   commitImport,
+  getCustomer,
   getImportJob,
-  listCustomers,
-  listSuppliers,
+  getSupplier,
   retryImportExtract,
   updateImportPreview,
   uploadImport,
 } from '@/api/resources';
 import { StatusChip } from '@/components/StatusChip';
+import { useCustomerSearch, useSupplierSearch } from '@/hooks/usePartySearch';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { t } from '@/i18n';
 import type {
@@ -106,14 +108,15 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
   const isSales = kind === 'SALES_BILL';
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const partyQuery = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: [isSales ? 'customers' : 'suppliers'],
-    queryFn: () => (isSales ? listCustomers() : listSuppliers()),
-  });
-
+  // F2-025: search-as-you-type party picker instead of loading every
+  // customer/supplier up front.
   const [uploadMode, setUploadMode] = useState<'photo' | 'structured'>('photo');
   const [file, setFile] = useState<File | null>(null);
-  const [partyId, setPartyId] = useState<number | ''>('');
+  const [party, setParty] = useState<{ id: number; name: string } | null>(null);
+  const partyId = party?.id ?? '';
+  const customerSearch = useCustomerSearch({ selected: isSales ? party : undefined });
+  const supplierSearch = useSupplierSearch({ selected: !isSales ? party : undefined });
+  const partySearch = isSales ? customerSearch : supplierSearch;
   const [jobId, setJobId] = useState<number | null>(null);
   const [lines, setLines] = useState<PurchaseBillLinePreview[]>([]);
   const [billNumber, setBillNumber] = useState('');
@@ -145,8 +148,12 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     setLines(toPreviewLines(job.preview));
     setBillNumber(job.preview.billNumber ?? '');
     setBillDate(job.preview.billDate ?? '');
-    const party = isSales ? job.customer : job.supplier;
-    if (party) setPartyId(party);
+    const detectedPartyId = isSales ? job.customer : job.supplier;
+    if (detectedPartyId) {
+      void (isSales ? getCustomer(detectedPartyId) : getSupplier(detectedPartyId))
+        .then((p) => setParty(p))
+        .catch(() => {});
+    }
   }, [job, isSales]);
 
   const uploadMutation = useMutation({
@@ -213,11 +220,15 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
         billDate,
         lines: payloadLines,
       });
-      return commitImport(jobId, {
-        billNumber,
-        billDate,
-        lines: payloadLines,
-      });
+      return commitImport(
+        jobId,
+        {
+          billNumber,
+          billDate,
+          lines: payloadLines,
+        },
+        { idempotencyKey: commitKeyRef.current.key || undefined },
+      );
     },
     onSuccess: (result) => {
       const purchaseId =
@@ -250,7 +261,24 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     [uploadMutation.isPending, job?.status, jobId, jobQuery.isLoading],
   );
 
-  const includedCount = lines.filter((l) => l.include !== false).length;
+  const includedLines = lines.filter((l) => l.include !== false);
+  const includedCount = includedLines.length;
+  // F2-021: every included line must have a name, a positive qty and a
+  // non-negative price before the commit is allowed — otherwise blank/zero
+  // lines commit as zero-value invoice lines.
+  const invalidIncludedCount = includedLines.filter(
+    (l) =>
+      !String(l.name ?? '').trim() ||
+      !(Number(l.quantity) > 0) ||
+      !(Number(l.unitPrice) >= 0) ||
+      Number.isNaN(Number(l.unitPrice)),
+  ).length;
+  // one stable idempotency key per job so a retry after the button re-enables
+  // doesn't create a second draft.
+  const commitKeyRef = useRef<{ jobId: number | null; key: string }>({ jobId: null, key: '' });
+  if (jobId != null && commitKeyRef.current.jobId !== jobId) {
+    commitKeyRef.current = { jobId, key: `import-commit-${jobId}-${newIdempotencyKey()}` };
+  }
   const flaggedIndices = useMemo(
     () => lines.map((l, i) => (l.flags && l.flags.length > 0 ? i : -1)).filter((i) => i >= 0),
     [lines],
@@ -268,7 +296,19 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
         const next = { ...l, ...patch };
         if ('cs' in patch || 'pcs' in patch || 'upc' in patch) {
           const billed = billedFromPack(next.cs, next.pcs, next.upc);
-          if (billed != null) next.quantity = billed;
+          if (billed != null) {
+            const hasQty = next.quantity != null && String(next.quantity).trim() !== '' && Number(next.quantity) !== 0;
+            if (!hasQty) {
+              // F2-020: only auto-fill when the quantity is blank.
+              next.quantity = billed;
+              next.packQtyHint = undefined;
+            } else if (Number(billed) !== Number(next.quantity)) {
+              // otherwise offer it as a suggestion, don't overwrite.
+              next.packQtyHint = billed;
+            } else {
+              next.packQtyHint = undefined;
+            }
+          }
         }
         return next;
       }),
@@ -353,20 +393,25 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
             </Typography>
           ) : null}
 
-          <TextField
-            select
-            label={t(isSales ? 'billUpload.customerHint' : 'billUpload.supplierHint')}
-            value={partyId === '' ? '' : String(partyId)}
-            onChange={(e) => setPartyId(e.target.value === '' ? '' : Number(e.target.value))}
+          <Autocomplete
+            options={partySearch.options}
+            getOptionLabel={(o: { id: number; name: string }) => o.name}
+            isOptionEqualToValue={(o, v) => o.id === v.id}
+            value={party}
+            onChange={(_, v) => setParty(v)}
+            onInputChange={(_, v) => partySearch.setQuery(v)}
+            filterOptions={(opts) => opts}
+            loading={partySearch.isFetching}
             sx={{ maxWidth: 420 }}
-          >
-            <MenuItem value="">— Auto from bill / create —</MenuItem>
-            {(partyQuery.data ?? []).map((p) => (
-              <MenuItem key={p.id} value={String(p.id)}>
-                {p.name}
-              </MenuItem>
-            ))}
-          </TextField>
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label={t(isSales ? 'billUpload.customerHint' : 'billUpload.supplierHint')}
+                placeholder="— Auto from bill / create —"
+                helperText={!partySearch.enabled ? t('common.typeToSearch') : undefined}
+              />
+            )}
+          />
 
           <input
             ref={fileInputRef}
@@ -618,8 +663,20 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                           <TableRow
                             key={idx}
                             hover
+                            // F2-047: the collapsed row expands on click — make it
+                            // reachable and operable from the keyboard too.
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={false}
+                            aria-label={t('billUpload.expandRow')}
                             sx={{ cursor: 'pointer' }}
                             onClick={() => setExpandedRows((prev) => new Set(prev).add(idx))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setExpandedRows((prev) => new Set(prev).add(idx));
+                              }
+                            }}
                           >
                             <TableCell>{line.si || idx + 1}</TableCell>
                             <TableCell padding="checkbox">
@@ -720,6 +777,18 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                               onChange={(e) => updateLine(idx, { quantity: e.target.value })}
                               sx={{ width: 90 }}
                             />
+                            {line.packQtyHint ? (
+                              <Typography
+                                variant="caption"
+                                color="warning.main"
+                                sx={{ display: 'block', cursor: 'pointer', mt: 0.25 }}
+                                onClick={() =>
+                                  updateLine(idx, { quantity: line.packQtyHint, packQtyHint: undefined })
+                                }
+                              >
+                                pack = {line.packQtyHint} · apply
+                              </Typography>
+                            ) : null}
                           </TableCell>
                           <TableCell align="right">
                             <TextField
@@ -763,11 +832,20 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
               <Button
                 variant="contained"
                 color="secondary"
-                disabled={includedCount === 0 || commitMutation.isPending}
+                disabled={
+                  includedCount === 0 ||
+                  invalidIncludedCount > 0 ||
+                  commitMutation.isPending
+                }
                 onClick={() => commitMutation.mutate()}
               >
                 {t(isSales ? 'billUpload.commitDraftSales' : 'billUpload.commitDraft')}
               </Button>
+              {invalidIncludedCount > 0 ? (
+                <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                  {invalidIncludedCount} included line(s) need a name, a quantity &gt; 0 and a valid price.
+                </Typography>
+              ) : null}
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 {t(isSales ? 'billUpload.commitDraftHintSales' : 'billUpload.commitDraftHint')}
               </Typography>

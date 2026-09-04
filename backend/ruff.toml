@@ -4,5 +4,20 @@ exclude = ["**/migrations/**", "test_media/**"]
 
 [lint]
 # Keep CI green while catching real mistakes; expand rules gradually.
-select = ["E9", "F63", "F7", "F82", "F401", "F811"]
-ignore = ["E741"]
+# M1-037: added bugbear (B) + bandit (S), which the rule set previously had no
+# coverage from at all. Every rule below is currently zero-violation in this
+# repo; the ones left out (B009/B017/B023/B904/B905, S101/S105/S106/S107/S110/
+# S112/S310) each have real, non-trivial hits — mostly in test fixtures
+# (S101 asserts) but some in production code (S110 try/except/pass,
+# S310 urlopen, hardcoded test credentials). Enabling those needs a dedicated
+# cleanup pass per rule, not a drive-by config change; don't add them here
+# without fixing (or file-scoping) their existing hits first.
+select = [
+    "E9", "F63", "F7", "F82", "F401", "F811",
+    "B", "S",
+]
+ignore = [
+    "E741",
+    "B009", "B017", "B023", "B904", "B905",
+    "S101", "S105", "S106", "S107", "S110", "S112", "S310",
+]

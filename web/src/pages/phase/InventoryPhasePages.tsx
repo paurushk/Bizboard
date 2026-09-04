@@ -17,6 +17,7 @@ import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { PreventionNote } from '@/pages/help/PreventionNote';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
@@ -28,6 +29,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { enqueueDraft } from '@/offline/invoiceDraftCache';
 import { useStockOffline } from '@/pages/inventory/useStockOffline';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { codeFromName } from '@/utils/codeGen';
 import {
   asRows,
   DataTable,
@@ -44,7 +46,7 @@ export function WarehousesPage() {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const create = useMutation({
-    mutationFn: () => api.createWarehouse({ name, code: code || name.slice(0, 8).toUpperCase() }),
+    mutationFn: () => api.createWarehouse({ name, code: code || codeFromName(name) }),
     onSuccess: () => {
       setOpen(false);
       setName('');
@@ -187,7 +189,11 @@ export function StockTransferPage() {
       }
       return api.completeTransfer(id, { idempotencyKey: `stock-transfer-${id}` });
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['transfers'] }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['transfers'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   const cancel = useMutation({
     mutationFn: (id: number) => api.cancelTransfer(id),
@@ -345,13 +351,20 @@ export function ExpiryAlertsPage() {
     queryFn: () => api.getExpiryAlerts(days, warehouseId ? Number(warehouseId) : undefined),
   });
   const writeOff = useMutation({
-    mutationFn: (row: Row) =>
-      api.writeOffExpiry({
+    mutationFn: (row: Row) => {
+      // F3-037: never fall back to the alert row's own id as the batch — that
+      // writes off against the wrong lot (or 400s). Require an explicit batch.
+      const batchId = Number(row.batch);
+      if (!batchId) {
+        return Promise.reject(new Error(t('inventory.writeoffNoBatch')));
+      }
+      return api.writeOffExpiry({
         product: Number(row.product),
         warehouse: Number(row.warehouse) || undefined,
-        batch: Number(row.batch || row.id),
+        batch: batchId,
         quantity: Number(row.onHand || row.quantity || 0),
-      }),
+      });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['expiry-alerts'] });
       void qc.invalidateQueries({ queryKey: ['stock'] });
@@ -408,7 +421,12 @@ export function ExpiryAlertsPage() {
           <Button
             size="small"
             color="warning"
-            disabled={writesBlocked || writeOff.isPending || Number(row.onHand || 0) <= 0}
+            disabled={
+              writesBlocked ||
+              writeOff.isPending ||
+              Number(row.onHand || 0) <= 0 ||
+              !Number(row.batch)
+            }
             onClick={() => {
               if (!window.confirm(t('inventory.confirmWriteoff'))) return;
               writeOff.mutate(row);
@@ -426,13 +444,18 @@ export function SerialsPage() {
   const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState('');
+  const [error, setError] = useState('');
   const query = useQuery({
     queryKey: ['serials', statusFilter],
     queryFn: () => api.listSerials(statusFilter ? { status: statusFilter } : undefined),
   });
   const transition = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) => api.transitionSerial(id, { status }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['serials'] }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['serials'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   // UXW2B-017: show the resolved names the API now joins instead of raw FK ids.
   const rows = asRows(query.data).map((r) => ({
@@ -464,9 +487,13 @@ export function SerialsPage() {
         </TextField>
       }
     >
+      {error ? <HelpErrorAlert message={error} /> : null}
       <DataTable
         rows={rows}
         empty="No serials recorded."
+        // F3-016: listSerials() walks every serial number tracked —
+        // window the DOM rows instead of rendering them all at once.
+        virtualized
         columns={[
           { key: 'serialNumber', label: 'Serial' },
           { key: 'product', label: 'Product' },
@@ -540,6 +567,9 @@ export function StockValuationPage() {
       <DataTable
         rows={items}
         empty="No valuation rows."
+        // F3-016: one row per product/batch across the whole company —
+        // window the DOM rows instead of rendering them all at once.
+        virtualized
         columns={[
           { key: 'productName', label: 'Product' },
           { key: 'warehouseName', label: 'Godown' },
@@ -562,11 +592,14 @@ export function PriceListsPage() {
   });
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [slabError, setSlabError] = useState('');
   const [edit, setEdit] = useState<{
     id: number;
     name: string;
     items: { product: string; minQty: string; maxQty: string; unitPrice: string }[];
   } | null>(null);
+  // F3-015: JSON-diff baseline for the slab-editor unsaved-changes guard.
+  const [editBaselineJson, setEditBaselineJson] = useState('');
   const create = useMutation({
     mutationFn: () => api.createPriceList({ name }),
     onSuccess: () => {
@@ -574,26 +607,55 @@ export function PriceListsPage() {
       setName('');
       void qc.invalidateQueries({ queryKey: ['price-lists'] });
     },
+    onError: (e) => setSlabError(getErrorMessage(e)),
   });
+  // F3-028: validate slab rows and block the save with a message instead of
+  // silently dropping the bad ones; also flag overlapping qty ranges.
+  const validateSlabs = (rows: { product: string; minQty: string; maxQty: string; unitPrice: string }[]): string => {
+    const problems: string[] = [];
+    const byProduct = new Map<string, { lo: number; hi: number }[]>();
+    rows.forEach((row, i) => {
+      const n = i + 1;
+      if (!Number(row.product)) problems.push(`Row ${n}: pick a product`);
+      const price = Number(row.unitPrice);
+      if (row.unitPrice.trim() === '' || Number.isNaN(price) || price < 0)
+        problems.push(`Row ${n}: unit price must be a number ≥ 0`);
+      const lo = Number(row.minQty || 1);
+      const hi = row.maxQty.trim() === '' ? Number.POSITIVE_INFINITY : Number(row.maxQty);
+      if (Number.isNaN(lo) || lo < 1) problems.push(`Row ${n}: min qty must be ≥ 1`);
+      if (!Number.isNaN(hi) && hi < lo) problems.push(`Row ${n}: max qty is below min qty`);
+      if (Number(row.product) && !Number.isNaN(lo) && !Number.isNaN(hi)) {
+        const list = byProduct.get(row.product) ?? [];
+        if (list.some((r) => lo <= r.hi && hi >= r.lo)) {
+          problems.push(`Row ${n}: qty range overlaps another slab for this product`);
+        }
+        list.push({ lo, hi });
+        byProduct.set(row.product, list);
+      }
+    });
+    return problems.join('; ');
+  };
   const save = useMutation({
     mutationFn: () => {
       if (!edit) return Promise.reject(new Error('No list'));
+      const msg = validateSlabs(edit.items);
+      if (msg) return Promise.reject(new Error(msg));
       return api.updatePriceList(edit.id, {
         name: edit.name,
-        items: edit.items
-          .filter((row) => Number(row.product) && Number(row.unitPrice) >= 0)
-          .map((row) => ({
-            product: Number(row.product),
-            minQty: Number(row.minQty || 1),
-            maxQty: row.maxQty.trim() === '' ? null : Number(row.maxQty),
-            unitPrice: Number(row.unitPrice),
-          })),
+        items: edit.items.map((row) => ({
+          product: Number(row.product),
+          minQty: Number(row.minQty || 1),
+          maxQty: row.maxQty.trim() === '' ? null : Number(row.maxQty),
+          unitPrice: Number(row.unitPrice),
+        })),
       });
     },
     onSuccess: () => {
       setEdit(null);
+      setSlabError('');
       void qc.invalidateQueries({ queryKey: ['price-lists'] });
     },
+    onError: (e) => setSlabError(getErrorMessage(e)),
   });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
@@ -627,8 +689,8 @@ export function PriceListsPage() {
             size="small"
             variant="outlined"
             disabled={writesBlocked}
-            onClick={() =>
-              setEdit({
+            onClick={() => {
+              const next = {
                 id: row.id,
                 name: row.name ?? '',
                 items: (row.items ?? []).map((item) => ({
@@ -637,8 +699,10 @@ export function PriceListsPage() {
                   maxQty: item.maxQty == null && item.max_qty == null ? '' : String(item.maxQty ?? item.max_qty),
                   unitPrice: String(item.unitPrice ?? item.unit_price ?? ''),
                 })),
-              })
-            }
+              };
+              setEdit(next);
+              setEditBaselineJson(JSON.stringify(next));
+            }}
           >
             Edit {row.name}
           </Button>
@@ -656,6 +720,7 @@ export function PriceListsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <UnsavedChangesGuard when={Boolean(edit) && JSON.stringify(edit) !== editBaselineJson} />
       <Dialog open={Boolean(edit)} onClose={() => setEdit(null)} fullWidth maxWidth="md">
         <DialogTitle>Qty slabs — {edit?.name}</DialogTitle>
         <DialogContent>
@@ -677,6 +742,11 @@ export function PriceListsPage() {
                     )
                   }
                   sx={{ minWidth: 220 }}
+                  helperText={
+                    (products.data?.count ?? 0) > productRows.length
+                      ? `first ${productRows.length} of ${products.data?.count} shown`
+                      : undefined
+                  }
                 >
                   {productRows.map((p) => (
                     <MenuItem key={p.id} value={String(p.id)}>
@@ -721,8 +791,24 @@ export function PriceListsPage() {
                     )
                   }
                 />
+                <Button
+                  color="error"
+                  size="small"
+                  onClick={() =>
+                    setEdit((cur) =>
+                      cur ? { ...cur, items: cur.items.filter((_, i) => i !== idx) } : cur,
+                    )
+                  }
+                >
+                  Remove
+                </Button>
               </Stack>
             ))}
+            {slabError ? (
+              <Alert severity="error" onClose={() => setSlabError('')}>
+                {slabError}
+              </Alert>
+            ) : null}
             <Button
               onClick={() =>
                 setEdit((cur) =>

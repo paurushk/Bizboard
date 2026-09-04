@@ -23,6 +23,26 @@ logger = logging.getLogger(__name__)
 OPEN_SALES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
 
 
+def _company_localtime(company):
+    """B9-031: wall-clock "now" in the company's locale.
+
+    Every current tenant is in ``settings.TIME_ZONE`` (Asia/Kolkata), so this
+    returns the server-local time today. It is the single seam to change when a
+    per-company timezone field is added — the 6pm NO_SALES_TODAY cutoff and the
+    ``as_of == now.date()`` day-boundary check must key off it, not a bare
+    ``timezone.localtime()`` scattered through the module.
+    """
+    tzname = getattr(company, "timezone", None) or getattr(company, "time_zone", None)
+    if tzname:
+        try:
+            from zoneinfo import ZoneInfo
+
+            return timezone.localtime(timezone=ZoneInfo(str(tzname)))
+        except Exception:  # noqa: BLE001 — bad tz string falls back to server zone
+            pass
+    return timezone.localtime()
+
+
 def _alert(code, severity, message, **extra):
     row = {"code": code, "severity": severity, "message": message}
     row.update(extra)
@@ -127,7 +147,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
     prior_sales = SalesInvoice.objects.filter(
         company=company, status__in=OPEN_SALES,
     ).exists()
-    now = timezone.localtime()
+    now = _company_localtime(company)
     if prior_sales and sales_today == 0 and now.hour >= 18 and as_of == now.date():
         alerts.append(_alert(
             "NO_SALES_TODAY",

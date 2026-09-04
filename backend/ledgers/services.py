@@ -367,7 +367,10 @@ class LedgerService:
         return _floor_outstanding(raw, kind="customer", ref=getattr(customer, "pk", customer))
 
     @staticmethod
-    def bulk_customer_outstanding(company) -> dict:
+    def bulk_customer_outstanding(company, *, floor: bool = True) -> dict:
+        # B1-027: `floor=False` returns the raw per-party net (can be negative
+        # for a customer in credit) — used by reconciliation surfaces that need
+        # a company total that actually ties to the 1200 control account.
         if LedgerService._use_gl_outstanding(company):
             from accounting.models import JournalEntry, JournalLine
             from collections import defaultdict
@@ -385,6 +388,8 @@ class LedgerService:
             )
             for row in rows:
                 nets[row["customer_id"]] += (row["d"] or Decimal("0")) - (row["c"] or Decimal("0"))
+            if not floor:
+                return dict(nets)
             return {k: max(Decimal("0"), v) for k, v in nets.items()}
         invoices = dict(
             SalesInvoice.objects.filter(company=company, status__in=OPEN_SALES_STATUSES)
@@ -425,30 +430,47 @@ class LedgerService:
             .values_list("sales_invoice__customer_id", "total")
         )
         customer_ids = set(invoices) | set(credit_notes) | set(debit_notes) | set(allocated)
-        return {
-            cid: max(
-                Decimal("0"),
+        nets = {
+            cid: (
                 (invoices.get(cid) or Decimal("0"))
                 - (credit_notes.get(cid) or Decimal("0"))
                 + (debit_notes.get(cid) or Decimal("0"))
-                - (allocated.get(cid) or Decimal("0")),
+                - (allocated.get(cid) or Decimal("0"))
             )
             for cid in customer_ids
         }
+        if not floor:
+            return nets
+        return {cid: max(Decimal("0"), v) for cid, v in nets.items()}
 
     @staticmethod
     def company_receivables(company) -> Decimal:
         """Company-wide AR for dashboards (GAP-002). R2-018: this sums the
         per-party figures which are each floored at 0, so it will read HIGHER
         than the 1200 control-account balance whenever a customer is in credit.
-        For GL reconciliation use BooksHealthService.control_balances()['ar']."""
+        For GL reconciliation use BooksHealthService.control_balances()['ar'],
+        or company_receivables_unfloored() below (B1-027)."""
         return sum(LedgerService.bulk_customer_outstanding(company).values(), Decimal("0"))
 
     @staticmethod
     def company_payables(company) -> Decimal:
         """Company-wide AP for dashboards (GAP-002). R2-018: see
-        company_receivables — floored per-party; reconcile via control_balances()."""
+        company_receivables — floored per-party; reconcile via control_balances()
+        or company_payables_unfloored() below (B1-027)."""
         return sum(LedgerService.bulk_supplier_outstanding(company).values(), Decimal("0"))
+
+    @staticmethod
+    def company_receivables_unfloored(company) -> Decimal:
+        """B1-027: un-floored company AR — sums each party's raw net (a
+        customer in credit contributes negatively), so this ties to the 1200
+        control-account balance. Use on reconciliation surfaces; the dashboard
+        KPI should keep using company_receivables()."""
+        return sum(LedgerService.bulk_customer_outstanding(company, floor=False).values(), Decimal("0"))
+
+    @staticmethod
+    def company_payables_unfloored(company) -> Decimal:
+        """B1-027: un-floored company AP counterpart — ties to 2100."""
+        return sum(LedgerService.bulk_supplier_outstanding(company, floor=False).values(), Decimal("0"))
 
     @staticmethod
     def customer_statement(company, customer, date_from=None, date_to=None):
@@ -672,7 +694,8 @@ class LedgerService:
         return _floor_outstanding(raw, kind="supplier", ref=getattr(supplier, "pk", supplier))
 
     @staticmethod
-    def bulk_supplier_outstanding(company) -> dict:
+    def bulk_supplier_outstanding(company, *, floor: bool = True) -> dict:
+        # B1-027: `floor=False` returns the raw (payable-positive) per-party net.
         if LedgerService._use_gl_outstanding(company):
             from accounting.models import JournalEntry, JournalLine
             from collections import defaultdict
@@ -690,6 +713,8 @@ class LedgerService:
             )
             for row in rows:
                 nets[row["supplier_id"]] += (row["d"] or Decimal("0")) - (row["c"] or Decimal("0"))
+            if not floor:
+                return {sid: -net for sid, net in nets.items()}
             return {sid: max(Decimal("0"), -net) for sid, net in nets.items()}
         invoices = dict(
             PurchaseInvoice.objects.filter(
@@ -738,17 +763,19 @@ class LedgerService:
             .values_list("purchase_invoice__supplier_id", "total")
         )
         supplier_ids = set(invoices) | set(returns) | set(credit_notes) | set(debit_notes) | set(allocated)
-        return {
-            sid: max(
-                Decimal("0"),
+        nets = {
+            sid: (
                 (invoices.get(sid) or Decimal("0"))
                 - (returns.get(sid) or Decimal("0"))
                 - (credit_notes.get(sid) or Decimal("0"))
                 + (debit_notes.get(sid) or Decimal("0"))
-                - (allocated.get(sid) or Decimal("0")),
+                - (allocated.get(sid) or Decimal("0"))
             )
             for sid in supplier_ids
         }
+        if not floor:
+            return nets
+        return {sid: max(Decimal("0"), v) for sid, v in nets.items()}
 
     @staticmethod
     def supplier_statement(company, supplier, date_from=None, date_to=None):

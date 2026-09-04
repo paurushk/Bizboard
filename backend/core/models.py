@@ -154,8 +154,12 @@ class AuditEvent(models.Model):
         LOGOUT = "LOGOUT"
         IMPORT = "IMPORT"
 
+    # B7-014: this is a statutory-adjacent activity trail — CASCADE meant a
+    # tenant delete (or a stray `.delete()` on Company) silently wiped it.
+    # PROTECT forces any such deletion to explicitly deal with the audit
+    # trail first (archive/export it) rather than losing it as a side effect.
     company = models.ForeignKey(
-        "accounts.Company", null=True, blank=True, on_delete=models.CASCADE, related_name="audit_events"
+        "accounts.Company", null=True, blank=True, on_delete=models.PROTECT, related_name="audit_events"
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="audit_events"
@@ -238,6 +242,17 @@ class Notification(CompanyScopedModel):
 class MoneyFieldAudit(CompanyScopedModel):
     """Wave 16B: append-only money field change log (BB-000522)."""
 
+    # B7-014: overrides CompanyScopedModel's abstract `company` field (which
+    # is CASCADE for every ordinary business table — that's the right
+    # default there) to PROTECT here specifically, since this table is an
+    # append-only financial audit trail: a Company delete silently wiping it
+    # would erase evidence of every money-field change, not just business
+    # data. Redeclared (not a global CompanyScopedModel change) so no other
+    # model's cascade behavior is affected.
+    company = models.ForeignKey(
+        "accounts.Company", on_delete=models.PROTECT, related_name="+", db_index=True
+    )
+
     entity_type = models.CharField(max_length=64)
     entity_id = models.PositiveBigIntegerField()
     field = models.CharField(max_length=64)
@@ -280,8 +295,11 @@ class StatutoryDocumentEvent(models.Model):
         IRN = "IRN"
         EWAY = "EWAY"
 
+    # B7-014: GST audit trail for document lifecycle events — same reasoning
+    # as AuditEvent.company above: PROTECT so a Company delete can't
+    # silently take the statutory trail with it.
     company = models.ForeignKey(
-        "accounts.Company", on_delete=models.CASCADE, related_name="statutory_events"
+        "accounts.Company", on_delete=models.PROTECT, related_name="statutory_events"
     )
     entity_type = models.CharField(max_length=64)
     entity_id = models.PositiveBigIntegerField()

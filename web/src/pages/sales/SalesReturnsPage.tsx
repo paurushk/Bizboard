@@ -17,12 +17,13 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import {
   completeSalesReturn,
   createSalesReturn,
   getSalesInvoice,
   listSalesInvoicesPage,
+  listSalesReturns,
   listSalesReturnsPage,
 } from '@/api/resources';
 import {
@@ -96,7 +97,24 @@ export function SalesReturnsPage() {
     }
     const full = inv.items?.length ? inv : await getSalesInvoice(inv.id);
     setInvoice(full);
-    setLines(invoiceItemsToSourceLines(full.items));
+    // F2-013: subtract quantities already returned on prior return documents
+    // for this invoice so the same units can't be returned twice.
+    const returnedByProduct = new Map<number, number>();
+    try {
+      const prior = await listSalesReturns({ salesInvoice: String(full.id) });
+      for (const ret of prior) {
+        if (ret.status === 'CANCELLED') continue;
+        for (const it of ret.items ?? []) {
+          returnedByProduct.set(
+            it.product,
+            (returnedByProduct.get(it.product) ?? 0) + Number(it.quantity || 0),
+          );
+        }
+      }
+    } catch {
+      /* best-effort — fall back to full invoice quantities */
+    }
+    setLines(invoiceItemsToSourceLines(full.items, returnedByProduct));
   };
 
   const createMutation = useMutation({
@@ -104,6 +122,9 @@ export function SalesReturnsPage() {
       if (!invoice) throw new Error(t('phase1.selectInvoice'));
       const selected = activeSourceLines(lines);
       if (selected.length === 0) throw new Error(t('phase1.selectInvoiceLines'));
+      // F2-013: one key per gesture — a retry of create won't make a second
+      // draft, and complete is idempotent too.
+      const key = userGestureIdempotencyKey();
       const draft = await createSalesReturn({
         customer: invoice.customer,
         salesInvoice: invoice.id,
@@ -116,8 +137,8 @@ export function SalesReturnsPage() {
           gstRate: l.gstRate,
           condition: l.condition || 'SELLABLE',
         })),
-      });
-      return completeSalesReturn(draft.id);
+      }, { idempotencyKey: key });
+      return completeSalesReturn(draft.id, { idempotencyKey: `${key}-complete` });
     },
     onSuccess: () => {
       setOpen(false);

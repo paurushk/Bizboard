@@ -204,10 +204,18 @@ export function StockCountPage() {
         actions={(row) => (
           <Button
             size="small"
-            onClick={() => {
-              setActive(row);
-              setCounted({});
+            onClick={async () => {
               setError('');
+              setCounted({});
+              // F3-040: list rows don't carry `.lines` — fetch the detail so
+              // the dialog isn't empty until a saveLines round-trip.
+              try {
+                const full = await api.getStockCount(Number(row.id));
+                setActive(full as Row);
+              } catch (err) {
+                setActive(row);
+                setError(getErrorMessage(err));
+              }
             }}
           >
             {String(row.status) === 'POSTED' ? 'View' : 'Count'}
@@ -221,6 +229,9 @@ export function StockCountPage() {
       <DataTable
         rows={asRows(reorders.data)}
         empty="No per-godown reorder rules. Company-wide reorder on the item is used until you add one."
+        // F3-016: can grow to product-count × godown-count rows for a large
+        // catalog — window the DOM rows.
+        virtualized
         columns={[
           { key: 'productName', label: 'Item' },
           { key: 'warehouseName', label: 'Godown' },
@@ -257,6 +268,11 @@ export function StockCountPage() {
         <DialogContent>
           <Stack spacing={1.5} sx={{ mt: 1 }}>
             {lines.length === 0 ? <Typography color="text.secondary">No on-hand lines at this godown.</Typography> : null}
+            {/* F3-016: deliberately NOT virtualized — "Print sheet" below
+                relies on every line being in the DOM (a windowed list would
+                only print the currently-visible rows), which matters more
+                here than render cost for what's normally a bounded per-
+                godown SKU count. */}
             {lines.map((line) => (
               <Stack key={String(line.id)} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="center">
                 <Typography sx={{ flex: 1 }}>
@@ -278,7 +294,7 @@ export function StockCountPage() {
             ))}
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions className="no-print">
           <Button onClick={() => setActive(null)}>Close</Button>
           <Button onClick={() => window.print()}>Print sheet</Button>
           {String(active?.status) !== 'POSTED' && String(active?.status) !== 'CANCELLED' ? (

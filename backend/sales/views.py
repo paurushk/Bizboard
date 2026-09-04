@@ -85,11 +85,15 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         if action == "cancel":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in (
-            "create", "complete", "update", "partial_update", "destroy",
-            "preview_totals", "share",
+            "create", "complete", "update", "partial_update", "destroy", "share",
         ):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
-        if action in ("list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "thermal_pdf"):
+        if action in (
+            "list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "thermal_pdf",
+            # B2-018: a read-only quote/preview must not need write capability
+            # or an active subscription.
+            "preview_totals",
+        ):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         if action == "audit":
             return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
@@ -126,17 +130,32 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 Value(0, output_field=DecimalField(max_digits=14, decimal_places=2)),
             )
         )
+        # B2-020: validate before feeding query params to the ORM so bad input
+        # is a 400, not a 500 (FieldError / ValidationError / ValueError).
+        from datetime import date as _date
+
+        from core.exceptions import BusinessRuleError
+
         params = self.request.query_params
-        if params.get("status"):
-            qs = qs.filter(status=params["status"])
+        status = params.get("status")
+        if status:
+            if status not in SalesInvoice.Status.values:
+                raise BusinessRuleError(f"Unknown status {status!r}.")
+            qs = qs.filter(status=status)
         if params.get("customer"):
-            qs = qs.filter(customer_id=params["customer"])
+            try:
+                qs = qs.filter(customer_id=int(params["customer"]))
+            except (TypeError, ValueError):
+                raise BusinessRuleError("customer must be a numeric id.")
         if params.get("invoice_type"):
             qs = qs.filter(invoice_type=params["invoice_type"])
-        if params.get("date_from"):
-            qs = qs.filter(invoice_date__gte=params["date_from"])
-        if params.get("date_to"):
-            qs = qs.filter(invoice_date__lte=params["date_to"])
+        for key, lookup in (("date_from", "invoice_date__gte"), ("date_to", "invoice_date__lte")):
+            raw = params.get(key)
+            if raw:
+                try:
+                    qs = qs.filter(**{lookup: _date.fromisoformat(str(raw)[:10])})
+                except ValueError:
+                    raise BusinessRuleError(f"{key} must be an ISO date (YYYY-MM-DD).")
         if params.get("q"):
             qs = qs.filter(number__icontains=params["q"])
         return qs

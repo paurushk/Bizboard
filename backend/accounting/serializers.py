@@ -34,6 +34,15 @@ class AccountingPeriodSerializer(serializers.ModelSerializer):
 
                 cu = get_company_user(request)
                 company = cu.company if cu else None
+            # B1-030: fall back to the instance's company on update, and never
+            # let the overlap guard be skipped just because there is no request
+            # context — an internal caller must pass a resolvable company.
+            if company is None:
+                company = getattr(self.instance, "company", None)
+            if company is None:
+                raise serializers.ValidationError(
+                    "Cannot validate accounting-period overlap without a company context."
+                )
             if company is not None:
                 clash = AccountingPeriod.objects.filter(
                     company=company, start_date__lte=end, end_date__gte=start,
@@ -61,8 +70,10 @@ class JournalLineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = JournalLine
+        # B1-003: bank_statement_line is set only by the `match` action, never
+        # by the client — an un-scoped writable FK here was a cross-tenant IDOR.
         fields = ["id", "account", "debit", "credit", "cost_center", "dimension", "bank_statement_line", "reconciled_at"]
-        read_only_fields = ["reconciled_at"]
+        read_only_fields = ["reconciled_at", "bank_statement_line"]
 
     def _company(self):
         request = self.context.get("request")
@@ -97,6 +108,15 @@ class JournalEntrySerializer(serializers.ModelSerializer):
         read_only_fields = ["status", "source_type", "source_id", "purpose", "posted_at", "reversed_entry"]
 
     def validate_lines(self, lines):
+        # B1-014: reject a line with BOTH sides set (or neither) here — it passes
+        # the sum check but violates the journal_line_one_side DB CHECK -> 500.
+        for line in lines:
+            d = line.get("debit", 0) or 0
+            c = line.get("credit", 0) or 0
+            if (d > 0 and c > 0) or (d == 0 and c == 0):
+                raise serializers.ValidationError(
+                    "Each journal line must have exactly one of debit or credit."
+                )
         debit = sum((line.get("debit", 0) for line in lines))
         credit = sum((line.get("credit", 0) for line in lines))
         if not lines or debit != credit:

@@ -196,11 +196,9 @@ class AssistantThreadViewSet(ModelViewSet):
             return AssistantThreadListSerializer
         return AssistantThreadSerializer
 
-    def perform_create(self, serializer):
-        cu = get_company_user(self.request)
-        serializer.save(company=cu.company, created_by=self.request.user, title=serializer.validated_data.get("title") or "Chat")
-
     def create(self, request, *args, **kwargs):
+        # B9-035: `create` is fully overridden below, so a `perform_create`
+        # override was dead code and has been removed.
         cu = get_company_user(request)
         thread = AssistantThread.objects.create(
             company=cu.company,
@@ -333,10 +331,6 @@ _TELEMETRY_EVENTS = {
     "complete_duration_ms",
     "time_to_first_invoice_ms",
 }
-_TELEMETRY_PII_KEYS = {
-    "gstin", "phone", "email", "name", "customer", "customer_name", "customerName",
-    "description", "address", "pan", "line_description", "lineDescription",
-}
 
 
 def _percentile(sorted_vals, p):
@@ -350,6 +344,13 @@ class ShopFloorTelemetryView(APIView):
     """A-08: POST events (no PII); GET 7-day owner summary."""
 
     permission_classes = [IsAuthenticated, HasCompany]
+    # B9-032: own throttle bucket so a scripted client can't flood the table.
+    throttle_scope = "telemetry"
+
+    def get_throttles(self):
+        from rest_framework.throttling import ScopedRateThrottle
+
+        return [ScopedRateThrottle()] if self.request.method == "POST" else []
 
     def get_permissions(self):
         if self.request.method == "GET":
@@ -360,9 +361,15 @@ class ShopFloorTelemetryView(APIView):
         from .models import ShopFloorEvent
 
         payload = request.data if isinstance(request.data, dict) else {}
+        # B9-032: strict allowlist — reject any unknown key (old check only
+        # looked at top-level names against a PII denylist, so nested dicts and
+        # PII-in-values slipped through).
+        _ALLOWED_TELEMETRY_KEYS = {"event", "duration_ms", "tap_count"}
         for key in payload:
-            if str(key).lower() in _TELEMETRY_PII_KEYS:
-                raise BusinessRuleError("Telemetry must not include personal data.")
+            if str(key) not in _ALLOWED_TELEMETRY_KEYS:
+                raise BusinessRuleError(
+                    "Telemetry accepts only: event, duration_ms, tap_count."
+                )
         event = str(payload.get("event") or "").strip()
         if event not in _TELEMETRY_EVENTS:
             raise BusinessRuleError("Unknown telemetry event.")

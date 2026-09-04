@@ -7,6 +7,7 @@ from typing import Protocol
 
 from django.utils import timezone
 
+from core.exceptions import BusinessRuleError
 from core.services.audit import AuditService
 from core.validators import GSTIN_RE
 
@@ -77,7 +78,11 @@ class HttpGstinProvider:
         if not base:
             return NullGstinProvider().lookup(gstin)
         try:
-            req = urllib.request.Request(f"{base}/gstin/{gstin}", method="GET")
+            from core.services.gsp_adapters import assert_safe_outbound_url
+
+            url = f"{base}/gstin/{gstin}"
+            assert_safe_outbound_url(url)  # B7-015
+            req = urllib.request.Request(url, method="GET")
             with urllib.request.urlopen(req, timeout=15) as resp:
                 raw = json.loads(resp.read().decode() or "{}")
             status = str(raw.get("status") or "UNVERIFIED").upper()
@@ -91,7 +96,7 @@ class HttpGstinProvider:
                 taxpayer_type=str(raw.get("taxpayer_type") or ""),
                 raw={**raw, "provider": "http"},
             )
-        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, BusinessRuleError):
             return NullGstinProvider().lookup(gstin)
 
 

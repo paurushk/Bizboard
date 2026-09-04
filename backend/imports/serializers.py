@@ -33,6 +33,14 @@ class ImportJobSerializer(serializers.ModelSerializer):
         preview = data.get("preview")
         if isinstance(preview, list) and len(preview) > PREVIEW_RESPONSE_CAP:
             data["preview"] = preview[:PREVIEW_RESPONSE_CAP]
+        elif isinstance(preview, dict) and isinstance(preview.get("lines"), list):
+            # B3-017: bill-import previews are a dict ({"lines": [...], ...}),
+            # not a list — the cap above never applied to them, so every poll
+            # during the preview/clarify loop re-sent the full `lines` array
+            # (plus column_headers/resolved_answers/etc.) for a many-line bill.
+            lines = preview["lines"]
+            if len(lines) > PREVIEW_RESPONSE_CAP:
+                data["preview"] = {**preview, "lines": lines[:PREVIEW_RESPONSE_CAP]}
         errors = data.get("errors")
         if isinstance(errors, list) and len(errors) > ERROR_RESPONSE_CAP:
             data["errors"] = errors[:ERROR_RESPONSE_CAP]
@@ -42,6 +50,10 @@ class ImportJobSerializer(serializers.ModelSerializer):
         preview = instance.preview
         if isinstance(preview, list) and len(preview) > PREVIEW_RESPONSE_CAP:
             return len(preview) - PREVIEW_RESPONSE_CAP
+        if isinstance(preview, dict) and isinstance(preview.get("lines"), list):
+            lines = preview["lines"]
+            if len(lines) > PREVIEW_RESPONSE_CAP:
+                return len(lines) - PREVIEW_RESPONSE_CAP
         return 0
 
     def get_errors_truncated(self, instance):

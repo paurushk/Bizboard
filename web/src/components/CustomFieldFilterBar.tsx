@@ -43,7 +43,11 @@ export function CustomFieldFilterBar({ defs, value, onChange, compact }: Props) 
           onChange(updated);
         }}
         renderTags={(selected, getTagProps) =>
-          selected.map((option, index) => <Chip size="small" label={option} {...getTagProps({ index })} />)
+          selected.map((option, index) => {
+            // F3-072: MUI v5 returns `key` in getTagProps — spreading it warns.
+            const { key, ...tagProps } = getTagProps({ index });
+            return <Chip key={key} size="small" label={option} {...tagProps} />;
+          })
         }
         renderInput={(params) => (
           <TextField {...params} label={def.label} placeholder={t('customFields.all')} />

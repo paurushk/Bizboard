@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -21,8 +21,8 @@ import {
   convertSalesOrder,
   createSalesOrder,
   getCompany,
+  getCustomer,
   getSalesOrder,
-  listCustomers,
   updateSalesOrder,
 } from '@/api/resources';
 import {
@@ -36,7 +36,9 @@ import {
   type DraftLine,
 } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { StatusChip } from '@/components/StatusChip';
+import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
@@ -55,6 +57,9 @@ export function SalesOrderEditorPage() {
   const { message, error, clearFeedback, flashError, setMessage } = useBillingSaveFeedback();
 
   const [loaded, setLoaded] = useState(false);
+  // F2-038: suppress UnsavedChangesGuard for the programmatic navigate() after
+  // a deliberate save/convert/cancel — those aren't "discarding" anything.
+  const skipLeaveGuard = useRef(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<number | ''>('');
   const [invoiceType, setInvoiceType] = useState<InvoiceType>('NON_GST');
@@ -72,7 +77,15 @@ export function SalesOrderEditorPage() {
     if (isEdit || invoiceTypeTouched || !company.data) return;
     setInvoiceType(preferredInvoiceType(company.data.registrationType));
   }, [company.data, isEdit, invoiceTypeTouched]);
-  const customers = useQuery({ queryKey: ['customers'], queryFn: () => listCustomers() });
+  // F2-025: server-searched customer picker (was listCustomers() pulling every
+  // row into the Autocomplete) — selectedCustomerQuery keeps the already-set
+  // party resolved even when it falls outside the current search results.
+  const selectedCustomerQuery = useQuery({
+    queryKey: ['customer', customerId],
+    queryFn: () => getCustomer(customerId as number),
+    enabled: Boolean(customerId),
+  });
+  const customerSearch = useCustomerSearch({ selected: selectedCustomerQuery.data ?? null });
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const existing = useQuery({
@@ -82,7 +95,8 @@ export function SalesOrderEditorPage() {
   });
 
   const readOnly = editingStatus != null && editingStatus !== 'DRAFT';
-  const selectedCustomer = customers.data?.find((c) => c.id === Number(customerId));
+  const selectedCustomer =
+    selectedCustomerQuery.data ?? customerSearch.options.find((c) => c.id === Number(customerId));
   const intraState = isIntraState(
     company.data?.gstin || company.data?.state,
     selectedCustomer?.gstin || selectedCustomer?.state,
@@ -139,7 +153,20 @@ export function SalesOrderEditorPage() {
       }),
     );
     setLoaded(true);
-  }, [existing.data, loaded, intraState]);
+    // F2-040: intentionally NOT keyed on intraState — see the effect below,
+    // which re-derives tax once intraState is known/changes instead of
+    // re-running this whole hydration (which would clobber in-progress edits).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing.data, loaded]);
+
+  // F2-040: on first hydration, the selected customer (and so intraState) may
+  // not have resolved yet, so the mapping above computed zero tax for every line.
+  // Also covers switching the customer after lines are already on the order —
+  // nothing else re-taxes existing lines when intraState changes.
+  useEffect(() => {
+    if (!loaded) return;
+    setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
+  }, [intraState, loaded]);
 
   const lineTaxes = useMemo(
     () =>
@@ -206,8 +233,12 @@ export function SalesOrderEditorPage() {
     onSuccess: (order) => {
       setMessage(t('phase1.saved'));
       void qc.invalidateQueries({ queryKey: ['sales-orders'] });
-      if (!isEdit) void navigate(`/sales/orders/${order.id}`, { replace: true });
-      else setEditingStatus(order.status);
+      if (!isEdit) {
+        skipLeaveGuard.current = true;
+        void navigate(`/sales/orders/${order.id}`, { replace: true });
+      } else {
+        setEditingStatus(order.status);
+      }
     },
     onError: (err) => flashError(getErrorMessage(err)),
   });
@@ -217,6 +248,7 @@ export function SalesOrderEditorPage() {
     onSuccess: (inv) => {
       setMessage(t('phase1.convertedToInvoice', { id: String(inv.id) }));
       void qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      skipLeaveGuard.current = true;
       void navigate('/sales/history');
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -225,6 +257,7 @@ export function SalesOrderEditorPage() {
   const cancelMutation = useMutation({
     mutationFn: () => cancelSalesOrder(editId as number),
     onSuccess: () => {
+      skipLeaveGuard.current = true;
       void navigate('/sales/orders');
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -267,14 +300,28 @@ export function SalesOrderEditorPage() {
         </>
       }
     >
+      {/* F2-038: same coarse "any line or party selected" heuristic NewInvoicePage/
+          NewPurchasePage already use — deliberately fires on opening an existing
+          order too, not just fresh edits (matches that established behavior). */}
+      <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(customerId))} />
       <Stack spacing={2}>
         <Autocomplete
-          options={customers.data ?? []}
+          options={customerSearch.options}
           getOptionLabel={(o: Customer) => o.name}
-          value={customers.data?.find((c) => c.id === Number(customerId)) ?? null}
+          value={selectedCustomer ?? null}
           onChange={(_, v) => setCustomerId(v?.id ?? '')}
+          onInputChange={(_, v) => customerSearch.setQuery(v)}
+          filterOptions={(opts) => opts}
+          loading={customerSearch.isFetching}
           disabled={readOnly}
-          renderInput={(params) => <TextField {...params} label={t('billing.customer')} required />}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label={t('billing.customer')}
+              required
+              helperText={!customerSearch.enabled ? t('common.typeToSearch') : undefined}
+            />
+          )}
         />
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
           <TextField

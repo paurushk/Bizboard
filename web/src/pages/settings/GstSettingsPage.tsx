@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
@@ -13,6 +13,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { getErrorMessage } from '@/api/client';
 import { HelpHint } from '@/pages/help/HelpHint';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import {
   createCompanyGstin,
   getCompany,
@@ -56,7 +57,12 @@ interface GstForm {
 export function GstSettingsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  // F3-014: no refetch-and-reset on window focus — it wipes unsaved edits.
+  const query = useQuery({
+    queryKey: ['company'],
+    queryFn: getCompany,
+    refetchOnWindowFocus: false,
+  });
   const gstinsQuery = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
   const [branchGstin, setBranchGstin] = useState('');
   const [branchState, setBranchState] = useState('');
@@ -84,8 +90,10 @@ export function GstSettingsPage() {
     },
   });
 
+  const gstSeededRef = useRef(false);
   useEffect(() => {
-    if (query.data) {
+    if (query.data && !gstSeededRef.current) {
+      gstSeededRef.current = true;
       const d = query.data;
       reset({
         gstin: d.gstin ?? '',
@@ -144,11 +152,16 @@ export function GstSettingsPage() {
       }
       return updateCompany(payload as never);
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['company'] });
       void queryClient.invalidateQueries({ queryKey: ['company-gstins'] });
+      // F3-015: clear the dirty flag post-save (see UnsavedChangesGuard below).
+      reset(variables);
     },
   });
+  // F3-073: dismissable "saved" banner; reappears on the next save because
+  // mutation.submittedAt advances with every mutate() call.
+  const [savedAck, setSavedAck] = useState(0);
 
   const verifyMutation = useMutation({
     mutationFn: async () => {
@@ -185,10 +198,42 @@ export function GstSettingsPage() {
     <Stack
       spacing={2}
       component="form"
-      onSubmit={handleSubmit((values) => mutation.mutate(values))}
+      onSubmit={handleSubmit((values) => {
+        // F3-049: registration type and negative-stock policy are high-impact
+        // flips — spell out the consequence before saving the change.
+        const prev = query.data;
+        if (prev && values.registrationType !== prev.registrationType) {
+          if (
+            !window.confirm(
+              t('gst.confirmRegistrationChange', {
+                type: values.registrationType,
+              }),
+            )
+          ) {
+            return;
+          }
+        }
+        if (prev && values.negativeStockPolicy !== prev.negativeStockPolicy) {
+          if (
+            !window.confirm(
+              t('gst.confirmNegativeStockChange', {
+                policy: values.negativeStockPolicy,
+              }),
+            )
+          ) {
+            return;
+          }
+        }
+        mutation.mutate(values);
+      })}
     >
+      <UnsavedChangesGuard when={formState.isDirty} />
       <Typography variant="h4">{t('nav.gst')}</Typography>
-      {mutation.isSuccess ? <Alert severity="success">GST settings saved</Alert> : null}
+      {mutation.isSuccess && mutation.submittedAt !== savedAck ? (
+        <Alert severity="success" onClose={() => setSavedAck(mutation.submittedAt)}>
+          GST settings saved
+        </Alert>
+      ) : null}
       {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
       {verifyMutation.isSuccess ? (
         <Alert severity="info">

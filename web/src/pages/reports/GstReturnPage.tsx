@@ -82,6 +82,7 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
     mutationFn: () =>
       downloadGstCaPack({ period, companyGstin: companyGstin || undefined }),
     onSuccess: (result) => downloadBlobUrl(result.url, `gst-ca-pack-${period}.zip`),
+    onError: () => undefined, // surfaced by the isError alert below (F3-031)
   });
 
   const issues = (query.data?.issues as Array<{ code?: string; message?: string; number?: string }> | undefined) ?? [];
@@ -185,6 +186,9 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
       {exportMutation.isError ? (
         <HelpErrorAlert error={exportMutation.error} />
       ) : null}
+      {caPackMutation.isError ? (
+        <HelpErrorAlert error={caPackMutation.error} />
+      ) : null}
       {compositionBlocked ? (
         <Alert severity="warning">
           Composition dealers cannot use GSTR-1 / GSTR-3B return aids in BizBoard. Use the CMP-08 and
@@ -218,7 +222,20 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
                   : toNumber(itcData.cgst ?? itcData.available_cgst ?? itcData.availableCgst ?? 0) +
                     toNumber(itcData.sgst ?? itcData.available_sgst ?? itcData.availableSgst ?? 0) +
                     toNumber(itcData.igst ?? itcData.available_igst ?? itcData.availableIgst ?? 0);
-                const netGstPayable = Math.max(0, totalTaxLiability - totalItc);
+                // F3-007: prefer a backend-computed figure; otherwise fall back
+                // to the arithmetic but DON'T clamp — a negative result is a
+                // real ITC credit carried to next month, not ₹0.
+                const beNet = (outwardRec.netPayable ??
+                  outwardRec.net_payable ??
+                  (query.data as Record<string, unknown>)?.netPayable ??
+                  (query.data as Record<string, unknown>)?.net_payable) as
+                  | string
+                  | number
+                  | undefined;
+                const netRaw =
+                  beNet != null ? toNumber(beNet) : totalTaxLiability - totalItc;
+                const netGstPayable = Math.max(0, netRaw);
+                const creditCarryForward = netRaw < 0 ? -netRaw : 0;
 
                 return (
                   <Paper
@@ -239,6 +256,11 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
                     <Typography variant="body2" color="text.secondary">
                       Tax collected on Sales ({formatMoney(totalTaxLiability)}) − ITC from Purchases ({formatMoney(totalItc)})
                     </Typography>
+                    {creditCarryForward > 0 ? (
+                      <Typography variant="body2" color="success.main" fontWeight={600} sx={{ mt: 0.5 }}>
+                        ITC credit carried forward: {formatMoney(creditCarryForward)}
+                      </Typography>
+                    ) : null}
                     {rec ? (
                       <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
                         ITC basis: {String(rec.basis ?? 'books')}

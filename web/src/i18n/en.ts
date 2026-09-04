@@ -184,6 +184,7 @@ export const en = {
     repeatQueries: 'Repeat queries',
     staleContent: 'Stale content (> 6 months)',
     translationDebt: 'Missing Hindi answers',
+    feedbackBacklog: 'Feedback backlog',
     markResolved: 'Mark resolved',
     markResolvedAria: 'Mark this still-stuck note as resolved',
     query: 'Query',
@@ -224,10 +225,35 @@ export const en = {
     registerPending:
       'If this email can be registered, we prepared an account. Check your inbox for next steps, then sign in.',
     inviteAccepted: 'Your account is ready. Sign in with your new password.',
+    passwordRequired: 'Password is required',
+    emailOrMobile: 'Email or Mobile number',
+    emailOrMobilePlaceholder: 'e.g. name@bizboard.local or 9876543210',
+    sending: 'Sending…',
+    sendResetLink: 'Send Reset Link',
+    newPassword: 'New password',
+    confirmPassword: 'Confirm password',
+    saving: 'Saving…',
+    updatePassword: 'Update password',
+    resetTitle: 'Reset Password',
+    resetSubtitle: 'Enter your email address or phone number and we will send you recovery instructions.',
+    resetIdentifierRequired: 'Please enter your registered email address or mobile number.',
+    resetSendFailed: 'Unable to send a reset link right now. Please try again.',
+    resetDispatched: 'If an account exists for {identifier}, a password reset link has been dispatched.',
+    returnToLogin: 'Return to Login',
+    backToSignIn: 'Back to Sign In',
+    setNewPasswordTitle: 'Set a new password',
+    setNewPasswordSubtitle: 'Choose a strong password you have not used before.',
+    passwordsDoNotMatch: 'Passwords do not match.',
+    passwordUpdated: 'Your password has been updated. Sign in to continue.',
+    resetLinkInvalid: 'This reset link is invalid or has expired. Request a new one.',
+    resetLinkMissingToken: 'This reset link is missing a token. Request a new link from the login page.',
+    requestNewLink: 'Request a new link',
+    passwordMin8: 'Password must be at least 8 characters.',
   },
   common: {
     search: 'Search',
     save: 'Save',
+    clear: 'Clear',
     saveAndNew: 'Save & New',
     cancel: 'Cancel',
     create: 'Create',
@@ -236,6 +262,8 @@ export const en = {
     complete: 'Complete',
     draft: 'Save draft',
     loading: 'Loading…',
+    typeToSearch: 'Type to search',
+    typeAtLeastToSearch: 'Type at least {count} characters to search',
     retry: 'Retry',
     empty: 'Nothing here yet',
     error: 'Something went wrong',
@@ -388,6 +416,8 @@ export const en = {
     uploadBill: 'Upload Bill',
     lines: 'Line items',
     addItem: 'Add Item',
+    unitPrice: 'Unit price',
+    discountPercent: 'Discount %',
     scanBarcode: 'Scan Barcode',
     no: 'NO',
     items: 'ITEMS / SERVICES',
@@ -573,6 +603,8 @@ export const en = {
     stepUpload: 'Upload & validate',
     stepPreview: 'Preview',
     stepCommit: 'Commit',
+    stepMap: 'Map',
+    stepExportAid: 'Export aid',
     entityType: 'What are you importing?',
     chooseFile: 'Choose CSV or Excel file',
     validRows: 'Valid rows',
@@ -630,6 +662,7 @@ export const en = {
   billUpload: {
     title: 'Upload purchase bill',
     titleSales: 'Upload sales bill',
+    expandRow: 'Expand row to edit details',
     subtitle: 'Extract line items with AI, review, then create a draft purchase.',
     subtitleSales: 'Extract line items with AI, review, then create a draft sales invoice.',
     piiDisclaimer:
@@ -827,6 +860,10 @@ export const en = {
     addProduct: 'Add product & continue',
     createFirstBill: 'Create & complete first bill',
     registrationType: 'GST registration type',
+    confirmRegistrationChange:
+      'Change GST registration type to {type}? This changes how every future document is taxed (COMPOSITION issues a Bill of Supply with no tax).',
+    confirmNegativeStockChange:
+      'Change negative-stock policy to {policy}? WARN lets staff sell items that are out of stock.',
     unregistered: 'Unregistered',
     regular: 'Regular GST',
     composition: 'Composition scheme',
@@ -844,6 +881,10 @@ export const en = {
     hsnCode: 'HSN / SAC code',
     openingQty: 'Opening quantity (optional)',
     addSamples: 'Add sample products',
+    addSamplesWarning:
+      'Samples are real catalog items (SKUs start with SAMPLE-). Delete them from Products once you have added your own.',
+    addSamplesConfirm:
+      'Add 3 sample products to your catalog? They are real items you can bill against — delete them later from Products (filter SKU "SAMPLE-").',
     importProducts: 'Import products by CSV',
     productsReady: '{count} product(s) ready for billing.',
     completeTitle: 'Your first bill is complete!',
@@ -881,7 +922,10 @@ export const en = {
     description: 'Choose a password to activate the account your company invited.',
     token: 'Invite token',
     tokenMissing: 'Open the invite link from your email. If you only have a token, paste it below.',
+    tokenHint: 'Paste the token only if you were given one separately.',
     newPassword: 'New password',
+    passwordHint: 'At least 8 characters.',
+    passwordTooShort: 'Password must be at least 8 characters.',
     accept: 'Activate account',
   },
   adjustments: {
@@ -953,6 +997,8 @@ export const en = {
     confirmBlankPosTitle: 'Confirm place of supply',
     confirmBlankPosBody:
       'This customer has no state or GSTIN. Completing will treat the sale as intra-state. Continue?',
+    confirmBlankPosTaxNote:
+      'The total shown already includes local CGST + SGST — that is what will be booked.',
     confirmBlankPosAction: 'Complete as intra-state',
     confirmWalkInTitle: 'Confirm walk-in customer',
     confirmWalkInBody:
@@ -1042,6 +1088,9 @@ export const en = {
     syncNow: 'Sync now',
     syncFailed: 'Offline sync failed ({failed}): {errors}',
     synced: 'Synced {count} draft(s).',
+    deleteTitle: 'Delete this offline draft?',
+    deleteBody:
+      'This draft was created while offline and has not synced yet. Deleting it discards that document permanently.',
   },
   gstHonesty: {
     stubTitle: 'Not a filing engine',
@@ -1076,6 +1125,8 @@ export const en = {
     healthAttention: 'Needs attention · open Insights',
     healthAction: 'Action needed · open Insights',
     limitedData: 'Limited data',
+    healthGradeTitle: 'Health grade {grade} · score {score}',
+    negativeStockPolicyNote: 'Negative stock policy: {policy} — change in GST settings',
     salesTodayLine: 'Sales today {amount} ({count} invoices). This month {monthAmount} ({monthCount} invoices).',
     needsAttention: 'Needs attention',
     shopFloor: 'Counter (last 7 days)',
@@ -1088,6 +1139,7 @@ export const en = {
     customers: 'Add customers to start billing.',
     products: 'Add products or import a catalog.',
     stock: 'Stock balances will appear after opening stock or purchases.',
+    stockFiltered: 'No stock matches the current filters.',
     stockHealthy: 'All items are well stocked above reorder levels.',
     addSupplier: 'Add supplier',
     createItem: 'Create item',
@@ -1140,6 +1192,7 @@ export const en = {
     activityNote: 'Note',
     activityCall: 'Call',
     activityEmail: 'Email',
+    activityKind: 'Activity type',
     convertWon: 'Convert as won',
     markAsWon: 'Mark as won',
     basic: 'Basic',
@@ -1152,6 +1205,8 @@ export const en = {
     serialNumbersHint: 'One serial per line (finished goods on complete).',
     componentSerials: 'Component serials',
     componentSerialsHint: 'One line per component: componentId: serial1, serial2',
+    componentSerialsInvalidJson:
+      "Component serials starting with '{' must be valid JSON (e.g. {\"comp1\": [\"SN1\",\"SN2\"]}). Fix it or clear the field to release without recording component serials.",
   },
   reports: {
     period: 'Return period',
@@ -1203,6 +1258,8 @@ export const en = {
     payloadSummary: 'Payload',
     billedAmount: 'Billed (+)',
     receivedAmount: 'Received (−)',
+    supplierPaidAmount: 'Paid (−)',
+    supplierBilledAmount: 'Billed (+)',
     dueBalance: 'Net Balance',
     shareOnWhatsapp: 'Share on WhatsApp',
     dateFilter: 'Date range',
@@ -1435,6 +1492,8 @@ export const en = {
     dunningHelp:
       'Off by default. When on, BizBoard sends WhatsApp Cloud (opted-in customers) then SMS on the days you set after due date. Gateway-captured invoices are not nagged.',
     dunningEnabled: 'Enable automatic reminders',
+    dunningConfirm:
+      'Turn on automatic payment reminders? BizBoard will message customers on their own — days after due date: {days}.',
     dunningDays: 'Reminder days after due date',
     dunningDaysHelp: 'Comma-separated, e.g. 3, 7, 14',
     dunningMaxReminders: 'Max reminders per invoice',
@@ -1464,6 +1523,17 @@ export const en = {
     photo: 'Photo',
     upload: 'Upload',
     count: '{count} bills',
+  },
+  productSearch: {
+    typeToSearch: 'Type to search products',
+    typeAtLeast: 'Type at least {count} characters to search',
+    showingFirst: 'Showing first {count} matches — refine your search',
+  },
+  users: {
+    deactivate: 'Deactivate',
+    reactivate: 'Reactivate',
+    deactivateConfirm:
+      'Deactivate this member? They lose access to this company immediately. You can reactivate them later — nothing is deleted.',
   },
 } as const;
 

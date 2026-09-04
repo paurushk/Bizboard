@@ -326,7 +326,14 @@ class PriceListItem(models.Model):
             models.UniqueConstraint(
                 fields=["price_list", "product", "min_qty"],
                 name="uniq_product_slab_per_list",
-            )
+            ),
+            # B8-017: min_qty/unit_price positivity previously only lived in
+            # serializer validation (imports, admin, bulk_create bypass it).
+            # unit_price allows 0 (a deliberate free/promotional slab is
+            # legitimate); min_qty must be positive — pricing.assert_slab_bounds
+            # already assumes it defaults to 1 and never checked it directly.
+            models.CheckConstraint(condition=models.Q(min_qty__gt=0), name="pricelistitem_min_qty_gt_0"),
+            models.CheckConstraint(condition=models.Q(unit_price__gte=0), name="pricelistitem_unit_price_gte_0"),
         ]
         ordering = ["product_id", "min_qty"]
 

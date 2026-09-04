@@ -156,6 +156,11 @@ def _ensure_active_company(user):
 
 
 LOGIN_FAIL_LIMIT = 10
+# B6-007: a per-account-only lock lets an attacker who knows a victim's email
+# lock them out from a single IP. Hard-lock on the *intersection* (this account
+# AND this source IP), and keep a much higher account-wide backstop for a truly
+# distributed brute-force.
+LOGIN_FAIL_ACCOUNT_BACKSTOP = 50
 LOGIN_FAIL_WINDOW_SECONDS = 15 * 60
 
 OTP_PHONE_COOLDOWN_SECONDS = 60
@@ -165,22 +170,47 @@ OTP_PHONE_HOUR_SECONDS = 60 * 60
 _REGISTER_DETAIL = "If this email can be registered, an account has been prepared."
 
 
+def _client_ip(request):
+    fwd = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
+    return fwd or request.META.get("REMOTE_ADDR") or "unknown"
+
+
 def _login_fail_key(email):
     return f"login_fail:{(email or '').strip().lower()}"
 
 
-def _record_login_failure(email):
+def _login_fail_ip_key(email, ip):
+    return f"login_fail_ip:{(email or '').strip().lower()}:{ip}"
+
+
+def _incr_with_ttl(key):
     """BB-000291: prefer atomic Redis INCR; fall back to get/set."""
-    fail_key = _login_fail_key(email)
     try:
-        cache.incr(fail_key)
+        cache.incr(key)
     except ValueError:
         # Key missing — seed with TTL. add is atomic (only sets if absent).
-        if not cache.add(fail_key, 1, LOGIN_FAIL_WINDOW_SECONDS):
+        if not cache.add(key, 1, LOGIN_FAIL_WINDOW_SECONDS):
             try:
-                cache.incr(fail_key)
+                cache.incr(key)
             except ValueError:
-                cache.set(fail_key, 1, LOGIN_FAIL_WINDOW_SECONDS)
+                cache.set(key, 1, LOGIN_FAIL_WINDOW_SECONDS)
+
+
+def _record_login_failure(email, ip=None):
+    _incr_with_ttl(_login_fail_key(email))
+    if ip:
+        _incr_with_ttl(_login_fail_ip_key(email, ip))
+
+
+def _login_is_locked(email, ip):
+    # Intersection: this account is locked only for the IP that tripped it,
+    # unless the account-wide count is absurdly high (distributed attack).
+    if cache.get(_login_fail_key(email), 0) >= LOGIN_FAIL_ACCOUNT_BACKSTOP:
+        return True
+    return (
+        cache.get(_login_fail_key(email), 0) >= LOGIN_FAIL_LIMIT
+        and cache.get(_login_fail_ip_key(email, ip), 0) >= LOGIN_FAIL_LIMIT
+    )
 
 
 def _otp_phone_cooldown_key(phone: str) -> str:
@@ -301,30 +331,38 @@ class LoginView(TokenObtainPairView):
 
     def post(self, request, *args, **kwargs):
         email = request.data.get("email", "")
-        password = request.data.get("password", "")
+        ip = _client_ip(request)
         fail_key = _login_fail_key(email)
-        # Per-account lockout — IP-based throttling alone (login scope) is
-        # trivially bypassed by distributing attempts across many IPs.
-        if cache.get(fail_key, 0) >= LOGIN_FAIL_LIMIT:
+        ip_fail_key = _login_fail_ip_key(email, ip)
+        # B6-007: lock on (account AND source IP), with a high account-wide
+        # backstop — a per-account-only lock was a targeted-lockout DoS vector.
+        if _login_is_locked(email, ip):
             raise TooManyLoginAttemptsError()
-        pending_user = User.objects.filter(email__iexact=email).first()
-        if pending_user and password and pending_user.check_password(password):
-            if not pending_user.company_memberships.filter(is_active=True).exists():
-                if pending_user.company_memberships.filter(is_active=False).exists():
+        # B6-008/B6-022: the membership check used to run a *second* password
+        # hash verification (pending_user.check_password) before ever calling
+        # super().post() — doubling the KDF cost for a real login, and giving
+        # an enumeration oracle (existing accounts always paid two hash
+        # verifications, unknown emails paid ~one dummy hash). super().post()
+        # already verifies the password (or runs SimpleJWT's constant-time
+        # dummy hash for an unknown email); check membership only after that
+        # single verification has succeeded.
+        try:
+            response = super().post(request, *args, **kwargs)
+        except AuthenticationFailed:
+            _record_login_failure(email, ip)
+            raise
+        if response.status_code == 200:
+            user = User.objects.filter(email__iexact=email).first()
+            if user and not user.company_memberships.filter(is_active=True).exists():
+                if user.company_memberships.filter(is_active=False).exists():
                     raise AuthenticationFailed(
                         "Accept your invite to activate this account before signing in."
                     )
                 raise PermissionDenied(
                     "No active company membership. Ask an owner to invite you."
                 )
-        try:
-            response = super().post(request, *args, **kwargs)
-        except AuthenticationFailed:
-            _record_login_failure(email)
-            raise
-        if response.status_code == 200:
             cache.delete(fail_key)
-            user = User.objects.filter(email__iexact=email).first()
+            cache.delete(ip_fail_key)
             if user:
                 _ensure_active_company(user)
                 membership = _active_membership(user)
@@ -766,6 +804,7 @@ class ChangePasswordView(APIView):
     """BB-000366: change password and blacklist all outstanding refresh tokens."""
 
     permission_classes = [IsAuthenticated]
+    throttle_scope = "sensitive_action"  # B6-012
 
     def post(self, request):
         current = request.data.get("current_password") or ""
@@ -794,7 +833,9 @@ class AcceptInviteView(APIView):
     """BB-000418: set password from signed invite token (dead-end fix)."""
 
     permission_classes = [AllowAny]
-    throttle_scope = "login"
+    # B6-025: own scope — sharing the tight per-IP "login" bucket meant office
+    # NAT users 429'd each other during an onboarding burst.
+    throttle_scope = "accept_invite"
 
     def post(self, request):
         token = (request.data.get("token") or "").strip()
@@ -913,6 +954,21 @@ def _active_owner_count(company, exclude_pk=None):
     if exclude_pk is not None:
         qs = qs.exclude(pk=exclude_pk)
     return qs.count()
+
+
+def _revoke_sessions_if_last_active_membership(user) -> None:
+    """B6-017: a deactivated CompanyUser row alone leaves the user's current
+    access JWT usable for its remaining lifetime, and refresh only gets cut at
+    the next CookieTokenRefreshView call. If this was their last active
+    membership anywhere, blacklist all outstanding refresh tokens now — same
+    as ChangePasswordView/LogoutAllView — instead of waiting for expiry.
+    A user who still has an active membership in another company is left
+    alone; they should keep operating there.
+    """
+    if user.company_memberships.filter(is_active=True).exists():
+        return
+    for token in OutstandingToken.objects.filter(user=user):
+        BlacklistedToken.objects.get_or_create(token=token)
 
 
 def _staff_invite_caps(data: dict) -> dict:
@@ -1090,6 +1146,7 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
         new_role = serializer.validated_data.get("role", instance.role)
         new_active = serializer.validated_data.get("is_active", instance.is_active)
         stays_active_owner = new_role == CompanyUser.Role.OWNER and new_active
+        deactivating = instance.is_active and not new_active
         with transaction.atomic():
             if was_active_owner and not stays_active_owner:
                 if _active_owner_count(instance.company, exclude_pk=instance.pk) == 0:
@@ -1097,6 +1154,8 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
             if new_active and not instance.is_active:
                 _enforce_plan_seat_limit(instance.company)
             updated = serializer.save(company=get_company_user(self.request).company)
+            if deactivating:
+                _revoke_sessions_if_last_active_membership(updated.user)
         AuditService.log(company=updated.company, user=self.request.user, action="UPDATE",
                          entity_type="CompanyUser", entity_id=updated.id)
 
@@ -1105,8 +1164,10 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
             if _active_owner_count(instance.company, exclude_pk=instance.pk) == 0:
                 raise ValidationError({"detail": "Cannot remove the company's last active Owner."})
         # Soft-deactivate rather than delete.
-        instance.is_active = False
-        instance.save(update_fields=["is_active"])
+        with transaction.atomic():
+            instance.is_active = False
+            instance.save(update_fields=["is_active"])
+            _revoke_sessions_if_last_active_membership(instance.user)
         AuditService.log(company=instance.company, user=self.request.user, action="DELETE",
                          entity_type="CompanyUser", entity_id=instance.pk, description="Deactivated")
 
@@ -1120,9 +1181,10 @@ class CompanyGstinViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "delete"]
 
     def get_permissions(self):
-        if self.request.method in ("POST", "PATCH", "PUT", "DELETE"):
-            return [IsAuthenticated(), HasCompany(), IsOwner()]
-        return super().get_permissions()
+        # B6-011: the branch-GSTIN list carries legal names / addresses / PINs —
+        # owner-only, like the other company-settings surfaces (was readable by
+        # any active member incl. VIEWER / SALES_STAFF).
+        return [IsAuthenticated(), HasCompany(), IsOwner()]
 
     def get_queryset(self):
         return self.queryset.filter(company=get_company_user(self.request).company)
@@ -1196,13 +1258,23 @@ class RequestPasswordResetView(APIView):
                 reset_url = f"{base}/reset-password?token={token}"
                 from django.core.mail import send_mail
 
-                send_mail(
-                    subject="Reset your BizBoard password",
-                    message=f"Use this link to reset your password (valid 1 hour):\n{reset_url}\n",
-                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@bizboard.local"),
-                    recipient_list=[user.email],
-                    fail_silently=env not in ("production", "staging"),
-                )
+                try:
+                    # B6-009: an SMTP error must not turn into a 500 for a real
+                    # user while a non-existent identifier still gets the uniform
+                    # 200 — that difference is an enumeration oracle.
+                    send_mail(
+                        subject="Reset your BizBoard password",
+                        message=f"Use this link to reset your password (valid 1 hour):\n{reset_url}\n",
+                        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@bizboard.local"),
+                        recipient_list=[user.email],
+                        fail_silently=False,
+                    )
+                except Exception:
+                    import logging
+
+                    logging.getLogger(__name__).exception(
+                        "password reset email send failed"
+                    )
         return Response(
             {"detail": "If an account exists for that identifier, a reset link has been sent."}
         )

@@ -123,9 +123,10 @@ export function DashboardPage() {
             ? t('dashboard.healthAttention')
             : t('dashboard.healthAction')
       }
-      title={`Health grade ${health.data.grade} · score ${health.data.score}${
-        health.data.limitedData ? ` · ${t('dashboard.limitedData')}` : ''
-      }`}
+      title={`${t('dashboard.healthGradeTitle', {
+        grade: health.data.grade,
+        score: health.data.score,
+      })}${health.data.limitedData ? ` · ${t('dashboard.limitedData')}` : ''}`}
     />
   ) : null;
 
@@ -230,7 +231,7 @@ export function DashboardPage() {
               {company.data?.negativeStockPolicy &&
               company.data.negativeStockPolicy !== 'BLOCK' ? (
                 <Typography variant="caption" color="warning.main" component={RouterLink} to="/settings/gst">
-                  Negative stock policy: {company.data.negativeStockPolicy} — change in GST settings
+                  {t('dashboard.negativeStockPolicyNote', { policy: company.data.negativeStockPolicy })}
                 </Typography>
               ) : null}
             </Stack>

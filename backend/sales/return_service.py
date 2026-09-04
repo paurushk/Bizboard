@@ -182,8 +182,22 @@ class ReturnService:
             if inv_taxable > 0 and not fully_returned:
                 ratio = min(Decimal("1"), ret_taxable / inv_taxable)
             elif not fully_returned:
+                # B2-003: SalesReturnItem is a DocumentLineModel — it has
+                # `line_total` / `taxable_amount`, not `grand_total` (that lives
+                # on the header). Reading `it.grand_total` raised AttributeError
+                # for a partial return of a fully NIL/exempt invoice.
                 inv_grand = Decimal(str(invoice.grand_total or 0))
-                ret_grand = sum((Decimal(str(it.grand_total or it.taxable_amount or 0)) for it in items), Decimal("0"))
+                ret_grand = sum(
+                    (
+                        Decimal(str(
+                            getattr(it, "line_total", 0)
+                            or getattr(it, "taxable_amount", 0)
+                            or 0
+                        ))
+                        for it in items
+                    ),
+                    Decimal("0"),
+                )
                 ratio = min(Decimal("1"), ret_grand / inv_grand) if inv_grand > 0 else Decimal("0")
             inv_discount = Decimal(str(invoice.invoice_discount or 0))
             inv_charges = Decimal(str(invoice.additional_charges or 0))

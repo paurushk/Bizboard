@@ -23,7 +23,12 @@ export interface DraftLine {
   mfgDate: string;
   mrp: number;
   quantity: number;
+  /** F2-012: upper bound from the source purchase line for credit/debit notes. */
+  maxQty?: number;
   unitPrice: number;
+  /** F2-007: set once the user types a unit price directly — a later qty change
+   *  must then NOT silently re-apply the price-list rate over their override. */
+  priceEdited?: boolean;
   discountPercent: number;
   discountAmount: number;
   gstRate: number;

@@ -19,6 +19,10 @@ export function AcceptInvitePage() {
   const [pending, setPending] = useState(false);
 
   async function submit() {
+    if (password.trim().length < 8) {
+      setError(t('invite.passwordTooShort'));
+      return;
+    }
     setPending(true);
     setError(null);
     try {
@@ -69,7 +73,7 @@ export function AcceptInvitePage() {
             fullWidth
             multiline
             minRows={2}
-            helperText={!params.get('token') ? 'Paste the token only if you were given one separately.' : undefined}
+            helperText={!params.get('token') ? t('invite.tokenHint') : undefined}
           />
           <TextField
             label={t('invite.newPassword')}
@@ -77,13 +81,19 @@ export function AcceptInvitePage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             fullWidth
+            error={password.length > 0 && password.trim().length < 8}
+            helperText={t('invite.passwordHint')}
           />
           {error ? (
             <Alert severity="error" role="alert" aria-live="assertive">
               {error}
             </Alert>
           ) : null}
-          <Button variant="contained" disabled={pending || !token || !password} onClick={() => void submit()}>
+          <Button
+            variant="contained"
+            disabled={pending || !token || password.trim().length < 8}
+            onClick={() => void submit()}
+          >
             {t('invite.accept')}
           </Button>
         </Stack>

@@ -225,10 +225,35 @@ export const hi = {
     registerPending:
       'यदि यह ईमेल पंजीकृत हो सकता है, हमने खाता तैयार किया है। अगले चरण के लिए इनबॉक्स देखें, फिर साइन इन करें।',
     inviteAccepted: 'आपका खाता तैयार है। नए पासवर्ड से साइन इन करें।',
+    passwordRequired: 'पासवर्ड आवश्यक है',
+    emailOrMobile: 'ईमेल या मोबाइल नंबर',
+    emailOrMobilePlaceholder: 'जैसे name@bizboard.local या 9876543210',
+    sending: 'भेजा जा रहा है…',
+    sendResetLink: 'रीसेट लिंक भेजें',
+    newPassword: 'नया पासवर्ड',
+    confirmPassword: 'पासवर्ड की पुष्टि करें',
+    saving: 'सहेजा जा रहा है…',
+    updatePassword: 'पासवर्ड अपडेट करें',
+    resetTitle: 'पासवर्ड रीसेट करें',
+    resetSubtitle: 'अपना ईमेल पता या फ़ोन नंबर दर्ज करें और हम आपको रिकवरी निर्देश भेजेंगे।',
+    resetIdentifierRequired: 'कृपया अपना पंजीकृत ईमेल पता या मोबाइल नंबर दर्ज करें।',
+    resetSendFailed: 'अभी रीसेट लिंक भेजना संभव नहीं। कृपया पुनः प्रयास करें।',
+    resetDispatched: 'यदि {identifier} के लिए कोई खाता मौजूद है, तो पासवर्ड रीसेट लिंक भेज दिया गया है।',
+    returnToLogin: 'लॉगिन पर लौटें',
+    backToSignIn: 'साइन इन पर वापस जाएँ',
+    setNewPasswordTitle: 'नया पासवर्ड सेट करें',
+    setNewPasswordSubtitle: 'ऐसा मज़बूत पासवर्ड चुनें जो पहले उपयोग न किया हो।',
+    passwordsDoNotMatch: 'पासवर्ड मेल नहीं खाते।',
+    passwordUpdated: 'आपका पासवर्ड अपडेट हो गया है। जारी रखने के लिए साइन इन करें।',
+    resetLinkInvalid: 'यह रीसेट लिंक अमान्य है या समाप्त हो गया है। नया लिंक अनुरोध करें।',
+    resetLinkMissingToken: 'इस रीसेट लिंक में टोकन नहीं है। लॉगिन पेज से नया लिंक अनुरोध करें।',
+    requestNewLink: 'नया लिंक अनुरोध करें',
+    passwordMin8: 'पासवर्ड कम से कम 8 अक्षर का होना चाहिए।',
   },
   common: {
     search: 'खोजें',
     save: 'सहेजें',
+    clear: 'साफ़ करें',
     saveAndNew: 'सहेजें और नया',
     cancel: 'रद्द करें',
     create: 'बनाएं',
@@ -237,6 +262,8 @@ export const hi = {
     complete: 'पूर्ण करें',
     draft: 'ड्राफ्ट सहेजें',
     loading: 'लोड हो रहा है…',
+    typeToSearch: 'खोजने के लिए टाइप करें',
+    typeAtLeastToSearch: 'खोजने के लिए कम से कम {count} अक्षर टाइप करें',
     retry: 'पुनः प्रयास',
     empty: 'यहाँ अभी कुछ नहीं',
     error: 'कुछ गलत हो गया',
@@ -388,6 +415,8 @@ export const hi = {
     uploadBill: 'बिल अपलोड',
     lines: 'लाइन आइटम',
     addItem: 'आइटम जोड़ें',
+    unitPrice: 'यूनिट मूल्य',
+    discountPercent: 'छूट %',
     scanBarcode: 'बारकोड स्कैन',
     no: 'क्र.',
     items: 'आइटम / सेवाएँ',
@@ -684,6 +713,10 @@ export const hi = {
     addProduct: 'उत्पाद जोड़ें और आगे बढ़ें',
     createFirstBill: 'पहला बिल बनाकर पूरा करें',
     registrationType: 'GST पंजीकरण प्रकार',
+    confirmRegistrationChange:
+      'GST पंजीकरण प्रकार {type} में बदलें? इससे हर भावी दस्तावेज़ पर टैक्स की गणना बदल जाती है (COMPOSITION बिना टैक्स के बिल ऑफ सप्लाई जारी करता है)।',
+    confirmNegativeStockChange:
+      'नेगेटिव-स्टॉक नीति {policy} में बदलें? WARN कर्मचारियों को स्टॉक-आउट वस्तुएँ बेचने देता है।',
     unregistered: 'अपंजीकृत',
     regular: 'रेगुलर GST',
     composition: 'कंपोजिशन योजना',
@@ -701,6 +734,10 @@ export const hi = {
     hsnCode: 'HSN / SAC कोड',
     openingQty: 'शुरुआती मात्रा (वैकल्पिक)',
     addSamples: 'नमूना उत्पाद जोड़ें',
+    addSamplesWarning:
+      'नमूने असली कैटलॉग आइटम हैं (SKU SAMPLE- से शुरू होते हैं)। अपने उत्पाद जोड़ने के बाद इन्हें Products से हटा दें।',
+    addSamplesConfirm:
+      'अपने कैटलॉग में 3 नमूना उत्पाद जोड़ें? ये असली आइटम हैं जिन पर आप बिल बना सकते हैं — बाद में Products से हटाएँ (SKU "SAMPLE-" फ़िल्टर करें)।',
     importProducts: 'CSV से उत्पाद आयात करें',
     productsReady: '{count} उत्पाद बिलिंग के लिए तैयार हैं।',
     completeTitle: 'आपका पहला बिल पूरा हुआ!',
@@ -738,7 +775,10 @@ export const hi = {
     description: 'कंपनी द्वारा आमंत्रित खाते को सक्रिय करने के लिए पासवर्ड चुनें।',
     token: 'आमंत्रण टोकन',
     tokenMissing: 'ईमेल से आमंत्रण लिंक खोलें। यदि आपके पास केवल टोकन है, तो उसे नीचे चिपकाएँ।',
+    tokenHint: 'टोकन तभी चिपकाएँ जब वह आपको अलग से दिया गया हो।',
     newPassword: 'नया पासवर्ड',
+    passwordHint: 'कम से कम 8 अक्षर।',
+    passwordTooShort: 'पासवर्ड कम से कम 8 अक्षर का होना चाहिए।',
     accept: 'खाता सक्रिय करें',
   },
   adjustments: {
@@ -810,6 +850,8 @@ export const hi = {
     confirmBlankPosTitle: 'सप्लाई स्थान की पुष्टि',
     confirmBlankPosBody:
       'इस ग्राहक का राज्य या GSTIN नहीं है। पूरा करने पर बिक्री राज्य के अंदर मानी जाएगी। जारी रखें?',
+    confirmBlankPosTaxNote:
+      'दिखाया गया कुल पहले से ही स्थानीय CGST + SGST सहित है — यही बुक होगा।',
     confirmBlankPosAction: 'राज्य के अंदर मानकर पूरा करें',
     confirmWalkInTitle: 'नगद ग्राहक की पुष्टि करें',
     confirmWalkInBody: 'यह बिक्री सामान्य नगद ग्राहक पर बिल होगी। जारी रखें?',
@@ -897,6 +939,9 @@ export const hi = {
     syncNow: 'अभी सिंक करें',
     syncFailed: 'ऑफ़लाइन सिंक विफल ({failed}): {errors}',
     synced: '{count} ड्राफ्ट सिंक हुए।',
+    deleteTitle: 'यह ऑफ़लाइन ड्राफ्ट हटाएं?',
+    deleteBody:
+      'यह ड्राफ्ट ऑफ़लाइन रहते हुए बनाया गया था और अभी तक सिंक नहीं हुआ है। इसे हटाने से वह दस्तावेज़ स्थायी रूप से मिट जाएगा।',
   },
   gstHonesty: {
     stubTitle: 'फाइलिंग इंजन नहीं',
@@ -948,6 +993,8 @@ export const hi = {
     healthAttention: 'ध्यान दें · इनसाइट्स खोलें',
     healthAction: 'कार्रवाई चाहिए · इनसाइट्स खोलें',
     limitedData: 'सीमित डेटा',
+    healthGradeTitle: 'हेल्थ ग्रेड {grade} · स्कोर {score}',
+    negativeStockPolicyNote: 'नेगेटिव स्टॉक नीति: {policy} — GST सेटिंग्स में बदलें',
     salesTodayLine: 'आज की बिक्री {amount} ({count} इनवॉइस)। इस महीने {monthAmount} ({monthCount} इनवॉइस)।',
     needsAttention: 'ध्यान दें',
     shopFloor: 'काउंटर (पिछले 7 दिन)',
@@ -960,6 +1007,7 @@ export const hi = {
     customers: 'बिलिंग शुरू करने के लिए ग्राहक जोड़ें।',
     products: 'उत्पाद जोड़ें या कैटलॉग आयात करें।',
     stock: 'ओपनिंग स्टॉक या खरीद के बाद स्टॉक दिखाई देगा।',
+    stockFiltered: 'मौजूदा फ़िल्टर से कोई स्टॉक मेल नहीं खाता।',
     stockHealthy: 'सभी आइटम रीऑर्डर स्तर से ऊपर हैं।',
     addSupplier: 'आपूर्तिकर्ता जोड़ें',
     createItem: 'आइटम बनाएं',
@@ -1012,6 +1060,7 @@ export const hi = {
     activityNote: 'नोट',
     activityCall: 'कॉल',
     activityEmail: 'ईमेल',
+    activityKind: 'गतिविधि प्रकार',
     convertWon: 'जीती हुई डील के रूप में बदलें',
     markAsWon: 'जीती हुई चिह्नित करें',
     basic: 'बेसिक',
@@ -1024,12 +1073,16 @@ export const hi = {
     serialNumbersHint: 'प्रति पंक्ति एक सीरियल (पूर्ण पर तैयार माल)।',
     componentSerials: 'घटक सीरियल',
     componentSerialsHint: 'प्रति घटक एक पंक्ति: componentId: serial1, serial2',
+    componentSerialsInvalidJson:
+      'यदि घटक सीरियल \'{\' से शुरू होता है तो वह मान्य JSON होना चाहिए (जैसे {"comp1": ["SN1","SN2"]})। इसे ठीक करें या बिना घटक सीरियल दर्ज किए रिलीज़ करने के लिए फ़ील्ड खाली करें।',
   },
   import: {
     title: 'डेटा आयात',
     stepUpload: 'अपलोड और सत्यापन',
     stepPreview: 'पूर्वावलोकन',
     stepCommit: 'कमिट',
+    stepMap: 'मैपिंग',
+    stepExportAid: 'निर्यात सहायता',
     entityType: 'आप क्या आयात कर रहे हैं?',
     chooseFile: 'CSV या Excel फ़ाइल चुनें',
     validRows: 'मान्य पंक्तियाँ',
@@ -1087,6 +1140,7 @@ export const hi = {
   billUpload: {
     title: 'खरीद बिल अपलोड',
     titleSales: 'बिक्री बिल अपलोड',
+    expandRow: 'विवरण संपादित करने के लिए पंक्ति खोलें',
     subtitle: 'AI से लाइन आइटम निकालें, समीक्षा करें, फिर ड्राफ्ट खरीद बनाएं।',
     subtitleSales: 'AI से लाइन आइटम निकालें, समीक्षा करें, फिर ड्राफ्ट बिक्री इनवॉइस बनाएं।',
     piiDisclaimer:
@@ -1198,6 +1252,8 @@ export const hi = {
     payloadSummary: 'पेलोड',
     billedAmount: 'बिक्री (+)',
     receivedAmount: 'जमा (−)',
+    supplierPaidAmount: 'भुगतान (−)',
+    supplierBilledAmount: 'खरीद (+)',
     dueBalance: 'बाकी राशि',
     shareOnWhatsapp: 'व्हाट्सऐप पर भेजें',
     dateFilter: 'तारीख अनुसार फ़िल्टर',
@@ -1430,6 +1486,8 @@ export const hi = {
     dunningHelp:
       'डिफ़ॉल्ट बंद। चालू होने पर देय तिथि के बाद तय दिनों पर व्हाट्सऐप क्लाउड (सहमति वाले ग्राहक) फिर SMS। गेटवे से प्राप्त भुगतान पर रिमाइंडर नहीं जाएगा।',
     dunningEnabled: 'स्वचालित रिमाइंडर चालू करें',
+    dunningConfirm:
+      'स्वचालित भुगतान रिमाइंडर चालू करें? BizBoard ग्राहकों को स्वयं संदेश भेजेगा — देय तिथि के बाद दिन: {days}।',
     dunningDays: 'देय तिथि के बाद रिमाइंडर दिन',
     dunningDaysHelp: 'कॉमा से अलग, जैसे 3, 7, 14',
     dunningMaxReminders: 'प्रति इनवॉइस अधिकतम रिमाइंडर',
@@ -1459,6 +1517,17 @@ export const hi = {
     photo: 'फ़ोटो',
     upload: 'अपलोड',
     count: '{count} बिल',
+  },
+  productSearch: {
+    typeToSearch: 'उत्पाद खोजने के लिए टाइप करें',
+    typeAtLeast: 'खोजने के लिए कम से कम {count} अक्षर टाइप करें',
+    showingFirst: 'पहले {count} मिलान दिखाए जा रहे हैं — अपनी खोज सीमित करें',
+  },
+  users: {
+    deactivate: 'निष्क्रिय करें',
+    reactivate: 'पुनः सक्रिय करें',
+    deactivateConfirm:
+      'इस सदस्य को निष्क्रिय करें? उनकी इस कंपनी तक पहुँच तुरंत समाप्त हो जाएगी। आप उन्हें बाद में पुनः सक्रिय कर सकते हैं — कुछ भी नहीं हटाया जाता।',
   },
 } as const;
 

@@ -1,4 +1,5 @@
 import { Fragment, useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Collapse from '@mui/material/Collapse';
 import Dialog from '@mui/material/Dialog';
@@ -69,6 +70,20 @@ function PayRunsPageInner() {
   });
 
   const rows = query.data?.results ?? [];
+
+  // F3-067: paid days must be within [0, days in the run's month].
+  const runMonthDays = (() => {
+    const p = lopRun?.period || period;
+    const m = /^(\d{4})-(\d{2})$/.exec(p || '');
+    if (!m) return 31;
+    return new Date(Number(m[1]), Number(m[2]), 0).getDate();
+  })();
+  const clampPaidDays = (raw: string): string => {
+    if (raw.trim() === '') return '';
+    const n = Number(raw);
+    if (Number.isNaN(n)) return '';
+    return String(Math.min(runMonthDays, Math.max(0, n)));
+  };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -342,14 +357,25 @@ function PayRunsPageInner() {
         <DialogTitle>{t('payroll.lop')}</DialogTitle>
         <DialogContent>
           <Stack spacing={1} sx={{ mt: 1 }}>
+            {employeesQuery.isError ? (
+              <Alert severity="error">
+                {getErrorMessage(employeesQuery.error)} — some employees may be missing from this
+                list.
+              </Alert>
+            ) : null}
+            {employeesQuery.isLoading ? <Alert severity="info">Loading employees…</Alert> : null}
             {(employeesQuery.data?.results ?? []).map((emp) => (
               <TextField
                 key={emp.id}
                 size="small"
                 type="number"
+                inputProps={{ min: 0, max: runMonthDays, step: 0.5 }}
                 label={`${emp.name} — ${t('payroll.paidDays')}`}
                 value={paidDays[emp.id] ?? ''}
-                onChange={(e) => setPaidDays((prev) => ({ ...prev, [emp.id]: e.target.value }))}
+                onChange={(e) =>
+                  setPaidDays((prev) => ({ ...prev, [emp.id]: clampPaidDays(e.target.value) }))
+                }
+                helperText={`0–${runMonthDays}`}
               />
             ))}
           </Stack>

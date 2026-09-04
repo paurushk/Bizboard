@@ -10,6 +10,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { confirmPasswordReset } from '@/api/auth';
+import { t } from '@/i18n';
 
 export function ResetPasswordPage() {
   const [params] = useSearchParams();
@@ -23,15 +24,15 @@ export function ResetPasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) {
-      setError('This reset link is missing a token. Request a new link from the login page.');
+      setError(t('auth.resetLinkMissingToken'));
       return;
     }
     if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
+      setError(t('auth.passwordMin8'));
       return;
     }
     if (password !== confirm) {
-      setError('The two passwords do not match.');
+      setError(t('auth.passwordsDoNotMatch'));
       return;
     }
     setError(null);
@@ -40,7 +41,7 @@ export function ResetPasswordPage() {
       await confirmPasswordReset(token, password);
       setDone(true);
     } catch {
-      setError('This reset link is invalid or has expired. Please request a new one.');
+      setError(t('auth.resetLinkInvalid'));
     } finally {
       setBusy(false);
     }
@@ -62,46 +63,49 @@ export function ResetPasswordPage() {
           <Stack spacing={3}>
             <Box textAlign="center">
               <Typography variant="h5" component="h1" fontWeight={700} gutterBottom>
-                Choose a new password
+                {t('auth.setNewPasswordTitle')}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Enter a new password for your BizBoard account.
+                {t('auth.setNewPasswordSubtitle')}
               </Typography>
             </Box>
             {error ? <Alert severity="error">{error}</Alert> : null}
             {done ? (
               <Stack spacing={2}>
-                <Alert severity="success">Your password has been updated. You can sign in now.</Alert>
+                <Alert severity="success">{t('auth.passwordUpdated')}</Alert>
                 <Button component={RouterLink} to="/login" variant="contained" fullWidth>
-                  Return to Login
+                  {t('auth.returnToLogin')}
                 </Button>
               </Stack>
             ) : (
               <Box component="form" onSubmit={handleSubmit} noValidate>
                 <Stack spacing={2.5}>
                   <TextField
-                    label="New password"
+                    label={t('auth.newPassword')}
                     type="password"
                     required
                     fullWidth
                     autoFocus
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    error={password.length > 0 && password.length < 8}
+                    helperText={t('invite.passwordHint')}
                   />
                   <TextField
-                    label="Confirm password"
+                    label={t('auth.confirmPassword')}
                     type="password"
                     required
                     fullWidth
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
+                    error={confirm.length > 0 && confirm !== password}
                   />
                   <Button type="submit" variant="contained" size="large" fullWidth disabled={busy}>
-                    {busy ? 'Saving…' : 'Update password'}
+                    {busy ? t('auth.saving') : t('auth.updatePassword')}
                   </Button>
                   <Box textAlign="center">
                     <Link component={RouterLink} to="/forgot-password" variant="body2" underline="hover">
-                      Request a new link
+                      {t('auth.requestNewLink')}
                     </Link>
                   </Box>
                 </Stack>

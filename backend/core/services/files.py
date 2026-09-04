@@ -139,6 +139,16 @@ class FileService:
 
         host = (getattr(settings, "CLAMAV_HOST", None) or "").strip()
         if not host:
+            # M1-012: in production, an unconfigured scanner is a fail-open hole
+            # — refuse the upload unless an operator has explicitly opted out.
+            if (
+                getattr(settings, "DJANGO_ENV", "") == "production"
+                and not getattr(settings, "CLAMAV_OPTIONAL", False)
+            ):
+                raise BusinessRuleError(
+                    "Upload blocked: virus scanning is not configured. "
+                    "Set CLAMAV_HOST or CLAMAV_OPTIONAL=1."
+                )
             return
         port = int(getattr(settings, "CLAMAV_PORT", 3310) or 3310)
         logger = logging.getLogger("bizboard.clamav")

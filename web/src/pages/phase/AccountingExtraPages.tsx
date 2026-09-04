@@ -16,6 +16,8 @@ import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney, toNumber } from '@/utils/money';
+import { nextIndianFyEnd } from '@/utils/fy';
+import { codeFromName } from '@/utils/codeGen';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
@@ -31,29 +33,35 @@ export function AccountingSettingsPage() {
   const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const [msg, setMsg] = useState('');
-  const [fyEnd, setFyEnd] = useState('2026-03-31');
+  // F3-026: track severity so a mutation error isn't shown as a blue "info".
+  const [msgSeverity, setMsgSeverity] = useState<'success' | 'error'>('success');
+  const [fyEnd, setFyEnd] = useState(nextIndianFyEnd());
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const flash = (text: string, severity: 'success' | 'error' = 'success') => {
+    setMsg(text);
+    setMsgSeverity(severity);
+  };
   const m = useMutation({
     mutationFn: (enabled: boolean) => api.updateAccountingSettings({ accountingEnabled: enabled }),
     onSuccess: (data) => {
       const enabled = Boolean((data as Row)?.accountingEnabled ?? (data as Row)?.accounting_enabled);
-      setMsg(enabled ? 'Accounting enabled — CoA seeded.' : 'Accounting disabled.');
+      flash(enabled ? 'Accounting enabled — CoA seeded.' : 'Accounting disabled.');
       void qc.invalidateQueries();
     },
-    onError: (e) => setMsg(getErrorMessage(e)),
+    onError: (e) => flash(getErrorMessage(e), 'error'),
   });
   const fyClose = useMutation({
     mutationFn: () => api.closeFinancialYear({ fyEnd, confirm: true }),
     onSuccess: () => {
-      setMsg(`Financial year closed through ${fyEnd}. Income/expense moved to Retained Earnings; overlapping periods locked.`);
+      flash(`Financial year closed through ${fyEnd}. Income/expense moved to Retained Earnings; overlapping periods locked.`);
       setConfirmOpen(false);
       void qc.invalidateQueries({ queryKey: ['accounting-periods'] });
     },
-    onError: (e) => setMsg(getErrorMessage(e)),
+    onError: (e) => flash(getErrorMessage(e), 'error'),
   });
   return (
     <PageShell title={t('phase.accounting')} subtitle={t('phase.accountingSubtitle')}>
-      {msg ? <Alert severity="info">{msg}</Alert> : null}
+      {msg ? <Alert severity={msgSeverity} onClose={() => setMsg('')}>{msg}</Alert> : null}
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack spacing={2}>
           <Alert severity="info">
@@ -119,7 +127,12 @@ export function AccountingBankReconPage() {
   });
   const journals = useQuery({
     queryKey: ['journals'],
-    queryFn: async () => (await api.listJournalsPage({ pageSize: 100 })).results,
+    queryFn: async () => {
+      const page = await api.listJournalsPage({ pageSize: 100 });
+      // F3-019: keep the total so the picker can say it's capped — a bank line
+      // older than the 100 most recent vouchers otherwise silently can't match.
+      return { results: page.results, count: page.count ?? page.results.length };
+    },
   });
   const [account, setAccount] = useState('');
   const [statement, setStatement] = useState('');
@@ -142,7 +155,7 @@ export function AccountingBankReconPage() {
   }, [accounts.data]);
   const unmatchedGl = useMemo(() => {
     if (!account) return [];
-    return (journals.data ?? []).flatMap((entry) => {
+    return (journals.data?.results ?? []).flatMap((entry) => {
       if (entry.status !== 'POSTED') return [];
       return (entry.lines ?? []).filter((line) => {
         const lineAccount = String(line.account);
@@ -153,6 +166,8 @@ export function AccountingBankReconPage() {
       }));
     });
   }, [journals.data, account]);
+  const journalsCapped =
+    (journals.data?.count ?? 0) > (journals.data?.results?.length ?? 0);
   const unmatchedBank = useMemo(() => {
     const lines = (statementDetail.data?.lines as Row[] | undefined) ?? [];
     return lines.filter((line) => String(line.matchStatus ?? line.match_status ?? 'UNMATCHED') !== 'MATCHED');
@@ -254,6 +269,11 @@ export function AccountingBankReconPage() {
             onChange={(e) => setJournalLine(e.target.value)}
             sx={{ minWidth: 240, flex: 1 }}
             disabled={!account}
+            helperText={
+              journalsCapped
+                ? `only the ${journals.data?.results?.length} most recent vouchers are searchable here`
+                : undefined
+            }
           >
             <MenuItem value="">{account ? 'Select journal line' : 'Pick a GL account first'}</MenuItem>
             {unmatchedGl.map((line) => (
@@ -279,7 +299,26 @@ export function AccountingBankReconPage() {
               </MenuItem>
             ))}
           </TextField>
-          <Button variant="outlined" disabled={writesBlocked || !session || !journalLine || !bankLine || match.isPending} onClick={() => match.mutate()}>
+          <Button
+            variant="outlined"
+            disabled={writesBlocked || !session || !journalLine || !bankLine || match.isPending}
+            onClick={() => {
+              // F2-014: block a mismatched GL↔bank match unless explicitly ack'd.
+              const gl = unmatchedGl.find((l) => String(l.id) === journalLine);
+              const bank = unmatchedBank.find((l) => String(l.id) === bankLine);
+              const glAmt = gl ? Math.abs(toNumber(gl.debit) - toNumber(gl.credit)) : 0;
+              const bankAmt = bank ? Math.abs(toNumber((bank.amount as string | number) ?? 0)) : 0;
+              if (
+                gl && bank && Math.abs(glAmt - bankAmt) > 0.01 &&
+                !window.confirm(
+                  `GL line is ${formatMoney(glAmt)} but the bank line is ${formatMoney(bankAmt)}. Match them anyway?`,
+                )
+              ) {
+                return;
+              }
+              match.mutate();
+            }}
+          >
             Match lines
           </Button>
         </Stack>
@@ -307,7 +346,7 @@ export function CostCentersPage() {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const create = useMutation({
-    mutationFn: () => api.createCostCenter({ name, code: code || name.slice(0, 8).toUpperCase() }),
+    mutationFn: () => api.createCostCenter({ name, code: code || codeFromName(name) }),
     onSuccess: () => {
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ['cost-centers'] });

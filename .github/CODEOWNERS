@@ -1,6 +1,18 @@
+# M1-007: default owner so infra / CI / mobile changes always need a reviewer
+# when "require review from Code Owners" branch protection is on.
+* @paurushk
+
+# High-risk areas — explicit owners
+/.github/ @paurushk
+/mobile/ @paurushk
+/nginx/ @paurushk
+docker-compose*.yml @paurushk
+/scripts/ @paurushk
+**/Dockerfile @paurushk
+/backend/config/settings.py @paurushk
+
 # Help & Resolution — review these paths (see docs/help/CONTRIBUTING.md).
 # GitHub user is paurushk (github.com/paurushk/Bizboard), not @paurush.
-
 web/src/pages/help/** @paurushk
 web/src/navigation/menu.ts @paurushk
 web/src/i18n/en.ts @paurushk

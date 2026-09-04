@@ -1,7 +1,7 @@
 import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockReceipts } from '@/mocks/data';
 import type { CustomerReceipt, PaymentAllocation } from '@/types/domain';
-import { withMocks, fetchPage, fetchMoneyListFirstPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
+import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
 
 export async function listReceiptsPage(
   params?: PageParams,
@@ -78,7 +78,7 @@ export async function createAllocation(
 }
 
 export async function listPaymentLinks(params?: Record<string, string>): Promise<import('@/types/domain').PaymentLink[]> {
-  return fetchMoneyListFirstPage<import('@/types/domain').PaymentLink>('/payments/links/', params);
+  return fetchAllPagesMasters<import('@/types/domain').PaymentLink>('/payments/links/', params);
 }
 
 export async function listPaymentLinksPage(params?: PageParams): Promise<PageResult<import('@/types/domain').PaymentLink>> {
@@ -94,7 +94,7 @@ export const markPaymentLinkSent = (id: number) => apiClient.post(`/payments/lin
 export const sharePaymentLink = (id: number, payload: { channel: string; recipient: string }) =>
   apiClient.post(`/payments/links/${id}/share/`, payload).then(({ data }) => unwrapData<Record<string, unknown>>(data));
 export const listGatewayPayments = (paymentLink?: number) =>
-  fetchMoneyListFirstPage<Record<string, unknown>>(
+  fetchAllPagesMasters<Record<string, unknown>>(
     '/payments/gateway-payments/',
     paymentLink ? { payment_link: String(paymentLink) } : undefined,
   );
@@ -115,7 +115,7 @@ export const refundGatewayPayment = (id: number, payload?: { amount?: number; re
 export const retryGatewayPaymentBooks = (id: number) =>
   apiClient.post(`/payments/gateway-payments/${id}/retry-books/`).then(({ data }) => unwrapData(data));
 export async function listBankStatements(params?: Record<string, string>): Promise<Record<string, unknown>[]> {
-  return fetchMoneyListFirstPage<Record<string, unknown>>('/payments/statements/', params);
+  return fetchAllPagesMasters<Record<string, unknown>>('/payments/statements/', params);
 }
 
 export async function listBankStatementsPage(params?: PageParams): Promise<PageResult<Record<string, unknown>>> {

@@ -30,6 +30,17 @@ export function printBlob(blob: Blob) {
         // Browser PDF viewer handles print internally
       }
     };
+    // F1-012: don't leak the object URL. Revoke after the print dialog closes,
+    // with a long fallback timeout in case afterprint never fires (some PDF
+    // viewers) — the blob can be multi-MB and otherwise lives until tab close.
+    const revoke = () => URL.revokeObjectURL(url);
+    try {
+      printWindow.addEventListener('afterprint', revoke, { once: true });
+      printWindow.addEventListener('pagehide', revoke, { once: true });
+    } catch {
+      /* cross-origin PDF viewer — rely on the timeout */
+    }
+    window.setTimeout(revoke, 120000);
   } else {
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';

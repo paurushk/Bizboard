@@ -480,6 +480,70 @@ def test_structured_xlsx_keeps_pack_qty_when_gross_disagrees(tenant_a):
     assert line["flags"]
 
 
+def test_structured_xlsx_persists_non_enum_qty_formula_to_template(tenant_a):
+    """B3-003: a structured bill whose inferred formula is a non-enum
+    expression (here `cs+quantity`, from the explicit Cs/Qty-no-UPC
+    fallback) must persist that exact formula on the learned
+    SupplierBillTemplate — not silently downgrade to SIMPLE.
+
+    `formula_enum()` only recognises the two case/UPC formulas; anything
+    else maps to SIMPLE for `line_total_formula`, so the *only* place the
+    real formula survives is `preview["resolved_answers"]["qty_formula"]`
+    -> `column_mapping["qty_formula"]`. parse_structured_file previously
+    never set resolved_answers at all (apply_extraction, the LLM path,
+    did), so this round-trip silently lost the inference and every later
+    bill from this GSTIN would mis-price quantity as the raw Qty column.
+    """
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    cover = wb.active
+    cover.title = "Invoice Details"
+    cover["A1"] = "Registered Name"
+    cover["B1"] = "Acme Vendor"
+    cover["A2"] = "GSTIN"
+    cover["B2"] = "29ABCDE1234F1ZW"
+    cover["A3"] = "Invoice Date"
+    cover["B3"] = "2026-07-01"
+    items = wb.create_sheet("Line Items")
+    # No UPC and no Gross Amt column: nothing to cross-check against, so
+    # infer_qty_formula's printed-amount scoring can't decide anything and
+    # the explicit "cs" + "quantity" present -> "cs+quantity" fallback in
+    # parse_structured_file fires (imports/services.py).
+    items.append(["Item Description", "Cs", "Qty", "Rate", "GST %"])
+    items.append(["Widget", 2, 3, 10, 5])
+    buf = BytesIO()
+    wb.save(buf)
+    upload = tenant_a.client.post("/api/v1/imports/", {
+        "kind": "PURCHASE_BILL",
+        "file": SimpleUploadedFile(
+            "cs-plus-qty.xlsx", buf.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
+    }, format="multipart")
+    assert upload.status_code == 201, upload.data
+    preview = upload.data["preview"]
+    assert preview["resolved_formula"] == SupplierBillTemplate.LineTotalFormula.SIMPLE
+    assert preview["resolved_answers"] == {"qty_formula": "cs+quantity"}
+    line = preview["lines"][0]
+    assert line["quantity"] == "5"  # (Cs 2) + (Qty 3)
+
+    commit = tenant_a.client.post(f"/api/v1/imports/{upload.data['id']}/commit/")
+    assert commit.status_code == 200, commit.data
+    template = SupplierBillTemplate.objects.get(company=tenant_a.company, gstin="29ABCDE1234F1ZW")
+    assert template.line_total_formula == SupplierBillTemplate.LineTotalFormula.SIMPLE
+    assert template.column_mapping.get("qty_formula") == "cs+quantity"
+
+    # Next bill from the same vendor (LLM path, same GSTIN, no Cs/Qty of its
+    # own to infer from) must apply the learned formula via
+    # _template_answers -- not fall back to the bare "quantity" column.
+    from imports.services import _template_answers
+
+    assert _template_answers(template) == {"qty_formula": "cs+quantity"}
+
+
 def test_extraction_continuation_merges_remaining_si_rows():
     from core.services.llm import (
         merge_extraction_line_payloads,

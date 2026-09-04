@@ -450,8 +450,12 @@ export function isReallyReachable(user: User | null, path: string): boolean {
 
 function pathMatches(navPath: string, path: string): boolean {
   const clean = path.split('?')[0];
-  if (navPath === clean) return true;
-  if (navPath !== '/' && clean.startsWith(`${navPath}/`)) return true;
+  // F1-015: nav paths may carry a query string (e.g. '/ca-needs?view=client').
+  // Compare on the pathname only, or the CA-needs surface is never "reachable"
+  // and a user landed there falls through to LimitedAccessLanding.
+  const navClean = navPath.split('?')[0];
+  if (navClean === clean) return true;
+  if (navClean !== '/' && clean.startsWith(`${navClean}/`)) return true;
   return false;
 }
 

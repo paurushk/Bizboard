@@ -212,6 +212,8 @@ def build_cmp08(company, period: str) -> dict:
         is_opening_balance=False,
     ).exclude(invoice_type=SalesInvoice.InvoiceType.NON_GST)
     taxable = sum((Decimal(str(i.taxable_total or 0)) for i in invoices), Decimal("0"))
+    # B5-012: mirror the invoice query's NON_GST exclusion so a non-GST note
+    # does not net the composition turnover.
     cns = SalesCreditNote.objects.filter(
         company=company,
         status=SalesCreditNote.Status.COMPLETED,
@@ -219,7 +221,7 @@ def build_cmp08(company, period: str) -> dict:
         note_date__month__gte=q_start_m,
         note_date__month__lt=q_start_m + 3,
         sales_invoice__is_opening_balance=False,
-    )
+    ).exclude(sales_invoice__invoice_type=SalesInvoice.InvoiceType.NON_GST)
     dns = SalesDebitNote.objects.filter(
         company=company,
         status=SalesDebitNote.Status.COMPLETED,
@@ -227,7 +229,7 @@ def build_cmp08(company, period: str) -> dict:
         note_date__month__gte=q_start_m,
         note_date__month__lt=q_start_m + 3,
         sales_invoice__is_opening_balance=False,
-    )
+    ).exclude(sales_invoice__invoice_type=SalesInvoice.InvoiceType.NON_GST)
     taxable -= sum((Decimal(str(n.taxable_total or 0)) for n in cns), Decimal("0"))
     taxable += sum((Decimal(str(n.taxable_total or 0)) for n in dns), Decimal("0"))
     taxable = max(Decimal("0.00"), taxable)
@@ -240,6 +242,7 @@ def build_cmp08(company, period: str) -> dict:
         invoice_date__month__gte=q_start_m,
         invoice_date__month__lt=q_start_m + 3,
         is_reverse_charge=True,
+        is_opening_balance=False,  # B5-012: don't inflate Table 2 with Tally opening RCM
     )
     inward_rcm_taxable = sum((Decimal(str(p.taxable_total or 0)) for p in rcm_purchases), Decimal("0"))
     inward_rcm_tax = sum(

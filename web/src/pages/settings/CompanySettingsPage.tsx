@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -23,6 +23,7 @@ import { canManageUsers } from '@/utils/permissions';
 
 import { StateSelect } from '@/components/StateSelect';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 
 type CompanyForm = Pick<
   Company,
@@ -49,11 +50,19 @@ type CompanyForm = Pick<
 export function CompanySettingsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  const { control, handleSubmit, reset } = useForm<CompanyForm>();
+  const query = useQuery({
+    queryKey: ['company'],
+    queryFn: getCompany,
+    // F3-014: don't silently refetch-and-reset the form (wiping unsaved edits)
+    // when the user tabs away and back.
+    refetchOnWindowFocus: false,
+  });
+  const { control, handleSubmit, reset, formState: { isDirty } } = useForm<CompanyForm>();
+  const seededRef = useRef(false);
 
   useEffect(() => {
-    if (query.data) {
+    if (query.data && !seededRef.current) {
+      seededRef.current = true;
       reset({
         name: query.data.name,
         legalName: query.data.legalName ?? '',
@@ -106,8 +115,16 @@ export function CompanySettingsPage() {
         dunningQuietHoursEnd: values.dunningQuietHoursEnd,
       });
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['company'] }),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['company'] });
+      // F3-015: clear the dirty flag post-save so UnsavedChangesGuard doesn't
+      // warn on navigating away right after a successful save.
+      reset(variables);
+    },
   });
+  // F3-073: let the "saved" banner be dismissed; it reappears on the next save
+  // because mutation.submittedAt advances with every mutate() call.
+  const [savedAck, setSavedAck] = useState(0);
 
   if (!canManageUsers(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
@@ -119,8 +136,23 @@ export function CompanySettingsPage() {
     <Stack
       spacing={2}
       component="form"
-      onSubmit={handleSubmit((values) => mutation.mutate(values))}
+      onSubmit={handleSubmit((values) => {
+        // F3-048: enabling dunning creates a standing rule that auto-messages
+        // customers — require an explicit acknowledgement, and echo the parsed
+        // schedule so a fat-fingered day list is visible before it takes effect.
+        if (values.dunningEnabled && !query.data?.dunningEnabled) {
+          const parsedDays = values.dunningDaysText
+            .split(/[,\s]+/)
+            .map((p) => Number(p))
+            .filter((n) => Number.isFinite(n) && n >= 1);
+          if (!window.confirm(t('settings.dunningConfirm', { days: parsedDays.join(', ') || '—' }))) {
+            return;
+          }
+        }
+        mutation.mutate(values);
+      })}
     >
+      <UnsavedChangesGuard when={isDirty} />
       <Typography variant="h4">{t('nav.company')}</Typography>
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
         <Chip
@@ -140,7 +172,11 @@ export function CompanySettingsPage() {
           }
         />
       </Stack>
-      {mutation.isSuccess ? <Alert severity="success">Company settings saved</Alert> : null}
+      {mutation.isSuccess && mutation.submittedAt !== savedAck ? (
+        <Alert severity="success" onClose={() => setSavedAck(mutation.submittedAt)}>
+          Company settings saved
+        </Alert>
+      ) : null}
       {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
       <Paper sx={{ p: 3, maxWidth: 640 }}>
         <Stack spacing={2}>

@@ -272,7 +272,16 @@ def build_eway_payload_from_invoice(
     seller_gstin = seller_gstin or (company.gstin or "")
     seller_state = ((getattr(stamp, "state", None) or "").strip() if stamp is not None else "") or company.state
     from_stcd = extract_state_code(seller_gstin) or extract_state_code(seller_state) or ""
-    to_stcd = extract_state_code(customer.gstin) or extract_state_code(customer.state) or ""
+    # B2-008: the invoice froze its place of supply at completion — resolve the
+    # destination state code from that first, falling back to the live customer
+    # only when it is blank, so the e-Way matches the tax that was actually
+    # charged (a customer address edit after completion no longer shifts it).
+    to_stcd = (
+        extract_state_code(getattr(invoice, "filing_place_of_supply", "") or "")
+        or extract_state_code(customer.gstin)
+        or extract_state_code(customer.state)
+        or ""
+    )
     items = list(invoice.items.select_related("product").all())
     distance = getattr(invoice, "transport_distance_km", None)
     if distance is None:
@@ -314,7 +323,7 @@ def build_eway_payload_from_invoice(
         "transDistance": trans_distance,
         "transporterName": transporter_name,
         "transporterId": (getattr(invoice, "transporter_id", "") or "").replace(" ", "").upper(),
-        "vehicleNo": vehicle_number,
+        "vehicleNo": (vehicle_number or "").replace(" ", "").upper(),  # B2-013
         "itemList": _build_item_list(items, require_hsn=False, errors=[]),
     }
 
@@ -333,7 +342,13 @@ def build_eway_payload_from_challan(challan: DeliveryChallan) -> dict:
         seller_gstin = (getattr(stamp, "gstin", None) or seller_gstin).strip()
     seller_state = ((getattr(stamp, "state", None) or "").strip() if stamp is not None else "") or company.state
     from_stcd = extract_state_code(seller_gstin) or extract_state_code(seller_state) or ""
-    to_stcd = extract_state_code(customer.gstin) or extract_state_code(customer.state) or ""
+    # B2-008: prefer the converted invoice's frozen place of supply.
+    to_stcd = (
+        extract_state_code(getattr(inv, "filing_place_of_supply", "") or "")
+        or extract_state_code(customer.gstin)
+        or extract_state_code(customer.state)
+        or ""
+    )
     items = list(challan.items.select_related("product").all())
     to_pin = _buyer_pincode(customer)
     from_pin = _from_pincode(company, stamp)
@@ -374,6 +389,6 @@ def build_eway_payload_from_challan(challan: DeliveryChallan) -> dict:
         "transDistance": str(int(distance)),
         "transporterName": challan.transporter_name or "",
         "transporterId": (challan.transporter_id or "").replace(" ", "").upper(),
-        "vehicleNo": challan.vehicle_number or "",
+        "vehicleNo": (challan.vehicle_number or "").replace(" ", "").upper(),  # B2-013
         "itemList": _build_item_list(items, require_hsn=False, errors=[]),
     }

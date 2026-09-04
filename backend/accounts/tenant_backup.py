@@ -39,6 +39,10 @@ COMPANY_SKIP_FIELDS = frozenset(
         "gsp_credentials_encrypted",
         "payment_gateway_credentials_encrypted",
         "gstin_raw_payload",
+        # B6-015: raw third-party identity-verification responses (proprietor
+        # name / DOB / address / masked IDs) — exclude like gstin_raw_payload.
+        "pan_raw_payload",
+        "udyam_raw_payload",
         "billing_override_active",
     }
 )
@@ -387,8 +391,20 @@ def decrypt_export_zip(blob: bytes, *, company_id: int | None = None) -> dict[st
                 return default
 
         manifest = _load("manifest.json") or {}
+        manifest_version = manifest.get("version", EXPORT_VERSION)
+        # B6-018: refuse a payload written by a different (future/older) schema
+        # rather than importing it best-effort and producing a partial tenant.
+        try:
+            manifest_version_int = int(manifest_version)
+        except (TypeError, ValueError):
+            manifest_version_int = None
+        if manifest_version_int != EXPORT_VERSION:
+            raise BusinessRuleError(
+                f"Unsupported export version {manifest_version!r}; "
+                f"this build imports version {EXPORT_VERSION} only."
+            )
         payload = {
-            "version": manifest.get("version", EXPORT_VERSION),
+            "version": manifest_version,
             "exported_at": manifest.get("exported_at"),
             "source_company_id": manifest.get("source_company_id"),
             "source_company_name": manifest.get("source_company_name"),
@@ -451,6 +467,37 @@ def _parse_date(value):
     return parsed
 
 
+def _remap_stock_movement_reference_id(
+    reference_type: str, old_reference_id, sales_map: dict[Any, int], purchase_map: dict[Any, int]
+) -> str:
+    """B6-019: rewrite a StockMovement's soft `reference_id` through the
+    matching id map for restorable document types; blank it for every other
+    `reference_type` (stock_transfer*, work_order*, delivery_challan*,
+    sales_return*, purchase_return*, manual/serial/expiry adjustments, ...)
+    since this backup format doesn't carry those source rows at all — there
+    is no map to rewrite through, and leaving the old numeric id is worse
+    than blank (it can resolve to an unrelated, possibly other-tenant, row).
+    """
+    if not old_reference_id:
+        return ""
+    id_map: dict[Any, int] | None = None
+    if reference_type.startswith("sales_invoice"):
+        id_map = sales_map
+    elif reference_type.startswith("purchase_invoice"):
+        id_map = purchase_map
+    if id_map is None:
+        return ""
+    # Backup JSON round-trips ids as either int or str depending on source;
+    # try both forms since map keys come from the original serialized rows.
+    new_id = id_map.get(old_reference_id)
+    if new_id is None:
+        try:
+            new_id = id_map.get(int(old_reference_id))
+        except (TypeError, ValueError):
+            new_id = None
+    return str(new_id) if new_id is not None else ""
+
+
 def _copy_model_fields(model, row: dict, *, skip: set[str], remap: dict[str, int | None]) -> dict:
     kwargs: dict[str, Any] = {}
     field_names = {f.attname: f for f in model._meta.concrete_fields}
@@ -463,6 +510,13 @@ def _copy_model_fields(model, row: dict, *, skip: set[str], remap: dict[str, int
         if attname.endswith("_id") and attname in remap:
             old_id = raw
             kwargs[attname] = remap[attname].get(old_id) if isinstance(remap[attname], dict) else remap[attname]
+            continue
+        if getattr(field, "is_relation", False) and field.many_to_one:
+            # B6-005: a real FK column that isn't in `remap` would otherwise be
+            # copied verbatim — a source PK pointing at the old tenant's row (or
+            # a global id that resolves to another tenant). Null it; only an
+            # explicitly-remapped FK is carried across.
+            kwargs[attname] = None
             continue
         if raw is None:
             kwargs[attname] = None
@@ -990,7 +1044,7 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         kwargs = _copy_model_fields(
             StockMovement,
             row,
-            skip={"id", "company_id", "created_by_id"},
+            skip={"id", "company_id", "created_by_id", "reference_id"},
             remap={
                 "warehouse_id": warehouse_map,
                 "product_id": product_map,
@@ -999,6 +1053,18 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         )
         if not kwargs.get("warehouse_id") or not kwargs.get("product_id"):
             continue
+        # B6-019: `reference_id` is a plain CharField holding a stringified
+        # source-document PK (e.g. the sales/purchase invoice this movement
+        # came from) — `_copy_model_fields`'s generic remap only rewrites
+        # real FK columns, so this was copied verbatim and dangled after
+        # restore (pointing at the old tenant's row id, or an unrelated row
+        # if that numeric id now belongs to someone else). Rewrite it
+        # through the same id map the row's `reference_type` indicates when
+        # one exists; blank it otherwise rather than leave a value that
+        # looks valid but resolves to the wrong document.
+        kwargs["reference_id"] = _remap_stock_movement_reference_id(
+            row.get("reference_type") or "", row.get("reference_id"), sales_map, purchase_map
+        )
         StockMovement.objects.create(company=target_company, created_by=owner, **kwargs)
 
     for row in payload.get("stock_balances") or []:
@@ -1097,7 +1163,14 @@ def restore_to_sandbox(*, source_company, payload: dict[str, Any], owner):
         can_create_payments=True,
         can_post_journals=True,
     )
-    import_payload(target_company=sandbox, payload=payload, owner=owner)
+    # B6-001: PostgresRlsMiddleware has app.company_id pinned to the requester's
+    # *active* company; every tenant-table INSERT for `sandbox` would fail the
+    # RLS WITH CHECK. import_payload sets company= explicitly on every row, so a
+    # bypass is safe here.
+    from core.rls import rls_bypass
+
+    with rls_bypass():
+        import_payload(target_company=sandbox, payload=payload, owner=owner)
     sandbox.refresh_from_db()
     if sandbox.name != sandbox_name:
         sandbox.name = sandbox_name
@@ -1199,6 +1272,11 @@ def restore_destroy_in_place(*, company, payload: dict[str, Any], owner, confirm
             f"({extra}). Pass confirm_destroy_unbacked=true to proceed.",
             code="UNBACKED_ROWS",
         )
-    wipe_logical_tenant_rows(company)
-    import_payload(target_company=company, payload=payload, owner=owner)
+    # B6-001: robust even when the caller's active company != the one being
+    # restored (an owner restoring a different company they own).
+    from core.rls import rls_bypass
+
+    with rls_bypass():
+        wipe_logical_tenant_rows(company)
+        import_payload(target_company=company, payload=payload, owner=owner)
     return company

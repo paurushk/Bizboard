@@ -6,11 +6,14 @@ from core.exceptions import BusinessRuleError
 from masters.models import PriceListItem
 
 
-def _qty(value) -> Decimal:
+def _qty(value) -> Decimal | None:
+    # B8-034: an unknown quantity must NOT be treated as 1 — that makes a slab
+    # starting at min_qty=2 (or a fractional-UOM min_qty=0.5) unreachable.
+    # Return None so _matching_slab falls back to the base (lowest-min) slab.
     if value is None or str(value) == "":
-        return Decimal("1")
+        return None
     q = Decimal(str(value))
-    return q if q > 0 else Decimal("1")
+    return q if q > 0 else None
 
 
 def _range_hi(max_qty):
@@ -56,12 +59,17 @@ def assert_slab_payloads(items) -> None:
         others.append((min_q, max_q))
 
 
-def _matching_slab(*, price_list_id, product, quantity: Decimal):
+def _matching_slab(*, price_list_id, product, quantity: Decimal | None):
     items = list(
         PriceListItem.objects.filter(price_list_id=price_list_id, product=product)
         .select_related("price_list")
         .order_by("-min_qty")
     )
+    if not items:
+        return None
+    if quantity is None:
+        # B8-034: unknown quantity -> the base slab (lowest min_qty).
+        return min(items, key=lambda it: Decimal(str(it.min_qty or 1)))
     for item in items:
         min_q = Decimal(str(item.min_qty or 1))
         max_q = item.max_qty
@@ -116,6 +124,11 @@ def resolve_unit_price(
 
     if requested is None:
         return list_price
-    if requested != list_price and (role or "").upper() == "OWNER":
+    # B8-031: the guard is meant to stop *undercutting* a slab. Pricing *above*
+    # the list (a negotiated higher rate) is legitimate for any role — only
+    # clamp when the request is below the slab and the caller isn't an OWNER.
+    if requested >= list_price:
+        return requested
+    if (role or "").upper() == "OWNER":
         return requested
     return list_price

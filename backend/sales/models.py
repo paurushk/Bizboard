@@ -654,6 +654,9 @@ class RecurringInvoiceSchedule(models.Model):
     )
     cadence = models.CharField(max_length=12, choices=Cadence.choices, default=Cadence.MONTHLY)
     next_run_at = models.DateTimeField()
+    # B2-009: the intended day-of-month for MONTHLY schedules. Without it a
+    # "31st" schedule permanently drifts to the 28th after the first February.
+    anchor_day = models.PositiveSmallIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     line_template = models.JSONField(default=dict, blank=True)
     notes = models.TextField(blank=True)

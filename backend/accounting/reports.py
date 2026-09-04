@@ -2,6 +2,7 @@ from decimal import Decimal
 import logging
 
 from django.db.models import F, Q, Sum
+from django.utils import timezone
 
 from .models import Account, JournalEntry, JournalLine
 
@@ -22,12 +23,14 @@ def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=
         qs = qs.exclude(entry__purpose="FY_CLOSE")
     elif exclude_fy_close_after:
         qs = qs.exclude(entry__purpose="FY_CLOSE", entry__entry_date__gte=exclude_fy_close_after)
-    totals = {}
     # BB-000529 / UXW2B-018: alias the account__* FK lookups to clean single-underscore
     # names. djangorestframework_camel_case's camelize() only converts "_x" -> "X" when a
     # single underscore is followed directly by a lowercase letter; "account__code" (double
     # underscore) doesn't match that pattern and was passing through the renderer mangled
     # into "account_Code" instead of the expected "accountCode".
+    # B1-028: values(...).annotate(...) already yields one row per account_id — no need to
+    # re-key it through a dict.
+    rows = []
     for row in qs.values(
         "account_id",
         account_code=F("account__code"),
@@ -39,8 +42,8 @@ def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=
         row["debit"] = row["debit"] or Decimal("0")
         row["credit"] = row["credit"] or Decimal("0")
         row["balance"] = row["debit"] - row["credit"]
-        totals[row["account_id"]] = row
-    return list(totals.values())
+        rows.append(row)
+    return rows
 
 
 def trial_balance(company, as_of=None):
@@ -66,9 +69,17 @@ def _indian_fy_bounds(as_of, company=None):
         except (ValueError, TypeError):
             from django.utils import timezone
 
+            # B1-018: caller-facing views (AccountingReportView._qp_date) already
+            # 400 on a bad date param; this fallback is the last resort for
+            # internal callers, but should not be fully silent.
+            logger.warning("accounting.reports: unparseable as_of %r; defaulting to today", as_of)
             as_of = timezone.localdate()
     start_month = int(getattr(company, "fy_start_month", None) or 4) if company is not None else 4
     if start_month < 1 or start_month > 12:
+        logger.warning(
+            "accounting.reports: company %s fy_start_month=%r out of range; using April",
+            getattr(company, "pk", None), start_month,
+        )
         start_month = 4
     start_year = as_of.year if as_of.month >= start_month else as_of.year - 1
     start = date(start_year, start_month, 1)
@@ -87,6 +98,10 @@ def profit_and_loss(company, date_from=None, date_to=None, cost_center=None):
         date_from, _ = _indian_fy_bounds(date_to, company)
     elif date_from is None and date_to is None:
         date_from, date_to = _indian_fy_bounds(None, company)
+    # B1-012: a `date_from` with no `date_to` otherwise left the query
+    # upper-unbounded (all future postings included).
+    if date_to is None:
+        _, date_to = _indian_fy_bounds(date_from, company)
     rows = [row for row in _balances(company, date_from=date_from, date_to=date_to, cost_center=cost_center, exclude_fy_close=True)
             if row["account_type"] in (Account.Type.INCOME, Account.Type.EXPENSE)]
     income = sum((-row["balance"] for row in rows if row["account_type"] == Account.Type.INCOME), Decimal("0"))
@@ -97,6 +112,11 @@ def profit_and_loss(company, date_from=None, date_to=None, cost_center=None):
 
 def balance_sheet(company, as_of=None, cost_center=None):
     fy_from, fy_to = _indian_fy_bounds(as_of, company)
+    # B1-011: `_balances` with as_of=None is all-time, but current_earnings is
+    # P&L capped at fy_to — equation_holds then compares mismatched horizons.
+    # Pin both to the same cut-off.
+    if as_of is None:
+        as_of = fy_to
     rows = _balances(company, as_of=as_of, cost_center=cost_center, exclude_fy_close_after=fy_from)
     by_type = {t: [] for t in Account.Type.values}
     for row in rows:
@@ -165,7 +185,13 @@ def cash_flow(company, date_from=None, date_to=None, cost_center=None):
     elif date_from is None and date_to is None:
         date_from, date_to = _indian_fy_bounds(None, company)
 
-    cash_accounts = Account.objects.filter(company=company, code__in=["1100", "1500"])
+    # B1-001: per-bank child ledgers are coded "1500-<bank_account.id>"
+    # (accounting.services). The old code__in=["1100","1500"] filter missed
+    # every real bank movement once a company had more than the parent stub,
+    # understating cash. Include the children.
+    cash_accounts = Account.objects.filter(company=company).filter(
+        Q(code__in=["1100", "1500"]) | Q(code__startswith="1500-")
+    )
     qs = JournalLine.objects.filter(
         entry__company=company,
         entry__status=JournalEntry.Status.POSTED,
@@ -237,6 +263,10 @@ def fy_bounds_for_end(company, fy_end):
 
     start_month = int(getattr(company, "fy_start_month", None) or 4)
     if start_month < 1 or start_month > 12:
+        logger.warning(
+            "accounting.reports: company %s fy_start_month=%r out of range; using April",
+            getattr(company, "pk", None), start_month,
+        )
         start_month = 4
     start_year = fy_end.year if fy_end.month >= start_month else fy_end.year - 1
     return date(start_year, start_month, 1), fy_end
@@ -298,6 +328,7 @@ def close_financial_year(company, fy_end, user=None):
         ).exclude(status=AccountingPeriod.Status.CLOSED).update(
             status=AccountingPeriod.Status.CLOSED,
             updated_by=user,
+            updated_at=timezone.now(),  # B1-029
         )
         from reporting.models import GstReturnPeriod
 
@@ -307,6 +338,9 @@ def close_financial_year(company, fy_end, user=None):
             period__lte=fy_end.strftime("%Y-%m"),
         ).exclude(status=GstReturnPeriod.Status.CLOSED).update(
             status=GstReturnPeriod.Status.CLOSED,
+            closed_by=user,
+            closed_at=timezone.now(),
+            updated_at=timezone.now(),  # B1-029
         )
         return existing
 
@@ -353,6 +387,18 @@ def close_financial_year(company, fy_end, user=None):
 
     if not company.accounting_enabled:
         raise BusinessRuleError("Accounting is not enabled for this company.")
+
+    # B1-008: don't post an FY_CLOSE journal for a year that has no accounting
+    # periods — the close would produce a journal that nothing then locks, and
+    # the "set periods to CLOSED" step at the end is a no-op. Require at least
+    # one period overlapping the FY.
+    if not AccountingPeriod.objects.filter(
+        company=company, start_date__lte=fy_end, end_date__gte=fy_start,
+    ).exists():
+        raise BusinessRuleError(
+            "Financial-year close blocked: no accounting periods are defined for "
+            f"{fy_start:%Y-%m-%d}–{fy_end:%Y-%m-%d}. Create the periods first."
+        )
 
     seed_chart_of_accounts(company, user)
     retained = PostingService._account(company, "3100")
@@ -407,6 +453,7 @@ def close_financial_year(company, fy_end, user=None):
         ).exclude(status=AccountingPeriod.Status.CLOSED).update(
             status=AccountingPeriod.Status.CLOSED,
             updated_by=user,
+            updated_at=timezone.now(),  # B1-029
         )
         # BB-000712: align GST return periods with FY close.
         from reporting.models import GstReturnPeriod
@@ -417,5 +464,8 @@ def close_financial_year(company, fy_end, user=None):
             period__lte=fy_end.strftime("%Y-%m"),
         ).exclude(status=GstReturnPeriod.Status.CLOSED).update(
             status=GstReturnPeriod.Status.CLOSED,
+            closed_by=user,
+            closed_at=timezone.now(),
+            updated_at=timezone.now(),  # B1-029
         )
     return entry

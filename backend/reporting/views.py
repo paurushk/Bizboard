@@ -753,6 +753,26 @@ class Gstr2bIngestViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(company=self.company)
 
+    def perform_update(self, serializer):
+        # B5-005: a manual itc_eligibility override must not leave the books out
+        # of step with the 2B row — run the same reclass the IMS accept/reject
+        # path uses when the eligibility actually changes.
+        old = serializer.instance.itc_eligibility
+        obj = serializer.save()
+        new = obj.itc_eligibility
+        if new != old and obj.purchase_invoice_id:
+            from accounting.services import reclass_rejected_itc, reclass_unreviewed_itc
+
+            inv = obj.purchase_invoice
+            user = self.request.user
+            if new == Gstr2bIngest.ItcEligibility.CLAIMABLE:
+                reclass_unreviewed_itc(inv, user=user)
+            elif new in (
+                Gstr2bIngest.ItcEligibility.INELIGIBLE,
+                Gstr2bIngest.ItcEligibility.REVERSED,
+            ):
+                reclass_rejected_itc(inv, user=user)
+
     @action(detail=False, methods=["post"], url_path="upload")
     def upload(self, request):
         """Bulk ingest rows: {period, rows: [{supplier_gstin, invoice_number, ...}]}."""
@@ -780,6 +800,46 @@ class Gstr2bIngestViewSet(viewsets.ModelViewSet):
                 "raw": raw,
             }
             if invoice_number:
+                # B5-023: a re-uploaded 2B commonly reflects a supplier amendment
+                # (taxable value / tax / date revised). update_or_create below
+                # silently replaces those figures with nothing recorded — snapshot
+                # the prior values into the existing append-only IMS history log
+                # first, whenever they actually differ, so an earlier
+                # reconciliation's numbers aren't lost with no trace.
+                existing = Gstr2bIngest.objects.filter(
+                    company=self.company,
+                    period=period,
+                    supplier_gstin=supplier,
+                    invoice_number=invoice_number,
+                ).first()
+                if existing is not None:
+                    from decimal import Decimal as _Decimal, InvalidOperation as _InvalidOperation
+
+                    _AMOUNT_FIELDS = ("taxable_value", "igst", "cgst", "sgst", "cess")
+                    changed = {}
+                    for f in _AMOUNT_FIELDS:
+                        old_val = _Decimal(str(getattr(existing, f) or 0))
+                        try:
+                            new_val = _Decimal(str(defaults.get(f) or 0))
+                        except _InvalidOperation:
+                            new_val = old_val
+                        if old_val != new_val:
+                            changed[f] = str(old_val)
+                    old_date = str(existing.invoice_date) if existing.invoice_date else ""
+                    new_date = str(defaults.get("invoice_date") or "")
+                    if old_date and new_date and old_date != new_date:
+                        changed["invoice_date"] = old_date
+                    if changed:
+                        from reporting.models import ImsActionHistory
+
+                        ImsActionHistory.objects.create(
+                            company=self.company,
+                            ingest=existing,
+                            action="REUPLOAD_AMENDED",
+                            remark=f"2B re-upload for {period} revised {', '.join(sorted(changed))}",
+                            acted_by=request.user if request.user.is_authenticated else None,
+                            payload={"previous": changed, "raw_previous": existing.raw},
+                        )
                 obj, _created = Gstr2bIngest.objects.update_or_create(
                     company=self.company,
                     period=period,
@@ -1093,7 +1153,9 @@ class TdsWorksheetView(APIView):
         writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerow({"date": "# 26Q worksheet aid — not a live IT portal upload", "invoice": ""})
-        writer.writerows(rows)
+        # B5-002: supplier / invoice / section are user-controlled — neutralise
+        # spreadsheet formula injection, matching ExportView.
+        writer.writerows({k: csv_safe(v) for k, v in row.items()} for row in rows)
         response = HttpResponse(buffer.getvalue(), content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="tds-26q-{period}.csv"'
         return response
@@ -1127,7 +1189,8 @@ class TcsWorksheetView(APIView):
         writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerow({"date": "# 27EQ worksheet aid — not a live IT portal upload", "invoice": ""})
-        writer.writerows(rows)
+        # B5-002: customer / invoice / section are user-controlled.
+        writer.writerows({k: csv_safe(v) for k, v in row.items()} for row in rows)
         response = HttpResponse(buffer.getvalue(), content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="tcs-27eq-{period}.csv"'
         return response

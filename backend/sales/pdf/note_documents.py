@@ -10,7 +10,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from .helpers import amount_in_words, format_money, format_qty, tax_breakup_by_rate
+from .helpers import amount_in_words, format_money, format_qty, pdf_esc, tax_breakup_by_rate
 from .styles import GREY_HEADER, GREY_TOTAL, LINE, build_styles
 
 
@@ -52,6 +52,7 @@ def _render_note_like(
     reason: str = "",
     notes: str = "",
     tax_enabled: bool = True,
+    filing_gstin: str = "",
 ) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -65,32 +66,43 @@ def _render_note_like(
     styles = build_styles()
     story = []
 
-    story.append(Paragraph(company.name or "Business", styles["company_name"]))
+    story.append(Paragraph(pdf_esc(company.name or "Business"), styles["company_name"]))
     story.append(Paragraph(title, styles["title"]))
     meta = [
-        f"<b>Number:</b> {number or '—'}",
-        f"<b>Date:</b> {doc_date}",
+        f"<b>Number:</b> {pdf_esc(number or '—')}",
+        f"<b>Date:</b> {pdf_esc(doc_date)}",
     ]
     if reference_label and reference_value:
-        meta.append(f"<b>{reference_label}:</b> {reference_value}")
+        meta.append(f"<b>{pdf_esc(reference_label)}:</b> {pdf_esc(reference_value)}")
     if reason:
-        meta.append(f"<b>Reason:</b> {reason}")
+        meta.append(f"<b>Reason:</b> {pdf_esc(reason)}")
     story.append(Paragraph("<br/>".join(meta), styles["meta"]))
     story.append(Spacer(1, 4 * mm))
 
     story.append(Paragraph("<b>Bill To</b>", styles["section_head"]))
-    story.append(Paragraph(customer.name or "", styles["body"]))
-    if getattr(customer, "gstin", None):
-        story.append(Paragraph(f"GSTIN: {customer.gstin}", styles["body"]))
+    story.append(Paragraph(pdf_esc(customer.name or ""), styles["body"]))
+    # B2-012: prefer the note's filing-time GSTIN snapshot over the live
+    # customer record — a note re-rendered after the customer's GSTIN changes
+    # must still show what was actually filed on GSTR-1 Table 9B.
+    gstin = filing_gstin or getattr(customer, "gstin", None)
+    if gstin:
+        story.append(Paragraph(f"GSTIN: {pdf_esc(gstin)}", styles["body"]))
     addr = _addr(customer)
     if addr:
-        story.append(Paragraph(addr, styles["body_small"]))
+        story.append(Paragraph(pdf_esc(addr), styles["body_small"]))
     story.append(Spacer(1, 4 * mm))
 
     header = ["#", "Item", "HSN", "Qty", "Rate", "Taxable", "Tax", "Total"]
     rows = [header]
     for idx, item in enumerate(items, start=1):
-        tax = (item.cgst or 0) + (item.sgst or 0) + (item.igst or 0)
+        # B2-025: include cess so the per-line Tax column foots to the line
+        # Total and to the summary's Cess row.
+        tax = (
+            (item.cgst or 0)
+            + (item.sgst or 0)
+            + (item.igst or 0)
+            + (getattr(item, "cess", 0) or 0)
+        )
         rows.append([
             str(idx),
             item.description or getattr(item.product, "name", ""),
@@ -155,7 +167,7 @@ def _render_note_like(
             )
     if notes:
         story.append(Spacer(1, 2 * mm))
-        story.append(Paragraph(f"<b>Notes:</b> {notes}", styles["body"]))
+        story.append(Paragraph(f"<b>Notes:</b> {pdf_esc(notes)}", styles["body"]))
 
     doc.build(story)
     return buf.getvalue()
@@ -189,6 +201,7 @@ def render_credit_note(note) -> bytes:
         reason=reason,
         notes=note.notes or "",
         tax_enabled=True,
+        filing_gstin=getattr(note, "filing_party_gstin", "") or "",
     )
 
 
@@ -220,6 +233,7 @@ def render_debit_note(note) -> bytes:
         reason=reason,
         notes=note.notes or "",
         tax_enabled=True,
+        filing_gstin=getattr(note, "filing_party_gstin", "") or "",
     )
 
 

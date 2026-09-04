@@ -150,7 +150,10 @@ class AdjustmentView(APIView):
 
     permission_classes = [IsAuthenticated, HasCompany, CanManageInventory]
 
+    @transaction.atomic
     def post(self, request):
+        # B8-014: wrap the whole body so a get_or_create_batch() BatchLot rolls
+        # back with a failed post_movement instead of leaving an orphan lot.
         serializer = AdjustmentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         company = get_company_user(request).company
@@ -176,6 +179,13 @@ class AdjustmentView(APIView):
             )
         else:
             batch = None
+        # B8-013: a manual adjustment hits the GL when accounting is on — do not
+        # let it post into a closed / filed GST period.
+        from django.utils import timezone as _tz
+
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(company, _tz.localdate())
         movement = InventoryService.post_movement(
             company=company,
             product=product,
@@ -201,9 +211,19 @@ class OpeningStockView(APIView):
     permission_classes = [IsAuthenticated, HasCompany, CanManageInventory]
 
     def post(self, request):
+        company = get_company_user(request).company
+        # F3-010: a retry after a partial "item saved but opening stock failed"
+        # must not double the quantity for lots that already succeeded.
+        return wrap_idempotent(
+            request=request,
+            company=company,
+            scope="opening_stock",
+            build=lambda: self._post(request, company),
+        )
+
+    def _post(self, request, company):
         serializer = OpeningStockSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        company = get_company_user(request).company
         product = get_object_or_404(Product, pk=serializer.validated_data["product"], company=company)
         data = serializer.validated_data
         quantity = data.get("quantity")
@@ -287,6 +307,23 @@ class WarehouseViewSet(CompanyScopedViewSet):
         if becoming_inactive:
             assert_can_deactivate_warehouse(instance)
         super().perform_update(serializer)
+        # B8-030: re-assert the invariant after the write, regardless of which
+        # field changed — a PUT that flips is_default or is_active in a way that
+        # leaves zero (or >1) active default godowns is otherwise not caught.
+        active_defaults = Warehouse.objects.filter(
+            company=self.company, is_active=True, is_default=True
+        )
+        if not active_defaults.exists():
+            fallback = (
+                Warehouse.objects.filter(company=self.company, is_active=True)
+                .order_by("id")
+                .first()
+            )
+            if fallback is not None:
+                Warehouse.objects.filter(pk=fallback.pk).update(is_default=True)
+        elif active_defaults.count() > 1:
+            keep = active_defaults.order_by("id").first()
+            active_defaults.exclude(pk=keep.pk).update(is_default=False)
 
     def perform_destroy(self, instance):
         from .item_stock import assert_can_delete_warehouse
@@ -365,11 +402,35 @@ class SerialNumberViewSet(CompanyScopedViewSet):
         if warehouse_id:
             warehouse = Warehouse.objects.filter(company=self.company, pk=warehouse_id).first() or warehouse
         if target == SerialNumber.Status.RETURNED and from_status == SerialNumber.Status.SOLD:
+            # B8-006: cost the return-in at the price the unit went out at.
+            # Find the SALE movement that carried this serial and reuse its
+            # unit_cost, so a manual serial return doesn't create zero-cost
+            # stock and desync FIFO / WAVG from the balance.
+            from inventory.models import StockMovement
+
+            sale_cost = None
+            for mv in (
+                StockMovement.objects.filter(
+                    company=self.company,
+                    product=serial.product,
+                    movement_type=MovementType.SALE,
+                )
+                .order_by("-id")
+                .only("unit_cost", "serial_numbers")[:200]
+            ):
+                if serial.serial_number in (mv.serial_numbers or []):
+                    sale_cost = mv.unit_cost
+                    break
+            if sale_cost is None:
+                sale_cost = InventoryService.unit_cost(
+                    self.company, serial.product, warehouse
+                )
             InventoryService.post_movement(
                 company=self.company,
                 warehouse=warehouse,
                 product=serial.product,
                 quantity=Decimal("1"),
+                unit_cost=sale_cost,
                 movement_type=MovementType.SALES_RETURN,
                 reference_type="serial_manual_return",
                 reference_id=serial.pk,
@@ -411,13 +472,14 @@ class ExpiryAlertsView(APIView):
         return [IsAuthenticated(), HasCompany(), CanViewInventorySurfaces()]
 
     def get(self, request):
+        # B8-005: read-only. Recording bands + sending customer emails moved to
+        # the daily record_expiry_bands_task (a GET must not have side effects).
         company = get_company_user(request).company
         days = int(request.query_params.get("days", 30))
         warehouse_id = request.query_params.get("warehouse")
-        from .item_stock import expiry_horizon_rows, record_expiry_bands
+        from .item_stock import expiry_horizon_rows
 
         rows = expiry_horizon_rows(company, days=days, warehouse_id=warehouse_id)
-        record_expiry_bands(company, rows)
         return Response({"count": len(rows), "items": rows})
 
     def post(self, request):
@@ -442,6 +504,12 @@ class ExpiryAlertsView(APIView):
                 f"Cannot write off {qty} — only {available} available on this lot at this godown "
                 f"({on_hand} on hand)."
             )
+        # B8-013: expiry write-off is a GL-affecting movement — respect period locks.
+        from django.utils import timezone as _tz
+
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(company, _tz.localdate())
         movement = InventoryService.post_movement(
             company=company,
             product=product,

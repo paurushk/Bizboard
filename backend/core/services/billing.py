@@ -193,10 +193,14 @@ def _apply_line_tax(item, taxable: Decimal, rate: Decimal, *, tax_enabled: bool,
     if intra_state:
         # BILL-01: CGST and SGST must be exactly equal for an intra-state supply
         # (the GSTN offline tool / several GSPs validate CGST == SGST per rate
-        # bucket). Split symmetrically; any odd third-place paise is dropped from
-        # the line tax and re-absorbed by the document round-off leg. The old
-        # "cgst = floor(tax/2), sgst = q2(tax) - cgst" made the two legs differ
-        # by a paise and could bounce a return.
+        # bucket). Split symmetrically. B7-011: q2() is ROUND_HALF_UP, so for an
+        # odd-paise tax (e.g. 5.01) this can land the pair a paisa OVER the exact
+        # taxable*rate/100 (2.51+2.51=5.02), not under as an earlier version of
+        # this comment claimed — the discrepancy is footed by the document
+        # round-off leg either way. The old "cgst = floor(tax/2), sgst = q2(tax)
+        # - cgst" made the two legs differ from EACH OTHER by a paisa and could
+        # bounce a return; this trades that for CGST==SGST always holding, at the
+        # cost of the pair occasionally being a paisa off strict recompute.
         half = q2(tax / 2)
         item.cgst = half
         item.sgst = half
@@ -354,8 +358,6 @@ _FROZEN_STATUS = frozenset({"COMPLETED", "RETURNED", "CANCELLED"})
 
 
 def _document_tax_date(document):
-    from datetime import date as date_cls
-
     for attr in (
         "invoice_date",
         "note_date",
@@ -368,7 +370,14 @@ def _document_tax_date(document):
         if not val:
             continue
         if isinstance(val, str):
-            return date_cls.fromisoformat(str(val)[:10])
+            # B7-010: tolerate a non-ISO / malformed date string from an odd
+            # import or preview payload instead of raising ValueError -> 500.
+            from django.utils.dateparse import parse_date
+
+            parsed = parse_date(str(val)[:10])
+            if parsed is not None:
+                return parsed
+            continue
         if hasattr(val, "year"):
             return val
     return None

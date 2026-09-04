@@ -17,7 +17,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
-import { createSupplier, listSuppliers, updateSupplier, verifySupplierGstin } from '@/api/resources';
+import { createSupplier, getCompany, listSuppliers, updateSupplier, verifySupplierGstin } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StateSelect } from '@/components/StateSelect';
 import { StatusChip } from '@/components/StatusChip';
@@ -25,6 +25,7 @@ import { t } from '@/i18n';
 import type { Supplier } from '@/types/domain';
 import { isValidGstin, isValidIndianPhone } from '@/utils/gst';
 import { getStateFromGstin } from '@/utils/indianStates';
+import { placeOfSupplyKnown } from '@/utils/tax';
 import { formatMoney } from '@/utils/money';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
@@ -45,11 +46,21 @@ function gstinStatusColor(status?: string): 'default' | 'success' | 'warning' | 
 export function SuppliersPage() {
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
+  const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [nameTouched, setNameTouched] = useState(false);
+
+  // F2-054: mirror CustomersPage — when GST is on and assume-local is off,
+  // require a place of supply (State or GSTIN) before a supplier can be saved,
+  // otherwise the friction only surfaces later as a blocked purchase Complete.
+  const requirePlaceOfSupply =
+    !!company.data?.isGstRegistered && !company.data?.assumeLocalStateForBlankParty;
+  const placeOfSupplyOk =
+    !requirePlaceOfSupply || placeOfSupplyKnown(form.state, form.gstin);
+  const canSave = Boolean(form.name.trim()) && placeOfSupplyOk;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -209,7 +220,11 @@ export function SuppliersPage() {
                     >
                       {t('common.edit')}
                     </Button>
-                    <Button size="small" onClick={() => toggleMutation.mutate(s)}>
+                    <Button
+                      size="small"
+                      disabled={toggleMutation.isPending}
+                      onClick={() => toggleMutation.mutate(s)}
+                    >
                       {s.isActive ? t('common.deactivate') : t('common.activate')}
                     </Button>
                   </TableCell>
@@ -281,11 +296,19 @@ export function SuppliersPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-          <Tooltip title={!form.name.trim() ? 'Enter supplier name to save' : ''}>
+          <Tooltip
+            title={
+              !form.name.trim()
+                ? 'Enter supplier name to save'
+                : !placeOfSupplyOk
+                  ? 'Enter the supplier State or GSTIN (GST is enabled for this company)'
+                  : ''
+            }
+          >
             <span>
               <Button
                 variant="contained"
-                disabled={!form.name.trim() || saveMutation.isPending}
+                disabled={!canSave || saveMutation.isPending}
                 onClick={() => saveMutation.mutate()}
               >
                 {t('common.save')}

@@ -1,6 +1,19 @@
 import Box from '@mui/material/Box';
-import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
+import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
 import { useRef, type ReactNode } from 'react';
+
+/** F3-042: what a render-prop consumer needs to size rows dynamically instead
+ * of re-deriving spacer heights from the same `rowHeight` magic number the
+ * virtualizer was seeded with (estimateSize is only a starting guess). */
+export type VirtualizedTableRenderArgs = {
+  rows: VirtualItem[];
+  /** Total content height — use this for the trailing spacer, not `rows.length * rowHeight`. */
+  totalSize: number;
+  /** Attach as `ref` on each row's DOM node (with `data-index={row.index}` on
+   * the same node) so react-virtual measures its real rendered height —
+   * required for any row that can wrap to more than one line. */
+  measureElement: Virtualizer<HTMLDivElement, Element>['measureElement'];
+};
 
 /** Wave 19F: windowed row children when `rowCount` is provided; otherwise a contained scroller. */
 export function VirtualizedTable({
@@ -9,7 +22,7 @@ export function VirtualizedTable({
   rowCount,
   rowHeight = 52,
 }: {
-  children: ReactNode | ((rows: VirtualItem[]) => ReactNode);
+  children: ReactNode | ((args: VirtualizedTableRenderArgs) => ReactNode);
   maxHeight?: number;
   rowCount?: number;
   rowHeight?: number;
@@ -33,7 +46,11 @@ export function VirtualizedTable({
       // requiring a definite height.
       <Box ref={parentRef} sx={{ maxHeight, overflow: 'auto', contain: 'layout paint', width: '100%' }}>
         <Box sx={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
-          {children(virtualizer.getVirtualItems())}
+          {children({
+            rows: virtualizer.getVirtualItems(),
+            totalSize: virtualizer.getTotalSize(),
+            measureElement: virtualizer.measureElement,
+          })}
         </Box>
       </Box>
     );
@@ -41,7 +58,9 @@ export function VirtualizedTable({
 
   return (
     <Box ref={parentRef} sx={{ maxHeight, overflow: 'auto', contain: 'layout paint', width: '100%' }}>
-      {typeof children === 'function' ? children([]) : children}
+      {typeof children === 'function'
+        ? children({ rows: [], totalSize: 0, measureElement: virtualizer.measureElement })
+        : children}
     </Box>
   );
 }

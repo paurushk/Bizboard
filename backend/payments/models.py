@@ -478,3 +478,35 @@ class DunningReminder(CompanyScopedModel):
             )
         ]
         indexes = [models.Index(fields=["company", "sent_on"])]
+
+
+class ProcessedWebhookEvent(models.Model):
+    """B4-031: durable webhook replay-protection backstop.
+
+    `webhook_views.py`'s `cache.add(dedup_key, ...)` dedup is best-effort — a
+    per-process LocMemCache, an evicted key, or a briefly-down cache backend
+    all make `cache.add` return truthy again and let a valid signed replay
+    (e.g. a `refund` event, whose downstream handling is not fully idempotent
+    for partials) re-process. This table is the durable version of the same
+    dedup key: the unique constraint makes a second insert fail atomically,
+    regardless of cache state. Not CompanyScopedModel — the dedup key already
+    embeds the provider + provider payment id and a webhook can arrive before
+    the company context is fully resolved.
+    """
+
+    # B9-034 fix-of-fix: callers build this as a human-readable prefix + a
+    # sha256 hex digest (e.g. "bizboard:billing_webhook_seen:" + 64 hex
+    # chars = 95 chars) — max_length=64 alone would silently truncate on
+    # SQLite (used by the test settings) but raise on every single webhook
+    # in a real Postgres deployment (value too long for varchar(64)), since
+    # Postgres enforces CharField length at the column level and SQLite does
+    # not. 128 gives headroom for any prefix length without either failure mode.
+    dedup_key = models.CharField(max_length=128, unique=True)
+    provider = models.CharField(max_length=32)
+    company = models.ForeignKey(
+        "accounts.Company", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["created_at"])]
