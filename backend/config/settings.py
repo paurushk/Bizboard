@@ -800,9 +800,12 @@ IDENTITY_SANDBOX_BASE_URL = (os.environ.get("IDENTITY_SANDBOX_BASE_URL") or "").
 FIU_BASE_URL = (os.environ.get("FIU_BASE_URL") or "").rstrip("/")
 FIU_API_KEY = (os.environ.get("FIU_API_KEY") or "").strip()
 
-# Optional ClamAV host for media scan (compose profile clamav)
+# ClamAV host for the media upload scan. In production an unconfigured scanner
+# is fail-open — FileService._clamav_scan refuses uploads unless CLAMAV_OPTIONAL
+# is set (M1-012). The prod compose overlay ships a clamav service by default.
 CLAMAV_HOST = os.environ.get("CLAMAV_HOST", "").strip()
 CLAMAV_PORT = _env_int("CLAMAV_PORT", 3310)
+CLAMAV_OPTIONAL = _env_bool("CLAMAV_OPTIONAL")
 
 # Wave 17E — WhatsApp Cloud API (falls back to wa.me when unset)
 WHATSAPP_TOKEN = _env_value("WHATSAPP_TOKEN")

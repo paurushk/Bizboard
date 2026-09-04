@@ -32,6 +32,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
+  # M1-012: virus scanning is part of the standard prod stack (no profile), and
+  # FileService._clamav_scan fails closed in production when CLAMAV_HOST is unset.
+  clamav:
+    profiles: !reset []
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
   api:
     image: ${BIZBOARD_API_IMAGE:?set BIZBOARD_API_IMAGE to a ghcr.io/...@sha256:<digest> reference}
     pull_policy: always
@@ -41,9 +52,14 @@ services:
     environment:
       DJANGO_ENV: production
       DJANGO_DEBUG: "0"
+      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
     # BB-000124: prod API must NOT migrate on start — use `--profile migrate` job first.
     command: >
       gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout 120
+    depends_on:
+      clamav:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')"]
       interval: 10s
@@ -59,6 +75,8 @@ services:
     environment:
       DJANGO_ENV: production
       DJANGO_DEBUG: "0"
+      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
   beat:
     image: ${BIZBOARD_API_IMAGE:?set BIZBOARD_API_IMAGE to a ghcr.io/...@sha256:<digest> reference}
     pull_policy: always

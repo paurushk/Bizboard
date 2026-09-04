@@ -250,7 +250,10 @@ services:
     image: nginx:1.27-alpine
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-80}:80"
+      # M1-004: bind to loopback by default — this listener is plain HTTP and
+      # must sit behind a TLS edge. A deploy that fronts it with a real HTTPS
+      # terminator sets APP_BIND=0.0.0.0 (or an explicit LAN IP) deliberately.
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-80}:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - media_data:/var/www/media:ro
