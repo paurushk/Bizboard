@@ -357,3 +357,57 @@ def test_reject_splits_ineligible_tax_to_cogs_when_goods_already_sold(tenant_a):
     assert lines.get("5400") == tax
     assert "1400" not in lines
     assert lines.get("1390") == -tax
+
+
+@pytest.mark.django_db
+def test_supplier_scorecard_aggregates_purchase_value_and_mismatches(tenant_a):
+    """B5-016: bulk-fetch supplier + aggregate purchase value, not a
+    per-GSTIN `.first()` + Python-side sum — this pins the aggregation math
+    (previously untested) through that rewrite."""
+    from reporting.ims import supplier_scorecard
+    from tests.conftest import make_supplier
+
+    # Lowercase-stored GSTIN — supplier_scorecard must still match it
+    # case-insensitively against the (uppercased) Gstr2bIngest GSTIN.
+    supplier = make_supplier(tenant_a.company, name="Scorecard Supplier", gstin="29aaaaa0000a1z5")
+    other_supplier = make_supplier(tenant_a.company, name="Other Supplier", gstin="29bbbbb0000b1z6")
+
+    invoice_date = timezone.localdate()
+    PurchaseInvoice.objects.create(
+        company=tenant_a.company, supplier=supplier,
+        status=PurchaseInvoice.Status.COMPLETED,
+        purchase_type=PurchaseInvoice.PurchaseType.NON_GST,
+        invoice_date=invoice_date, grand_total=Decimal("1000"), created_by=tenant_a.owner,
+    )
+    PurchaseInvoice.objects.create(
+        company=tenant_a.company, supplier=supplier,
+        status=PurchaseInvoice.Status.COMPLETED,
+        purchase_type=PurchaseInvoice.PurchaseType.NON_GST,
+        invoice_date=invoice_date, grand_total=Decimal("500"), created_by=tenant_a.owner,
+    )
+    # A different supplier's invoice must not bleed into this GSTIN's total.
+    PurchaseInvoice.objects.create(
+        company=tenant_a.company, supplier=other_supplier,
+        status=PurchaseInvoice.Status.COMPLETED,
+        purchase_type=PurchaseInvoice.PurchaseType.NON_GST,
+        invoice_date=invoice_date, grand_total=Decimal("9999"), created_by=tenant_a.owner,
+    )
+
+    _row(
+        tenant_a.company,
+        supplier_gstin="29AAAAA0000A1Z5",
+        match_class=Gstr2bIngest.MatchClass.VALUE_MISMATCH,
+    )
+    _row(
+        tenant_a.company,
+        supplier_gstin="29AAAAA0000A1Z5",
+        invoice_number="S-2",
+        ims_action=Gstr2bIngest.ImsAction.REJECT,
+    )
+
+    scorecard = supplier_scorecard(tenant_a.company, PERIOD)
+    row = next(r for r in scorecard if r["supplier_gstin"] == "29AAAAA0000A1Z5")
+    assert row["supplier_id"] == supplier.id
+    assert Decimal(row["purchase_value"]) == Decimal("1500")
+    assert row["mismatch_count"] == 1
+    assert row["rejections"] == 1

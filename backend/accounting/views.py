@@ -459,7 +459,22 @@ class AccountingReportView(AccountingEnabledMixin, APIView):
                 report, cash_flow(self.company, date_from, date_to, cost_center), request,
             )
         if report == "books-health":
-            return Response(BooksHealthService.control_balances(self.company))
+            # B1-016/B1-026: control_balances() is a heavy fixed-cost call
+            # (AR/AP nets, ~8 `_has_missing` .exists() subqueries, depreciation
+            # alerts, advance-recon) with no memoisation — a dashboard polling
+            # this endpoint hammers the DB every call. Short-cache the GET
+            # response only; period_close_blockers (the safety-critical
+            # close-gate caller) still calls control_balances() fresh every
+            # time so a real AR/AP mismatch is never masked by a stale cache.
+            from django.core.cache import cache
+
+            cache_key = f"bizboard:books-health:{self.company.id}"
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+            payload = BooksHealthService.control_balances(self.company)
+            cache.set(cache_key, payload, timeout=20)
+            return Response(payload)
         raise BusinessRuleError("Unknown accounting report.")
 
     def _report_response(self, report, payload, request):

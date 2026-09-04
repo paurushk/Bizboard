@@ -59,7 +59,9 @@ def _depreciate_company_assets(company_id) -> int:
     for asset in assets:
         try:
             with transaction.atomic():
-                locked = FixedAsset.objects.select_for_update().get(pk=asset.pk)
+                # B1-024: explicit company_id, not just RLS, scopes this lock —
+                # a latent cross-tenant hazard if RLS is ever not set for the worker.
+                locked = FixedAsset.objects.select_for_update().get(pk=asset.pk, company_id=company_id)
                 if locked.status != FixedAsset.Status.ACTIVE:
                     continue
                 # B1-005: post EVERY still-missing month (bounded), each dated to
@@ -143,8 +145,13 @@ def post_monthly_depreciation():
     """Orchestrator: fan out one task per company so Celery RLS GUC is set."""
     from accounts.models import Company
 
+    # B1-024: a company with accounting off has no FixedAsset postings to make
+    # — `_depreciate_company_assets` would load every asset, call `.post()`,
+    # get None back, and record nothing. Skip queuing the wasted task/queries.
     queued = 0
-    for company_id in Company.objects.values_list("pk", flat=True).iterator():
+    for company_id in Company.objects.filter(accounting_enabled=True).values_list(
+        "pk", flat=True
+    ).iterator():
         post_monthly_depreciation_for_company.delay(company_id=company_id)
         queued += 1
     return queued

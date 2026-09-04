@@ -93,13 +93,20 @@ def seed_chart_of_accounts(company, user=None):
                       "created_by": user, "updated_by": user},
         )
         accounts[code] = account
+    # B1-019: only set `parent` when it's currently unset — this call runs on
+    # many hot paths (`_ensure_chart`/`_account` fallback on any miss) for
+    # companies whose accounts already exist, so an unconditional/`!=` write
+    # here means dozens of UPDATEs per document Complete in the worst case,
+    # and silently reverts any deliberate manual re-parenting of a system
+    # account (the `!=` form did that too — only a NULL check is safe).
     for code, _, _, _ in CHART:
         if len(code) == 4 and code.endswith("00") and code[1:] != "000":
-            accounts[code].parent = accounts[f"{code[0]}000"]
-            accounts[code].save(update_fields=["parent"])
+            if accounts[code].parent_id is None:
+                accounts[code].parent = accounts[f"{code[0]}000"]
+                accounts[code].save(update_fields=["parent"])
     for code, parent_code in _CHART_PARENTS.items():
         if code in accounts and parent_code in accounts:
-            if accounts[code].parent_id != accounts[parent_code].id:
+            if accounts[code].parent_id is None:
                 accounts[code].parent = accounts[parent_code]
                 accounts[code].save(update_fields=["parent"])
     return accounts

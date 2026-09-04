@@ -365,6 +365,7 @@ def _validate_row(
     products_by_sku=None,
     skus_with_opening=None,
     extra_serial_counts=None,
+    warehouse_index=None,
 ):
     """Validate one CSV row. seen_* sets track within-file duplicates for products."""
     errors = []
@@ -458,12 +459,24 @@ def _validate_row(
         if item_type in {"service", "services"} and (godown or batch_no or expiry or track_batch or track_serial):
             errors.append("service items cannot have godown, batch, or serial tracking")
         elif godown:
-            from inventory.item_stock import match_warehouse
+            # B3-023: `warehouse_index` (built once per file, not per row) is
+            # preferred when the caller supplies it — avoids a `match_warehouse`
+            # DB round-trip (which itself issues two queries) for every row of
+            # a godown-heavy file.
+            if warehouse_index is not None:
+                by_key, active_names = warehouse_index
+                match = by_key.get(godown.casefold())
+                if match is None:
+                    errors.append(f"Godown '{godown}' not found. Available: {active_names}.")
+                elif not match.is_active:
+                    errors.append(f"Godown '{match.name}' is inactive. Available: {active_names}.")
+            else:
+                from inventory.item_stock import match_warehouse
 
-            try:
-                match_warehouse(company, godown)
-            except BusinessRuleError as exc:
-                errors.append(str(getattr(exc, "detail", None) or exc))
+                try:
+                    match_warehouse(company, godown)
+                except BusinessRuleError as exc:
+                    errors.append(str(getattr(exc, "detail", None) or exc))
         if sku:
             key = sku.casefold()
             if seen_skus is not None and key in seen_skus:
@@ -1304,6 +1317,18 @@ class ImportService:
 
         extra_serial_counts = _extra_serial_counts(extra_sheets)
 
+        # B3-023: build once instead of one `match_warehouse` DB round-trip
+        # (itself two queries) per row for a godown-heavy file.
+        from inventory.models import Warehouse
+
+        warehouses = list(Warehouse.objects.filter(company=job.company))
+        _by_key = {}
+        for w in warehouses:
+            _by_key[w.name.casefold()] = w
+            if w.code:
+                _by_key[w.code.casefold()] = w
+        warehouse_index = (_by_key, ", ".join(w.name for w in warehouses if w.is_active) or "(none)")
+
         header_map = {}
         cf_defs = []
         if job.kind == ImportJob.Kind.PRODUCTS:
@@ -1324,7 +1349,7 @@ class ImportService:
                 seen_skus=seen_skus, seen_barcodes=seen_barcodes,
                 existing_skus=existing_skus, existing_barcodes=existing_barcodes,
                 products_by_sku=products_by_sku, skus_with_opening=skus_with_opening,
-                extra_serial_counts=extra_serial_counts,
+                extra_serial_counts=extra_serial_counts, warehouse_index=warehouse_index,
             )
             if job.kind == ImportJob.Kind.PRODUCTS and header_map:
                 row_errors.extend(_custom_field_row_errors(row, header_map, cf_defs))

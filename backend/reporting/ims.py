@@ -330,20 +330,37 @@ def supplier_scorecard(company, period: str) -> list[dict]:
         if row.acted_at and row.created_at:
             bucket["correction_days"].append((row.acted_at.date() - row.created_at.date()).days)
 
-    out = []
-    for gstin, bucket in by_gstin.items():
-        supplier = Supplier.objects.filter(company=company, gstin__iexact=gstin).first()
-        purchase_value = Decimal("0")
-        missing = 0
-        if supplier:
-            qs = PurchaseInvoice.objects.filter(
+    # B5-016: one Supplier lookup + one aggregated purchase-value query for
+    # every GSTIN in this period, instead of a `.first()` and a Python-side
+    # sum over PurchaseInvoice rows per distinct GSTIN.
+    # Match case-insensitively (mirrors the original per-row `gstin__iexact`)
+    # by uppercasing in Python rather than one `iexact` query per GSTIN.
+    suppliers_by_gstin = {
+        (s.gstin or "").upper(): s
+        for s in Supplier.objects.filter(company=company).exclude(gstin="")
+    }
+    supplier_ids = [s.id for s in suppliers_by_gstin.values()]
+    purchase_value_by_supplier: dict[int, Decimal] = {}
+    if supplier_ids:
+        from django.db.models import Sum
+
+        for row in (
+            PurchaseInvoice.objects.filter(
                 company=company,
-                supplier=supplier,
+                supplier_id__in=supplier_ids,
                 status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
                 invoice_date__year=y,
                 invoice_date__month=m,
             )
-            purchase_value = sum((Decimal(str(p.grand_total or 0)) for p in qs), Decimal("0"))
+            .values("supplier_id")
+            .annotate(total=Sum("grand_total"))
+        ):
+            purchase_value_by_supplier[row["supplier_id"]] = row["total"] or Decimal("0")
+
+    out = []
+    for gstin, bucket in by_gstin.items():
+        supplier = suppliers_by_gstin.get(gstin)
+        purchase_value = purchase_value_by_supplier.get(supplier.id, Decimal("0")) if supplier else Decimal("0")
         days = bucket["correction_days"]
         avg = (sum(days) / len(days)) if days else 0
         out.append({
