@@ -41,6 +41,7 @@ import {
   downloadInvoiceThermalPdf,
   getCompany,
   getCustomer,
+  getSalesInvoice,
   getUpiQr,
   listCustomersPage,
   listPriceLists,
@@ -509,15 +510,55 @@ export function PosPage() {
       );
       try {
         const started = Date.now();
-        const completedInv = await completeSalesInvoice(invoice.id, { confirmBlankPos });
+        // F2-004: a stable key derived from the create key means a retry
+        // that reaches the server again (rather than minting a fresh key,
+        // see `checkout`) replays the already-completed response instead
+        // of erroring on "already completed".
+        const completedInv = await completeSalesInvoice(invoice.id, {
+          confirmBlankPos,
+          idempotencyKey: key ? `${key}-complete` : undefined,
+        });
         trackInvoiceComplete(Date.now() - started);
         return completedInv;
       } catch (err) {
+        // F2-004: `completeSalesInvoice` may have actually succeeded
+        // server-side with the response lost in transit (the flaky
+        // connection POS is built for). Blindly deleting + rethrowing used
+        // to strand that now-COMPLETED-but-unpaid invoice: the cashier's
+        // retry then minted a brand-new idempotency key (`checkout` always
+        // does), creating a *second* completed invoice — double stock
+        // decrement, and the first invoice never got a receipt/allocation.
+        // Probe the invoice's own status before deciding.
+        let existing;
         try {
-          await deleteSalesInvoice(invoice.id);
+          existing = await getSalesInvoice(invoice.id);
         } catch {
-          /* leftover draft if delete is blocked */
+          /* can't confirm either way -- handled below */
         }
+        if (existing?.status === 'COMPLETED') {
+          return existing;
+        }
+        if (existing) {
+          // Confirmed still DRAFT -- genuinely failed, safe to clean up.
+          try {
+            await deleteSalesInvoice(invoice.id);
+          } catch {
+            /* leftover draft if delete is blocked */
+          }
+          throw err;
+        }
+        // Status truly unknown (the probe itself failed too, e.g. still
+        // offline) -- don't guess. Deleting could discard a real sale and
+        // a blind cart retry could double-charge, so surface it the same
+        // way the UPI "collect later" path does instead of silently
+        // erroring: the cashier can look it up and finish it manually.
+        const recovered = unpaidRecoverFromAbort({
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.number,
+        });
+        if (recovered) setUnpaidRecover(recovered);
+        setCart([]);
+        setIdempotencyKey(null);
         throw err;
       }
     },
