@@ -1150,6 +1150,7 @@ export const en = {
     activityNote: 'Note',
     activityCall: 'Call',
     activityEmail: 'Email',
+    activityKind: 'Activity type',
     convertWon: 'Convert as won',
     markAsWon: 'Mark as won',
     basic: 'Basic',

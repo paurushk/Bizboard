@@ -52,6 +52,9 @@ export function InvoiceSourceLineTable({
 
   const addLine = (src: InvoiceSourceLine) => {
     if (lines.some((l) => l.key === src.key && l.included)) return;
+    // F2-042: a line with nothing left to credit/return (maxQty <= 0) would be
+    // "added" at quantity 0 — visible but inert. Don't add it.
+    if ((src.maxQty ?? 0) <= 0) return;
     const existing = lines.find((l) => l.key === src.key);
     if (existing) {
       onChange(

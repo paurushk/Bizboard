@@ -43,6 +43,19 @@ export function OfflineOutboxPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<OutboxDraft | null>(null);
+  // F2-055: re-enable "Sync now" as soon as connectivity returns.
+  const [online, setOnline] = useState(
+    typeof navigator === 'undefined' ? true : navigator.onLine,
+  );
+  useEffect(() => {
+    const set = () => setOnline(navigator.onLine);
+    window.addEventListener('online', set);
+    window.addEventListener('offline', set);
+    return () => {
+      window.removeEventListener('online', set);
+      window.removeEventListener('offline', set);
+    };
+  }, []);
 
   const companyId = user?.companyId;
   const userId = user?.id;
@@ -119,7 +132,7 @@ export function OfflineOutboxPage() {
         <Typography variant="h4">{t('offlineOutbox.title')}</Typography>
         <Button
           variant="contained"
-          disabled={busy || !navigator.onLine}
+          disabled={busy || !online}
           aria-busy={busy}
           onClick={() => void syncNow()}
         >

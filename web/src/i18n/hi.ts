@@ -1018,6 +1018,7 @@ export const hi = {
     activityNote: 'नोट',
     activityCall: 'कॉल',
     activityEmail: 'ईमेल',
+    activityKind: 'गतिविधि प्रकार',
     convertWon: 'जीती हुई डील के रूप में बदलें',
     markAsWon: 'जीती हुई चिह्नित करें',
     basic: 'बेसिक',

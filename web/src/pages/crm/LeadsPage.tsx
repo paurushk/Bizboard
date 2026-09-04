@@ -341,7 +341,7 @@ function LeadsPageInner() {
             ))}
             <TextField
               select
-              label={t('common.status')}
+              label={t('erp.activityKind')}
               value={activityKind}
               onChange={(e) => setActivityKind(e.target.value)}
             >
