@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { todayIso } from '@/components/billing';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney } from '@/utils/money';
 import { t } from '@/i18n';
@@ -34,6 +35,7 @@ export function JournalsPage() {
     { account: '', debit: '', credit: '' },
   ]);
   const [error, setError] = useState('');
+  const [confirm, setConfirm] = useState<{ mode: 'post' | 'reverse'; id: number } | null>(null);
   const totals = useMemo(() => {
     const debit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
     const credit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
@@ -98,11 +100,11 @@ export function JournalsPage() {
         ]}
         actions={(r) =>
           r.status === 'DRAFT' ? (
-            <Button size="small" variant="contained" disabled={writesBlocked} onClick={() => post.mutate(Number(r.id))}>
+            <Button size="small" variant="contained" disabled={writesBlocked} onClick={() => setConfirm({ mode: 'post', id: Number(r.id) })}>
               Post
             </Button>
           ) : r.status === 'POSTED' ? (
-            <Button size="small" color="warning" disabled={writesBlocked} onClick={() => reverse.mutate(Number(r.id))}>
+            <Button size="small" color="warning" disabled={writesBlocked} onClick={() => setConfirm({ mode: 'reverse', id: Number(r.id) })}>
               Reverse
             </Button>
           ) : null
@@ -171,6 +173,25 @@ export function JournalsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm?.mode === 'reverse' ? 'Reverse this posted journal?' : 'Post this journal?'}
+        body={
+          confirm?.mode === 'reverse'
+            ? 'This writes a counter-entry to the general ledger. It cannot be undone.'
+            : 'This posts the voucher to the general ledger.'
+        }
+        confirmLabel={confirm?.mode === 'reverse' ? 'Reverse' : 'Post'}
+        confirmColor={confirm?.mode === 'reverse' ? 'error' : 'primary'}
+        confirming={confirm?.mode === 'reverse' ? reverse.isPending : post.isPending}
+        onClose={() => setConfirm(null)}
+        onConfirm={() => {
+          if (!confirm) return;
+          if (confirm.mode === 'reverse') reverse.mutate(confirm.id);
+          else post.mutate(confirm.id);
+          setConfirm(null);
+        }}
+      />
     </PageShell>
   );
 }

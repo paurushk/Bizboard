@@ -34,6 +34,7 @@ import {
   type ImsAction,
   type ItcEligibility,
 } from '@/api/gstr2b';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DisclaimerBanner, KpiStat, PageHeader } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
@@ -58,6 +59,7 @@ export function Gstr2bPage() {
   const [actRow, setActRow] = useState<{ id: number; action: ImsAction } | null>(null);
   const [remark, setRemark] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmBulk, setConfirmBulk] = useState(false);
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['gstr2b'] });
@@ -237,7 +239,7 @@ export function Gstr2bPage() {
         <Button variant="outlined" onClick={() => matchMutation.mutate()} disabled={matchMutation.isPending}>
           {t('ims.matchPurchases')}
         </Button>
-        <Button variant="contained" onClick={() => bulkMutation.mutate()} disabled={bulkMutation.isPending}>
+        <Button variant="contained" onClick={() => setConfirmBulk(true)} disabled={bulkMutation.isPending}>
           {t('ims.bulkAcceptExact')}
         </Button>
         <Button variant="outlined" onClick={() => fileRef.current?.click()} disabled={importMutation.isPending}>
@@ -480,6 +482,18 @@ export function Gstr2bPage() {
           <Button onClick={() => setMessage(null)}>{t('common.close')}</Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={confirmBulk}
+        title={t('ims.bulkAcceptExact')}
+        body={`This accepts every exact-match GSTR-2B row for ${period} and claims its ITC. Review individual rows if unsure.`}
+        confirmLabel={t('ims.bulkAcceptExact')}
+        confirming={bulkMutation.isPending}
+        onClose={() => setConfirmBulk(false)}
+        onConfirm={() => {
+          setConfirmBulk(false);
+          bulkMutation.mutate();
+        }}
+      />
     </Stack>
   );
 }

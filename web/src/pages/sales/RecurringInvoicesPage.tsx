@@ -8,6 +8,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { useAuth } from '@/auth/AuthContext';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
@@ -35,6 +36,7 @@ export function RecurringInvoicesPage() {
   const [qty, setQty] = useState('1');
   const [price, setPrice] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [confirmRun, setConfirmRun] = useState<number | null>(null);
   const create = useMutation({
     mutationFn: () =>
       api.createRecurringSchedule({
@@ -114,12 +116,25 @@ export function RecurringInvoicesPage() {
         ]}
         actions={(row) => (
           <Stack direction="row" spacing={1} justifyContent="flex-end">
-            <Button size="small" disabled={!canWrite || runNow.isPending} onClick={() => runNow.mutate(Number(row.id))}>{t('recurring.runNow')}</Button>
+            <Button size="small" disabled={!canWrite || runNow.isPending} onClick={() => setConfirmRun(Number(row.id))}>{t('recurring.runNow')}</Button>
             {row.isActive !== false && canWrite ? (
               <Button size="small" color="warning" onClick={() => deactivate.mutate(Number(row.id))}>{t('recurring.deactivate')}</Button>
             ) : null}
           </Stack>
         )}
+      />
+      <ConfirmDialog
+        open={confirmRun !== null}
+        title={t('recurring.runNow')}
+        body="This generates a live invoice for this schedule right now."
+        confirmLabel={t('recurring.runNow')}
+        confirming={runNow.isPending}
+        onClose={() => setConfirmRun(null)}
+        onConfirm={() => {
+          const id = confirmRun;
+          setConfirmRun(null);
+          if (id != null) runNow.mutate(id);
+        }}
       />
     </PageShell>
   );

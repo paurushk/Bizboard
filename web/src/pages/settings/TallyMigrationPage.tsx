@@ -21,6 +21,7 @@ import {
   previewTallyImport,
   uploadTallyMasters,
 } from '@/api/resources';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DisclaimerBanner, PageHeader } from '@/components/insights';
 import { ErrorState } from '@/components/PageState';
 import { t } from '@/i18n';
@@ -68,6 +69,7 @@ export function TallyMigrationPage() {
   const [preview, setPreview] = useState<PreviewShape | null>(null);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [committed, setCommitted] = useState(false);
+  const [confirmCommit, setConfirmCommit] = useState(false);
 
   const mapRows = useMemo(() => {
     if (!preview) return [] as MapRow[];
@@ -342,11 +344,28 @@ export function TallyMigrationPage() {
             <Button
               variant="contained"
               disabled={!syncRunId || commit.isPending || errorCount > 0 || committed}
-              onClick={() => commit.mutate()}
+              onClick={() => setConfirmCommit(true)}
             >
               {t('tally.commit')}
             </Button>
           </Stack>
+          <ConfirmDialog
+            open={confirmCommit}
+            title={t('tally.commit')}
+            body={
+              `This creates ${counts.customers ?? 0} customers, ${counts.suppliers ?? 0} suppliers, ` +
+              `${counts.products ?? 0} products and their opening balances / stock for this company. ` +
+              `It cannot be undone from the app.`
+            }
+            confirmLabel={t('tally.commit')}
+            confirmColor="error"
+            confirming={commit.isPending}
+            onClose={() => setConfirmCommit(false)}
+            onConfirm={() => {
+              setConfirmCommit(false);
+              commit.mutate();
+            }}
+          />
           {saveMap.isError ? <ErrorState message={getErrorMessage(saveMap.error)} error={saveMap.error} /> : null}
           {ignoreErrors.isError ? <ErrorState message={getErrorMessage(ignoreErrors.error)} error={ignoreErrors.error} /> : null}
           {commit.isError ? <ErrorState message={getErrorMessage(commit.error)} error={commit.error} /> : null}

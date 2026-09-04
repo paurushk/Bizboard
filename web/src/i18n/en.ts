@@ -1042,6 +1042,9 @@ export const en = {
     syncNow: 'Sync now',
     syncFailed: 'Offline sync failed ({failed}): {errors}',
     synced: 'Synced {count} draft(s).',
+    deleteTitle: 'Delete this offline draft?',
+    deleteBody:
+      'This draft was created while offline and has not synced yet. Deleting it discards that document permanently.',
   },
   gstHonesty: {
     stubTitle: 'Not a filing engine',
