@@ -164,6 +164,11 @@ class SmsProvider:
                     "Configure SMS_PROVIDER=msg91 or twilio with credentials."
                 )
             if settings.OTP_DEBUG_ECHO:
+                # B7-012: this DOES log the plaintext code — that is the whole
+                # point of OTP_DEBUG_ECHO (dev/CI login without SMS). It is
+                # hard-rejected in production/staging (see settings). The
+                # settings comment claiming "never the code" was wrong and has
+                # been corrected.
                 logger.debug(
                     "OTP debug echo code=%s for phone ending %s",
                     code,

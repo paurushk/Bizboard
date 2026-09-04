@@ -36,7 +36,9 @@ class PlanListView(APIView):
 
 
 class SubscriptionDetailView(APIView):
-    permission_classes = [IsAuthenticated, HasCompany]
+    # B9-021: exposes razorpay_subscription_id / current_period_end — owner-only,
+    # consistent with PlanListView / CheckoutView / PortalView.
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
 
     def get(self, request):
         cu = get_company_user(request)

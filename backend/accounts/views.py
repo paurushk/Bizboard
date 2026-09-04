@@ -766,6 +766,7 @@ class ChangePasswordView(APIView):
     """BB-000366: change password and blacklist all outstanding refresh tokens."""
 
     permission_classes = [IsAuthenticated]
+    throttle_scope = "sensitive_action"  # B6-012
 
     def post(self, request):
         current = request.data.get("current_password") or ""
@@ -1120,9 +1121,10 @@ class CompanyGstinViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "delete"]
 
     def get_permissions(self):
-        if self.request.method in ("POST", "PATCH", "PUT", "DELETE"):
-            return [IsAuthenticated(), HasCompany(), IsOwner()]
-        return super().get_permissions()
+        # B6-011: the branch-GSTIN list carries legal names / addresses / PINs —
+        # owner-only, like the other company-settings surfaces (was readable by
+        # any active member incl. VIEWER / SALES_STAFF).
+        return [IsAuthenticated(), HasCompany(), IsOwner()]
 
     def get_queryset(self):
         return self.queryset.filter(company=get_company_user(self.request).company)

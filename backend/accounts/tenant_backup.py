@@ -39,6 +39,10 @@ COMPANY_SKIP_FIELDS = frozenset(
         "gsp_credentials_encrypted",
         "payment_gateway_credentials_encrypted",
         "gstin_raw_payload",
+        # B6-015: raw third-party identity-verification responses (proprietor
+        # name / DOB / address / masked IDs) — exclude like gstin_raw_payload.
+        "pan_raw_payload",
+        "udyam_raw_payload",
         "billing_override_active",
     }
 )

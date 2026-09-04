@@ -95,13 +95,17 @@ _INDIRECT_TAX_HINTS = re.compile(
 def _looks_like_tax_question(text: str) -> bool:
     blob = text or ""
     lowered = blob.lower()
-    if "growth" in lowered or "churn" in lowered:
-        return False
+    # B9-016: an explicit tax pattern always wins. The old "growth"/"churn"
+    # blanket early-return let "what GST rate for my growth product to Mumbai"
+    # slip past the pre-LLM tax-advice refusal.
     if TAX_PATTERNS.search(blob):
         return True
     asks_rate = bool(re.search(r"\b(rate|%|percent|gst|tax|hsn|sac)\b", lowered))
     has_geo_or_sku = bool(_INDIRECT_TAX_HINTS.search(blob))
-    return asks_rate and has_geo_or_sku
+    if asks_rate and has_geo_or_sku:
+        return True
+    # growth / churn analytics questions with no tax signal are not tax questions
+    return False
 
 # BB-000488: strip residual tax-advice phrases from model output.
 TAX_OUTPUT_STRIP = re.compile(

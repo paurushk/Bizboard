@@ -314,6 +314,9 @@ REST_FRAMEWORK = {
         # and get exhausted by the OTP_MAX_ATTEMPTS=5 lockout path itself.
         "otp_verify": "20/min",
         "register": "5/min",
+        # B6-012: tight budget for current-password verification (change-password
+        # / delete-account) so a stolen short-lived access token can't brute-force it.
+        "sensitive_action": "10/min",
         # Per-company (CompanyRateThrottle) budgets for expensive reports.
         "gst_reports": "30/min",
         "heavy_reports": "60/min",
@@ -440,6 +443,14 @@ CELERY_TASK_PUBLISH_RETRY_POLICY = {
     "interval_step": 0.2,
     "interval_max": 0.2,
 }
+# B7-002: a hung network call inside a task must not pin a worker slot forever.
+# Soft limit raises SoftTimeLimitExceeded (catchable for cleanup); hard limit
+# kills the worker process. Bill extraction is the known-long task — override
+# per-task where needed.
+CELERY_TASK_SOFT_TIME_LIMIT = _env_int("CELERY_TASK_SOFT_TIME_LIMIT", 600)
+CELERY_TASK_TIME_LIMIT = _env_int("CELERY_TASK_TIME_LIMIT", 660)
+# B7-002: bound the SMTP socket so send_email_notification can't block a worker.
+EMAIL_TIMEOUT = _env_int("EMAIL_TIMEOUT", 10)
 # BB-000234: explicit timezone for beat (Django TIME_ZONE is Asia/Kolkata).
 # BB-000377: default beat TZ to Asia/Kolkata (matches Django TIME_ZONE).
 # CFG-01: CELERY_ENABLE_UTC defaults False, so every crontab() below is
@@ -512,8 +523,9 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "billing@bizboard.loca
 # OTP
 OTP_EXPIRY_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5
-# Opt-in debug echo (logs phone suffix only — never the code). Forbidden in
-# production/staging (checked below).
+# B7-012: opt-in debug echo — logs the PLAINTEXT OTP code at DEBUG level so a
+# dev/CI can log in without SMS. Hard-rejected in production/staging (checked
+# below); never enable it anywhere with real log shipping.
 OTP_DEBUG_ECHO = _env_bool("OTP_DEBUG_ECHO")
 # BB-000332: OTP enablement independent of debug echo (echo still forbidden in prod).
 OTP_ENABLED = _env_bool("OTP_ENABLED")
