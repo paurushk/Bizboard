@@ -491,6 +491,9 @@ export function SerialsPage() {
       <DataTable
         rows={rows}
         empty="No serials recorded."
+        // F3-016: listSerials() walks every serial number tracked —
+        // window the DOM rows instead of rendering them all at once.
+        virtualized
         columns={[
           { key: 'serialNumber', label: 'Serial' },
           { key: 'product', label: 'Product' },
@@ -564,6 +567,9 @@ export function StockValuationPage() {
       <DataTable
         rows={items}
         empty="No valuation rows."
+        // F3-016: one row per product/batch across the whole company —
+        // window the DOM rows instead of rendering them all at once.
+        virtualized
         columns={[
           { key: 'productName', label: 'Product' },
           { key: 'warehouseName', label: 'Godown' },

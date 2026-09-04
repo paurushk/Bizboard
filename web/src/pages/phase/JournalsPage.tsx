@@ -92,6 +92,10 @@ export function JournalsPage() {
       <DataTable
         rows={asRows(query.data)}
         empty="No journals yet."
+        // F3-016: every journal ever posted comes back in one unbounded
+        // fetch (BB-... listJournals) — window the DOM rows so a large
+        // ledger doesn't render thousands of <TableRow>s at once.
+        virtualized
         columns={[
           { key: 'number', label: 'Number' },
           { key: 'entryDate', label: 'Date' },

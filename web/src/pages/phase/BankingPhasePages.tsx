@@ -874,6 +874,9 @@ export function CashBookPage() {
       <DataTable
         rows={rows}
         empty="No cash movements in this period."
+        // F3-016: an unbounded date range can return every cash movement —
+        // window the DOM rows instead of rendering them all at once.
+        virtualized
         columns={[
           { key: 'date', label: 'Date' },
           { key: 'type', label: 'Type' },
