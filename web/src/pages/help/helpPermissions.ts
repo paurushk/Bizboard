@@ -39,7 +39,11 @@ export function interpolateDestination(destination: string, params: Record<strin
   let out = destination;
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === '') continue;
-    out = out.replaceAll(`:${key}`, String(value));
+    // F3-071: replace whole `:param` tokens only. A plain replaceAll(':id', …)
+    // also rewrites the `:id` inside `:invoiceId`, so order-dependent corruption
+    // like `/x/:invoiceId` -> `/x/5nvoiceId` was possible. The negative
+    // lookahead anchors the token to a param-name boundary.
+    out = out.replace(new RegExp(`:${key}(?![A-Za-z0-9_])`, 'g'), String(value));
   }
   if (/:\w+/.test(out)) return '';
   return out;

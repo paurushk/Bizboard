@@ -68,67 +68,89 @@ export function InsightsCashflowPage() {
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Ending cash / cumulative (band = low–high)
+          Ending cash / cumulative — bars above the line are positive (▲), below are a projected shortfall (▼)
         </Typography>
-        <Stack direction="row" spacing={0.5} alignItems="flex-end" sx={{ height: 140 }}>
-          {series.map((p) => {
-            const v = toNumber(p.endingCash);
-            const low = toNumber(p.low);
-            const high = toNumber(p.high);
-            const h = Math.max(4, (Math.abs(v) / maxAbs) * 100);
-            const bandTop = Math.max(4, (Math.abs(high) / maxAbs) * 100);
-            const bandBot = Math.max(2, (Math.abs(low) / maxAbs) * 100);
-            return (
-              <Box
-                key={p.date}
-                title={`${p.date}: ${v} [${low}–${high}]`}
-                sx={{
-                  flex: 1,
-                  position: 'relative',
-                  height: '100%',
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  minWidth: 3,
-                }}
-              >
+        {/* F3-058: draw around a real zero baseline instead of stacking every bar
+            from the bottom on |value|, and encode the sign with shape + hatch
+            (not colour alone) so a negative month reads in greyscale / print. */}
+        <Box sx={{ position: 'relative', height: 160, px: 0.5 }}>
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: '50%',
+              borderTop: '1px dashed',
+              borderColor: 'divider',
+              zIndex: 2,
+            }}
+          />
+          <Stack direction="row" spacing={0.5} sx={{ height: '100%' }}>
+            {series.map((p) => {
+              const v = toNumber(p.endingCash);
+              const low = toNumber(p.low);
+              const high = toNumber(p.high);
+              const negative = v < 0;
+              // half-height (0–50%) of the column, measured from the mid-line.
+              const barHalf = Math.min(50, Math.max(2, (Math.abs(v) / maxAbs) * 50));
+              const bandTopHalf = Math.min(50, (Math.abs(high) / maxAbs) * 50);
+              const bandBotHalf = Math.min(50, (Math.abs(low) / maxAbs) * 50);
+              return (
                 <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: '20%',
-                    width: '60%',
-                    height: `${bandTop}%`,
-                    bgcolor: 'action.selected',
-                    borderRadius: 0.5,
-                    opacity: 0.5,
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: '20%',
-                    width: '60%',
-                    height: `${bandBot}%`,
-                    bgcolor: 'background.paper',
-                    borderRadius: 0.5,
-                    opacity: 0.35,
-                  }}
-                />
-                <Box
-                  sx={{
-                    width: '100%',
-                    height: `${h}%`,
-                    bgcolor: v >= 0 ? 'success.main' : 'error.main',
-                    opacity: 0.9,
-                    borderRadius: 0.5,
-                    zIndex: 1,
-                  }}
-                />
-              </Box>
-            );
-          })}
-        </Stack>
+                  key={p.date}
+                  title={`${p.date}: ${v} [${low}–${high}]`}
+                  sx={{ flex: 1, position: 'relative', height: '100%', minWidth: 4 }}
+                >
+                  {/* low–high uncertainty band, centred on the mid-line */}
+                  <Box
+                    aria-hidden
+                    sx={{
+                      position: 'absolute',
+                      left: '15%',
+                      width: '70%',
+                      bottom: `calc(50% - ${bandBotHalf}%)`,
+                      top: `calc(50% - ${bandTopHalf}%)`,
+                      bgcolor: 'action.selected',
+                      opacity: 0.4,
+                      borderRadius: 0.5,
+                    }}
+                  />
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      left: '20%',
+                      width: '60%',
+                      height: `${barHalf}%`,
+                      [negative ? 'top' : 'bottom']: '50%',
+                      bgcolor: negative ? 'error.main' : 'success.main',
+                      backgroundImage: negative
+                        ? 'repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 2px, transparent 2px 5px)'
+                        : 'none',
+                      borderRadius: 0.5,
+                      zIndex: 1,
+                    }}
+                  />
+                  <Typography
+                    aria-hidden
+                    sx={{
+                      position: 'absolute',
+                      left: 0,
+                      right: 0,
+                      textAlign: 'center',
+                      fontSize: 10,
+                      lineHeight: 1,
+                      color: negative ? 'error.main' : 'success.main',
+                      [negative ? 'bottom' : 'top']: 0,
+                    }}
+                  >
+                    {negative ? '▼' : '▲'}
+                  </Typography>
+                </Box>
+              );
+            })}
+          </Stack>
+        </Box>
       </Paper>
 
       <Paper variant="outlined" sx={{ overflow: 'auto' }}>

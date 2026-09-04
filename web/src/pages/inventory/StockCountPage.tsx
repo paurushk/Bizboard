@@ -286,7 +286,7 @@ export function StockCountPage() {
             ))}
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions className="no-print">
           <Button onClick={() => setActive(null)}>Close</Button>
           <Button onClick={() => window.print()}>Print sheet</Button>
           {String(active?.status) !== 'POSTED' && String(active?.status) !== 'CANCELLED' ? (

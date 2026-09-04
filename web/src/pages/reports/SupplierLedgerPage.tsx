@@ -54,7 +54,12 @@ export function SupplierLedgerPage() {
   return (
     <Stack spacing={2}>
       <Typography variant="h4">{t('nav.supplierLedger')}</Typography>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }}>
+      <Stack
+        className="no-print"
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={2}
+        alignItems={{ xs: 'stretch', md: 'center' }}
+      >
         <Autocomplete
           options={suppliers.data ?? []}
           getOptionLabel={(o) => `${o.name}${o.phone ? ` (${o.phone})` : ''}`}

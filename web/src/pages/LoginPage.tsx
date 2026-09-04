@@ -90,7 +90,7 @@ export function LoginPage() {
     passwordForm.setValue('email', email, { shouldValidate: false });
     const emailOk = await passwordForm.trigger('email');
     if (!password) {
-      setPasswordError('Password is required');
+      setPasswordError(t('auth.passwordRequired'));
       return;
     }
     setPasswordError(null);

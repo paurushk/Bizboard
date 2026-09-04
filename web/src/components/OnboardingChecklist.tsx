@@ -5,6 +5,7 @@ import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
+import { alpha } from '@mui/material/styles';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
@@ -49,9 +50,13 @@ export function OnboardingChecklist({ company, productCount = 0, invoiceCount = 
       sx={{
         p: { xs: 2, sm: 3 },
         borderRadius: 2,
-        background: 'linear-gradient(135deg, #F0FDF4 0%, #FFFFFF 60%, #F8FAFC 100%)',
+        // F3-057: theme-token gradient/shadow so the card stays legible in dark mode.
+        background: (theme) =>
+          `linear-gradient(135deg, ${alpha(theme.palette.success.light, 0.18)} 0%, ${
+            theme.palette.background.paper
+          } 60%, ${alpha(theme.palette.primary.light, 0.1)} 100%)`,
         borderColor: 'primary.light',
-        boxShadow: '0 2px 8px rgba(15,118,110,0.08)',
+        boxShadow: (theme) => `0 2px 8px ${alpha(theme.palette.primary.main, 0.12)}`,
       }}
     >
       <Stack spacing={2.5}>
@@ -95,7 +100,7 @@ export function OnboardingChecklist({ company, productCount = 0, invoiceCount = 
             sx={{
               p: 2,
               borderRadius: 1.5,
-              bgcolor: hasCompanyDetails ? 'background.paper' : 'rgba(255,255,255,0.85)',
+              bgcolor: hasCompanyDetails ? 'background.paper' : 'action.hover',
               borderLeft: '4px solid',
               borderLeftColor: hasCompanyDetails ? 'success.main' : 'primary.main',
             }}
@@ -137,7 +142,7 @@ export function OnboardingChecklist({ company, productCount = 0, invoiceCount = 
             sx={{
               p: 2,
               borderRadius: 1.5,
-              bgcolor: hasBankDetails ? 'background.paper' : 'rgba(255,255,255,0.85)',
+              bgcolor: hasBankDetails ? 'background.paper' : 'action.hover',
               borderLeft: '4px solid',
               borderLeftColor: hasBankDetails ? 'success.main' : 'primary.main',
             }}
@@ -174,7 +179,7 @@ export function OnboardingChecklist({ company, productCount = 0, invoiceCount = 
             sx={{
               p: 2,
               borderRadius: 1.5,
-              bgcolor: hasProducts ? 'background.paper' : 'rgba(255,255,255,0.85)',
+              bgcolor: hasProducts ? 'background.paper' : 'action.hover',
               borderLeft: '4px solid',
               borderLeftColor: hasProducts ? 'success.main' : 'primary.main',
             }}
@@ -211,7 +216,7 @@ export function OnboardingChecklist({ company, productCount = 0, invoiceCount = 
             sx={{
               p: 2,
               borderRadius: 1.5,
-              bgcolor: hasInvoices ? 'background.paper' : 'rgba(255,255,255,0.85)',
+              bgcolor: hasInvoices ? 'background.paper' : 'action.hover',
               borderLeft: '4px solid',
               borderLeftColor: hasInvoices ? 'success.main' : 'primary.main',
             }}

@@ -303,7 +303,7 @@ export function SetupWizardPage() {
           : { label: t('setup.createFirstBill'), action: createFirstBill };
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#F3F6F5', pb: { xs: 10, sm: 4 } }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', pb: { xs: 10, sm: 4 } }}>
       <Box sx={{ bgcolor: 'primary.dark', color: 'primary.contrastText', px: { xs: 2, sm: 4 }, py: 2 }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
           <Box>
