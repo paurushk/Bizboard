@@ -84,7 +84,9 @@ export function CreditNotesPage() {
               <Button
                 size="small"
                 onClick={() =>
-                  void downloadSalesDocumentPdf('credit-note', row.id).then((blob) => printBlob(blob))
+                  void downloadSalesDocumentPdf('credit-note', row.id)
+                    .then((blob) => printBlob(blob))
+                    .catch((err) => setError(getErrorMessage(err)))
                 }
               >
                 {t('billing.print')}

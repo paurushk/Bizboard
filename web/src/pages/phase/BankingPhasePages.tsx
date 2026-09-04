@@ -168,7 +168,7 @@ export function PaymentGatewayPage() {
   const webhooks = (q.data?.webhookPaths as Record<string, string>) || {};
   return (
     <PageShell title={t('phase.paymentGateway')} subtitle={t('phase.paymentGatewaySubtitle')}>
-      {msg ? <Alert severity={msg.includes('saved') ? 'success' : 'error'}>{msg}</Alert> : null}
+      {msg ? <Alert severity={m.isError ? 'error' : 'success'}>{msg}</Alert> : null}
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack spacing={2}>
           <TextField
@@ -549,11 +549,7 @@ export function BankReconPage() {
   const health = useQuery({ queryKey: ['payment-health'], queryFn: api.getPaymentHealth });
   const query = useQuery({
     queryKey: ['payment-recon'],
-    queryFn: async () => {
-      const data = await api.listRecon();
-      if (Array.isArray(data) && data.length && (data[0] as Row).line) return data as Row[];
-      return data as Row[];
-    },
+    queryFn: () => api.listRecon() as Promise<Row[]>,
   });
   const [createLine, setCreateLine] = useState<Row | null>(null);
   const [createCustomer, setCreateCustomer] = useState('');
@@ -564,7 +560,7 @@ export function BankReconPage() {
   const createFromLine = useMutation({
     mutationFn: () =>
       api.createReceiptFromReconLine({
-        line: createLine?.id ?? (createLine as Row | null)?.id,
+        line: createLine?.id,
         customer: Number(createCustomer),
       }),
     onSuccess: () => {

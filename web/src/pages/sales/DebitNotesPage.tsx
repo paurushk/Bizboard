@@ -84,7 +84,9 @@ export function DebitNotesPage() {
               <Button
                 size="small"
                 onClick={() =>
-                  void downloadSalesDocumentPdf('debit-note', row.id).then((blob) => printBlob(blob))
+                  void downloadSalesDocumentPdf('debit-note', row.id)
+                    .then((blob) => printBlob(blob))
+                    .catch((err) => setError(getErrorMessage(err)))
                 }
               >
                 {t('billing.print')}

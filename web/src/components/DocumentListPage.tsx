@@ -9,6 +9,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
+import { getErrorMessage } from '@/api/client';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
@@ -84,7 +85,7 @@ export function DocumentListPage({
         ) : null}
       </Stack>
       {loading ? <ListSkeleton /> : null}
-      {error ? <ErrorState message={String(error)} error={error} onRetry={onRetry} /> : null}
+      {error ? <ErrorState message={getErrorMessage(error)} error={error} onRetry={onRetry} /> : null}
       {!loading && !error && rows?.length === 0 ? <EmptyState /> : null}
       {rows && rows.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>

@@ -84,7 +84,9 @@ export function DeliveryChallansPage() {
               <Button
                 size="small"
                 onClick={() =>
-                  void downloadSalesDocumentPdf('delivery-challan', row.id).then((blob) => printBlob(blob))
+                  void downloadSalesDocumentPdf('delivery-challan', row.id)
+                    .then((blob) => printBlob(blob))
+                    .catch((err) => setError(getErrorMessage(err)))
                 }
               >
                 {t('billing.print')}
