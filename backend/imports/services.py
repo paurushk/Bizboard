@@ -2267,6 +2267,18 @@ class BillImportService:
         }
         if rate_warnings:
             preview["warnings"] = rate_warnings
+        # B3-021: run the GSTIN-based purchase/sales direction sanity check on
+        # the structured path too (it was only wired into the LLM path).
+        direction_warning = _infer_direction_warning(
+            job.kind,
+            {
+                "supplier_gstin": preview.get("supplier_gstin"),
+                "buyer_gstin": preview.get("buyer_gstin"),
+            },
+            job.company,
+        )
+        if direction_warning:
+            preview["direction_warning"] = direction_warning
         included = [ln for ln in preview_lines if ln.get("include")]
         job.preview = preview
         job.errors = errors
@@ -2398,10 +2410,31 @@ class BillImportService:
 
         preview = dict(job.preview or {})
         clarifications = list(job.clarifications or [])
-        resolved_answers = {k: v for k, v in answers.items() if v not in (None, "")}
+        # B3-019: an answer must be one of the options offered for that
+        # clarification — a bogus value otherwise flows into the qty formula.
+        options_by_field = {
+            item.get("field"): {
+                str(o.get("value"))
+                for o in (item.get("options") or [])
+                if isinstance(o, dict)
+            }
+            for item in clarifications
+        }
+        resolved_answers = {}
+        for k, v in answers.items():
+            if v in (None, ""):
+                continue
+            allowed = options_by_field.get(k)
+            if allowed and str(v) not in allowed:
+                raise BusinessRuleError(
+                    f"'{v}' is not a valid answer for clarification '{k}'."
+                )
+            resolved_answers[k] = v
         for item in clarifications:
             field = item.get("field")
-            if field in answers:
+            if field in answers and str(answers[field]) in (
+                options_by_field.get(field) or {str(answers[field])}
+            ):
                 item["answer"] = answers[field]
             if item.get("answer"):
                 resolved_answers[field] = item["answer"]

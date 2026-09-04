@@ -83,7 +83,7 @@ class StockMovement(models.Model):
     warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="stock_movements")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="stock_movements")
     batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.PROTECT, related_name="stock_movements")
-    movement_type = models.CharField(max_length=20, choices=MovementType.choices)
+    movement_type = models.CharField(max_length=32, choices=MovementType.choices)  # B8-037: headroom
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
     unit_cost = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     reference_type = models.CharField(max_length=64, blank=True)

@@ -55,13 +55,21 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
 
     year, month = period.split("-")
     y, m = int(year), int(month)
+    # B5-018: a supplier who reports a March invoice in the April 2B otherwise
+    # shows as MISSING_IN_BOOKS even though the bill is booked in March. Match
+    # book keys across the whole surrounding Indian FY, not just the 2B month.
+    from datetime import date as _date
+
+    from .gstr2b import _indian_fy_start_year
+
+    fy_start_year = _indian_fy_start_year(_date(y, m, 1))
     book_keys = {
         ((gstin or "").upper(), (number or "").strip())
         for gstin, number in PurchaseInvoice.objects.filter(
             company=company,
             status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
-            invoice_date__year=y,
-            invoice_date__month=m,
+            invoice_date__gte=_date(fy_start_year, 4, 1),
+            invoice_date__lt=_date(fy_start_year + 1, 4, 1),
             is_opening_balance=False,
         ).exclude(number="").values_list("supplier__gstin", "number")
     }

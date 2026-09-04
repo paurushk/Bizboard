@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -619,7 +620,14 @@ def run_assistant_turn(company, user, thread: AssistantThread, content: str) -> 
     if not company.ai_features_enabled:
         raise BusinessRuleError("AI features are disabled for this company.")
     assert_within_budget(company)
+    # B9-044: persist the user message + the assistant reply as a pair. If any
+    # step below raises, the user message rolls back too — no orphan user turn
+    # with no reply, and no duplicated text on retry.
+    with transaction.atomic():
+        return _run_assistant_turn_inner(company, user, thread, content)
 
+
+def _run_assistant_turn_inner(company, user, thread, content):
     AssistantMessage.objects.create(
         thread=thread,
         role=AssistantMessage.Role.USER,
