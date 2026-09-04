@@ -113,7 +113,16 @@ def test_sales_rcm_complete_requires_confirm(tenant_a):
     payload = build_gstr1(tenant_a.company, PERIOD)
     b2b = payload.get("b2b") or []
     assert any(row.get("rchrg") == "Y" for row in b2b)
-    assert Decimal(str(payload["totals"]["outward_taxable"])) == Decimal("0.00")
+    # B5-001: RCM *outward* taxable value IS turnover (GSTR-3B 3.1(a) counts it
+    # and the b2b section carries the rchrg=Y row) — it must be in the header
+    # outward_taxable so GSTR-1 foots against its sections and against 3B. Only
+    # the output *tax* stays zero (the recipient pays it).
+    assert Decimal(str(payload["totals"]["outward_taxable"])) == Decimal("100.00")
+    assert Decimal(str(payload["totals"]["outward_cgst"])) == Decimal("0.00")
+    assert Decimal(str(payload["totals"]["outward_sgst"])) == Decimal("0.00")
+    assert Decimal(str(payload["totals"]["outward_igst"])) == Decimal("0.00")
+    footing = [i for i in (payload.get("issues") or []) if i.get("code") == "OUTWARD_FOOTING_MISMATCH"]
+    assert not footing, footing
 
 
 def test_supecom_and_company_gstin_param(tenant_a):
