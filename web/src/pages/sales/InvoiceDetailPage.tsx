@@ -29,11 +29,11 @@ import {
   cancelPaymentLink,
   downloadInvoicePdf,
   downloadInvoiceThermalPdf,
+  getCustomer,
   getInvoiceAudit,
   getSalesInvoice,
   getUpiQr,
   listAllocationsPage,
-  listCustomers,
   listPaymentLinksPage,
   shareInvoice,
   sharePaymentLink,
@@ -93,9 +93,13 @@ export function InvoiceDetailPage() {
     enabled: invoiceIdValid,
   });
 
-  const customers = useQuery({
-    queryKey: ['customers'],
-    queryFn: () => listCustomers(),
+  // F2-025: fetch the single customer this invoice belongs to by id
+  // instead of paging through the entire customer list just to find it.
+  const customerId = query.data?.customer;
+  const customerQuery = useQuery({
+    queryKey: ['customer', customerId],
+    queryFn: () => getCustomer(customerId as number),
+    enabled: !!customerId,
   });
 
   const showAudit = canViewFinancialReports(user);
@@ -124,12 +128,12 @@ export function InvoiceDetailPage() {
   useEffect(() => {
     if (prefilled || !query.data) return;
     const fromOffer = query.data.whatsappOffer?.phone?.trim();
-    const customer = (customers.data ?? []).find((c) => c.id === query.data.customer);
+    const customer = customerQuery.data;
     if (fromOffer) setSharePhone(fromOffer);
     else if (customer?.phone) setSharePhone(customer.phone);
     if (customer?.email) setShareEmail(customer.email);
-    if (fromOffer || customer || customers.isFetched) setPrefilled(true);
-  }, [query.data, customers.data, customers.isFetched, prefilled]);
+    if (fromOffer || customer || customerQuery.isFetched) setPrefilled(true);
+  }, [query.data, customerQuery.data, customerQuery.isFetched, prefilled]);
 
   const completeMutation = useMutation({
     // F2-035: completeWithConfirms loops over known confirm codes in any

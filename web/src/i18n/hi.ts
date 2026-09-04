@@ -262,6 +262,8 @@ export const hi = {
     complete: 'पूर्ण करें',
     draft: 'ड्राफ्ट सहेजें',
     loading: 'लोड हो रहा है…',
+    typeToSearch: 'खोजने के लिए टाइप करें',
+    typeAtLeastToSearch: 'खोजने के लिए कम से कम {count} अक्षर टाइप करें',
     retry: 'पुनः प्रयास',
     empty: 'यहाँ अभी कुछ नहीं',
     error: 'कुछ गलत हो गया',

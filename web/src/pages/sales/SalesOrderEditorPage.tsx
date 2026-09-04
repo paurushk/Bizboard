@@ -21,8 +21,8 @@ import {
   convertSalesOrder,
   createSalesOrder,
   getCompany,
+  getCustomer,
   getSalesOrder,
-  listCustomers,
   updateSalesOrder,
 } from '@/api/resources';
 import {
@@ -38,6 +38,7 @@ import {
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { StatusChip } from '@/components/StatusChip';
+import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
@@ -76,7 +77,15 @@ export function SalesOrderEditorPage() {
     if (isEdit || invoiceTypeTouched || !company.data) return;
     setInvoiceType(preferredInvoiceType(company.data.registrationType));
   }, [company.data, isEdit, invoiceTypeTouched]);
-  const customers = useQuery({ queryKey: ['customers'], queryFn: () => listCustomers() });
+  // F2-025: server-searched customer picker (was listCustomers() pulling every
+  // row into the Autocomplete) — selectedCustomerQuery keeps the already-set
+  // party resolved even when it falls outside the current search results.
+  const selectedCustomerQuery = useQuery({
+    queryKey: ['customer', customerId],
+    queryFn: () => getCustomer(customerId as number),
+    enabled: Boolean(customerId),
+  });
+  const customerSearch = useCustomerSearch({ selected: selectedCustomerQuery.data ?? null });
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const existing = useQuery({
@@ -86,7 +95,8 @@ export function SalesOrderEditorPage() {
   });
 
   const readOnly = editingStatus != null && editingStatus !== 'DRAFT';
-  const selectedCustomer = customers.data?.find((c) => c.id === Number(customerId));
+  const selectedCustomer =
+    selectedCustomerQuery.data ?? customerSearch.options.find((c) => c.id === Number(customerId));
   const intraState = isIntraState(
     company.data?.gstin || company.data?.state,
     selectedCustomer?.gstin || selectedCustomer?.state,
@@ -149,8 +159,8 @@ export function SalesOrderEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing.data, loaded]);
 
-  // F2-040: on first hydration, `customers.data` (and so intraState) may not
-  // have loaded yet, so the mapping above computed zero tax for every line.
+  // F2-040: on first hydration, the selected customer (and so intraState) may
+  // not have resolved yet, so the mapping above computed zero tax for every line.
   // Also covers switching the customer after lines are already on the order —
   // nothing else re-taxes existing lines when intraState changes.
   useEffect(() => {
@@ -296,12 +306,22 @@ export function SalesOrderEditorPage() {
       <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(customerId))} />
       <Stack spacing={2}>
         <Autocomplete
-          options={customers.data ?? []}
+          options={customerSearch.options}
           getOptionLabel={(o: Customer) => o.name}
-          value={customers.data?.find((c) => c.id === Number(customerId)) ?? null}
+          value={selectedCustomer ?? null}
           onChange={(_, v) => setCustomerId(v?.id ?? '')}
+          onInputChange={(_, v) => customerSearch.setQuery(v)}
+          filterOptions={(opts) => opts}
+          loading={customerSearch.isFetching}
           disabled={readOnly}
-          renderInput={(params) => <TextField {...params} label={t('billing.customer')} required />}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label={t('billing.customer')}
+              required
+              helperText={!customerSearch.enabled ? t('common.typeToSearch') : undefined}
+            />
+          )}
         />
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
           <TextField

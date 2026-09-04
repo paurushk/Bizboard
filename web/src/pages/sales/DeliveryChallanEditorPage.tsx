@@ -20,9 +20,9 @@ import {
   completeDeliveryChallan,
   createDeliveryChallan,
   downloadSalesDocumentPdf,
+  getCustomer,
   getDeliveryChallan,
   getSalesOrder,
-  listCustomers,
   listSalesOrders,
   updateDeliveryChallan,
 } from '@/api/resources';
@@ -39,6 +39,7 @@ import {
   type DraftLine,
 } from '@/components/billing';
 import { ChallanEwayPanel } from '@/components/ChallanEwayPanel';
+import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { ErrorState, LoadingState } from '@/components/PageState';
@@ -72,7 +73,15 @@ export function DeliveryChallanEditorPage() {
   const [pendingQty, setPendingQty] = useState('1');
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  const customers = useQuery({ queryKey: ['customers'], queryFn: () => listCustomers() });
+  // F2-025: server-searched customer picker (was listCustomers() pulling every
+  // row into the Autocomplete) — selectedCustomerQuery keeps the already-set
+  // party resolved even when it falls outside the current search results.
+  const selectedCustomerQuery = useQuery({
+    queryKey: ['customer', customerId],
+    queryFn: () => getCustomer(customerId as number),
+    enabled: Boolean(customerId),
+  });
+  const customerSearch = useCustomerSearch({ selected: selectedCustomerQuery.data ?? null });
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const orders = useQuery({ queryKey: ['sales-orders'], queryFn: () => listSalesOrders() });
@@ -83,7 +92,8 @@ export function DeliveryChallanEditorPage() {
   });
 
   const readOnly = editingStatus != null && editingStatus !== 'DRAFT';
-  const selectedCustomer = customers.data?.find((c) => c.id === Number(customerId));
+  const selectedCustomer =
+    selectedCustomerQuery.data ?? customerSearch.options.find((c) => c.id === Number(customerId));
   const intraState = isIntraState(
     company.data?.gstin || company.data?.state,
     selectedCustomer?.gstin || selectedCustomer?.state,
@@ -143,7 +153,7 @@ export function DeliveryChallanEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing.data, loaded]);
 
-  // F2-040: customers.data (and so intraState) may not have loaded yet at
+  // F2-040: the selected customer (and so intraState) may not have resolved yet at
   // hydration time, leaving every line at zero tax; also covers switching the
   // customer after lines already exist, which otherwise leaves them stale.
   useEffect(() => {
@@ -167,7 +177,14 @@ export function DeliveryChallanEditorPage() {
         full = order;
       }
     }
-    const orderCustomer = customers.data?.find((c) => c.id === full.customer);
+    // F2-025: customers is now a server-searched picker, not a full list to
+    // find() against — resolve this specific customer directly.
+    let orderCustomer: Customer | undefined;
+    try {
+      orderCustomer = await getCustomer(full.customer);
+    } catch {
+      orderCustomer = undefined;
+    }
     const orderIntraState = isIntraState(
       company.data?.gstin || company.data?.state,
       orderCustomer?.gstin || orderCustomer?.state,
@@ -335,12 +352,22 @@ export function DeliveryChallanEditorPage() {
           />
         ) : null}
         <Autocomplete
-          options={customers.data ?? []}
+          options={customerSearch.options}
           getOptionLabel={(o: Customer) => o.name}
-          value={customers.data?.find((c) => c.id === Number(customerId)) ?? null}
+          value={selectedCustomer ?? null}
           onChange={(_, v) => setCustomerId(v?.id ?? '')}
+          onInputChange={(_, v) => customerSearch.setQuery(v)}
+          filterOptions={(opts) => opts}
+          loading={customerSearch.isFetching}
           disabled={readOnly}
-          renderInput={(params) => <TextField {...params} label={t('billing.customer')} required />}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label={t('billing.customer')}
+              required
+              helperText={!customerSearch.enabled ? t('common.typeToSearch') : undefined}
+            />
+          )}
         />
         {!isEdit ? (
           <Autocomplete

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
+import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
@@ -24,14 +25,15 @@ import { getErrorMessage, newIdempotencyKey } from '@/api/client';
 import {
   answerImportClarifications,
   commitImport,
+  getCustomer,
   getImportJob,
-  listCustomers,
-  listSuppliers,
+  getSupplier,
   retryImportExtract,
   updateImportPreview,
   uploadImport,
 } from '@/api/resources';
 import { StatusChip } from '@/components/StatusChip';
+import { useCustomerSearch, useSupplierSearch } from '@/hooks/usePartySearch';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { t } from '@/i18n';
 import type {
@@ -106,14 +108,15 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
   const isSales = kind === 'SALES_BILL';
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const partyQuery = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: [isSales ? 'customers' : 'suppliers'],
-    queryFn: () => (isSales ? listCustomers() : listSuppliers()),
-  });
-
+  // F2-025: search-as-you-type party picker instead of loading every
+  // customer/supplier up front.
   const [uploadMode, setUploadMode] = useState<'photo' | 'structured'>('photo');
   const [file, setFile] = useState<File | null>(null);
-  const [partyId, setPartyId] = useState<number | ''>('');
+  const [party, setParty] = useState<{ id: number; name: string } | null>(null);
+  const partyId = party?.id ?? '';
+  const customerSearch = useCustomerSearch({ selected: isSales ? party : undefined });
+  const supplierSearch = useSupplierSearch({ selected: !isSales ? party : undefined });
+  const partySearch = isSales ? customerSearch : supplierSearch;
   const [jobId, setJobId] = useState<number | null>(null);
   const [lines, setLines] = useState<PurchaseBillLinePreview[]>([]);
   const [billNumber, setBillNumber] = useState('');
@@ -145,8 +148,12 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     setLines(toPreviewLines(job.preview));
     setBillNumber(job.preview.billNumber ?? '');
     setBillDate(job.preview.billDate ?? '');
-    const party = isSales ? job.customer : job.supplier;
-    if (party) setPartyId(party);
+    const detectedPartyId = isSales ? job.customer : job.supplier;
+    if (detectedPartyId) {
+      void (isSales ? getCustomer(detectedPartyId) : getSupplier(detectedPartyId))
+        .then((p) => setParty(p))
+        .catch(() => {});
+    }
   }, [job, isSales]);
 
   const uploadMutation = useMutation({
@@ -386,20 +393,25 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
             </Typography>
           ) : null}
 
-          <TextField
-            select
-            label={t(isSales ? 'billUpload.customerHint' : 'billUpload.supplierHint')}
-            value={partyId === '' ? '' : String(partyId)}
-            onChange={(e) => setPartyId(e.target.value === '' ? '' : Number(e.target.value))}
+          <Autocomplete
+            options={partySearch.options}
+            getOptionLabel={(o: { id: number; name: string }) => o.name}
+            isOptionEqualToValue={(o, v) => o.id === v.id}
+            value={party}
+            onChange={(_, v) => setParty(v)}
+            onInputChange={(_, v) => partySearch.setQuery(v)}
+            filterOptions={(opts) => opts}
+            loading={partySearch.isFetching}
             sx={{ maxWidth: 420 }}
-          >
-            <MenuItem value="">— Auto from bill / create —</MenuItem>
-            {(partyQuery.data ?? []).map((p) => (
-              <MenuItem key={p.id} value={String(p.id)}>
-                {p.name}
-              </MenuItem>
-            ))}
-          </TextField>
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label={t(isSales ? 'billUpload.customerHint' : 'billUpload.supplierHint')}
+                placeholder="— Auto from bill / create —"
+                helperText={!partySearch.enabled ? t('common.typeToSearch') : undefined}
+              />
+            )}
+          />
 
           <input
             ref={fileInputRef}

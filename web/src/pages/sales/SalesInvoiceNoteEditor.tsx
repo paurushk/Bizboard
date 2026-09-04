@@ -18,11 +18,11 @@ import {
   createSalesDebitNote,
   downloadSalesDocumentPdf,
   getCompany,
+  getCustomer,
   getSalesCreditNote,
   getSalesCreditNoteAdjustableSummary,
   getSalesDebitNote,
   getSalesInvoice,
-  listCustomers,
   listSalesInvoices,
   updateSalesCreditNote,
   updateSalesDebitNote,
@@ -86,7 +86,14 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
   const [pool, setPool] = useState<InvoiceSourceLine[]>([]);
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  const customers = useQuery({ queryKey: ['customers'], queryFn: () => listCustomers() });
+  // F2-025: fetch just the note's customer by id instead of loading the
+  // entire customer list to look up one GSTIN/state.
+  const customerId = invoice?.customer;
+  const customerQuery = useQuery({
+    queryKey: ['customer', customerId],
+    queryFn: () => getCustomer(customerId as number),
+    enabled: !!customerId,
+  });
   const invoices = useQuery({
     queryKey: ['completed-sales'],
     queryFn: () => listSalesInvoices({ status: 'COMPLETED' }),
@@ -142,8 +149,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
   };
 
   const partyState = invoice?.customer
-    ? customers.data?.find((c) => c.id === invoice.customer)?.gstin
-      || customers.data?.find((c) => c.id === invoice.customer)?.state
+    ? customerQuery.data?.gstin || customerQuery.data?.state
     : undefined;
 
   // F2-024: was missing assumeLocalStateForBlankParty — NewInvoicePage passes

@@ -184,6 +184,17 @@ function filterProducts(q?: string, cf?: Record<string, string[]>): Product[] {
   return rows;
 }
 
+export async function getProduct(id: number | string): Promise<Product> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get(`/products/${id}/`);
+    return unwrapData<Product>(data);
+  }, () => {
+    const found = mockProducts.find((p) => p.id === Number(id));
+    if (!found) throw new Error('Product not found');
+    return found;
+  });
+}
+
 export async function listProductCustomFieldValues(): Promise<Record<string, string[]>> {
   return withMocks(
     async () => {

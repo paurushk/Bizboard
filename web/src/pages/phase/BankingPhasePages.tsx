@@ -23,6 +23,7 @@ import * as api from '@/api/resources';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useCustomerSearch } from '@/hooks/usePartySearch';
 import type { Customer, SalesInvoice } from '@/types/domain';
 import { isValidIfsc } from '@/utils/gst';
 import { formatMoney, toNumber } from '@/utils/money';
@@ -604,14 +605,15 @@ export function BankReconPage() {
   const { writesBlocked } = useSubscriptionGate();
   const canWrite = canCreatePayments(user) && !writesBlocked;
   const qc = useQueryClient();
-  const customers = useQuery({ queryKey: ['customers'], queryFn: () => api.listCustomers() });
   const health = useQuery({ queryKey: ['payment-health'], queryFn: api.getPaymentHealth });
   const query = useQuery({
     queryKey: ['payment-recon'],
     queryFn: () => api.listRecon() as Promise<Row[]>,
   });
   const [createLine, setCreateLine] = useState<Row | null>(null);
-  const [createCustomer, setCreateCustomer] = useState('');
+  const [createCustomer, setCreateCustomer] = useState<Customer | null>(null);
+  // F2-025: search-as-you-type instead of loading every customer up front.
+  const createCustomerSearch = useCustomerSearch({ selected: createCustomer });
   const [reconErr, setReconErr] = useState('');
   const confirm = useMutation({
     mutationFn: (payload: Record<string, unknown>) => api.confirmRecon(payload),
@@ -625,12 +627,12 @@ export function BankReconPage() {
     mutationFn: () =>
       api.createReceiptFromReconLine({
         line: createLine?.id,
-        customer: Number(createCustomer),
+        customer: createCustomer?.id,
       }),
     onSuccess: () => {
       setReconErr('');
       setCreateLine(null);
-      setCreateCustomer('');
+      setCreateCustomer(null);
       void qc.invalidateQueries({ queryKey: ['payment-recon'] });
       void qc.invalidateQueries({ queryKey: ['payment-health'] });
     },
@@ -762,18 +764,23 @@ export function BankReconPage() {
                 ? `${String(createLine.txnDate)} · ${formatMoney(toNumber(createLine.amount as string | number))}`
                 : ''}
             </Typography>
-            <TextField
-              select
-              label="Customer"
+            <Autocomplete
+              options={createCustomerSearch.options}
+              getOptionLabel={(o: Customer) => o.name}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
               value={createCustomer}
-              onChange={(e) => setCreateCustomer(e.target.value)}
-            >
-              {(customers.data ?? []).map((c) => (
-                <MenuItem key={c.id} value={c.id}>
-                  {c.name}
-                </MenuItem>
-              ))}
-            </TextField>
+              onChange={(_, v) => setCreateCustomer(v)}
+              onInputChange={(_, v) => createCustomerSearch.setQuery(v)}
+              filterOptions={(opts) => opts}
+              loading={createCustomerSearch.isFetching}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Customer"
+                  helperText={!createCustomerSearch.enabled ? t('common.typeToSearch') : undefined}
+                />
+              )}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>

@@ -25,7 +25,6 @@ import {
   convertQuotationToOrder,
   createQuotation,
   getCompany,
-  listCustomers,
   listQuotationsPage,
   listSalesInvoicesPage,
 } from '@/api/resources';
@@ -34,6 +33,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
+import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { useAuth } from '@/auth/AuthContext';
 import { t } from '@/i18n';
 import type { Customer, Product } from '@/types/domain';
@@ -65,13 +65,14 @@ export function QuotationsPage() {
     queryFn: () => listQuotationsPage({ page, pageSize: PAGE_SIZE }),
   });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  const customers = useQuery({ queryKey: ['customers'], queryFn: () => listCustomers() });
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
 
   const [open, setOpen] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(emptyForm.customer);
+  // F2-025: search-as-you-type instead of loading every customer up front.
+  const customerSearch = useCustomerSearch({ selected: customer });
   // BUG-523: quotations were hardcoded to exactly one line item — this is
   // now a real multi-line list, matching how invoices/purchases work.
   const [lines, setLines] = useState<DraftLine[]>(emptyForm.lines);
@@ -290,11 +291,20 @@ export function QuotationsPage() {
           <Stack spacing={2} sx={{ mt: 1 }}>
             {error ? <HelpErrorAlert message={error} /> : null}
             <Autocomplete
-              options={customers.data ?? []}
+              options={customerSearch.options}
               getOptionLabel={(o) => o.name}
+              filterOptions={(opts) => opts}
               value={customer}
               onChange={(_, v) => setCustomer(v)}
-              renderInput={(params) => <TextField {...params} label={t('billing.customer')} />}
+              onInputChange={(_, v) => customerSearch.setQuery(v)}
+              loading={customerSearch.isFetching}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label={t('billing.customer')}
+                  helperText={!customerSearch.enabled ? t('common.typeToSearch') : undefined}
+                />
+              )}
             />
 
             {lines.length > 0 ? (

@@ -13,16 +13,18 @@ import Typography from '@mui/material/Typography';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import PrintIcon from '@mui/icons-material/Print';
 import { useQuery } from '@tanstack/react-query';
-import { getCustomerLedger, listCustomers } from '@/api/resources';
+import { getCustomerLedger } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { t } from '@/i18n';
 import type { Customer } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
 import { openShareUrl } from '@/utils/safeUrl';
 
 export function CustomerLedgerPage() {
-  const customers = useQuery({ queryKey: ['customers'], queryFn: () => listCustomers() });
   const [customer, setCustomer] = useState<Customer | null>(null);
+  // F2-025: search-as-you-type instead of loading every customer up front.
+  const customerSearch = useCustomerSearch({ selected: customer });
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -61,24 +63,24 @@ export function CustomerLedgerPage() {
         alignItems={{ xs: 'stretch', md: 'center' }}
       >
         <Autocomplete
-          options={customers.data ?? []}
+          options={customerSearch.options}
           getOptionLabel={(o) => `${o.name}${o.phone ? ` (${o.phone})` : ''}`}
-          filterOptions={(opts, state) => {
-            const q = state.inputValue.trim().toLowerCase();
-            if (!q) return opts;
-            return opts.filter((o) => {
-              const hay = `${o.name} ${o.phone ?? ''} ${o.gstin ?? ''}`.toLowerCase();
-              return hay.includes(q);
-            });
-          }}
+          filterOptions={(opts) => opts}
           value={customer}
           onChange={(_, v) => setCustomer(v)}
+          onInputChange={(_, v) => customerSearch.setQuery(v)}
+          loading={customerSearch.isFetching}
           sx={{ minWidth: 280, flex: 1 }}
           slotProps={{
             popper: { sx: { zIndex: 1400 } },
           }}
           renderInput={(params) => (
-            <TextField {...params} label={t('billing.customer')} placeholder="Type to search name, phone, or GSTIN" />
+            <TextField
+              {...params}
+              label={t('billing.customer')}
+              placeholder="Type to search name, phone, or GSTIN"
+              helperText={!customerSearch.enabled ? t('common.typeToSearch') : undefined}
+            />
           )}
         />
         <TextField

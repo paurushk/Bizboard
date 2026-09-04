@@ -261,6 +261,8 @@ export const en = {
     complete: 'Complete',
     draft: 'Save draft',
     loading: 'Loading…',
+    typeToSearch: 'Type to search',
+    typeAtLeastToSearch: 'Type at least {count} characters to search',
     retry: 'Retry',
     empty: 'Nothing here yet',
     error: 'Something went wrong',
