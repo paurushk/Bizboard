@@ -443,8 +443,14 @@ DEFAULT_COLLECTION_RATES = {
 }
 
 
-def _collection_rates_from_history(company, as_of: date) -> dict[str, Decimal]:
-    """Derive rates from paid invoices when enough history; else defaults."""
+def _collection_rates_heuristic(company, as_of: date) -> dict[str, Decimal]:
+    """B9-029: NOT derived from history despite the name/disclaimer this
+    replaced — `paid` below is only ever used as an activity gate (has this
+    company recorded ≥10 allocations at all?), never to compute an actual
+    realised collection ratio per aging bucket from allocation timing. This
+    is a fixed heuristic nudge once that gate is met, not a historical
+    calculation; callers must not describe it as "historical" (see the
+    `disclaimer` string in cashflow_forecast below)."""
     from payments.models import PaymentAllocation
 
     paid = (
@@ -455,7 +461,8 @@ def _collection_rates_from_history(company, as_of: date) -> dict[str, Decimal]:
     if paid.count() < 10:
         return dict(DEFAULT_COLLECTION_RATES)
 
-    # Heuristic: higher collection share → bump current/1-30 rates slightly
+    # Heuristic: enough collection activity on record → bump current/1-30
+    # rates slightly. Still a fixed nudge, not computed from `paid`.
     rates = dict(DEFAULT_COLLECTION_RATES)
     rates["current"] = Decimal("0.80")
     rates["days_1_30"] = Decimal("0.55")
@@ -476,7 +483,7 @@ def forecast_cashflow(
     series = []
     cumulative = Decimal("0")
     aging = ReportService.receivables_aging(company, as_of=as_of)
-    rates = _collection_rates_from_history(company, as_of)
+    rates = _collection_rates_heuristic(company, as_of)
     expected_in = Decimal("0")
     for bucket, rate in rates.items():
         expected_in += (_dec(aging.get(bucket)) * rate)
@@ -521,7 +528,10 @@ def forecast_cashflow(
         "expected_collections": _q2(expected_in),
         "collection_rates": {k: str(v) for k, v in rates.items()},
         "disclaimer": (
-            "Forecast from open documents and historical collection rates. "
+            # B9-029: was "historical collection rates" — the rates are a
+            # fixed heuristic, not computed from this company's actual
+            # payment-timing history; say so rather than overclaim.
+            "Forecast from open documents and heuristic collection rates. "
             "Payments are record-only — not a bank feed."
         ),
         "opening_cash": _q2(opening) if mode == "absolute" else None,

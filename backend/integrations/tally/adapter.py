@@ -27,6 +27,13 @@ DISCLAIMER = (
 )
 OPENING_NOTE = "TALLY_OPENING"
 OPENING_SKU = "__TALLY_OPENING__"
+# B9-026: export is capped at 5000 rows (see `_CAP` below); import had no
+# equivalent, so an uncapped upload commits its whole party/product loop
+# inside one `select_for_update` transaction (see `_commit_tally_preview_inner`),
+# risking a multi-minute lock hold / OOM / all-or-nothing rollback on a large
+# migration file. This bounds the worst case at the cheapest point — before
+# any parsing/DB work happens at all.
+MAX_IMPORT_ROWS = 5000
 
 
 def _dec(v, default="0") -> Decimal:
@@ -93,6 +100,11 @@ def _rows_from_upload(file_bytes: bytes, filename: str = "") -> list[dict[str, s
 
 
 def parse_tally_masters_rows(rows: list[dict[str, str]]) -> dict[str, Any]:
+    if len(rows) > MAX_IMPORT_ROWS:
+        raise BusinessRuleError(
+            f"This file has {len(rows)} rows, which is over the {MAX_IMPORT_ROWS}-row import "
+            "limit. Split it into smaller files and import them one at a time."
+        )
     customers, suppliers, products, errors = [], [], [], []
     for i, row in enumerate(rows, start=2):
         et = (row.get("entity_type") or row.get("type") or "").lower()

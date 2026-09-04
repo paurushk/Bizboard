@@ -494,7 +494,14 @@ class ProcessedWebhookEvent(models.Model):
     the company context is fully resolved.
     """
 
-    dedup_key = models.CharField(max_length=64, unique=True)
+    # B9-034 fix-of-fix: callers build this as a human-readable prefix + a
+    # sha256 hex digest (e.g. "bizboard:billing_webhook_seen:" + 64 hex
+    # chars = 95 chars) — max_length=64 alone would silently truncate on
+    # SQLite (used by the test settings) but raise on every single webhook
+    # in a real Postgres deployment (value too long for varchar(64)), since
+    # Postgres enforces CharField length at the column level and SQLite does
+    # not. 128 gives headroom for any prefix length without either failure mode.
+    dedup_key = models.CharField(max_length=128, unique=True)
     provider = models.CharField(max_length=32)
     company = models.ForeignKey(
         "accounts.Company", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"

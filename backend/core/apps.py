@@ -6,4 +6,5 @@ class CoreConfig(AppConfig):
     name = "core"
 
     def ready(self):
+        from . import checks  # noqa: F401
         from . import handlers  # noqa: F401

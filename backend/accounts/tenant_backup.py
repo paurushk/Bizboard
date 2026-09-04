@@ -467,6 +467,37 @@ def _parse_date(value):
     return parsed
 
 
+def _remap_stock_movement_reference_id(
+    reference_type: str, old_reference_id, sales_map: dict[Any, int], purchase_map: dict[Any, int]
+) -> str:
+    """B6-019: rewrite a StockMovement's soft `reference_id` through the
+    matching id map for restorable document types; blank it for every other
+    `reference_type` (stock_transfer*, work_order*, delivery_challan*,
+    sales_return*, purchase_return*, manual/serial/expiry adjustments, ...)
+    since this backup format doesn't carry those source rows at all — there
+    is no map to rewrite through, and leaving the old numeric id is worse
+    than blank (it can resolve to an unrelated, possibly other-tenant, row).
+    """
+    if not old_reference_id:
+        return ""
+    id_map: dict[Any, int] | None = None
+    if reference_type.startswith("sales_invoice"):
+        id_map = sales_map
+    elif reference_type.startswith("purchase_invoice"):
+        id_map = purchase_map
+    if id_map is None:
+        return ""
+    # Backup JSON round-trips ids as either int or str depending on source;
+    # try both forms since map keys come from the original serialized rows.
+    new_id = id_map.get(old_reference_id)
+    if new_id is None:
+        try:
+            new_id = id_map.get(int(old_reference_id))
+        except (TypeError, ValueError):
+            new_id = None
+    return str(new_id) if new_id is not None else ""
+
+
 def _copy_model_fields(model, row: dict, *, skip: set[str], remap: dict[str, int | None]) -> dict:
     kwargs: dict[str, Any] = {}
     field_names = {f.attname: f for f in model._meta.concrete_fields}
@@ -1013,7 +1044,7 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         kwargs = _copy_model_fields(
             StockMovement,
             row,
-            skip={"id", "company_id", "created_by_id"},
+            skip={"id", "company_id", "created_by_id", "reference_id"},
             remap={
                 "warehouse_id": warehouse_map,
                 "product_id": product_map,
@@ -1022,6 +1053,18 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         )
         if not kwargs.get("warehouse_id") or not kwargs.get("product_id"):
             continue
+        # B6-019: `reference_id` is a plain CharField holding a stringified
+        # source-document PK (e.g. the sales/purchase invoice this movement
+        # came from) — `_copy_model_fields`'s generic remap only rewrites
+        # real FK columns, so this was copied verbatim and dangled after
+        # restore (pointing at the old tenant's row id, or an unrelated row
+        # if that numeric id now belongs to someone else). Rewrite it
+        # through the same id map the row's `reference_type` indicates when
+        # one exists; blank it otherwise rather than leave a value that
+        # looks valid but resolves to the wrong document.
+        kwargs["reference_id"] = _remap_stock_movement_reference_id(
+            row.get("reference_type") or "", row.get("reference_id"), sales_map, purchase_map
+        )
         StockMovement.objects.create(company=target_company, created_by=owner, **kwargs)
 
     for row in payload.get("stock_balances") or []:

@@ -157,6 +157,9 @@ class RazorpayWebhookView(APIView):
         # replayed event for the same subscription id re-applies stale state.
         # Dedup on the event id (header, else a body hash) for 24h.
         from django.core.cache import cache
+        from django.db import IntegrityError
+
+        from payments.models import ProcessedWebhookEvent
 
         event_id = (
             request.headers.get("X-Razorpay-Event-Id")
@@ -166,8 +169,20 @@ class RazorpayWebhookView(APIView):
         dedup_key = "bizboard:billing_webhook_seen:" + hashlib.sha256(
             f"{rzp_id}|{rzp_status}|{event_id}".encode()
         ).hexdigest()
-        if not cache.add(dedup_key, "1", timeout=24 * 60 * 60):
+        # B9-034: cache.add alone is per-process for LocMemCache (the default
+        # outside a shared Redis deployment) — a redelivery landing on a
+        # different gunicorn worker sailed straight past it. Same durable
+        # backstop as payments/webhook_views.py's B4-031 fix: the unique
+        # constraint on ProcessedWebhookEvent.dedup_key makes a second insert
+        # fail atomically regardless of which worker or cache state sees it.
+        if cache.get(dedup_key):
             return Response({"ok": True, "duplicate": True})
+        try:
+            ProcessedWebhookEvent.objects.create(dedup_key=dedup_key, provider="razorpay_subscription")
+        except IntegrityError:
+            cache.set(dedup_key, "1", timeout=24 * 60 * 60)
+            return Response({"ok": True, "duplicate": True})
+        cache.set(dedup_key, "1", timeout=24 * 60 * 60)
         sub = apply_razorpay_subscription_status(
             razorpay_subscription_id=rzp_id,
             rzp_status=rzp_status,
