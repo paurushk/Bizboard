@@ -327,13 +327,18 @@ export function NewInvoicePage() {
     staleTime: 60_000,
   });
   const availableByProduct = useMemo(() => {
+    // F2-009: the BLOCK gate must compare against the SELECTED warehouse, not
+    // the company-wide total — stock sitting in another godown doesn't help the
+    // line being sold from `warehouseId` (and the backend re-checks per-godown).
+    const wh = warehouseId ? Number(warehouseId) : null;
     const map = new Map<number, number>();
     for (const s of stockBalances.data ?? []) {
+      if (wh != null && Number(s.warehouse) !== wh) continue;
       const id = Number(s.product);
       map.set(id, (map.get(id) ?? 0) + toNumber(s.available ?? s.onHand));
     }
     return map;
-  }, [stockBalances.data]);
+  }, [stockBalances.data, warehouseId]);
   const stockShortfalls = useMemo(() => {
     if (company.data?.negativeStockPolicy !== 'BLOCK') return [];
     const needed = new Map<number, { name: string; qty: number }>();

@@ -18,14 +18,22 @@ export interface InvoiceSourceLine {
   condition?: 'SELLABLE' | 'DAMAGED';
 }
 
-export function invoiceItemsToSourceLines(items: LineItem[]): InvoiceSourceLine[] {
+export function invoiceItemsToSourceLines(
+  items: LineItem[],
+  // F2-013: quantities already returned on earlier return documents, per
+  // product — subtracted from maxQty so the same units can't be returned twice.
+  alreadyReturnedByProduct?: Map<number, number>,
+): InvoiceSourceLine[] {
   return items.map((item, idx) => ({
     key: `src-${item.id ?? idx}-${item.product}`,
     lineId: item.id,
     sourceItemId: item.id,
     product: item.product,
     productName: item.productName ?? item.description ?? `Product #${item.product}`,
-    maxQty: toNumber(item.quantity),
+    maxQty: Math.max(
+      0,
+      toNumber(item.quantity) - (alreadyReturnedByProduct?.get(item.product) ?? 0),
+    ),
     quantity: 0,
     unitPrice: toNumber(item.unitPrice),
     gstRate: toNumber(item.gstRate),

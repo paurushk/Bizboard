@@ -279,7 +279,26 @@ export function AccountingBankReconPage() {
               </MenuItem>
             ))}
           </TextField>
-          <Button variant="outlined" disabled={writesBlocked || !session || !journalLine || !bankLine || match.isPending} onClick={() => match.mutate()}>
+          <Button
+            variant="outlined"
+            disabled={writesBlocked || !session || !journalLine || !bankLine || match.isPending}
+            onClick={() => {
+              // F2-014: block a mismatched GL↔bank match unless explicitly ack'd.
+              const gl = unmatchedGl.find((l) => String(l.id) === journalLine);
+              const bank = unmatchedBank.find((l) => String(l.id) === bankLine);
+              const glAmt = gl ? Math.abs(toNumber(gl.debit) - toNumber(gl.credit)) : 0;
+              const bankAmt = bank ? Math.abs(toNumber((bank.amount as string | number) ?? 0)) : 0;
+              if (
+                gl && bank && Math.abs(glAmt - bankAmt) > 0.01 &&
+                !window.confirm(
+                  `GL line is ${formatMoney(glAmt)} but the bank line is ${formatMoney(bankAmt)}. Match them anyway?`,
+                )
+              ) {
+                return;
+              }
+              match.mutate();
+            }}
+          >
             Match lines
           </Button>
         </Stack>

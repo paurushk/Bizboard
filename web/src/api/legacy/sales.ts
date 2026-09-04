@@ -547,9 +547,11 @@ export async function createSalesReturn(payload: {
   returnDate?: string;
   reason?: string;
   items: Array<Partial<LineItem>>;
-}): Promise<SalesReturn> {
+}, options?: { idempotencyKey?: string }): Promise<SalesReturn> {
   return withMocks(async () => {
-    const { data } = await apiClient.post('/sales/returns/', payload);
+    const { data } = await apiClient.post('/sales/returns/', payload, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
+    });
     return unwrapData<SalesReturn>(data);
   }, {
     id: Date.now(),
@@ -569,9 +571,11 @@ export async function createSalesReturn(payload: {
   });
 }
 
-export async function completeSalesReturn(id: number): Promise<SalesReturn> {
+export async function completeSalesReturn(id: number, options?: { idempotencyKey?: string }): Promise<SalesReturn> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/sales/returns/${id}/complete/`);
+    const { data } = await apiClient.post(`/sales/returns/${id}/complete/`, undefined, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
+    });
     return unwrapData<SalesReturn>(data);
   }, {
     id,
@@ -744,9 +748,15 @@ export async function updateSalesCreditNote(
   }, { ...(await getSalesCreditNote(id)), ...payload } as SalesCreditNote);
 }
 
-export async function completeSalesCreditNote(id: number): Promise<SalesCreditNote> {
+export async function completeSalesCreditNote(
+  id: number,
+  options?: { confirmBlankPos?: boolean; confirmGstinTotalChange?: boolean },
+): Promise<SalesCreditNote> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/sales/credit-notes/${id}/complete/`);
+    const { data } = await apiClient.post(`/sales/credit-notes/${id}/complete/`, {
+      confirmBlankPos: Boolean(options?.confirmBlankPos),
+      confirmGstinTotalChange: Boolean(options?.confirmGstinTotalChange),
+    });
     return unwrapData<SalesCreditNote>(data);
   }, { ...(await getSalesCreditNote(id)), status: 'COMPLETED', number: `SCN-${id}` });
 }

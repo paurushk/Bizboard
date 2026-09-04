@@ -93,11 +93,23 @@ export function SupplierPaymentsPage() {
         { idempotencyKey: key },
       );
       if (purchase && Number(allocAmount) > 0) {
+        // F2-023: mirror ReceiptsPage — an over-typed allocation must not exceed
+        // the payment amount or the invoice balance.
+        const alloc = Number(allocAmount);
+        const cap = Math.min(
+          paymentAmount,
+          toNumber(purchase.balance ?? purchase.grandTotal),
+        );
+        if (alloc > cap + 0.001) {
+          throw new Error(
+            `Allocation ${alloc.toFixed(2)} exceeds the lesser of the payment amount and the invoice balance (${cap.toFixed(2)}).`,
+          );
+        }
         await createAllocation(
           {
             supplierPayment: payment.id,
             purchaseInvoice: purchase.id,
-            amount: Number(allocAmount),
+            amount: alloc,
           },
           { idempotencyKey: `${key}-alloc` },
         );

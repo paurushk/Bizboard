@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Button from '@mui/material/Button';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import {
   cancelSalesCreditNote,
   completeSalesCreditNote,
@@ -30,7 +31,9 @@ export function CreditNotesPage() {
     queryFn: () => listSalesCreditNotesPage({ page, pageSize: PAGE_SIZE }),
   });
   const complete = useMutation({
-    mutationFn: (id: number) => completeSalesCreditNote(id),
+    // F2-017: same confirm-retry helper the editor uses.
+    mutationFn: (id: number) =>
+      completeWithConfirms((extra) => completeSalesCreditNote(id, extra)),
     onSuccess: () => {
       setError(null);
       void qc.invalidateQueries({ queryKey: ['sales-credit-notes'] });

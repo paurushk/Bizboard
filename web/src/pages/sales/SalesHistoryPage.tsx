@@ -26,6 +26,7 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import {
   cancelSalesInvoice,
   completeSalesInvoice,
@@ -86,7 +87,10 @@ export function SalesHistoryPage() {
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
 
   const completeMutation = useMutation({
-    mutationFn: (id: number) => completeSalesInvoice(id),
+    // F2-017: go through the same confirm-retry helper the editor uses so a
+    // blank-place-of-supply / GSTIN-total-changed invoice doesn't dead-end here.
+    mutationFn: (id: number) =>
+      completeWithConfirms((extra) => completeSalesInvoice(id, extra)),
     onSuccess: (inv) => {
       setMessage(`Invoice ${invoiceNumberLabel(inv)} completed`);
       invalidate();

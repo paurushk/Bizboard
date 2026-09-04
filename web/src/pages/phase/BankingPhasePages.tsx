@@ -677,34 +677,54 @@ export function BankReconPage() {
                       ) : null}
                     </Stack>
                   </Stack>
-                  {!suggestions.length ? (
+                  {/* F2-014: once a line is MATCHED, drop all match actions — a
+                      second confirm double-books it. */}
+                  {String(line.matchStatus) === 'MATCHED' ? null : !suggestions.length ? (
                     <Alert severity="warning">No confident suggestions</Alert>
                   ) : (
-                    suggestions.map((s) => (
+                    suggestions.map((s) => {
+                      const lineAmt = toNumber(line.amount as string | number);
+                      const sugAmt = toNumber(s.amount as string | number);
+                      const amountsDiffer = Math.abs(lineAmt - sugAmt) > 0.01;
+                      return (
                       <Stack key={`${s.type}-${s.id}`} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
                         <Chip size="small" label={`${Math.round(Number(s.confidence))}%`} color={Number(s.confidence) >= 90 ? 'success' : 'default'} />
                         <Typography variant="body2" sx={{ flex: 1 }}>
-                          {String(s.type)} {String(s.number)} · {String(s.party)} · {formatMoney(toNumber(s.amount as string | number))}
+                          {String(s.type)} {String(s.number)} · {String(s.party)} · {formatMoney(sugAmt)}
+                          {amountsDiffer ? (
+                            <Typography component="span" variant="caption" color="warning.main" sx={{ ml: 1 }}>
+                              (differs from bank line by {formatMoney(Math.abs(lineAmt - sugAmt))})
+                            </Typography>
+                          ) : null}
                         </Typography>
                         {canWrite ? (
                         <Button
                           size="small"
                           variant="contained"
                           disabled={confirm.isPending}
-                          onClick={() =>
+                          onClick={() => {
+                            if (
+                              amountsDiffer &&
+                              !window.confirm(
+                                `The bank line is ${formatMoney(lineAmt)} but this ${String(s.type)} is ${formatMoney(sugAmt)}. Match them anyway?`,
+                              )
+                            ) {
+                              return;
+                            }
                             confirm.mutate({
                               line: line.id,
                               receipt: s.type === 'receipt' ? s.id : undefined,
                               supplierPayment: s.type === 'supplier_payment' ? s.id : undefined,
                               confidence: s.confidence,
-                            })
-                          }
+                            });
+                          }}
                         >
                           Confirm
                         </Button>
                         ) : null}
                       </Stack>
-                    ))
+                      );
+                    })
                   )}
                 </Stack>
               </Paper>

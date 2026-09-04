@@ -213,11 +213,15 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
         billDate,
         lines: payloadLines,
       });
-      return commitImport(jobId, {
-        billNumber,
-        billDate,
-        lines: payloadLines,
-      });
+      return commitImport(
+        jobId,
+        {
+          billNumber,
+          billDate,
+          lines: payloadLines,
+        },
+        { idempotencyKey: commitKeyRef.current.key || undefined },
+      );
     },
     onSuccess: (result) => {
       const purchaseId =
@@ -250,7 +254,24 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     [uploadMutation.isPending, job?.status, jobId, jobQuery.isLoading],
   );
 
-  const includedCount = lines.filter((l) => l.include !== false).length;
+  const includedLines = lines.filter((l) => l.include !== false);
+  const includedCount = includedLines.length;
+  // F2-021: every included line must have a name, a positive qty and a
+  // non-negative price before the commit is allowed — otherwise blank/zero
+  // lines commit as zero-value invoice lines.
+  const invalidIncludedCount = includedLines.filter(
+    (l) =>
+      !String(l.name ?? '').trim() ||
+      !(Number(l.quantity) > 0) ||
+      !(Number(l.unitPrice) >= 0) ||
+      Number.isNaN(Number(l.unitPrice)),
+  ).length;
+  // one stable idempotency key per job so a retry after the button re-enables
+  // doesn't create a second draft.
+  const commitKeyRef = useRef<{ jobId: number | null; key: string }>({ jobId: null, key: '' });
+  if (jobId != null && commitKeyRef.current.jobId !== jobId) {
+    commitKeyRef.current = { jobId, key: `import-commit-${jobId}-${newIdempotencyKey()}` };
+  }
   const flaggedIndices = useMemo(
     () => lines.map((l, i) => (l.flags && l.flags.length > 0 ? i : -1)).filter((i) => i >= 0),
     [lines],
@@ -763,11 +784,20 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
               <Button
                 variant="contained"
                 color="secondary"
-                disabled={includedCount === 0 || commitMutation.isPending}
+                disabled={
+                  includedCount === 0 ||
+                  invalidIncludedCount > 0 ||
+                  commitMutation.isPending
+                }
                 onClick={() => commitMutation.mutate()}
               >
                 {t(isSales ? 'billUpload.commitDraftSales' : 'billUpload.commitDraft')}
               </Button>
+              {invalidIncludedCount > 0 ? (
+                <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                  {invalidIncludedCount} included line(s) need a name, a quantity &gt; 0 and a valid price.
+                </Typography>
+              ) : null}
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 {t(isSales ? 'billUpload.commitDraftHintSales' : 'billUpload.commitDraftHint')}
               </Typography>

@@ -194,9 +194,11 @@ export async function createPurchaseReturn(payload: {
   returnDate?: string;
   reason?: string;
   items: Array<Partial<LineItem>>;
-}): Promise<PurchaseReturn> {
+}, options?: { idempotencyKey?: string }): Promise<PurchaseReturn> {
   return withMocks(async () => {
-    const { data } = await apiClient.post('/purchases/returns/', payload);
+    const { data } = await apiClient.post('/purchases/returns/', payload, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
+    });
     return unwrapData<PurchaseReturn>(data);
   }, {
     id: Date.now(),
@@ -216,9 +218,11 @@ export async function createPurchaseReturn(payload: {
   });
 }
 
-export async function completePurchaseReturn(id: number): Promise<PurchaseReturn> {
+export async function completePurchaseReturn(id: number, options?: { idempotencyKey?: string }): Promise<PurchaseReturn> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/purchases/returns/${id}/complete/`);
+    const { data } = await apiClient.post(`/purchases/returns/${id}/complete/`, undefined, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
+    });
     return unwrapData<PurchaseReturn>(data);
   }, {
     id,

@@ -24,6 +24,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import {
   cancelPurchase,
   completePurchase,
@@ -79,7 +80,9 @@ export function PurchaseHistoryPage() {
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['purchases'] });
 
   const completeMutation = useMutation({
-    mutationFn: (id: number) => completePurchase(id),
+    // F2-017: same confirm-retry helper the editor uses.
+    mutationFn: (id: number) =>
+      completeWithConfirms((extra) => completePurchase(id, extra)),
     onSuccess: (inv) => {
       setMessage(`Purchase ${purchaseNumberLabel(inv)} completed`);
       invalidate();
