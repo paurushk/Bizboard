@@ -191,6 +191,8 @@ class StockTransferSerializer(serializers.ModelSerializer):
         read_only_fields = ["number", "status", "completed_at", "cancelled_at"]
 
     def create(self, validated_data):
+        from django.db import transaction
+
         request = self.context.get("request")
         company = getattr(request, "company", None) or (
             get_company_user(request).company if request else None
@@ -213,17 +215,25 @@ class StockTransferSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"lines": "Invalid product."})
             if batch and (batch.company_id != company.id or (product and batch.product_id != product.id)):
                 raise serializers.ValidationError({"lines": "Invalid batch."})
-        transfer = super().create(validated_data)
-        if not transfer.number:
-            from core.services.document_numbers import DocumentNumberService
-            transfer.number = DocumentNumberService.next_number(company, "STOCK_TRANSFER")
-            transfer.save(update_fields=["number"])
-        StockTransferLine.objects.bulk_create([
-            StockTransferLine(transfer=transfer, company_id=company.id, **line) for line in lines
-        ])
+        # B8-002: validation above is already complete before any write, but
+        # wrap the writes themselves too — with ATOMIC_REQUESTS off, a
+        # DB-level failure partway through (e.g. bulk_create hitting a
+        # constraint the checks above didn't catch) would otherwise leave a
+        # transfer with no lines committed.
+        with transaction.atomic():
+            transfer = super().create(validated_data)
+            if not transfer.number:
+                from core.services.document_numbers import DocumentNumberService
+                transfer.number = DocumentNumberService.next_number(company, "STOCK_TRANSFER")
+                transfer.save(update_fields=["number"])
+            StockTransferLine.objects.bulk_create([
+                StockTransferLine(transfer=transfer, company_id=company.id, **line) for line in lines
+            ])
         return transfer
 
     def update(self, instance, validated_data):
+        from django.db import transaction
+
         if instance.status != StockTransfer.Status.DRAFT:
             raise serializers.ValidationError("Only draft transfers can be edited.")
         lines = validated_data.pop("lines", None)
@@ -236,7 +246,10 @@ class StockTransferSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"to_warehouse": "Invalid warehouse."})
         if from_wh and to_wh and from_wh.id == to_wh.id:
             raise serializers.ValidationError({"to_warehouse": "Source and destination must differ."})
-        instance = super().update(instance, validated_data)
+        # B8-002: validate every line before instance.lines.all().delete()
+        # below runs, and wrap update+delete+bulk_create in one transaction
+        # so a validation failure (or a DB-level one) can't leave the
+        # transfer's header updated with its lines deleted.
         if lines is not None:
             for line in lines:
                 product = line.get("product")
@@ -245,10 +258,13 @@ class StockTransferSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({"lines": "Invalid product."})
                 if batch and (batch.company_id != company.id or (product and batch.product_id != product.id)):
                     raise serializers.ValidationError({"lines": "Invalid batch."})
-            instance.lines.all().delete()
-            StockTransferLine.objects.bulk_create([
-                StockTransferLine(transfer=instance, company_id=company.id, **line) for line in lines
-            ])
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
+            if lines is not None:
+                instance.lines.all().delete()
+                StockTransferLine.objects.bulk_create([
+                    StockTransferLine(transfer=instance, company_id=company.id, **line) for line in lines
+                ])
         return instance
 
 
@@ -379,39 +395,51 @@ class StockCountSessionSerializer(serializers.ModelSerializer):
         return session
 
     def update(self, instance, validated_data):
+        from django.db import transaction
+
         from core.exceptions import BusinessRuleError
 
         lines = validated_data.pop("lines", None)
-        instance = super().update(instance, validated_data)
-        if lines is None:
-            return instance
-        if instance.status not in (
+        # B8-002: the status check and the tenant-check inside
+        # _make_count_line (via _assert_count_line_tenant) both used to run
+        # *after* super().update() had already committed the header change
+        # (status check) or after instance.lines.all().delete() had already
+        # run (tenant check) — a rejected edit still landed a header change,
+        # or emptied the session's lines, before returning its 400.
+        if lines is not None and instance.status not in (
             StockCountSession.Status.DRAFT,
             StockCountSession.Status.COUNTED,
         ):
             raise BusinessRuleError("Only a draft or counted session can be edited.")
-        existing = {row.id: row for row in instance.lines.all()}
-        ids = [line.get("id") for line in lines]
-        if ids and all(i in existing for i in ids):
+        if lines is not None:
             for line in lines:
-                row = existing[line["id"]]
-                if "counted_qty" in line:
-                    row.counted_qty = line["counted_qty"]
-                    row.save(update_fields=["counted_qty"])
-            if not instance.lines.filter(counted_qty__isnull=True).exists():
+                _assert_count_line_tenant(instance, line.get("product"), line.get("batch"))
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
+            if lines is None:
+                return instance
+            existing = {row.id: row for row in instance.lines.all()}
+            ids = [line.get("id") for line in lines]
+            if ids and all(i in existing for i in ids):
+                for line in lines:
+                    row = existing[line["id"]]
+                    if "counted_qty" in line:
+                        row.counted_qty = line["counted_qty"]
+                        row.save(update_fields=["counted_qty"])
+                if not instance.lines.filter(counted_qty__isnull=True).exists():
+                    instance.status = StockCountSession.Status.COUNTED
+                    instance.save(update_fields=["status"])
+                return instance
+            prior_system_qty = {
+                (row.product_id, row.batch_id): row.system_qty
+                for row in instance.lines.all()
+            }
+            instance.lines.all().delete()
+            created_lines = StockCountLine.objects.bulk_create([
+                _make_count_line(instance, line, keep_system_qty=prior_system_qty)
+                for line in lines
+            ])
+            if created_lines and not any(line.counted_qty is None for line in created_lines):
                 instance.status = StockCountSession.Status.COUNTED
                 instance.save(update_fields=["status"])
-            return instance
-        prior_system_qty = {
-            (row.product_id, row.batch_id): row.system_qty
-            for row in instance.lines.all()
-        }
-        instance.lines.all().delete()
-        created_lines = StockCountLine.objects.bulk_create([
-            _make_count_line(instance, line, keep_system_qty=prior_system_qty)
-            for line in lines
-        ])
-        if created_lines and not any(line.counted_qty is None for line in created_lines):
-            instance.status = StockCountSession.Status.COUNTED
-            instance.save(update_fields=["status"])
         return instance

@@ -1,5 +1,6 @@
 """Stock movement matrix — every business event posts the right typed movement (§7)."""
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -212,3 +213,151 @@ def test_manual_adjustment_respects_negative_stock_policy(tenant_a):
     }, format="json")
     assert resp.status_code == 400
     assert on_hand(tenant_a.company, product) == Decimal("5")
+
+
+def test_rebuild_balance_does_not_side_effect_other_batch_lots(tenant_a):
+    """B8-023: rebuild_balance(batch=lot_A) must write ONLY lot_A's row —
+    it used to also overwrite every other lot's on_hand/reserved as a side
+    effect of its embedded FEFO reservation walk (order-dependent output)."""
+    from inventory.models import BatchLot
+
+    product = make_product(tenant_a.company, sku="LOT-1", track_batch=True)
+    warehouse = InventoryService.default_warehouse(tenant_a.company)
+    lot_a = BatchLot.objects.create(
+        company=tenant_a.company, product=product, batch_no="A", expiry_date=date(2099, 1, 1),
+    )
+    lot_b = BatchLot.objects.create(
+        company=tenant_a.company, product=product, batch_no="B", expiry_date=date(2099, 6, 1),
+    )
+    InventoryService.post_opening(
+        company=tenant_a.company, product=product, quantity=Decimal("10"),
+        unit_cost=Decimal("50"), warehouse=warehouse, batch=lot_a, user=tenant_a.owner,
+    )
+    InventoryService.post_opening(
+        company=tenant_a.company, product=product, quantity=Decimal("20"),
+        unit_cost=Decimal("50"), warehouse=warehouse, batch=lot_b, user=tenant_a.owner,
+    )
+    bal_a = StockBalance.objects.get(company=tenant_a.company, product=product, batch=lot_a)
+    bal_b = StockBalance.objects.get(company=tenant_a.company, product=product, batch=lot_b)
+    # Simulate a stale cache on lot B's reserved that a rebuild of lot A
+    # alone must not touch.
+    bal_b.reserved = Decimal("999")
+    bal_b.save(update_fields=["reserved"])
+
+    InventoryService.rebuild_balance(tenant_a.company, product, warehouse=warehouse, batch=lot_a)
+
+    bal_b.refresh_from_db()
+    assert bal_b.on_hand == Decimal("20")
+    assert bal_b.reserved == Decimal("999"), "rebuilding lot A's key must not have touched lot B's row"
+    bal_a.refresh_from_db()
+    assert bal_a.on_hand == Decimal("10")
+
+
+def test_reconcile_batch_reservations_fefo_splits_across_lots(tenant_a):
+    """B8-023: the FEFO reservation split is now a dedicated pass — confirm
+    it still produces the right per-lot reserved qty, and that it clears a
+    stale reserved on a lot it doesn't need to touch this time."""
+    from inventory.models import BatchLot
+    from sales.models import SalesInvoice, SalesOrder
+    from sales.notes_services import SalesNotesService
+
+    product = make_product(tenant_a.company, sku="LOT-2", track_batch=True)
+    warehouse = InventoryService.default_warehouse(tenant_a.company)
+    lot_a = BatchLot.objects.create(
+        company=tenant_a.company, product=product, batch_no="A2", expiry_date=date(2099, 1, 1),
+    )
+    lot_b = BatchLot.objects.create(
+        company=tenant_a.company, product=product, batch_no="B2", expiry_date=date(2099, 6, 1),
+    )
+    InventoryService.post_opening(
+        company=tenant_a.company, product=product, quantity=Decimal("5"),
+        unit_cost=Decimal("50"), warehouse=warehouse, batch=lot_a, user=tenant_a.owner,
+    )
+    InventoryService.post_opening(
+        company=tenant_a.company, product=product, quantity=Decimal("20"),
+        unit_cost=Decimal("50"), warehouse=warehouse, batch=lot_b, user=tenant_a.owner,
+    )
+    customer = make_customer(tenant_a.company)
+    order = SalesOrder.objects.create(
+        company=tenant_a.company, customer=customer,
+        invoice_type=SalesInvoice.InvoiceType.NON_GST,
+        created_by=tenant_a.owner, updated_by=tenant_a.owner,
+    )
+    # FEFO orders lot_a (expires first) before lot_b — a confirmed SO for 8
+    # should reserve all 5 of lot_a then 3 of lot_b.
+    SalesNotesService.set_order_items(
+        order,
+        [{"product": product, "quantity": Decimal("8"), "unit_price": Decimal("100"), "gst_rate": Decimal("0")}],
+        tenant_a.owner,
+    )
+    SalesNotesService.confirm_sales_order(order, tenant_a.owner)
+
+    InventoryService.rebuild_balance(tenant_a.company, product, warehouse=warehouse, batch=lot_a)
+    InventoryService.rebuild_balance(tenant_a.company, product, warehouse=warehouse, batch=lot_b)
+    InventoryService.reconcile_batch_reservations(tenant_a.company, product, warehouse=warehouse)
+
+    bal_a = StockBalance.objects.get(company=tenant_a.company, product=product, batch=lot_a)
+    bal_b = StockBalance.objects.get(company=tenant_a.company, product=product, batch=lot_b)
+    assert bal_a.reserved == Decimal("5")
+    assert bal_b.reserved == Decimal("3")
+
+
+def test_rebuild_stock_balances_command_reconciles_batch_reservations(tenant_a):
+    """B8-022/B8-023: the management command's two-pass rebuild (on_hand for
+    every key, then one FEFO reservation reconcile per product/warehouse)
+    end to end, plus the batched orphan-row cleanup."""
+    from django.core.management import call_command
+
+    from inventory.models import BatchLot
+
+    product = make_product(tenant_a.company, sku="LOT-3", track_batch=True)
+    warehouse = InventoryService.default_warehouse(tenant_a.company)
+    lot_a = BatchLot.objects.create(
+        company=tenant_a.company, product=product, batch_no="A3", expiry_date=date(2099, 1, 1),
+    )
+    lot_b = BatchLot.objects.create(
+        company=tenant_a.company, product=product, batch_no="B3", expiry_date=date(2099, 6, 1),
+    )
+    InventoryService.post_opening(
+        company=tenant_a.company, product=product, quantity=Decimal("5"),
+        unit_cost=Decimal("50"), warehouse=warehouse, batch=lot_a, user=tenant_a.owner,
+    )
+    InventoryService.post_opening(
+        company=tenant_a.company, product=product, quantity=Decimal("20"),
+        unit_cost=Decimal("50"), warehouse=warehouse, batch=lot_b, user=tenant_a.owner,
+    )
+    from sales.models import SalesInvoice, SalesOrder
+    from sales.notes_services import SalesNotesService
+
+    customer = make_customer(tenant_a.company)
+    order = SalesOrder.objects.create(
+        company=tenant_a.company, customer=customer,
+        invoice_type=SalesInvoice.InvoiceType.NON_GST,
+        created_by=tenant_a.owner, updated_by=tenant_a.owner,
+    )
+    SalesNotesService.set_order_items(
+        order,
+        [{"product": product, "quantity": Decimal("8"), "unit_price": Decimal("100"), "gst_rate": Decimal("0")}],
+        tenant_a.owner,
+    )
+    SalesNotesService.confirm_sales_order(order, tenant_a.owner)
+
+    # Corrupt the cache (as if it had drifted) and leave an orphan row with
+    # no backing movements — both must be fixed by one command run.
+    StockBalance.objects.filter(product=product, batch=lot_a).update(on_hand=Decimal("999"), reserved=Decimal("0"))
+    orphan_batch = BatchLot.objects.create(
+        company=tenant_a.company, product=product, batch_no="ORPHAN", expiry_date=date(2099, 1, 1),
+    )
+    StockBalance.objects.create(
+        company=tenant_a.company, warehouse=warehouse, product=product, batch=orphan_batch,
+        on_hand=Decimal("7"), reserved=Decimal("0"),
+    )
+
+    call_command("rebuild_stock_balances", company=tenant_a.company.pk)
+
+    bal_a = StockBalance.objects.get(company=tenant_a.company, product=product, batch=lot_a)
+    bal_b = StockBalance.objects.get(company=tenant_a.company, product=product, batch=lot_b)
+    assert bal_a.on_hand == Decimal("5")
+    assert bal_a.reserved == Decimal("5")
+    assert bal_b.reserved == Decimal("3")
+    assert not StockBalance.objects.filter(batch=orphan_batch).exists()

@@ -280,21 +280,35 @@ class PriceListSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        from django.db import transaction
+
         items = validated_data.pop("items", [])
-        price_list = super().create(validated_data)
-        PriceListItem.objects.bulk_create([
-            PriceListItem(company=price_list.company, price_list=price_list, **item)
-            for item in items
-        ])
+        # B8-002: validate() above already runs assert_slab_payloads on the
+        # whole items list before this is ever called, but a DB-level
+        # IntegrityError from uniq_product_slab_per_list (a case that check
+        # doesn't catch, or a race) mid-bulk_create should not leave a
+        # PriceList with a partial item set — wrap the writes.
+        with transaction.atomic():
+            price_list = super().create(validated_data)
+            PriceListItem.objects.bulk_create([
+                PriceListItem(company=price_list.company, price_list=price_list, **item)
+                for item in items
+            ])
         return price_list
 
     def update(self, instance, validated_data):
+        from django.db import transaction
+
         items = validated_data.pop("items", None)
-        instance = super().update(instance, validated_data)
-        if items is not None:
-            PriceListItem.objects.filter(price_list=instance).delete()
-            PriceListItem.objects.bulk_create([
-                PriceListItem(company=instance.company, price_list=instance, **item)
-                for item in items
-            ])
+        # B8-002: same reasoning as create() — an IntegrityError from
+        # bulk_create after delete() previously left the list empty with no
+        # rollback (ATOMIC_REQUESTS is off).
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
+            if items is not None:
+                PriceListItem.objects.filter(price_list=instance).delete()
+                PriceListItem.objects.bulk_create([
+                    PriceListItem(company=instance.company, price_list=instance, **item)
+                    for item in items
+                ])
         return instance

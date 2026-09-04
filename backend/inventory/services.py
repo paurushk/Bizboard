@@ -5,7 +5,7 @@ from datetime import date as date_cls, timedelta
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q, Sum
+from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum
 from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
@@ -435,15 +435,39 @@ class InventoryService:
             value += delta * cost
         elif delta < 0:
             issue = -delta
+            # B8-003: a weighted average must always consume at the pool's
+            # own average — the caller's `unit_cost` (e.g. a FIFO-stamped
+            # cost on TRANSFER_OUT, or InventoryValuationService.unit_cost
+            # on MANUFACTURE_ISSUE) is a different costing basis and was
+            # previously preferred over `avg` whenever it was non-zero,
+            # silently drifting `value`/`unit_cost` (=value/qty, the number
+            # actually surfaced for WAVG COGS/GL) away from a true average
+            # on every costed out-flow. rebuild_running_cost's only integrity
+            # gate was qty drift — value was never checked, so this was
+            # invisible until now (see the value-drift check added below).
             avg = (value / qty) if qty else Decimal("0")
-            use = cost if cost else avg
-            value -= issue * use
+            value -= issue * avg
             qty -= issue
             if qty <= 0:
                 qty = Decimal("0")
                 value = Decimal("0")
             elif value < 0:
-                value = Decimal("0")
+                # B8-020: this used to hard-clamp to 0, silently reporting a
+                # live WAVG cost of ₹0 for real remaining stock until someone
+                # ran rebuild_running_cost by hand. A negative `value` here
+                # can now only come from Decimal division residue (the `avg`
+                # computed above is otherwise exact for issue <= qty), so
+                # re-deriving from that same `avg` is the correct value, not 0.
+                import logging as _logging
+
+                _logging.getLogger(__name__).warning(
+                    "InventoryRunningCost value went negative for company=%s "
+                    "warehouse=%s product=%s batch=%s (qty=%s) — re-deriving "
+                    "from the pre-issue average instead of clamping to 0.",
+                    getattr(company, "id", None), getattr(warehouse, "id", None),
+                    getattr(product, "id", None), getattr(batch, "id", None), qty,
+                )
+                value = qty * avg
         row.qty = qty
         row.value = value
         row.save(update_fields=["qty", "value", "updated_at"])
@@ -467,23 +491,73 @@ class InventoryService:
                 unit_cost=move.unit_cost,
             )
         drifted = []
-        for bal in StockBalance.objects.filter(company=company).iterator():
-            rc = InventoryRunningCost.objects.filter(
-                company=company,
-                warehouse_id=bal.warehouse_id,
-                product_id=bal.product_id,
-                batch_id=bal.batch_id,
-            ).first()
+        # B8-021: iterate the union of StockBalance and InventoryRunningCost
+        # keys, not just StockBalance's — a running-cost row whose balance
+        # row was pruned (e.g. by rebuild_stock_balances' orphan cleanup) was
+        # previously invisible to this check even with leftover qty/value.
+        balances_by_key = {
+            (bal.warehouse_id, bal.product_id, bal.batch_id): bal
+            for bal in StockBalance.objects.filter(company=company).iterator()
+        }
+        running_by_key = {
+            (rc.warehouse_id, rc.product_id, rc.batch_id): rc
+            for rc in InventoryRunningCost.objects.filter(company=company).iterator()
+        }
+        for key in set(balances_by_key) | set(running_by_key):
+            bal = balances_by_key.get(key)
+            rc = running_by_key.get(key)
             rc_qty = Decimal(str(rc.qty or 0)) if rc is not None else Decimal("0")
-            bal_qty = Decimal(str(bal.on_hand or 0))
+            bal_qty = Decimal(str(bal.on_hand or 0)) if bal is not None else Decimal("0")
             if rc_qty != bal_qty:
+                warehouse_id, product_id, batch_id = key
                 drifted.append(
-                    f"warehouse={bal.warehouse_id} product={bal.product_id} "
-                    f"batch={bal.batch_id} running={rc_qty} balance={bal_qty}"
+                    f"warehouse={warehouse_id} product={product_id} "
+                    f"batch={batch_id} running={rc_qty} balance={bal_qty}"
+                    + (" (no balance row)" if bal is None else "")
                 )
         if drifted:
             raise BusinessRuleError(
                 "Running-cost qty drifted from StockBalance: " + "; ".join(drifted[:8])
+            )
+        # B8-003: value was never checked, only qty — a costed out-flow could
+        # drift `value` (and therefore `unit_cost` = value/qty, the number
+        # surfaced for WAVG COGS/GL) for years with this rebuild reporting a
+        # clean bill of health. Compare against an independent full replay
+        # (which now uses the same "always consume at pool average" costing,
+        # see _apply_running_cost above) within a ₹1 tolerance — a company
+        # with historical oversell can legitimately diverge here (the live
+        # engine floors qty/value at 0 once stock goes negative; a replay
+        # does not), which is a separate, pre-existing quirk this check
+        # deliberately does not chase.
+        replay_movements = (
+            StockMovement.objects.filter(company=company)
+            .select_related("warehouse", "product", "batch")
+            .order_by("created_at", "id")
+        )
+        replay_rows = InventoryValuationService._replay(
+            replay_movements, "WAVG", {}, company=company,
+        )
+        replay_by_key = {
+            (r["warehouse"], r["product"], r["batch"]): Decimal(str(r["value"] or 0))
+            for r in replay_rows
+        }
+        value_drifted = []
+        _TOLERANCE = Decimal("1.00")
+        for key in set(replay_by_key) | set(running_by_key):
+            rc = running_by_key.get(key)
+            rc_value = Decimal(str(rc.value or 0)) if rc is not None else Decimal("0")
+            rc_qty = Decimal(str(rc.qty or 0)) if rc is not None else Decimal("0")
+            replay_value = replay_by_key.get(key, Decimal("0"))
+            # Only compare non-negative-qty keys — see the oversell note above.
+            if rc_qty >= 0 and abs(rc_value - replay_value) > _TOLERANCE:
+                warehouse_id, product_id, batch_id = key
+                value_drifted.append(
+                    f"warehouse={warehouse_id} product={product_id} batch={batch_id} "
+                    f"running_value={rc_value} replay_value={replay_value}"
+                )
+        if value_drifted:
+            raise BusinessRuleError(
+                "Running-cost value drifted from a full replay: " + "; ".join(value_drifted[:8])
             )
         return InventoryRunningCost.objects.filter(company=company).count()
 
@@ -602,10 +676,11 @@ class InventoryService:
                         f"(short {remaining})."
                     )
             # Stamp movement with weighted layer cost for this issue.
-            # Use QuerySet.update to honor StockMovement append-only save() guard.
+            # B8-029: stamp_cost() is the one documented, row-locked
+            # exception to StockMovement's append-only save() guard.
             if need > 0:
                 stamped = (cost_total / need).quantize(Decimal("0.0001"))
-                StockMovement.objects.filter(pk=movement.pk).update(unit_cost=stamped, layer_peels=peels)
+                StockMovement.stamp_cost(movement.pk, unit_cost=stamped, layer_peels=peels)
                 movement.unit_cost = stamped
                 movement.layer_peels = peels
 
@@ -944,22 +1019,7 @@ class InventoryService:
         return balance
 
     @staticmethod
-    def rebuild_balance(company, product, warehouse=None, batch=None):
-        """Balances are a cache — always rebuildable from movements."""
-        warehouse = warehouse or InventoryService.default_warehouse(company)
-        total = (
-            StockMovement.objects.filter(
-                company=company, product=product, warehouse=warehouse, batch=batch,
-            )
-            .aggregate(total=Sum("quantity"))["total"]
-            or Decimal("0")
-        )
-        balance, _ = StockBalance.objects.get_or_create(
-            company=company, warehouse=warehouse, product=product, batch=batch,
-        )
-        balance.on_hand = total
-        # BB-000403: reserved must follow FEFO lot allocation, not dump onto unbatched row.
-        reserved = Decimal("0")
+    def _confirmed_so_qty(company, product, warehouse):
         # BB-000757: lazy get_model avoids permanent sales.models import coupling.
         from django.apps import apps
 
@@ -980,49 +1040,90 @@ class InventoryService:
             )
         else:
             so_qs = so_qs.filter(sales_order__warehouse=warehouse)
-        so_qty = so_qs.aggregate(total=Sum("quantity"))["total"] or Decimal("0")
-        if so_qty > 0 and product.track_batch:
-            remaining = so_qty
-            for lot in InventoryValuationService.fefo_batches(company, product, warehouse):
-                if remaining <= 0:
-                    break
-                lot_on_hand = (
-                    StockMovement.objects.filter(
-                        company=company, product=product, warehouse=warehouse, batch=lot,
-                    ).aggregate(total=Sum("quantity"))["total"]
-                    or Decimal("0")
-                )
-                take = min(remaining, max(Decimal("0"), lot_on_hand))
-                lot_balance, _ = StockBalance.objects.get_or_create(
-                    company=company, warehouse=warehouse, product=product, batch=lot,
-                )
-                lot_balance.on_hand = lot_on_hand
-                lot_balance.reserved = take
-                lot_balance.save(update_fields=["on_hand", "reserved"])
-                remaining -= take
-            if batch is None:
-                reserved = Decimal("0")
-            else:
-                reserved = balance.reserved
-                try:
-                    refreshed = StockBalance.objects.get(
-                        company=company, warehouse=warehouse, product=product, batch=batch
-                    )
-                    reserved = refreshed.reserved
-                except StockBalance.DoesNotExist:
-                    reserved = Decimal("0")
-        elif so_qty > 0 and batch is None:
-            reserved = so_qty
-        else:
-            reserved = Decimal("0") if product.track_batch and batch is None else reserved
-        # Re-read after possible per-lot writes above.
-        if so_qty > 0 and product.track_batch and batch is not None:
-            balance.refresh_from_db(fields=["reserved", "on_hand"])
-            reserved = balance.reserved
+        return so_qs.aggregate(total=Sum("quantity"))["total"] or Decimal("0")
+
+    @staticmethod
+    def rebuild_balance(company, product, warehouse=None, batch=None):
+        """Balances are a cache — always rebuildable from movements.
+
+        B8-023: writes ONLY the (warehouse, product, batch) row it was
+        called for. For a batch-tracked product the SO-reservation FEFO
+        split across its lots used to run as a side effect embedded in
+        *this* method — writing every lot's balance row regardless of which
+        key was being rebuilt (order-dependent: revisiting one of those
+        other keys later in the same run recomputed the same split again,
+        and a lot excluded from that pass kept a stale `reserved`). That
+        reconciliation is now a separate pass — see
+        reconcile_batch_reservations below — call it once per (company,
+        product, warehouse) after rebuilding on_hand for every batch key,
+        not per key.
+        """
+        warehouse = warehouse or InventoryService.default_warehouse(company)
+        total = (
+            StockMovement.objects.filter(
+                company=company, product=product, warehouse=warehouse, batch=batch,
+            )
+            .aggregate(total=Sum("quantity"))["total"]
+            or Decimal("0")
+        )
+        balance, _ = StockBalance.objects.get_or_create(
+            company=company, warehouse=warehouse, product=product, batch=batch,
+        )
         balance.on_hand = total
+        if batch is not None or product.track_batch:
+            # BB-000403: batch-tracked — reservation lives on individual lot
+            # rows (or is deliberately 0 on the unbatched summary row),
+            # reconciled by reconcile_batch_reservations, not here. Leave
+            # whatever's already on this row; only re-floor it against the
+            # freshly rebuilt on_hand below.
+            reserved = balance.reserved if batch is not None else Decimal("0")
+        else:
+            reserved = InventoryService._confirmed_so_qty(company, product, warehouse)
         balance.reserved = min(max(reserved, Decimal("0")), max(balance.on_hand, Decimal("0")))
         balance.save(update_fields=["on_hand", "reserved"])
         return balance
+
+    @staticmethod
+    def reconcile_batch_reservations(company, product, warehouse=None):
+        """B8-023: FEFO-split confirmed-SO reservation across a batch-tracked
+        product's lots. Call once per (company, product, warehouse) — after
+        rebuild_balance has already set on_hand for every batch key of this
+        product in this warehouse, since fefo_batches() only returns lots
+        with a stock_balances.on_hand > 0 row (a rebuild-order dependency:
+        this pass must run second). No-ops for a non-batch-tracked product.
+        """
+        if not product.track_batch:
+            return
+        warehouse = warehouse or InventoryService.default_warehouse(company)
+        remaining = InventoryService._confirmed_so_qty(company, product, warehouse)
+        touched_ids = set()
+        for lot in InventoryValuationService.fefo_batches(company, product, warehouse):
+            lot_on_hand = (
+                StockMovement.objects.filter(
+                    company=company, product=product, warehouse=warehouse, batch=lot,
+                ).aggregate(total=Sum("quantity"))["total"]
+                or Decimal("0")
+            )
+            take = min(max(remaining, Decimal("0")), max(Decimal("0"), lot_on_hand))
+            lot_balance, _ = StockBalance.objects.get_or_create(
+                company=company, warehouse=warehouse, product=product, batch=lot,
+            )
+            lot_balance.on_hand = lot_on_hand
+            lot_balance.reserved = take
+            lot_balance.save(update_fields=["on_hand", "reserved"])
+            remaining -= take
+            touched_ids.add(lot.pk)
+        # A lot this pass didn't visit (e.g. expired and excluded by
+        # fefo_batches' own block_expired_stock filter) must not keep a
+        # stale nonzero `reserved` from a prior reconcile.
+        StockBalance.objects.filter(
+            company=company, warehouse=warehouse, product=product, batch__isnull=False,
+        ).exclude(batch_id__in=touched_ids).filter(reserved__gt=0).update(reserved=0)
+        # The unbatched summary row for a track_batch product deliberately
+        # carries no reservation of its own — it lives on the lot rows.
+        StockBalance.objects.filter(
+            company=company, warehouse=warehouse, product=product, batch__isnull=True,
+        ).update(reserved=0)
 
     @staticmethod
     @transaction.atomic
@@ -1452,6 +1553,50 @@ class InventoryValuationService:
                     company, rows, warehouse, product,
                 )
                 return rows
+        if as_of is None and method == "FIFO":
+            # B8-001/B8-012: the live perpetual InventoryCostLayer rows
+            # (peeled in lockstep with every movement by _apply_cost_layers)
+            # are the actual FIFO cost basis — read them directly, the same
+            # way the WAVG fast path above reads InventoryRunningCost,
+            # instead of re-deriving FIFO from scratch via a full-ledger
+            # _replay that doesn't know about invented shortfall peels,
+            # ADJUSTMENT WAVG-fallback costs, or restored/retired layers.
+            layers = InventoryCostLayer.objects.filter(company=company, qty_remaining__gt=0)
+            if warehouse:
+                layers = layers.filter(warehouse=warehouse)
+            if product:
+                layers = layers.filter(product=product)
+            grouped = (
+                layers.values("warehouse_id", "product_id", "batch_id", "warehouse__name", "product__name")
+                .annotate(
+                    qty=Sum("qty_remaining"),
+                    value=Sum(
+                        ExpressionWrapper(
+                            F("qty_remaining") * F("unit_cost"),
+                            output_field=DecimalField(max_digits=20, decimal_places=6),
+                        )
+                    ),
+                )
+            )
+            rows = []
+            for row in grouped:
+                qty = Decimal(str(row["qty"] or 0))
+                value = Decimal(str(row["value"] or 0))
+                rows.append(
+                    {
+                        "warehouse": row["warehouse_id"],
+                        "warehouse_name": row["warehouse__name"],
+                        "product": row["product_id"],
+                        "product_name": row["product__name"],
+                        "batch": row["batch_id"],
+                        "qty": qty,
+                        "value": value,
+                        "layers": [],
+                        "unit_cost": (value / qty if qty else Decimal("0")),
+                    }
+                )
+            if rows:
+                return rows
         movements = base.select_related("product", "batch", "warehouse")
         if as_of:
             as_of_date = InventoryValuationService._coerce_date(as_of)
@@ -1655,7 +1800,10 @@ class InventoryValuationService:
                     total_val = sum((Decimal(str(r.value or 0)) for r in pos), Decimal("0"))
                     if total_qty > 0:
                         return total_val / total_qty
-        # Replay fallback (empty running-cost cache / FIFO tenants).
+        # B8-001/B8-012: for FIFO tenants this now hits valuation()'s live
+        # InventoryCostLayer fast path above (not a full-ledger replay) —
+        # true fallback-to-replay only happens if that returns no rows
+        # (empty running-cost cache too).
         rows = cls.valuation(company, warehouse=warehouse, product=product)
         if batch_id is not None:
             matched = [row for row in rows if row.get("batch") == batch_id]
@@ -1689,6 +1837,45 @@ class InventoryValuationService:
             if Decimal(str(r.get("unit_cost") or 0)) > 0:
                 return r["unit_cost"]
         return rows[0]["unit_cost"]
+
+    @classmethod
+    def verify_fifo_layers(cls, company, *, tolerance=Decimal("1.00")):
+        """B8-001: assert live InventoryCostLayer totals agree with an
+        independent full-ledger FIFO replay, per (warehouse, product, batch)
+        key. A no-op for WAVG tenants (InventoryCostLayer isn't maintained
+        for them). Returns a list of mismatch descriptions (empty means
+        consistent) rather than raising, so callers can decide whether a
+        mismatch is fatal (e.g. the management command) or just a warning.
+        """
+        method = getattr(company, "inventory_valuation_method", "WAVG") or "WAVG"
+        if method != "FIFO":
+            return []
+        live_rows = cls.valuation(company, as_of=None, method="FIFO")
+        live_by_key = {
+            (r["warehouse"], r["product"], r["batch"]): Decimal(str(r["value"] or 0))
+            for r in live_rows
+        }
+        movements = (
+            StockMovement.objects.filter(company=company)
+            .select_related("warehouse", "product", "batch")
+            .order_by("created_at", "id")
+        )
+        replay_rows = cls._replay(movements, "FIFO", {}, company=company)
+        replay_by_key = {
+            (r["warehouse"], r["product"], r["batch"]): Decimal(str(r["value"] or 0))
+            for r in replay_rows
+        }
+        mismatches = []
+        for key in set(live_by_key) | set(replay_by_key):
+            live_value = live_by_key.get(key, Decimal("0"))
+            replay_value = replay_by_key.get(key, Decimal("0"))
+            if abs(live_value - replay_value) > tolerance:
+                warehouse_id, product_id, batch_id = key
+                mismatches.append(
+                    f"warehouse={warehouse_id} product={product_id} batch={batch_id} "
+                    f"layer_value={live_value} replay_value={replay_value}"
+                )
+        return mismatches
 
     @staticmethod
     def fefo_batches(company, product, warehouse=None):

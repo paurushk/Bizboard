@@ -85,7 +85,9 @@ class CogsService:
                             invoice.company, item.product, invoice.warehouse, batch=batch
                         )
                         if unit_cost:
-                            StockMovement.objects.filter(pk=move.pk).update(unit_cost=unit_cost)
+                            # B8-029: stamp_cost() is the one documented,
+                            # row-locked exception to append-only.
+                            StockMovement.stamp_cost(move.pk, unit_cost=unit_cost)
                             move.unit_cost = unit_cost
                         else:
                             # R2-007: last resort — the product master purchase
@@ -94,7 +96,7 @@ class CogsService:
                             fallback = Decimal(str(getattr(item.product, "purchase_price", 0) or 0))
                             if fallback > 0:
                                 unit_cost = fallback
-                                StockMovement.objects.filter(pk=move.pk).update(unit_cost=unit_cost)
+                                StockMovement.stamp_cost(move.pk, unit_cost=unit_cost)
                                 move.unit_cost = unit_cost
                             elif item.product.name not in zero_cost_products:
                                 zero_cost_products.append(item.product.name)

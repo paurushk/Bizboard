@@ -35,6 +35,15 @@ class BomLine(models.Model):
 
     class Meta:
         ordering = ["id"]
+        constraints = [
+            # B8-017: positivity previously only lived in BomLineSerializer.
+            # validate_qty — imports, admin inlines, data migrations, and
+            # bulk_create bypass that. A zero/negative component qty here
+            # breaks _snapshot_bom (qty = 0 raises "Movement quantity must
+            # be greater than zero" on release; negative slips through as
+            # an inbound).
+            models.CheckConstraint(condition=models.Q(qty__gt=0), name="bomline_qty_gt_0"),
+        ]
 
     def save(self, *args, **kwargs):
         if self.bom_id and not self.company_id:
@@ -73,7 +82,19 @@ class WorkOrder(CompanyScopedModel):
 
 
 class WorkOrderLine(models.Model):
-    """BOM component snapshot taken at release — later BOM edits must not change issued qty."""
+    """BOM component snapshot.
+
+    B8-019: taken at WO *creation* (WorkOrderSerializer.create calls
+    _snapshot_bom immediately), not at release as an earlier version of this
+    docstring claimed — release's own _snapshot_bom call is a no-op once
+    lines already exist. This is intentional, not just uncorrected: draft-
+    time component editing (WorkOrderSerializer._apply_component_lines —
+    picking a batch/lot allocation/serials before release) updates these
+    existing rows in place, so they must exist from creation onward for that
+    to work. A BOM edit made after a WO is drafted therefore does not affect
+    that WO, matching how a sales/purchase document freezes its lines at
+    creation rather than tracking a live catalog price.
+    """
 
     work_order = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="component_lines")
     company = models.ForeignKey(
@@ -93,6 +114,13 @@ class WorkOrderLine(models.Model):
 
     class Meta:
         ordering = ["id"]
+        constraints = [
+            # B8-017: same reasoning as BomLine above.
+            models.CheckConstraint(condition=models.Q(qty__gt=0), name="workorderline_qty_gt_0"),
+            models.CheckConstraint(
+                condition=models.Q(qty_per_unit__gt=0), name="workorderline_qty_per_unit_gt_0"
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if self.work_order_id and not self.company_id:

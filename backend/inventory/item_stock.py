@@ -204,6 +204,22 @@ def get_or_create_batch(*, company, product, batch_no, expiry_date=None, manufac
             existing.manufacturing_date = manufacturing_date
             updates.append("manufacturing_date")
         if updates:
+            # B8-035: the manufacturing_date > expiry_date guard above only
+            # compares this call's own two incoming args — a batch created
+            # via opening stock with only expiry_date, later touched by a WO
+            # completion supplying only manufacturing_date (or vice versa),
+            # could end up with manufacturing_date > expiry_date on the
+            # *persisted* row with no error. Re-assert against the merged
+            # values before saving.
+            if (
+                existing.manufacturing_date
+                and existing.expiry_date
+                and existing.manufacturing_date > existing.expiry_date
+            ):
+                raise BusinessRuleError(
+                    f"Batch '{number}': manufacturing date {existing.manufacturing_date.isoformat()} "
+                    f"cannot be after expiry date {existing.expiry_date.isoformat()}."
+                )
             existing.save(update_fields=updates)
         return existing
     return BatchLot.objects.create(

@@ -34,27 +34,47 @@ class BomSerializer(serializers.ModelSerializer):
         read_only_fields = ["created_at", "updated_at"]
 
     def create(self, validated_data):
+        from django.db import transaction
+
         lines_data = validated_data.pop("lines", [])
-        bom = Bom.objects.create(**validated_data)
+        # B8-002: validate the whole payload before any write — was only
+        # discovered mid-loop via the component=finished-good check, so a
+        # BOM with an invalid line N could already have lines 1..N-1 created
+        # when the 400 came back.
+        product_id = validated_data.get("product")
+        product_id = getattr(product_id, "pk", product_id)
         for line in lines_data:
-            if getattr(line.get("component"), "pk", None) == bom.product_id:
+            if getattr(line.get("component"), "pk", None) == product_id:
                 raise serializers.ValidationError("A BOM cannot list its finished good as a component.")
-            BomLine.objects.create(bom=bom, company_id=bom.company_id, **line)
+        with transaction.atomic():
+            bom = Bom.objects.create(**validated_data)
+            for line in lines_data:
+                BomLine.objects.create(bom=bom, company_id=bom.company_id, **line)
         return bom
 
     def update(self, instance, validated_data):
+        from django.db import transaction
+
         lines_data = validated_data.pop("lines", None)
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
+        # B8-002: validate before instance.lines.all().delete() — with
+        # ATOMIC_REQUESTS off and no atomic() here, the delete (and any
+        # partial creates) were already committed by the time this
+        # ValidationError turned into an HTTP 400, leaving the BOM with no
+        # (or a partial set of) component lines.
         if lines_data is not None:
-            instance.lines.all().delete()
             for line in lines_data:
                 if getattr(line.get("component"), "pk", None) == instance.product_id:
                     raise serializers.ValidationError(
                         "A BOM cannot list its finished good as a component."
                     )
-                BomLine.objects.create(bom=instance, company_id=instance.company_id, **line)
+        with transaction.atomic():
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+            instance.save()
+            if lines_data is not None:
+                instance.lines.all().delete()
+                for line in lines_data:
+                    BomLine.objects.create(bom=instance, company_id=instance.company_id, **line)
         return instance
 
 
