@@ -166,7 +166,13 @@ def cash_flow(company, date_from=None, date_to=None, cost_center=None):
     elif date_from is None and date_to is None:
         date_from, date_to = _indian_fy_bounds(None, company)
 
-    cash_accounts = Account.objects.filter(company=company, code__in=["1100", "1500"])
+    # B1-001: per-bank child ledgers are coded "1500-<bank_account.id>"
+    # (accounting.services). The old code__in=["1100","1500"] filter missed
+    # every real bank movement once a company had more than the parent stub,
+    # understating cash. Include the children.
+    cash_accounts = Account.objects.filter(company=company).filter(
+        Q(code__in=["1100", "1500"]) | Q(code__startswith="1500-")
+    )
     qs = JournalLine.objects.filter(
         entry__company=company,
         entry__status=JournalEntry.Status.POSTED,

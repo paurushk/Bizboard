@@ -205,11 +205,17 @@ class InvoiceEinvoiceEwayActionsMixin:
         try:
             result = get_irp_adapter(invoice.company).submit(payload)
             verify_irn_result(result)
-        except BusinessRuleError as exc:
+        except Exception as exc:
+            # B2-005: a non-BusinessRuleError adapter failure (timeout, HTTP 5xx,
+            # bad JSON) otherwise leaves the invoice stuck in QUEUED forever.
             invoice.einvoice_status = SalesInvoice.EInvoiceStatus.FAILED
-            invoice.einvoice_error = str(exc)[:500]
+            invoice.einvoice_error = str(getattr(exc, "detail", exc))[:500]
             invoice.save(update_fields=["einvoice_status", "einvoice_error"])
-            raise
+            if isinstance(exc, BusinessRuleError):
+                raise
+            raise BusinessRuleError(
+                f"e-invoice submission failed: {str(exc)[:300]}"
+            ) from exc
         invoice.irn = result.irn
         invoice.ack_no = result.ack_no
         invoice.ack_date = result.ack_date
@@ -724,11 +730,16 @@ class NoteEinvoiceActionsMixin:
         try:
             result = get_irp_adapter(note.company).submit(payload)
             verify_irn_result(result)
-        except BusinessRuleError as exc:
+        except Exception as exc:
+            # B2-005: same fail-to-FAILED as the invoice path.
             note.einvoice_status = SalesInvoice.EInvoiceStatus.FAILED
-            note.einvoice_error = str(exc)[:500]
+            note.einvoice_error = str(getattr(exc, "detail", exc))[:500]
             note.save(update_fields=["einvoice_status", "einvoice_error"])
-            raise
+            if isinstance(exc, BusinessRuleError):
+                raise
+            raise BusinessRuleError(
+                f"e-invoice submission failed: {str(exc)[:300]}"
+            ) from exc
         note.irn = result.irn
         note.ack_no = result.ack_no
         note.ack_date = result.ack_date

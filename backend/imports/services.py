@@ -801,19 +801,24 @@ def _skip_simple_qty_template(template: SupplierBillTemplate | None, lines: list
 
 def _resolve_import_company_gstin(company, preview: dict, *, kind: str):
     """Stamp filing identity from buyer GSTIN (sales) or primary CompanyGstin."""
-    wanted = ""
+    known = {
+        (g or "").upper()
+        for g in CompanyGstin.objects.filter(company=company, is_active=True).values_list("gstin", flat=True)
+    }
+    if getattr(company, "gstin", ""):
+        known.add(company.gstin.upper())
     if kind == ImportJob.Kind.SALES_BILL:
-        wanted = str(preview.get("buyer_gstin") or "").strip().upper()
+        # B3-007: on a sales invoice the company IS the supplier/issuer, so the
+        # filing identity is the "supplier" GSTIN on the document — validated
+        # against the company's own GSTIN set, exactly like the purchase branch
+        # validates buyer_gstin. buyer_gstin here is the customer's.
+        wanted = str(
+            preview.get("company_gstin") or preview.get("supplier_gstin") or ""
+        ).strip().upper()
     else:
         wanted = str(preview.get("company_gstin") or preview.get("buyer_gstin") or "").strip().upper()
-        known = {
-            (g or "").upper()
-            for g in CompanyGstin.objects.filter(company=company, is_active=True).values_list("gstin", flat=True)
-        }
-        if getattr(company, "gstin", ""):
-            known.add(company.gstin.upper())
-        if wanted and wanted not in known:
-            wanted = ""
+    if wanted and wanted not in known:
+        wanted = ""
     qs = CompanyGstin.objects.filter(company=company, is_active=True)
     if wanted:
         hit = qs.filter(gstin__iexact=wanted).first()
@@ -882,7 +887,10 @@ def _xlsx_kv_meta(rows: list) -> dict:
         value = row[1] if len(row) > 1 and row[1] not in (None, "") else ""
         if not value:
             continue
-        text = str(value).strip()
+        # B3-011: a genuine Excel date cell must become an ISO date string, not
+        # "2026-03-15 00:00:00", so the bill date can be committed without a
+        # manual edit.
+        text = _cell_to_import_text(value)
         for field, aliases in _INVOICE_META_ALIASES.items():
             if label in aliases and field not in meta:
                 meta[field] = text
@@ -2640,6 +2648,9 @@ class BillImportService:
                     "Bill date is missing or could not be parsed. Set bill date before committing."
                 )
             return timezone.localdate()
+        # B3-011: tolerate an ISO datetime ("2026-03-15 00:00:00" / "...T00:00:00")
+        # that slipped through from an Excel date cell.
+        value = value.replace("T", " ").split(" ", 1)[0].strip()
         parsed = parse_date(value)
         if parsed:
             return parsed

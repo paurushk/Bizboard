@@ -20,9 +20,9 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "bank"
 
 
 def test_bank_csv_presets_parse_sample_fixtures():
-    hdfc = parse_bank_csv((FIXTURES / "hdfc_sample.csv").read_text(encoding="utf-8"), preset="hdfc")
-    icici = parse_bank_csv((FIXTURES / "icici_sample.csv").read_text(encoding="utf-8"), preset="icici")
-    sbi = parse_bank_csv((FIXTURES / "sbi_sample.csv").read_text(encoding="utf-8"), preset="sbi")
+    hdfc, _ = parse_bank_csv((FIXTURES / "hdfc_sample.csv").read_text(encoding="utf-8"), preset="hdfc")
+    icici, _ = parse_bank_csv((FIXTURES / "icici_sample.csv").read_text(encoding="utf-8"), preset="icici")
+    sbi, _ = parse_bank_csv((FIXTURES / "sbi_sample.csv").read_text(encoding="utf-8"), preset="sbi")
     assert len(hdfc) == 2
     assert hdfc[0]["amount"] == Decimal("15000.00")
     assert hdfc[1]["amount"] == Decimal("-8000.00")

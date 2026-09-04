@@ -1635,28 +1635,45 @@ class InventoryValuationService:
     @classmethod
     def unit_cost(cls, company, product, warehouse=None, batch=None):
         method = getattr(company, "inventory_valuation_method", "WAVG") or "WAVG"
+        batch_id = getattr(batch, "pk", batch) if batch is not None else None
         if method == "WAVG":
             qs = InventoryRunningCost.objects.filter(company=company, product=product)
             if warehouse is not None:
                 qs = qs.filter(warehouse=warehouse)
-            if batch is not None:
-                batch_id = getattr(batch, "pk", batch)
+            if batch_id is not None:
                 hit = qs.filter(batch_id=batch_id).first()
                 if hit and hit.qty:
                     return hit.unit_cost
-            pos = [r for r in qs if Decimal(str(r.qty or 0)) > 0]
-            if pos:
-                total_qty = sum((Decimal(str(r.qty)) for r in pos), Decimal("0"))
-                total_val = sum((Decimal(str(r.value or 0)) for r in pos), Decimal("0"))
-                if total_qty > 0:
-                    return total_val / total_qty
+                # B8-007: a specific batch was asked for but its running row is
+                # zeroed / missing — never blend the cross-batch pool here (very
+                # wrong for expiry-sensitive goods). Fall through to the
+                # batch-scoped replay / last-inbound below.
+            else:
+                pos = [r for r in qs if Decimal(str(r.qty or 0)) > 0]
+                if pos:
+                    total_qty = sum((Decimal(str(r.qty)) for r in pos), Decimal("0"))
+                    total_val = sum((Decimal(str(r.value or 0)) for r in pos), Decimal("0"))
+                    if total_qty > 0:
+                        return total_val / total_qty
         # Replay fallback (empty running-cost cache / FIFO tenants).
         rows = cls.valuation(company, warehouse=warehouse, product=product)
-        if batch is not None:
-            batch_id = getattr(batch, "pk", batch)
+        if batch_id is not None:
             matched = [row for row in rows if row.get("batch") == batch_id]
             if matched:
                 return matched[0]["unit_cost"]
+            # B8-007: still nothing batch-specific — use the batch's own last
+            # inbound cost rather than an unrelated batch's average.
+            last_in = (
+                InventoryCostLayer.objects.filter(
+                    company=company, product=product, batch_id=batch_id
+                )
+                .order_by("-id")
+                .values_list("unit_cost", flat=True)
+                .first()
+            )
+            if last_in is not None:
+                return Decimal(str(last_in))
+            return Decimal("0")
         if not rows:
             return Decimal("0")
         # R2-024: qty-weighted average across all rows that hold stock — not

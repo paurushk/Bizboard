@@ -619,9 +619,12 @@ class BankStatementViewSet(CompanyScopedViewSet):
         if not bank_account:
             raise BusinessRuleError("Bank account not found.")
         content = upload.read()
-        rows = parse_bank_csv(content, preset=preset)
+        rows, skipped = parse_bank_csv(content, preset=preset)
         if not rows:
-            raise BusinessRuleError("No parsable rows found in the CSV.")
+            detail = "No parsable rows found in the CSV."
+            if skipped:
+                detail += " Skipped: " + "; ".join(skipped[:10])
+            raise BusinessRuleError(detail)
 
         with transaction.atomic():
             statement = BankStatement.objects.create(
@@ -649,7 +652,16 @@ class BankStatementViewSet(CompanyScopedViewSet):
                     updated_by=request.user,
                 )
         self._audit("CREATE", statement)
-        return Response(self.get_serializer(statement).data, status=status.HTTP_201_CREATED)
+        data = self.get_serializer(statement).data
+        if skipped:
+            # B4-015: don't let a partial import look "complete".
+            data["skipped_rows"] = skipped
+            data["skipped_count"] = len(skipped)
+            data["warning"] = (
+                f"{len(rows)} rows imported, {len(skipped)} skipped "
+                f"({'; '.join(skipped[:5])}{'…' if len(skipped) > 5 else ''})."
+            )
+        return Response(data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="commit")
     def commit(self, request, pk=None):

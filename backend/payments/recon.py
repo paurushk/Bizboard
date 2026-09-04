@@ -89,7 +89,10 @@ def _pick_col(headers: list[str], aliases: list[str]) -> str | None:
     return None
 
 
-def parse_bank_csv(content: str | bytes, preset: str = "generic") -> list[dict]:
+def parse_bank_csv(content: str | bytes, preset: str = "generic") -> tuple[list[dict], list[str]]:
+    """Return (rows, skipped) — B4-015: a bad date and a bad amount are treated
+    the same way (skip the row, report it) instead of one silently vanishing and
+    the other 500-ing the whole upload."""
     if isinstance(content, bytes):
         content = content.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
@@ -109,15 +112,16 @@ def parse_bank_csv(content: str | bytes, preset: str = "generic") -> list[dict]:
         raise BusinessRuleError("Could not find amount/credit/debit columns.")
 
     rows: list[dict] = []
+    skipped: list[str] = []
     # B4-007: two genuine same-day transactions with the same amount, blank UTR
     # and identical narration (routine for cash / UPI) otherwise hash-collide and
     # the second insert 500s the whole upload. Fold a per-file positional
     # discriminator into the hash so real repeats stay distinct.
     seen_hashes: dict[str, int] = {}
-    for raw in reader:
+    for line_no, raw in enumerate(reader, start=2):  # row 1 is the header
         date_raw = (raw.get(date_col) or "").strip()
         if not date_raw:
-            continue
+            continue  # genuinely blank row — not an error
         # Try ISO then DD/MM/YYYY / DD-MM-YYYY
         txn_date = None
         for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d-%b-%Y"):
@@ -129,14 +133,19 @@ def parse_bank_csv(content: str | bytes, preset: str = "generic") -> list[dict]:
             except ValueError:
                 continue
         if txn_date is None:
+            skipped.append(f"Row {line_no}: unparseable date {date_raw!r}")
             continue
 
-        if amount_col and (raw.get(amount_col) or "").strip():
-            amount = _parse_amount(raw.get(amount_col) or "0")
-        else:
-            credit = _parse_amount(raw.get(credit_col) or "0") if credit_col else Decimal("0")
-            debit = _parse_amount(raw.get(debit_col) or "0") if debit_col else Decimal("0")
-            amount = credit if credit else (Decimal("-1") * debit)
+        try:
+            if amount_col and (raw.get(amount_col) or "").strip():
+                amount = _parse_amount(raw.get(amount_col) or "0")
+            else:
+                credit = _parse_amount(raw.get(credit_col) or "0") if credit_col else Decimal("0")
+                debit = _parse_amount(raw.get(debit_col) or "0") if debit_col else Decimal("0")
+                amount = credit if credit else (Decimal("-1") * debit)
+        except BusinessRuleError as exc:
+            skipped.append(f"Row {line_no}: {exc.detail}")
+            continue
 
         narration = (raw.get(narr_col) or "").strip() if narr_col else ""
         utr = normalize_utr(raw.get(utr_col) or "") if utr_col else ""
@@ -160,7 +169,7 @@ def parse_bank_csv(content: str | bytes, preset: str = "generic") -> list[dict]:
                 "line_hash": line_hash,
             }
         )
-    return rows
+    return rows, skipped
 
 
 def score_match(line: BankStatementLine, *, receipt: CustomerReceipt | None = None,
@@ -301,18 +310,22 @@ def _has_hard_recon_anchor(line: BankStatementLine, suggestion: dict) -> bool:
 
     line_utr = normalize_utr(line.utr)
     target_utr = ""
+    # B4-014: only a real UTR (or the exact document number, checked above)
+    # anchors an auto-commit. `reference` is free text ("NEFT", a name fragment)
+    # and must never be treated as a hard anchor — it stays a soft +points
+    # signal in score_match only.
     if suggestion.get("type") == "receipt":
         receipt = CustomerReceipt.objects.filter(pk=suggestion.get("id"), company_id=line.company_id).only(
-            "utr", "reference"
+            "utr"
         ).first()
         if receipt:
-            target_utr = normalize_utr(receipt.utr or receipt.reference)
+            target_utr = normalize_utr(receipt.utr)
     elif suggestion.get("type") == "supplier_payment":
         payment = SupplierPayment.objects.filter(pk=suggestion.get("id"), company_id=line.company_id).only(
-            "utr", "reference"
+            "utr"
         ).first()
         if payment:
-            target_utr = normalize_utr(payment.utr or payment.reference)
+            target_utr = normalize_utr(payment.utr)
     if line_utr and target_utr and line_utr == target_utr:
         return True
     # UTR also accepted when present only in narration.

@@ -80,8 +80,11 @@ def _step_already_sent(invoice, bucket: int) -> bool:
 
 
 def _next_due_bucket(days_overdue: int, buckets: list[int], invoice) -> int | None:
-    """Lowest configured step where days_overdue >= bucket and that step is unsent."""
-    for bucket in buckets:
+    """B4-026: the STRONGEST configured step warranted by the current age that
+    is still unsent — so an invoice first picked up at 40 days overdue escalates
+    straight to the "14 days" tier instead of getting three gentle nudges for
+    3/7/14 spread over three days and then capping out."""
+    for bucket in sorted(buckets, reverse=True):
         if days_overdue >= bucket and not _step_already_sent(invoice, bucket):
             return bucket
     return None

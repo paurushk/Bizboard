@@ -417,19 +417,43 @@ class AccountingReportView(AccountingEnabledMixin, APIView):
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
     def get(self, request, report):
-        as_of = request.query_params.get("as_of")
-        date_from, date_to = request.query_params.get("from"), request.query_params.get("to")
+        # B1-010: parse/validate params in the view — a raw "?as_of=abc" or
+        # "?cost_center=x" otherwise flows straight into an ORM date/int lookup
+        # and 500s.
+        from datetime import date as _date
+
+        def _qp_date(name):
+            raw = (request.query_params.get(name) or "").strip()
+            if not raw:
+                return None
+            try:
+                return _date.fromisoformat(raw[:10])
+            except ValueError as exc:
+                raise BusinessRuleError(f"{name} must be YYYY-MM-DD.") from exc
+
+        def _qp_cost_center():
+            raw = (request.query_params.get("cost_center") or "").strip()
+            if not raw:
+                return None
+            try:
+                return int(raw)
+            except (TypeError, ValueError) as exc:
+                raise BusinessRuleError("cost_center must be an integer id.") from exc
+
+        as_of = _qp_date("as_of")
+        date_from, date_to = _qp_date("from"), _qp_date("to")
+        cost_center = _qp_cost_center()
         if report == "trial-balance":
             return self._report_response(report, trial_balance(self.company, as_of), request)
         if report == "profit-and-loss":
-            return self._report_response(report, profit_and_loss(self.company, date_from, date_to, request.query_params.get("cost_center")), request)
+            return self._report_response(report, profit_and_loss(self.company, date_from, date_to, cost_center), request)
         if report == "balance-sheet":
             return self._report_response(
-                report, balance_sheet(self.company, as_of, request.query_params.get("cost_center")), request,
+                report, balance_sheet(self.company, as_of, cost_center), request,
             )
         if report == "cash-flow":
             return self._report_response(
-                report, cash_flow(self.company, date_from, date_to, request.query_params.get("cost_center")), request,
+                report, cash_flow(self.company, date_from, date_to, cost_center), request,
             )
         if report == "books-health":
             return Response(BooksHealthService.control_balances(self.company))
