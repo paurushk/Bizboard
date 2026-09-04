@@ -821,7 +821,11 @@ class PaymentService:
                             amount=alloc_amt,
                             user=user,
                         )
-                except BusinessRuleError:
+                except (BusinessRuleError, IntegrityError):
+                    # B4-024: allocate_receipt can also raise a bare
+                    # IntegrityError (uniq_alloc_receipt_sales_invoice race with
+                    # a concurrent allocation) — the retry path must swallow it
+                    # like the create path does, not 500.
                     logger.exception(
                         "Retry allocation for captured gateway payment %s failed",
                         existing.provider_payment_id,
@@ -986,8 +990,12 @@ class PaymentService:
             .first()
         )
         if existing_receipt is None:
+            # B4-021: the new receipt's UTR is `_utr` (internal_utr preferred),
+            # so the adopt-search must try both that and the raw provider id —
+            # not only the provider id.
+            utr_candidates = {provider_payment_id[:64], _utr}
             existing_receipt = (
-                CustomerReceipt.objects.filter(company=company, utr=provider_payment_id[:64])
+                CustomerReceipt.objects.filter(company=company, utr__in=utr_candidates)
                 .exclude(status__in=(ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED))
                 .first()
             )

@@ -27,6 +27,9 @@ MONEY_IDEMPOTENCY_SCOPES = frozenset({
     "invoice_create",
     "purchase_create",
     "stock_transfer_complete",
+    # B3-013: a bill-import commit creates a real purchase/sales invoice — an
+    # in-flight claim must not be auto-reclaimed while the first commit runs.
+    "import_job_commit",
 })
 
 # PD-01: 4xx that are safe to retry with the same key after the condition clears

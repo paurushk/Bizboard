@@ -33,6 +33,43 @@ def _redact_path(path: str) -> str:
     return _UUID_RE.sub(":id", redacted)
 
 
+class MaxBodySizeMiddleware:
+    """B7-006: reject an oversized request by its declared Content-Length before
+    Django reads/spools the body to disk. The per-file `validate_upload` guard
+    only fires *after* the whole multipart body has already landed on disk, so a
+    stream of large uploads can fill the temp volume. This is a coarse hard
+    ceiling above every legitimate upload; the proxy `client_max_body_size` is
+    the other layer."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.max_bytes = int(getattr(settings, "MAX_REQUEST_BODY_SIZE", 25 * 1024 * 1024))
+
+    def __call__(self, request):
+        if request.method in ("POST", "PUT", "PATCH") and self.max_bytes > 0:
+            raw = request.META.get("CONTENT_LENGTH") or ""
+            try:
+                declared = int(raw)
+            except (TypeError, ValueError):
+                declared = 0
+            if declared > self.max_bytes:
+                from django.http import JsonResponse
+
+                return JsonResponse(
+                    {
+                        "error": {
+                            "code": "request_too_large",
+                            "message": (
+                                f"Request body {declared} bytes exceeds the "
+                                f"{self.max_bytes}-byte limit."
+                            ),
+                        }
+                    },
+                    status=413,
+                )
+        return self.get_response(request)
+
+
 class RequestIdMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response

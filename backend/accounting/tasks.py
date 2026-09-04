@@ -1,7 +1,9 @@
-from celery import shared_task
-from django.db import transaction
-from django.utils import timezone
+import datetime
 import logging
+
+from celery import shared_task
+from django.db import models, transaction
+from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
 from core.rls import set_rls_company
@@ -12,8 +14,20 @@ from .services import PostingService
 logger = logging.getLogger(__name__)
 
 
+def _charge_month_bounds(today=None):
+    """B1-007: the beat fires 00:05 on the 1st, so a run represents the month
+    that just ended. Anchor the charge to the LAST day of that month so a slip
+    to the 1st/2nd (or across the FY boundary) doesn't push the entry into the
+    next period. Returns (month_key 'YYYY-MM', last_day date, first_day date)."""
+    today = today or timezone.localdate()
+    last_day_prev = today.replace(day=1) - datetime.timedelta(days=1)
+    first_day_prev = last_day_prev.replace(day=1)
+    return f"{last_day_prev:%Y-%m}", last_day_prev, first_day_prev
+
+
 def _depreciate_company_assets(company_id) -> int:
     count = 0
+    month_key, charge_date, month_start = _charge_month_bounds()
     assets = FixedAsset.objects.filter(
         company_id=company_id, status=FixedAsset.Status.ACTIVE
     ).select_related("company")
@@ -37,13 +51,20 @@ def _depreciate_company_assets(company_id) -> int:
                     continue
                 if remaining - amount <= _D("1"):
                     amount = remaining
-                purpose = f"DEPRECIATION-{timezone.localdate():%Y-%m}"
+                purpose = f"DEPRECIATION-{month_key}"
                 already_posted = JournalEntry.objects.filter(
                     company=locked.company,
                     source_type="FIXED_ASSET",
                     source_id=locked.id,
-                    purpose=purpose,
                     status=JournalEntry.Status.POSTED,
+                ).filter(
+                    # match either the new month-keyed purpose or any legacy
+                    # depreciation entry that already lands in this charge month
+                    models.Q(purpose=purpose)
+                    | models.Q(
+                        purpose__startswith="DEPRECIATION-",
+                        entry_date__range=(month_start, charge_date),
+                    )
                 ).exists()
                 if already_posted:
                     continue
@@ -52,7 +73,7 @@ def _depreciate_company_assets(company_id) -> int:
                     source_type="FIXED_ASSET",
                     source_id=locked.id,
                     purpose=purpose,
-                    entry_date=timezone.localdate(),
+                    entry_date=charge_date,
                     narration=f"SLM depreciation: {locked.name}",
                     lines=[
                         {"account": locked.depreciation_expense_account, "debit": amount},

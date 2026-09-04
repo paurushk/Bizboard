@@ -11,7 +11,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from .helpers import build_upi_qr_png, format_money, format_qty, tax_breakup_by_rate
+from .helpers import build_upi_qr_png, format_money, format_qty, pdf_esc, tax_breakup_by_rate
 
 THERMAL_WIDTHS_MM = (58, 80)
 LINE = colors.Color(0.55, 0.55, 0.55)
@@ -118,21 +118,21 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
     )
 
     story = []
-    story.append(Paragraph(company.name, styles["center_bold"]))
+    story.append(Paragraph(pdf_esc(company.name), styles["center_bold"]))
     stamp = getattr(invoice, "company_gstin", None)
     gstin = (getattr(stamp, "gstin", None) or company.gstin or "").strip()
     if gstin:
-        story.append(Paragraph(f"GSTIN: {gstin}", styles["center"]))
+        story.append(Paragraph(f"GSTIN: {pdf_esc(gstin)}", styles["center"]))
     if company.phone:
-        story.append(Paragraph(f"Ph: {company.phone}", styles["center"]))
+        story.append(Paragraph(f"Ph: {pdf_esc(company.phone)}", styles["center"]))
     story.append(Spacer(1, 1 * mm))
     story.append(Paragraph("—" * (24 if narrow else 32), styles["divider"]))
     story.append(Spacer(1, 1 * mm))
 
-    story.append(Paragraph(f"Invoice: {invoice.number or '—'}", styles["body"]))
+    story.append(Paragraph(f"Invoice: {pdf_esc(invoice.number or '—')}", styles["body"]))
     story.append(Paragraph(f"Date: {_invoice_datetime(invoice)}", styles["body"]))
     if customer.name:
-        story.append(Paragraph(f"Customer: {customer.name}", styles["body"]))
+        story.append(Paragraph(f"Customer: {pdf_esc(customer.name)}", styles["body"]))
     story.append(Spacer(1, 1 * mm))
     story.append(Paragraph("—" * (24 if narrow else 32), styles["divider"]))
     story.append(Spacer(1, 1 * mm))
@@ -151,7 +151,7 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
         unit = (item.unit_name or "PCS").upper()
         qty_label = f"{format_qty(item.quantity)} {unit}"
         line_rows.append([
-            Paragraph(name, styles["body"]),
+            Paragraph(pdf_esc(name), styles["body"]),
             Paragraph(qty_label, styles["body_right"]),
             Paragraph(format_money(item.line_total), styles["body_right"]),
         ])
@@ -255,7 +255,7 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
             qr_img.hAlign = "CENTER"
             story.append(qr_img)
             story.append(Spacer(1, 1 * mm))
-        story.append(Paragraph(f"UPI: {company.upi_id}", styles["center"]))
+        story.append(Paragraph(f"UPI: {pdf_esc(company.upi_id)}", styles["center"]))
 
     story.append(Spacer(1, 2 * mm))
     story.append(Paragraph("Thank you!", styles["center"]))

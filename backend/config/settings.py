@@ -179,6 +179,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "core.middleware.MaxBodySizeMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -619,6 +620,12 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = int(
 )
 FILE_UPLOAD_MAX_MEMORY_SIZE = int(
     os.environ.get("FILE_UPLOAD_MAX_MEMORY_SIZE", str(15 * 1024 * 1024)) or (15 * 1024 * 1024)
+)
+# B7-006: hard request-body ceiling enforced by MaxBodySizeMiddleware before the
+# body is spooled. Above the largest legitimate upload (20 MB) + multipart
+# overhead; the reverse proxy client_max_body_size is the other layer.
+MAX_REQUEST_BODY_SIZE = int(
+    os.environ.get("MAX_REQUEST_BODY_SIZE", str(25 * 1024 * 1024)) or (25 * 1024 * 1024)
 )
 
 # TLS / secure cookies when behind HTTPS terminator, production, or staging (BB-000296).

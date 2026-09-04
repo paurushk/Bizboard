@@ -1052,7 +1052,18 @@ def _read_structured_bill(raw: bytes, filename: str) -> tuple[list[dict], dict]:
     """Deterministic CSV/XLSX row reader for the bill-import 'I have an
     export' path (§4.1) — no LLM involved, exact by construction."""
     name = (filename or "").lower()
-    if name.endswith((".xlsx", ".xlsm")):
+    head = raw[:8]
+    # B3-006: decide by content, not just the filename. A .xls (OLE2) file — or
+    # any upload whose browser content-type is application/vnd.ms-excel — that
+    # doesn't end in .xlsx falls through to the CSV branch, where cp1252
+    # "decodes" the binary into garbage rows. Sniff the magic bytes first.
+    is_zip = head.startswith(b"PK\x03\x04")  # xlsx/xlsm is a zip container
+    is_ole2 = head.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")  # legacy .xls
+    if is_ole2:
+        raise BusinessRuleError(
+            "Legacy .xls files aren't supported — re-save as .xlsx or export CSV."
+        )
+    if is_zip or name.endswith((".xlsx", ".xlsm")):
         from openpyxl import load_workbook
 
         workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
