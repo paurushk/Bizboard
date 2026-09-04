@@ -636,7 +636,9 @@ def build_tally_export_csv(company, date_from=None, date_to=None) -> bytes:
         "voucher_type", "date", "voucher_number", "party_name", "party_gstin",
         "taxable", "cgst", "sgst", "igst", "grand_total", "disclaimer",
     ])
-    for inv in qs[:5000]:
+    _CAP = 5000
+    total = qs.count()
+    for inv in qs[:_CAP]:
         writer.writerow([
             csv_safe("Sales"),
             csv_safe(inv.invoice_date.isoformat() if inv.invoice_date else ""),
@@ -649,6 +651,16 @@ def build_tally_export_csv(company, date_from=None, date_to=None) -> bytes:
             csv_safe(str(inv.igst_total)),
             csv_safe(str(inv.grand_total)),
             csv_safe(DISCLAIMER),
+        ])
+    if total > _CAP:
+        # B9-040: don't truncate silently — mark the cap so a user reconciling
+        # the file knows rows are missing and narrows the date range.
+        writer.writerow([
+            csv_safe("TRUNCATED"),
+            "", "", "", "", "", "", "", "", "",
+            csv_safe(
+                f"Export capped at {_CAP} of {total} vouchers — narrow the date range."
+            ),
         ])
     return buf.getvalue().encode("utf-8")
 

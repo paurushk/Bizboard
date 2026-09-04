@@ -102,11 +102,20 @@ def _sanitize_props(props: dict) -> dict:
 
 
 def _cu(request):
-    return get_company_user(request)
+    # B7-013: normalise "no active company" across every help view — a
+    # multi-membership user with no picked company returns None here (handled as
+    # a plain 403 by the caller) instead of one view 409-ing with the membership
+    # list and another quietly returning an empty payload.
+    from core.exceptions import CompanyRequired
+
+    try:
+        return get_company_user(request)
+    except CompanyRequired:
+        return None
 
 
 def _no_company():
-    return Response({"detail": "No company."}, status=403)
+    return Response({"detail": "Select a company to continue."}, status=403)
 
 
 @contextmanager
@@ -222,11 +231,11 @@ class HelpFeedbackView(APIView):
 
     def get(self, request):
         cu = _cu(request)
-        if cu is None:
-            return Response({"results": []})
         staff_all = bool(getattr(request.user, "is_staff", False)) and str(
             request.query_params.get("all") or ""
         ).lower() in {"1", "true", "yes"}
+        if not staff_all and cu is None:
+            return _no_company()
         qs = HelpFeedback.objects.filter(resolved_at__isnull=True)
         if not staff_all:
             if cu.role != "OWNER":
@@ -298,6 +307,10 @@ class HelpHealthView(APIView):
         staff_all = bool(getattr(request.user, "is_staff", False)) and str(
             request.query_params.get("all") or ""
         ).lower() in {"1", "true", "yes"}
+        # B7-013: a non-staff caller with no active company gets the same 403 as
+        # the other help views, not an unhandled 409.
+        if not staff_all and cu is None:
+            return _no_company()
         is_owner = cu is not None and cu.role == "OWNER"
         if not staff_all and not is_owner:
             return Response({"detail": "Owner role required."}, status=403)

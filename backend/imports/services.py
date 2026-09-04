@@ -1366,10 +1366,11 @@ class ImportService:
                 code=HelpCode.IMPORT_INVALID_ROWS,
             )
         preview = job.preview if isinstance(job.preview, list) else []
+        skipped = []
         if job.kind == ImportJob.Kind.CUSTOMERS:
-            created = ImportService._commit_customers(job, preview, user)
+            created, skipped = ImportService._commit_customers(job, preview, user)
         elif job.kind == ImportJob.Kind.SUPPLIERS:
-            created = ImportService._commit_suppliers(job, preview, user)
+            created, skipped = ImportService._commit_suppliers(job, preview, user)
         elif job.kind == ImportJob.Kind.PRODUCTS:
             created = ImportService._commit_products(job, preview, user)
         elif job.kind == ImportJob.Kind.OPENING_STOCK:
@@ -1377,6 +1378,12 @@ class ImportService:
         else:
             raise BusinessRuleError(f"Unsupported import kind '{job.kind}'.")
 
+        if skipped:
+            # B3-018: surface "skipped (already exists)" rows in job.errors so
+            # the response / error CSV shows them; created < valid_rows is no
+            # longer silent.
+            job.errors = list(job.errors or []) + skipped
+            job.error_rows = len(job.errors)
         job.preview = preview
         job.status = ImportJob.Status.COMMITTED
         job.committed_at = timezone.now()
@@ -1424,15 +1431,19 @@ class ImportService:
             for c in Customer.objects.filter(company=job.company)
         }
         rows = []
-        for row in preview:
+        skipped = []  # B3-018: report duplicates instead of silently dropping
+        for idx, row in enumerate(preview, start=1):
             gstin = (row.get("gstin") or "").strip().upper()
             phone = (row.get("phone") or "").strip()
             name = (row.get("name") or "").strip()
             if gstin and gstin in existing_gstin:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a customer with GSTIN {gstin} already exists"], "skipped": True})
                 continue
             if phone and phone in existing_phone:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a customer with phone {phone} already exists"], "skipped": True})
                 continue
             if name.lower() in existing_name:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a customer named '{name}' already exists"], "skipped": True})
                 continue
             rows.append(
                 Customer(
@@ -1457,7 +1468,7 @@ class ImportService:
         if rows:
             Customer.objects.bulk_create(rows, batch_size=BULK_BATCH)
             created = len(rows)
-        return created
+        return created, skipped
 
     @staticmethod
     def _commit_suppliers(job, preview, user):
@@ -1475,15 +1486,19 @@ class ImportService:
             for s in Supplier.objects.filter(company=job.company)
         }
         rows = []
-        for row in preview:
+        skipped = []  # B3-018
+        for idx, row in enumerate(preview, start=1):
             gstin = (row.get("gstin") or "").strip().upper()
             phone = (row.get("phone") or "").strip()
             name = (row.get("name") or "").strip()
             if gstin and gstin in existing_gstin:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a supplier with GSTIN {gstin} already exists"], "skipped": True})
                 continue
             if phone and phone in existing_phone:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a supplier with phone {phone} already exists"], "skipped": True})
                 continue
             if name.lower() in existing_name:
+                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a supplier named '{name}' already exists"], "skipped": True})
                 continue
             rows.append(
                 Supplier(
@@ -1507,7 +1522,7 @@ class ImportService:
             existing_name.add(name.lower())
         if rows:
             Supplier.objects.bulk_create(rows, batch_size=BULK_BATCH)
-        return len(rows)
+        return len(rows), skipped
 
     @staticmethod
     def _resolve_units(company, preview, user):

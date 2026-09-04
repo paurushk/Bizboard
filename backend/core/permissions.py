@@ -43,6 +43,17 @@ def get_company_user(request):
             raise PermissionDenied("X-Company-Id is not a company you belong to.")
         if active_company_id:
             company_user = qs.filter(company_id=active_company_id).order_by("id").first()
+            if company_user is None:
+                # B6-023: the stored active company is no longer a live
+                # membership (revoked / deactivated). Clear it and make the user
+                # re-pick explicitly — never silently switch them into another
+                # company.
+                try:
+                    user.active_company_id = None
+                    user.save(update_fields=["active_company"])
+                except Exception:  # noqa: BLE001
+                    pass
+                raise CompanyRequired(list(qs.order_by("id")))
         if company_user is None:
             memberships = list(qs.order_by("id"))
             if len(memberships) == 1:

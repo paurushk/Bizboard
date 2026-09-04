@@ -47,8 +47,21 @@ class Subscription(TimeStampedModel):
         return f"{self.company_id}:{self.status}"
 
     def is_write_blocked(self) -> bool:
-        if self.status in (self.Status.SUSPENDED, self.Status.PENDING):
+        if self.status == self.Status.SUSPENDED:
+            # B9-007: a cancelled/suspended subscription keeps write access
+            # until the paid period it was already charged for actually ends.
+            if self.current_period_end and timezone.now() < self.current_period_end:
+                return False
             return True
+        if self.status == self.Status.PENDING:
+            # B9-017: a brand-new PENDING subscription (checkout started, first
+            # webhook not yet in) must not permanently write-block the tenant —
+            # give it the same grace window ACTIVE gets before its first
+            # confirmed period end.
+            if self.current_period_end and timezone.now() < self.current_period_end:
+                return False
+            anchor = self.created_at or self.updated_at or timezone.now()
+            return timezone.now() >= anchor + timedelta(days=3)
         if self.status == self.Status.TRIAL:
             if self.trial_ends_at and self.trial_ends_at < timezone.now():
                 return True

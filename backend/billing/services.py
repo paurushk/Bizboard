@@ -83,23 +83,19 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
     created_new = False
     snapshot = None
     if sub is None:
-        if live_razorpay:
-            sub = Subscription.objects.create(
-                company=company,
-                plan=plan,
-                status=Subscription.Status.PENDING,
-                current_period_end=None,
-                trial_ends_at=None,
-            )
-        else:
-            days = int(getattr(settings, "BILLING_TRIAL_DAYS", 14) or 14)
-            sub = Subscription.objects.create(
-                company=company,
-                plan=plan,
-                status=Subscription.Status.TRIAL,
-                current_period_end=None,
-                trial_ends_at=now + timedelta(days=days),
-            )
+        # B9-017: a brand-new subscription starts on a short TRIAL, not PENDING —
+        # a webhook that never lands then just lets the trial expire on schedule
+        # instead of permanently write-blocking a tenant who paid.
+        days = int(
+            getattr(settings, "BILLING_CHECKOUT_TRIAL_DAYS", 3) or 3
+        ) if live_razorpay else int(getattr(settings, "BILLING_TRIAL_DAYS", 14) or 14)
+        sub = Subscription.objects.create(
+            company=company,
+            plan=plan,
+            status=Subscription.Status.TRIAL,
+            current_period_end=None,
+            trial_ends_at=now + timedelta(days=days),
+        )
         created_new = True
     else:
         snapshot = (sub.status, sub.current_period_end, sub.trial_ends_at, sub.plan_id)

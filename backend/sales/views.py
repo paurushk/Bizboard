@@ -85,11 +85,15 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         if action == "cancel":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in (
-            "create", "complete", "update", "partial_update", "destroy",
-            "preview_totals", "share",
+            "create", "complete", "update", "partial_update", "destroy", "share",
         ):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
-        if action in ("list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "thermal_pdf"):
+        if action in (
+            "list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "thermal_pdf",
+            # B2-018: a read-only quote/preview must not need write capability
+            # or an active subscription.
+            "preview_totals",
+        ):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         if action == "audit":
             return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
