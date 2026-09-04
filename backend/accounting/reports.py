@@ -2,6 +2,7 @@ from decimal import Decimal
 import logging
 
 from django.db.models import F, Q, Sum
+from django.utils import timezone
 
 from .models import Account, JournalEntry, JournalLine
 
@@ -298,6 +299,7 @@ def close_financial_year(company, fy_end, user=None):
         ).exclude(status=AccountingPeriod.Status.CLOSED).update(
             status=AccountingPeriod.Status.CLOSED,
             updated_by=user,
+            updated_at=timezone.now(),  # B1-029
         )
         from reporting.models import GstReturnPeriod
 
@@ -307,6 +309,9 @@ def close_financial_year(company, fy_end, user=None):
             period__lte=fy_end.strftime("%Y-%m"),
         ).exclude(status=GstReturnPeriod.Status.CLOSED).update(
             status=GstReturnPeriod.Status.CLOSED,
+            closed_by=user,
+            closed_at=timezone.now(),
+            updated_at=timezone.now(),  # B1-029
         )
         return existing
 
@@ -407,6 +412,7 @@ def close_financial_year(company, fy_end, user=None):
         ).exclude(status=AccountingPeriod.Status.CLOSED).update(
             status=AccountingPeriod.Status.CLOSED,
             updated_by=user,
+            updated_at=timezone.now(),  # B1-029
         )
         # BB-000712: align GST return periods with FY close.
         from reporting.models import GstReturnPeriod
@@ -417,5 +423,8 @@ def close_financial_year(company, fy_end, user=None):
             period__lte=fy_end.strftime("%Y-%m"),
         ).exclude(status=GstReturnPeriod.Status.CLOSED).update(
             status=GstReturnPeriod.Status.CLOSED,
+            closed_by=user,
+            closed_at=timezone.now(),
+            updated_at=timezone.now(),  # B1-029
         )
     return entry

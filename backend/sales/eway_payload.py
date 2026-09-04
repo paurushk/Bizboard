@@ -314,7 +314,7 @@ def build_eway_payload_from_invoice(
         "transDistance": trans_distance,
         "transporterName": transporter_name,
         "transporterId": (getattr(invoice, "transporter_id", "") or "").replace(" ", "").upper(),
-        "vehicleNo": vehicle_number,
+        "vehicleNo": (vehicle_number or "").replace(" ", "").upper(),  # B2-013
         "itemList": _build_item_list(items, require_hsn=False, errors=[]),
     }
 
@@ -374,6 +374,6 @@ def build_eway_payload_from_challan(challan: DeliveryChallan) -> dict:
         "transDistance": str(int(distance)),
         "transporterName": challan.transporter_name or "",
         "transporterId": (challan.transporter_id or "").replace(" ", "").upper(),
-        "vehicleNo": challan.vehicle_number or "",
+        "vehicleNo": (challan.vehicle_number or "").replace(" ", "").upper(),  # B2-013
         "itemList": _build_item_list(items, require_hsn=False, errors=[]),
     }

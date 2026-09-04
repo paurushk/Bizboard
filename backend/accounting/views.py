@@ -1,7 +1,7 @@
 from decimal import Decimal
 from io import BytesIO
 
-from django.db.models import Sum
+from django.db.models import ProtectedError, Sum
 from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import action
@@ -60,7 +60,14 @@ class AccountViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     def perform_destroy(self, instance):
         if instance.is_system:
             raise BusinessRuleError("System accounts cannot be deleted.")
-        super().perform_destroy(instance)
+        try:
+            super().perform_destroy(instance)
+        except ProtectedError:
+            # B1-004: account is referenced by postings / fixed assets / recon.
+            raise BusinessRuleError(
+                "This account is used by existing postings and cannot be "
+                "deleted. Deactivate it instead."
+            )
 
 
 class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
@@ -115,6 +122,16 @@ class CostCenterViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     def perform_create(self, serializer):
         serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user)
 
+    def perform_destroy(self, instance):
+        try:
+            super().perform_destroy(instance)
+        except ProtectedError:
+            # B1-004: cost centre is referenced by journal lines.
+            raise BusinessRuleError(
+                "This cost centre is used by existing postings and cannot be "
+                "deleted. Deactivate it instead."
+            )
+
 
 class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     """BB-000085: company-scoped journals (was bare ModelViewSet)."""
@@ -124,10 +141,10 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     http_method_names = ["get", "post", "head", "options"]
 
     def get_permissions(self):
-        # BB-000200/316: mutate / post / reverse journals requires Owner or can_post_journals.
-        if getattr(self, "action", None) in (
-            "create", "update", "partial_update", "destroy", "post", "reverse",
-        ):
+        # BB-000200/316: create / post / reverse journals requires Owner or
+        # can_post_journals. (B1-015: PUT/PATCH/DELETE are not routable here —
+        # see http_method_names — so they are not in the map.)
+        if getattr(self, "action", None) in ("create", "post", "reverse"):
             return [IsAuthenticated(), HasCompany(), CanPostJournals()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
@@ -415,16 +432,32 @@ class AccountingReportView(AccountingEnabledMixin, APIView):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = report.replace("-", " ").title()
-        sheet.append(["Code", "Account", "Type", "Debit", "Credit", "Balance"])
-        rows = payload.get("rows", [])
-        if isinstance(rows, dict):
-            rows = [row for group in rows.values() for row in group]
-        for row in rows:
-            sheet.append([
-                row.get("account_code", ""), row.get("account_name", ""),
-                row.get("account_type", ""), row.get("debit", 0),
-                row.get("credit", 0), row.get("balance", 0),
-            ])
+        if "rows" not in payload and any(
+            k in payload for k in ("operating_activities", "net_cash_flow")
+        ):
+            # B1-017: cash-flow has no flat "rows" list — flatten the activity
+            # buckets so the workbook isn't just a header row.
+            sheet.append(["Section", "Metric", "Amount"])
+            for section in (
+                "operating_activities",
+                "investing_activities",
+                "financing_activities",
+            ):
+                bucket = payload.get(section) or {}
+                for metric, amount in bucket.items():
+                    sheet.append([section.replace("_", " ").title(), metric, amount])
+            sheet.append(["", "Net cash flow", payload.get("net_cash_flow", 0)])
+        else:
+            sheet.append(["Code", "Account", "Type", "Debit", "Credit", "Balance"])
+            rows = payload.get("rows", [])
+            if isinstance(rows, dict):
+                rows = [row for group in rows.values() for row in group]
+            for row in rows:
+                sheet.append([
+                    row.get("account_code", ""), row.get("account_name", ""),
+                    row.get("account_type", ""), row.get("debit", 0),
+                    row.get("credit", 0), row.get("balance", 0),
+                ])
         output = BytesIO()
         workbook.save(output)
         response = HttpResponse(

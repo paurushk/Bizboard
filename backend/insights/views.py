@@ -196,11 +196,9 @@ class AssistantThreadViewSet(ModelViewSet):
             return AssistantThreadListSerializer
         return AssistantThreadSerializer
 
-    def perform_create(self, serializer):
-        cu = get_company_user(self.request)
-        serializer.save(company=cu.company, created_by=self.request.user, title=serializer.validated_data.get("title") or "Chat")
-
     def create(self, request, *args, **kwargs):
+        # B9-035: `create` is fully overridden below, so a `perform_create`
+        # override was dead code and has been removed.
         cu = get_company_user(request)
         thread = AssistantThread.objects.create(
             company=cu.company,
