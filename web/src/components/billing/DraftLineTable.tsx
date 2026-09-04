@@ -210,7 +210,9 @@ export function DraftLineTable({
                 <Stack direction="row" spacing={0.5} sx={{ minWidth: 180 }}>
                   <NumericField
                     value={line.discountPercent}
-                    onValueChange={(n) => onUpdate(line.key, { discountPercent: Math.min(100, n) })}
+                    onValueChange={(n) =>
+                      onUpdate(line.key, { discountPercent: Math.min(100, Math.max(0, n)) })
+                    }
                     min={0}
                     decimals={2}
                     fullWidth={false}
@@ -244,7 +246,11 @@ export function DraftLineTable({
                 {showCess ? (
                   <NumericField
                     value={line.cessRate ?? 0}
-                    onValueChange={(n) => onUpdate(line.key, { cessRate: n })}
+                    // F2-056: clamp cess to a sane ceiling so a fat-fingered
+                    // rate can't blow up the on-screen tax preview.
+                    onValueChange={(n) =>
+                      onUpdate(line.key, { cessRate: Math.min(500, Math.max(0, n)) })
+                    }
                     min={0}
                     decimals={2}
                     fullWidth={false}

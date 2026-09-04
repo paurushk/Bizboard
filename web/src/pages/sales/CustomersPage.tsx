@@ -263,7 +263,11 @@ export function CustomersPage() {
                           <Button size="small" onClick={() => openEdit(c)}>
                             {t('common.edit')}
                           </Button>
-                          <Button size="small" onClick={() => toggleMutation.mutate(c)}>
+                          <Button
+                            size="small"
+                            disabled={toggleMutation.isPending}
+                            onClick={() => toggleMutation.mutate(c)}
+                          >
                             {c.status === 'ACTIVE' ? t('common.block') : t('common.unblock')}
                           </Button>
                         </>

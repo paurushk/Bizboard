@@ -21,6 +21,7 @@ import {
   createDeliveryChallan,
   downloadSalesDocumentPdf,
   getDeliveryChallan,
+  getSalesOrder,
   listCustomers,
   listSalesOrders,
   updateDeliveryChallan,
@@ -139,12 +140,29 @@ export function DeliveryChallanEditorPage() {
     setLoaded(true);
   }, [existing.data, loaded, intraState]);
 
-  const onOrderPick = (order: SalesOrder | null) => {
+  const onOrderPick = async (order: SalesOrder | null) => {
     setSalesOrderId(order?.id ?? '');
     if (!order) return;
     setCustomerId(order.customer);
+    // F2-022: the picker holds list-payload orders which usually omit `items`.
+    // Fetch the full order before mapping, and compute intraState from the
+    // order's own customer instead of the stale `intraState` closure (which is
+    // still keyed to the previous customerId on this render).
+    let full = order;
+    if (!order.items?.length) {
+      try {
+        full = await getSalesOrder(order.id);
+      } catch {
+        full = order;
+      }
+    }
+    const orderCustomer = customers.data?.find((c) => c.id === full.customer);
+    const orderIntraState = isIntraState(
+      company.data?.gstin || company.data?.state,
+      orderCustomer?.gstin || orderCustomer?.state,
+    );
     setLines(
-      (order.items ?? []).map((item, idx) => {
+      (full.items ?? []).map((item, idx) => {
         const qty = toNumber(item.quantity);
         const unitPrice = toNumber(item.unitPrice);
         const cessRate = toNumber(item.cessRate);
@@ -153,7 +171,7 @@ export function DeliveryChallanEditorPage() {
           unitPrice,
           gstRate: toNumber(item.gstRate),
           cessRate,
-          intraState,
+          intraState: orderIntraState,
         });
         return {
           key: `ord-${idx}-${item.product}`,
@@ -318,7 +336,7 @@ export function DeliveryChallanEditorPage() {
             options={(orders.data ?? []).filter((o) => o.status === 'DRAFT')}
             getOptionLabel={(o) => `${o.number ?? o.id} · ${o.customerName ?? ''}`}
             value={(orders.data ?? []).find((o) => o.id === Number(salesOrderId)) ?? null}
-            onChange={(_, v) => onOrderPick(v)}
+            onChange={(_, v) => void onOrderPick(v)}
             disabled={readOnly}
             renderInput={(params) => <TextField {...params} label={t('phase1.optionalSalesOrder')} />}
           />

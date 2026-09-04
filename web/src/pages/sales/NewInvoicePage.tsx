@@ -202,6 +202,9 @@ export function NewInvoicePage() {
   const [invoiceDate, setInvoiceDate] = useState(todayIso());
   const [paymentTermsDays, setPaymentTermsDays] = useState(30);
   const [dueDate, setDueDate] = useState(() => addDaysIso(todayIso(), 30));
+  // F2-008: once the user (or a loaded invoice) sets an explicit due date, stop
+  // recomputing it from invoiceDate + terms.
+  const dueDateTouched = useRef(false);
   const [showPaymentTerms, setShowPaymentTerms] = useState(true);
   const [showAdvancedTax, setShowAdvancedTax] = useState(false);
 
@@ -385,6 +388,9 @@ export function NewInvoicePage() {
     setInvoiceDate(inv.invoiceDate);
     setPaymentTermsDays(inv.paymentTermsDays ?? 0);
     setDueDate(inv.dueDate ?? addDaysIso(inv.invoiceDate, inv.paymentTermsDays ?? 0));
+    // A saved invoice carries an authoritative due date — don't let the
+    // invoiceDate/terms effect overwrite it on edit-hydration (F2-008).
+    dueDateTouched.current = Boolean(inv.dueDate);
     setShowPaymentTerms(Boolean(inv.dueDate || inv.paymentTermsDays));
     setNotes(inv.notes ?? '');
     setShowNotes(Boolean(inv.notes));
@@ -509,6 +515,7 @@ export function NewInvoicePage() {
   }, [company.data, termsText, isEdit]);
 
   useEffect(() => {
+    if (dueDateTouched.current) return;
     setDueDate(addDaysIso(invoiceDate, paymentTermsDays || 0));
   }, [invoiceDate, paymentTermsDays]);
 
@@ -895,11 +902,13 @@ export function NewInvoicePage() {
             ? t('billing.draftSavedCompleteFailed', { label, warning: paymentWarning })
             : t('billing.draftSaved', { label });
 
-      // Warm list cache before SPA navigate so history isn't blank until hard refresh.
+      // Warm list cache before SPA navigate so history isn't blank until hard
+      // refresh. F2-026: the history page keys on ['sales-invoices', page] with
+      // page 1 and pageSize 50 — warm that exact key, not the bare one.
       try {
         await qc.fetchQuery({
-          queryKey: ['sales-invoices'],
-          queryFn: () => listSalesInvoicesPage(),
+          queryKey: ['sales-invoices', 1],
+          queryFn: () => listSalesInvoicesPage({ page: 1, pageSize: 50 }),
           staleTime: 0,
         });
       } catch {
@@ -1463,7 +1472,10 @@ export function NewInvoicePage() {
                     label={t('billing.dueDate')}
                     type="date"
                     value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
+                    onChange={(e) => {
+                      dueDateTouched.current = true;
+                      setDueDate(e.target.value);
+                    }}
                     InputLabelProps={{ shrink: true }}
                   />
                 </Stack>
@@ -1723,8 +1735,8 @@ export function NewInvoicePage() {
                   <Typography variant="subtitle2">TCS collected (206C)</Typography>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
                     <TextField size="small" label="Section" value={tcsSection} onChange={(e) => setTcsSection(e.target.value)} placeholder="206C" />
-                    <TextField size="small" type="number" label="Rate %" value={tcsRate || ''} onChange={(e) => setTcsRate(Number(e.target.value) || 0)} />
-                    <TextField size="small" type="number" label="TCS amount" value={tcsAmount || ''} onChange={(e) => setTcsAmount(Number(e.target.value) || 0)} />
+                    <TextField size="small" type="number" label="Rate %" inputProps={{ min: 0, max: 100, step: 0.01 }} value={tcsRate || ''} onChange={(e) => setTcsRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
+                    <TextField size="small" type="number" label="TCS amount" inputProps={{ min: 0 }} value={tcsAmount || ''} onChange={(e) => setTcsAmount(Math.max(0, Number(e.target.value) || 0))} />
                   </Stack>
                 </Paper>
               )}

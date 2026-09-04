@@ -176,6 +176,9 @@ export function NewPurchasePage() {
   const [invoiceDate, setInvoiceDate] = useState(todayIso());
   const [paymentTermsDays, setPaymentTermsDays] = useState(30);
   const [dueDate, setDueDate] = useState(() => addDaysIso(todayIso(), 30));
+  // F2-008: stop recomputing the due date from invoiceDate + terms once it is
+  // explicitly set (by the user or a loaded bill).
+  const dueDateTouched = useRef(false);
   const [showPaymentTerms, setShowPaymentTerms] = useState(true);
 
   // BUG-502/514: prefix/nextNumber are read-only display-only previews, same
@@ -386,6 +389,7 @@ export function NewPurchasePage() {
     setInvoiceDate(inv.invoiceDate);
     setPaymentTermsDays(inv.paymentTermsDays ?? 0);
     setDueDate(inv.dueDate ?? addDaysIso(inv.invoiceDate, inv.paymentTermsDays ?? 0));
+    dueDateTouched.current = Boolean(inv.dueDate);
     setShowPaymentTerms(Boolean(inv.dueDate || inv.paymentTermsDays));
     setNotes(inv.notes ?? '');
     setShowNotes(Boolean(inv.notes));
@@ -507,6 +511,7 @@ export function NewPurchasePage() {
   }, [isEdit, termsText]);
 
   useEffect(() => {
+    if (dueDateTouched.current) return;
     setDueDate(addDaysIso(invoiceDate, paymentTermsDays || 0));
   }, [invoiceDate, paymentTermsDays]);
 
@@ -1429,7 +1434,10 @@ export function NewPurchasePage() {
                     label={t('billing.dueDate')}
                     type="date"
                     value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
+                    onChange={(e) => {
+                      dueDateTouched.current = true;
+                      setDueDate(e.target.value);
+                    }}
                     InputLabelProps={{ shrink: true }}
                   />
                 </Stack>
@@ -1696,8 +1704,8 @@ export function NewPurchasePage() {
                   <Typography variant="subtitle2">TDS withheld</Typography>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
                     <TextField size="small" label="Section" value={tdsSection} onChange={(e) => setTdsSection(e.target.value)} placeholder="194C" />
-                    <TextField size="small" type="number" label="Rate %" value={tdsRate || ''} onChange={(e) => setTdsRate(Number(e.target.value) || 0)} />
-                    <TextField size="small" type="number" label="TDS amount" value={tdsAmount || ''} onChange={(e) => setTdsAmount(Number(e.target.value) || 0)} />
+                    <TextField size="small" type="number" label="Rate %" inputProps={{ min: 0, max: 100, step: 0.01 }} value={tdsRate || ''} onChange={(e) => setTdsRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
+                    <TextField size="small" type="number" label="TDS amount" inputProps={{ min: 0 }} value={tdsAmount || ''} onChange={(e) => setTdsAmount(Math.max(0, Number(e.target.value) || 0))} />
                   </Stack>
                 </Paper>
               )}

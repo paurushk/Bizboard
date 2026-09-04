@@ -520,7 +520,11 @@ export function BankStatementsPage() {
   });
   const commit = useMutation({
     mutationFn: (id: number) => api.commitBankStatement(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank-statements'] }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['bank-statements'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
@@ -587,9 +591,14 @@ export function BankReconPage() {
   });
   const [createLine, setCreateLine] = useState<Row | null>(null);
   const [createCustomer, setCreateCustomer] = useState('');
+  const [reconErr, setReconErr] = useState('');
   const confirm = useMutation({
     mutationFn: (payload: Record<string, unknown>) => api.confirmRecon(payload),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['payment-recon'] }),
+    onSuccess: () => {
+      setReconErr('');
+      void qc.invalidateQueries({ queryKey: ['payment-recon'] });
+    },
+    onError: (e) => setReconErr(getErrorMessage(e)),
   });
   const createFromLine = useMutation({
     mutationFn: () =>
@@ -598,11 +607,13 @@ export function BankReconPage() {
         customer: Number(createCustomer),
       }),
     onSuccess: () => {
+      setReconErr('');
       setCreateLine(null);
       setCreateCustomer('');
       void qc.invalidateQueries({ queryKey: ['payment-recon'] });
       void qc.invalidateQueries({ queryKey: ['payment-health'] });
     },
+    onError: (e) => setReconErr(getErrorMessage(e)),
   });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
@@ -610,6 +621,11 @@ export function BankReconPage() {
   const aging = (health.data?.unmatchedAging as Record<string, number>) || {};
   return (
     <PageShell title={t('phase.bankRecon')} subtitle={t('phase.bankReconSubtitle')}>
+      {reconErr ? (
+        <Alert severity="error" sx={{ mb: 1 }} onClose={() => setReconErr('')}>
+          {reconErr}
+        </Alert>
+      ) : null}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }}>
         {[
           ['0–7 days', aging.days_0_7 ?? aging.days07 ?? 0],

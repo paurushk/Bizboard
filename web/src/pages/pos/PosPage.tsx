@@ -381,10 +381,11 @@ export function PosPage() {
     } catch {
       matches = (products.data ?? []).filter((p) => p.status === 'ACTIVE');
     }
+    // F2-052: only auto-add on an exact barcode/SKU hit. A partial search that
+    // happens to return a single fuzzy match must NOT be added silently.
     const exact =
       matches.find((p) => (p.barcode ?? '').toLowerCase() === q.toLowerCase()) ??
-      matches.find((p) => p.sku.toLowerCase() === q.toLowerCase()) ??
-      (matches.length === 1 ? matches[0] : undefined);
+      matches.find((p) => p.sku.toLowerCase() === q.toLowerCase());
     if (exact) {
       addProduct(exact);
       return;

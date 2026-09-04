@@ -17,13 +17,12 @@ export function canManageUsers(user: User | null): boolean {
 }
 
 export function canManageManufacturing(user: User | null): boolean {
-  if (!user || isViewer(user.role)) return false;
-  return isOwner(user.role);
+  // F1-021: isOwner already excludes VIEWER, so the extra isViewer guard was dead.
+  return !!user && isOwner(user.role);
 }
 
 export function canManagePayroll(user: User | null): boolean {
-  if (!user || isViewer(user.role)) return false;
-  return isOwner(user.role);
+  return !!user && isOwner(user.role);
 }
 
 export function canManageCrm(user: User | null): boolean {

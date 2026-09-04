@@ -137,20 +137,26 @@ export function JournalsPage() {
                 <TextField
                   label="Debit"
                   type="number"
+                  inputProps={{ min: 0, step: 0.01 }}
                   value={line.debit}
                   onChange={(e) => {
+                    const raw = e.target.value;
+                    const v = raw === '' || Number(raw) >= 0 ? raw : '0';
                     const next = [...lines];
-                    next[idx] = { ...next[idx], debit: e.target.value, credit: '' };
+                    next[idx] = { ...next[idx], debit: v, credit: '' };
                     setLines(next);
                   }}
                 />
                 <TextField
                   label="Credit"
                   type="number"
+                  inputProps={{ min: 0, step: 0.01 }}
                   value={line.credit}
                   onChange={(e) => {
+                    const raw = e.target.value;
+                    const v = raw === '' || Number(raw) >= 0 ? raw : '0';
                     const next = [...lines];
-                    next[idx] = { ...next[idx], credit: e.target.value, debit: '' };
+                    next[idx] = { ...next[idx], credit: v, debit: '' };
                     setLines(next);
                   }}
                 />
