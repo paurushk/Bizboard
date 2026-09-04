@@ -225,11 +225,6 @@ def bulk_accept_exact(company, period: str, *, user=None, remark: str = "") -> d
     }
 
 
-def deemed_accept_on_period_lock(company, period: str, *, user=None) -> int:
-    """Period lock no longer auto-ACCEPTS IMS rows — ITC requires an explicit decision."""
-    return 0
-
-
 def credit_at_risk(company, period: str, *, as_of: date | None = None) -> dict:
     as_of = as_of or timezone.localdate()
     classify_and_match(company, period, persist=False)

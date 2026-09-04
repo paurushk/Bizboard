@@ -2238,7 +2238,7 @@ class BillImportService:
             raise BusinessRuleError("The file has no data rows.")
 
         raw_lines = [_map_structured_row(row) for row in rows]
-        preview_lines, errors = BillImportService._build_preview_lines(raw_lines)
+        preview_lines, errors, rate_warnings = BillImportService._build_preview_lines(raw_lines)
         answers = _infer_qty_answers(preview_lines, tolerance=Decimal("0.50")) or {}
         if not answers.get("qty_formula"):
             from imports.qty_formula import _union_keys
@@ -2265,6 +2265,8 @@ class BillImportService:
             "resolved_formula": formula_key,
             "lines": preview_lines,
         }
+        if rate_warnings:
+            preview["warnings"] = rate_warnings
         included = [ln for ln in preview_lines if ln.get("include")]
         job.preview = preview
         job.errors = errors
@@ -2278,7 +2280,10 @@ class BillImportService:
         return job
 
     @staticmethod
-    def _build_preview_lines(raw_lines: list[dict]) -> tuple[list[dict], list[dict]]:
+    def _build_preview_lines(raw_lines: list[dict]) -> tuple[list[dict], list[dict], list[str]]:
+        # B3-016: the rate_warnings list used to be built and thrown away —
+        # return it so callers can surface it as preview["warnings"], the same
+        # way the LLM path already does.
         preview_lines, errors = [], []
         rate_warnings: list[str] = []
         for index, raw_line in enumerate(raw_lines, start=1):
@@ -2289,7 +2294,7 @@ class BillImportService:
                     errors.append({"row": index, "errors": line_errors, "data": line})
                     line["include"] = False
             preview_lines.append(line)
-        return preview_lines, errors
+        return preview_lines, errors, rate_warnings
 
     @staticmethod
     def apply_extraction(job: ImportJob, payload: dict):
@@ -2322,7 +2327,9 @@ class BillImportService:
         if direction_warning:
             preview["direction_warning"] = direction_warning
 
-        preview_lines, errors = BillImportService._build_preview_lines(raw_lines)
+        preview_lines, errors, rate_warnings = BillImportService._build_preview_lines(raw_lines)
+        if rate_warnings:
+            preview["warnings"] = rate_warnings
         if _skip_simple_qty_template(template, preview_lines):
             template = None
         tolerance = template.rounding_tolerance if template is not None else Decimal("0.50")

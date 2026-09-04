@@ -88,6 +88,10 @@ def profit_and_loss(company, date_from=None, date_to=None, cost_center=None):
         date_from, _ = _indian_fy_bounds(date_to, company)
     elif date_from is None and date_to is None:
         date_from, date_to = _indian_fy_bounds(None, company)
+    # B1-012: a `date_from` with no `date_to` otherwise left the query
+    # upper-unbounded (all future postings included).
+    if date_to is None:
+        _, date_to = _indian_fy_bounds(date_from, company)
     rows = [row for row in _balances(company, date_from=date_from, date_to=date_to, cost_center=cost_center, exclude_fy_close=True)
             if row["account_type"] in (Account.Type.INCOME, Account.Type.EXPENSE)]
     income = sum((-row["balance"] for row in rows if row["account_type"] == Account.Type.INCOME), Decimal("0"))
@@ -98,6 +102,11 @@ def profit_and_loss(company, date_from=None, date_to=None, cost_center=None):
 
 def balance_sheet(company, as_of=None, cost_center=None):
     fy_from, fy_to = _indian_fy_bounds(as_of, company)
+    # B1-011: `_balances` with as_of=None is all-time, but current_earnings is
+    # P&L capped at fy_to — equation_holds then compares mismatched horizons.
+    # Pin both to the same cut-off.
+    if as_of is None:
+        as_of = fy_to
     rows = _balances(company, as_of=as_of, cost_center=cost_center, exclude_fy_close_after=fy_from)
     by_type = {t: [] for t in Account.Type.values}
     for row in rows:

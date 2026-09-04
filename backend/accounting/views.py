@@ -170,14 +170,9 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         lines = serializer.validated_data.pop("lines")
-        # BB-000276: reject cross-tenant account / cost_center FKs.
-        for line in lines:
-            account = line.get("account")
-            if account is not None and account.company_id != self.company.id:
-                raise BusinessRuleError("Account must belong to this company.")
-            cost_center = line.get("cost_center")
-            if cost_center is not None and cost_center.company_id != self.company.id:
-                raise BusinessRuleError("Cost center must belong to this company.")
+        # B1-031: cross-tenant account / cost_center / bank_statement_line checks
+        # live in JournalLineSerializer (validate_account / validate_cost_center;
+        # bank_statement_line is read-only per B1-003) — no duplicate view loop.
         number = (serializer.validated_data.get("number") or "").strip()
         if not number:
             from core.services.document_numbers import DocumentNumberService, resolve_series_gstin

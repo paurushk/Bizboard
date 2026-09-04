@@ -90,7 +90,14 @@ def _render_note_like(
     header = ["#", "Item", "HSN", "Qty", "Rate", "Taxable", "Tax", "Total"]
     rows = [header]
     for idx, item in enumerate(items, start=1):
-        tax = (item.cgst or 0) + (item.sgst or 0) + (item.igst or 0)
+        # B2-025: include cess so the per-line Tax column foots to the line
+        # Total and to the summary's Cess row.
+        tax = (
+            (item.cgst or 0)
+            + (item.sgst or 0)
+            + (item.igst or 0)
+            + (getattr(item, "cess", 0) or 0)
+        )
         rows.append([
             str(idx),
             item.description or getattr(item.product, "name", ""),

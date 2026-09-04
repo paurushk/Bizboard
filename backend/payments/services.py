@@ -241,7 +241,9 @@ class PaymentService:
         warn_utr_duplicate=False,
         bypass_period_gate=False,
     ):
-        if Decimal(amount) <= 0:
+        # B4-035: normalise once — an internal caller may pass a float.
+        amount = Decimal(str(amount)).quantize(Decimal("0.01"))
+        if amount <= 0:
             raise BusinessRuleError("Receipt amount must be greater than zero.")
         if customer.company_id != company.id:
             raise BusinessRuleError("Invalid customer reference.")
@@ -316,7 +318,9 @@ class PaymentService:
         tds_rate=None,
         tds_amount=None,
     ):
-        if Decimal(amount) <= 0:
+        # B4-035: normalise once — an internal caller may pass a float.
+        amount = Decimal(str(amount)).quantize(Decimal("0.01"))
+        if amount <= 0:
             raise BusinessRuleError("Payment amount must be greater than zero.")
         if supplier.company_id != company.id:
             raise BusinessRuleError("Invalid supplier reference.")

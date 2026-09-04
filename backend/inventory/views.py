@@ -307,6 +307,23 @@ class WarehouseViewSet(CompanyScopedViewSet):
         if becoming_inactive:
             assert_can_deactivate_warehouse(instance)
         super().perform_update(serializer)
+        # B8-030: re-assert the invariant after the write, regardless of which
+        # field changed — a PUT that flips is_default or is_active in a way that
+        # leaves zero (or >1) active default godowns is otherwise not caught.
+        active_defaults = Warehouse.objects.filter(
+            company=self.company, is_active=True, is_default=True
+        )
+        if not active_defaults.exists():
+            fallback = (
+                Warehouse.objects.filter(company=self.company, is_active=True)
+                .order_by("id")
+                .first()
+            )
+            if fallback is not None:
+                Warehouse.objects.filter(pk=fallback.pk).update(is_default=True)
+        elif active_defaults.count() > 1:
+            keep = active_defaults.order_by("id").first()
+            active_defaults.exclude(pk=keep.pk).update(is_default=False)
 
     def perform_destroy(self, instance):
         from .item_stock import assert_can_delete_warehouse

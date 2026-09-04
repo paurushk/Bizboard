@@ -411,10 +411,18 @@ class InvoiceEinvoiceEwayActionsMixin:
                 {"detail": "A statutory submission is already in progress."},
                 status=status.HTTP_409_CONFLICT,
             )
+        veh = (request.data.get("vehicle_number") or invoice.vehicle_number or "").strip()
+        tid = (request.data.get("transporter_id") or getattr(invoice, "transporter_id", "") or "").strip()
+        # B2-014: NIC needs Part-B at *submit* time (the preview endpoint may run
+        # before the user fills these in).
+        if not veh and not tid:
+            raise BusinessRuleError(
+                "Provide a vehicle number or a transporter id before submitting the e-Way bill."
+            )
         try:
             payload = build_eway_payload_from_invoice(
                 invoice,
-                vehicle_number=(request.data.get("vehicle_number") or invoice.vehicle_number or "").strip(),
+                vehicle_number=veh,
                 transporter_name=(request.data.get("transporter_name") or invoice.transporter_name or "").strip(),
             )
         except EwayValidationError as exc:
