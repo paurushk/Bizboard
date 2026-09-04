@@ -30,6 +30,9 @@ MONEY_IDEMPOTENCY_SCOPES = frozenset({
     # B3-013: a bill-import commit creates a real purchase/sales invoice — an
     # in-flight claim must not be auto-reclaimed while the first commit runs.
     "import_job_commit",
+    # F3-010: opening stock posts an OPENING_STOCK movement + GL entry — a retry
+    # after a partial failure must not double the quantity.
+    "opening_stock",
 })
 
 # PD-01: 4xx that are safe to retry with the same key after the condition clears

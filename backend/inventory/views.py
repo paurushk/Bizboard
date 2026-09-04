@@ -211,9 +211,19 @@ class OpeningStockView(APIView):
     permission_classes = [IsAuthenticated, HasCompany, CanManageInventory]
 
     def post(self, request):
+        company = get_company_user(request).company
+        # F3-010: a retry after a partial "item saved but opening stock failed"
+        # must not double the quantity for lots that already succeeded.
+        return wrap_idempotent(
+            request=request,
+            company=company,
+            scope="opening_stock",
+            build=lambda: self._post(request, company),
+        )
+
+    def _post(self, request, company):
         serializer = OpeningStockSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        company = get_company_user(request).company
         product = get_object_or_404(Product, pk=serializer.validated_data["product"], company=company)
         data = serializer.validated_data
         quantity = data.get("quantity")
