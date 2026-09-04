@@ -1097,7 +1097,14 @@ def restore_to_sandbox(*, source_company, payload: dict[str, Any], owner):
         can_create_payments=True,
         can_post_journals=True,
     )
-    import_payload(target_company=sandbox, payload=payload, owner=owner)
+    # B6-001: PostgresRlsMiddleware has app.company_id pinned to the requester's
+    # *active* company; every tenant-table INSERT for `sandbox` would fail the
+    # RLS WITH CHECK. import_payload sets company= explicitly on every row, so a
+    # bypass is safe here.
+    from core.rls import rls_bypass
+
+    with rls_bypass():
+        import_payload(target_company=sandbox, payload=payload, owner=owner)
     sandbox.refresh_from_db()
     if sandbox.name != sandbox_name:
         sandbox.name = sandbox_name
@@ -1199,6 +1206,11 @@ def restore_destroy_in_place(*, company, payload: dict[str, Any], owner, confirm
             f"({extra}). Pass confirm_destroy_unbacked=true to proceed.",
             code="UNBACKED_ROWS",
         )
-    wipe_logical_tenant_rows(company)
-    import_payload(target_company=company, payload=payload, owner=owner)
+    # B6-001: robust even when the caller's active company != the one being
+    # restored (an owner restoring a different company they own).
+    from core.rls import rls_bypass
+
+    with rls_bypass():
+        wipe_logical_tenant_rows(company)
+        import_payload(target_company=company, payload=payload, owner=owner)
     return company

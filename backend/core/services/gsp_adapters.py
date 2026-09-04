@@ -432,7 +432,31 @@ def _json_object(raw) -> dict:
     return raw if isinstance(raw, dict) else {"raw": raw}
 
 
+def assert_safe_outbound_url(url: str) -> None:
+    """B7-015: an operator-set base URL must be http(s), and https outside dev.
+
+    Blocks `file://`, `ftp://`, gopher, etc. and obvious link-local / loopback
+    metadata hosts so a misconfigured (or tampered) GSP/GSTIN base URL cannot be
+    turned into a local file read or a 169.254.169.254 fetch.
+    """
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url or "")
+    scheme = (parts.scheme or "").lower()
+    allowed = {"http", "https"}
+    if getattr(settings, "DJANGO_ENV", "") in ("production", "staging"):
+        allowed = {"https"}
+    if scheme not in allowed:
+        raise BusinessRuleError(
+            f"Refusing outbound request to a {scheme or 'schemeless'} URL."
+        )
+    host = (parts.hostname or "").lower()
+    if host in ("169.254.169.254", "metadata", "metadata.google.internal"):
+        raise BusinessRuleError("Refusing outbound request to a metadata host.")
+
+
 def _http_json(method: str, url: str, payload: dict | None, headers: dict | None = None) -> dict:
+    assert_safe_outbound_url(url)
     data = None if payload is None else json.dumps(payload, default=str).encode()
     req = urllib.request.Request(
         url,

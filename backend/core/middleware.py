@@ -117,8 +117,11 @@ class PostgresRlsMiddleware:
         except Exception:  # noqa: BLE001
             company_id = None
 
-        set_rls_company(company_id)
+        # B6-013: set_rls_company can raise (fail-closed) — keep it inside the
+        # try so the finally still clears any GUC left on this pooled connection
+        # by a previous request/job.
         try:
+            set_rls_company(company_id)
             return self.get_response(request)
         finally:
             # R1-009 / SYS-01: a pooled connection must never carry this
