@@ -52,6 +52,7 @@ function AccountingReportPage({
   const [to, setTo] = useState('');
   const [costCenter, setCostCenter] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const [dlError, setDlError] = useState<string | null>(null);
   const costCenters = useQuery({
     queryKey: ['cost-centers'],
     queryFn: api.listCostCenters,
@@ -74,10 +75,13 @@ function AccountingReportPage({
   const handleDownload = async () => {
     if (report === 'books-health') return;
     setDownloading(true);
+    setDlError(null);
     try {
       const { url } = await api.downloadAccountingReport(report, reportParams);
       triggerBlobDownload(await fetch(url).then((r) => r.blob()), `${report}.xlsx`);
       URL.revokeObjectURL(url);
+    } catch (err) {
+      setDlError(getErrorMessage(err));
     } finally {
       setDownloading(false);
     }
@@ -132,6 +136,7 @@ function AccountingReportPage({
           <Button size="small" variant="outlined" disabled={downloading} onClick={() => void handleDownload()}>
             Download XLSX
           </Button>
+          {dlError ? <ErrorState message={dlError} error={new Error(dlError)} /> : null}
         </Stack>
       ) : undefined}
     >

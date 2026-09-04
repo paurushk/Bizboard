@@ -82,6 +82,7 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
     mutationFn: () =>
       downloadGstCaPack({ period, companyGstin: companyGstin || undefined }),
     onSuccess: (result) => downloadBlobUrl(result.url, `gst-ca-pack-${period}.zip`),
+    onError: () => undefined, // surfaced by the isError alert below (F3-031)
   });
 
   const issues = (query.data?.issues as Array<{ code?: string; message?: string; number?: string }> | undefined) ?? [];
@@ -184,6 +185,9 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
 
       {exportMutation.isError ? (
         <HelpErrorAlert error={exportMutation.error} />
+      ) : null}
+      {caPackMutation.isError ? (
+        <HelpErrorAlert error={caPackMutation.error} />
       ) : null}
       {compositionBlocked ? (
         <Alert severity="warning">

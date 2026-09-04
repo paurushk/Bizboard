@@ -46,6 +46,7 @@ export function Gstr9ReportPage() {
       a.click();
       URL.revokeObjectURL(result.url);
     },
+    onError: () => undefined, // surfaced by the isError alert (F3-031)
   });
 
   const annual = (query.data?.annual ?? {}) as Record<string, string>;
@@ -79,6 +80,9 @@ export function Gstr9ReportPage() {
       <Alert severity="info">{t('reports.gstOfflineDisclaimer')}</Alert>
       <Alert severity="info">{t('reports.gstr9Disclaimer')}</Alert>
       <Alert severity="warning">{t('reports.gstr9Tables67Worksheet')}</Alert>
+      {exportMutation.isError ? (
+        <Alert severity="error">{getErrorMessage(exportMutation.error)}</Alert>
+      ) : null}
       {compositionBlocked ? (
         <Alert severity="warning">
           Composition dealers cannot use GSTR-9 annual return aids in BizBoard. Use CMP-08 and GSTR-4
