@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import zipfile
 from calendar import monthrange
 from collections import defaultdict
@@ -27,7 +28,6 @@ from .models import GstReturnPeriod, GstReturnSnapshot
 from .gst_returns_sections import (
     accumulate_hsn_line,
     append_b2_outward_rows,
-    apply_after_tax_header_discount,
     build_note_rate_rows,
     new_hsn_buckets,
 )
@@ -632,7 +632,6 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
 
         for item in items:
             accumulate_hsn_line(hsn_buckets, item)
-        apply_after_tax_header_discount(hsn_buckets, inv, items)
 
         append_b2_outward_rows(
             company=company,
@@ -2105,9 +2104,12 @@ def to_gstn_json(payload: dict) -> dict:
     rt = (payload.get("return_type") or "").upper().replace("_", "-")
     company = payload.get("company") or {}
     gstin = company.get("gstin") or ""
-    period = payload.get("period") or payload.get("fy") or ""
+    # B5-014: only derive `fp` from a real monthly period (YYYY-MM). A GSTR-9
+    # payload's `fy` is "2025-26" — also length 7 with a dash at [4] — and was
+    # producing fp="262025" (month "26").
+    period = payload.get("period") or ""
     fp = ""
-    if len(period) == 7 and period[4] == "-":
+    if re.fullmatch(r"\d{4}-\d{2}", period) and 1 <= int(period[5:7]) <= 12:
         year, month = period.split("-")
         fp = f"{month}{year}"
     # GST-02: `build_gstr1` already keeps unresolved-POS invoices out of the

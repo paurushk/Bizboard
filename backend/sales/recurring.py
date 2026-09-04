@@ -25,13 +25,16 @@ def period_key_for(cadence: str, on_date: date) -> str:
     return f"{on_date.year:04d}-{on_date.month:02d}"
 
 
-def advance_next_run(dt: datetime, cadence: str) -> datetime:
+def advance_next_run(dt: datetime, cadence: str, anchor_day: int | None = None) -> datetime:
     if cadence == RecurringInvoiceSchedule.Cadence.WEEKLY:
         return dt + timedelta(weeks=1)
     month = dt.month + 1
     year = dt.year + (1 if month > 12 else 0)
     month = month if month <= 12 else 1
-    day = min(dt.day, monthrange(year, month)[1])
+    # B2-009: clamp the *anchor* day to the target month, not the last
+    # already-clamped date, so a 29-31 schedule doesn't walk backward forever.
+    target = int(anchor_day) if anchor_day else dt.day
+    day = min(target, monthrange(year, month)[1])
     return dt.replace(year=year, month=month, day=day)
 
 
@@ -128,7 +131,7 @@ def generate_draft_for_schedule(schedule: RecurringInvoiceSchedule, *, run_date:
     )
     nxt = schedule.next_run_at
     if nxt.date() <= on_date:
-        schedule.next_run_at = advance_next_run(nxt, schedule.cadence)
+        schedule.next_run_at = advance_next_run(nxt, schedule.cadence, schedule.anchor_day)
         schedule.save(update_fields=["next_run_at", "updated_at"])
     return run
 
@@ -145,12 +148,12 @@ def process_due_schedules(*, now=None):
         key = period_key_for(schedule.cadence, on_date)
         if RecurringInvoiceRun.objects.filter(schedule=schedule, period_key=key).exists():
             skipped_duplicate += 1
-            schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence)
+            schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence, schedule.anchor_day)
             schedule.save(update_fields=["next_run_at", "updated_at"])
             continue
         if period_is_locked(schedule.company, on_date):
             skipped_locked += 1
-            schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence)
+            schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence, schedule.anchor_day)
             schedule.save(update_fields=["next_run_at", "updated_at"])
             continue
         run = generate_draft_for_schedule(schedule, run_date=on_date)

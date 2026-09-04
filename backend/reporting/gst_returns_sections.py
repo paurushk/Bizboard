@@ -20,15 +20,6 @@ def accumulate_hsn_line(hsn_buckets: dict, item, *, sign: Decimal = Decimal("1")
     hsn_buckets[key]["cess"] += sign * Decimal(str(getattr(item, "cess", 0) or 0))
 
 
-def apply_after_tax_header_discount(hsn_buckets: dict, invoice, items) -> None:
-    """AFTER_TAX cash discount must not reduce GSTR Table 12 taxable value.
-
-    GST taxable is determined before cash discount. Subtracting the discount from
-    HSN taxable while leaving GST unscaled understates Table 12. Intentionally a no-op.
-    """
-    return
-
-
 def _supply_type_of(inv) -> str:
     st = (getattr(inv, "supply_type", None) or "").strip().upper()
     if st and st != "B2B":

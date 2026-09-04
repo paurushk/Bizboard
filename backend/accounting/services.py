@@ -1649,8 +1649,12 @@ class PostingService:
             raise BusinessRuleError("Only an unreversed posted journal may be reversed.")
         if allow_soft_closed is None:
             allow_soft_closed = entry.source_type != "MANUAL_JOURNAL"
+        # B1-023: default the reversal to the *original* entry's date so a
+        # prior-month journal is not left overstated with an orphan reversal in
+        # the current month. The document-side callers already pass this; the
+        # manual API `reverse` action did not.
         reversal = cls.post(company=entry.company, source_type="JOURNAL_REVERSAL", source_id=entry.id,
-            purpose="REVERSE", entry_date=entry_date or timezone.localdate(), user=user,
+            purpose="REVERSE", entry_date=entry_date or entry.entry_date or timezone.localdate(), user=user,
             allow_soft_closed=allow_soft_closed,
             narration=f"Reversal of {entry.number}",
             lines=[{

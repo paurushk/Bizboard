@@ -99,6 +99,15 @@ class JournalEntrySerializer(serializers.ModelSerializer):
         read_only_fields = ["status", "source_type", "source_id", "purpose", "posted_at", "reversed_entry"]
 
     def validate_lines(self, lines):
+        # B1-014: reject a line with BOTH sides set (or neither) here — it passes
+        # the sum check but violates the journal_line_one_side DB CHECK -> 500.
+        for line in lines:
+            d = line.get("debit", 0) or 0
+            c = line.get("credit", 0) or 0
+            if (d > 0 and c > 0) or (d == 0 and c == 0):
+                raise serializers.ValidationError(
+                    "Each journal line must have exactly one of debit or credit."
+                )
         debit = sum((line.get("debit", 0) for line in lines))
         credit = sum((line.get("credit", 0) for line in lines))
         if not lines or debit != credit:

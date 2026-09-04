@@ -569,3 +569,11 @@ class RecurringInvoiceScheduleSerializer(CompanyScopedSerializerMixin, serialize
         if not items:
             raise serializers.ValidationError("line_template.items is required.")
         return value if isinstance(value, dict) else {"items": value}
+
+    def validate(self, attrs):
+        # B2-009: capture the intended day-of-month so the monthly advance can
+        # clamp from the anchor, not from an already-clamped date.
+        nra = attrs.get("next_run_at")
+        if nra is not None and not self.partial:
+            attrs["anchor_day"] = nra.day
+        return attrs

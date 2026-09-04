@@ -80,6 +80,35 @@ def import_offline(company, payload: dict, *, replace: bool = False) -> dict:
     if not isinstance(rows, list):
         raise BusinessRuleError("'rows' must be a list.")
     if replace:
+        # B5-004: a QuerySet .delete() cascades past ImsActionHistory's
+        # append-only model guard and silently wipes the ACCEPT/REJECT audit
+        # trail for the period. Archive that history to the audit log before the
+        # cascade so it is not lost without a trace.
+        from reporting.models import ImsActionHistory
+
+        history = [
+            {
+                "id": h["id"],
+                "ingest_id": h["ingest_id"],
+                "action": h["action"],
+                "remark": h["remark"],
+                "created_at": h["created_at"].isoformat() if h["created_at"] else None,
+                "acted_by_id": h["acted_by_id"],
+            }
+            for h in ImsActionHistory.objects.filter(
+                ingest__company=company, ingest__period=period
+            ).values("id", "ingest_id", "action", "remark", "created_at", "acted_by_id")
+        ]
+        if history:
+            from core.services.audit import AuditService
+
+            AuditService.log(
+                action="ims_offline_replace_archived_history",
+                company=company,
+                entity_type="GstReturnPeriod",
+                description=f"replace import for {period}",
+                metadata={"period": period, "archived_history": history},
+            )
         Gstr2bIngest.objects.filter(company=company, period=period).delete()
     valid_actions = set(Gstr2bIngest.ImsAction.values)
     created = 0
