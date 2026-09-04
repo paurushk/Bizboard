@@ -1065,6 +1065,8 @@ export const hi = {
     serialNumbersHint: 'प्रति पंक्ति एक सीरियल (पूर्ण पर तैयार माल)।',
     componentSerials: 'घटक सीरियल',
     componentSerialsHint: 'प्रति घटक एक पंक्ति: componentId: serial1, serial2',
+    componentSerialsInvalidJson:
+      'यदि घटक सीरियल \'{\' से शुरू होता है तो वह मान्य JSON होना चाहिए (जैसे {"comp1": ["SN1","SN2"]})। इसे ठीक करें या बिना घटक सीरियल दर्ज किए रिलीज़ करने के लिए फ़ील्ड खाली करें।',
   },
   import: {
     title: 'डेटा आयात',

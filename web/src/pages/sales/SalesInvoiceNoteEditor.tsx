@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -43,6 +43,7 @@ import {
 import type { InvoiceSourceLine } from '@/components/billing';
 import { NoteEinvoicePanel } from '@/components/NoteEinvoicePanel';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { PdfStatusPoller } from '@/components/PdfStatusPoller';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
@@ -72,6 +73,9 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
   const { message, error, clearFeedback, flashError, setMessage } = useBillingSaveFeedback();
 
   const [loaded, setLoaded] = useState(false);
+  // F2-041: suppress UnsavedChangesGuard for the programmatic navigate() after
+  // a deliberate save/cancel — those aren't "discarding" anything.
+  const skipLeaveGuard = useRef(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [invoice, setInvoice] = useState<SalesInvoice | null>(null);
   const [noteDate, setNoteDate] = useState(todayIso());
@@ -232,6 +236,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
       setMessage(t('phase1.saved'));
       void qc.invalidateQueries({ queryKey: [queryKey] });
       if (!isEdit) {
+        skipLeaveGuard.current = true;
         void navigate(`${listPath}/${doc.id}`, { replace: true });
       } else {
         setEditingStatus(doc.status);
@@ -246,6 +251,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     onSuccess: () => {
       setMessage(t('phase1.cancelled'));
       void qc.invalidateQueries({ queryKey: [queryKey] });
+      skipLeaveGuard.current = true;
       void navigate(listPath);
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -307,6 +313,9 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
         </>
       }
     >
+      <UnsavedChangesGuard
+        when={!skipLeaveGuard.current && (Boolean(invoice) || activeSourceLines(lines).length > 0)}
+      />
       <Stack spacing={2}>
         {editingStatus === 'COMPLETED' && isEdit ? (
           <PdfStatusPoller

@@ -46,7 +46,7 @@ import {
   updateSalesInvoice,
   uploadFile,
 } from '@/api/resources';
-import { getErrorCode, getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
+import { getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
 import { trackInvoiceComplete } from '@/lib/telemetry';
 import { useAuth } from '@/auth/AuthContext';
 import {
@@ -97,6 +97,7 @@ import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { HelpHint } from '@/pages/help/HelpHint';
 import { makeInvoiceLine } from '@/pages/sales/invoice/makeInvoiceLine';
 import { useInvoiceOffline } from '@/pages/sales/invoice/useInvoiceOffline';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 
 const COL_PREFS_KEY = 'bizboard.billing.batchCols';
 
@@ -104,39 +105,14 @@ async function completeInvoiceWithConfirms(
   id: number,
   base: { confirmSalesRcm?: boolean },
 ): Promise<SalesInvoice> {
+  // F2-035: delegate to the shared completeWithConfirms loop instead of a
+  // hand-nested try/catch that only recovered one confirm code per level —
+  // GSTIN_TOTAL_CHANGED then place_of_supply_unresolved (or a third code) at
+  // the second retry used to rethrow instead of prompting.
   const started = Date.now();
-  const run = (extra: { confirmBlankPos?: boolean; confirmGstinTotalChange?: boolean } = {}) =>
-    completeSalesInvoice(id, { ...base, ...extra });
-  const timed = async (fn: () => Promise<SalesInvoice>) => {
-    const invoice = await fn();
-    trackInvoiceComplete(Date.now() - started);
-    return invoice;
-  };
-  try {
-    return await timed(() => run());
-  } catch (err) {
-    const extra: { confirmBlankPos?: boolean; confirmGstinTotalChange?: boolean } = {};
-    const code = getErrorCode(err);
-    if (code === 'place_of_supply_unresolved' && window.confirm(t('billing.confirmBlankPos'))) {
-      extra.confirmBlankPos = true;
-    } else if (code === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-      extra.confirmGstinTotalChange = true;
-    } else {
-      throw err;
-    }
-    try {
-      return await timed(() => run(extra));
-    } catch (err2) {
-      const code2 = getErrorCode(err2);
-      if (code2 === 'GSTIN_TOTAL_CHANGED' && !extra.confirmGstinTotalChange && window.confirm(t('billing.confirmGstinTotalChange'))) {
-        return await timed(() => run({ ...extra, confirmGstinTotalChange: true }));
-      }
-      if (code2 === 'place_of_supply_unresolved' && !extra.confirmBlankPos && window.confirm(t('billing.confirmBlankPos'))) {
-        return await timed(() => run({ ...extra, confirmBlankPos: true }));
-      }
-      throw err2;
-    }
-  }
+  const invoice = await completeWithConfirms((extra) => completeSalesInvoice(id, { ...base, ...extra }));
+  trackInvoiceComplete(Date.now() - started);
+  return invoice;
 }
 
 export function NewInvoicePage() {
@@ -1050,17 +1026,10 @@ export function NewInvoicePage() {
     );
   };
 
-  useEffect(() => {
-    // BUG-513: warn before an accidental tab close/refresh discards a
-    // half-built invoice — no confirmation existed at all previously.
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (skipLeaveGuard.current || (lines.length === 0 && !customerId)) return;
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [lines.length, customerId]);
+  // BUG-513/F3-015: the tab-close/refresh warning now lives in
+  // UnsavedChangesGuard itself (rendered below with the same `when`), so
+  // every page that renders the guard gets it for free instead of each
+  // hand-rolling its own beforeunload listener.
 
   const activeCustomers = (customers.data?.results ?? []).filter((c) => c.status === 'ACTIVE');
   const canSave = lines.length > 0 && Boolean(customerId) && !saveMutation.isPending;

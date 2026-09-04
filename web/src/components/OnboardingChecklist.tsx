@@ -66,10 +66,13 @@ export function OnboardingChecklist({ company, productCount = 0, invoiceCount = 
               <Typography variant="h6" fontWeight={700} color="primary.dark">
                 {t('onboarding.title')}
               </Typography>
+              {/* F3-074: completedSteps === 4 (+ hasInvoices) always short-circuits
+                  to the early `return null` above, so a 'success' branch here was
+                  dead code — 3/4 is the highest state this chip can ever show. */}
               <Chip
                 label={`${completedSteps} / 4 ${t('status.completed')}`}
                 size="small"
-                color={completedSteps === 4 ? 'success' : 'primary'}
+                color={completedSteps === 3 ? 'success' : 'primary'}
                 variant="outlined"
               />
             </Stack>

@@ -17,6 +17,7 @@ import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 
 type AiForm = {
   aiFeaturesEnabled: boolean;
@@ -30,7 +31,7 @@ export function AiSettingsPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  const { control, handleSubmit, reset } = useForm<AiForm>({
+  const { control, handleSubmit, reset, formState: { isDirty } } = useForm<AiForm>({
     defaultValues: {
       aiFeaturesEnabled: false,
       dailySummaryEmailEnabled: false,
@@ -65,7 +66,11 @@ export function AiSettingsPage() {
         openingCashBalance: values.openingCashBalance || null,
         openingCashAsOf: values.openingCashAsOf || null,
       }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['company'] }),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: ['company'] });
+      // F3-015: clear the dirty flag post-save (see UnsavedChangesGuard below).
+      reset(variables);
+    },
   });
   // F3-073: dismissable "saved" banner; reappears on the next save because
   // mutation.submittedAt advances with every mutate() call.
@@ -84,6 +89,7 @@ export function AiSettingsPage() {
       onSubmit={handleSubmit((v) => mutation.mutate(v))}
       sx={{ maxWidth: 640 }}
     >
+      <UnsavedChangesGuard when={isDirty} />
       <PageHeader title={t('nav.aiSettings')} subtitle={t('insights.settingsSubtitle')} />
       <DisclaimerBanner>{t('insights.disclaimer')}</DisclaimerBanner>
       {mutation.isSuccess && mutation.submittedAt !== savedAck ? (

@@ -13,6 +13,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { getErrorMessage } from '@/api/client';
 import { HelpHint } from '@/pages/help/HelpHint';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import {
   createCompanyGstin,
   getCompany,
@@ -151,9 +152,11 @@ export function GstSettingsPage() {
       }
       return updateCompany(payload as never);
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['company'] });
       void queryClient.invalidateQueries({ queryKey: ['company-gstins'] });
+      // F3-015: clear the dirty flag post-save (see UnsavedChangesGuard below).
+      reset(variables);
     },
   });
   // F3-073: dismissable "saved" banner; reappears on the next save because
@@ -224,6 +227,7 @@ export function GstSettingsPage() {
         mutation.mutate(values);
       })}
     >
+      <UnsavedChangesGuard when={formState.isDirty} />
       <Typography variant="h4">{t('nav.gst')}</Typography>
       {mutation.isSuccess && mutation.submittedAt !== savedAck ? (
         <Alert severity="success" onClose={() => setSavedAck(mutation.submittedAt)}>

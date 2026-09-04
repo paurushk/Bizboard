@@ -19,7 +19,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useParams, useSearchParams } from 'react-router-dom';
-import { getErrorCode, getErrorMessage } from '@/api/client';
+import { getErrorMessage } from '@/api/client';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   amendInvoiceFilingIdentity,
@@ -49,6 +49,7 @@ import { StatusChip } from '@/components/StatusChip';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { t } from '@/i18n';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canCancelDocuments, canCreateSales, canViewFinancialReports } from '@/utils/permissions';
 import { isAllowedPaymentUrl, isAllowedShareUrl, openShareUrl } from '@/utils/safeUrl';
@@ -131,27 +132,10 @@ export function InvoiceDetailPage() {
   }, [query.data, customers.data, customers.isFetched, prefilled]);
 
   const completeMutation = useMutation({
-    mutationFn: async () => {
-      try {
-        return await completeSalesInvoice(invoiceId);
-      } catch (err) {
-        const code = getErrorCode(err);
-        if (code === 'place_of_supply_unresolved' && window.confirm(t('billing.confirmBlankPos'))) {
-          try {
-            return await completeSalesInvoice(invoiceId, { confirmBlankPos: true });
-          } catch (err2) {
-            if (getErrorCode(err2) === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-              return await completeSalesInvoice(invoiceId, { confirmBlankPos: true, confirmGstinTotalChange: true });
-            }
-            throw err2;
-          }
-        }
-        if (code === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-          return await completeSalesInvoice(invoiceId, { confirmGstinTotalChange: true });
-        }
-        throw err;
-      }
-    },
+    // F2-035: completeWithConfirms loops over known confirm codes in any
+    // order — the hand-nested try/catch here only recovered
+    // place_of_supply_unresolved -> GSTIN_TOTAL_CHANGED in that exact order.
+    mutationFn: () => completeWithConfirms((extra) => completeSalesInvoice(invoiceId, extra)),
     onSuccess: (data) => {
       const warns = (data?.warnings ?? []).filter(Boolean).join(' ');
       setMessage(warns ? `${t('billing.invoiceCompleted')} ${warns}` : t('billing.invoiceCompleted'));

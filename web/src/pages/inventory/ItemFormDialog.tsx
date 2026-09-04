@@ -47,6 +47,7 @@ import { isValidHsnSac, normalizeGstRate, GST_RATE_OPTIONS } from '@/utils/gst';
 import { STANDARD_UNITS, formatUnitLabel } from '@/constants/unitLabels';
 import { activeCustomFieldDefs, type ItemCustomFieldDef } from './itemCustomFieldDefaults';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 
 type Tracking = 'NONE' | 'BATCH' | 'SERIAL';
 type TabKey = 'basic' | 'stock' | 'pricing' | 'custom';
@@ -186,6 +187,8 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
   const defaultWarehouseId = String(warehouses[0]?.id ?? '');
   const [tab, setTab] = useState<TabKey>('basic');
   const [form, setForm] = useState<FormState>(() => buildForm(product, defaultWarehouseId));
+  // F3-015: JSON-diff dirty tracking — this form isn't react-hook-form.
+  const [baselineFormJson, setBaselineFormJson] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [hsnOpen, setHsnOpen] = useState(false);
   const [hsnQuery, setHsnQuery] = useState('');
@@ -234,7 +237,11 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
     if (!open) return;
     setTab('basic');
     setError(null);
-    setForm(buildForm(product, defaultWarehouseId, customDefs));
+    const fresh = buildForm(product, defaultWarehouseId, customDefs);
+    setForm(fresh);
+    // F3-015: snapshot this as the "clean" baseline for the unsaved-changes
+    // guard below.
+    setBaselineFormJson(JSON.stringify(fresh));
     // Reset only when the dialog opens or the edited product changes — not when
     // company defs / godowns finish loading, which would wipe in-progress edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -451,7 +458,11 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
       void qc.invalidateQueries({ queryKey: ['stock'] });
       onSaved(keepOpen);
       if (keepOpen) {
-        setForm(buildForm(null, defaultWarehouseId, customDefs));
+        // F3-015: reset the dirty baseline along with the form — otherwise the
+        // fresh blank form reads as "dirty" against the just-saved product's data.
+        const fresh = buildForm(null, defaultWarehouseId, customDefs);
+        setForm(fresh);
+        setBaselineFormJson(JSON.stringify(fresh));
         setTab('basic');
       }
     },
@@ -471,8 +482,11 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
       return { ...current, serials };
     });
 
+  const dirty = open && JSON.stringify(form) !== baselineFormJson;
+
   return (
     <>
+      <UnsavedChangesGuard when={dirty} />
       <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
         <DialogTitle>
           {product ? t('common.edit') : t('empty.createItem')}

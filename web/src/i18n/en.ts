@@ -1200,6 +1200,8 @@ export const en = {
     serialNumbersHint: 'One serial per line (finished goods on complete).',
     componentSerials: 'Component serials',
     componentSerialsHint: 'One line per component: componentId: serial1, serial2',
+    componentSerialsInvalidJson:
+      "Component serials starting with '{' must be valid JSON (e.g. {\"comp1\": [\"SN1\",\"SN2\"]}). Fix it or clear the field to release without recording component serials.",
   },
   reports: {
     period: 'Return period',

@@ -17,48 +17,8 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
 import { canExport } from '@/utils/permissions';
+import { downloadReportUrl, formatColumnHeader, isMoneyColumn } from '@/utils/reportFormat';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
-
-// F3-006: a column is a money column by its name, not by its value type.
-const MONEY_COL = /(amount|total|value|balance|price|net|gross|payable|receivable|outstanding|discount|freight|charge|cess|tcs|tds|paid|due|mrp|cogs|profit|margin)/i;
-const NOT_MONEY_COL = /(rate|percent|qty|quantity|count|hsn|sac|_?code$|number|invoices?$|bills?$|id$)/i;
-function isMoneyColumn(key: string): boolean {
-  return MONEY_COL.test(key) && !NOT_MONEY_COL.test(key);
-}
-
-function downloadBlobUrl(url: string, filename: string) {
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
-
-function formatColumnHeader(key: string): string {
-  const customMap: Record<string, string> = {
-    invoice_number: 'Invoice No.',
-    invoice_date: 'Date',
-    customer_name: 'Customer',
-    supplier_name: 'Supplier',
-    grand_total: 'Total Amount',
-    taxable_amount: 'Taxable Amt',
-    cgst_amount: 'CGST',
-    sgst_amount: 'SGST',
-    igst_amount: 'IGST',
-    total_tax: 'Total Tax',
-    net_total: 'Net Total',
-    due_date: 'Due Date',
-    payment_status: 'Payment Status',
-    party_gstin: 'GSTIN',
-  };
-  if (customMap[key]) return customMap[key];
-  return key
-    .replace(/_/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 export function SalesReportPage() {
   const { user } = useAuth();
@@ -73,7 +33,7 @@ export function SalesReportPage() {
     // BUG-616: forward the same date filter the on-screen table is using —
     // previously export ignored it and always exported the full register.
     mutationFn: () => exportReport('sales', { dateFrom: dateFrom || undefined, dateTo: dateTo || undefined }),
-    onSuccess: (r) => downloadBlobUrl(r.url, 'sales-register.csv'),
+    onSuccess: (r) => downloadReportUrl(r.url, 'sales-register.csv'),
   });
 
   return (

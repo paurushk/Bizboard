@@ -47,7 +47,7 @@ import {
   updateSupplier,
   uploadFile,
 } from '@/api/resources';
-import { getErrorCode, getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
+import { getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { isValidGstin, isValidHsnSac } from '@/utils/gst';
@@ -61,6 +61,7 @@ import {
 } from '@/offline/invoiceDraftCache';
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
 import { usePurchaseOffline } from '@/pages/purchases/usePurchaseOffline';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { DocumentTaxSummary } from '@/components/DocumentTaxSummary';
@@ -801,50 +802,24 @@ export function NewPurchasePage() {
           invoice = await updatePurchase(editId, payload);
         }
         // mode 'save' (completed edit) persists without completing — same path as draft.
+        // F2-035: completeWithConfirms loops over known confirm codes in any
+        // order (was a hand-nested try/catch that only recovered one code per
+        // level — a third code, or the two codes in the other order, used to
+        // dead-end on a raw error / swallowed warning instead of prompting).
         if (shouldComplete && invoice.status === 'DRAFT') {
           try {
-            invoice = await completePurchase(invoice.id);
+            invoice = await completeWithConfirms((extra) => completePurchase(invoice.id, extra));
           } catch (err) {
-            const code = getErrorCode(err);
-            if (code === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-              invoice = await completePurchase(invoice.id, { confirmGstinTotalChange: true });
-            } else if (getErrorCode(err) === 'place_of_supply_unresolved' && window.confirm(t('billing.confirmBlankPos'))) {
-              try {
-                invoice = await completePurchase(invoice.id, { confirmBlankPos: true });
-              } catch (err2) {
-                if (getErrorCode(err2) === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-                  invoice = await completePurchase(invoice.id, { confirmBlankPos: true, confirmGstinTotalChange: true });
-                } else {
-                  completeWarning = getErrorMessage(err2);
-                }
-              }
-            } else {
-              completeWarning = getErrorMessage(err);
-            }
+            completeWarning = getErrorMessage(err);
           }
         }
       } else {
         invoice = await createPurchase(payload, { idempotencyKey: key });
         if (shouldComplete) {
           try {
-            invoice = await completePurchase(invoice.id);
+            invoice = await completeWithConfirms((extra) => completePurchase(invoice.id, extra));
           } catch (err) {
-            const code = getErrorCode(err);
-            if (code === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-              invoice = await completePurchase(invoice.id, { confirmGstinTotalChange: true });
-            } else if (code === 'place_of_supply_unresolved' && window.confirm(t('billing.confirmBlankPos'))) {
-              try {
-                invoice = await completePurchase(invoice.id, { confirmBlankPos: true });
-              } catch (err2) {
-                if (getErrorCode(err2) === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-                  invoice = await completePurchase(invoice.id, { confirmBlankPos: true, confirmGstinTotalChange: true });
-                } else {
-                  completeWarning = getErrorMessage(err2);
-                }
-              }
-            } else {
-              completeWarning = getErrorMessage(err);
-            }
+            completeWarning = getErrorMessage(err);
           }
         }
       }
@@ -1066,15 +1041,9 @@ export function NewPurchasePage() {
     );
   };
 
-  useEffect(() => {
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (lines.length === 0) return;
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [lines.length]);
+  // F3-015: the tab-close/refresh warning now lives in UnsavedChangesGuard
+  // itself (rendered below with the same `when`), so this page doesn't need
+  // its own beforeunload listener.
 
   const activeSuppliers = (suppliers.data?.results ?? []).filter(
     (c) => c.isActive !== false && (c as unknown as { is_active?: boolean }).is_active !== false,

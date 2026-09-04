@@ -36,7 +36,7 @@ export function CustomerLedgerPage() {
     enabled: Boolean(customer?.id),
   });
 
-  const filteredEntries = useMemo(() => ledger.data?.entries ?? [], [ledger.data?.entries]);
+  const entries = useMemo(() => ledger.data?.entries ?? [], [ledger.data?.entries]);
 
   const handleWhatsAppShare = () => {
     if (!customer || !ledger.data) return;
@@ -136,7 +136,7 @@ export function CustomerLedgerPage() {
             </Stack>
           </Paper>
 
-          {filteredEntries.length === 0 ? (
+          {entries.length === 0 ? (
             <EmptyState description="No transactions found for the selected date range." />
           ) : (
             <Paper sx={{ overflow: 'auto' }}>
@@ -152,7 +152,7 @@ export function CustomerLedgerPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredEntries.map((e, idx) => (
+                  {entries.map((e, idx) => (
                     <TableRow key={`${e.date}-${e.number}-${idx}`}>
                       <TableCell>{e.date}</TableCell>
                       <TableCell>{e.type}</TableCell>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -36,6 +36,7 @@ import {
   type DraftLine,
 } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { StatusChip } from '@/components/StatusChip';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
@@ -55,6 +56,9 @@ export function PurchaseOrderEditorPage() {
   const { message, error, clearFeedback, flashError, setMessage } = useBillingSaveFeedback();
 
   const [loaded, setLoaded] = useState(false);
+  // F2-038: suppress UnsavedChangesGuard for the programmatic navigate() after
+  // a deliberate save/convert/cancel — those aren't "discarding" anything.
+  const skipLeaveGuard = useRef(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [purchaseType, setPurchaseType] = useState<PurchaseType>('NON_GST');
@@ -136,7 +140,17 @@ export function PurchaseOrderEditorPage() {
       }),
     );
     setLoaded(true);
-  }, [existing.data, loaded, intraState]);
+    // F2-040: intentionally NOT keyed on intraState — see the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing.data, loaded]);
+
+  // F2-040: suppliers.data (and so intraState) may not have loaded yet at
+  // hydration time, leaving every line at zero tax; also covers switching the
+  // supplier after lines already exist, which otherwise leaves them stale.
+  useEffect(() => {
+    if (!loaded) return;
+    setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
+  }, [intraState, loaded]);
 
   const lineTaxes = useMemo(
     () =>
@@ -199,8 +213,12 @@ export function PurchaseOrderEditorPage() {
     onSuccess: (order) => {
       setMessage(t('phase1.saved'));
       void qc.invalidateQueries({ queryKey: ['purchase-orders'] });
-      if (!isEdit) void navigate(`/purchases/orders/${order.id}`, { replace: true });
-      else setEditingStatus(order.status);
+      if (!isEdit) {
+        skipLeaveGuard.current = true;
+        void navigate(`/purchases/orders/${order.id}`, { replace: true });
+      } else {
+        setEditingStatus(order.status);
+      }
     },
     onError: (err) => flashError(getErrorMessage(err)),
   });
@@ -209,6 +227,7 @@ export function PurchaseOrderEditorPage() {
     mutationFn: () => convertPurchaseOrder(editId as number),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['purchase-orders'] });
+      skipLeaveGuard.current = true;
       void navigate('/purchases/history');
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -216,7 +235,10 @@ export function PurchaseOrderEditorPage() {
 
   const cancelMutation = useMutation({
     mutationFn: () => cancelPurchaseOrder(editId as number),
-    onSuccess: () => void navigate('/purchases/orders'),
+    onSuccess: () => {
+      skipLeaveGuard.current = true;
+      void navigate('/purchases/orders');
+    },
     onError: (err) => flashError(getErrorMessage(err)),
   });
 
@@ -257,6 +279,7 @@ export function PurchaseOrderEditorPage() {
         </>
       }
     >
+      <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(supplierId))} />
       <Stack spacing={2}>
         <Autocomplete
           options={suppliers.data ?? []}

@@ -33,6 +33,7 @@ import {
   makeLine,
   primarySaveAction,
   printBlob,
+  recomputeLine,
   todayIso,
   useBillingSaveFeedback,
   type DraftLine,
@@ -138,7 +139,17 @@ export function DeliveryChallanEditorPage() {
       }),
     );
     setLoaded(true);
-  }, [existing.data, loaded, intraState]);
+    // F2-040: intentionally NOT keyed on intraState — see the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing.data, loaded]);
+
+  // F2-040: customers.data (and so intraState) may not have loaded yet at
+  // hydration time, leaving every line at zero tax; also covers switching the
+  // customer after lines already exist, which otherwise leaves them stale.
+  useEffect(() => {
+    if (!loaded) return;
+    setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
+  }, [intraState, loaded]);
 
   const onOrderPick = async (order: SalesOrder | null) => {
     setSalesOrderId(order?.id ?? '');

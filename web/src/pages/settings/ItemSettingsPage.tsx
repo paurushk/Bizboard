@@ -39,6 +39,7 @@ import {
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 
 type FieldDef = ItemCustomFieldDef & { keyTouched?: boolean };
 
@@ -89,10 +90,16 @@ export function ItemSettingsPage() {
     [query.data?.itemCustomFieldDefs],
   );
 
+  // F3-015: JSON-compare against the last-loaded/last-saved baseline — this
+  // page isn't react-hook-form, so there's no isDirty for free.
+  const [savedDefsJson, setSavedDefsJson] = useState('');
   useEffect(() => {
     if (!query.data) return;
-    setDefs(normalizeCustomFieldDefs(query.data.itemCustomFieldDefs ?? []));
+    const normalized = normalizeCustomFieldDefs(query.data.itemCustomFieldDefs ?? []);
+    setDefs(normalized);
+    setSavedDefsJson(JSON.stringify(normalized));
   }, [query.data]);
+  const dirty = JSON.stringify(defs) !== savedDefsJson;
 
   const actives = defs.filter((row) => row.active !== false);
   const inactives = defs.filter((row) => row.active === false);
@@ -159,6 +166,7 @@ export function ItemSettingsPage() {
 
   return (
     <Stack spacing={2}>
+      <UnsavedChangesGuard when={dirty} />
       <Typography variant="h4">{t('nav.itemSettings')}</Typography>
       <Typography color="text.secondary">{t('customFields.settingsHint')}</Typography>
       {message ? <Alert severity="success">{message}</Alert> : null}

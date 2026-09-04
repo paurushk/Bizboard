@@ -17,6 +17,7 @@ import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { PreventionNote } from '@/pages/help/PreventionNote';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
@@ -28,6 +29,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { enqueueDraft } from '@/offline/invoiceDraftCache';
 import { useStockOffline } from '@/pages/inventory/useStockOffline';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { codeFromName } from '@/utils/codeGen';
 import {
   asRows,
   DataTable,
@@ -44,7 +46,7 @@ export function WarehousesPage() {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const create = useMutation({
-    mutationFn: () => api.createWarehouse({ name, code: code || name.slice(0, 8).toUpperCase() }),
+    mutationFn: () => api.createWarehouse({ name, code: code || codeFromName(name) }),
     onSuccess: () => {
       setOpen(false);
       setName('');
@@ -590,6 +592,8 @@ export function PriceListsPage() {
     name: string;
     items: { product: string; minQty: string; maxQty: string; unitPrice: string }[];
   } | null>(null);
+  // F3-015: JSON-diff baseline for the slab-editor unsaved-changes guard.
+  const [editBaselineJson, setEditBaselineJson] = useState('');
   const create = useMutation({
     mutationFn: () => api.createPriceList({ name }),
     onSuccess: () => {
@@ -679,8 +683,8 @@ export function PriceListsPage() {
             size="small"
             variant="outlined"
             disabled={writesBlocked}
-            onClick={() =>
-              setEdit({
+            onClick={() => {
+              const next = {
                 id: row.id,
                 name: row.name ?? '',
                 items: (row.items ?? []).map((item) => ({
@@ -689,8 +693,10 @@ export function PriceListsPage() {
                   maxQty: item.maxQty == null && item.max_qty == null ? '' : String(item.maxQty ?? item.max_qty),
                   unitPrice: String(item.unitPrice ?? item.unit_price ?? ''),
                 })),
-              })
-            }
+              };
+              setEdit(next);
+              setEditBaselineJson(JSON.stringify(next));
+            }}
           >
             Edit {row.name}
           </Button>
@@ -708,6 +714,7 @@ export function PriceListsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <UnsavedChangesGuard when={Boolean(edit) && JSON.stringify(edit) !== editBaselineJson} />
       <Dialog open={Boolean(edit)} onClose={() => setEdit(null)} fullWidth maxWidth="md">
         <DialogTitle>Qty slabs — {edit?.name}</DialogTitle>
         <DialogContent>

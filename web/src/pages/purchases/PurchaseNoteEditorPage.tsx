@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -38,11 +38,13 @@ import {
   SimpleTotalsPanel,
   makeLine,
   primarySaveAction,
+  recomputeLine,
   todayIso,
   useBillingSaveFeedback,
   type DraftLine,
 } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { StatusChip } from '@/components/StatusChip';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
@@ -73,6 +75,9 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
   const { message, error, clearFeedback, flashError, setMessage } = useBillingSaveFeedback();
 
   const [loaded, setLoaded] = useState(false);
+  // F2-041: suppress UnsavedChangesGuard for the programmatic navigate() after
+  // a deliberate save/cancel — those aren't "discarding" anything.
+  const skipLeaveGuard = useRef(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [purchaseInvoiceId, setPurchaseInvoiceId] = useState<number | ''>('');
@@ -155,7 +160,17 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
       }),
     );
     setLoaded(true);
-  }, [existing.data, loaded, intraState]);
+    // F2-040: intentionally NOT keyed on intraState — see the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing.data, loaded]);
+
+  // F2-040: suppliers.data (and so intraState) may not have loaded yet at
+  // hydration time, leaving every line at zero tax; also covers switching the
+  // supplier after lines already exist, which otherwise leaves them stale.
+  useEffect(() => {
+    if (!loaded) return;
+    setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
+  }, [intraState, loaded]);
 
   const onPurchasePick = async (pur: PurchaseInvoice | null) => {
     setPurchaseInvoiceId(pur?.id ?? '');
@@ -290,15 +305,22 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     onSuccess: (doc) => {
       setMessage(t('phase1.saved'));
       void qc.invalidateQueries({ queryKey: [queryKey] });
-      if (!isEdit) void navigate(`${listPath}/${doc.id}`, { replace: true });
-      else setEditingStatus(doc.status);
+      if (!isEdit) {
+        skipLeaveGuard.current = true;
+        void navigate(`${listPath}/${doc.id}`, { replace: true });
+      } else {
+        setEditingStatus(doc.status);
+      }
     },
     onError: (err) => flashError(getErrorMessage(err)),
   });
 
   const cancelMutation = useMutation({
     mutationFn: () => (isCredit ? cancelPurchaseCreditNote(editId as number) : cancelPurchaseDebitNote(editId as number)),
-    onSuccess: () => void navigate(listPath),
+    onSuccess: () => {
+      skipLeaveGuard.current = true;
+      void navigate(listPath);
+    },
     onError: (err) => flashError(getErrorMessage(err)),
   });
 
@@ -334,6 +356,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
         ) : null
       }
     >
+      <UnsavedChangesGuard when={!skipLeaveGuard.current && (effectiveLines.length > 0 || Boolean(supplierId))} />
       <Stack spacing={2}>
         <Autocomplete
           options={suppliers.data ?? []}

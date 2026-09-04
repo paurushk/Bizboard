@@ -23,6 +23,7 @@ import { canManageUsers } from '@/utils/permissions';
 
 import { StateSelect } from '@/components/StateSelect';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 
 type CompanyForm = Pick<
   Company,
@@ -56,7 +57,7 @@ export function CompanySettingsPage() {
     // when the user tabs away and back.
     refetchOnWindowFocus: false,
   });
-  const { control, handleSubmit, reset } = useForm<CompanyForm>();
+  const { control, handleSubmit, reset, formState: { isDirty } } = useForm<CompanyForm>();
   const seededRef = useRef(false);
 
   useEffect(() => {
@@ -114,7 +115,12 @@ export function CompanySettingsPage() {
         dunningQuietHoursEnd: values.dunningQuietHoursEnd,
       });
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['company'] }),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['company'] });
+      // F3-015: clear the dirty flag post-save so UnsavedChangesGuard doesn't
+      // warn on navigating away right after a successful save.
+      reset(variables);
+    },
   });
   // F3-073: let the "saved" banner be dismissed; it reappears on the next save
   // because mutation.submittedAt advances with every mutate() call.
@@ -146,6 +152,7 @@ export function CompanySettingsPage() {
         mutation.mutate(values);
       })}
     >
+      <UnsavedChangesGuard when={isDirty} />
       <Typography variant="h4">{t('nav.company')}</Typography>
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
         <Chip

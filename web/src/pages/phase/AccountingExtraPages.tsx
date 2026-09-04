@@ -17,6 +17,7 @@ import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney, toNumber } from '@/utils/money';
 import { nextIndianFyEnd } from '@/utils/fy';
+import { codeFromName } from '@/utils/codeGen';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
@@ -345,7 +346,7 @@ export function CostCentersPage() {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const create = useMutation({
-    mutationFn: () => api.createCostCenter({ name, code: code || name.slice(0, 8).toUpperCase() }),
+    mutationFn: () => api.createCostCenter({ name, code: code || codeFromName(name) }),
     onSuccess: () => {
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ['cost-centers'] });

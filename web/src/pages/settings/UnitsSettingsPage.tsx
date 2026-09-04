@@ -26,6 +26,7 @@ import type { Unit } from '@/types/domain';
 import { useAuth } from '@/auth/AuthContext';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 
 const emptyForm = { name: '', shortName: '', uqcCode: 'PCS' };
 
@@ -36,6 +37,8 @@ export function UnitsSettingsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Unit | null>(null);
   const [form, setForm] = useState(emptyForm);
+  // F3-015: JSON-diff baseline for the unsaved-changes guard (no react-hook-form here).
+  const [baselineFormJson, setBaselineFormJson] = useState(JSON.stringify(emptyForm));
   const [error, setError] = useState<string | null>(null);
 
   const saveMutation = useMutation({
@@ -57,6 +60,7 @@ export function UnitsSettingsPage() {
       setOpen(false);
       setEditing(null);
       setForm(emptyForm);
+      setBaselineFormJson(JSON.stringify(emptyForm));
       void qc.invalidateQueries({ queryKey: ['units'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -68,8 +72,11 @@ export function UnitsSettingsPage() {
     return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
 
+  const dirty = open && JSON.stringify(form) !== baselineFormJson;
+
   return (
     <Stack spacing={2}>
+      <UnsavedChangesGuard when={dirty} />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">Units</Typography>
         <Button
@@ -77,6 +84,7 @@ export function UnitsSettingsPage() {
           onClick={() => {
             setEditing(null);
             setForm(emptyForm);
+            setBaselineFormJson(JSON.stringify(emptyForm));
             setOpen(true);
           }}
         >
@@ -107,11 +115,15 @@ export function UnitsSettingsPage() {
                       size="small"
                       onClick={() => {
                         setEditing(unit);
-                        setForm({
-                          name: unit.name,
-                          shortName: unit.shortName ?? '',
-                          uqcCode: unit.uqcCode ?? 'PCS',
-                        });
+                        {
+                          const next = {
+                            name: unit.name,
+                            shortName: unit.shortName ?? '',
+                            uqcCode: unit.uqcCode ?? 'PCS',
+                          };
+                          setForm(next);
+                          setBaselineFormJson(JSON.stringify(next));
+                        }
                         setOpen(true);
                       }}
                     >
