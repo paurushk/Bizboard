@@ -141,6 +141,9 @@ export function CustomerLedgerPage() {
           {entries.length === 0 ? (
             <EmptyState description="No transactions found for the selected date range." />
           ) : (
+            // F3-017: deliberately NOT virtualized — the Print button above
+            // relies on every row being in the DOM (a windowed list would
+            // only print the currently-visible rows).
             <Paper sx={{ overflow: 'auto' }}>
               <Table size="small">
                 <TableHead>

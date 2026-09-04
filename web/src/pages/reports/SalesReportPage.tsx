@@ -1,12 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
-import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -15,10 +9,10 @@ import { exportReport, getSalesRegister } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
-import { formatMoney } from '@/utils/money';
 import { canExport } from '@/utils/permissions';
 import { downloadReportUrl, formatColumnHeader, isMoneyColumn } from '@/utils/reportFormat';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { DataTable } from '@/pages/phase/phaseShared';
 
 export function SalesReportPage() {
   const { user } = useAuth();
@@ -35,6 +29,18 @@ export function SalesReportPage() {
     mutationFn: () => exportReport('sales', { dateFrom: dateFrom || undefined, dateTo: dateTo || undefined }),
     onSuccess: (r) => downloadReportUrl(r.url, 'sales-register.csv'),
   });
+
+  // F3-017: an unbounded date range can return the entire register —
+  // window the DOM rows via phaseShared.DataTable's virtualized mode.
+  const columns = useMemo(
+    () =>
+      (query.data?.rows?.[0] ? Object.keys(query.data.rows[0]) : []).map((key) => ({
+        key,
+        label: formatColumnHeader(key),
+        money: isMoneyColumn(key),
+      })),
+    [query.data?.rows],
+  );
 
   return (
     <Stack spacing={2}>
@@ -77,32 +83,7 @@ export function SalesReportPage() {
       ) : null}
       {query.data?.rows?.length === 0 ? <EmptyState description={t('empty.reports')} /> : null}
       {query.data && query.data.rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                {Object.keys(query.data.rows[0]).map((key) => (
-                  <TableCell key={key}>{formatColumnHeader(key)}</TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {query.data.rows.map((row, idx) => (
-                <TableRow key={idx}>
-                  {Object.entries(row).map(([key, value]) => (
-                    <TableCell key={key}>
-                      {/* F3-006: only money-format columns whose *name* is a money field —
-                          "any numeric value" also caught hsn_code / gst_rate / quantity. */}
-                      {isMoneyColumn(key) && (typeof value === 'number' || typeof value === 'string')
-                        ? formatMoney(value as string | number)
-                        : String(value ?? '—')}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Paper>
+        <DataTable rows={query.data.rows} columns={columns} empty={t('empty.reports')} virtualized />
       ) : null}
     </Stack>
   );

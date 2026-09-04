@@ -1,13 +1,7 @@
 import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
-import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,6 +13,7 @@ import { PageHeader } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { openShareUrl } from '@/utils/safeUrl';
+import { DataTable } from '@/pages/phase/phaseShared';
 
 function currentPeriod() {
   const d = new Date();
@@ -66,6 +61,15 @@ export function MissingDocumentsPage() {
   }
 
   const items = query.data?.items ?? [];
+  // F3-017: normalize the camelCase/snake_case field fallbacks once so
+  // DataTable's generic column lookup can key straight into each row.
+  const rows = items.map((row) => ({
+    ...row,
+    supplierGstin: row.supplierGstin ?? row.supplier_gstin ?? '',
+    invoiceNumber: row.invoiceNumber ?? row.invoice_number ?? '',
+    invoiceDate: row.invoiceDate ?? row.invoice_date ?? '',
+    taxableValue: row.taxableValue ?? row.taxable_value ?? '',
+  }));
 
   return (
     <Stack spacing={2}>
@@ -108,45 +112,34 @@ export function MissingDocumentsPage() {
       {items.length === 0 ? (
         <EmptyState description={t('chase.empty')} />
       ) : (
-        <Paper variant="outlined" sx={{ overflow: 'auto' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>{t('chase.supplierGstin')}</TableCell>
-                <TableCell>{t('chase.invoiceNumber')}</TableCell>
-                <TableCell>{t('chase.date')}</TableCell>
-                <TableCell align="right">{t('chase.taxable')}</TableCell>
-                <TableCell>{t('chase.status')}</TableCell>
-                <TableCell>{t('chase.photo')}</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {items.map((row) => (
-                <TableRow key={String(row.id)}>
-                  <TableCell>{String(row.supplierGstin ?? row.supplier_gstin ?? '')}</TableCell>
-                  <TableCell>{String(row.invoiceNumber ?? row.invoice_number ?? '')}</TableCell>
-                  <TableCell>{String(row.invoiceDate ?? row.invoice_date ?? '')}</TableCell>
-                  <TableCell align="right">{String(row.taxableValue ?? row.taxable_value ?? '')}</TableCell>
-                  <TableCell>{String(row.status ?? '')}</TableCell>
-                  <TableCell>
-                    <Button component="label" size="small">
-                      {t('chase.upload')}
-                      <input
-                        type="file"
-                        hidden
-                        accept="image/*,application/pdf"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) photo.mutate({ id: Number(row.id), file });
-                        }}
-                      />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Paper>
+        <DataTable
+          rows={rows}
+          empty={t('chase.empty')}
+          // F3-017: window the DOM rows instead of rendering every missing
+          // document in the period at once.
+          virtualized
+          columns={[
+            { key: 'supplierGstin', label: t('chase.supplierGstin') },
+            { key: 'invoiceNumber', label: t('chase.invoiceNumber') },
+            { key: 'invoiceDate', label: t('chase.date') },
+            { key: 'taxableValue', label: t('chase.taxable') },
+            { key: 'status', label: t('chase.status') },
+          ]}
+          actions={(row) => (
+            <Button component="label" size="small">
+              {t('chase.upload')}
+              <input
+                type="file"
+                hidden
+                accept="image/*,application/pdf"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) photo.mutate({ id: Number(row.id), file });
+                }}
+              />
+            </Button>
+          )}
+        />
       )}
       <Typography variant="caption" color="text.secondary">
         {t('chase.count', { count: String(items.length) })}

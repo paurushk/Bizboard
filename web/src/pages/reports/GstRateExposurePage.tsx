@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient, getErrorMessage, unwrapData } from '@/api/client';
 import { DisclaimerBanner, KpiStat, PageHeader } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
 
@@ -93,34 +94,60 @@ export function GstRateExposurePage() {
       ) : null}
       {!query.isLoading && rows.length === 0 ? <EmptyState description={t('ims.rateScanEmpty')} /> : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>{t('ims.invoice')}</TableCell>
-                <TableCell>HSN</TableCell>
-                <TableCell align="right">{t('ims.billedRate')}</TableCell>
-                <TableCell align="right">{t('ims.expectedRate')}</TableCell>
-                <TableCell align="right">{t('ims.taxDelta')}</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={`${row.invoiceId}-${row.hsn}-${row.invoiceDate || row.invoice_date}`}>
-                  <TableCell>
-                    {row.invoiceNumber || row.invoice_number}
-                    <Typography variant="caption" display="block" color="text.secondary">
-                      {row.invoiceDate || row.invoice_date}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>{row.hsn}</TableCell>
-                  <TableCell align="right">{row.billedRate || row.billed_rate}</TableCell>
-                  <TableCell align="right">{row.expectedRate || row.expected_rate}</TableCell>
-                  <TableCell align="right">{formatMoney(row.taxDelta || row.tax_delta)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        // F3-017: the date range defaults to the whole fiscal year to date —
+        // window the DOM rows instead of rendering them all at once.
+        <Paper sx={{ overflow: 'hidden' }}>
+          <VirtualizedTable rowCount={rows.length} rowHeight={52}>
+            {({ rows: virtualRows, totalSize, measureElement }) => (
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>{t('ims.invoice')}</TableCell>
+                    <TableCell>HSN</TableCell>
+                    <TableCell align="right">{t('ims.billedRate')}</TableCell>
+                    <TableCell align="right">{t('ims.expectedRate')}</TableCell>
+                    <TableCell align="right">{t('ims.taxDelta')}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {virtualRows.length ? (
+                    <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden>
+                      <TableCell style={{ padding: 0, border: 0 }} colSpan={5} />
+                    </TableRow>
+                  ) : null}
+                  {virtualRows.map((vRow) => {
+                    const row = rows[vRow.index];
+                    return (
+                      <TableRow
+                        key={`${row.invoiceId}-${row.hsn}-${row.invoiceDate || row.invoice_date}`}
+                        data-index={vRow.index}
+                        ref={measureElement}
+                      >
+                        <TableCell>
+                          {row.invoiceNumber || row.invoice_number}
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            {row.invoiceDate || row.invoice_date}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>{row.hsn}</TableCell>
+                        <TableCell align="right">{row.billedRate || row.billed_rate}</TableCell>
+                        <TableCell align="right">{row.expectedRate || row.expected_rate}</TableCell>
+                        <TableCell align="right">{formatMoney(row.taxDelta || row.tax_delta)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {virtualRows.length ? (
+                    <TableRow
+                      style={{ height: totalSize - virtualRows[virtualRows.length - 1].end, padding: 0, border: 0 }}
+                      aria-hidden
+                    >
+                      <TableCell style={{ padding: 0, border: 0 }} colSpan={5} />
+                    </TableRow>
+                  ) : null}
+                </TableBody>
+              </Table>
+            )}
+          </VirtualizedTable>
         </Paper>
       ) : null}
     </Stack>

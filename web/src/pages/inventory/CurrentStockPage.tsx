@@ -12,12 +12,13 @@ import Typography from '@mui/material/Typography';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import TextField from '@mui/material/TextField';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState, Fragment } from 'react';
+import { useMemo, useState } from 'react';
 import { getErrorMessage } from '@/api/client';
 import { listStock, listWarehouses } from '@/api/resources';
 import { ColumnPicker } from '@/components/ColumnPicker';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { useAuth } from '@/auth/AuthContext';
 import { useCfFilters } from '@/hooks/useCfFilters';
@@ -149,6 +150,27 @@ export function CurrentStockPage() {
     })) as StockRow[];
   }, [query.data, warehouse, warehouseName]);
 
+  // F3-017: listStock() walks the whole company's stock balances (every
+  // product × warehouse × batch) — flatten the group/lot rows the expand
+  // toggle can produce into one list and window it, rather than rendering
+  // every group (and every expanded lot) into the DOM at once.
+  type FlatRow =
+    | { key: string; kind: 'group'; groupRow: StockRow }
+    | { key: string; kind: 'lot'; lotRow: StockRow };
+  const flatRows = useMemo<FlatRow[]>(() => {
+    const out: FlatRow[] = [];
+    for (const s of rows) {
+      const rowKey = `${s.warehouse ?? 'all'}-${s.product}`;
+      out.push({ key: rowKey, kind: 'group', groupRow: s });
+      if (expanded[rowKey]) {
+        for (const lot of s.lots ?? []) {
+          out.push({ key: `${rowKey}-${lot.id ?? lot.batchNo}-${lot.warehouse}`, kind: 'lot', lotRow: lot });
+        }
+      }
+    }
+    return out;
+  }, [rows, expanded]);
+
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
@@ -194,114 +216,148 @@ export function CurrentStockPage() {
         />
       ) : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                {prefs.isVisible('name') ? <TableCell>{t('common.name')}</TableCell> : null}
-                {prefs.isVisible('sku') ? <TableCell>{t('common.sku')}</TableCell> : null}
-                {visibleCustom.map((def) => (
-                  <TableCell key={def.key}>{def.label}</TableCell>
-                ))}
-                {prefs.isVisible('warehouse') ? <TableCell>{t('nav.warehouses')}</TableCell> : null}
-                {prefs.isVisible('expiry') ? <TableCell>Nearest expiry</TableCell> : null}
-                {prefs.isVisible('onHand') ? <TableCell align="right">On Hand</TableCell> : null}
-                {prefs.isVisible('reserved') ? (
-                  <TableCell align="right">
-                    Reserved{' '}
-                    <Tooltip title={t('billing.reservedStockHint')}>
-                      <InfoOutlinedIcon
-                        fontSize="inherit"
-                        aria-label={t('billing.reservedStockHint')}
-                        tabIndex={0}
-                        sx={{ verticalAlign: 'middle', cursor: 'help' }}
-                      />
-                    </Tooltip>
-                  </TableCell>
-                ) : null}
-                {prefs.isVisible('available') ? <TableCell align="right">Available</TableCell> : null}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((s) => {
-                const rowKey = `${s.warehouse ?? 'all'}-${s.product}`;
-                const children = s.lots ?? [];
-                const isOpen = Boolean(expanded[rowKey]);
-                return (
-                  <Fragment key={rowKey}>
+        <Paper sx={{ overflow: 'hidden' }}>
+          <VirtualizedTable rowCount={flatRows.length} rowHeight={52}>
+            {({ rows: virtualRows, totalSize, measureElement }) => {
+              const colCount =
+                (prefs.isVisible('name') ? 1 : 0) +
+                (prefs.isVisible('sku') ? 1 : 0) +
+                visibleCustom.length +
+                (prefs.isVisible('warehouse') ? 1 : 0) +
+                (prefs.isVisible('expiry') ? 1 : 0) +
+                (prefs.isVisible('onHand') ? 1 : 0) +
+                (prefs.isVisible('reserved') ? 1 : 0) +
+                (prefs.isVisible('available') ? 1 : 0);
+              return (
+                <Table size="small" stickyHeader>
+                  <TableHead>
                     <TableRow>
-                      {prefs.isVisible('name') ? (
-                        <TableCell
-                          sx={{
-                            position: { xs: 'sticky', md: 'static' },
-                            left: 0,
-                            zIndex: 1,
-                            bgcolor: 'background.paper',
-                            minWidth: 120,
-                          }}
-                        >
-                          {children.length > 0 ? (
-                            <Button
-                              size="small"
-                              onClick={() => setExpanded((current) => ({ ...current, [rowKey]: !isOpen }))}
-                            >
-                              {isOpen ? 'Hide lots' : 'Show lots'}
-                            </Button>
-                          ) : null}{' '}
-                          {s.productName}
-                        </TableCell>
-                      ) : null}
-                      {prefs.isVisible('sku') ? <TableCell>{s.sku}</TableCell> : null}
+                      {prefs.isVisible('name') ? <TableCell>{t('common.name')}</TableCell> : null}
+                      {prefs.isVisible('sku') ? <TableCell>{t('common.sku')}</TableCell> : null}
                       {visibleCustom.map((def) => (
-                        <TableCell key={def.key}>{customFieldCell(s.customFields, def.key)}</TableCell>
+                        <TableCell key={def.key}>{def.label}</TableCell>
                       ))}
-                      {prefs.isVisible('warehouse') ? <TableCell>{s.warehouseLabel}</TableCell> : null}
-                      {prefs.isVisible('expiry') ? <TableCell>{s.nearestExpiryLabel}</TableCell> : null}
-                      {prefs.isVisible('onHand') ? (
-                        <TableCell
-                          align="right"
-                          sx={{
-                            fontWeight: 600,
-                            color: s.availableNum < 0 ? 'error.main' : undefined,
-                          }}
-                        >
-                          {s.onHandNum}
+                      {prefs.isVisible('warehouse') ? <TableCell>{t('nav.warehouses')}</TableCell> : null}
+                      {prefs.isVisible('expiry') ? <TableCell>Nearest expiry</TableCell> : null}
+                      {prefs.isVisible('onHand') ? <TableCell align="right">On Hand</TableCell> : null}
+                      {prefs.isVisible('reserved') ? (
+                        <TableCell align="right">
+                          Reserved{' '}
+                          <Tooltip title={t('billing.reservedStockHint')}>
+                            <InfoOutlinedIcon
+                              fontSize="inherit"
+                              aria-label={t('billing.reservedStockHint')}
+                              tabIndex={0}
+                              sx={{ verticalAlign: 'middle', cursor: 'help' }}
+                            />
+                          </Tooltip>
                         </TableCell>
                       ) : null}
-                      {prefs.isVisible('reserved') ? <TableCell align="right">{s.reservedNum}</TableCell> : null}
-                      {prefs.isVisible('available') ? (
-                        <TableCell
-                          align="right"
-                          sx={{
-                            color: s.availableNum < 0 ? 'error.main' : 'success.main',
-                            fontWeight: 600,
-                          }}
-                        >
-                          {s.availableNum}
-                        </TableCell>
-                      ) : null}
+                      {prefs.isVisible('available') ? <TableCell align="right">Available</TableCell> : null}
                     </TableRow>
-                    {isOpen
-                      ? children.map((lot: StockRow) => (
-                          <TableRow key={`${rowKey}-${lot.id ?? lot.batchNo}-${lot.warehouse}`} sx={{ bgcolor: 'action.hover' }}>
-                            {prefs.isVisible('name') ? <TableCell sx={{ pl: 6 }}>{lot.lotLabel}</TableCell> : null}
-                            {prefs.isVisible('sku') ? <TableCell /> : null}
+                  </TableHead>
+                  <TableBody>
+                    {virtualRows.length ? (
+                      <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden>
+                        <TableCell style={{ padding: 0, border: 0 }} colSpan={colCount} />
+                      </TableRow>
+                    ) : null}
+                    {virtualRows.map((vRow) => {
+                      const flat = flatRows[vRow.index];
+                      if (flat.kind === 'group') {
+                        const s = flat.groupRow;
+                        const rowKey = flat.key;
+                        const children = s.lots ?? [];
+                        const isOpen = Boolean(expanded[rowKey]);
+                        return (
+                          <TableRow key={rowKey} data-index={vRow.index} ref={measureElement}>
+                            {prefs.isVisible('name') ? (
+                              <TableCell
+                                sx={{
+                                  position: { xs: 'sticky', md: 'static' },
+                                  left: 0,
+                                  zIndex: 1,
+                                  bgcolor: 'background.paper',
+                                  minWidth: 120,
+                                }}
+                              >
+                                {children.length > 0 ? (
+                                  <Button
+                                    size="small"
+                                    onClick={() => setExpanded((current) => ({ ...current, [rowKey]: !isOpen }))}
+                                  >
+                                    {isOpen ? 'Hide lots' : 'Show lots'}
+                                  </Button>
+                                ) : null}{' '}
+                                {s.productName}
+                              </TableCell>
+                            ) : null}
+                            {prefs.isVisible('sku') ? <TableCell>{s.sku}</TableCell> : null}
                             {visibleCustom.map((def) => (
-                              <TableCell key={def.key} />
+                              <TableCell key={def.key}>{customFieldCell(s.customFields, def.key)}</TableCell>
                             ))}
-                            {prefs.isVisible('warehouse') ? <TableCell>{lot.warehouseLabel}</TableCell> : null}
-                            {prefs.isVisible('expiry') ? <TableCell>{lot.nearestExpiryLabel}</TableCell> : null}
-                            {prefs.isVisible('onHand') ? <TableCell align="right">{lot.onHandNum}</TableCell> : null}
-                            {prefs.isVisible('reserved') ? <TableCell align="right">{lot.reservedNum}</TableCell> : null}
-                            {prefs.isVisible('available') ? <TableCell align="right">{lot.availableNum}</TableCell> : null}
+                            {prefs.isVisible('warehouse') ? <TableCell>{s.warehouseLabel}</TableCell> : null}
+                            {prefs.isVisible('expiry') ? <TableCell>{s.nearestExpiryLabel}</TableCell> : null}
+                            {prefs.isVisible('onHand') ? (
+                              <TableCell
+                                align="right"
+                                sx={{
+                                  fontWeight: 600,
+                                  color: s.availableNum < 0 ? 'error.main' : undefined,
+                                }}
+                              >
+                                {s.onHandNum}
+                              </TableCell>
+                            ) : null}
+                            {prefs.isVisible('reserved') ? <TableCell align="right">{s.reservedNum}</TableCell> : null}
+                            {prefs.isVisible('available') ? (
+                              <TableCell
+                                align="right"
+                                sx={{
+                                  color: s.availableNum < 0 ? 'error.main' : 'success.main',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {s.availableNum}
+                              </TableCell>
+                            ) : null}
                           </TableRow>
-                        ))
-                      : null}
-                  </Fragment>
-                );
-              })}
-            </TableBody>
-          </Table>
+                        );
+                      }
+                      const lot = flat.lotRow;
+                      return (
+                        <TableRow
+                          key={flat.key}
+                          data-index={vRow.index}
+                          ref={measureElement}
+                          sx={{ bgcolor: 'action.hover' }}
+                        >
+                          {prefs.isVisible('name') ? <TableCell sx={{ pl: 6 }}>{lot.lotLabel}</TableCell> : null}
+                          {prefs.isVisible('sku') ? <TableCell /> : null}
+                          {visibleCustom.map((def) => (
+                            <TableCell key={def.key} />
+                          ))}
+                          {prefs.isVisible('warehouse') ? <TableCell>{lot.warehouseLabel}</TableCell> : null}
+                          {prefs.isVisible('expiry') ? <TableCell>{lot.nearestExpiryLabel}</TableCell> : null}
+                          {prefs.isVisible('onHand') ? <TableCell align="right">{lot.onHandNum}</TableCell> : null}
+                          {prefs.isVisible('reserved') ? <TableCell align="right">{lot.reservedNum}</TableCell> : null}
+                          {prefs.isVisible('available') ? <TableCell align="right">{lot.availableNum}</TableCell> : null}
+                        </TableRow>
+                      );
+                    })}
+                    {virtualRows.length ? (
+                      <TableRow
+                        style={{ height: totalSize - virtualRows[virtualRows.length - 1].end, padding: 0, border: 0 }}
+                        aria-hidden
+                      >
+                        <TableCell style={{ padding: 0, border: 0 }} colSpan={colCount} />
+                      </TableRow>
+                    ) : null}
+                  </TableBody>
+                </Table>
+              );
+            }}
+          </VirtualizedTable>
         </Paper>
       ) : null}
     </Stack>
