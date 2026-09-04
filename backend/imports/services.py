@@ -3,7 +3,7 @@
 import csv
 import hashlib
 import io
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
@@ -601,6 +601,11 @@ def _normalize_gst_rate(
     if required and value in (None, ""):
         prefix = f"Row {row}: " if row is not None else ""
         raise BusinessRuleError(f"{prefix}GST rate is required and cannot be invented.")
+    # B3-001: supplier exports very commonly write the GST cell as "18%",
+    # "18 %", "18.00%". Strip a trailing percent sign / whitespace before
+    # parsing so a formatting quirk doesn't abort the whole upload.
+    if isinstance(value, str):
+        value = value.strip().rstrip("%").strip()
     rate = _as_decimal(value, "18")
     if rate not in ALLOWED_GST:
         # Snap common OCR noise to nearest allowed rate, else 18.
@@ -623,12 +628,22 @@ def _preview_bill_line(raw_line: dict, *, index: int, rate_warnings: list[str]) 
     line_warnings: list[str] = []
     qty = _line_get(raw_line, "quantity")
     gst_raw = _line_get(raw_line, "gst_rate", "gstRate")
+    gst_unparseable = False
     if gst_raw:
-        gst_rate = str(_normalize_gst_rate(gst_raw, warnings=line_warnings, row=index))
+        try:
+            gst_rate = str(_normalize_gst_rate(gst_raw, warnings=line_warnings, row=index))
+        except (BusinessRuleError, InvalidOperation):
+            # B3-001: one bad GST cell must not abort the whole job — exclude
+            # just this line, like every other unreadable field.
+            gst_rate = ""
+            gst_unparseable = True
+            line_warnings.append(
+                f"Row {index}: GST rate {gst_raw!r} is not a number — line excluded."
+            )
     else:
         gst_rate = ""
     # Prefer explicit include from LLM normalize; otherwise require readable qty+GST.
-    if "include" in raw_line:
+    if "include" in raw_line and not gst_unparseable:
         include = bool(raw_line.get("include"))
     else:
         include = bool(qty) and bool(gst_rate)
@@ -886,7 +901,23 @@ def _xlsx_best_bill_rows(workbook) -> tuple[list[dict], dict]:
     candidates: list[tuple[int, int, list[dict]]] = []
     meta: dict[str, str] = {}
     for sheet in workbook.worksheets:
-        materialized = [tuple(row) for row in sheet.iter_rows(values_only=True)]
+        # B3-004: cap what we materialise into worker memory, matching the
+        # master-import path's guards. A crafted / huge bill sheet otherwise
+        # loads every row and JSON-serialises it onto the job.
+        materialized = []
+        cells = 0
+        for idx, row in enumerate(sheet.iter_rows(values_only=True)):
+            if idx > MAX_IMPORT_ROWS:
+                raise BusinessRuleError(
+                    f"Bill import exceeds {MAX_IMPORT_ROWS} rows. Split the file and retry."
+                )
+            row = tuple(row)
+            cells += len(row)
+            if cells > MAX_IMPORT_CELLS:
+                raise BusinessRuleError(
+                    f"Bill import exceeds {MAX_IMPORT_CELLS} cells. Split the file and retry."
+                )
+            materialized.append(row)
         if not materialized:
             continue
         header = [str(h or "").strip().lower() for h in materialized[0]]
@@ -1032,7 +1063,19 @@ def _read_structured_bill(raw: bytes, filename: str) -> tuple[list[dict], dict]:
     except BusinessRuleError:
         raise
     reader = csv.DictReader(io.StringIO(text))
-    rows = [{(k or "").strip().lower(): v for k, v in row.items()} for row in reader]
+    rows = []
+    cells = 0
+    for idx, row in enumerate(reader):
+        if idx > MAX_IMPORT_ROWS:
+            raise BusinessRuleError(
+                f"Bill import exceeds {MAX_IMPORT_ROWS} rows. Split the file and retry."
+            )
+        cells += len(row)
+        if cells > MAX_IMPORT_CELLS:
+            raise BusinessRuleError(
+                f"Bill import exceeds {MAX_IMPORT_CELLS} cells. Split the file and retry."
+            )
+        rows.append({(k or "").strip().lower(): v for k, v in row.items()})
     return rows, {}
 
 
@@ -2128,8 +2171,22 @@ class BillImportService:
     def start_extraction(job: ImportJob):
         if job.kind not in ImportJob.BILL_KINDS:
             raise BusinessRuleError("Only purchase/sales bill jobs can be extracted.")
-        if job.status not in (ImportJob.Status.UPLOADED, ImportJob.Status.FAILED):
-            raise BusinessRuleError("Extraction can only start from UPLOADED or FAILED.")
+        allowed = {ImportJob.Status.UPLOADED, ImportJob.Status.FAILED}
+        # B3-005: a hard worker kill (OOM / SIGKILL / lost broker message)
+        # strands the job in EXTRACTING with no recovery path. Treat an
+        # EXTRACTING job whose last update predates the task hard limit (plus a
+        # margin) as retryable rather than permanently wedged.
+        if job.status == ImportJob.Status.EXTRACTING and job.updated_at is not None:
+            from django.utils import timezone as _tz
+
+            stale_after = timedelta(seconds=480 + 120)
+            if _tz.now() - job.updated_at > stale_after:
+                allowed.add(ImportJob.Status.EXTRACTING)
+        if job.status not in allowed:
+            raise BusinessRuleError(
+                "Extraction can only start from UPLOADED or FAILED "
+                "(or a stalled EXTRACTING job)."
+            )
         job.status = ImportJob.Status.EXTRACTING
         job.failure_reason = ""
         job.errors = []

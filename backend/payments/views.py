@@ -1,7 +1,7 @@
 
 from decimal import Decimal, InvalidOperation
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -309,45 +309,65 @@ class PaymentAllocationViewSet(
         return qs
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        # B4-006: honour Idempotency-Key like the receipt / supplier-payment
+        # creates do, and translate the partial-unique IntegrityError on a
+        # duplicate (receipt, invoice) into a clean 4xx instead of a 500.
+        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        if raw_key:
+            claimed = begin_record(company=self.company, scope="allocation_create", raw_key=raw_key)
+            if isinstance(claimed, Response):
+                return claimed
 
-        receipt = data.get("receipt")
-        payment = data.get("supplier_payment")
-        if not receipt and not payment:
-            raise ValidationError("Either 'receipt' or 'supplier_payment' is required.")
-        if receipt and payment:
-            raise ValidationError("Provide exactly one of 'receipt' or 'supplier_payment'.")
-        if receipt and receipt.company_id != self.company.id:
-            raise BusinessRuleError("Invalid receipt reference.")
-        if payment and payment.company_id != self.company.id:
-            raise BusinessRuleError("Invalid payment reference.")
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            data = serializer.validated_data
 
-        from reporting.gst_periods import assert_period_allows_money_amend, period_complete_warning
+            receipt = data.get("receipt")
+            payment = data.get("supplier_payment")
+            if not receipt and not payment:
+                raise ValidationError("Either 'receipt' or 'supplier_payment' is required.")
+            if receipt and payment:
+                raise ValidationError("Provide exactly one of 'receipt' or 'supplier_payment'.")
+            if receipt and receipt.company_id != self.company.id:
+                raise BusinessRuleError("Invalid receipt reference.")
+            if payment and payment.company_id != self.company.id:
+                raise BusinessRuleError("Invalid payment reference.")
 
-        gate_date = None
-        if receipt is not None:
-            gate_date = receipt.receipt_date
-        elif payment is not None:
-            gate_date = payment.payment_date
-        assert_period_allows_money_amend(self.company, gate_date)
-        warning = period_complete_warning(self.company, gate_date)
+            from reporting.gst_periods import assert_period_allows_money_amend, period_complete_warning
 
-        if receipt:
-            allocation = PaymentService.allocate_receipt(
-                receipt=receipt,
-                sales_invoice=data["sales_invoice"],
-                amount=data["amount"],
-                user=request.user,
-            )
-        else:
-            allocation = PaymentService.allocate_supplier_payment(
-                payment=payment,
-                purchase_invoice=data["purchase_invoice"],
-                amount=data["amount"],
-                user=request.user,
-            )
+            gate_date = None
+            if receipt is not None:
+                gate_date = receipt.receipt_date
+            elif payment is not None:
+                gate_date = payment.payment_date
+            assert_period_allows_money_amend(self.company, gate_date)
+            warning = period_complete_warning(self.company, gate_date)
+
+            try:
+                if receipt:
+                    allocation = PaymentService.allocate_receipt(
+                        receipt=receipt,
+                        sales_invoice=data["sales_invoice"],
+                        amount=data["amount"],
+                        user=request.user,
+                    )
+                else:
+                    allocation = PaymentService.allocate_supplier_payment(
+                        payment=payment,
+                        purchase_invoice=data["purchase_invoice"],
+                        amount=data["amount"],
+                        user=request.user,
+                    )
+            except IntegrityError as exc:
+                raise BusinessRuleError(
+                    "This receipt/payment is already allocated to that invoice."
+                ) from exc
+        except Exception:
+            if raw_key:
+                release_record(company=self.company, scope="allocation_create", raw_key=raw_key)
+            raise
+
         AuditService.log(
             company=self.company,
             user=request.user,
@@ -358,7 +378,16 @@ class PaymentAllocationViewSet(
         data = self.get_serializer(allocation).data
         if warning:
             data["warnings"] = [warning]
-        return Response(data, status=status.HTTP_201_CREATED)
+        response = Response(data, status=status.HTTP_201_CREATED)
+        if raw_key:
+            store_record(
+                company=self.company,
+                scope="allocation_create",
+                raw_key=raw_key,
+                response=response,
+                resource_id=str(allocation.pk),
+            )
+        return response
 
     @action(detail=True, methods=["post"])
     def unallocate(self, request, pk=None):

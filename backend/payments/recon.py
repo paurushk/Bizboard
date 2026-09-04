@@ -109,6 +109,11 @@ def parse_bank_csv(content: str | bytes, preset: str = "generic") -> list[dict]:
         raise BusinessRuleError("Could not find amount/credit/debit columns.")
 
     rows: list[dict] = []
+    # B4-007: two genuine same-day transactions with the same amount, blank UTR
+    # and identical narration (routine for cash / UPI) otherwise hash-collide and
+    # the second insert 500s the whole upload. Fold a per-file positional
+    # discriminator into the hash so real repeats stay distinct.
+    seen_hashes: dict[str, int] = {}
     for raw in reader:
         date_raw = (raw.get(date_col) or "").strip()
         if not date_raw:
@@ -141,9 +146,11 @@ def parse_bank_csv(content: str | bytes, preset: str = "generic") -> list[dict]:
             if m:
                 utr = m.group(1)
 
-        line_hash = hashlib.sha256(
-            f"{txn_date}|{amount}|{utr}|{narration}".encode()
-        ).hexdigest()
+        base = f"{txn_date}|{amount}|{utr}|{narration}"
+        dup_index = seen_hashes.get(base, 0)
+        seen_hashes[base] = dup_index + 1
+        digest_input = base if dup_index == 0 else f"{base}|#{dup_index}"
+        line_hash = hashlib.sha256(digest_input.encode()).hexdigest()
         rows.append(
             {
                 "txn_date": txn_date,

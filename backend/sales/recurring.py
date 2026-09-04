@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -16,6 +17,8 @@ from reporting.models import GstReturnPeriod
 
 from .models import RecurringInvoiceRun, RecurringInvoiceSchedule, SalesInvoice
 from .services import SalesService
+
+logger = logging.getLogger(__name__)
 
 
 def period_key_for(cadence: str, on_date: date) -> str:
@@ -141,47 +144,79 @@ def process_due_schedules(*, now=None):
     created = 0
     skipped_locked = 0
     skipped_duplicate = 0
+    skipped_error = 0
     for schedule in RecurringInvoiceSchedule.objects.filter(is_active=True, next_run_at__lte=now).select_related(
         "company", "customer", "company_gstin",
     ):
-        on_date = timezone.localtime(schedule.next_run_at).date() if timezone.is_aware(schedule.next_run_at) else schedule.next_run_at.date()
-        key = period_key_for(schedule.cadence, on_date)
-        if RecurringInvoiceRun.objects.filter(schedule=schedule, period_key=key).exists():
-            skipped_duplicate += 1
-            schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence, schedule.anchor_day)
-            schedule.save(update_fields=["next_run_at", "updated_at"])
-            continue
-        if period_is_locked(schedule.company, on_date):
-            skipped_locked += 1
-            schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence, schedule.anchor_day)
-            schedule.save(update_fields=["next_run_at", "updated_at"])
-            continue
-        run = generate_draft_for_schedule(schedule, run_date=on_date)
-        if run is not None and run.invoice_id:
-            created += 1
-            inv = run.invoice
-            assert inv.status == SalesInvoice.Status.DRAFT
-            from accounts.models import CompanyUser
-            from core.models import Notification
-            from core.services.notifications import NotificationService
-
-            owner = (
-                CompanyUser.objects.filter(
-                    company=schedule.company, role=CompanyUser.Role.OWNER
-                )
-                .select_related("user")
-                .first()
+        try:
+            _created, _locked, _dup = _process_one_schedule(schedule, now=now)
+            created += _created
+            skipped_locked += _locked
+            skipped_duplicate += _dup
+        except Exception:  # noqa: BLE001
+            # B2-006: one poison schedule (invalid template product, missing
+            # items) must not abort recurring generation for every other
+            # tenant. Log it, count it, and advance next_run_at so the batch
+            # is not permanently wedged on the same row.
+            logger.exception(
+                "recurring: schedule %s failed; advancing next_run_at", schedule.pk
             )
-            recipient = (owner.user.email if owner and owner.user else "") or (schedule.company.email or "")
-            if recipient:
-                NotificationService.send(
-                    company=schedule.company,
-                    channel=Notification.Channel.EMAIL,
-                    recipient=recipient,
-                    subject="Recurring invoice draft ready",
-                    body=(
-                        f"Draft invoice #{inv.pk} was generated from a recurring schedule. "
-                        "Complete it when ready — BizBoard never auto-completes recurring invoices."
-                    ),
+            skipped_error += 1
+            try:
+                schedule.next_run_at = advance_next_run(
+                    schedule.next_run_at, schedule.cadence, schedule.anchor_day
                 )
-    return {"created": created, "skipped_locked": skipped_locked, "skipped_duplicate": skipped_duplicate}
+                schedule.save(update_fields=["next_run_at", "updated_at"])
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "recurring: could not advance next_run_at for schedule %s", schedule.pk
+                )
+    return {
+        "created": created,
+        "skipped_locked": skipped_locked,
+        "skipped_duplicate": skipped_duplicate,
+        "skipped_error": skipped_error,
+    }
+
+
+def _process_one_schedule(schedule, *, now):
+    """Run a single due schedule. Returns (created, skipped_locked, skipped_duplicate)."""
+    on_date = timezone.localtime(schedule.next_run_at).date() if timezone.is_aware(schedule.next_run_at) else schedule.next_run_at.date()
+    key = period_key_for(schedule.cadence, on_date)
+    if RecurringInvoiceRun.objects.filter(schedule=schedule, period_key=key).exists():
+        schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence, schedule.anchor_day)
+        schedule.save(update_fields=["next_run_at", "updated_at"])
+        return 0, 0, 1
+    if period_is_locked(schedule.company, on_date):
+        schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence, schedule.anchor_day)
+        schedule.save(update_fields=["next_run_at", "updated_at"])
+        return 0, 1, 0
+    run = generate_draft_for_schedule(schedule, run_date=on_date)
+    if run is not None and run.invoice_id:
+        inv = run.invoice
+        assert inv.status == SalesInvoice.Status.DRAFT
+        from accounts.models import CompanyUser
+        from core.models import Notification
+        from core.services.notifications import NotificationService
+
+        owner = (
+            CompanyUser.objects.filter(
+                company=schedule.company, role=CompanyUser.Role.OWNER
+            )
+            .select_related("user")
+            .first()
+        )
+        recipient = (owner.user.email if owner and owner.user else "") or (schedule.company.email or "")
+        if recipient:
+            NotificationService.send(
+                company=schedule.company,
+                channel=Notification.Channel.EMAIL,
+                recipient=recipient,
+                subject="Recurring invoice draft ready",
+                body=(
+                    f"Draft invoice #{inv.pk} was generated from a recurring schedule. "
+                    "Complete it when ready — BizBoard never auto-completes recurring invoices."
+                ),
+            )
+        return 1, 0, 0
+    return 0, 0, 0

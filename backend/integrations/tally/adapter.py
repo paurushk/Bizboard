@@ -230,6 +230,39 @@ def _post_commit_recon(company, preview: dict, created: dict) -> dict:
     }
 
 
+def _match_or_create_party(model, *, company, row, user, warnings: list[str]):
+    """B9-002: Customer/Supplier have no unique (company, name) — a tenant with
+    two parties of the same name makes get_or_create raise MultipleObjectsReturned
+    (→ 500, whole import rolled back). Match on imported GSTIN first, then a
+    single name hit; on an ambiguous name, warn and create a fresh record rather
+    than raising or silently patching the wrong party.
+    """
+    name = (row.get("name") or "").strip()
+    gstin = (row.get("gstin") or "").strip()
+    label = model.__name__
+    if gstin:
+        hit = model.objects.filter(company=company, gstin=gstin).first()
+        if hit is not None:
+            return hit, False
+    name_matches = list(model.objects.filter(company=company, name=name)[:2])
+    if len(name_matches) == 1:
+        return name_matches[0], False
+    if len(name_matches) > 1:
+        warnings.append(
+            f"{label} '{name}' matched {len(name_matches)}+ existing records by name — "
+            "created a new record; merge manually if needed."
+        )
+    obj = model.objects.create(
+        company=company,
+        name=name,
+        phone=row.get("phone") or "",
+        gstin=gstin,
+        state=row.get("state") or company.state or "",
+        created_by=user,
+    )
+    return obj, True
+
+
 def _opening_balance_product(company, user, unit: Unit) -> Product:
     product, _ = Product.objects.get_or_create(
         company=company,
@@ -468,15 +501,8 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
     opening_product = _opening_balance_product(company, user, unit)
 
     for row in preview.get("customers") or []:
-        cust, was_created = Customer.objects.get_or_create(
-            company=company,
-            name=row["name"],
-            defaults={
-                "phone": row.get("phone") or "",
-                "gstin": row.get("gstin") or "",
-                "state": row.get("state") or company.state or "",
-                "created_by": user,
-            },
+        cust, was_created = _match_or_create_party(
+            Customer, company=company, row=row, user=user, warnings=warnings,
         )
         if was_created:
             created["customers"] += 1
@@ -500,15 +526,8 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
             created["opening_ar"] += 1
 
     for row in preview.get("suppliers") or []:
-        sup, was_created = Supplier.objects.get_or_create(
-            company=company,
-            name=row["name"],
-            defaults={
-                "phone": row.get("phone") or "",
-                "gstin": row.get("gstin") or "",
-                "state": row.get("state") or company.state or "",
-                "created_by": user,
-            },
+        sup, was_created = _match_or_create_party(
+            Supplier, company=company, row=row, user=user, warnings=warnings,
         )
         if was_created:
             created["suppliers"] += 1
