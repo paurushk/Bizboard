@@ -203,10 +203,12 @@ def build_note_rate_rows(
         _is_b2b,
         _money,
         _rate_buckets,
-        invoice_value_mismatch,
+        note_value_mismatch,
     )
 
-    if invoice_value_mismatch(note):
+    # B5-006: use the note-aware predicate (matches the GSTR-1 liability filter)
+    # so a note isn't in the CDNR/CDNUR section rows but out of the header totals.
+    if note_value_mismatch(note):
         issues.append({
             "code": "INVOICE_VALUE_MISMATCH",
             "severity": "critical",

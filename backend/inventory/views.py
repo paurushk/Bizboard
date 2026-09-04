@@ -418,13 +418,14 @@ class ExpiryAlertsView(APIView):
         return [IsAuthenticated(), HasCompany(), CanViewInventorySurfaces()]
 
     def get(self, request):
+        # B8-005: read-only. Recording bands + sending customer emails moved to
+        # the daily record_expiry_bands_task (a GET must not have side effects).
         company = get_company_user(request).company
         days = int(request.query_params.get("days", 30))
         warehouse_id = request.query_params.get("warehouse")
-        from .item_stock import expiry_horizon_rows, record_expiry_bands
+        from .item_stock import expiry_horizon_rows
 
         rows = expiry_horizon_rows(company, days=days, warehouse_id=warehouse_id)
-        record_expiry_bands(company, rows)
         return Response({"count": len(rows), "items": rows})
 
     def post(self, request):

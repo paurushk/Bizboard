@@ -894,6 +894,7 @@ class GatewaySettingsView(APIView):
         from payments.gateway import DISABLED_PROVIDERS, sandbox_forbidden_env
 
         company = get_company_user(request).company
+        touched: set[str] = set()  # B4-030: only save the fields we changed
         if "provider" in request.data:
             provider = str(request.data.get("provider") or "razorpay")[:32].lower()
             if provider in DISABLED_PROVIDERS:
@@ -905,6 +906,7 @@ class GatewaySettingsView(APIView):
                     "Payment provider 'sandbox' cannot be enabled outside development/test/local."
                 )
             company.payment_gateway_provider = provider
+            touched.add("payment_gateway_provider")
         if "test_mode" in request.data:
             test_mode = bool(request.data.get("test_mode"))
             if test_mode and sandbox_forbidden_env():
@@ -912,19 +914,25 @@ class GatewaySettingsView(APIView):
                     "payment_gateway_test_mode cannot be enabled outside development/test/local."
                 )
             company.payment_gateway_test_mode = test_mode
+            touched.add("payment_gateway_test_mode")
         if "require_payment_reference" in request.data:
             company.require_payment_reference = bool(request.data.get("require_payment_reference"))
+            touched.add("require_payment_reference")
         if "auto_match_bank_exact" in request.data:
             company.auto_match_bank_exact = bool(request.data.get("auto_match_bank_exact"))
+            touched.add("auto_match_bank_exact")
         if request.data.get("clear_credentials"):
             company.payment_gateway_credentials_encrypted = ""
+            touched.add("payment_gateway_credentials_encrypted")
         creds = request.data.get("credentials")
         if isinstance(creds, dict):
             existing = decrypt_gateway_credentials(company.payment_gateway_credentials_encrypted or "")
             # BB-000367: ignore empty strings (do not wipe secrets); explicit clear_credentials only.
             existing.update({k: v for k, v in creds.items() if v is not None and str(v).strip() != ""})
             company.payment_gateway_credentials_encrypted = encrypt_gateway_credentials(existing)
-        company.save()
+            touched.add("payment_gateway_credentials_encrypted")
+        if touched:
+            company.save(update_fields=[*touched, "updated_at"])
         AuditService.log(
             company=company,
             user=request.user,

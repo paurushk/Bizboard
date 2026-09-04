@@ -1087,7 +1087,8 @@ class PaymentService:
         clear_holding(existing)
         total_captured = Decimal(str(prior_captured)) + capture_amount
         # BB-000392: PARTIALLY_PAID until fully collected AND allocated.
-        if total_captured + Decimal("0.001") >= link.amount and allocated_ok:
+        fully_paid = total_captured + Decimal("0.001") >= link.amount and allocated_ok
+        if fully_paid:
             link.status = PaymentLinkStatus.PAID
             link.paid_receipt = receipt
         else:
@@ -1096,7 +1097,14 @@ class PaymentService:
                 link.paid_receipt = receipt
         link.updated_by = user
         link.save(update_fields=["status", "paid_receipt", "updated_by", "updated_at"])
-        emit("payment_link.paid", document=link, user=user, event="payment_link.paid")
+        # B4-012: only signal "paid" when the link is actually fully collected;
+        # a partial capture gets its own event so downstream "mark paid" /
+        # notification side-effects don't fire prematurely.
+        emit(
+            "payment_link.paid" if fully_paid else "payment_link.partially_paid",
+            document=link, user=user,
+            event="payment_link.paid" if fully_paid else "payment_link.partially_paid",
+        )
         return existing
 
     @staticmethod

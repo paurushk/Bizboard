@@ -53,9 +53,9 @@ def public_payment_link(request, token: str):
     if link.status == PaymentLinkStatus.CANCELLED and not received:
         return Response({"detail": "This payment link was cancelled."}, status=status.HTTP_410_GONE)
     if link.expires_at and link.expires_at < timezone.now() and not received:
-        if link.status != PaymentLinkStatus.EXPIRED:
-            link.status = PaymentLinkStatus.EXPIRED
-            link.save(update_fields=["status", "updated_at"])
+        # B4-023: a "safe" GET must not perform a write. Report expiry from
+        # expires_at directly; the canonical status transition is owned by the
+        # webhook path / a periodic sweep, not by an unauthenticated read.
         return Response({"detail": "This payment link has expired."}, status=status.HTTP_410_GONE)
     company = link.company
     from payments.upi import upi_qr_fields

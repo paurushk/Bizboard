@@ -476,6 +476,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "accounting.tasks.post_monthly_depreciation",
         "schedule": crontab(day_of_month=1, hour=0, minute=5),
     },
+    # B8-005: near-expiry sweep + customer alerts (was a side effect of a GET).
+    "inventory-expiry-bands": {
+        "task": "inventory.tasks.record_expiry_bands_task",
+        "schedule": crontab(hour=7, minute=0),
+    },
     "celery-beat-heartbeat": {
         "task": "core.tasks.celery_beat_heartbeat",
         "schedule": crontab(minute="*/2"),

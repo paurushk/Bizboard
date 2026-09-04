@@ -204,10 +204,13 @@ def _maybe_send_digest_email(company, summary: DailyBusinessSummary, open_alerts
             body=body,
         )
         n.refresh_from_db()
-        if n.status == Notification.Status.SENT:
-            DailyBusinessSummary.objects.filter(pk=summary.pk).update(email_sent_at=timezone.now())
-        elif n.status == Notification.Status.FAILED:
+        # B9-028: stamp optimistically for any non-FAILED outcome (incl. a
+        # queued / pending async send) so the next daily run doesn't re-send;
+        # only a definite FAILED clears it for a retry.
+        if n.status == Notification.Status.FAILED:
             DailyBusinessSummary.objects.filter(pk=summary.pk).update(email_sent_at=None)
+        else:
+            DailyBusinessSummary.objects.filter(pk=summary.pk).update(email_sent_at=timezone.now())
     except Exception:
         DailyBusinessSummary.objects.filter(pk=summary.pk).update(email_sent_at=None)
         raise

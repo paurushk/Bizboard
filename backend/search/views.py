@@ -52,27 +52,24 @@ class UniversalSearchView(APIView):
         can_view_financials = is_owner or cu.can_view_financial_reports
 
         with _search_query_guard():
-            customers = (
+            # B7-001: force evaluation *inside* the guard — these were lazy
+            # QuerySets that only ran when the response dict was built, after
+            # the SET LOCAL statement_timeout scope had already closed.
+            customers = list(
                 Customer.objects.filter(company=company).filter(
                     Q(name__icontains=q) | Q(phone__icontains=q) | Q(gstin__icontains=q)
                 )[:LIMIT]
-                if can_view_sales
-                else []
-            )
-            suppliers = (
+            ) if can_view_sales else []
+            suppliers = list(
                 Supplier.objects.filter(company=company).filter(
                     Q(name__icontains=q) | Q(phone__icontains=q) | Q(gstin__icontains=q)
                 )[:LIMIT]
-                if can_view_purchases
-                else []
-            )
-            products = (
+            ) if can_view_purchases else []
+            products = list(
                 Product.objects.filter(company=company).filter(
                     Q(barcode__iexact=q) | Q(sku__iexact=q) | Q(name__icontains=q)
                 )[:LIMIT]
-                if (can_view_sales or can_view_purchases)
-                else []
-            )
+            ) if (can_view_sales or can_view_purchases) else []
             # Selling price is business-sensitive; strip it for roles without
             # sales/purchase/financial visibility (BB-000297).
             show_pricing = can_view_sales or can_view_purchases

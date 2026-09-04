@@ -61,8 +61,10 @@ class JournalLineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = JournalLine
+        # B1-003: bank_statement_line is set only by the `match` action, never
+        # by the client — an un-scoped writable FK here was a cross-tenant IDOR.
         fields = ["id", "account", "debit", "credit", "cost_center", "dimension", "bank_statement_line", "reconciled_at"]
-        read_only_fields = ["reconciled_at"]
+        read_only_fields = ["reconciled_at", "bank_statement_line"]
 
     def _company(self):
         request = self.context.get("request")
