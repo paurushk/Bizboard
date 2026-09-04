@@ -1243,13 +1243,24 @@ class PaymentService:
             receipt.save(update_fields=["notes", "status", "updated_by", "updated_at"])
         if receipts and getattr(company, "accounting_enabled", False):
             from accounting.services import PostingService
+            from reporting.gst_periods import assert_period_allows_money_amend
 
             je_seq += 1
+            # B4-008: the refund must not be blocked (the customer's money has
+            # left), but it must not post into a closed/filed GST period either.
+            # Post on the original receipt date when that period is open, else
+            # today — same policy as void_* / _reverse_money_document_journal.
+            refund_entry_date = receipts[0].receipt_date or timezone.localdate()
+            try:
+                assert_period_allows_money_amend(company, refund_entry_date)
+            except BusinessRuleError:
+                refund_entry_date = timezone.localdate()
             PostingService.post_receipt_refund(
                 receipts[0],
                 user=user,
                 amount=refund_amount,
                 purpose="REFUND" if full else f"REFUND_{je_seq}",
+                entry_date=refund_entry_date,
             )
         if full and gp.payment_link_id:
             link = PaymentLink.objects.select_for_update().filter(pk=gp.payment_link_id).first()

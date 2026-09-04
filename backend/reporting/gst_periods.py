@@ -143,3 +143,20 @@ def assert_period_allows_money_amend(company, doc_date, *, allow_soft_closed=Fal
             f"Cannot amend money fields: accounting period covering {doc_date} is {blocking.status}.",
             code=HelpCode.CLOSED_PERIOD,
         )
+
+    # ACC-04 (B1-006): opt-in — the date must fall inside an OPEN period, not
+    # merely avoid a closed one. Mirrors PostingService.post so the manual
+    # journal-post action and every other caller enforce it consistently.
+    if getattr(company, "require_open_period_for_posting", False):
+        in_open = AccountingPeriod.objects.filter(
+            company=company,
+            start_date__lte=doc_date,
+            end_date__gte=doc_date,
+            status=AccountingPeriod.Status.OPEN,
+        ).exists()
+        if not in_open:
+            raise BusinessRuleError(
+                f"{doc_date} is not inside an open accounting period. "
+                "Create the period (or open it) before posting.",
+                code=HelpCode.CLOSED_PERIOD,
+            )

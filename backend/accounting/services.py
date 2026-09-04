@@ -1008,7 +1008,7 @@ class PostingService:
             lines=lines)
 
     @classmethod
-    def post_receipt_refund(cls, receipt, user=None, *, amount=None, purpose="REFUND"):
+    def post_receipt_refund(cls, receipt, user=None, *, amount=None, purpose="REFUND", entry_date=None):
         """Invert post_receipt: Dr 2300 amount, Cr Bank net of MDR, reverse fee expense."""
         cls._ensure_chart(receipt.company)
         # ACC-01: mirror post_receipt — reverse the same per-bank ledger.
@@ -1049,7 +1049,7 @@ class PostingService:
             source_type="CUSTOMER_RECEIPT",
             source_id=receipt.id,
             purpose=purpose or "REFUND",
-            entry_date=receipt.receipt_date or timezone.localdate(),
+            entry_date=entry_date or receipt.receipt_date or timezone.localdate(),
             user=user,
             narration=f"Refund: {receipt.number}",
             lines=lines,

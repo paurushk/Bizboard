@@ -101,6 +101,17 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         period = self.get_object()
         if period.status == AccountingPeriod.Status.CLOSED:
             raise BusinessRuleError("Period is already closed.")
+        # B1-022: no non-contiguous close — an earlier OPEN period would let
+        # back-dated entries land in it after this one is "closed".
+        earlier_open = AccountingPeriod.objects.filter(
+            company=self.company,
+            end_date__lt=period.start_date,
+            status=AccountingPeriod.Status.OPEN,
+        ).order_by("start_date").first()
+        if earlier_open is not None:
+            raise BusinessRuleError(
+                f"Close {earlier_open.name} first — periods must be closed in order."
+            )
         BooksHealthService.assert_period_close_allowed(
             self.company, period=BooksHealthService._period_label(period),
         )
@@ -189,12 +200,12 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         totals = entry.lines.aggregate(debit=Sum("debit"), credit=Sum("credit"))
         if not entry.lines.exists() or (totals["debit"] or 0) != (totals["credit"] or 0):
             raise BusinessRuleError("Journal lines must balance before posting.")
-        if AccountingPeriod.objects.filter(
-            company=self.company, start_date__lte=entry.entry_date,
-            end_date__gte=entry.entry_date,
-            status__in=(AccountingPeriod.Status.CLOSED, AccountingPeriod.Status.SOFT_CLOSED),
-        ).exists():
-            raise BusinessRuleError("Cannot post to a closed accounting period.")
+        # B1-006: use the shared period guard so the manual post path enforces
+        # the GST-period lock and the ACC-04 "must be an open period" opt-in,
+        # not just the AccountingPeriod CLOSED/SOFT_CLOSED check it had.
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(self.company, entry.entry_date)
         entry.status = JournalEntry.Status.POSTED
         entry.source_type, entry.source_id, entry.purpose = "MANUAL_JOURNAL", entry.id, "POST"
         entry.posted_at, entry.posted_by = timezone.now(), request.user

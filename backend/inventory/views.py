@@ -176,6 +176,13 @@ class AdjustmentView(APIView):
             )
         else:
             batch = None
+        # B8-013: a manual adjustment hits the GL when accounting is on — do not
+        # let it post into a closed / filed GST period.
+        from django.utils import timezone as _tz
+
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(company, _tz.localdate())
         movement = InventoryService.post_movement(
             company=company,
             product=product,
@@ -442,6 +449,12 @@ class ExpiryAlertsView(APIView):
                 f"Cannot write off {qty} — only {available} available on this lot at this godown "
                 f"({on_hand} on hand)."
             )
+        # B8-013: expiry write-off is a GL-affecting movement — respect period locks.
+        from django.utils import timezone as _tz
+
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(company, _tz.localdate())
         movement = InventoryService.post_movement(
             company=company,
             product=product,
