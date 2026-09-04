@@ -225,10 +225,31 @@ jobs:
             'POSTGRES_DB=bizboard' \
             'POSTGRES_USER=bizboard' \
             'POSTGRES_PASSWORD=ci-only-not-for-prod' \
-            'REDIS_PASSWORD=ci-redis-not-for-prod' > .env
+            'REDIS_PASSWORD=ci-redis-not-for-prod' \
+            'BIZBOARD_API_IMAGE=ghcr.io/example/bizboard-api@sha256:0000000000000000000000000000000000000000000000000000000000000000' > .env
       - run: docker compose config
       - run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config
+      # M1-010: a committed capacitor.config must never hardcode server.url.
+      - name: capacitor.config has no hardcoded server url
+        run: |
+          ! grep -REn "url:\s*['\"]https?://" mobile/capacitor.config.* || {
+            echo "capacitor.config must not hardcode server.url — use CAPACITOR_SERVER_URL"; exit 1; }
+      # M1-014: lint the Dockerfiles.
+      - name: hadolint
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          recursive: true
+          failure-threshold: error
       - run: docker compose build
+      # M1-014: scan the built images for known CVEs, gate on fixable CRITICAL.
+      - name: Trivy image scan (api)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: bizboard-api:latest
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL
 
   # BB-000477: optional load harness presence check (not a soak).
   load-harness:

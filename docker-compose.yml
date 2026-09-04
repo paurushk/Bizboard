@@ -50,6 +50,8 @@ services:
 
   api:
     build: ./backend
+    # M1-014: stable tag so CI (and ops) can scan / reference the built image.
+    image: bizboard-api:latest
     restart: unless-stopped
     # BB-000714: api must NOT migrate on start — use `--profile migrate` first.
     command: >
