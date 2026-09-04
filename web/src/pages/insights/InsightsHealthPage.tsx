@@ -72,7 +72,8 @@ export function InsightsHealthPage() {
           </Typography>
           <Stack direction="row" spacing={0.5} alignItems="flex-end" sx={{ height: 80 }}>
             {hist.map((h) => {
-              const score = Number(h.score);
+              // F3-070: clamp — the score feeds a % height in an 80px row.
+              const score = Math.min(100, Math.max(0, Number(h.score) || 0));
               return (
                 <Box
                   key={h.id}
@@ -81,7 +82,7 @@ export function InsightsHealthPage() {
                     flex: 1,
                     bgcolor: 'primary.main',
                     opacity: 0.75,
-                    height: `${Math.max(8, score)}%`,
+                    height: `${Math.max(8, score)}%`, // min 8% so a 0 is still visible
                     borderRadius: 0.5,
                     minWidth: 4,
                   }}

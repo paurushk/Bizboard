@@ -228,6 +228,7 @@ export const en = {
   common: {
     search: 'Search',
     save: 'Save',
+    clear: 'Clear',
     saveAndNew: 'Save & New',
     cancel: 'Cancel',
     create: 'Create',
@@ -1214,6 +1215,8 @@ export const en = {
     payloadSummary: 'Payload',
     billedAmount: 'Billed (+)',
     receivedAmount: 'Received (−)',
+    supplierPaidAmount: 'Paid (−)',
+    supplierBilledAmount: 'Billed (+)',
     dueBalance: 'Net Balance',
     shareOnWhatsapp: 'Share on WhatsApp',
     dateFilter: 'Date range',

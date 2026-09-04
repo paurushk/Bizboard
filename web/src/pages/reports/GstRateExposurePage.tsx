@@ -46,8 +46,17 @@ async function fetchExposure(dateFrom: string, dateTo: string) {
 }
 
 export function GstRateExposurePage() {
-  const [from, setFrom] = useState('2025-09-22');
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  // F3-061: default to the current Indian FY start / local today, not a fixed
+  // literal date and a UTC "to".
+  const [from, setFrom] = useState(() => {
+    const now = new Date();
+    const fyYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    return `${fyYear}-04-01`;
+  });
+  const [to, setTo] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
   const query = useQuery({
     queryKey: ['gst-rate-exposure', from, to],
     queryFn: () => fetchExposure(from, to),

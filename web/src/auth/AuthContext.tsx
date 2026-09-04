@@ -97,7 +97,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     const companyId = user?.companyId;
     const userId = user?.id;
-    await authApi.logout();
+    // F1-025: drop the session immediately so the shell can't be interacted
+    // with mid-logout; the network call + cleanup run after.
+    setUser(null);
+    setUsingMockSession(false);
+    try {
+      await authApi.logout();
+    } catch {
+      // already logging out locally — a failed server logout must not block it
+    }
     if (companyId && userId) {
       try {
         await clearAllDrafts(companyId, userId);
@@ -108,8 +116,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await clearBizboardPwaCaches();
     clearFeatureFlagsCache();
     clearSession();
-    setUser(null);
-    setUsingMockSession(false);
     setAuthReady(true);
   }, [user]);
 

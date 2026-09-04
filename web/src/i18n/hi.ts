@@ -229,6 +229,7 @@ export const hi = {
   common: {
     search: 'खोजें',
     save: 'सहेजें',
+    clear: 'साफ़ करें',
     saveAndNew: 'सहेजें और नया',
     cancel: 'रद्द करें',
     create: 'बनाएं',
@@ -1205,6 +1206,8 @@ export const hi = {
     payloadSummary: 'पेलोड',
     billedAmount: 'बिक्री (+)',
     receivedAmount: 'जमा (−)',
+    supplierPaidAmount: 'भुगतान (−)',
+    supplierBilledAmount: 'खरीद (+)',
     dueBalance: 'बाकी राशि',
     shareOnWhatsapp: 'व्हाट्सऐप पर भेजें',
     dateFilter: 'तारीख अनुसार फ़िल्टर',

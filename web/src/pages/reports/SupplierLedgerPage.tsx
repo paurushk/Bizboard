@@ -128,8 +128,8 @@ export function SupplierLedgerPage() {
                     <TableCell>{t('common.date')}</TableCell>
                     <TableCell>Type</TableCell>
                     <TableCell>{t('common.number')}</TableCell>
-                    <TableCell align="right">Paid (−) / डेबिट</TableCell>
-                    <TableCell align="right">Billed (+) / क्रेडिट</TableCell>
+                    <TableCell align="right">{t('reports.supplierPaidAmount')}</TableCell>
+                    <TableCell align="right">{t('reports.supplierBilledAmount')}</TableCell>
                     <TableCell align="right">{t('reports.dueBalance')}</TableCell>
                   </TableRow>
                 </TableHead>

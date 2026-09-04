@@ -1240,13 +1240,26 @@ export function PosPage() {
               {[100, 200, 500, 2000].map((amt) => (
                 <Chip
                   key={amt}
-                  label={`₹${amt}`}
+                  label={`+₹${amt}`}
                   size="small"
                   clickable
-                  onClick={() => setCashTendered(amt)}
-                  color={cashTendered === amt ? 'primary' : 'default'}
+                  // F2-051: notes build up the tender (500 + 500) — additive,
+                  // not absolute, so an ₹850 bill isn't dropped below total.
+                  onClick={() =>
+                    setCashTendered((prev) => {
+                      const base = prev === '' ? 0 : toNumber(prev);
+                      return base + amt;
+                    })
+                  }
                 />
               ))}
+              <Chip
+                label={t('common.clear')}
+                size="small"
+                clickable
+                variant="outlined"
+                onClick={() => setCashTendered('')}
+              />
             </Stack>
             <Stack direction="row" justifyContent="space-between">
               <Typography color="text.secondary">{t('pos.change')}</Typography>

@@ -9,6 +9,7 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import TextField from '@mui/material/TextField';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState, Fragment } from 'react';
@@ -207,8 +208,14 @@ export function CurrentStockPage() {
                 {prefs.isVisible('onHand') ? <TableCell align="right">On Hand</TableCell> : null}
                 {prefs.isVisible('reserved') ? (
                   <TableCell align="right">
+                    Reserved{' '}
                     <Tooltip title={t('billing.reservedStockHint')}>
-                      <span style={{ cursor: 'help' }}>Reserved ℹ️</span>
+                      <InfoOutlinedIcon
+                        fontSize="inherit"
+                        aria-label={t('billing.reservedStockHint')}
+                        tabIndex={0}
+                        sx={{ verticalAlign: 'middle', cursor: 'help' }}
+                      />
                     </Tooltip>
                   </TableCell>
                 ) : null}
