@@ -16,6 +16,7 @@ import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney, toNumber } from '@/utils/money';
+import { nextIndianFyEnd } from '@/utils/fy';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
@@ -33,7 +34,7 @@ export function AccountingSettingsPage() {
   const [msg, setMsg] = useState('');
   // F3-026: track severity so a mutation error isn't shown as a blue "info".
   const [msgSeverity, setMsgSeverity] = useState<'success' | 'error'>('success');
-  const [fyEnd, setFyEnd] = useState('2026-03-31');
+  const [fyEnd, setFyEnd] = useState(nextIndianFyEnd());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const flash = (text: string, severity: 'success' | 'error' = 'success') => {
     setMsg(text);

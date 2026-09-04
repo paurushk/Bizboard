@@ -426,12 +426,33 @@ export function PaymentLinksPage() {
                 <TextField {...params} label="Customer (if no invoice)" placeholder="Type 2+ characters to search…" />
               )}
             />
-            <TextField label="Amount" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} helperText="Leave blank to use full invoice outstanding" />
+            <TextField
+              label="Amount"
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputProps={{ min: 0, step: 'any', inputMode: 'decimal' }}
+              error={amount !== '' && !(Number(amount) > 0)}
+              helperText={
+                amount !== '' && !(Number(amount) > 0)
+                  ? 'Enter a positive amount or leave blank.'
+                  : 'Leave blank to use full invoice outstanding'
+              }
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={writesBlocked || create.isPending || (!invoice && !customer)} onClick={() => create.mutate()}>
+          <Button
+            variant="contained"
+            disabled={
+              writesBlocked ||
+              create.isPending ||
+              (!invoice && !customer) ||
+              (amount !== '' && !(Number(amount) > 0))
+            }
+            onClick={() => create.mutate()}
+          >
             Create
           </Button>
         </DialogActions>

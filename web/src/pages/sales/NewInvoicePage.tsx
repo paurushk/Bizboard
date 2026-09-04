@@ -1097,6 +1097,29 @@ export function NewInvoicePage() {
   const primarySave = primarySaveAction({ isEdit, editingStatus });
   const canAmendMoney = isCompletedEdit && isOwner;
 
+  // F2-050: keep the shortcut handler's inputs in a ref so the keydown listener
+  // is registered exactly once (no per-render add/remove churn), and add a
+  // synchronous submit guard so a fast double Ctrl+S can't enqueue twice before
+  // React commits `isPending`.
+  const kbdRef = useRef({
+    canSave: false,
+    canComplete: false,
+    primaryMode: primarySave.mode,
+    isPending: saveMutation.isPending,
+    mutate: saveMutation.mutate,
+  });
+  kbdRef.current = {
+    canSave,
+    canComplete,
+    primaryMode: primarySave.mode,
+    isPending: saveMutation.isPending,
+    mutate: saveMutation.mutate,
+  };
+  const kbdSubmittingRef = useRef(false);
+  useEffect(() => {
+    if (!saveMutation.isPending) kbdSubmittingRef.current = false;
+  }, [saveMutation.isPending]);
+
   useEffect(() => {
     // Wave 18D (BB-000182): billing keyboard shortcuts — see README Wave 18 note.
     const onKey = (e: KeyboardEvent) => {
@@ -1109,9 +1132,13 @@ export function NewInvoicePage() {
         return;
       }
       const meta = e.ctrlKey || e.metaKey;
+      const kbd = kbdRef.current;
       if (meta && e.key.toLowerCase() === 's' && !e.shiftKey) {
         e.preventDefault();
-        if (!saveMutation.isPending && canSave) saveMutation.mutate('draft');
+        if (!kbd.isPending && !kbdSubmittingRef.current && kbd.canSave) {
+          kbdSubmittingRef.current = true;
+          kbd.mutate('draft');
+        }
         return;
       }
       // FE-19: Complete files GST, posts the GL entry and decrements stock — do
@@ -1123,11 +1150,14 @@ export function NewInvoicePage() {
         e.key === 'Enter' &&
         !e.shiftKey &&
         !inEditableField &&
-        canComplete &&
-        primarySave.mode === 'complete'
+        kbd.canComplete &&
+        kbd.primaryMode === 'complete'
       ) {
         e.preventDefault();
-        if (!saveMutation.isPending) saveMutation.mutate('complete');
+        if (!kbd.isPending && !kbdSubmittingRef.current) {
+          kbdSubmittingRef.current = true;
+          kbd.mutate('complete');
+        }
         return;
       }
       if (meta && e.shiftKey && e.key.toLowerCase() === 'l') {
@@ -1142,7 +1172,7 @@ export function NewInvoicePage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canComplete, canSave, primarySave.mode, saveMutation]);
+  }, []);
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;

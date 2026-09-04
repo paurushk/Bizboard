@@ -1143,6 +1143,25 @@ export function NewPurchasePage() {
   const isCompletedEdit = editingStatus === 'COMPLETED';
   const canAmendMoney = isCompletedEdit && isOwner;
 
+  // F2-050: register the keydown listener once; feed it fresh state via a ref
+  // and guard duplicate submits synchronously.
+  const kbdRef = useRef({
+    canComplete: false,
+    primaryMode: primarySave.mode,
+    isPending: saveMutation.isPending,
+    mutate: saveMutation.mutate,
+  });
+  kbdRef.current = {
+    canComplete,
+    primaryMode: primarySave.mode,
+    isPending: saveMutation.isPending,
+    mutate: saveMutation.mutate,
+  };
+  const kbdSubmittingRef = useRef(false);
+  useEffect(() => {
+    if (!saveMutation.isPending) kbdSubmittingRef.current = false;
+  }, [saveMutation.isPending]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -1154,15 +1173,20 @@ export function NewPurchasePage() {
         return;
       }
       const meta = e.ctrlKey || e.metaKey;
+      const kbd = kbdRef.current;
       if (meta && e.key.toLowerCase() === 's' && !e.shiftKey) {
         e.preventDefault();
-        if (!saveMutation.isPending) saveMutation.mutate('draft');
+        if (!kbd.isPending && !kbdSubmittingRef.current) {
+          kbdSubmittingRef.current = true;
+          kbd.mutate('draft');
+        }
         return;
       }
-      if (meta && e.key === 'Enter' && !e.shiftKey && canComplete) {
+      if (meta && e.key === 'Enter' && !e.shiftKey && kbd.canComplete) {
         e.preventDefault();
-        if (!saveMutation.isPending) {
-          saveMutation.mutate(primarySave.mode === 'complete' ? 'complete' : 'complete_new');
+        if (!kbd.isPending && !kbdSubmittingRef.current) {
+          kbdSubmittingRef.current = true;
+          kbd.mutate(kbd.primaryMode === 'complete' ? 'complete' : 'complete_new');
         }
         return;
       }
@@ -1178,7 +1202,7 @@ export function NewPurchasePage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canComplete, primarySave.mode, saveMutation]);
+  }, []);
 
   const onSignaturePick = async (file: File | null) => {
     if (!file) return;

@@ -24,6 +24,7 @@ import {
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DisclaimerBanner, PageHeader } from '@/components/insights';
 import { ErrorState } from '@/components/PageState';
+import { triggerBlobDownload } from '@/utils/blob';
 import { t, useLocale } from '@/i18n';
 
 type PreviewParty = {
@@ -175,33 +176,27 @@ export function TallyMigrationPage() {
   const downloadExport = useMutation({
     mutationFn: () => exportTallyAid(),
     onSuccess: (blob) => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'bizboard_tally_export_aid.csv';
-      a.click();
-      URL.revokeObjectURL(url);
+      // F3-051: deferred-revoke helper (was revoking the object URL synchronously).
+      triggerBlobDownload(blob, 'bizboard_tally_export_aid.csv');
       setStep(3);
     },
   });
 
-  const downloadErrors = async () => {
-    if (!syncRunId) return;
-    const { data, headers } = await apiClient.get(`/integrations/tally/runs/${syncRunId}/errors/`, {
-      params: { as: 'csv' },
-      responseType: 'blob',
-    });
-    const ct = String(headers['content-type'] || '');
-    if (ct.includes('application/json')) {
-      throw new Error('Failed to download error report');
-    }
-    const url = URL.createObjectURL(data as Blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `tally_errors_${syncRunId}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  // F3-051: a mutation so a failed error-report download surfaces via ErrorState
+  // instead of an unhandled rejection from `void downloadErrors()`.
+  const downloadErrors = useMutation({
+    mutationFn: async () => {
+      if (!syncRunId) throw new Error('No sync run');
+      const { data, headers } = await apiClient.get(
+        `/integrations/tally/runs/${syncRunId}/errors/`,
+        { params: { as: 'csv' }, responseType: 'blob' },
+      );
+      if (String(headers['content-type'] || '').includes('application/json')) {
+        throw new Error('Failed to download error report');
+      }
+      triggerBlobDownload(data as Blob, `tally_errors_${syncRunId}.csv`);
+    },
+  });
 
   const counts = (preview?.counts ?? {}) as Record<string, number>;
   const errorCount = preview?.errors?.length ?? counts.errors ?? 0;
@@ -336,7 +331,12 @@ export function TallyMigrationPage() {
             </Button>
             {errorCount > 0 ? (
               <>
-                <Button variant="outlined" color="warning" onClick={() => void downloadErrors()}>
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  disabled={downloadErrors.isPending}
+                  onClick={() => downloadErrors.mutate()}
+                >
                   Download error report
                 </Button>
                 <Button
@@ -376,6 +376,9 @@ export function TallyMigrationPage() {
           {saveMap.isError ? <ErrorState message={getErrorMessage(saveMap.error)} error={saveMap.error} /> : null}
           {ignoreErrors.isError ? <ErrorState message={getErrorMessage(ignoreErrors.error)} error={ignoreErrors.error} /> : null}
           {commit.isError ? <ErrorState message={getErrorMessage(commit.error)} error={commit.error} /> : null}
+          {downloadErrors.isError ? (
+            <ErrorState message={getErrorMessage(downloadErrors.error)} error={downloadErrors.error} />
+          ) : null}
           {created ? (
             <Stack spacing={0.5} sx={{ mt: 2 }}>
               <Typography variant="subtitle2">Commit summary</Typography>

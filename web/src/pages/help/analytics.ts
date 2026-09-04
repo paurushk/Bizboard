@@ -35,29 +35,33 @@ export function trackHelpEvent(name: HelpEventName | string, props?: Record<stri
   } catch {
     // Analytics must never interrupt Help.
   }
+  const { query: rawQuery, ...safeProps } = props ?? {};
+  const queryLen = typeof rawQuery === 'string' ? rawQuery.length : 0;
+  const queryLenBucket = queryLen ? Math.min(2000, Math.ceil(queryLen / 20) * 20) : undefined;
   try {
-    const { query: rawQuery, ...safe } = props ?? {};
-    const queryLen = typeof rawQuery === 'string' ? rawQuery.length : 0;
     (
       window as Window & {
         bizboardAnalytics?: { track?: (event: string, data?: Record<string, unknown>) => void };
       }
-    ).bizboardAnalytics?.track?.(name, {
-      ...safe,
-      queryLenBucket: queryLen ? Math.min(2000, Math.ceil(queryLen / 20) * 20) : undefined,
-    });
+    ).bizboardAnalytics?.track?.(name, { ...safeProps, queryLenBucket });
   } catch {
     // Third-party analytics are best effort and never receive raw query text.
   }
   try {
+    // F3-054: the raw help-search query IS retained first-party — the server's
+    // "top zero-result queries" / "repeat queries" reports need the text. This
+    // is a deliberate, documented retention (first-party endpoint only; never
+    // forwarded to third-party analytics above). It can contain whatever a user
+    // types into help search. Send it once (not also nested in `props`).
     enqueue({
       name,
       intentId: props?.intentId,
       source: props?.source,
       state: props?.state,
       screen: props?.screen ?? (typeof window !== 'undefined' ? window.location.pathname : ''),
-      query: props?.query,
-      props,
+      query: rawQuery,
+      queryLenBucket,
+      props: safeProps,
     });
   } catch {
     // First-party enqueue is best effort.

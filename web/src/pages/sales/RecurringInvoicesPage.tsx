@@ -48,7 +48,13 @@ export function RecurringInvoicesPage() {
         nextRunAt,
         isActive: true,
         lineTemplate: {
-          items: [{ product: Number(productId), quantity: qty, unitPrice: price || undefined }],
+          items: [
+            {
+              product: Number(productId),
+              quantity: Number(qty),
+              unitPrice: price === '' ? undefined : Number(price),
+            },
+          ],
         },
       }),
     onSuccess: () => {
@@ -100,9 +106,38 @@ export function RecurringInvoicesPage() {
               <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
             ))}
           </TextField>
-          <TextField size="small" label={t('common.qty')} value={qty} onChange={(e) => setQty(e.target.value)} sx={{ width: 80 }} />
-          <TextField size="small" label={t('billing.priceShort')} value={price} onChange={(e) => setPrice(e.target.value)} sx={{ width: 100 }} />
-          <Button variant="contained" disabled={!customer || !productId || !nextRunAt || create.isPending} onClick={() => create.mutate()}>
+          <TextField
+            size="small"
+            type="number"
+            label={t('common.qty')}
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+            inputProps={{ min: 0.001, step: 'any', inputMode: 'decimal' }}
+            error={qty !== '' && !(Number(qty) > 0)}
+            sx={{ width: 90 }}
+          />
+          <TextField
+            size="small"
+            type="number"
+            label={t('billing.priceShort')}
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            inputProps={{ min: 0, step: 'any', inputMode: 'decimal' }}
+            error={price !== '' && Number(price) < 0}
+            sx={{ width: 110 }}
+          />
+          <Button
+            variant="contained"
+            disabled={
+              !customer ||
+              !productId ||
+              !nextRunAt ||
+              !(Number(qty) > 0) ||
+              (price !== '' && Number(price) < 0) ||
+              create.isPending
+            }
+            onClick={() => create.mutate()}
+          >
             {t('recurring.saveTemplate')}
           </Button>
         </Stack>
