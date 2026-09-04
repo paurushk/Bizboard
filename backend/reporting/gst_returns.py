@@ -1964,11 +1964,22 @@ def build_gstr9(company, fy_label: str, *, company_gstin=None) -> dict:
                 + Decimal(str(row.igst or 0))
                 + Decimal(str(getattr(row, "cess", 0) or 0))
             )
-        for inv in non_rcm:
-            supplier_gstin = (getattr(getattr(inv, "supplier", None), "gstin", None) or "").strip()
-            notes = (getattr(inv, "notes", "") or "").upper()
-            if (not supplier_gstin and Decimal(str(inv.igst_total or 0)) > 0) or "IMPORT" in notes:
-                itc8_import += Decimal(str(inv.igst_total or 0)) + Decimal(str(getattr(inv, "cess_total", 0) or 0))
+        # B5-019: drive import-ITC off the same BillOfEntry linkage the 3B
+        # import_itc figure above (GST-08) already uses, instead of a fragile
+        # "blank supplier GSTIN + IGST>0, or 'IMPORT' anywhere in free-text
+        # notes" heuristic — that swept in ordinary domestic IGST purchases
+        # from unregistered suppliers and any invoice whose notes happened to
+        # mention the word "import".
+        from purchases.models import BillOfEntry as _BillOfEntry
+
+        boe_period_qs = _BillOfEntry.objects.filter(
+            company=company,
+            status=_BillOfEntry.Status.COMPLETED,
+            itc_eligibility=_BillOfEntry.ItcEligibility.ELIGIBLE,
+        )
+        for boe in boe_period_qs:
+            if boe.resolved_itc_period() == period:
+                itc8_import += Decimal(str(boe.igst_amount or 0)) + Decimal(str(boe.cess_amount or 0))
         period_inward_taxable = sum((inv.taxable_total for inv in non_rcm), Decimal("0"))
         period_inward_tax = sum(
             (

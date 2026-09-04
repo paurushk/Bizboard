@@ -724,6 +724,21 @@ class PostingService:
 
         from accounting.models import JournalEntry, JournalLine
 
+        # B1-025: an opening-balance invoice was posted as "opening AR vs
+        # equity, no P&L" (post_opening_sales_invoice) — reversing its entries
+        # and unconditionally falling through to post_sales_invoice below would
+        # repost it as a full revenue/tax/COGS sale, misstating revenue and
+        # equity for the opening period.
+        if getattr(invoice, "is_opening_balance", False):
+            for entry in JournalEntry.objects.filter(
+                company=invoice.company,
+                source_type="SALES_INVOICE",
+                source_id=invoice.id,
+                status=JournalEntry.Status.POSTED,
+            ):
+                cls.reverse(entry, user=user, entry_date=entry.entry_date)
+            return cls.post_opening_sales_invoice(invoice, user=user)
+
         reversed_cogs = _D("0")
         for entry in JournalEntry.objects.filter(
             company=invoice.company,
@@ -793,6 +808,11 @@ class PostingService:
             status=JournalEntry.Status.POSTED,
         ):
             cls.reverse(entry, user=user, entry_date=entry.entry_date)
+        # B1-025: same opening-balance guard as adjust_sales_invoice_postings —
+        # an opening purchase invoice was posted as "opening AP vs equity, no
+        # inventory/P&L" and must be re-posted the same way, not as a full purchase.
+        if getattr(invoice, "is_opening_balance", False):
+            return cls.post_opening_purchase_invoice(invoice, user=user)
         return cls.post_purchase(invoice, user=user)
 
     @classmethod

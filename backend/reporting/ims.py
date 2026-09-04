@@ -159,6 +159,11 @@ def apply_ims_action(row: Gstr2bIngest, action: str, *, remark: str = "", user=N
     if action == Gstr2bIngest.ImsAction.REJECT and not (remark or "").strip():
         raise BusinessRuleError("REJECT requires a remark (the defect).")
 
+    # B5-013: remember what this row's action was before we overwrite it, so an
+    # ACCEPT that follows this row's own prior REJECT can tell "ineligible
+    # because I rejected it" apart from any other reason the linked invoice
+    # might independently be INELIGIBLE — only the former should auto-restore.
+    previous_ims_action = row.ims_action
     now = timezone.now()
     row.ims_action = action
     row.ims_remark = (remark or "")[:512]
@@ -173,6 +178,16 @@ def apply_ims_action(row: Gstr2bIngest, action: str, *, remark: str = "", user=N
                 from purchases.models import PurchaseInvoice
 
                 if inv.itc_eligibility == PurchaseInvoice.ItcEligibility.UNREVIEWED:
+                    inv.itc_eligibility = PurchaseInvoice.ItcEligibility.CLAIMABLE
+                    inv.save(update_fields=["itc_eligibility", "updated_at"])
+                elif (
+                    previous_ims_action == Gstr2bIngest.ImsAction.REJECT
+                    and inv.itc_eligibility == PurchaseInvoice.ItcEligibility.INELIGIBLE
+                ):
+                    # B5-013: this row's own prior REJECT is what made the invoice
+                    # INELIGIBLE — a re-ACCEPT (mis-click recovery) restores it,
+                    # mirroring the UNREVIEWED->CLAIMABLE path just above instead
+                    # of permanently stranding the books ITC.
                     inv.itc_eligibility = PurchaseInvoice.ItcEligibility.CLAIMABLE
                     inv.save(update_fields=["itc_eligibility", "updated_at"])
                 if inv.itc_eligibility == PurchaseInvoice.ItcEligibility.CLAIMABLE:

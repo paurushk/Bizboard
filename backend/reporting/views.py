@@ -800,6 +800,46 @@ class Gstr2bIngestViewSet(viewsets.ModelViewSet):
                 "raw": raw,
             }
             if invoice_number:
+                # B5-023: a re-uploaded 2B commonly reflects a supplier amendment
+                # (taxable value / tax / date revised). update_or_create below
+                # silently replaces those figures with nothing recorded — snapshot
+                # the prior values into the existing append-only IMS history log
+                # first, whenever they actually differ, so an earlier
+                # reconciliation's numbers aren't lost with no trace.
+                existing = Gstr2bIngest.objects.filter(
+                    company=self.company,
+                    period=period,
+                    supplier_gstin=supplier,
+                    invoice_number=invoice_number,
+                ).first()
+                if existing is not None:
+                    from decimal import Decimal as _Decimal, InvalidOperation as _InvalidOperation
+
+                    _AMOUNT_FIELDS = ("taxable_value", "igst", "cgst", "sgst", "cess")
+                    changed = {}
+                    for f in _AMOUNT_FIELDS:
+                        old_val = _Decimal(str(getattr(existing, f) or 0))
+                        try:
+                            new_val = _Decimal(str(defaults.get(f) or 0))
+                        except _InvalidOperation:
+                            new_val = old_val
+                        if old_val != new_val:
+                            changed[f] = str(old_val)
+                    old_date = str(existing.invoice_date) if existing.invoice_date else ""
+                    new_date = str(defaults.get("invoice_date") or "")
+                    if old_date and new_date and old_date != new_date:
+                        changed["invoice_date"] = old_date
+                    if changed:
+                        from reporting.models import ImsActionHistory
+
+                        ImsActionHistory.objects.create(
+                            company=self.company,
+                            ingest=existing,
+                            action="REUPLOAD_AMENDED",
+                            remark=f"2B re-upload for {period} revised {', '.join(sorted(changed))}",
+                            acted_by=request.user if request.user.is_authenticated else None,
+                            payload={"previous": changed, "raw_previous": existing.raw},
+                        )
                 obj, _created = Gstr2bIngest.objects.update_or_create(
                     company=self.company,
                     period=period,
