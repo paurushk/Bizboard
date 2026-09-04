@@ -1093,7 +1093,9 @@ class TdsWorksheetView(APIView):
         writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerow({"date": "# 26Q worksheet aid — not a live IT portal upload", "invoice": ""})
-        writer.writerows(rows)
+        # B5-002: supplier / invoice / section are user-controlled — neutralise
+        # spreadsheet formula injection, matching ExportView.
+        writer.writerows({k: csv_safe(v) for k, v in row.items()} for row in rows)
         response = HttpResponse(buffer.getvalue(), content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="tds-26q-{period}.csv"'
         return response
@@ -1127,7 +1129,8 @@ class TcsWorksheetView(APIView):
         writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerow({"date": "# 27EQ worksheet aid — not a live IT portal upload", "invoice": ""})
-        writer.writerows(rows)
+        # B5-002: customer / invoice / section are user-controlled.
+        writer.writerows({k: csv_safe(v) for k, v in row.items()} for row in rows)
         response = HttpResponse(buffer.getvalue(), content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="tcs-27eq-{period}.csv"'
         return response

@@ -33,7 +33,11 @@ def tds_worksheet_rows(company, period: str) -> list[dict]:
             company=company,
             invoice_date__gte=start,
             invoice_date__lte=end,
-            status=PurchaseInvoice.Status.COMPLETED,
+            is_opening_balance=False,  # B5-015
+            status__in=(
+                PurchaseInvoice.Status.COMPLETED,
+                PurchaseInvoice.Status.RETURNED,
+            ),
         )
         .filter(Q(tds_amount__gt=0) | ~Q(tds_section=""))
         .select_related("supplier")
@@ -95,7 +99,11 @@ def tcs_worksheet_rows(company, period: str) -> list[dict]:
             company=company,
             invoice_date__gte=start,
             invoice_date__lte=end,
-            status=SalesInvoice.Status.COMPLETED,
+            is_opening_balance=False,  # B5-015
+            status__in=(
+                SalesInvoice.Status.COMPLETED,
+                SalesInvoice.Status.RETURNED,
+            ),
         )
         .filter(Q(tcs_amount__gt=0) | ~Q(tcs_section=""))
         .select_related("customer")
