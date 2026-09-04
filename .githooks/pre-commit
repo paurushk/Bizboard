@@ -1,0 +1,14 @@
+#!/bin/sh
+# M1-034: refuse to commit a populated .env at the repo root. .env is already
+# git-ignored, so this only fires if someone force-adds it (`git add -f`) or a
+# tool stops honoring the ignore — belt-and-suspenders, not a replacement for
+# .gitignore.
+set -e
+
+if git diff --cached --name-only --diff-filter=ACM | grep -qx '\.env'; then
+  echo "error: refusing to commit '.env' at the repo root (it holds local secrets)." >&2
+  echo "       If this is deliberate, unstage it: git restore --staged .env" >&2
+  exit 1
+fi
+
+exit 0

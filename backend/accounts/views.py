@@ -331,7 +331,6 @@ class LoginView(TokenObtainPairView):
 
     def post(self, request, *args, **kwargs):
         email = request.data.get("email", "")
-        password = request.data.get("password", "")
         ip = _client_ip(request)
         fail_key = _login_fail_key(email)
         ip_fail_key = _login_fail_ip_key(email, ip)
@@ -339,25 +338,31 @@ class LoginView(TokenObtainPairView):
         # backstop — a per-account-only lock was a targeted-lockout DoS vector.
         if _login_is_locked(email, ip):
             raise TooManyLoginAttemptsError()
-        pending_user = User.objects.filter(email__iexact=email).first()
-        if pending_user and password and pending_user.check_password(password):
-            if not pending_user.company_memberships.filter(is_active=True).exists():
-                if pending_user.company_memberships.filter(is_active=False).exists():
-                    raise AuthenticationFailed(
-                        "Accept your invite to activate this account before signing in."
-                    )
-                raise PermissionDenied(
-                    "No active company membership. Ask an owner to invite you."
-                )
+        # B6-008/B6-022: the membership check used to run a *second* password
+        # hash verification (pending_user.check_password) before ever calling
+        # super().post() — doubling the KDF cost for a real login, and giving
+        # an enumeration oracle (existing accounts always paid two hash
+        # verifications, unknown emails paid ~one dummy hash). super().post()
+        # already verifies the password (or runs SimpleJWT's constant-time
+        # dummy hash for an unknown email); check membership only after that
+        # single verification has succeeded.
         try:
             response = super().post(request, *args, **kwargs)
         except AuthenticationFailed:
             _record_login_failure(email, ip)
             raise
         if response.status_code == 200:
+            user = User.objects.filter(email__iexact=email).first()
+            if user and not user.company_memberships.filter(is_active=True).exists():
+                if user.company_memberships.filter(is_active=False).exists():
+                    raise AuthenticationFailed(
+                        "Accept your invite to activate this account before signing in."
+                    )
+                raise PermissionDenied(
+                    "No active company membership. Ask an owner to invite you."
+                )
             cache.delete(fail_key)
             cache.delete(ip_fail_key)
-            user = User.objects.filter(email__iexact=email).first()
             if user:
                 _ensure_active_company(user)
                 membership = _active_membership(user)
@@ -951,6 +956,21 @@ def _active_owner_count(company, exclude_pk=None):
     return qs.count()
 
 
+def _revoke_sessions_if_last_active_membership(user) -> None:
+    """B6-017: a deactivated CompanyUser row alone leaves the user's current
+    access JWT usable for its remaining lifetime, and refresh only gets cut at
+    the next CookieTokenRefreshView call. If this was their last active
+    membership anywhere, blacklist all outstanding refresh tokens now — same
+    as ChangePasswordView/LogoutAllView — instead of waiting for expiry.
+    A user who still has an active membership in another company is left
+    alone; they should keep operating there.
+    """
+    if user.company_memberships.filter(is_active=True).exists():
+        return
+    for token in OutstandingToken.objects.filter(user=user):
+        BlacklistedToken.objects.get_or_create(token=token)
+
+
 def _staff_invite_caps(data: dict) -> dict:
     """Capability flags for roles without fixed ACCOUNTANT/VIEWER defaults.
 
@@ -1126,6 +1146,7 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
         new_role = serializer.validated_data.get("role", instance.role)
         new_active = serializer.validated_data.get("is_active", instance.is_active)
         stays_active_owner = new_role == CompanyUser.Role.OWNER and new_active
+        deactivating = instance.is_active and not new_active
         with transaction.atomic():
             if was_active_owner and not stays_active_owner:
                 if _active_owner_count(instance.company, exclude_pk=instance.pk) == 0:
@@ -1133,6 +1154,8 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
             if new_active and not instance.is_active:
                 _enforce_plan_seat_limit(instance.company)
             updated = serializer.save(company=get_company_user(self.request).company)
+            if deactivating:
+                _revoke_sessions_if_last_active_membership(updated.user)
         AuditService.log(company=updated.company, user=self.request.user, action="UPDATE",
                          entity_type="CompanyUser", entity_id=updated.id)
 
@@ -1141,8 +1164,10 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
             if _active_owner_count(instance.company, exclude_pk=instance.pk) == 0:
                 raise ValidationError({"detail": "Cannot remove the company's last active Owner."})
         # Soft-deactivate rather than delete.
-        instance.is_active = False
-        instance.save(update_fields=["is_active"])
+        with transaction.atomic():
+            instance.is_active = False
+            instance.save(update_fields=["is_active"])
+            _revoke_sessions_if_last_active_membership(instance.user)
         AuditService.log(company=instance.company, user=self.request.user, action="DELETE",
                          entity_type="CompanyUser", entity_id=instance.pk, description="Deactivated")
 

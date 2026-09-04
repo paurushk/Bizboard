@@ -214,11 +214,11 @@ services:
     # only pass in CI, which checks out the whole repo; run them there, not here.
     volumes:
       - pip_cache:/pip-cache
-    entrypoint:
-      - /bin/sh
-      - -lc
-      - 'pip install --quiet -c constraints.txt -r requirements-dev.txt && exec "$@"'
-      - --
+    # M1-033: docker-entrypoint-test.sh drops from root to the unprivileged
+    # `app` user (chowning the pip-cache volume first) before installing dev
+    # requirements and running the actual command — this entrypoint override
+    # used to bypass the image's privilege drop entirely and run as root.
+    entrypoint: ["/app/docker-entrypoint-test.sh"]
     command: ["pytest", "-q"]
     restart: "no"
     depends_on:

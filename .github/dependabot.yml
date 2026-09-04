@@ -1,27 +1,48 @@
 version: 2
 updates:
+  # M1-038: group minor/patch bumps per ecosystem and cap open PRs so a normal
+  # week doesn't flood the queue with up to 30 individual PRs (default cap is
+  # 5 per ecosystem across 6 ecosystems), each triggering the full CI matrix.
   - package-ecosystem: pip
     directory: /backend
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      backend-minor-patch:
+        update-types: ["minor", "patch"]
   - package-ecosystem: npm
     directory: /web
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      web-minor-patch:
+        update-types: ["minor", "patch"]
   # BB-000747: Capacitor mobile shell dependencies.
   - package-ecosystem: npm
     directory: /mobile
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      mobile-minor-patch:
+        update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]
   - package-ecosystem: docker
     directory: /backend
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
   - package-ecosystem: docker
     directory: /web
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3

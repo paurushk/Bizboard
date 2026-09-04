@@ -71,6 +71,24 @@ def _party_block(styles, title: str, name: str, address: str, gstin: str, phone:
     return inner
 
 
+def _intra_state_from_items(items, fallback: bool) -> bool:
+    """B3-026: derive the intra/inter-state split the PDF renders from the tax
+    actually posted on the line items, not a re-derivation from party
+    state/GSTIN — if the stamped company_gstin or supplier state is blank,
+    party_intra_state() can disagree with what was really charged, and the
+    PDF then shows the wrong tax columns (e.g. CGST/SGST headers with the
+    real amounts sitting in IGST, or vice versa). Falls back to the
+    party-derived value only when no item carries any tax (exempt/zero-rated).
+    """
+    any_igst = any((item.igst or 0) > 0 for item in items)
+    any_cgst_sgst = any((item.cgst or 0) > 0 or (item.sgst or 0) > 0 for item in items)
+    if any_igst and not any_cgst_sgst:
+        return False
+    if any_cgst_sgst and not any_igst:
+        return True
+    return fallback
+
+
 def _build_hsn_summary_table(items, styles, intra_state: bool) -> Table:
     """Build statutory HSN/SAC-wise tax summary table."""
     hsn_map: dict[str, dict] = defaultdict(lambda: {
@@ -187,13 +205,14 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
 
     from core.services.place_of_supply import party_intra_state
     stamp = getattr(invoice, "company_gstin", None)
-    intra_state = party_intra_state(
+    party_derived_intra_state = party_intra_state(
         company,
         supplier.state,
         supplier.gstin or "",
         seller_state=(getattr(stamp, "state", None) or ""),
         seller_gstin=(getattr(stamp, "gstin", None) or ""),
     )
+    intra_state = _intra_state_from_items(items, party_derived_intra_state)
 
     balance = LedgerService.purchase_invoice_outstanding(invoice)
     allocated = max(Decimal(str(invoice.grand_total or 0)) - Decimal(str(balance or 0)), Decimal("0"))
@@ -492,7 +511,8 @@ def render_gst_purchase_order(order) -> bytes:
     styles = build_styles()
 
     from core.services.place_of_supply import party_intra_state
-    intra_state = party_intra_state(company, supplier.state, supplier.gstin or "")
+    party_derived_intra_state = party_intra_state(company, supplier.state, supplier.gstin or "")
+    intra_state = _intra_state_from_items(items, party_derived_intra_state)
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(

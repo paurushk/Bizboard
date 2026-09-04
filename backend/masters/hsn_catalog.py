@@ -258,6 +258,19 @@ _SAC_RATE_SPEC = [
 ]
 
 
+# B8-025: GST 2.0 rationalised the *rate* on these HSNs to the 40% de-merit
+# slab, but did NOT abolish compensation cess on them (aerated drinks, beer,
+# tobacco/pan-masala, and large cars/motorcycles) — this starter table has no
+# per-HSN authoritative post-cutover cess figure to put here (it varies by
+# engine size / per-unit specific cess / product sub-type), so a hardcoded
+# "0" would make rate_for() silently under-collect cess on real bills. Per
+# the module disclaimer, rate_for() only overrides when a row matches — so we
+# simply don't emit a post-cutover row for these HSNs, leaving the
+# user/product-master cess entry alone instead of confidently asserting a
+# wrong one. The pre-cutover row (with its real historical cess) is unaffected.
+_CESS_UNRESOLVED_POST_CUTOVER_HSNS = frozenset({"2202", "2203", "2402", "2403", "2404", "8703", "8711"})
+
+
 def _build_starter_rates():
     rows = []
     for spec in (_HSN_RATE_SPEC + _SAC_RATE_SPEC):
@@ -267,6 +280,8 @@ def _build_starter_rates():
             "valid_from": _PRE_FROM, "valid_to": _PRE_TO,
             "version": _PRE_VER, "source_ref": "starter-table",
         })
+        if hsn in _CESS_UNRESOLVED_POST_CUTOVER_HSNS:
+            continue
         # Only add a post-cutover row when the rate or cess actually changed,
         # else the pre row (with valid_to) would leave a gap after the cutover —
         # so for unchanged HSNs the post row keeps the same rate, open-ended.

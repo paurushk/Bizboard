@@ -12,7 +12,6 @@ from payroll.services import (
     annual_new_regime_tax,
     compute_statutory,
     complete_pay_run,
-    post_pay_run_gl,
 )
 
 pytestmark = pytest.mark.django_db

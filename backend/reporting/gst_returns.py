@@ -691,7 +691,9 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
             "igst": _money(vals["igst"]),
             "cess": _money(vals.get("cess", Decimal("0"))),
         }
-        for (pos, rate), vals in sorted(b2cs_buckets.items())
+        # B5-017: rate is a string bucket key — sorting the raw tuple sorted
+        # rate lexically ("18.00" < "5.00"). Sort by the numeric rate instead.
+        for (pos, rate), vals in sorted(b2cs_buckets.items(), key=lambda kv: (kv[0][0], Decimal(kv[0][1])))
         if vals["taxable_value"] or vals["cgst"] or vals["sgst"] or vals["igst"] or vals.get("cess")
     ]
 
@@ -710,7 +712,10 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
             "igst": _money(vals["igst"]),
             "cess": _money(vals.get("cess", Decimal("0"))),
         }
-        for (hsn_code, rate, uqc), vals in sorted(hsn_buckets.items())
+        # B5-017: same lexical-vs-numeric rate issue as b2cs above.
+        for (hsn_code, rate, uqc), vals in sorted(
+            hsn_buckets.items(), key=lambda kv: (kv[0][0], Decimal(kv[0][1]), kv[0][2])
+        )
     ]
 
     cancelled_qs = SalesInvoice.objects.filter(

@@ -575,8 +575,21 @@ def _validate_row(
 
 
 def _as_decimal(value, default="0"):
+    # B3-015: strip Indian-style thousands separators ("1,250" / "1,25,000")
+    # so a formatted qty/rate cell doesn't fail to parse and silently drop the
+    # whole line — collect_extras() already does this for extra/pack columns,
+    # this is the same normalisation for the canonical quantity/unit_price path.
+    raw = str(value if value not in (None, "") else default).strip()
+    if "," in raw and raw.count(",") != 0:
+        stripped = raw.replace(",", "")
+        try:
+            Decimal(stripped)
+        except (InvalidOperation, AttributeError):
+            pass
+        else:
+            raw = stripped
     try:
-        result = Decimal(str(value if value not in (None, "") else default).strip())
+        result = Decimal(raw)
     except (InvalidOperation, AttributeError):
         raise BusinessRuleError(f"Invalid number: {value!r}")
     # B3-014: Decimal("Infinity") / Decimal("NaN") construct fine and slip past
@@ -2496,6 +2509,14 @@ class BillImportService:
             preview["supplier_gstin"] = str(data.get("supplier_gstin") or "").strip()
         if "customer_name" in data:
             preview["customer_name"] = str(data.get("customer_name") or "").strip()
+        # B3-024: _resolve_customer (SALES_BILL commit) and the direction-
+        # warning / import-company-GSTIN checks all key off buyer_gstin /
+        # buyer_name specifically — a mis-read buyer GSTIN had no way to be
+        # corrected before commit because this endpoint didn't accept them.
+        if "buyer_gstin" in data:
+            preview["buyer_gstin"] = str(data.get("buyer_gstin") or "").strip().upper()
+        if "buyer_name" in data:
+            preview["buyer_name"] = str(data.get("buyer_name") or "").strip()
         if "bill_number" in data:
             preview["bill_number"] = str(data.get("bill_number") or "").strip()
         if "bill_date" in data:
@@ -2770,7 +2791,12 @@ class BillImportService:
         supplier = BillImportService._resolve_supplier(job, user)
         items_data = []
         products_created = 0
-        for line in lines:
+        # B3-025: the preview-time normalize already snapped/warned on an
+        # off-slab rate, but that warning lives on the ImportJob, not the
+        # invoice the bookkeeper actually opens later. Re-collect any snap
+        # here too so it's visible on the created document, not silent.
+        rate_warnings: list[str] = []
+        for idx, line in enumerate(lines, start=1):
             product, created = BillImportService._match_or_create_product(
                 job.company, line, user, direction="PURCHASE"
             )
@@ -2786,9 +2812,14 @@ class BillImportService:
                 "quantity": _as_decimal(line.get("quantity")),
                 "unit_price": _as_decimal(line.get("unit_price"), "0"),
                 "discount_percent": Decimal("0"),
-                "gst_rate": _normalize_gst_rate(line.get("gst_rate"), required=True),
+                "gst_rate": _normalize_gst_rate(
+                    line.get("gst_rate"), required=True, warnings=rate_warnings, row=idx,
+                ),
             })
 
+        notes = "Created from purchase bill upload"
+        if rate_warnings:
+            notes += " — " + "; ".join(rate_warnings)
         invoice = PurchaseInvoice.objects.create(
             company=job.company,
             supplier=supplier,
@@ -2799,7 +2830,7 @@ class BillImportService:
                 required=True,
             ),
             supplier_bill_number=str(preview.get("bill_number") or "")[:64],
-            notes="Created from purchase bill upload",
+            notes=notes,
             attachment=job.file,
             created_by=user,
             updated_by=user,
@@ -2815,6 +2846,7 @@ class BillImportService:
                 "products_created": products_created,
                 "lines": len(items_data),
                 "purchase_invoice_id": invoice.pk,
+                **({"gst_rate_warnings": rate_warnings} if rate_warnings else {}),
             },
         )
         return {
@@ -2828,7 +2860,10 @@ class BillImportService:
         customer = BillImportService._resolve_customer(job, user)
         items_data = []
         products_created = 0
-        for line in lines:
+        # B3-025: see _commit_purchase — surface any commit-time rate snap on
+        # the created document, not just the (harder to find) ImportJob.
+        rate_warnings: list[str] = []
+        for idx, line in enumerate(lines, start=1):
             product, created = BillImportService._match_or_create_product(
                 job.company, line, user, direction="SALES"
             )
@@ -2844,9 +2879,14 @@ class BillImportService:
                 "quantity": _as_decimal(line.get("quantity")),
                 "unit_price": _as_decimal(line.get("unit_price"), "0"),
                 "discount_percent": Decimal("0"),
-                "gst_rate": _normalize_gst_rate(line.get("gst_rate"), required=True),
+                "gst_rate": _normalize_gst_rate(
+                    line.get("gst_rate"), required=True, warnings=rate_warnings, row=idx,
+                ),
             })
 
+        notes = f"Created from sales bill upload (bill #{str(preview.get('bill_number') or '')[:64]})"
+        if rate_warnings:
+            notes += " — " + "; ".join(rate_warnings)
         invoice = SalesInvoice.objects.create(
             company=job.company,
             customer=customer,
@@ -2856,7 +2896,7 @@ class BillImportService:
                 str(preview.get("bill_date") or ""),
                 required=True,
             ),
-            notes=f"Created from sales bill upload (bill #{str(preview.get('bill_number') or '')[:64]})",
+            notes=notes,
             created_by=user,
             updated_by=user,
         )
@@ -2871,6 +2911,7 @@ class BillImportService:
                 "products_created": products_created,
                 "lines": len(items_data),
                 "sales_invoice_id": invoice.pk,
+                **({"gst_rate_warnings": rate_warnings} if rate_warnings else {}),
             },
         )
         return {

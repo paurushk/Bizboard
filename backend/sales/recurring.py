@@ -194,7 +194,13 @@ def _process_one_schedule(schedule, *, now):
     run = generate_draft_for_schedule(schedule, run_date=on_date)
     if run is not None and run.invoice_id:
         inv = run.invoice
-        assert inv.status == SalesInvoice.Status.DRAFT
+        # M1-037/S101: was a bare `assert` — silently stripped under `python -O`,
+        # so this invariant would go unchecked in an optimized deployment. The
+        # per-schedule try/except in the caller already handles this raising.
+        if inv.status != SalesInvoice.Status.DRAFT:
+            raise AssertionError(
+                f"Recurring-generated invoice {inv.pk} expected DRAFT, got {inv.status!r}"
+            )
         from accounts.models import CompanyUser
         from core.models import Notification
         from core.services.notifications import NotificationService

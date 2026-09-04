@@ -20,13 +20,27 @@ IN_FLIGHT_STATUS = 0
 IN_FLIGHT_STALE_SECONDS = 15 * 60
 # Money creates must not be reclaimed while the first request may still be
 # committing — a stale delete + retry duplicates receipts/payments.
+#
+# B6-014: this set is checked by exact scope-string match (begin_record below)
+# — "invoice_create" / "purchase_create" were never the real scope names the
+# views pass (they're "sales_invoice_create" / "purchase_invoice_create"), so
+# those two entries silently protected nothing. Verified against every
+# `scope="..."` literal in the repo; corrected + filled in the ones actually
+# missing (sales/purchase *_complete, credit/debit note complete, stock count
+# post) so every money-creating or -posting scope is covered, not just the
+# ones that happened to spell their name the way this set expected.
 MONEY_IDEMPOTENCY_SCOPES = frozenset({
     "receipt_create",
     "supplier_payment_create",
     "allocation_create",
-    "invoice_create",
-    "purchase_create",
+    "sales_invoice_create",
+    "sales_invoice_complete",
+    "purchase_invoice_create",
+    "purchase_invoice_complete",
+    "sales_credit_note_complete",
+    "sales_debit_note_complete",
     "stock_transfer_complete",
+    "stock_count_post",
     # B3-013: a bill-import commit creates a real purchase/sales invoice — an
     # in-flight claim must not be auto-reclaimed while the first commit runs.
     "import_job_commit",

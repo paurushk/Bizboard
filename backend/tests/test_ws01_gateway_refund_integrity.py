@@ -103,7 +103,7 @@ def test_refund_idempotency_key_distinct_per_seq():
     assert legacy == "bb-refund-42-100.00"  # backwards-compatible form preserved
 
 
-def test_two_equal_partial_refunds_get_distinct_provider_keys(books, monkeypatch):
+def test_two_equal_partial_refunds_get_distinct_provider_keys(books, monkeypatch):  # noqa: F811 (books re-imported from test_sprint_a_accounting_p1)
     _inv, gp, receipt = _captured_gp_with_alloc(books)
     rec = _RecordingAdapter()
     monkeypatch.setattr("payments.services.get_adapter", lambda *a, **k: rec)
@@ -129,7 +129,7 @@ def test_two_equal_partial_refunds_get_distinct_provider_keys(books, monkeypatch
 # --------------------------------------------------------------------------- #
 # B4-001 — partial refund unwind is idempotent on the refund key
 # --------------------------------------------------------------------------- #
-def test_unwind_refund_books_idempotent_on_refund_key(books):
+def test_unwind_refund_books_idempotent_on_refund_key(books):  # noqa: F811 (books re-imported from test_sprint_a_accounting_p1)
     _inv, gp, receipt = _captured_gp_with_alloc(books)
     key = refund_idempotency_key(gp.id, Decimal("300.00"), seq=1)
 
@@ -160,7 +160,7 @@ def test_unwind_refund_books_idempotent_on_refund_key(books):
 # block, so absolute `in_atomic_block` is always True — instead assert the call
 # adds no transaction/savepoint nesting).
 # --------------------------------------------------------------------------- #
-def test_provider_refund_call_adds_no_transaction_nesting(books, monkeypatch):
+def test_provider_refund_call_adds_no_transaction_nesting(books, monkeypatch):  # noqa: F811 (books re-imported from test_sprint_a_accounting_p1)
     from django.db import connection
 
     _inv, gp, receipt = _captured_gp_with_alloc(books)
@@ -189,7 +189,7 @@ def test_provider_refund_call_adds_no_transaction_nesting(books, monkeypatch):
     )
 
 
-def test_provider_failure_leaves_pending_outbox_and_no_book_effect(books, monkeypatch):
+def test_provider_failure_leaves_pending_outbox_and_no_book_effect(books, monkeypatch):  # noqa: F811 (books re-imported from test_sprint_a_accounting_p1)
     from payments import tasks as payment_tasks
     from payments.models import GatewayRefundOutbox, GatewayRefundOutboxStatus
     from payments.tasks import execute_gateway_refund

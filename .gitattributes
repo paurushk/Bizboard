@@ -1,0 +1,6 @@
+# M1-034/M1-033: shell scripts must stay LF — a CRLF shebang line breaks `sh`
+# parsing both for git hooks run directly on a dev machine and (previously
+# worked around per-file via `sed` in backend/Dockerfile) for the Docker
+# entrypoint scripts.
+*.sh text eol=lf
+.githooks/* text eol=lf

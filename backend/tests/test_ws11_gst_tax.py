@@ -11,7 +11,7 @@ from tests.test_sprint_a_accounting_p1 import books  # noqa: F401
 pytestmark = pytest.mark.django_db
 
 
-def test_tds_worksheet_csv_escapes_formula_in_supplier_name(books):
+def test_tds_worksheet_csv_escapes_formula_in_supplier_name(books):  # noqa: F811 (books re-imported from test_sprint_a_accounting_p1)
     """B5-002: a supplier named with a leading '=' must not execute in Excel."""
     supplier = make_supplier(books.company, name="=cmd|' /C calc'!A1")
     from masters.models import Product

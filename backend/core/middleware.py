@@ -144,6 +144,24 @@ class PostgresRlsMiddleware:
                     request.user, request.auth = result
             except Exception:  # noqa: BLE001 — unauthenticated requests continue
                 pass
+        # B6-010: outside production/staging, DRF also accepts a Bearer token
+        # (settings.py REST_FRAMEWORK.DEFAULT_AUTHENTICATION_CLASSES). Without
+        # trying that here too, a Bearer-authenticated request never resolves
+        # a company_id at middleware time and set_rls_company(None) fails RLS
+        # closed for the whole request — every tenant table reads as empty
+        # even though the caller is legitimately authenticated.
+        if (
+            not getattr(getattr(request, "user", None), "is_authenticated", False)
+            and getattr(settings, "DJANGO_ENV", "") not in ("production", "staging")
+        ):
+            try:
+                from rest_framework_simplejwt.authentication import JWTAuthentication
+
+                result = JWTAuthentication().authenticate(request)
+                if result is not None:
+                    request.user, request.auth = result
+            except Exception:  # noqa: BLE001 — unauthenticated requests continue
+                pass
         company_id = None
         try:
             from core.permissions import get_company_user

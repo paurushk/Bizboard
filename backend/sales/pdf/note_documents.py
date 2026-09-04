@@ -52,6 +52,7 @@ def _render_note_like(
     reason: str = "",
     notes: str = "",
     tax_enabled: bool = True,
+    filing_gstin: str = "",
 ) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -80,8 +81,12 @@ def _render_note_like(
 
     story.append(Paragraph("<b>Bill To</b>", styles["section_head"]))
     story.append(Paragraph(pdf_esc(customer.name or ""), styles["body"]))
-    if getattr(customer, "gstin", None):
-        story.append(Paragraph(f"GSTIN: {pdf_esc(customer.gstin)}", styles["body"]))
+    # B2-012: prefer the note's filing-time GSTIN snapshot over the live
+    # customer record — a note re-rendered after the customer's GSTIN changes
+    # must still show what was actually filed on GSTR-1 Table 9B.
+    gstin = filing_gstin or getattr(customer, "gstin", None)
+    if gstin:
+        story.append(Paragraph(f"GSTIN: {pdf_esc(gstin)}", styles["body"]))
     addr = _addr(customer)
     if addr:
         story.append(Paragraph(pdf_esc(addr), styles["body_small"]))
@@ -196,6 +201,7 @@ def render_credit_note(note) -> bytes:
         reason=reason,
         notes=note.notes or "",
         tax_enabled=True,
+        filing_gstin=getattr(note, "filing_party_gstin", "") or "",
     )
 
 
@@ -227,6 +233,7 @@ def render_debit_note(note) -> bytes:
         reason=reason,
         notes=note.notes or "",
         tax_enabled=True,
+        filing_gstin=getattr(note, "filing_party_gstin", "") or "",
     )
 
 

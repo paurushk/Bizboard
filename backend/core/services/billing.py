@@ -354,8 +354,6 @@ _FROZEN_STATUS = frozenset({"COMPLETED", "RETURNED", "CANCELLED"})
 
 
 def _document_tax_date(document):
-    from datetime import date as date_cls
-
     for attr in (
         "invoice_date",
         "note_date",

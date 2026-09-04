@@ -23,12 +23,12 @@ def _this_period() -> str:
     return f"{d.year:04d}-{d.month:02d}"
 
 
-def _soft_close_now(books):
+def _soft_close_now(books):  # noqa: F811 (books re-imported from test_sprint_a_accounting_p1)
     seed_chart_of_accounts(books.company, books.owner)
     soft_close_period(books.company, _this_period(), books.owner)
 
 
-def test_manual_journal_post_blocked_in_soft_closed_period(books):
+def test_manual_journal_post_blocked_in_soft_closed_period(books):  # noqa: F811 (books re-imported from test_sprint_a_accounting_p1)
     _soft_close_now(books)
     coa = {a.code: a.id for a in Account.objects.filter(company=books.company)}
     payload = {
@@ -46,7 +46,7 @@ def test_manual_journal_post_blocked_in_soft_closed_period(books):
     assert posted.status_code == 400, posted.data  # B1-006: was allowed before
 
 
-def test_non_contiguous_period_close_rejected(books):
+def test_non_contiguous_period_close_rejected(books):  # noqa: F811 (books re-imported from test_sprint_a_accounting_p1)
     feb = AccountingPeriod.objects.create(
         company=books.company, name="Feb 2026",
         start_date="2026-02-01", end_date="2026-02-28",
@@ -71,7 +71,7 @@ def test_non_contiguous_period_close_rejected(books):
         assert "must be closed in order" not in str(resp2.data).lower()
 
 
-def test_stock_adjustment_blocked_in_locked_period(books):
+def test_stock_adjustment_blocked_in_locked_period(books):  # noqa: F811 (books re-imported from test_sprint_a_accounting_p1)
     from masters.models import Product
 
     _soft_close_now(books)
