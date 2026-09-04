@@ -651,8 +651,20 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                           <TableRow
                             key={idx}
                             hover
+                            // F2-047: the collapsed row expands on click — make it
+                            // reachable and operable from the keyboard too.
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={false}
+                            aria-label={t('billUpload.expandRow')}
                             sx={{ cursor: 'pointer' }}
                             onClick={() => setExpandedRows((prev) => new Set(prev).add(idx))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setExpandedRows((prev) => new Set(prev).add(idx));
+                              }
+                            }}
                           >
                             <TableCell>{line.si || idx + 1}</TableCell>
                             <TableCell padding="checkbox">

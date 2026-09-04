@@ -45,7 +45,7 @@ export function SupplierLedgerPage() {
       formattedPhone = `91${formattedPhone}`;
     }
     const text = encodeURIComponent(
-      `Hello ${supplier.name},\nAccount statement summary:\nTotal Payable Balance: ₹${ledger.data.outstanding}`,
+      `Hello ${supplier.name},\nAccount statement summary:\nTotal Payable Balance: ${formatMoney(ledger.data.outstanding)}`,
     );
     const url = formattedPhone ? `https://wa.me/${formattedPhone}?text=${text}` : `https://wa.me/?text=${text}`;
     openShareUrl(url);

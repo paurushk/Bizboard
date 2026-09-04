@@ -37,6 +37,9 @@ export function RecurringInvoicesPage() {
   const [price, setPrice] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [confirmRun, setConfirmRun] = useState<number | null>(null);
+  // F2-043: remember which schedule's "Run now" is in flight so only that row's
+  // button shows the pending state instead of disabling every row at once.
+  const [runningId, setRunningId] = useState<number | null>(null);
   const create = useMutation({
     mutationFn: () =>
       api.createRecurringSchedule({
@@ -63,6 +66,7 @@ export function RecurringInvoicesPage() {
       void qc.invalidateQueries({ queryKey: ['recurring-schedules'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
+    onSettled: () => setRunningId(null),
   });
   const deactivate = useMutation({
     mutationFn: (id: number) => api.updateRecurringSchedule(id, { isActive: false }),
@@ -116,7 +120,13 @@ export function RecurringInvoicesPage() {
         ]}
         actions={(row) => (
           <Stack direction="row" spacing={1} justifyContent="flex-end">
-            <Button size="small" disabled={!canWrite || runNow.isPending} onClick={() => setConfirmRun(Number(row.id))}>{t('recurring.runNow')}</Button>
+            <Button
+              size="small"
+              disabled={!canWrite || runningId !== null}
+              onClick={() => setConfirmRun(Number(row.id))}
+            >
+              {runningId === Number(row.id) ? t('common.loading') : t('recurring.runNow')}
+            </Button>
             {row.isActive !== false && canWrite ? (
               <Button size="small" color="warning" onClick={() => deactivate.mutate(Number(row.id))}>{t('recurring.deactivate')}</Button>
             ) : null}
@@ -133,7 +143,10 @@ export function RecurringInvoicesPage() {
         onConfirm={() => {
           const id = confirmRun;
           setConfirmRun(null);
-          if (id != null) runNow.mutate(id);
+          if (id != null) {
+            setRunningId(id);
+            runNow.mutate(id);
+          }
         }}
       />
     </PageShell>

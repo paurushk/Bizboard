@@ -24,9 +24,7 @@ import {
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DisclaimerBanner, PageHeader } from '@/components/insights';
 import { ErrorState } from '@/components/PageState';
-import { t } from '@/i18n';
-
-const STEPS = ['Upload', 'Map', 'Commit', 'Export aid'];
+import { t, useLocale } from '@/i18n';
 
 type PreviewParty = {
   name: string;
@@ -65,6 +63,15 @@ type MapRow = {
 
 export function TallyMigrationPage() {
   const [step, setStep] = useState(0);
+  // F3-056: translate the stepper labels and rebuild them on a language switch
+  // rather than pinning English strings at module load.
+  useLocale();
+  const steps = [
+    t('import.stepUpload'),
+    t('import.stepMap'),
+    t('import.stepCommit'),
+    t('import.stepExportAid'),
+  ];
   const [syncRunId, setSyncRunId] = useState<number | null>(null);
   const [preview, setPreview] = useState<PreviewShape | null>(null);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
@@ -230,7 +237,7 @@ export function TallyMigrationPage() {
       <PageHeader title={t('tally.title')} />
       <DisclaimerBanner severity="warning">{t('tally.disclaimer')}</DisclaimerBanner>
       <Stepper activeStep={step} alternativeLabel>
-        {STEPS.map((label) => (
+        {steps.map((label) => (
           <Step key={label}>
             <StepLabel>{label}</StepLabel>
           </Step>

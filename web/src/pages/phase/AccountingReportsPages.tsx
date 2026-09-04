@@ -7,7 +7,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
@@ -71,6 +71,9 @@ function AccountingReportPage({
   const q = useQuery({
     queryKey: ['accounting-report', report, from, to, costCenter],
     queryFn: () => api.getAccountingReport(report, reportParams),
+    // F3-069: keep the prior report on screen while a date/cost-center change
+    // refetches, so the page does not flash a full-height spinner each edit.
+    placeholderData: keepPreviousData,
   });
   const handleDownload = async () => {
     if (report === 'books-health') return;
@@ -87,7 +90,7 @@ function AccountingReportPage({
     }
   };
   if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState message={getErrorMessage(q.error)} error={q.error} onRetry={() => void q.refetch()} />;
+  if (q.isError && !q.data) return <ErrorState message={getErrorMessage(q.error)} error={q.error} onRetry={() => void q.refetch()} />;
   const data = q.data as Row;
   // UXW2B-019: prefer an array shape defensively even if a report ever sends rows
   // grouped by type ({ ASSET: [...], ... }) instead of a flat list — .map() on a

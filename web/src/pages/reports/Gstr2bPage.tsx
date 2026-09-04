@@ -210,6 +210,7 @@ export function Gstr2bPage() {
 
       <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
         <TextField
+          type="month"
           label={t('reports.period')}
           value={period}
           onChange={(e) => {
@@ -217,7 +218,8 @@ export function Gstr2bPage() {
             setPage(1);
           }}
           size="small"
-          sx={{ width: 140 }}
+          InputLabelProps={{ shrink: true }}
+          sx={{ width: 160 }}
         />
         <TextField
           select

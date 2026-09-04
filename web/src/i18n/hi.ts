@@ -955,6 +955,8 @@ export const hi = {
     healthAttention: 'ध्यान दें · इनसाइट्स खोलें',
     healthAction: 'कार्रवाई चाहिए · इनसाइट्स खोलें',
     limitedData: 'सीमित डेटा',
+    healthGradeTitle: 'हेल्थ ग्रेड {grade} · स्कोर {score}',
+    negativeStockPolicyNote: 'नेगेटिव स्टॉक नीति: {policy} — GST सेटिंग्स में बदलें',
     salesTodayLine: 'आज की बिक्री {amount} ({count} इनवॉइस)। इस महीने {monthAmount} ({monthCount} इनवॉइस)।',
     needsAttention: 'ध्यान दें',
     shopFloor: 'काउंटर (पिछले 7 दिन)',
@@ -1038,6 +1040,8 @@ export const hi = {
     stepUpload: 'अपलोड और सत्यापन',
     stepPreview: 'पूर्वावलोकन',
     stepCommit: 'कमिट',
+    stepMap: 'मैपिंग',
+    stepExportAid: 'निर्यात सहायता',
     entityType: 'आप क्या आयात कर रहे हैं?',
     chooseFile: 'CSV या Excel फ़ाइल चुनें',
     validRows: 'मान्य पंक्तियाँ',
@@ -1095,6 +1099,7 @@ export const hi = {
   billUpload: {
     title: 'खरीद बिल अपलोड',
     titleSales: 'बिक्री बिल अपलोड',
+    expandRow: 'विवरण संपादित करने के लिए पंक्ति खोलें',
     subtitle: 'AI से लाइन आइटम निकालें, समीक्षा करें, फिर ड्राफ्ट खरीद बनाएं।',
     subtitleSales: 'AI से लाइन आइटम निकालें, समीक्षा करें, फिर ड्राफ्ट बिक्री इनवॉइस बनाएं।',
     piiDisclaimer:
@@ -1471,6 +1476,11 @@ export const hi = {
     photo: 'फ़ोटो',
     upload: 'अपलोड',
     count: '{count} बिल',
+  },
+  productSearch: {
+    typeToSearch: 'उत्पाद खोजने के लिए टाइप करें',
+    typeAtLeast: 'खोजने के लिए कम से कम {count} अक्षर टाइप करें',
+    showingFirst: 'पहले {count} मिलान दिखाए जा रहे हैं — अपनी खोज सीमित करें',
   },
 } as const;
 

@@ -156,6 +156,9 @@ export function GstSettingsPage() {
       void queryClient.invalidateQueries({ queryKey: ['company-gstins'] });
     },
   });
+  // F3-073: dismissable "saved" banner; reappears on the next save because
+  // mutation.submittedAt advances with every mutate() call.
+  const [savedAck, setSavedAck] = useState(0);
 
   const verifyMutation = useMutation({
     mutationFn: async () => {
@@ -222,7 +225,11 @@ export function GstSettingsPage() {
       })}
     >
       <Typography variant="h4">{t('nav.gst')}</Typography>
-      {mutation.isSuccess ? <Alert severity="success">GST settings saved</Alert> : null}
+      {mutation.isSuccess && mutation.submittedAt !== savedAck ? (
+        <Alert severity="success" onClose={() => setSavedAck(mutation.submittedAt)}>
+          GST settings saved
+        </Alert>
+      ) : null}
       {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
       {verifyMutation.isSuccess ? (
         <Alert severity="info">

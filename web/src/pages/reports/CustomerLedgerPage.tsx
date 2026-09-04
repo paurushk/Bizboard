@@ -45,7 +45,7 @@ export function CustomerLedgerPage() {
       formattedPhone = `91${formattedPhone}`;
     }
     const text = encodeURIComponent(
-      `Hello ${customer.name},\nYour account statement from our shop:\nTotal Outstanding Balance: ₹${ledger.data.outstanding}\nThank you for your business!`,
+      `Hello ${customer.name},\nYour account statement from our shop:\nTotal Outstanding Balance: ${formatMoney(ledger.data.outstanding)}\nThank you for your business!`,
     );
     const url = formattedPhone ? `https://wa.me/${formattedPhone}?text=${text}` : `https://wa.me/?text=${text}`;
     openShareUrl(url);

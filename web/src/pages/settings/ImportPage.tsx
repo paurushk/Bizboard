@@ -28,13 +28,11 @@ import { commitImport, downloadImportErrorsCsv, downloadImportTemplate, uploadIm
 import { useAuth } from '@/auth/AuthContext';
 import { StatusChip } from '@/components/StatusChip';
 import { EmptyState } from '@/components/PageState';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import type { ImportJob, ImportKind } from '@/types/domain';
 import { canImport } from '@/utils/permissions';
 import { statusLabelKey } from '@/utils/status';
-
-const steps = [t('import.stepUpload'), t('import.stepPreview'), t('import.stepCommit')];
 
 const KIND_OPTIONS: ImportKind[] = ['PRODUCTS', 'CUSTOMERS', 'SUPPLIERS', 'OPENING_STOCK'];
 
@@ -180,6 +178,10 @@ export function ImportPage() {
   const [file, setFile] = useState<File | null>(null);
   const [job, setJob] = useState<ImportJob | null>(null);
   const [activeStep, setActiveStep] = useState(0);
+  // F3-056: build the stepper labels inside the component so they follow a
+  // runtime language switch instead of freezing at module-load time.
+  useLocale();
+  const steps = [t('import.stepUpload'), t('import.stepPreview'), t('import.stepCommit')];
   const [error, setError] = useState<string | null>(null);
   const [errorSource, setErrorSource] = useState<unknown>(null);
   const [commitKey, setCommitKey] = useState(() => newIdempotencyKey());

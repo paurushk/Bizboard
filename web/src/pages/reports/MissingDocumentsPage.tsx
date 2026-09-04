@@ -95,10 +95,12 @@ export function MissingDocumentsPage() {
       />
       <Alert severity="info">{clientView ? t('chase.clientHint') : t('chase.caHint')}</Alert>
       <TextField
+        type="month"
         label={t('chase.period')}
         size="small"
         value={period}
         onChange={(e) => setPeriod(e.target.value)}
+        InputLabelProps={{ shrink: true }}
         sx={{ maxWidth: 180 }}
       />
       {wa.error ? <Alert severity="error">{getErrorMessage(wa.error)}</Alert> : null}

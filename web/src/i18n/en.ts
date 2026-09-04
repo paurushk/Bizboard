@@ -574,6 +574,8 @@ export const en = {
     stepUpload: 'Upload & validate',
     stepPreview: 'Preview',
     stepCommit: 'Commit',
+    stepMap: 'Map',
+    stepExportAid: 'Export aid',
     entityType: 'What are you importing?',
     chooseFile: 'Choose CSV or Excel file',
     validRows: 'Valid rows',
@@ -631,6 +633,7 @@ export const en = {
   billUpload: {
     title: 'Upload purchase bill',
     titleSales: 'Upload sales bill',
+    expandRow: 'Expand row to edit details',
     subtitle: 'Extract line items with AI, review, then create a draft purchase.',
     subtitleSales: 'Extract line items with AI, review, then create a draft sales invoice.',
     piiDisclaimer:
@@ -1086,6 +1089,8 @@ export const en = {
     healthAttention: 'Needs attention · open Insights',
     healthAction: 'Action needed · open Insights',
     limitedData: 'Limited data',
+    healthGradeTitle: 'Health grade {grade} · score {score}',
+    negativeStockPolicyNote: 'Negative stock policy: {policy} — change in GST settings',
     salesTodayLine: 'Sales today {amount} ({count} invoices). This month {monthAmount} ({monthCount} invoices).',
     needsAttention: 'Needs attention',
     shopFloor: 'Counter (last 7 days)',
@@ -1480,6 +1485,11 @@ export const en = {
     photo: 'Photo',
     upload: 'Upload',
     count: '{count} bills',
+  },
+  productSearch: {
+    typeToSearch: 'Type to search products',
+    typeAtLeast: 'Type at least {count} characters to search',
+    showingFirst: 'Showing first {count} matches — refine your search',
   },
 } as const;
 

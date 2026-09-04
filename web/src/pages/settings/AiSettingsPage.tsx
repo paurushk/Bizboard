@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import FormControlLabel from '@mui/material/FormControlLabel';
@@ -67,6 +67,9 @@ export function AiSettingsPage() {
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['company'] }),
   });
+  // F3-073: dismissable "saved" banner; reappears on the next save because
+  // mutation.submittedAt advances with every mutate() call.
+  const [savedAck, setSavedAck] = useState(0);
 
   if (!canManageUsers(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
@@ -83,7 +86,11 @@ export function AiSettingsPage() {
     >
       <PageHeader title={t('nav.aiSettings')} subtitle={t('insights.settingsSubtitle')} />
       <DisclaimerBanner>{t('insights.disclaimer')}</DisclaimerBanner>
-      {mutation.isSuccess ? <Alert severity="success">{t('insights.settingsSaved')}</Alert> : null}
+      {mutation.isSuccess && mutation.submittedAt !== savedAck ? (
+        <Alert severity="success" onClose={() => setSavedAck(mutation.submittedAt)}>
+          {t('insights.settingsSaved')}
+        </Alert>
+      ) : null}
       {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
 
       <Paper variant="outlined" sx={{ p: 2 }}>

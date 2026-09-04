@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -116,6 +116,9 @@ export function CompanySettingsPage() {
     },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['company'] }),
   });
+  // F3-073: let the "saved" banner be dismissed; it reappears on the next save
+  // because mutation.submittedAt advances with every mutate() call.
+  const [savedAck, setSavedAck] = useState(0);
 
   if (!canManageUsers(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
@@ -162,7 +165,11 @@ export function CompanySettingsPage() {
           }
         />
       </Stack>
-      {mutation.isSuccess ? <Alert severity="success">Company settings saved</Alert> : null}
+      {mutation.isSuccess && mutation.submittedAt !== savedAck ? (
+        <Alert severity="success" onClose={() => setSavedAck(mutation.submittedAt)}>
+          Company settings saved
+        </Alert>
+      ) : null}
       {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
       <Paper sx={{ p: 3, maxWidth: 640 }}>
         <Stack spacing={2}>
