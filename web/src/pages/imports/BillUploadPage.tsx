@@ -37,11 +37,13 @@ import { useCustomerSearch, useSupplierSearch } from '@/hooks/usePartySearch';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { t } from '@/i18n';
 import type {
+  Customer,
   ImportJob,
   ImportKind,
   PurchaseBillCommitResult,
   PurchaseBillLinePreview,
   PurchaseBillPreview,
+  Supplier,
 } from '@/types/domain';
 import { statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -112,10 +114,17 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
   // customer/supplier up front.
   const [uploadMode, setUploadMode] = useState<'photo' | 'structured'>('photo');
   const [file, setFile] = useState<File | null>(null);
-  const [party, setParty] = useState<{ id: number; name: string } | null>(null);
+  // `party` is always a full Customer (sales) or Supplier (purchase) — never
+  // both at once — but its shape can't be narrowed from `isSales` alone
+  // since the state's own type doesn't depend on it.
+  const [party, setParty] = useState<Customer | Supplier | null>(null);
   const partyId = party?.id ?? '';
-  const customerSearch = useCustomerSearch({ selected: isSales ? party : undefined });
-  const supplierSearch = useSupplierSearch({ selected: !isSales ? party : undefined });
+  const customerSearch = useCustomerSearch({
+    selected: isSales ? (party as Customer | null) : undefined,
+  });
+  const supplierSearch = useSupplierSearch({
+    selected: !isSales ? (party as Supplier | null) : undefined,
+  });
   const partySearch = isSales ? customerSearch : supplierSearch;
   const [jobId, setJobId] = useState<number | null>(null);
   const [lines, setLines] = useState<PurchaseBillLinePreview[]>([]);
@@ -395,7 +404,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
 
           <Autocomplete
             options={partySearch.options}
-            getOptionLabel={(o: { id: number; name: string }) => o.name}
+            getOptionLabel={(o: Customer | Supplier) => o.name}
             isOptionEqualToValue={(o, v) => o.id === v.id}
             value={party}
             onChange={(_, v) => setParty(v)}
