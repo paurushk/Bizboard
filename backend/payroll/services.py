@@ -306,6 +306,11 @@ def annual_new_regime_tax(annual_income: Decimal) -> Decimal:
     # 87A rebate — nil tax up to the income cap.
     if taxable <= NEW_REGIME_87A_INCOME_CAP:
         tax = max(Decimal("0"), tax - min(tax, NEW_REGIME_87A_MAX))
+    else:
+        # B9-030: marginal relief at the ₹12L cliff — the tax (before cess)
+        # cannot exceed the amount by which taxable income crosses the cap, so
+        # ₹12,00,001 no longer owes a full slab jump over ₹12,00,000.
+        tax = min(tax, taxable - NEW_REGIME_87A_INCOME_CAP)
     tax = tax * (Decimal("1") + NEW_REGIME_CESS)
     return _money(tax)
 
@@ -326,6 +331,18 @@ def compute_statutory(employee, company, *, gross=None, month: int | None = None
         if period > 0 and days < period:
             prorate = days / period
     gross_amt = _money(gross_full * prorate)
+    if gross_amt <= 0:
+        # B9-003: a full-month loss-of-pay slip earns nothing — do not compute
+        # phantom PF/ESI/PT or a TDS projection from the contracted salary
+        # (that produced a negative net equal to -tds_amount).
+        zero = _money(0)
+        return {
+            "gross": zero, "pf_employee": zero, "pf_employer": zero,
+            "pf_employer_eps": zero, "pf_employer_epf": zero,
+            "pf_admin_charges": zero, "edli_charges": zero,
+            "esi_employee": zero, "esi_employer": zero, "pt_amount": zero,
+            "tds_amount": zero, "deductions": zero, "net": zero,
+        }
     if employee.pf_applicable:
         ceiling = _money(employee.pf_wage_ceiling or EPS_WAGE_CEILING)
         # PF wage base = Basic + DA when configured; else the (prorated) gross.
@@ -350,7 +367,9 @@ def compute_statutory(employee, company, *, gross=None, month: int | None = None
         if gross_full <= esi_ceiling:
             esi_employee = _money(gross_amt * ESI_EMPLOYEE_RATE)
             esi_employer = _money(gross_amt * ESI_EMPLOYER_RATE)
-    pt_amount = _pt_amount(gross_amt, _resolve_pt_slabs(company, employee), month=month)
+    # B9-015: PT is a fixed monthly levy keyed to the salary *rate*, not the
+    # LOP-prorated earnings — mirror the ESI-eligibility treatment above.
+    pt_amount = _pt_amount(gross_full, _resolve_pt_slabs(company, employee), month=month)
 
     # TDS: an explicit flat rate on the slip's gross always wins (payroll admin
     # override). Otherwise, for the new regime, project 12× the contracted gross
@@ -366,8 +385,13 @@ def compute_statutory(employee, company, *, gross=None, month: int | None = None
     else:
         tds_amount = _money(0)
 
+    # B9-003: never let the TDS projection drive a slip's net pay negative in a
+    # short (LOP) month — cap it at what remains after the other deductions.
+    non_tds = _money(pf_employee + esi_employee + pt_amount)
+    if tds_amount > 0 and non_tds + tds_amount > gross_amt:
+        tds_amount = max(_money(0), _money(gross_amt - non_tds))
     deductions = _money(pf_employee + esi_employee + pt_amount + tds_amount)
-    net = _money(gross_amt - deductions)
+    net = max(_money(0), _money(gross_amt - deductions))
     return {
         "gross": gross_amt,
         "pf_employee": pf_employee,
@@ -437,8 +461,27 @@ def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> Pa
             employee=emp,
             defaults=computed,
         )
+    _post_pay_run_gl(locked, user, pay_from_cash=pay_from_cash)
+    locked.status = PayRun.Status.COMPLETED
+    locked.updated_by = user
+    locked.save(update_fields=["status", "updated_by", "updated_at"])
+    return locked
+
+
+def _post_pay_run_gl(locked: PayRun, user, *, pay_from_cash: bool = True) -> bool:
+    """Post the payroll journal for `locked`. Returns True iff an entry was posted.
+
+    Idempotent — `uniq_accounting_source_posting` dedupes on
+    (company, PAY_RUN, pk, PAYROLL), and PostingService.post returns the
+    existing entry on a re-run.
+    """
+    company = locked.company
+    if not company.accounting_enabled:
+        return False
     slips = list(locked.slips.select_related("employee"))
     total_gross = sum((s.gross for s in slips), Decimal("0"))
+    if total_gross <= 0:
+        return False
     total_net = sum((s.net for s in slips), Decimal("0"))
     total_pf = sum((getattr(s, "pf_employee", Decimal("0")) or Decimal("0") for s in slips), Decimal("0"))
     total_esi = sum((getattr(s, "esi_employee", Decimal("0")) or Decimal("0") for s in slips), Decimal("0"))
@@ -452,43 +495,65 @@ def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> Pa
         (getattr(s, "edli_charges", Decimal("0")) or Decimal("0") for s in slips), Decimal("0")
     )
     total_esi_er = sum((getattr(s, "esi_employer", Decimal("0")) or Decimal("0") for s in slips), Decimal("0"))
-    company = locked.company
-    if company.accounting_enabled and total_gross > 0:
-        from accounting.services import PostingService
+    from accounting.services import PostingService
 
-        # R4-011: _ensure_chart only seeds when an account is actually missing —
-        # no ~50 get_or_create round-trips on every pay-run completion.
-        PostingService._ensure_chart(company)
-        expense = PostingService._account(company, "5800")
-        credit_acct = PostingService._account(company, "1100" if pay_from_cash else "2150")
-        # BB-000703 / PR-01: employer PF (EPS+EPF) + admin + EDLI + ESI are
-        # employer cost — Dr expense / Cr the statutory payables (2261 PF).
-        total_expense = total_gross + total_pf_er + total_pf_admin + total_edli + total_esi_er
-        lines = [{"account": expense, "debit": total_expense}]
-        for code, amount in (
-            ("2261", total_pf + total_pf_er + total_pf_admin + total_edli),
-            ("2262", total_esi + total_esi_er),
-            ("2263", total_pt),
-            ("2265", total_tds),
-        ):
-            line = _credit_line(PostingService._account(company, code), amount)
-            if line:
-                lines.append(line)
-        net_line = _credit_line(credit_acct, total_net)
-        if net_line:
-            lines.append(net_line)
-        PostingService.post(
-            company=company,
-            source_type="PAY_RUN",
-            source_id=locked.pk,
-            purpose="PAYROLL",
-            entry_date=pay_period_month_end(locked.period),
-            lines=lines,
-            user=user,
-        )
-    locked.status = PayRun.Status.COMPLETED
-    locked.updated_by = user
-    locked.save(update_fields=["status", "updated_by", "updated_at"])
+    # R4-011: _ensure_chart only seeds when an account is actually missing —
+    # no ~50 get_or_create round-trips on every pay-run completion.
+    PostingService._ensure_chart(company)
+    expense = PostingService._account(company, "5800")
+    credit_acct = PostingService._account(company, "1100" if pay_from_cash else "2150")
+    # BB-000703 / PR-01: employer PF (EPS+EPF) + admin + EDLI + ESI are
+    # employer cost — Dr expense / Cr the statutory payables (2261 PF).
+    total_expense = total_gross + total_pf_er + total_pf_admin + total_edli + total_esi_er
+    lines = [{"account": expense, "debit": total_expense}]
+    for code, amount in (
+        ("2261", total_pf + total_pf_er + total_pf_admin + total_edli),
+        ("2262", total_esi + total_esi_er),
+        ("2263", total_pt),
+        ("2265", total_tds),
+    ):
+        line = _credit_line(PostingService._account(company, code), amount)
+        if line:
+            lines.append(line)
+    net_line = _credit_line(credit_acct, total_net)
+    if net_line:
+        lines.append(net_line)
+    PostingService.post(
+        company=company,
+        source_type="PAY_RUN",
+        source_id=locked.pk,
+        purpose="PAYROLL",
+        entry_date=pay_period_month_end(locked.period),
+        lines=lines,
+        user=user,
+    )
+    return True
+
+
+@transaction.atomic
+def post_pay_run_gl(pay_run: PayRun, user) -> PayRun:
+    """B9-037: post the payroll journal for a run that was completed while
+    accounting was disabled (no catch-up path existed)."""
+    locked = PayRun.objects.select_for_update().get(pk=pay_run.pk)
+    if locked.status != PayRun.Status.COMPLETED:
+        raise BusinessRuleError("Only completed pay runs can be posted to the GL.")
+    if not locked.company.accounting_enabled:
+        raise BusinessRuleError("Enable accounting for this company first.")
+    from accounting.models import JournalEntry
+
+    if JournalEntry.objects.filter(
+        company=locked.company,
+        source_type="PAY_RUN",
+        source_id=locked.pk,
+        purpose="PAYROLL",
+        status=JournalEntry.Status.POSTED,
+    ).exists():
+        raise BusinessRuleError("This pay run is already posted to the GL.")
+    from reporting.gst_periods import assert_period_allows_money_amend
+
+    assert_period_allows_money_amend(locked.company, pay_period_month_end(locked.period))
+    if not _post_pay_run_gl(locked, user):
+        raise BusinessRuleError("Nothing to post — the pay run has no paid slips.")
     return locked
 
 
