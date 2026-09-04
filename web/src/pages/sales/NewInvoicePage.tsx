@@ -1016,10 +1016,19 @@ export function NewInvoicePage() {
           );
           if (resolved) nextPatch = { ...patch, unitPrice: resolved.unitPrice };
         }
-        if (opts?.fromDiscountAmount && nextPatch.discountAmount != null) {
+        const changesGross =
+          nextPatch.quantity != null || nextPatch.unitPrice != null;
+        if (
+          (opts?.fromDiscountAmount && nextPatch.discountAmount != null) ||
+          // F2-032: a qty/price change on a line that carries an absolute
+          // discount amount must re-derive the percent against the new gross,
+          // not recompute the amount from the now-stale percent.
+          (changesGross && (l.discountAmount ?? 0) > 0)
+        ) {
           const gross = roundMoney((nextPatch.quantity ?? l.quantity) * (nextPatch.unitPrice ?? l.unitPrice));
-          const amount = Math.min(Math.max(0, nextPatch.discountAmount), gross);
-          const percent = gross > 0 ? roundMoney((amount / gross) * 100) : 0;
+          const rawAmount = nextPatch.discountAmount ?? l.discountAmount ?? 0;
+          const amount = Math.min(Math.max(0, rawAmount), gross);
+          const percent = gross > 0 ? Math.min(100, roundMoney((amount / gross) * 100)) : 0;
           return recomputeLine(l, intraState, {
             ...nextPatch,
             discountPercent: percent,

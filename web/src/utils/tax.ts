@@ -46,7 +46,13 @@ export function calculateLineTax(input: LineTaxInput): LineTaxResult {
       : roundMoney(gross * (discountPercent / 100));
 
   if (input.discountAmount != null && input.discountPercent == null && gross > 0) {
-    discountPercent = roundMoney((discountAmount / gross) * 100);
+    // F1-009: BUG-511 only clamped the percent-driven path. In the amount-only
+    // branch a discount amount above gross still rendered e.g. "312%" and could
+    // round-trip a nonsensical percent into a saved payload.
+    discountPercent = Math.min(
+      100,
+      roundMoney((Math.min(discountAmount, gross) / gross) * 100),
+    );
   } else if (input.discountPercent != null) {
     discountAmount = roundMoney(gross * (discountPercent / 100));
   }

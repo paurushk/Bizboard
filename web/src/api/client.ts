@@ -98,9 +98,18 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
   const method = (config.method || 'get').toUpperCase();
   if (!['GET', 'HEAD', 'OPTIONS', 'TRACE'].includes(method)) {
     try {
-      await ensureCsrfCookie();
-    } catch {
-      await ensureCsrfCookie(true);
+      try {
+        await ensureCsrfCookie();
+      } catch {
+        await ensureCsrfCookie(true);
+      }
+    } catch (err) {
+      // F1-006: when the /auth/csrf/ GET itself fails on the network (offline,
+      // or a flaky connection), don't reject the real request here with a
+      // confusing CSRF wall-of-text. Let it go out header-less — the server
+      // 403 is then handled by the response interceptor's CSRF auto-retry, or
+      // the offline queue classifies it as a network failure.
+      if (!isNetworkError(err)) throw err;
     }
     applyCsrfHeader(config);
   }

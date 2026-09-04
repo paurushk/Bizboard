@@ -111,7 +111,7 @@ export function InvoiceSourceLineTable({
                           onChange={(e) =>
                             updateLine(line.key, { quantity: Number(e.target.value) })
                           }
-                          inputProps={{ min: 1, max: line.maxQty, style: { width: 72 } }}
+                          inputProps={{ min: 0, max: line.maxQty, step: "any", style: { width: 72 } }}
                           helperText={`max ${line.maxQty}`}
                           FormHelperTextProps={{ sx: { m: 0, textAlign: 'right' } }}
                         />
@@ -236,7 +236,7 @@ export function InvoiceReturnLineTable({
                     size="small"
                     value={line.quantity}
                     onChange={(e) => updateLine(line.key, { quantity: Number(e.target.value) })}
-                    inputProps={{ min: 1, max: line.maxQty, style: { width: 72 } }}
+                    inputProps={{ min: 0, max: line.maxQty, step: "any", style: { width: 72 } }}
                   />
                 )}
               </TableCell>

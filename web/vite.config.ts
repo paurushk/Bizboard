@@ -36,7 +36,10 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       react(),
       VitePWA({
-        registerType: 'autoUpdate',
+        // F1-003: 'prompt' so pwa.ts's onNeedRefresh confirm actually fires —
+        // 'autoUpdate' made that a dead handler and silently reloaded the tab
+        // on every deploy, losing unsaved editor / POS state.
+        registerType: 'prompt',
         includeAssets: ['favicon.svg', 'offline.html', 'manifest.webmanifest'],
         manifest: false,
         workbox: {

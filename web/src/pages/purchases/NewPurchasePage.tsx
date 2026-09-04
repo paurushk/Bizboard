@@ -1044,10 +1044,17 @@ export function NewPurchasePage() {
     setLines((prev) =>
       prev.map((l) => {
         if (l.key !== key) return l;
-        if (opts?.fromDiscountAmount && patch.discountAmount != null) {
+        const changesGross = patch.quantity != null || patch.unitPrice != null;
+        if (
+          (opts?.fromDiscountAmount && patch.discountAmount != null) ||
+          // F2-032: re-derive the percent from the absolute discount against
+          // the new gross when qty/price changes on a discounted line.
+          (changesGross && (l.discountAmount ?? 0) > 0)
+        ) {
           const gross = roundMoney((patch.quantity ?? l.quantity) * (patch.unitPrice ?? l.unitPrice));
-          const amount = Math.min(Math.max(0, patch.discountAmount), gross);
-          const percent = gross > 0 ? roundMoney((amount / gross) * 100) : 0;
+          const rawAmount = patch.discountAmount ?? l.discountAmount ?? 0;
+          const amount = Math.min(Math.max(0, rawAmount), gross);
+          const percent = gross > 0 ? Math.min(100, roundMoney((amount / gross) * 100)) : 0;
           return recomputeLine(l, intraState, {
             ...patch,
             discountPercent: percent,

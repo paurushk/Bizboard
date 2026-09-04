@@ -61,8 +61,12 @@ export function noteItemsToSourceLines(
 }
 
 export function clampSourceLineQty(line: InvoiceSourceLine, qty: number): number {
-  const n = Math.max(0, Math.floor(qty) || 0);
-  return Math.min(n, line.maxQty);
+  // F2-010: don't floor — a source line of 2.5 KG / 0.75 LTR must be
+  // creditable / returnable for its real fractional amount. Just clamp to
+  // [0, maxQty] and round to a sane 3dp to avoid float dust.
+  const n = Math.max(0, Number.isFinite(qty) ? qty : 0);
+  const clamped = Math.min(n, line.maxQty);
+  return Math.round(clamped * 1000) / 1000;
 }
 
 export function activeSourceLines(lines: InvoiceSourceLine[]): InvoiceSourceLine[] {
