@@ -385,11 +385,35 @@ class SerialNumberViewSet(CompanyScopedViewSet):
         if warehouse_id:
             warehouse = Warehouse.objects.filter(company=self.company, pk=warehouse_id).first() or warehouse
         if target == SerialNumber.Status.RETURNED and from_status == SerialNumber.Status.SOLD:
+            # B8-006: cost the return-in at the price the unit went out at.
+            # Find the SALE movement that carried this serial and reuse its
+            # unit_cost, so a manual serial return doesn't create zero-cost
+            # stock and desync FIFO / WAVG from the balance.
+            from inventory.models import StockMovement
+
+            sale_cost = None
+            for mv in (
+                StockMovement.objects.filter(
+                    company=self.company,
+                    product=serial.product,
+                    movement_type=MovementType.SALE,
+                )
+                .order_by("-id")
+                .only("unit_cost", "serial_numbers")[:200]
+            ):
+                if serial.serial_number in (mv.serial_numbers or []):
+                    sale_cost = mv.unit_cost
+                    break
+            if sale_cost is None:
+                sale_cost = InventoryService.unit_cost(
+                    self.company, serial.product, warehouse
+                )
             InventoryService.post_movement(
                 company=self.company,
                 warehouse=warehouse,
                 product=serial.product,
                 quantity=Decimal("1"),
+                unit_cost=sale_cost,
                 movement_type=MovementType.SALES_RETURN,
                 reference_type="serial_manual_return",
                 reference_id=serial.pk,

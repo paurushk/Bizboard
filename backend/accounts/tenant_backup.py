@@ -480,6 +480,13 @@ def _copy_model_fields(model, row: dict, *, skip: set[str], remap: dict[str, int
             old_id = raw
             kwargs[attname] = remap[attname].get(old_id) if isinstance(remap[attname], dict) else remap[attname]
             continue
+        if getattr(field, "is_relation", False) and field.many_to_one:
+            # B6-005: a real FK column that isn't in `remap` would otherwise be
+            # copied verbatim — a source PK pointing at the old tenant's row (or
+            # a global id that resolves to another tenant). Null it; only an
+            # explicitly-remapped FK is carried across.
+            kwargs[attname] = None
+            continue
         if raw is None:
             kwargs[attname] = None
             continue

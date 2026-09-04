@@ -1,6 +1,7 @@
 from decimal import Decimal
 from io import BytesIO
 
+from django.db import transaction
 from django.db.models import ProtectedError, Sum
 from django.http import HttpResponse
 from rest_framework import status
@@ -162,7 +163,10 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     def get_queryset(self):
         return super().get_queryset().prefetch_related("lines")
 
+    @transaction.atomic
     def create(self, request, *args, **kwargs):
+        # B1-002: header + lines must be all-or-nothing, and next_number's
+        # select_for_update guard needs an open transaction to be effective.
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         lines = serializer.validated_data.pop("lines")

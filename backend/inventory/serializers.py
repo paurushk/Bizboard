@@ -319,16 +319,25 @@ def _count_line_system_qty(session, product, batch):
     )
 
 
-def _make_count_line(session, line):
+def _make_count_line(session, line, *, keep_system_qty=None):
     product = line["product"]
     batch = line.get("batch")
     _assert_count_line_tenant(session, product, batch)
+    # B8-011: on an edit-and-replace, keep the system_qty that was snapshotted
+    # when the session was created — recomputing it live rebaselines the count
+    # and defeats the variance / conflict check. Only a genuinely new
+    # (product, batch) gets a fresh snapshot.
+    key = (getattr(product, "pk", product), getattr(batch, "pk", batch))
+    if keep_system_qty is not None and key in keep_system_qty:
+        system_qty = keep_system_qty[key]
+    else:
+        system_qty = _count_line_system_qty(session, product, batch)
     return StockCountLine(
         session=session,
         company=session.company,
         product=product,
         batch=batch,
-        system_qty=_count_line_system_qty(session, product, batch),
+        system_qty=system_qty,
         counted_qty=line.get("counted_qty"),
     )
 
@@ -393,9 +402,14 @@ class StockCountSessionSerializer(serializers.ModelSerializer):
                 instance.status = StockCountSession.Status.COUNTED
                 instance.save(update_fields=["status"])
             return instance
+        prior_system_qty = {
+            (row.product_id, row.batch_id): row.system_qty
+            for row in instance.lines.all()
+        }
         instance.lines.all().delete()
         created_lines = StockCountLine.objects.bulk_create([
-            _make_count_line(instance, line) for line in lines
+            _make_count_line(instance, line, keep_system_qty=prior_system_qty)
+            for line in lines
         ])
         if created_lines and not any(line.counted_qty is None for line in created_lines):
             instance.status = StockCountSession.Status.COUNTED

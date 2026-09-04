@@ -84,7 +84,12 @@ def _match_one(company, aa_txn_id, tol: Decimal) -> str | None:
         if receipt is None:
             # INTG-02: fall back to a *unique* amount+date candidate. Ambiguous
             # (2+) candidates are left for a human — never guess.
-            candidates = list(base_qs.order_by("id")[:2])
+            # B4-025: a receipt already confirmed against a bank line (ReconMatch)
+            # must not be re-matched by the weak amount+date rule — it only stays
+            # eligible for an exact ref/UTR match above.
+            candidates = list(
+                base_qs.filter(recon_matches__isnull=True).order_by("id")[:2]
+            )
             if len(candidates) == 1:
                 receipt = (
                     CustomerReceipt.objects.select_for_update().get(pk=candidates[0].pk)

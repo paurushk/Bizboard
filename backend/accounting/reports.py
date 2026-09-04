@@ -365,6 +365,18 @@ def close_financial_year(company, fy_end, user=None):
     if not company.accounting_enabled:
         raise BusinessRuleError("Accounting is not enabled for this company.")
 
+    # B1-008: don't post an FY_CLOSE journal for a year that has no accounting
+    # periods — the close would produce a journal that nothing then locks, and
+    # the "set periods to CLOSED" step at the end is a no-op. Require at least
+    # one period overlapping the FY.
+    if not AccountingPeriod.objects.filter(
+        company=company, start_date__lte=fy_end, end_date__gte=fy_start,
+    ).exists():
+        raise BusinessRuleError(
+            "Financial-year close blocked: no accounting periods are defined for "
+            f"{fy_start:%Y-%m-%d}–{fy_end:%Y-%m-%d}. Create the periods first."
+        )
+
     seed_chart_of_accounts(company, user)
     retained = PostingService._account(company, "3100")
 

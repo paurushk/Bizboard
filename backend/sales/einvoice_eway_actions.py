@@ -622,6 +622,16 @@ class ChallanEwayActionsMixin:
         challan = self.get_object()
         _assert_sandbox_gsp_allowed(challan.company)
         _require_eway_enabled(challan.company)
+        # B2-002: same idempotency / in-flight guard as the invoice path — a
+        # double-click must not submit the challan to the GSP twice.
+        claim = _claim_eway_submit(challan)
+        if claim == "already":
+            return Response(self.get_serializer(challan).data)
+        if claim == "in_flight":
+            return Response(
+                {"detail": "A statutory submission is already in progress."},
+                status=status.HTTP_409_CONFLICT,
+            )
         try:
             payload = build_eway_payload_from_challan(challan)
         except EwayValidationError as exc:
@@ -630,7 +640,17 @@ class ChallanEwayActionsMixin:
             challan.save(update_fields=["eway_status", "eway_error"])
             raise BusinessRuleError("; ".join(exc.errors)) from exc
 
-        result = get_eway_adapter(challan.company).submit(payload)
+        try:
+            result = get_eway_adapter(challan.company).submit(payload)
+        except Exception as exc:
+            challan.eway_status = SalesInvoice.EwayStatus.FAILED
+            challan.eway_error = str(getattr(exc, "detail", exc))[:500]
+            challan.save(update_fields=["eway_status", "eway_error"])
+            if isinstance(exc, BusinessRuleError):
+                raise
+            raise BusinessRuleError(
+                f"e-Way submission failed: {str(exc)[:300]}"
+            ) from exc
         challan.eway_bill_no = result.eway_bill_no
         challan.eway_valid_upto = result.eway_valid_upto
         challan.eway_status = SalesInvoice.EwayStatus.GENERATED
