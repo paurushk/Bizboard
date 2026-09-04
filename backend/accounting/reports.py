@@ -23,12 +23,14 @@ def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=
         qs = qs.exclude(entry__purpose="FY_CLOSE")
     elif exclude_fy_close_after:
         qs = qs.exclude(entry__purpose="FY_CLOSE", entry__entry_date__gte=exclude_fy_close_after)
-    totals = {}
     # BB-000529 / UXW2B-018: alias the account__* FK lookups to clean single-underscore
     # names. djangorestframework_camel_case's camelize() only converts "_x" -> "X" when a
     # single underscore is followed directly by a lowercase letter; "account__code" (double
     # underscore) doesn't match that pattern and was passing through the renderer mangled
     # into "account_Code" instead of the expected "accountCode".
+    # B1-028: values(...).annotate(...) already yields one row per account_id — no need to
+    # re-key it through a dict.
+    rows = []
     for row in qs.values(
         "account_id",
         account_code=F("account__code"),
@@ -40,8 +42,8 @@ def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=
         row["debit"] = row["debit"] or Decimal("0")
         row["credit"] = row["credit"] or Decimal("0")
         row["balance"] = row["debit"] - row["credit"]
-        totals[row["account_id"]] = row
-    return list(totals.values())
+        rows.append(row)
+    return rows
 
 
 def trial_balance(company, as_of=None):
@@ -67,9 +69,17 @@ def _indian_fy_bounds(as_of, company=None):
         except (ValueError, TypeError):
             from django.utils import timezone
 
+            # B1-018: caller-facing views (AccountingReportView._qp_date) already
+            # 400 on a bad date param; this fallback is the last resort for
+            # internal callers, but should not be fully silent.
+            logger.warning("accounting.reports: unparseable as_of %r; defaulting to today", as_of)
             as_of = timezone.localdate()
     start_month = int(getattr(company, "fy_start_month", None) or 4) if company is not None else 4
     if start_month < 1 or start_month > 12:
+        logger.warning(
+            "accounting.reports: company %s fy_start_month=%r out of range; using April",
+            getattr(company, "pk", None), start_month,
+        )
         start_month = 4
     start_year = as_of.year if as_of.month >= start_month else as_of.year - 1
     start = date(start_year, start_month, 1)
@@ -253,6 +263,10 @@ def fy_bounds_for_end(company, fy_end):
 
     start_month = int(getattr(company, "fy_start_month", None) or 4)
     if start_month < 1 or start_month > 12:
+        logger.warning(
+            "accounting.reports: company %s fy_start_month=%r out of range; using April",
+            getattr(company, "pk", None), start_month,
+        )
         start_month = 4
     start_year = fy_end.year if fy_end.month >= start_month else fy_end.year - 1
     return date(start_year, start_month, 1), fy_end

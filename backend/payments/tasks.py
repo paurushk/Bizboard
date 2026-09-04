@@ -159,22 +159,11 @@ def retry_pending_gateway_refunds():
 
 @shared_task
 def run_ar_dunning_task():
-    from core.rls import iter_company_ids, set_rls_company
-    from payments.dunning import run_dunning_for_company
-    from accounts.models import Company
+    # B4-027: single implementation — the per-company loop, RLS handling and
+    # quiet-hours / opt-out logic all live in dunning.run_dunning_all.
+    from payments.dunning import run_dunning_all
 
-    totals = {"sent": 0, "skipped": 0, "companies": 0}
-    for cid in iter_company_ids():
-        set_rls_company(cid)
-        company = Company.objects.filter(pk=cid, dunning_enabled=True).first()
-        if company is None:
-            continue
-        result = run_dunning_for_company(company)
-        totals["sent"] += result.get("sent", 0)
-        totals["skipped"] += result.get("skipped", 0)
-        totals["companies"] += 1
-    set_rls_company(None)
-    return totals
+    return run_dunning_all()
 
 
 @shared_task

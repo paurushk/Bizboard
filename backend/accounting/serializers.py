@@ -34,6 +34,15 @@ class AccountingPeriodSerializer(serializers.ModelSerializer):
 
                 cu = get_company_user(request)
                 company = cu.company if cu else None
+            # B1-030: fall back to the instance's company on update, and never
+            # let the overlap guard be skipped just because there is no request
+            # context — an internal caller must pass a resolvable company.
+            if company is None:
+                company = getattr(self.instance, "company", None)
+            if company is None:
+                raise serializers.ValidationError(
+                    "Cannot validate accounting-period overlap without a company context."
+                )
             if company is not None:
                 clash = AccountingPeriod.objects.filter(
                     company=company, start_date__lte=end, end_date__gte=start,

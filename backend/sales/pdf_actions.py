@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from core.celery_utils import safe_delay
 from core.exceptions import BusinessRuleError
 
 from .models import SalesInvoice
@@ -24,7 +25,7 @@ class PdfDocumentActionsMixin:
             raise BusinessRuleError("PDF can only be regenerated for completed documents.")
         doc.pdf_status = SalesInvoice.PdfStatus.QUEUED
         doc.save(update_fields=["pdf_status"])
-        self.pdf_task.delay(doc.pk, company_id=doc.company_id)
+        safe_delay(self.pdf_task, doc.pk, company_id=doc.company_id)
         doc.refresh_from_db()
         return Response({"pdf_status": doc.pdf_status, "pdf_file": doc.pdf_file_id})
 
@@ -46,7 +47,7 @@ class PdfDocumentActionsMixin:
             if should_enqueue:
                 doc.pdf_status = SalesInvoice.PdfStatus.QUEUED
                 doc.save(update_fields=["pdf_status"])
-                self.pdf_task.delay(doc.pk, company_id=doc.company_id)
+                safe_delay(self.pdf_task, doc.pk, company_id=doc.company_id)
             return Response(
                 {
                     "detail": "PDF is generating, retry shortly",

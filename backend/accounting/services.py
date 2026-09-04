@@ -53,10 +53,16 @@ CHART = (
     ("5500", "Round Off", "EXPENSE", True),
     # BB-000459: disposal P&L — never write NBV off to Depreciation (5300).
     ("5600", "Loss on Disposal of Assets", "EXPENSE", True),
+    # B1-020: 5700 is an INCOME account that deliberately sits inside the 5xxx
+    # "Expenses" code block (kept here to avoid renumbering a live chart). P&L
+    # groups strictly on `type`, so this is safe — but do NOT infer account
+    # nature from `code.startswith("5")` anywhere; always branch on `type`.
     ("5700", "Gain on Disposal of Assets", "INCOME", True),
     ("5800", "Salaries and Wages", "EXPENSE", True),
     # ACC-14: manual FX gain/loss on settling a foreign-currency invoice at a
-    # rate different from the one it was booked at.
+    # rate different from the one it was booked at. B1-020: typed EXPENSE but
+    # legitimately carries a credit (gain) balance too — again, never classify
+    # this account by its code range.
     ("5900", "Foreign Exchange Gain / Loss", "EXPENSE", True),
     # BB-000382: advances (unallocated cash) — not AR/AP control.
     ("2300", "Customer Advances", "LIABILITY", True),

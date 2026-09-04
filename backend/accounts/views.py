@@ -156,6 +156,11 @@ def _ensure_active_company(user):
 
 
 LOGIN_FAIL_LIMIT = 10
+# B6-007: a per-account-only lock lets an attacker who knows a victim's email
+# lock them out from a single IP. Hard-lock on the *intersection* (this account
+# AND this source IP), and keep a much higher account-wide backstop for a truly
+# distributed brute-force.
+LOGIN_FAIL_ACCOUNT_BACKSTOP = 50
 LOGIN_FAIL_WINDOW_SECONDS = 15 * 60
 
 OTP_PHONE_COOLDOWN_SECONDS = 60
@@ -165,22 +170,47 @@ OTP_PHONE_HOUR_SECONDS = 60 * 60
 _REGISTER_DETAIL = "If this email can be registered, an account has been prepared."
 
 
+def _client_ip(request):
+    fwd = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
+    return fwd or request.META.get("REMOTE_ADDR") or "unknown"
+
+
 def _login_fail_key(email):
     return f"login_fail:{(email or '').strip().lower()}"
 
 
-def _record_login_failure(email):
+def _login_fail_ip_key(email, ip):
+    return f"login_fail_ip:{(email or '').strip().lower()}:{ip}"
+
+
+def _incr_with_ttl(key):
     """BB-000291: prefer atomic Redis INCR; fall back to get/set."""
-    fail_key = _login_fail_key(email)
     try:
-        cache.incr(fail_key)
+        cache.incr(key)
     except ValueError:
         # Key missing — seed with TTL. add is atomic (only sets if absent).
-        if not cache.add(fail_key, 1, LOGIN_FAIL_WINDOW_SECONDS):
+        if not cache.add(key, 1, LOGIN_FAIL_WINDOW_SECONDS):
             try:
-                cache.incr(fail_key)
+                cache.incr(key)
             except ValueError:
-                cache.set(fail_key, 1, LOGIN_FAIL_WINDOW_SECONDS)
+                cache.set(key, 1, LOGIN_FAIL_WINDOW_SECONDS)
+
+
+def _record_login_failure(email, ip=None):
+    _incr_with_ttl(_login_fail_key(email))
+    if ip:
+        _incr_with_ttl(_login_fail_ip_key(email, ip))
+
+
+def _login_is_locked(email, ip):
+    # Intersection: this account is locked only for the IP that tripped it,
+    # unless the account-wide count is absurdly high (distributed attack).
+    if cache.get(_login_fail_key(email), 0) >= LOGIN_FAIL_ACCOUNT_BACKSTOP:
+        return True
+    return (
+        cache.get(_login_fail_key(email), 0) >= LOGIN_FAIL_LIMIT
+        and cache.get(_login_fail_ip_key(email, ip), 0) >= LOGIN_FAIL_LIMIT
+    )
 
 
 def _otp_phone_cooldown_key(phone: str) -> str:
@@ -302,10 +332,12 @@ class LoginView(TokenObtainPairView):
     def post(self, request, *args, **kwargs):
         email = request.data.get("email", "")
         password = request.data.get("password", "")
+        ip = _client_ip(request)
         fail_key = _login_fail_key(email)
-        # Per-account lockout — IP-based throttling alone (login scope) is
-        # trivially bypassed by distributing attempts across many IPs.
-        if cache.get(fail_key, 0) >= LOGIN_FAIL_LIMIT:
+        ip_fail_key = _login_fail_ip_key(email, ip)
+        # B6-007: lock on (account AND source IP), with a high account-wide
+        # backstop — a per-account-only lock was a targeted-lockout DoS vector.
+        if _login_is_locked(email, ip):
             raise TooManyLoginAttemptsError()
         pending_user = User.objects.filter(email__iexact=email).first()
         if pending_user and password and pending_user.check_password(password):
@@ -320,10 +352,11 @@ class LoginView(TokenObtainPairView):
         try:
             response = super().post(request, *args, **kwargs)
         except AuthenticationFailed:
-            _record_login_failure(email)
+            _record_login_failure(email, ip)
             raise
         if response.status_code == 200:
             cache.delete(fail_key)
+            cache.delete(ip_fail_key)
             user = User.objects.filter(email__iexact=email).first()
             if user:
                 _ensure_active_company(user)

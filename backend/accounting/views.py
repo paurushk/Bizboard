@@ -84,6 +84,10 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     def perform_create(self, serializer):
         serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user)
 
+    def perform_update(self, serializer):
+        # B1-030: keep updated_by fresh and re-run the serializer overlap guard.
+        serializer.save(company=self.company, updated_by=self.request.user)
+
     @action(detail=True, methods=["post"], url_path="soft-close")
     def soft_close(self, request, pk=None):
         period = self.get_object()
