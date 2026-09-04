@@ -83,7 +83,9 @@ class TenantRestoreView(APIView):
             raise BusinessRuleError(
                 "Export was created for a different company and cannot be restored here."
             )
-        cache.set(cache_key, 1, timeout=EXPORT_CACHE_TTL)
+        # B6-024: only hold the 10-minute lock once a restore actually
+        # succeeds — a failure mid-restore rolls back but must not lock the
+        # company out of retrying.
         confirm_destroy = _truthy(request.data.get("confirm_destroy"))
         typed_name = (request.data.get("typed_name") or request.data.get("typedName") or "").strip()
 
@@ -110,6 +112,7 @@ class TenantRestoreView(APIView):
                 entity_id=company.pk,
                 description="Owner restored tenant export in-place after confirm_destroy.",
             )
+            cache.set(cache_key, 1, timeout=EXPORT_CACHE_TTL)
             return Response({"company_id": company.pk, "mode": "destroy_in_place", "name": company.name})
 
         sandbox = restore_to_sandbox(source_company=company, payload=payload, owner=request.user)
@@ -122,6 +125,7 @@ class TenantRestoreView(APIView):
             description="Owner restored tenant export into a sandbox company.",
             metadata={"sandbox_company_id": sandbox.pk, "sandbox_name": sandbox.name},
         )
+        cache.set(cache_key, 1, timeout=EXPORT_CACHE_TTL)
         return Response(
             {
                 "company_id": sandbox.pk,

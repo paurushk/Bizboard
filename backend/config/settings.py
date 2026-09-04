@@ -319,6 +319,7 @@ REST_FRAMEWORK = {
         # / delete-account) so a stolen short-lived access token can't brute-force it.
         "sensitive_action": "10/min",
         "accept_invite": "20/min",  # B6-025: onboarding-appropriate, own bucket
+        "telemetry": "120/min",  # B9-032: shop-floor event ingest, own bucket
         # Per-company (CompanyRateThrottle) budgets for expensive reports.
         "gst_reports": "30/min",
         "heavy_reports": "60/min",

@@ -373,6 +373,18 @@ class CompanyUserSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["company", "user"]
 
+    def validate_role(self, value):
+        # B6-026: never accept a direct promotion to OWNER through this generic
+        # membership PATCH — owner transfer must go through its dedicated flow so
+        # it is auditable and notifies existing owners. Demotion/other roles OK.
+        if str(value).upper() == "OWNER" and getattr(
+            self.instance, "role", None
+        ) != CompanyUser.Role.OWNER:
+            raise serializers.ValidationError(
+                "Owner promotion is not allowed here — use the transfer-ownership flow."
+            )
+        return value
+
     def validate(self, attrs):
         instance = self.instance
         role = attrs.get("role", getattr(instance, "role", None))

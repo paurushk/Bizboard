@@ -25,8 +25,12 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
-        if getattr(settings, "DJANGO_ENV", "").strip().lower() == "production":
-            raise CommandError("seed_demo refuses to run when DJANGO_ENV=production.")
+        _env = getattr(settings, "DJANGO_ENV", "").strip().lower()
+        # B6-016: never seed test data on a shared/real deployment.
+        if _env in ("production", "staging") or not getattr(settings, "DEBUG", False):
+            raise CommandError(
+                "seed_demo refuses to run outside DEBUG / non-prod (DJANGO_ENV={}).".format(_env or "unset")
+            )
 
         if Company.objects.filter(name="Demo Traders").exists():
             # UXW2-005 / UXW2-010: repair demo tax defaults on re-seed without wiping data.

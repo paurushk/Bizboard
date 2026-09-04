@@ -713,19 +713,38 @@ def post_tally_xml(url: str, xml_body: str, *, timeout: int = 30) -> dict[str, A
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise BusinessRuleError("Tally URL is invalid.")
     host = parsed.hostname.lower()
-    allowed_host = urlparse(allowed).hostname.lower() if allowed else ""
     try:
         ip = ipaddress.ip_address(host)
         is_loopback = ip.is_loopback
     except ValueError:
+        # B9-027: the "test env" bypass also requires DEBUG — a spoofed
+        # DJANGO_ENV in a non-debug deployment no longer opens any host.
         is_loopback = (
             host in {"localhost", "127.0.0.1", "::1"}
             or host.endswith(".test")
             or host.endswith(".localhost")
-            or getattr(settings, "DJANGO_ENV", "") == "test"
+            or (
+                getattr(settings, "DJANGO_ENV", "") == "test"
+                and bool(getattr(settings, "DEBUG", False))
+            )
         )
-    if allowed_host:
-        if host != allowed_host:
+    if allowed:
+        # B9-027: compare scheme + host + port (not host only) and require the
+        # request path to sit under the configured base path.
+        a = urlparse(allowed)
+        allowed_host = (a.hostname or "").lower()
+        allowed_scheme = a.scheme or "http"
+        allowed_port = a.port or (443 if allowed_scheme == "https" else 80)
+        req_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        base_path = (a.path or "/").rstrip("/") or "/"
+        req_path = parsed.path or "/"
+        same_origin = (
+            host == allowed_host
+            and parsed.scheme == allowed_scheme
+            and req_port == allowed_port
+        )
+        path_ok = req_path == base_path or req_path.startswith(base_path + "/") or base_path == "/"
+        if not (same_origin and path_ok):
             raise BusinessRuleError("Tally URL is not on the server allowlist.")
     elif not is_loopback:
         raise BusinessRuleError("Tally HTTP push is limited to localhost unless TALLY_URL is set.")

@@ -375,6 +375,23 @@ class BillOfEntrySerializer(CompanyScopedSerializerMixin, serializers.ModelSeria
                 raise serializers.ValidationError("itc_period must be YYYY-MM.")
         return value
 
+    def validate_boe_number(self, value):
+        # B3-020: pre-check the (company, boe_number) unique constraint so a
+        # duplicate returns a clean 400 instead of a raw IntegrityError 500.
+        value = (value or "").strip()
+        if not value:
+            return value
+        from .models import BillOfEntry
+
+        qs = BillOfEntry.objects.filter(company=self.company, boe_number=value)
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                f"A Bill of Entry with number '{value}' already exists."
+            )
+        return value
+
     def _guard_editable(self, instance):
         from core.exceptions import BusinessRuleError
         from .models import BillOfEntry
