@@ -34,7 +34,7 @@ ENV VITE_ENABLE_ACCOUNTING=$VITE_ENABLE_ACCOUNTING \
 RUN if [ -z "$VITE_API_BASE_URL" ] && [ -n "$VITE_API_BASE" ]; then export VITE_API_BASE_URL="$VITE_API_BASE"; fi && npm run build
 
 # M1-030: digest-pinned; Dependabot's docker ecosystem bumps this as the tag moves.
-FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+FROM nginx:1.31-alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
