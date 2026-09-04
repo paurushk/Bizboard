@@ -170,8 +170,9 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             seller_bits.append(Paragraph(line, styles["meta"]))
 
     title_label = "TAX INVOICE" if show_tax else invoice.get_invoice_type_display().upper()
-    stamp = Table([[Paragraph(copy, styles["copy_stamp"])]], colWidths=[28 * mm])
-    stamp.setStyle(TableStyle([
+    # B2-011: don't rebind `stamp` (the CompanyGstin used above) to the copy box.
+    copy_stamp_tbl = Table([[Paragraph(copy, styles["copy_stamp"])]], colWidths=[28 * mm])
+    copy_stamp_tbl.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 1, colors.black),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
@@ -180,7 +181,7 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     right_col = [
         Paragraph(title_label, styles["title"]),
         Spacer(1, 2 * mm),
-        stamp,
+        copy_stamp_tbl,
         Spacer(1, 2 * mm),
         Paragraph(f"<b>Invoice No.</b> {invoice.number or '—'}", styles["meta"]),
         Paragraph(

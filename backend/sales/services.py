@@ -42,8 +42,11 @@ def _validate_lines(items_data, company, *, check_active=True):
     if not items_data:
         raise BusinessRuleError("At least one line item is required.")
     for line in items_data:
-        if Decimal(line["quantity"]) <= 0:
-            raise BusinessRuleError("Quantity on each line must be greater than zero.")
+        # B2-024: the qty column is 3dp — anything below 0.001 is stored as
+        # 0.000. Reject it explicitly (the model's MinValueValidator isn't run
+        # on bulk_create / .save() without full_clean()).
+        if Decimal(str(line["quantity"])) < Decimal("0.001"):
+            raise BusinessRuleError("Quantity on each line must be at least 0.001.")
         unit_price = Decimal(str(line.get("unit_price", line["product"].selling_price)))
         if unit_price < 0:
             raise BusinessRuleError("Unit price cannot be negative.")

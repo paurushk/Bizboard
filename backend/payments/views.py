@@ -800,7 +800,9 @@ class ReconViewSet(viewsets.ViewSet):
             suggestions = suggest_matches(company=self.company, line=line)
             if suggestions:
                 line.match_status = BankLineMatchStatus.SUGGESTED
-                line.save(update_fields=["match_status"])
+                line.updated_by = request.user
+                # B4-033: stamp updated_at/updated_by like _confirm_match does.
+                line.save(update_fields=["match_status", "updated_by", "updated_at"])
                 updated += 1
             out.append(
                 {

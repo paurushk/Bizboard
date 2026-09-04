@@ -242,7 +242,9 @@ class PostingService:
         negative round_off posts to the opposite side so the entry stays
         balanced (see post_sales_invoice / post_purchase / post_note).
         """
-        amt = Decimal(str(round_off or 0))
+        # B1-033: quantize to the 2dp column before building the line so a
+        # long-tailed input / arithmetic result can't unbalance the entry.
+        amt = Decimal(str(round_off or 0)).quantize(Decimal("0.01"))
         if amt == 0:
             return None
         line = {"account": cls._account(company, "5500")}
@@ -464,9 +466,23 @@ class PostingService:
 
     @classmethod
     @transaction.atomic
-    def post(cls, *, company, source_type, source_id, purpose, entry_date, lines, narration="", user=None, allow_soft_closed=False):
+    def post(cls, *, company, source_type, source_id, purpose, entry_date, lines, narration="", user=None, allow_soft_closed=False, allow_pre_books_start=False):
         if not company.accounting_enabled:
             return None
+        # B1-032: nothing may post before the company's books-start / cut-over
+        # date, except the opening-balance entries that legitimately sit on it.
+        cutover = getattr(company, "books_start_date", None)
+        if (
+            cutover
+            and entry_date
+            and entry_date < cutover
+            and not allow_pre_books_start
+            and "OPENING" not in (purpose or "").upper()
+        ):
+            raise BusinessRuleError(
+                f"{entry_date} is before the books start date ({cutover}). "
+                "Adjust the date or the books start date."
+            )
         # R3-009: `uniq_accounting_source_posting` (company, source_type,
         # source_id, purpose | source_id NOT NULL & status=POSTED) is the real
         # guard against a concurrent double-post — this `.first()` is only the
@@ -633,7 +649,7 @@ class PostingService:
         )
         hdr_tax = hdr_cgst + hdr_sgst + hdr_igst + hdr_cess
         line_tax = line_cgst + line_sgst + line_igst + line_cess
-        tax_drift = hdr_tax - line_tax  # ±, |x| ≤ 0.05
+        tax_drift = (hdr_tax - line_tax).quantize(Decimal("0.01"))  # B1-033; ±, |x| ≤ 0.05
         tax = hdr_tax
         tcs_amount = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
         tcs_folded = bool(getattr(invoice, "tcs_in_grand_total", False))

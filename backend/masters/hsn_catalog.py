@@ -351,7 +351,9 @@ def seed_starter_hsn_rates() -> int:
     for row in STARTER_HSN_RATES:
         valid_from = date_cls.fromisoformat(row["valid_from"])
         valid_to = date_cls.fromisoformat(row["valid_to"]) if row["valid_to"] else None
-        _, was = HsnRate.objects.get_or_create(
+        # B8-024: update_or_create on the mutable fields so a corrected spec
+        # value actually lands on re-run instead of being a no-op.
+        _, was = HsnRate.objects.update_or_create(
             hsn_sac=row["hsn_sac"],
             version=row["version"],
             defaults={

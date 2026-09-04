@@ -461,7 +461,9 @@ class CashfreeGateway:
         amount = kwargs["amount"]
         payload = {
             "link_id": kwargs.get("reference") or f"bb_{secrets.token_hex(6)}",
-            "link_amount": float(format(Decimal(amount).quantize(Decimal("0.01")), "f")),
+            # B4-028: send the exact quantized amount as a string — no float
+            # round-trip. Cashfree accepts string amounts.
+            "link_amount": str(Decimal(str(amount)).quantize(Decimal("0.01"))),
             "link_currency": "INR",
             "link_purpose": kwargs.get("description") or "Payment",
             "customer_details": {
