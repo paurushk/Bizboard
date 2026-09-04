@@ -501,7 +501,9 @@ def _run_llm_tools(company, content: str) -> tuple[str, list, dict | None, str, 
     _PER_TOOL_CHARS = 4000
     _TOTAL_TOOL_CHARS = 12_000
     remaining_budget = _TOTAL_TOOL_CHARS
-    for tc in first.get("tool_calls") or []:
+    # B9-043: cap the number of tools actually executed per turn — several are
+    # individually heavy (health score, cashflow forecast, growth hints).
+    for tc in (first.get("tool_calls") or [])[:4]:
         name = tc.get("name") or ""
         args = tc.get("arguments") or {}
         if not isinstance(args, dict):

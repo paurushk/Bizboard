@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import transaction
@@ -82,11 +82,20 @@ class AaIngestView(APIView):
                 )
 
         created = []
+        skipped = 0
         for row in rows:
             txn_id = str(row.get("txn_id") or row.get("id") or "")
             if not txn_id:
                 continue
-            amount = Decimal(str(row.get("amount") or "0"))
+            # B4-019: one malformed provider amount must not abort the whole
+            # atomic ingest (all rows rolled back -> 500).
+            try:
+                amount = Decimal(str(row.get("amount") or "0").replace(",", ""))
+                if not amount.is_finite():
+                    raise ValueError
+            except (InvalidOperation, ValueError, TypeError):
+                skipped += 1
+                continue
             txn_date = parse_date(str(row.get("txn_date") or "")) or consent.created_at.date()
             obj, _ = AaTransaction.objects.update_or_create(
                 company=company,

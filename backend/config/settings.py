@@ -317,6 +317,7 @@ REST_FRAMEWORK = {
         # B6-012: tight budget for current-password verification (change-password
         # / delete-account) so a stolen short-lived access token can't brute-force it.
         "sensitive_action": "10/min",
+        "accept_invite": "20/min",  # B6-025: onboarding-appropriate, own bucket
         # Per-company (CompanyRateThrottle) budgets for expensive reports.
         "gst_reports": "30/min",
         "heavy_reports": "60/min",
@@ -629,9 +630,13 @@ if _use_tls or DJANGO_ENV in ("production", "staging"):
     # app does not redirect by default. Set SECURE_SSL_REDIRECT=1 to opt in to
     # an app-level backstop when the edge is not trusted to do it.
     SECURE_SSL_REDIRECT = _env_bool("SECURE_SSL_REDIRECT")
+    # B7-007: staging on HTTPS should also send HSTS (shorter max-age so a
+    # mis-config is quick to roll back), not just production / USE_TLS.
     if DJANGO_ENV == "production" or _use_tls:
         SECURE_HSTS_SECONDS = 31536000
         SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    elif DJANGO_ENV == "staging":
+        SECURE_HSTS_SECONDS = 3600
 
 # BB-000257: refresh token in httpOnly cookie
 JWT_REFRESH_COOKIE_NAME = os.environ.get("JWT_REFRESH_COOKIE_NAME", "bb_refresh")

@@ -1220,7 +1220,11 @@ class StockTransferService:
                     SerialNumber.objects.filter(
                         company=transfer.company, product=line.product,
                         serial_number__in=line.serial_numbers,
-                    ).update(warehouse=transfer.from_warehouse, updated_by=user)
+                    ).update(
+                        warehouse=transfer.from_warehouse,
+                        updated_by=user,
+                        updated_at=timezone.now(),  # B8-015: .update() skips auto_now
+                    )
                 # Match movements 1:1 — do not reuse the same TRANSFER_OUT/IN for duplicate product+batch lines.
                 out_move = (
                     StockMovement.objects.filter(

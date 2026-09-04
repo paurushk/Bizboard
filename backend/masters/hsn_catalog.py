@@ -319,7 +319,17 @@ def rate_for(hsn: str, on_date) -> dict | None:
     rows = list(qs)
     if not rows:
         return None
-    rows.sort(key=lambda r: (len(r.hsn_sac), r.valid_from), reverse=True)
+    # B8-026: add version + id as final tie-breakers so equal prefix-length +
+    # valid_from rows resolve deterministically (was DB row order).
+    rows.sort(
+        key=lambda r: (
+            len(r.hsn_sac),
+            r.valid_from,
+            getattr(r, "version", 0) or 0,
+            r.id,
+        ),
+        reverse=True,
+    )
     hit = rows[0]
     return {
         "rate": Decimal(str(hit.rate)),

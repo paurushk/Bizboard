@@ -912,11 +912,13 @@ class PaymentService:
                         "ALREADY_PAID",
                         "Payment link is already paid; duplicate capture parked.",
                     )
+                # B4-011: return (which COMMITS the atomic) instead of
+                # raise-after-mutate (which rolled the FAILED write back, so the
+                # dead row stayed CREATED forever).
                 existing.status = GatewayPaymentStatus.FAILED
-                existing.save(update_fields=["status", "updated_at"])
-            raise BusinessRuleError(
-                "Payment link is already paid; duplicate capture ignored."
-            )
+                existing.updated_by = user
+                existing.save(update_fields=["status", "updated_by", "updated_at"])
+            return existing
 
         if (
             not retrying_hold

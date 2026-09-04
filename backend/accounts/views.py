@@ -795,7 +795,9 @@ class AcceptInviteView(APIView):
     """BB-000418: set password from signed invite token (dead-end fix)."""
 
     permission_classes = [AllowAny]
-    throttle_scope = "login"
+    # B6-025: own scope — sharing the tight per-IP "login" bucket meant office
+    # NAT users 429'd each other during an onboarding burst.
+    throttle_scope = "accept_invite"
 
     def post(self, request):
         token = (request.data.get("token") or "").strip()
@@ -1198,13 +1200,23 @@ class RequestPasswordResetView(APIView):
                 reset_url = f"{base}/reset-password?token={token}"
                 from django.core.mail import send_mail
 
-                send_mail(
-                    subject="Reset your BizBoard password",
-                    message=f"Use this link to reset your password (valid 1 hour):\n{reset_url}\n",
-                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@bizboard.local"),
-                    recipient_list=[user.email],
-                    fail_silently=env not in ("production", "staging"),
-                )
+                try:
+                    # B6-009: an SMTP error must not turn into a 500 for a real
+                    # user while a non-existent identifier still gets the uniform
+                    # 200 — that difference is an enumeration oracle.
+                    send_mail(
+                        subject="Reset your BizBoard password",
+                        message=f"Use this link to reset your password (valid 1 hour):\n{reset_url}\n",
+                        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@bizboard.local"),
+                        recipient_list=[user.email],
+                        fail_silently=False,
+                    )
+                except Exception:
+                    import logging
+
+                    logging.getLogger(__name__).exception(
+                        "password reset email send failed"
+                    )
         return Response(
             {"detail": "If an account exists for that identifier, a reset link has been sent."}
         )

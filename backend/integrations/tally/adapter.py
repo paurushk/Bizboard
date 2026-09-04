@@ -663,9 +663,15 @@ def create_upload_run(company, user, uploaded_file) -> IntegrationSyncRun:
     return run
 
 
+_XML_ILLEGAL = {c: None for c in range(0x20) if c not in (0x09, 0x0A, 0x0D)}
+
+
 def _xml_escape(text: str) -> str:
+    # B9-041: also strip XML-illegal C0 control chars (keep tab/newline/CR) —
+    # a bad imported name would otherwise produce a document Tally rejects.
     return (
         str(text or "")
+        .translate(_XML_ILLEGAL)
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
