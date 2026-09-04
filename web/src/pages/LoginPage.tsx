@@ -29,7 +29,9 @@ function safeNextPath(raw: string | null): string {
     return '/';
   }
   // Same-origin relative paths only — reject protocol-relative / absolute URLs.
-  if (!decoded.startsWith('/') || decoded.startsWith('//')) return '/';
+  // F1-014: also reject a backslash after the leading slash (`/\evil.com`,
+  // `/\/evil.com`) which some environments treat like `//`.
+  if (!decoded.startsWith('/') || /^\/[\\/]/.test(decoded)) return '/';
   if (decoded.startsWith('/login') || decoded.startsWith('/register')) return '/';
   return decoded;
 }

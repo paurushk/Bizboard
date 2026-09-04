@@ -187,7 +187,11 @@ export function StockTransferPage() {
       }
       return api.completeTransfer(id, { idempotencyKey: `stock-transfer-${id}` });
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['transfers'] }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['transfers'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   const cancel = useMutation({
     mutationFn: (id: number) => api.cancelTransfer(id),
@@ -345,13 +349,20 @@ export function ExpiryAlertsPage() {
     queryFn: () => api.getExpiryAlerts(days, warehouseId ? Number(warehouseId) : undefined),
   });
   const writeOff = useMutation({
-    mutationFn: (row: Row) =>
-      api.writeOffExpiry({
+    mutationFn: (row: Row) => {
+      // F3-037: never fall back to the alert row's own id as the batch — that
+      // writes off against the wrong lot (or 400s). Require an explicit batch.
+      const batchId = Number(row.batch);
+      if (!batchId) {
+        return Promise.reject(new Error(t('inventory.writeoffNoBatch')));
+      }
+      return api.writeOffExpiry({
         product: Number(row.product),
         warehouse: Number(row.warehouse) || undefined,
-        batch: Number(row.batch || row.id),
+        batch: batchId,
         quantity: Number(row.onHand || row.quantity || 0),
-      }),
+      });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['expiry-alerts'] });
       void qc.invalidateQueries({ queryKey: ['stock'] });
@@ -408,7 +419,12 @@ export function ExpiryAlertsPage() {
           <Button
             size="small"
             color="warning"
-            disabled={writesBlocked || writeOff.isPending || Number(row.onHand || 0) <= 0}
+            disabled={
+              writesBlocked ||
+              writeOff.isPending ||
+              Number(row.onHand || 0) <= 0 ||
+              !Number(row.batch)
+            }
             onClick={() => {
               if (!window.confirm(t('inventory.confirmWriteoff'))) return;
               writeOff.mutate(row);
@@ -426,13 +442,18 @@ export function SerialsPage() {
   const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState('');
+  const [error, setError] = useState('');
   const query = useQuery({
     queryKey: ['serials', statusFilter],
     queryFn: () => api.listSerials(statusFilter ? { status: statusFilter } : undefined),
   });
   const transition = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) => api.transitionSerial(id, { status }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['serials'] }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['serials'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   // UXW2B-017: show the resolved names the API now joins instead of raw FK ids.
   const rows = asRows(query.data).map((r) => ({
@@ -464,6 +485,7 @@ export function SerialsPage() {
         </TextField>
       }
     >
+      {error ? <HelpErrorAlert message={error} /> : null}
       <DataTable
         rows={rows}
         empty="No serials recorded."

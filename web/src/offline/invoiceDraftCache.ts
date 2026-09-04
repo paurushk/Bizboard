@@ -327,7 +327,15 @@ export async function removeDraft(
 ): Promise<void> {
   const id = `${scopeKey(companyId, userId)}:${idempotencyKey}`;
   if (idbAvailable()) {
-    await idbDelete(id);
+    // F1-007: best-effort like the rest of this file. If idbDelete rejects
+    // (txn abort, storage pressure, Safari private mode) the localStorage
+    // removal below must still run, otherwise flushOutbox re-sends the draft
+    // every pass even though sendFn already succeeded.
+    try {
+      await idbDelete(id);
+    } catch {
+      /* fall through to the localStorage removal */
+    }
   }
   writeLocal(
     companyId,

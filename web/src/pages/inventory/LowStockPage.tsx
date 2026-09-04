@@ -41,8 +41,10 @@ export function LowStockPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {query.data.map((s) => (
-                <TableRow key={s.product}>
+              {query.data.map((s, i) => (
+                // F3-039: low-stock rows can be per (product, warehouse) — a
+                // bare product id is not unique.
+                <TableRow key={`${s.product}-${s.warehouse ?? 'all'}-${i}`}>
                   <TableCell>{s.productName}</TableCell>
                   <TableCell>{s.sku}</TableCell>
                   <TableCell align="right" sx={{ color: 'error.main', fontWeight: 600 }}>

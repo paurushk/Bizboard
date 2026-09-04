@@ -185,7 +185,34 @@ export function GstSettingsPage() {
     <Stack
       spacing={2}
       component="form"
-      onSubmit={handleSubmit((values) => mutation.mutate(values))}
+      onSubmit={handleSubmit((values) => {
+        // F3-049: registration type and negative-stock policy are high-impact
+        // flips — spell out the consequence before saving the change.
+        const prev = query.data;
+        if (prev && values.registrationType !== prev.registrationType) {
+          if (
+            !window.confirm(
+              t('gst.confirmRegistrationChange', {
+                type: values.registrationType,
+              }),
+            )
+          ) {
+            return;
+          }
+        }
+        if (prev && values.negativeStockPolicy !== prev.negativeStockPolicy) {
+          if (
+            !window.confirm(
+              t('gst.confirmNegativeStockChange', {
+                policy: values.negativeStockPolicy,
+              }),
+            )
+          ) {
+            return;
+          }
+        }
+        mutation.mutate(values);
+      })}
     >
       <Typography variant="h4">{t('nav.gst')}</Typography>
       {mutation.isSuccess ? <Alert severity="success">GST settings saved</Alert> : null}

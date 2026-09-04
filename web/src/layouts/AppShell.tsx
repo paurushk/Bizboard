@@ -53,7 +53,10 @@ function NavSection({
   onNavigate?: () => void;
 }) {
   const location = useLocation();
-  const childActive = item.children?.some((c) => c.path && location.pathname.startsWith(c.path));
+  // F1-018: exact / segment-boundary match, not a bare startsWith — otherwise
+  // a child path that is a prefix of an unrelated route (`/sales` vs
+  // `/sales-returns`) keeps the section wrongly expanded.
+  const childActive = item.children?.some((c) => navPathSelected(location.pathname, c.path));
   const [open, setOpen] = useState(Boolean(childActive));
 
   useEffect(() => {

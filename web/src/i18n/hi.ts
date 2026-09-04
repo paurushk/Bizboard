@@ -684,6 +684,10 @@ export const hi = {
     addProduct: 'उत्पाद जोड़ें और आगे बढ़ें',
     createFirstBill: 'पहला बिल बनाकर पूरा करें',
     registrationType: 'GST पंजीकरण प्रकार',
+    confirmRegistrationChange:
+      'GST पंजीकरण प्रकार {type} में बदलें? इससे हर भावी दस्तावेज़ पर टैक्स की गणना बदल जाती है (COMPOSITION बिना टैक्स के बिल ऑफ सप्लाई जारी करता है)।',
+    confirmNegativeStockChange:
+      'नेगेटिव-स्टॉक नीति {policy} में बदलें? WARN कर्मचारियों को स्टॉक-आउट वस्तुएँ बेचने देता है।',
     unregistered: 'अपंजीकृत',
     regular: 'रेगुलर GST',
     composition: 'कंपोजिशन योजना',
@@ -1430,6 +1434,8 @@ export const hi = {
     dunningHelp:
       'डिफ़ॉल्ट बंद। चालू होने पर देय तिथि के बाद तय दिनों पर व्हाट्सऐप क्लाउड (सहमति वाले ग्राहक) फिर SMS। गेटवे से प्राप्त भुगतान पर रिमाइंडर नहीं जाएगा।',
     dunningEnabled: 'स्वचालित रिमाइंडर चालू करें',
+    dunningConfirm:
+      'स्वचालित भुगतान रिमाइंडर चालू करें? BizBoard ग्राहकों को स्वयं संदेश भेजेगा — देय तिथि के बाद दिन: {days}।',
     dunningDays: 'देय तिथि के बाद रिमाइंडर दिन',
     dunningDaysHelp: 'कॉमा से अलग, जैसे 3, 7, 14',
     dunningMaxReminders: 'प्रति इनवॉइस अधिकतम रिमाइंडर',

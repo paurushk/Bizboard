@@ -39,9 +39,11 @@ export function StockConflictModal({
       </DialogContent>
       <DialogActions>
         <Button onClick={onCancel}>{t('common.cancel')}</Button>
-        <Button onClick={onKeepServer}>{t('inventory.keepServer')}</Button>
-        <Button variant="contained" onClick={onKeepLocal}>
-          {t('inventory.keepLocal')}
+        {/* F3-036: "Keep local" overwrites data that changed on the server — it
+            must not be the emphasised default. Keep server is the safe primary. */}
+        <Button onClick={onKeepLocal}>{t('inventory.keepLocal')}</Button>
+        <Button variant="contained" onClick={onKeepServer}>
+          {t('inventory.keepServer')}
         </Button>
       </DialogActions>
     </Dialog>

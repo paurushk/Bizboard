@@ -827,6 +827,10 @@ export const en = {
     addProduct: 'Add product & continue',
     createFirstBill: 'Create & complete first bill',
     registrationType: 'GST registration type',
+    confirmRegistrationChange:
+      'Change GST registration type to {type}? This changes how every future document is taxed (COMPOSITION issues a Bill of Supply with no tax).',
+    confirmNegativeStockChange:
+      'Change negative-stock policy to {policy}? WARN lets staff sell items that are out of stock.',
     unregistered: 'Unregistered',
     regular: 'Regular GST',
     composition: 'Composition scheme',
@@ -1439,6 +1443,8 @@ export const en = {
     dunningHelp:
       'Off by default. When on, BizBoard sends WhatsApp Cloud (opted-in customers) then SMS on the days you set after due date. Gateway-captured invoices are not nagged.',
     dunningEnabled: 'Enable automatic reminders',
+    dunningConfirm:
+      'Turn on automatic payment reminders? BizBoard will message customers on their own — days after due date: {days}.',
     dunningDays: 'Reminder days after due date',
     dunningDaysHelp: 'Comma-separated, e.g. 3, 7, 14',
     dunningMaxReminders: 'Max reminders per invoice',

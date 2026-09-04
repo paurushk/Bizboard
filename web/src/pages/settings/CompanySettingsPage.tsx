@@ -119,7 +119,21 @@ export function CompanySettingsPage() {
     <Stack
       spacing={2}
       component="form"
-      onSubmit={handleSubmit((values) => mutation.mutate(values))}
+      onSubmit={handleSubmit((values) => {
+        // F3-048: enabling dunning creates a standing rule that auto-messages
+        // customers — require an explicit acknowledgement, and echo the parsed
+        // schedule so a fat-fingered day list is visible before it takes effect.
+        if (values.dunningEnabled && !query.data?.dunningEnabled) {
+          const parsedDays = values.dunningDaysText
+            .split(/[,\s]+/)
+            .map((p) => Number(p))
+            .filter((n) => Number.isFinite(n) && n >= 1);
+          if (!window.confirm(t('settings.dunningConfirm', { days: parsedDays.join(', ') || '—' }))) {
+            return;
+          }
+        }
+        mutation.mutate(values);
+      })}
     >
       <Typography variant="h4">{t('nav.company')}</Typography>
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
