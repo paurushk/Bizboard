@@ -47,6 +47,10 @@ interface DraftLine {
   key: string;
   product: Product;
   qty: number;
+  // F2-039: quotations always quoted the current catalog price with no way
+  // to negotiate/volume-price a line — the primary purpose of a quotation.
+  unitPrice: number;
+  discountPercent: number;
 }
 
 const emptyForm = { customer: null as Customer | null, lines: [] as DraftLine[] };
@@ -77,6 +81,8 @@ export function QuotationsPage() {
   // now a real multi-line list, matching how invoices/purchases work.
   const [lines, setLines] = useState<DraftLine[]>(emptyForm.lines);
   const [pendingQty, setPendingQty] = useState('1');
+  const [pendingUnitPrice, setPendingUnitPrice] = useState('');
+  const [pendingDiscountPercent, setPendingDiscountPercent] = useState('0');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -93,6 +99,8 @@ export function QuotationsPage() {
     setLines([]);
     setPendingProduct(null);
     setPendingQty('1');
+    setPendingUnitPrice('');
+    setPendingDiscountPercent('0');
     productSearch.setProductQuery('');
   };
 
@@ -100,10 +108,23 @@ export function QuotationsPage() {
     if (!pendingProduct) return;
     // BUG-526: quantity must be a positive number, not 0/negative.
     const qty = Math.max(1, Math.floor(Number(pendingQty)) || 1);
-    setLines((prev) => [...prev, { key: `${pendingProduct.id}-${Date.now()}`, product: pendingProduct, qty }]);
+    const unitPrice = Math.max(0, toNumber(pendingUnitPrice) || 0);
+    const discountPercent = Math.min(100, Math.max(0, toNumber(pendingDiscountPercent) || 0));
+    setLines((prev) => [
+      ...prev,
+      { key: `${pendingProduct.id}-${Date.now()}`, product: pendingProduct, qty, unitPrice, discountPercent },
+    ]);
     setPendingProduct(null);
     setPendingQty('1');
+    setPendingUnitPrice('');
+    setPendingDiscountPercent('0');
   };
+
+  const updateLine = (key: string, patch: Partial<Pick<DraftLine, 'qty' | 'unitPrice' | 'discountPercent'>>) => {
+    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  };
+
+  const lineTotal = (l: DraftLine) => l.qty * l.unitPrice * (1 - l.discountPercent / 100);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -115,7 +136,8 @@ export function QuotationsPage() {
         items: lines.map((l) => ({
           product: l.product.id,
           quantity: l.qty,
-          unitPrice: toNumber(l.product.sellingPrice),
+          unitPrice: l.unitPrice,
+          discountPercent: l.discountPercent,
           gstRate: toNumber(l.product.gstRate),
         })),
       });
@@ -313,6 +335,8 @@ export function QuotationsPage() {
                   <TableRow>
                     <TableCell>{t('nav.products')}</TableCell>
                     <TableCell align="right">{t('billing.qty')}</TableCell>
+                    <TableCell align="right">{t('billing.unitPrice')}</TableCell>
+                    <TableCell align="right">{t('billing.discountPercent')}</TableCell>
                     <TableCell align="right">{t('common.total')}</TableCell>
                     <TableCell />
                   </TableRow>
@@ -323,8 +347,30 @@ export function QuotationsPage() {
                       <TableCell>{l.product.name}</TableCell>
                       <TableCell align="right">{l.qty}</TableCell>
                       <TableCell align="right">
-                        {formatMoney(l.qty * toNumber(l.product.sellingPrice))}
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={l.unitPrice}
+                          onChange={(e) => updateLine(l.key, { unitPrice: Math.max(0, toNumber(e.target.value) || 0) })}
+                          sx={{ width: 100 }}
+                          inputProps={{ min: 0, step: '0.01', 'aria-label': t('billing.unitPrice') }}
+                        />
                       </TableCell>
+                      <TableCell align="right">
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={l.discountPercent}
+                          onChange={(e) =>
+                            updateLine(l.key, {
+                              discountPercent: Math.min(100, Math.max(0, toNumber(e.target.value) || 0)),
+                            })
+                          }
+                          sx={{ width: 80 }}
+                          inputProps={{ min: 0, max: 100, step: '0.01', 'aria-label': t('billing.discountPercent') }}
+                        />
+                      </TableCell>
+                      <TableCell align="right">{formatMoney(lineTotal(l))}</TableCell>
                       <TableCell align="right">
                         <IconButton
                           size="small"
@@ -354,7 +400,13 @@ export function QuotationsPage() {
                 }}
                 getOptionLabel={(o) => `${o.name} · ${o.sku}`}
                 value={pendingProduct}
-                onChange={(_, v) => setPendingProduct(v)}
+                onChange={(_, v) => {
+                  setPendingProduct(v);
+                  // F2-039: pre-fill from the catalog price but leave it
+                  // editable below — a quotation needs to negotiate/volume-
+                  // price a line, not just echo the current catalog price.
+                  setPendingUnitPrice(v ? String(toNumber(v.sellingPrice)) : '');
+                }}
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -370,6 +422,22 @@ export function QuotationsPage() {
                 onChange={(e) => setPendingQty(e.target.value)}
                 sx={{ width: 100 }}
                 inputProps={{ min: 1 }}
+              />
+              <TextField
+                type="number"
+                label={t('billing.unitPrice')}
+                value={pendingUnitPrice}
+                onChange={(e) => setPendingUnitPrice(e.target.value)}
+                sx={{ width: 110 }}
+                inputProps={{ min: 0, step: '0.01' }}
+              />
+              <TextField
+                type="number"
+                label={t('billing.discountPercent')}
+                value={pendingDiscountPercent}
+                onChange={(e) => setPendingDiscountPercent(e.target.value)}
+                sx={{ width: 90 }}
+                inputProps={{ min: 0, max: 100, step: '0.01' }}
               />
               <Button variant="outlined" disabled={!pendingProduct} onClick={addLine}>
                 {t('common.add')}
