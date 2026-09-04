@@ -562,6 +562,18 @@ def _run_llm_tools(company, content: str) -> tuple[str, list, dict | None, str, 
 
     truncation_warning = any("[TRUNCATED:" in n for n in tool_notes)
     if tool_notes:
+        # B9-004: a turn makes 2+ LLM calls. Re-check the budget after the first
+        # (+ tool) round before spending tokens on the summarise call, so a turn
+        # that starts just under the cap can't blow far past it.
+        try:
+            assert_within_budget(company)
+        except BusinessRuleError:
+            reply = "\n".join(tool_notes)
+            reply += "\n\n(AI budget reached — returning tool results without a summary.)"
+            return (
+                reply, citations, proposed,
+                first.get("model") or "llm+tools", tokens_in, tokens_out,
+            )
         second = chat_with_tools(
             messages=[
                 {

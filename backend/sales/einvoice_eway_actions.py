@@ -46,7 +46,22 @@ def _require_einvoice_enabled(company):
 
 def _claim_einvoice_submit(invoice, *, allow_queued_retry=False):
     """Atomically claim QUEUED so only one IRP submit runs. Returns 'claimed'|'already'|'in_flight'."""
+    from datetime import timedelta as _td
+
+    from django.utils import timezone as _tz
+
     model = type(invoice)
+    # B2-004: even on the sync retry path, a QUEUED row that was updated in the
+    # last 2 minutes is a genuine in-flight submit — don't let a double-click
+    # fire a second IRP request. Only a *stale* QUEUED job is retryable.
+    invoice.refresh_from_db()
+    if (
+        invoice.einvoice_status == SalesInvoice.EInvoiceStatus.QUEUED
+        and not invoice.irn
+        and invoice.updated_at
+        and _tz.now() - invoice.updated_at < _td(minutes=2)
+    ):
+        return "in_flight"
     qs = model.objects.filter(pk=invoice.pk, irn="")
     if not allow_queued_retry:
         qs = qs.exclude(
@@ -194,6 +209,11 @@ class InvoiceEinvoiceEwayActionsMixin:
         claim = _claim_einvoice_submit(invoice, allow_queued_retry=True)
         if claim == "already":
             return Response(self.get_serializer(invoice).data)
+        if claim == "in_flight":
+            return Response(
+                {"detail": "An e-invoice submission is already in progress."},
+                status=status.HTTP_409_CONFLICT,
+            )
         try:
             payload = build_einvoice_payload(invoice)
         except EinvoiceValidationError as exc:
