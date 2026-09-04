@@ -165,6 +165,13 @@ export function UsersSettingsPage() {
     patchMutation.isPending &&
     (patchMutation.variables as { id?: number } | undefined)?.id === id;
 
+  // F3-023: soft-deactivate only — revoke a member's access without a
+  // destructive hard-remove. Reactivating needs no confirmation.
+  const toggleActive = (id: number, currentlyActive: boolean) => {
+    if (currentlyActive && !window.confirm(t('users.deactivateConfirm'))) return;
+    patchMutation.mutate({ id, isActive: !currentlyActive });
+  };
+
   if (!canManageUsers(user)) return <ForbiddenPage />;
 
   const submitInvite = () => {
@@ -217,6 +224,7 @@ export function UsersSettingsPage() {
                 <TableCell>Reports</TableCell>
                 <TableCell>Export</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
+                <TableCell align="right">{t('common.actions')}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -303,6 +311,18 @@ export function UsersSettingsPage() {
                   </TableCell>
                   <TableCell>
                     {u.isActive ? t('status.ACTIVE') : t('status.INACTIVE')}
+                  </TableCell>
+                  <TableCell align="right">
+                    {isOwner ? null : (
+                      <Button
+                        size="small"
+                        color={u.isActive ? 'warning' : 'primary'}
+                        disabled={rowPending(u.id)}
+                        onClick={() => toggleActive(u.id, u.isActive !== false)}
+                      >
+                        {u.isActive ? t('users.deactivate') : t('users.reactivate')}
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
                 );

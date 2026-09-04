@@ -134,6 +134,22 @@ def _require_eway_enabled(company):
         raise BusinessRuleError("e-Way Bill is not enabled for this company.")
 
 
+def _eway_cancel_reason(request):
+    """Optional NIC e-Way cancel reason + remarks (F3-046).
+
+    Kept optional for backward compatibility with callers that cancel with an
+    empty body. NIC codes: 1=Duplicate, 2=Order cancelled, 3=Data entry
+    mistake, 4=Others. Returns ``(cnl_rsn, cnl_rem)`` for the audit trail.
+    """
+    cnl_rsn = str(request.data.get("cnl_rsn") or request.data.get("CnlRsn") or "").strip()
+    cnl_rem = (request.data.get("cnl_rem") or request.data.get("CnlRem") or "").strip()
+    if cnl_rsn and cnl_rsn not in {"1", "2", "3", "4"}:
+        raise BusinessRuleError(
+            "cnl_rsn must be 1=Duplicate, 2=Order cancelled, 3=Data entry mistake, or 4=Others."
+        )
+    return (cnl_rsn or "2"), cnl_rem
+
+
 def _assert_sandbox_gsp_allowed(company):
     """Block sandbox IRP/e-Way adapters for live GSTINs outside local/test.
 
@@ -475,6 +491,7 @@ class InvoiceEinvoiceEwayActionsMixin:
         _require_eway_enabled(invoice.company)
         if not invoice.eway_bill_no:
             raise BusinessRuleError("No e-Way Bill to cancel.")
+        cnl_rsn, cnl_rem = _eway_cancel_reason(request)
         cancelled_no = invoice.eway_bill_no
         get_eway_adapter(invoice.company).cancel(cancelled_no)
         invoice.eway_status = SalesInvoice.EwayStatus.CANCELLED
@@ -486,7 +503,12 @@ class InvoiceEinvoiceEwayActionsMixin:
             entity_type="salesinvoice",
             entity_id=invoice.pk,
             event_type=StatutoryDocumentEvent.EventType.EWAY,
-            payload={"action": "cancelled", "eway_bill_no": cancelled_no},
+            payload={
+                "action": "cancelled",
+                "eway_bill_no": cancelled_no,
+                "cnl_rsn": cnl_rsn,
+                "cnl_rem": cnl_rem,
+            },
             user=request.user,
         )
         return Response(self.get_serializer(invoice).data)
@@ -693,12 +715,22 @@ class ChallanEwayActionsMixin:
         _require_eway_enabled(challan.company)
         if not challan.eway_bill_no:
             raise BusinessRuleError("No e-Way Bill to cancel.")
+        cnl_rsn, cnl_rem = _eway_cancel_reason(request)
         cancelled_no = challan.eway_bill_no
         get_eway_adapter(challan.company).cancel(cancelled_no)
         challan.eway_status = SalesInvoice.EwayStatus.CANCELLED
         challan.eway_bill_no = ""
         challan.eway_valid_upto = None
         challan.save(update_fields=["eway_status", "eway_bill_no", "eway_valid_upto"])
+        AuditService.log(
+            company=challan.company,
+            user=request.user,
+            action="UPDATE",
+            entity_type="deliverychallan",
+            entity_id=challan.pk,
+            description="eway.cancelled",
+            metadata={"eway_bill_no": cancelled_no, "cnl_rsn": cnl_rsn, "cnl_rem": cnl_rem},
+        )
         return Response(self.get_serializer(challan).data)
 
     @action(detail=True, methods=["post"], url_path="mark-eway-generated")

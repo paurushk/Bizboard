@@ -85,6 +85,13 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
   const [cnlRsn, setCnlRsn] = useState('1');
   const [cnlRem, setCnlRem] = useState('');
   const [cancelOpen, setCancelOpen] = useState(false);
+  // F3-046: e-Way cancellation now captures a NIC reason code + remarks in a
+  // confirm dialog, mirroring the e-invoice cancel flow, instead of firing on a
+  // single click. NIC codes: 1 Duplicate, 2 Order cancelled, 3 Data entry
+  // mistake, 4 Others.
+  const [ewayCancelOpen, setEwayCancelOpen] = useState(false);
+  const [ewayCnlRsn, setEwayCnlRsn] = useState('2');
+  const [ewayCnlRem, setEwayCnlRem] = useState('');
   const [lastEwayPayload, setLastEwayPayload] = useState<unknown>(null);
   const [lastEinvoicePayload, setLastEinvoicePayload] = useState<unknown>(null);
 
@@ -175,9 +182,12 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
   });
 
   const cancelEwayMutation = useMutation({
-    mutationFn: () => cancelInvoiceEway(invoice.id),
+    mutationFn: () =>
+      cancelInvoiceEway(invoice.id, { cnlRsn: ewayCnlRsn, cnlRem: ewayCnlRem.trim() }),
     onSuccess: () => {
       onMessage?.('e-Way bill cancelled');
+      setEwayCancelOpen(false);
+      setEwayCnlRem('');
       invalidate();
     },
     onError: (err) => onError?.(getErrorMessage(err)),
@@ -369,7 +379,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
                 color="warning"
                 size="small"
                 disabled={cancelEwayMutation.isPending}
-                onClick={() => cancelEwayMutation.mutate()}
+                onClick={() => setEwayCancelOpen(true)}
               >
                 Cancel
               </Button>
@@ -436,6 +446,43 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
             onClick={() => cancelEinvoiceMutation.mutate()}
           >
             {t('einvoice.cancel')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={ewayCancelOpen} onClose={() => setEwayCancelOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Cancel e-Way bill</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              select
+              label="Cancellation reason"
+              size="small"
+              value={ewayCnlRsn}
+              onChange={(e) => setEwayCnlRsn(e.target.value)}
+            >
+              <MenuItem value="1">Duplicate</MenuItem>
+              <MenuItem value="2">Order cancelled</MenuItem>
+              <MenuItem value="3">Data entry mistake</MenuItem>
+              <MenuItem value="4">Others</MenuItem>
+            </TextField>
+            <TextField
+              label="Remarks (required)"
+              size="small"
+              value={ewayCnlRem}
+              onChange={(e) => setEwayCnlRem(e.target.value)}
+              required
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEwayCancelOpen(false)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={!ewayCnlRem.trim() || cancelEwayMutation.isPending}
+            onClick={() => cancelEwayMutation.mutate()}
+          >
+            Cancel e-Way bill
           </Button>
         </DialogActions>
       </Dialog>

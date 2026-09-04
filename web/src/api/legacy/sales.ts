@@ -254,9 +254,15 @@ export async function cancelInvoiceEinvoice(
   }, { ...mockInvoices[0], id, einvoiceStatus: 'CANCELLED', irn: undefined, ackNo: undefined });
 }
 
-export async function cancelInvoiceEway(id: number): Promise<SalesInvoice> {
+export async function cancelInvoiceEway(
+  id: number,
+  payload?: { cnlRsn: string; cnlRem: string },
+): Promise<SalesInvoice> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/sales/invoices/${id}/cancel-eway/`);
+    const { data } = await apiClient.post(`/sales/invoices/${id}/cancel-eway/`, {
+      cnl_rsn: payload?.cnlRsn,
+      cnl_rem: payload?.cnlRem,
+    });
     return unwrapData<SalesInvoice>(data);
   }, { ...mockInvoices[0], id, ewayStatus: 'CANCELLED', ewayBillNo: undefined });
 }

@@ -852,6 +852,10 @@ export const en = {
     hsnCode: 'HSN / SAC code',
     openingQty: 'Opening quantity (optional)',
     addSamples: 'Add sample products',
+    addSamplesWarning:
+      'Samples are real catalog items (SKUs start with SAMPLE-). Delete them from Products once you have added your own.',
+    addSamplesConfirm:
+      'Add 3 sample products to your catalog? They are real items you can bill against — delete them later from Products (filter SKU "SAMPLE-").',
     importProducts: 'Import products by CSV',
     productsReady: '{count} product(s) ready for billing.',
     completeTitle: 'Your first bill is complete!',
@@ -1490,6 +1494,12 @@ export const en = {
     typeToSearch: 'Type to search products',
     typeAtLeast: 'Type at least {count} characters to search',
     showingFirst: 'Showing first {count} matches — refine your search',
+  },
+  users: {
+    deactivate: 'Deactivate',
+    reactivate: 'Reactivate',
+    deactivateConfirm:
+      'Deactivate this member? They lose access to this company immediately. You can reactivate them later — nothing is deleted.',
   },
 } as const;
 

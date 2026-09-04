@@ -220,12 +220,17 @@ export function SetupWizardPage() {
     });
   };
 
-  const addSamples = () =>
+  const addSamples = () => {
+    // F3-034: these are real catalog rows, not throwaway fixtures — make the
+    // user opt in, and tag each one (SAMPLE- SKU + description) so they are easy
+    // to find and bulk-delete from Products later.
+    if (!window.confirm(t('setup.addSamplesConfirm'))) return;
     void finishStep('catalog', async () => {
       await Promise.all(
         SAMPLE_PRODUCTS.map((sample) =>
           createProduct({
             ...sample,
+            description: 'Sample data — safe to delete once you have added your own products.',
             purchasePrice: 0,
             reorderLevel: 0,
             status: 'ACTIVE',
@@ -236,6 +241,7 @@ export function SetupWizardPage() {
       await productsQuery.refetch();
       await queryClient.invalidateQueries({ queryKey: ['products-count'] });
     });
+  };
 
   const continueCatalog = () => {
     if (products.length === 0) {
@@ -377,6 +383,7 @@ export function SetupWizardPage() {
                   <Button variant="outlined" onClick={addSamples} disabled={busy}>{t('setup.addSamples')}</Button>
                   <Button component={RouterLink} to="/settings/import?kind=PRODUCTS&return=/setup?step=catalog" variant="outlined">{t('setup.importProducts')}</Button>
                 </Stack>
+                <Alert severity="warning">{t('setup.addSamplesWarning')}</Alert>
               </>
             ) : null}
 

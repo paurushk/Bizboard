@@ -1081,7 +1081,16 @@ export function NewPurchasePage() {
   );
   const canSave = lines.length > 0 && Boolean(supplierId) && !saveMutation.isPending;
   const missingPurchaseBatch = lines.some((l) => l.trackBatch && !l.batchNo.trim());
-  const canComplete = canSave && posKnown && !missingPurchaseBatch && (!previewOnline || preview.ready);
+  // F2-018: mirror NewInvoicePage (FE-07) — if the server preview endpoint keeps
+  // erroring, don't strand a valid bill. Allow Complete with on-device totals
+  // (the server recomputes authoritative totals on save) but surface that it
+  // happened via the warning banner below.
+  const previewFellBack = previewOnline && !preview.ready && preview.error != null;
+  const canComplete =
+    canSave &&
+    posKnown &&
+    !missingPurchaseBatch &&
+    (!previewOnline || preview.ready || previewFellBack);
   const shownTotals = useMemo(
     () =>
       preview.totals
@@ -1201,7 +1210,9 @@ export function NewPurchasePage() {
       documentId={isEdit ? editId ?? undefined : undefined}
       multiGodown={(warehouses.data?.length ?? 0) > 1}
       warning={
-        fromBillUpload
+        previewFellBack
+          ? t('billing.previewUnavailableClientTotals')
+          : fromBillUpload
           ? t('billUpload.reviewOnEditDisclaimer')
           : isEdit && editingStatus === 'COMPLETED'
             ? t('billing.editingCompletedWarning')
