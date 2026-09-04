@@ -844,6 +844,26 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         n for n in debit_notes
         if not note_value_mismatch(n) and not _note_parent_is_ecom(n) and not _rcm(n)
     ]
+    # B5-001: RCM *outward* supplies carry no output-tax liability for the
+    # supplier (recipient pays), but their taxable value is still turnover —
+    # GSTR-3B 3.1(a) counts it and the GSTR-1 sections carry these rows with
+    # rchrg="Y". Fold the taxable value (tax columns stay zero) into the header
+    # so it foots against the sections and against 3B, instead of raising a
+    # false-critical OUTWARD_FOOTING_MISMATCH on every notified-RCM company.
+    rcm_outward_invoices = [
+        inv for inv in invoices
+        if not invoice_value_mismatch(inv)
+        and not (getattr(inv, "ecommerce_operator_gstin", None) or "").strip()
+        and _rcm(inv)
+    ]
+    rcm_outward_credit_notes = [
+        n for n in credit_notes
+        if not note_value_mismatch(n) and not _note_parent_is_ecom(n) and _rcm(n)
+    ]
+    rcm_outward_debit_notes = [
+        n for n in debit_notes
+        if not note_value_mismatch(n) and not _note_parent_is_ecom(n) and _rcm(n)
+    ]
     outward_taxable = sum((inv.taxable_total for inv in matched_invoices), Decimal("0"))
     outward_cgst = sum((inv.cgst_total for inv in matched_invoices), Decimal("0"))
     outward_sgst = sum((inv.sgst_total for inv in matched_invoices), Decimal("0"))
@@ -861,6 +881,14 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         outward_sgst += note.sgst_total
         outward_igst += note.igst_total
         outward_cess += Decimal(str(getattr(note, "cess_total", 0) or 0))
+
+    # B5-001: RCM outward — taxable value only, no tax on the supplier's return.
+    for inv in rcm_outward_invoices:
+        outward_taxable += inv.taxable_total
+    for note in rcm_outward_credit_notes:
+        outward_taxable -= note.taxable_total
+    for note in rcm_outward_debit_notes:
+        outward_taxable += note.taxable_total
 
     section_taxable = (
         sum(Decimal(r["taxable_value"]) for r in b2b)

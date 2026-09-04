@@ -753,6 +753,26 @@ class Gstr2bIngestViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(company=self.company)
 
+    def perform_update(self, serializer):
+        # B5-005: a manual itc_eligibility override must not leave the books out
+        # of step with the 2B row — run the same reclass the IMS accept/reject
+        # path uses when the eligibility actually changes.
+        old = serializer.instance.itc_eligibility
+        obj = serializer.save()
+        new = obj.itc_eligibility
+        if new != old and obj.purchase_invoice_id:
+            from accounting.services import reclass_rejected_itc, reclass_unreviewed_itc
+
+            inv = obj.purchase_invoice
+            user = self.request.user
+            if new == Gstr2bIngest.ItcEligibility.CLAIMABLE:
+                reclass_unreviewed_itc(inv, user=user)
+            elif new in (
+                Gstr2bIngest.ItcEligibility.INELIGIBLE,
+                Gstr2bIngest.ItcEligibility.REVERSED,
+            ):
+                reclass_rejected_itc(inv, user=user)
+
     @action(detail=False, methods=["post"], url_path="upload")
     def upload(self, request):
         """Bulk ingest rows: {period, rows: [{supplier_gstin, invoice_number, ...}]}."""

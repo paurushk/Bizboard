@@ -40,6 +40,22 @@ class Gstr2bIngestSerializer(serializers.ModelSerializer):
             "purchase_invoice",
             "created_at",
             "updated_at",
+            # B5-005: identity + tax amounts + raw + remark must not be
+            # rewritable via a plain PATCH — that silently moves
+            # `claimable_itc_from_2b` totals with no ImsActionHistory and no
+            # re-match. Only `itc_eligibility` stays writable (a real manual
+            # override), and the viewset reclasses the books when it changes.
+            "period",
+            "supplier_gstin",
+            "invoice_number",
+            "invoice_date",
+            "taxable_value",
+            "igst",
+            "cgst",
+            "sgst",
+            "cess",
+            "ims_remark",
+            "raw",
         ]
 
     def validate_itc_eligibility(self, value):
