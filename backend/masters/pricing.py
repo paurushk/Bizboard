@@ -116,6 +116,11 @@ def resolve_unit_price(
 
     if requested is None:
         return list_price
-    if requested != list_price and (role or "").upper() == "OWNER":
+    # B8-031: the guard is meant to stop *undercutting* a slab. Pricing *above*
+    # the list (a negotiated higher rate) is legitimate for any role — only
+    # clamp when the request is below the slab and the caller isn't an OWNER.
+    if requested >= list_price:
+        return requested
+    if (role or "").upper() == "OWNER":
         return requested
     return list_price

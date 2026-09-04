@@ -148,6 +148,30 @@ class StockTransferLineSerializer(serializers.ModelSerializer):
         model = StockTransferLine
         fields = ["id", "product", "batch", "quantity", "serial_numbers"]
 
+    def validate(self, attrs):
+        # B8-016: surface the batch/serial requirement at draft time instead of
+        # only when `complete` fails deep in post_movement.
+        product = attrs.get("product") or getattr(self.instance, "product", None)
+        if product is not None:
+            if getattr(product, "track_batch", False) and not (
+                attrs.get("batch") or getattr(self.instance, "batch", None)
+            ):
+                raise serializers.ValidationError(
+                    {"batch": "A batch is required for a batch-tracked product."}
+                )
+            if getattr(product, "track_serial", False):
+                serials = attrs.get("serial_numbers")
+                if serials is None and self.instance is not None:
+                    serials = self.instance.serial_numbers
+                qty = attrs.get("quantity")
+                if qty is None and self.instance is not None:
+                    qty = self.instance.quantity
+                if qty is not None and len(serials or []) != int(qty):
+                    raise serializers.ValidationError(
+                        {"serial_numbers": "Serial count must equal the transfer quantity."}
+                    )
+        return attrs
+
 
 class StockTransferSerializer(serializers.ModelSerializer):
     lines = StockTransferLineSerializer(many=True)

@@ -387,7 +387,10 @@ def _validate_row(
             if value:
                 try:
                     num = Decimal(value)
-                    if field in (
+                    if not num.is_finite():
+                        # B3-014: Infinity parses and passes every >= 0 check.
+                        errors.append(f"{field} must be a finite number")
+                    elif field in (
                         "purchase_price", "selling_price", "mrp", "wholesale_price",
                         "default_discount_percent", "reorder_level", "unit_cost",
                     ) and num < 0:
@@ -551,7 +554,9 @@ def _validate_row(
         else:
             try:
                 qty = Decimal(qty_raw)
-                if qty <= 0:
+                if not qty.is_finite():
+                    errors.append("quantity must be a finite number")
+                elif qty <= 0:
                     errors.append("quantity must be > 0")
                 else:
                     serials = _parse_serial_numbers(row.get("serial_no"))
@@ -571,9 +576,14 @@ def _validate_row(
 
 def _as_decimal(value, default="0"):
     try:
-        return Decimal(str(value if value not in (None, "") else default).strip())
+        result = Decimal(str(value if value not in (None, "") else default).strip())
     except (InvalidOperation, AttributeError):
         raise BusinessRuleError(f"Invalid number: {value!r}")
+    # B3-014: Decimal("Infinity") / Decimal("NaN") construct fine and slip past
+    # the >= 0 guards; reject them before they reach bulk_create / post_opening.
+    if not result.is_finite():
+        raise BusinessRuleError(f"Invalid number: {value!r}")
+    return result
 
 
 def _parse_extraction_confidence(value) -> float:

@@ -391,8 +391,20 @@ def decrypt_export_zip(blob: bytes, *, company_id: int | None = None) -> dict[st
                 return default
 
         manifest = _load("manifest.json") or {}
+        manifest_version = manifest.get("version", EXPORT_VERSION)
+        # B6-018: refuse a payload written by a different (future/older) schema
+        # rather than importing it best-effort and producing a partial tenant.
+        try:
+            manifest_version_int = int(manifest_version)
+        except (TypeError, ValueError):
+            manifest_version_int = None
+        if manifest_version_int != EXPORT_VERSION:
+            raise BusinessRuleError(
+                f"Unsupported export version {manifest_version!r}; "
+                f"this build imports version {EXPORT_VERSION} only."
+            )
         payload = {
-            "version": manifest.get("version", EXPORT_VERSION),
+            "version": manifest_version,
             "exported_at": manifest.get("exported_at"),
             "source_company_id": manifest.get("source_company_id"),
             "source_company_name": manifest.get("source_company_name"),

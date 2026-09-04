@@ -250,16 +250,20 @@ class WhatsAppConnectionView(APIView):
             "token": token,
             "phone_number_id": phone_number_id,
         })
-        conn, _ = IntegrationConnection.objects.update_or_create(
+        conn, created = IntegrationConnection.objects.update_or_create(
             company=cu.company,
             provider=IntegrationConnection.Provider.WHATSAPP,
             defaults={
                 "status": IntegrationConnection.Status.ACTIVE,
                 "encrypted_secrets": encrypted,
                 "updated_by": request.user,
-                "created_by": request.user,
             },
         )
+        if created:
+            # B9-033: don't overwrite the original "who connected" attribution
+            # on every PUT.
+            conn.created_by = request.user
+            conn.save(update_fields=["created_by"])
         AuditService.log(
             company=cu.company,
             user=request.user,
@@ -274,4 +278,13 @@ class WhatsAppConnectionView(APIView):
         deleted, _ = IntegrationConnection.objects.filter(
             company=cu.company, provider=IntegrationConnection.Provider.WHATSAPP,
         ).delete()
+        if deleted:
+            # B9-033: the PUT path logs an UPSERT — the delete of a
+            # credential-bearing integration must be audited too.
+            AuditService.log(
+                company=cu.company,
+                user=request.user,
+                action="DELETE",
+                entity_type="WhatsAppConnection",
+            )
         return Response({"configured": False, "deleted": bool(deleted)})

@@ -150,7 +150,10 @@ class AdjustmentView(APIView):
 
     permission_classes = [IsAuthenticated, HasCompany, CanManageInventory]
 
+    @transaction.atomic
     def post(self, request):
+        # B8-014: wrap the whole body so a get_or_create_batch() BatchLot rolls
+        # back with a failed post_movement instead of leaving an orphan lot.
         serializer = AdjustmentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         company = get_company_user(request).company

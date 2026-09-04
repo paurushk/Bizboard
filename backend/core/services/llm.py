@@ -191,6 +191,22 @@ def _coerce_gst_rate(raw: Any) -> str:
     return ""
 
 
+# B7-018: header strings come verbatim from the model's JSON — a crafted bill
+# image can inject arbitrary text here. Length-cap them, and drop a GSTIN that
+# doesn't match the format outright rather than staging attacker-controlled text.
+_LLM_GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$")
+
+
+def _clean_header_str(value: Any, *, cap: int = 128) -> str:
+    text = str(value or "").strip()
+    return text[:cap]
+
+
+def _clean_gstin_str(value: Any) -> str:
+    text = str(value or "").strip().upper()[:15]
+    return text if _LLM_GSTIN_RE.match(text) else ""
+
+
 def _normalize_payload(raw: dict[str, Any]) -> dict[str, Any]:
     lines_in = raw.get("lines") or []
     if not isinstance(lines_in, list):
@@ -274,12 +290,12 @@ def _normalize_payload(raw: dict[str, Any]) -> dict[str, Any]:
     headers_in = raw.get("column_headers") or []
     column_headers = [str(h).strip() for h in headers_in if str(h or "").strip()] if isinstance(headers_in, list) else []
     return {
-        "supplier_name": str(raw.get("supplier_name") or "").strip(),
-        "supplier_gstin": str(raw.get("supplier_gstin") or "").strip(),
-        "buyer_name": str(raw.get("buyer_name") or "").strip(),
-        "buyer_gstin": str(raw.get("buyer_gstin") or "").strip(),
-        "bill_number": str(raw.get("bill_number") or "").strip(),
-        "bill_date": str(raw.get("bill_date") or "").strip(),
+        "supplier_name": _clean_header_str(raw.get("supplier_name")),
+        "supplier_gstin": _clean_gstin_str(raw.get("supplier_gstin")),
+        "buyer_name": _clean_header_str(raw.get("buyer_name")),
+        "buyer_gstin": _clean_gstin_str(raw.get("buyer_gstin")),
+        "bill_number": _clean_header_str(raw.get("bill_number"), cap=64),
+        "bill_date": _clean_header_str(raw.get("bill_date"), cap=32),
         "confidence": overall,
         "printed_line_count": _coerce_printed_line_count(raw, lines),
         "column_headers": column_headers,
