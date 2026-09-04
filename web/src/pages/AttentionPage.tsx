@@ -22,6 +22,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import type { AttentionRow } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
+import { safeAppPath } from '@/utils/safeUrl';
 
 function rupeesFromPaise(paise: number): number {
   return (Number(paise) || 0) / 100;
@@ -87,7 +88,7 @@ export function AttentionPage() {
                   </TableCell>
                   <TableCell align="right">
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
-                      <Button component={RouterLink} to={row.actionHref} size="small" variant="contained">
+                      <Button component={RouterLink} to={safeAppPath(row.actionHref, "/attention")} size="small" variant="contained">
                         {row.actionLabel || t('attention.fix')}
                       </Button>
                       <Button size="small" onClick={() => { setPending(row); setReason(''); }}>
@@ -150,7 +151,7 @@ export function AttentionQueuePreview({ limit = 5 }: { limit?: number }) {
           {row.moneyImpactPaise ? (
             <Typography variant="caption">{formatMoney(rupeesFromPaise(row.moneyImpactPaise))}</Typography>
           ) : null}
-          <Button component={RouterLink} to={row.actionHref} size="small">
+          <Button component={RouterLink} to={safeAppPath(row.actionHref, "/attention")} size="small">
             {row.actionLabel || t('attention.fix')}
           </Button>
         </Stack>

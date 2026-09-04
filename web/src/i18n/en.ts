@@ -1091,6 +1091,7 @@ export const en = {
     customers: 'Add customers to start billing.',
     products: 'Add products or import a catalog.',
     stock: 'Stock balances will appear after opening stock or purchases.',
+    stockFiltered: 'No stock matches the current filters.',
     stockHealthy: 'All items are well stocked above reorder levels.',
     addSupplier: 'Add supplier',
     createItem: 'Create item',

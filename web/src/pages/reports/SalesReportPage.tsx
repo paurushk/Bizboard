@@ -19,6 +19,13 @@ import { formatMoney } from '@/utils/money';
 import { canExport } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
+// F3-006: a column is a money column by its name, not by its value type.
+const MONEY_COL = /(amount|total|value|balance|price|net|gross|payable|receivable|outstanding|discount|freight|charge|cess|tcs|tds|paid|due|mrp|cogs|profit|margin)/i;
+const NOT_MONEY_COL = /(rate|percent|qty|quantity|count|hsn|sac|_?code$|number|invoices?$|bills?$|id$)/i;
+function isMoneyColumn(key: string): boolean {
+  return MONEY_COL.test(key) && !NOT_MONEY_COL.test(key);
+}
+
 function downloadBlobUrl(url: string, filename: string) {
   const a = document.createElement('a');
   a.href = url;
@@ -124,11 +131,9 @@ export function SalesReportPage() {
                 <TableRow key={idx}>
                   {Object.entries(row).map(([key, value]) => (
                     <TableCell key={key}>
-                      {/* UXW2B-006: "id"/"...Id" columns are plain numbers, not money — don't
-                          run them through the currency formatter just because they're numeric. */}
-                      {!/(^id$|Id$)/.test(key) &&
-                      (typeof value === 'number' ||
-                        (typeof value === 'string' && /total|amount|tax/i.test(key)))
+                      {/* F3-006: only money-format columns whose *name* is a money field —
+                          "any numeric value" also caught hsn_code / gst_rate / quantity. */}
+                      {isMoneyColumn(key) && (typeof value === 'number' || typeof value === 'string')
                         ? formatMoney(value as string | number)
                         : String(value ?? '—')}
                     </TableCell>

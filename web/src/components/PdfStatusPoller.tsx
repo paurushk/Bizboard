@@ -10,6 +10,7 @@ import {
   regenerateSalesDocumentPdf,
   type SalesPdfDocType,
 } from '@/api/resources';
+import { getErrorMessage } from '@/api/client';
 import { t } from '@/i18n';
 import type { PdfStatus } from '@/types/domain';
 import { triggerBlobDownload } from '@/utils/blob';
@@ -47,6 +48,7 @@ export function PdfStatusPoller({
   const id = documentId ?? invoiceId;
   const [pollCount, setPollCount] = useState(0);
   const [retryToken, setRetryToken] = useState(0);
+  const [dlError, setDlError] = useState<string | null>(null);
 
   const regenerate = useMutation({
     mutationFn: () => regenerateSalesDocumentPdf(docType, id as number | string),
@@ -58,10 +60,10 @@ export function PdfStatusPoller({
 
   const query = useQuery({
     queryKey: ['doc-pdf', docType, id, retryToken],
-    queryFn: async () => {
-      setPollCount((n) => n + 1);
-      return getSalesDocumentPdfStatus(docType, id as number | string);
-    },
+    // F3-045: queryFn must be pure — a retry / internal refetch double-counted
+    // and the poller gave up early on a still-generating PDF. Count in an
+    // effect keyed on the fetch timestamp instead.
+    queryFn: () => getSalesDocumentPdfStatus(docType, id as number | string),
     enabled: enabled && Boolean(id),
     refetchInterval: (q) => {
       const status = q.state.data?.pdfStatus;
@@ -71,6 +73,13 @@ export function PdfStatusPoller({
       return step;
     },
   });
+
+  useEffect(() => {
+    setPollCount(0);
+  }, [retryToken]);
+  useEffect(() => {
+    if (query.dataUpdatedAt) setPollCount((n) => n + 1);
+  }, [query.dataUpdatedAt]);
 
   const status = (query.data?.pdfStatus ?? 'QUEUED') as PdfStatus;
 
@@ -83,9 +92,14 @@ export function PdfStatusPoller({
   if (!enabled || !id) return null;
 
   const handleDownload = async () => {
-    const blob = await downloadSalesDocumentPdf(docType, id, { copy: 'ORIGINAL' });
-    const name = `${filenameBase ?? `${docType}-${id}`}_original.pdf`;
-    triggerBlobDownload(blob, name);
+    setDlError(null);
+    try {
+      const blob = await downloadSalesDocumentPdf(docType, id, { copy: 'ORIGINAL' });
+      const name = `${filenameBase ?? `${docType}-${id}`}_original.pdf`;
+      triggerBlobDownload(blob, name);
+    } catch (err) {
+      setDlError(getErrorMessage(err));
+    }
   };
 
   const timedOut = pollCount >= MAX_POLLS && status !== 'READY' && status !== 'FAILED';
@@ -132,6 +146,9 @@ export function PdfStatusPoller({
                 : t('billing.pdfWaiting')
           }
         />
+        {dlError ? (
+          <Stack sx={{ color: 'error.main', fontSize: 13 }}>{dlError}</Stack>
+        ) : null}
       </Stack>
     </Alert>
   );

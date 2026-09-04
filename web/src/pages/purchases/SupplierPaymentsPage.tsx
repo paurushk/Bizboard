@@ -45,7 +45,7 @@ export function SupplierPaymentsPage() {
   });
   const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
   const purchases = useQuery({
-    queryKey: ['purchases'],
+    queryKey: ['purchases', 'completed'],
     queryFn: () => listAllPurchases({ status: 'COMPLETED' }),
   });
 

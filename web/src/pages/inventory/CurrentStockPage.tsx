@@ -185,7 +185,13 @@ export function CurrentStockPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.data?.length === 0 ? <EmptyState description={t('empty.stock')} /> : null}
+      {/* F3-038: also show an empty state when a client-side filter removed
+          every row (query.data non-empty but `rows` is empty). */}
+      {!query.isLoading && !query.isError && rows.length === 0 ? (
+        <EmptyState
+          description={query.data?.length ? t('empty.stockFiltered') : t('empty.stock')}
+        />
+      ) : null}
       {rows.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <Table size="small">

@@ -671,6 +671,18 @@ export function NewInvoicePage() {
     setAmountReceived(0);
     setMarkFullyPaid(false);
     setPaymentMode('CASH');
+    // F2-005: reset every statutory field too — leaving these set carried
+    // reverse-charge / TCS / e-commerce GSTIN / a non-default stamped GSTIN
+    // onto the next, unrelated invoice (wrong GST filing).
+    setCompanyGstinId('');
+    setSupplyType('B2B');
+    setIsReverseCharge(false);
+    setConfirmSalesRcm(false);
+    setEcommerceOperatorGstin('');
+    setShowTcs(false);
+    setTcsSection('');
+    setTcsRate(0);
+    setTcsAmount(0);
     void qc.invalidateQueries({ queryKey: ['sales-invoice-number-series'] });
     barcodeRef.current?.focus();
   };

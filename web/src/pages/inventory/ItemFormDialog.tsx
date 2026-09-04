@@ -326,9 +326,16 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
         setError('Allow pop-ups to print the barcode.');
         return;
       }
-      win.document.write(
-        `<html><body style="text-align:center;font-family:sans-serif;padding:24px"><img src="${url}" alt="${code}" /><div style="margin-top:8px">${code}</div></body></html>`,
-      );
+      // F3-013: build the popup with DOM APIs, not string-interpolated HTML —
+      // a barcode value like `"><img onerror=...>` executed as script.
+      win.document.body.style.cssText = 'text-align:center;font-family:sans-serif;padding:24px';
+      const img = win.document.createElement('img');
+      img.src = url;
+      img.alt = code;
+      const label = win.document.createElement('div');
+      label.style.marginTop = '8px';
+      label.textContent = code;
+      win.document.body.append(img, label);
       win.document.close();
       win.focus();
       win.print();
@@ -944,7 +951,13 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                 onChange={(e) => setForm((current) => ({ ...current, wholesalePrice: e.target.value }))}
               />
               <TextField select label="GST rate" value={form.gstRate} onChange={(e) => setForm((current) => ({ ...current, gstRate: e.target.value }))}>
-                {GST_RATE_OPTIONS.map((rate) => (
+                {/* F3-012: if an HSN picker (or a legacy product) set a rate not
+                    in the standard slabs, still render it as an option so the
+                    field doesn't go blank. */}
+                {(GST_RATE_OPTIONS.some((r) => r.value === form.gstRate)
+                  ? GST_RATE_OPTIONS
+                  : [...GST_RATE_OPTIONS, { value: form.gstRate, label: `${form.gstRate}%` }]
+                ).map((rate) => (
                   <MenuItem key={rate.value} value={rate.value}>
                     {rate.label}
                   </MenuItem>

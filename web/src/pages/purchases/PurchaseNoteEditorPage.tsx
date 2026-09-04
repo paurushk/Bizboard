@@ -87,7 +87,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
-  const purchases = useQuery({ queryKey: ['purchases'], queryFn: () => listPurchases({ status: 'COMPLETED' }) });
+  const purchases = useQuery({ queryKey: ['purchases', 'completed'], queryFn: () => listPurchases({ status: 'COMPLETED' }) });
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const existing = useQuery({

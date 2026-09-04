@@ -178,8 +178,11 @@ export function ItemSettingsPage() {
                 : t('customFields.keyHint');
             const labelHelp = rowErrorText(rowErr.label, 'label', row.label);
             const optionsHelp = rowErrorText(rowErr.options, 'options', row.label);
+            // F3-035: key by position — keying on the mutating `row.key`
+            // (regenerated from the label per keystroke for a new row)
+            // remounted the whole subtree and lost input focus.
             return (
-              <Stack key={`${row.key}-${index}`} spacing={1} sx={{ borderBottom: '1px solid', borderColor: 'divider', pb: 2 }}>
+              <Stack key={index} spacing={1} sx={{ borderBottom: '1px solid', borderColor: 'divider', pb: 2 }}>
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ md: 'flex-start' }}>
                   <TextField
                     label={t('customFields.key')}

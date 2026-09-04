@@ -43,7 +43,6 @@ import {
   searchProducts,
   listStock,
   listWarehouses,
-  updateCompany,
   updatePurchase,
   updateSupplier,
   uploadFile,
@@ -650,6 +649,13 @@ export function NewPurchasePage() {
     setAmountPaid(0);
     setMarkFullyPaid(false);
     setPaymentMode('CASH');
+    // F2-005: also reset the statutory fields resetForm was missing — a stale
+    // stamped GSTIN / TDS section+amount would post onto the next bill.
+    setCompanyGstinId('');
+    setShowTds(false);
+    setTdsSection('');
+    setTdsRate(0);
+    setTdsAmount(0);
     if (companyId && userId) {
       void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
     }
@@ -902,9 +908,14 @@ export function NewPurchasePage() {
             : t('billing.draftSaved', { label });
 
       try {
+        // F2-001/F2-026: warm the key PurchaseHistoryPage actually reads
+        // (['purchases', page]) — the old ['purchases'] warm never matched it
+        // AND collided with the array-shaped ['purchases'] reads in the note
+        // editor / supplier payments, crashing those with `.filter is not a
+        // function`.
         await qc.fetchQuery({
-          queryKey: ['purchases'],
-          queryFn: () => listPurchasesPage(),
+          queryKey: ['purchases', 1],
+          queryFn: () => listPurchasesPage({ page: 1 }),
           staleTime: 0,
         });
       } catch {
@@ -1120,10 +1131,11 @@ export function NewPurchasePage() {
     if (!file) return;
     try {
       const uploaded = await uploadFile(file, 'ATTACHMENT');
+      // F2-002: attach the signature to *this* document only — mirrors the
+      // FE-09 sales fix. Calling updateCompany({ signature }) here silently
+      // re-branded every future company document. Set the default in Settings.
       setSignatureId(uploaded.id);
       setSignatureUrl(uploaded.url ?? null);
-      await updateCompany({ signature: uploaded.id });
-      void qc.invalidateQueries({ queryKey: ['company'] });
     } catch (err) {
       setError(getErrorMessage(err));
     }
