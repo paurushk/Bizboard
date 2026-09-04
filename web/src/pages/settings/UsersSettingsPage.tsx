@@ -148,6 +148,23 @@ export function UsersSettingsPage() {
     onError: (err) => setError(getErrorMessage(err)),
   });
 
+  // F3-022: confirm the high-impact caps; a click no longer silently grants
+  // export / cancel / financial-report access with no feedback.
+  const SENSITIVE_CAPS: Record<string, string> = {
+    canExport: 'export company data',
+    canCancelDocuments: 'cancel completed documents',
+    canViewFinancialReports: 'view financial reports',
+  };
+  const togglePatch = (id: number, cap: string, checked: boolean) => {
+    if (checked && SENSITIVE_CAPS[cap]) {
+      if (!window.confirm(`Allow this user to ${SENSITIVE_CAPS[cap]}?`)) return;
+    }
+    patchMutation.mutate({ id, [cap]: checked });
+  };
+  const rowPending = (id: number) =>
+    patchMutation.isPending &&
+    (patchMutation.variables as { id?: number } | undefined)?.id === id;
+
   if (!canManageUsers(user)) return <ForbiddenPage />;
 
   const submitInvite = () => {
@@ -215,78 +232,72 @@ export function UsersSettingsPage() {
                   <TableCell>
                     <Checkbox
                       checked={!!u.canCreateSales}
-                      disabled={isOwner}
+                      disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
-                        patchMutation.mutate({ id: u.id, canCreateSales: e.target.checked })
+                        togglePatch(u.id, 'canCreateSales', e.target.checked)
                       }
                     />
                   </TableCell>
                   <TableCell>
                     <Checkbox
                       checked={!!u.canCreatePurchases}
-                      disabled={isOwner}
+                      disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
-                        patchMutation.mutate({ id: u.id, canCreatePurchases: e.target.checked })
+                        togglePatch(u.id, 'canCreatePurchases', e.target.checked)
                       }
                     />
                   </TableCell>
                   <TableCell>
                     <Checkbox
                       checked={!!u.canCreatePayments}
-                      disabled={isOwner}
+                      disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
-                        patchMutation.mutate({ id: u.id, canCreatePayments: e.target.checked })
+                        togglePatch(u.id, 'canCreatePayments', e.target.checked)
                       }
                     />
                   </TableCell>
                   <TableCell>
                     <Checkbox
                       checked={u.canManageInventory}
-                      disabled={isOwner}
+                      disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
-                        patchMutation.mutate({
-                          id: u.id,
-                          canManageInventory: e.target.checked,
-                        })
+                        togglePatch(u.id, 'canManageInventory', e.target.checked)
                       }
                     />
                   </TableCell>
                   <TableCell>
                     <Checkbox
                       checked={u.canImport}
-                      disabled={isOwner}
+                      disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
-                        patchMutation.mutate({ id: u.id, canImport: e.target.checked })
+                        togglePatch(u.id, 'canImport', e.target.checked)
                       }
                     />
                   </TableCell>
                   <TableCell>
                     <Checkbox
                       checked={!!u.canCancelDocuments}
-                      disabled={isOwner}
+                      disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
-                        patchMutation.mutate({ id: u.id, canCancelDocuments: e.target.checked })
+                        togglePatch(u.id, 'canCancelDocuments', e.target.checked)
                       }
                     />
                   </TableCell>
                   <TableCell>
                     <Checkbox
                       checked={u.canViewFinancialReports === true}
-                      disabled={isOwner}
+                      disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
-                        patchMutation.mutate({
-                          id: u.id,
-                          canViewFinancialReports: e.target.checked,
-                        })
+                        togglePatch(u.id, 'canViewFinancialReports', e.target.checked)
                       }
                     />
                   </TableCell>
                   <TableCell>
                     <Checkbox
                       checked={!!u.canExport}
-                      disabled={isOwner}
+                      disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
-                        patchMutation.mutate({ id: u.id, canExport: e.target.checked })
+                        togglePatch(u.id, 'canExport', e.target.checked)
                       }
                     />
                   </TableCell>

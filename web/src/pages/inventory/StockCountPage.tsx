@@ -204,10 +204,18 @@ export function StockCountPage() {
         actions={(row) => (
           <Button
             size="small"
-            onClick={() => {
-              setActive(row);
-              setCounted({});
+            onClick={async () => {
               setError('');
+              setCounted({});
+              // F3-040: list rows don't carry `.lines` — fetch the detail so
+              // the dialog isn't empty until a saveLines round-trip.
+              try {
+                const full = await api.getStockCount(Number(row.id));
+                setActive(full as Row);
+              } catch (err) {
+                setActive(row);
+                setError(getErrorMessage(err));
+              }
             }}
           >
             {String(row.status) === 'POSTED' ? 'View' : 'Count'}

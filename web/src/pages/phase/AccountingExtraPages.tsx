@@ -31,29 +31,35 @@ export function AccountingSettingsPage() {
   const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const [msg, setMsg] = useState('');
+  // F3-026: track severity so a mutation error isn't shown as a blue "info".
+  const [msgSeverity, setMsgSeverity] = useState<'success' | 'error'>('success');
   const [fyEnd, setFyEnd] = useState('2026-03-31');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const flash = (text: string, severity: 'success' | 'error' = 'success') => {
+    setMsg(text);
+    setMsgSeverity(severity);
+  };
   const m = useMutation({
     mutationFn: (enabled: boolean) => api.updateAccountingSettings({ accountingEnabled: enabled }),
     onSuccess: (data) => {
       const enabled = Boolean((data as Row)?.accountingEnabled ?? (data as Row)?.accounting_enabled);
-      setMsg(enabled ? 'Accounting enabled — CoA seeded.' : 'Accounting disabled.');
+      flash(enabled ? 'Accounting enabled — CoA seeded.' : 'Accounting disabled.');
       void qc.invalidateQueries();
     },
-    onError: (e) => setMsg(getErrorMessage(e)),
+    onError: (e) => flash(getErrorMessage(e), 'error'),
   });
   const fyClose = useMutation({
     mutationFn: () => api.closeFinancialYear({ fyEnd, confirm: true }),
     onSuccess: () => {
-      setMsg(`Financial year closed through ${fyEnd}. Income/expense moved to Retained Earnings; overlapping periods locked.`);
+      flash(`Financial year closed through ${fyEnd}. Income/expense moved to Retained Earnings; overlapping periods locked.`);
       setConfirmOpen(false);
       void qc.invalidateQueries({ queryKey: ['accounting-periods'] });
     },
-    onError: (e) => setMsg(getErrorMessage(e)),
+    onError: (e) => flash(getErrorMessage(e), 'error'),
   });
   return (
     <PageShell title={t('phase.accounting')} subtitle={t('phase.accountingSubtitle')}>
-      {msg ? <Alert severity="info">{msg}</Alert> : null}
+      {msg ? <Alert severity={msgSeverity} onClose={() => setMsg('')}>{msg}</Alert> : null}
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack spacing={2}>
           <Alert severity="info">
