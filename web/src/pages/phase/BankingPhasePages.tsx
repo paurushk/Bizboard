@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import type { Customer, SalesInvoice } from '@/types/domain';
@@ -264,7 +265,11 @@ export function PaymentLinksPage() {
   const cancel = useMutation({
     mutationFn: (id: number) => api.cancelPaymentLink(id),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['payment-links'] }),
+    onError: (e) => setError(getErrorMessage(e)),
   });
+  // F2-003 / F3-003: Refund moves real money and Cancel voids a live link —
+  // both require an explicit confirmation with the amount + customer shown.
+  const [confirmLink, setConfirmLink] = useState<{ mode: 'refund' | 'cancel'; row: Row } | null>(null);
   const [shareId, setShareId] = useState<number | null>(null);
   const [shareRecipient, setShareRecipient] = useState('');
   const [shareChannel, setShareChannel] = useState<'WHATSAPP' | 'EMAIL'>('WHATSAPP');
@@ -368,13 +373,18 @@ export function PaymentLinksPage() {
                 <Button size="small" disabled={writesBlocked} onClick={() => setShareId(Number(r.id))}>
                   Send
                 </Button>
-                <Button size="small" color="error" disabled={writesBlocked} onClick={() => cancel.mutate(Number(r.id))}>
+                <Button size="small" color="error" disabled={writesBlocked} onClick={() => setConfirmLink({ mode: 'cancel', row: r })}>
                   Cancel
                 </Button>
               </>
             ) : null}
             {r.status === 'PAID' ? (
-              <Button size="small" color="warning" disabled={writesBlocked || refund.isPending} onClick={() => refund.mutate(Number(r.id))}>
+              <Button
+                size="small"
+                color="warning"
+                disabled={writesBlocked || refund.isPending}
+                onClick={() => setConfirmLink({ mode: 'refund', row: r })}
+              >
                 Refund
               </Button>
             ) : null}
@@ -454,6 +464,30 @@ export function PaymentLinksPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={confirmLink !== null}
+        title={confirmLink?.mode === 'refund' ? 'Refund this payment?' : 'Cancel this payment link?'}
+        body={
+          confirmLink?.mode === 'refund'
+            ? `This issues a real refund of ${formatMoney(
+                toNumber(String(confirmLink?.row.amount ?? '')),
+              )} to ${String(confirmLink?.row.customerName ?? 'the customer')}. This cannot be undone.`
+            : `Link ${String(confirmLink?.row.token ?? '')} for ${formatMoney(
+                toNumber(String(confirmLink?.row.amount ?? '')),
+              )} will be voided and can no longer be paid.`
+        }
+        confirmLabel={confirmLink?.mode === 'refund' ? 'Refund' : 'Cancel link'}
+        confirmColor="error"
+        confirming={confirmLink?.mode === 'refund' ? refund.isPending : cancel.isPending}
+        onClose={() => setConfirmLink(null)}
+        onConfirm={() => {
+          if (!confirmLink) return;
+          const id = Number(confirmLink.row.id);
+          if (confirmLink.mode === 'refund') refund.mutate(id);
+          else cancel.mutate(id);
+          setConfirmLink(null);
+        }}
+      />
     </PageShell>
   );
 }

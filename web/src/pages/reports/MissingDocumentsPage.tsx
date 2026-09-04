@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { chaseMissingPhoto, chaseMissingWhatsApp, fetchMissingDocuments } from '@/api/gstr2b';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PageHeader } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
@@ -28,6 +29,7 @@ export function MissingDocumentsPage() {
   const [params] = useSearchParams();
   const clientView = params.get('view') === 'client';
   const [period, setPeriod] = useState(currentPeriod());
+  const [confirmSend, setConfirmSend] = useState(false);
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ['missing-documents', period],
@@ -70,10 +72,26 @@ export function MissingDocumentsPage() {
       <PageHeader
         title={clientView ? t('chase.clientTitle') : t('chase.title')}
         actions={
-          <Button variant="contained" onClick={() => wa.mutate()} disabled={wa.isPending || items.length === 0}>
+          <Button
+            variant="contained"
+            onClick={() => setConfirmSend(true)}
+            disabled={wa.isPending || items.length === 0}
+          >
             {t('chase.sendWhatsApp')}
           </Button>
         }
+      />
+      <ConfirmDialog
+        open={confirmSend}
+        title={t('chase.sendWhatsApp')}
+        body={`This sends a WhatsApp chase message to ${items.length} supplier(s) with a missing document for ${period}.`}
+        confirmLabel={t('chase.sendWhatsApp')}
+        confirming={wa.isPending}
+        onClose={() => setConfirmSend(false)}
+        onConfirm={() => {
+          setConfirmSend(false);
+          wa.mutate();
+        }}
       />
       <Alert severity="info">{clientView ? t('chase.clientHint') : t('chase.caHint')}</Alert>
       <TextField
