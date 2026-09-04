@@ -24,6 +24,7 @@ import {
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DisclaimerBanner, PageHeader } from '@/components/insights';
 import { ErrorState } from '@/components/PageState';
+import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { triggerBlobDownload } from '@/utils/blob';
 import { t, useLocale } from '@/i18n';
 
@@ -78,6 +79,9 @@ export function TallyMigrationPage() {
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [committed, setCommitted] = useState(false);
   const [confirmCommit, setConfirmCommit] = useState(false);
+  // F3-050: "Ignore error rows" silently discards every row the import
+  // flagged — confirm with a count so it isn't a one-click silent drop.
+  const [confirmIgnoreErrors, setConfirmIgnoreErrors] = useState(false);
 
   const mapRows = useMemo(() => {
     if (!preview) return [] as MapRow[];
@@ -271,47 +275,72 @@ export function TallyMigrationPage() {
             {counts.suppliers ?? preview.suppliers?.length ?? 0} · Products:{' '}
             {counts.products ?? preview.products?.length ?? 0} · Errors: {errorCount}
           </Typography>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Type</TableCell>
-                <TableCell>Name</TableCell>
-                <TableCell>SKU</TableCell>
-                <TableCell>Opening</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {mapRows.map((r) => (
-                <TableRow key={`${r.list}-${r.idx}`}>
-                  <TableCell>{r.kind}</TableCell>
-                  <TableCell>
-                    <TextField
-                      size="small"
-                      value={r.name}
-                      onChange={(e) => updateMappedName(r.list, r.idx, e.target.value)}
-                      fullWidth
-                      disabled={committed}
-                      inputProps={{ 'aria-label': `${r.kind} name` }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {r.list === 'products' ? (
-                      <TextField
-                        size="small"
-                        value={r.sku ?? ''}
-                        onChange={(e) => updateMappedSku(r.idx, e.target.value)}
-                        disabled={committed}
-                        inputProps={{ 'aria-label': 'product sku' }}
-                      />
-                    ) : (
-                      '—'
-                    )}
-                  </TableCell>
-                  <TableCell>{r.opening ?? '—'}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          {/* F3-050: a Tally import can carry thousands of customers/
+              suppliers/products — window the DOM rows instead of rendering
+              every mapping row (each with a live-editable TextField) at once. */}
+          <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+            <VirtualizedTable rowCount={mapRows.length} rowHeight={52}>
+              {({ rows: virtualRows, totalSize, measureElement }) => (
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Type</TableCell>
+                      <TableCell>Name</TableCell>
+                      <TableCell>SKU</TableCell>
+                      <TableCell>Opening</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {virtualRows.length && virtualRows[0].start > 0 ? (
+                      <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden>
+                        <TableCell style={{ padding: 0, border: 0 }} colSpan={4} />
+                      </TableRow>
+                    ) : null}
+                    {virtualRows.map((vRow) => {
+                      const r = mapRows[vRow.index];
+                      return (
+                        <TableRow key={`${r.list}-${r.idx}`} data-index={vRow.index} ref={measureElement}>
+                          <TableCell>{r.kind}</TableCell>
+                          <TableCell>
+                            <TextField
+                              size="small"
+                              value={r.name}
+                              onChange={(e) => updateMappedName(r.list, r.idx, e.target.value)}
+                              fullWidth
+                              disabled={committed}
+                              inputProps={{ 'aria-label': `${r.kind} name` }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {r.list === 'products' ? (
+                              <TextField
+                                size="small"
+                                value={r.sku ?? ''}
+                                onChange={(e) => updateMappedSku(r.idx, e.target.value)}
+                                disabled={committed}
+                                inputProps={{ 'aria-label': 'product sku' }}
+                              />
+                            ) : (
+                              '—'
+                            )}
+                          </TableCell>
+                          <TableCell>{r.opening ?? '—'}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {virtualRows.length ? (
+                      <TableRow
+                        style={{ height: totalSize - virtualRows[virtualRows.length - 1].end, padding: 0, border: 0 }}
+                        aria-hidden
+                      >
+                        <TableCell style={{ padding: 0, border: 0 }} colSpan={4} />
+                      </TableRow>
+                    ) : null}
+                  </TableBody>
+                </Table>
+              )}
+            </VirtualizedTable>
+          </Paper>
           {(preview.errors?.length ?? 0) > 0 ? (
             <Stack spacing={0.5} sx={{ mt: 1 }}>
               {preview.errors!.slice(0, 5).map((err, i) => (
@@ -342,7 +371,7 @@ export function TallyMigrationPage() {
                 <Button
                   variant="outlined"
                   disabled={ignoreErrors.isPending || committed}
-                  onClick={() => ignoreErrors.mutate()}
+                  onClick={() => setConfirmIgnoreErrors(true)}
                 >
                   Ignore error rows
                 </Button>
@@ -371,6 +400,19 @@ export function TallyMigrationPage() {
             onConfirm={() => {
               setConfirmCommit(false);
               commit.mutate();
+            }}
+          />
+          <ConfirmDialog
+            open={confirmIgnoreErrors}
+            title="Ignore error rows?"
+            body={`This discards ${errorCount} row(s) that failed to map — they will NOT be imported. This cannot be undone from the app.`}
+            confirmLabel="Ignore error rows"
+            confirmColor="warning"
+            confirming={ignoreErrors.isPending}
+            onClose={() => setConfirmIgnoreErrors(false)}
+            onConfirm={() => {
+              setConfirmIgnoreErrors(false);
+              ignoreErrors.mutate();
             }}
           />
           {saveMap.isError ? <ErrorState message={getErrorMessage(saveMap.error)} error={saveMap.error} /> : null}

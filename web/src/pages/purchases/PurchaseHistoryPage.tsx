@@ -179,8 +179,11 @@ export function PurchaseHistoryPage() {
                   F3-042: spacer heights derive from the virtualizer's real
                   measured totalSize, not `rows.length * rowHeight` — a row that
                   wraps to two lines no longer desyncs the spacers. */}
-              {virtualRows.length > 0 ? (
-                <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden>
+              {/* F2-034: matches SalesHistoryPage's guard — without the
+                  `start > 0` check this rendered a dead height-0 spacer row
+                  on every page load (before any scrolling). */}
+              {virtualRows.length > 0 && virtualRows[0].start > 0 ? (
+                <TableRow style={{ height: virtualRows[0].start, padding: 0, border: 0 }} aria-hidden role="presentation">
                   <TableCell style={{ padding: 0, border: 0 }} colSpan={6} />
                 </TableRow>
               ) : null}

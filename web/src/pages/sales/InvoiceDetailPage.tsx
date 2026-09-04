@@ -294,6 +294,12 @@ export function InvoiceDetailPage() {
       ? t('common.whatsapp')
       : t('common.whatsappLinkHint');
 
+  // F2-036: this calls the same updateSalesInvoice endpoint NewInvoicePage
+  // uses for an amend (which on a COMPLETED doc requires Owner +
+  // confirmAmend), but with none of that guard — it works today only
+  // because the backend treats vehicle/transporter fields as non-amending.
+  // Not user-visible, but if that backend allowlist ever changes this call
+  // needs its own confirmAmend wiring or a dedicated transport-update route.
   const transportMutation = useMutation({
     mutationFn: () =>
       updateSalesInvoice(invoiceId, {

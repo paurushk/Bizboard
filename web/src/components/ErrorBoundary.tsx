@@ -19,7 +19,41 @@ interface State {
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false };
 
-  static getDerivedStateFromError(error: unknown): State {
+  static getDerivedStateFromError(): State {
+    // F3-044: getDerivedStateFromError must be pure per React's own docs —
+    // the chunk-reload side effect previously lived here; it's now in
+    // componentDidCatch below, which is where side effects belong.
+    return { hasError: true };
+  }
+
+  componentDidMount() {
+    // F3-044 companion: a `bizboard:chunk-reload` guard left over from a
+    // prior auto-recovery (see componentDidCatch) should not block
+    // recovering from a *different* chunk error later in the same session —
+    // clear it once we know the app mounted successfully, which is also
+    // true right after that reload navigation completes.
+    if (typeof sessionStorage !== 'undefined') {
+      try {
+        sessionStorage.removeItem('bizboard:chunk-reload');
+      } catch {
+        /* sessionStorage unavailable */
+      }
+    }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Unhandled render error', error, info.componentStack);
+    // BB-000752: report to Sentry when available (dynamic import keeps bundle optional).
+    void import('@sentry/react')
+      .then((Sentry) => {
+        Sentry.captureException(error, {
+          extra: { componentStack: info.componentStack },
+        });
+      })
+      .catch(() => {
+        /* Sentry not installed / not configured */
+      });
+
     // FE-11: after a deploy, a client still holding the old index.html requests
     // hashed chunk filenames that no longer exist — `lazy()` rejects with a
     // ChunkLoadError / "Failed to fetch dynamically imported module". A hard
@@ -40,21 +74,6 @@ export class ErrorBoundary extends Component<Props, State> {
         /* sessionStorage unavailable — fall through to the error screen */
       }
     }
-    return { hasError: true };
-  }
-
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('Unhandled render error', error, info.componentStack);
-    // BB-000752: report to Sentry when available (dynamic import keeps bundle optional).
-    void import('@sentry/react')
-      .then((Sentry) => {
-        Sentry.captureException(error, {
-          extra: { componentStack: info.componentStack },
-        });
-      })
-      .catch(() => {
-        /* Sentry not installed / not configured */
-      });
   }
 
   render() {
