@@ -5,9 +5,19 @@ on:
     branches: ["main", "develop"]
   pull_request:
 
+# M1-006: least-privilege token for every job (jobs that need more grant it).
+permissions:
+  contents: read
+
+# M1-027: supersede in-flight runs for the same ref instead of running duplicates.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -70,6 +80,7 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: web
@@ -93,6 +104,7 @@ jobs:
   # BB-000748: lightweight mobile gate (no Android SDK / Gradle assemble).
   mobile:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: mobile
@@ -129,6 +141,7 @@ jobs:
   # BB-000310: continue-on-error removed — light e2e failures must surface.
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: web
@@ -148,6 +161,7 @@ jobs:
   # Required golden path against real Postgres + Django (Chromium).
   e2e-golden:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: web
@@ -202,6 +216,7 @@ jobs:
   # .dockerignore fixes) wouldn't be caught until an actual deploy attempt.
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Compose env for CI
@@ -218,6 +233,7 @@ jobs:
   # BB-000477: optional load harness presence check (not a soak).
   load-harness:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Assert k6 smoke script exists
@@ -226,6 +242,7 @@ jobs:
   # Wave 17A: optional Postgres RLS isolation job (flag on; default prod still off).
   postgres-rls:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend

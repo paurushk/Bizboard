@@ -42,3 +42,7 @@ web/playwright-report/
 ~$*.xls
 *.png.tmp
 .claude/worktrees/
+
+# M1-013: local DB dumps — never commit (multi-tenant PII / financials)
+backups/
+*.sql.gz
