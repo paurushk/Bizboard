@@ -1,6 +1,6 @@
 # R5-010: pin the Debian release (bookworm) for reproducible base images.
 # CI should further pin by digest (FROM python:3.12-slim-bookworm@sha256:...).
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 # BB-000521: uploaded media (PDF/images) are stored as-is — no antivirus/clamav scan
 # in this image. For production, run a separate AV pipeline or optional clamav profile.
