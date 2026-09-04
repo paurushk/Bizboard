@@ -1826,12 +1826,12 @@ class ImportService:
             if has_opening
         ]
         ImportService._post_opening_items(job, opening_items, user)
-        ImportService._post_extra_opening(job, created_products, user)
+        ImportService._post_extra_opening(job, created_products, updates, user)
         return len(preview)
 
 
     @staticmethod
-    def _post_extra_opening(job, created_products, user):
+    def _post_extra_opening(job, created_products, updates, user):
         extra = job.extra_sheets or {}
         lots = extra.get("opening_lots") or []
         serials = extra.get("opening_serials") or []
@@ -1841,7 +1841,14 @@ class ImportService:
         from inventory.services import InventoryService
         from masters.models import Product as ProductModel
 
-        by_sku = {(p.sku or "").casefold(): p for p in created_products if p.sku}
+        # B3-002: opening_lots / opening_serials rows for a SKU that already
+        # existed (so the row landed in `updates`, not `created_products`)
+        # previously had no matching entry here at all -- they passed
+        # `_validate_extra_sheets` (which checks against every preview SKU,
+        # created or updated) but were silently dropped at commit. Index
+        # both buckets so an existing product's opening lots/serials post.
+        all_products = list(created_products) + list(updates)
+        by_sku = {(p.sku or "").casefold(): p for p in all_products if p.sku}
         batched_skus = {
             str(r.get("sku") or r.get("item code") or "").strip().casefold()
             for r in lots
@@ -1849,17 +1856,17 @@ class ImportService:
         }
         if batched_skus:
             ProductModel.objects.filter(
-                company=job.company, sku__in=[p.sku for p in created_products if (p.sku or "").casefold() in batched_skus]
+                company=job.company, sku__in=[p.sku for p in all_products if (p.sku or "").casefold() in batched_skus]
             ).update(track_batch=True)
-            for product in created_products:
+            for product in all_products:
                 if (product.sku or "").casefold() in batched_skus:
                     product.track_batch = True
         serial_skus = {str(r.get("sku") or r.get("item code") or "").strip().casefold() for r in serials}
         if serial_skus:
             ProductModel.objects.filter(
-                company=job.company, sku__in=[p.sku for p in created_products if (p.sku or "").casefold() in serial_skus]
+                company=job.company, sku__in=[p.sku for p in all_products if (p.sku or "").casefold() in serial_skus]
             ).update(track_serial=True)
-            for product in created_products:
+            for product in all_products:
                 if (product.sku or "").casefold() in serial_skus:
                     product.track_serial = True
         for raw in lots:
@@ -2316,6 +2323,15 @@ class BillImportService:
             "column_headers": list(rows[0].keys()) if rows else [],
             "printed_line_count": len(preview_lines),
             "resolved_formula": formula_key,
+            # B3-003: apply_extraction (the LLM path) sets resolved_answers so
+            # _save_bill_template can round-trip a non-enum qty_formula (e.g.
+            # "cs+quantity") into column_mapping["qty_formula"]. This
+            # structured path computed `answers` above but never surfaced it,
+            # so formula_enum() silently downgraded anything but the two
+            # hard-coded formulas to SIMPLE and the learned template lost the
+            # inference -- corrupting quantities on every later bill from the
+            # same GSTIN via the LLM path's _template_answers() fallback.
+            "resolved_answers": answers,
             "lines": preview_lines,
         }
         if rate_warnings:

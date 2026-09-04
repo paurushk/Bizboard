@@ -41,6 +41,82 @@ def test_aa_mock_fail_closed_outside_allowlist(tenant_a):
     assert resp.status_code == 400
 
 
+@override_settings(ENABLE_ACCOUNT_AGGREGATOR=True)
+def test_aa_ingest_cannot_resurrect_a_revoked_consent(tenant_a):
+    """B4-009: `status` is client-supplied on this endpoint. A caller must
+    not be able to reactivate (and pull fresh financial data for) a consent
+    the customer already revoked just by re-POSTing status=ACTIVE for the
+    same consent_id."""
+    from banking.models import AaConsent, AaTransaction
+
+    consent = AaConsent.objects.create(
+        company=tenant_a.company, consent_id="consent-revoked-001",
+        status=AaConsent.Status.REVOKED,
+    )
+    resp = tenant_a.client.post(
+        "/api/v1/banking/aa/ingest/",
+        {
+            "consent_id": "consent-revoked-001", "fi_type": "DEPOSIT",
+            "status": "ACTIVE", "use_mock_fiu": True,
+        },
+        format="json",
+    )
+    assert resp.status_code == 400, resp.data
+    consent.refresh_from_db()
+    assert consent.status == AaConsent.Status.REVOKED
+    assert not AaTransaction.objects.filter(consent=consent).exists()
+
+
+@override_settings(ENABLE_ACCOUNT_AGGREGATOR=True)
+def test_aa_ingest_rejects_expired_consent(tenant_a):
+    from banking.models import AaConsent
+
+    AaConsent.objects.create(
+        company=tenant_a.company, consent_id="consent-expired-001",
+        status=AaConsent.Status.EXPIRED,
+    )
+    resp = tenant_a.client.post(
+        "/api/v1/banking/aa/ingest/",
+        {"consent_id": "consent-expired-001", "fi_type": "DEPOSIT", "use_mock_fiu": True},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.data
+
+
+@override_settings(ENABLE_ACCOUNT_AGGREGATOR=True, FIU_BASE_URL="https://fiu.example", FIU_API_KEY="k")
+def test_aa_ingest_fetch_failure_does_not_roll_back_consent_upsert(tenant_a):
+    """B4-009: the FIU HTTP fetch must run outside any DB transaction — the
+    consent upsert (and any status-gate decision made from it) is committed
+    in its own short transaction *before* the fetch runs, so a slow/failing
+    FIU no longer holds a write transaction open across the network call,
+    and a fetch failure can't roll back work that already legitimately
+    committed."""
+    from unittest.mock import patch
+
+    from banking.models import AaConsent
+    from core.exceptions import BusinessRuleError
+
+    with patch(
+        "banking.views.fetch_live_transactions_for_consent",
+        side_effect=BusinessRuleError("Live AA FIU fetch failed closed."),
+    ):
+        resp = tenant_a.client.post(
+            "/api/v1/banking/aa/ingest/",
+            {
+                "consent_id": "consent-live-fail-001", "fi_type": "DEPOSIT",
+                "status": "ACTIVE", "use_live_fiu": True,
+            },
+            format="json",
+        )
+    assert resp.status_code == 400, resp.data
+    # The consent row itself was upserted and committed before the fetch ran
+    # -- under the old whole-view @transaction.atomic it would have been
+    # rolled back along with everything else when the fetch raised.
+    assert AaConsent.objects.filter(
+        company=tenant_a.company, consent_id="consent-live-fail-001", status=AaConsent.Status.ACTIVE,
+    ).exists()
+
+
 def test_dashboard_receivables_match_ledger_service(tenant_a):
     product = make_product(tenant_a.company)
     add_stock(tenant_a, product, "20")

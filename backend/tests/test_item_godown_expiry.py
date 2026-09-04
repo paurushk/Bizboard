@@ -223,6 +223,47 @@ def test_opening_lots_sheet_posts_per_godown_opening(tenant_a):
     ).exists()
 
 
+def test_opening_lots_sheet_posts_for_already_existing_product(tenant_a):
+    """B3-002: an opening_lots row whose sku matches a product that already
+    existed before this import (so it lands in `updates`, not
+    `created_products`) must still post -- it previously passed validation
+    (which checks all preview skus, created or updated) and then was
+    silently dropped at commit because the posting step only indexed
+    `created_products`."""
+    existing = make_product(tenant_a.company, name="Milk", sku="MILK-EXIST")
+    default = InventoryService.default_warehouse(tenant_a.company)
+    wb = Workbook()
+    items = wb.active
+    items.title = "items"
+    items.append(["Item Name*", "Item code", "GST Tax Rate(%)"])
+    items.append(["Milk", "MILK-EXIST", "5"])
+    lots = wb.create_sheet("opening_lots")
+    lots.append(["sku", "godown", "quantity", "batch_no", "expiry_date", "unit_cost"])
+    exp = (date.today() + timedelta(days=20)).isoformat()
+    lots.append(["MILK-EXIST", default.name, "10", "LOT-EXIST", exp, "1"])
+    buf = BytesIO()
+    wb.save(buf)
+    upload = tenant_a.client.post(
+        "/api/v1/imports/",
+        {
+            "kind": "PRODUCTS",
+            "file": SimpleUploadedFile(
+                "lots_existing.xlsx",
+                buf.getvalue(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+        format="multipart",
+    )
+    assert upload.status_code == 201, upload.data
+    commit = tenant_a.client.post(f"/api/v1/imports/{upload.data['id']}/commit/")
+    assert commit.status_code == 200, commit.data
+    existing.refresh_from_db()
+    assert existing.track_batch is True
+    assert BatchLot.objects.filter(product=existing, batch_no="LOT-EXIST").exists()
+    assert StockBalance.objects.filter(product=existing).aggregate(total=Sum("on_hand"))["total"] == Decimal("10")
+
+
 def test_opening_serials_sheet_posts_serial_opening(tenant_a):
     wb = Workbook()
     items = wb.active

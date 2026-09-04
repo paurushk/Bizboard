@@ -29,7 +29,6 @@ class AaIngestView(APIView):
 
     permission_classes = [IsAuthenticated, HasCompany, IsOwner]
 
-    @transaction.atomic
     def post(self, request):
         company = get_company_user(request).company
         _assert_aa_enabled(company)
@@ -37,17 +36,49 @@ class AaIngestView(APIView):
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
 
-        consent, _ = AaConsent.objects.update_or_create(
-            company=company,
-            consent_id=data["consent_id"],
-            defaults={
-                "status": data["status"],
-                "fi_type": data["fi_type"],
-                "created_by": request.user,
-                "updated_by": request.user,
-            },
-        )
+        # B4-009: `status` is client-supplied on this endpoint (there is no
+        # separate revoke/verify call yet) -- so a caller could otherwise
+        # "resurrect" a consent the customer already revoked (or that has
+        # expired) just by re-POSTing status=ACTIVE for the same consent_id
+        # and pulling fresh financial data against it. Gate on the
+        # persisted status *before* honouring whatever status this request
+        # supplies; select_for_update so a concurrent ingest for the same
+        # consent_id can't race the check.
+        with transaction.atomic():
+            existing = (
+                AaConsent.objects.select_for_update()
+                .filter(company=company, consent_id=data["consent_id"])
+                .first()
+            )
+            if existing is not None and existing.status in (
+                AaConsent.Status.REVOKED,
+                AaConsent.Status.EXPIRED,
+            ):
+                raise BusinessRuleError(
+                    f"Consent {data['consent_id']} is {existing.status}; ingest refused."
+                )
+            consent, _ = AaConsent.objects.update_or_create(
+                company=company,
+                consent_id=data["consent_id"],
+                defaults={
+                    "status": data["status"],
+                    "fi_type": data["fi_type"],
+                    "created_by": request.user,
+                    "updated_by": request.user,
+                },
+            )
+        if consent.status not in (AaConsent.Status.PENDING, AaConsent.Status.ACTIVE):
+            raise BusinessRuleError(
+                f"Consent {consent.consent_id} is {consent.status}; ingest refused."
+            )
 
+        # B4-009: the FIU fetch below is an outbound HTTP call (timeout=12s)
+        # that must not run inside a DB transaction -- the old
+        # `@transaction.atomic` on the whole view held a write transaction
+        # (and, later, match_aa_to_receipts' select_for_update locks) open
+        # for the full fetch latency, under no throttle. It now runs with no
+        # transaction open; only the upsert above and the store+match below
+        # are wrapped.
         rows = data.get("transactions") or []
         env = (getattr(settings, "DJANGO_ENV", "") or "").strip().lower()
         # GAP-001: mock FIU is allowlisted (dev/test/local only). Empty rows must
@@ -83,35 +114,36 @@ class AaIngestView(APIView):
 
         created = []
         skipped = 0
-        for row in rows:
-            txn_id = str(row.get("txn_id") or row.get("id") or "")
-            if not txn_id:
-                continue
-            # B4-019: one malformed provider amount must not abort the whole
-            # atomic ingest (all rows rolled back -> 500).
-            try:
-                amount = Decimal(str(row.get("amount") or "0").replace(",", ""))
-                if not amount.is_finite():
-                    raise ValueError
-            except (InvalidOperation, ValueError, TypeError):
-                skipped += 1
-                continue
-            txn_date = parse_date(str(row.get("txn_date") or "")) or consent.created_at.date()
-            obj, _ = AaTransaction.objects.update_or_create(
-                company=company,
-                txn_id=txn_id,
-                defaults={
-                    "consent": consent,
-                    "amount": amount,
-                    "txn_date": txn_date,
-                    "raw": row.get("raw") or row,
-                    "created_by": request.user,
-                    "updated_by": request.user,
-                },
-            )
-            created.append(obj)
+        with transaction.atomic():
+            for row in rows:
+                txn_id = str(row.get("txn_id") or row.get("id") or "")
+                if not txn_id:
+                    continue
+                # B4-019: one malformed provider amount must not abort the whole
+                # atomic ingest (all rows rolled back -> 500).
+                try:
+                    amount = Decimal(str(row.get("amount") or "0").replace(",", ""))
+                    if not amount.is_finite():
+                        raise ValueError
+                except (InvalidOperation, ValueError, TypeError):
+                    skipped += 1
+                    continue
+                txn_date = parse_date(str(row.get("txn_date") or "")) or consent.created_at.date()
+                obj, _ = AaTransaction.objects.update_or_create(
+                    company=company,
+                    txn_id=txn_id,
+                    defaults={
+                        "consent": consent,
+                        "amount": amount,
+                        "txn_date": txn_date,
+                        "raw": row.get("raw") or row,
+                        "created_by": request.user,
+                        "updated_by": request.user,
+                    },
+                )
+                created.append(obj)
 
-        matched = match_aa_to_receipts(company=company)
+            matched = match_aa_to_receipts(company=company)
         return Response(
             {
                 "consent": AaConsentSerializer(consent).data,
