@@ -186,8 +186,8 @@ services:
       db:
         condition: service_healthy
 
-  # Backend test suite / linters in a throwaway container — Python 3.12 comes from
-  # the ./backend base image (python:3.12-slim-bookworm), matching CI. Never starts
+  # Backend test suite / linters in a throwaway container — Python 3.14 comes from
+  # the ./backend base image (python:3.14-slim-bookworm), matching CI. Never starts
   # on `docker compose up` (profile-gated). Dev-only tooling (pytest/ruff) is layered
   # in at run time from requirements-dev.txt and cached in the pip_cache volume.
   #   docker compose --profile test build test                        # REQUIRED after any backend/ code change (run does not rebuild)
