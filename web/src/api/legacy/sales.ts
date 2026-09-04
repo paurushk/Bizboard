@@ -2,10 +2,10 @@ import axios from 'axios';
 import { apiClient, idempotencyHeaders, shouldUseMocks, unwrapData } from '../client';
 import { mockInvoices, mockQuotations } from '@/mocks/data';
 import type { LineItem, Quotation, ReportResponse, SalesCreditNote, SalesDebitNote, SalesInvoice, SalesOrder, SalesReturn, DeliveryChallan, AdjustableInvoiceSummary, PdfStatus } from '@/types/domain';
-import { withMocks, fetchPage, fetchMoneyListFirstPage, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
+import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
 
 export async function listSalesInvoices(params?: Record<string, string>): Promise<SalesInvoice[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<SalesInvoice>('/sales/invoices/', params), mockInvoices);
+  return withMocks(async () => fetchAllPagesMasters<SalesInvoice>('/sales/invoices/', params), mockInvoices);
 }
 
 export async function listSalesInvoicesPage(
@@ -494,7 +494,7 @@ export async function shareInvoice(
 }
 
 export async function listQuotations(params?: Record<string, string>): Promise<Quotation[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<Quotation>('/sales/quotations/', params), mockQuotations);
+  return withMocks(async () => fetchAllPagesMasters<Quotation>('/sales/quotations/', params), mockQuotations);
 }
 
 export async function listQuotationsPage(params?: PageParams): Promise<PageResult<Quotation>> {
@@ -535,7 +535,7 @@ export async function convertQuotationToOrder(id: number, confirmExpired = false
 }
 
 export async function listSalesReturns(params?: Record<string, string>): Promise<SalesReturn[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<SalesReturn>('/sales/returns/', params), []);
+  return withMocks(async () => fetchAllPagesMasters<SalesReturn>('/sales/returns/', params), []);
 }
 
 export async function listSalesReturnsPage(params?: PageParams): Promise<PageResult<SalesReturn>> {
@@ -692,7 +692,7 @@ function emptyNoteTotals() {
 }
 
 export async function listSalesCreditNotes(params?: Record<string, string>): Promise<SalesCreditNote[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<SalesCreditNote>('/sales/credit-notes/', params), []);
+  return withMocks(async () => fetchAllPagesMasters<SalesCreditNote>('/sales/credit-notes/', params), []);
 }
 
 export async function listSalesCreditNotesPage(params?: PageParams): Promise<PageResult<SalesCreditNote>> {
@@ -791,7 +791,7 @@ export async function getSalesCreditNoteAdjustableSummary(
 }
 
 export async function listSalesDebitNotes(params?: Record<string, string>): Promise<SalesDebitNote[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<SalesDebitNote>('/sales/debit-notes/', params), []);
+  return withMocks(async () => fetchAllPagesMasters<SalesDebitNote>('/sales/debit-notes/', params), []);
 }
 
 export async function listSalesDebitNotesPage(params?: PageParams): Promise<PageResult<SalesDebitNote>> {
@@ -868,7 +868,7 @@ export async function cancelSalesDebitNote(id: number): Promise<SalesDebitNote> 
 }
 
 export async function listSalesOrders(params?: Record<string, string>): Promise<SalesOrder[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<SalesOrder>('/sales/orders/', params), []);
+  return withMocks(async () => fetchAllPagesMasters<SalesOrder>('/sales/orders/', params), []);
 }
 
 export async function listSalesOrdersPage(params?: PageParams): Promise<PageResult<SalesOrder>> {
@@ -950,7 +950,7 @@ export async function cancelSalesOrder(id: number): Promise<SalesOrder> {
 }
 
 export async function listDeliveryChallans(params?: Record<string, string>): Promise<DeliveryChallan[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<DeliveryChallan>('/sales/delivery-challans/', params), []);
+  return withMocks(async () => fetchAllPagesMasters<DeliveryChallan>('/sales/delivery-challans/', params), []);
 }
 
 export async function listDeliveryChallansPage(params?: PageParams): Promise<PageResult<DeliveryChallan>> {

@@ -1,7 +1,7 @@
 import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockPurchases } from '@/mocks/data';
 import type { LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchaseReturn, ReportResponse } from '@/types/domain';
-import { withMocks, fetchPage, fetchMoneyListFirstPage, fetchAllPagesMasters, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
+import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
 import { mapPreviewTotals, type PreviewTotals } from './sales';
 
 function emptyNoteTotals() {
@@ -18,7 +18,7 @@ function emptyNoteTotals() {
 }
 
 export async function listPurchases(params?: Record<string, string>): Promise<PurchaseInvoice[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<PurchaseInvoice>('/purchases/invoices/', params), mockPurchases);
+  return withMocks(async () => fetchAllPagesMasters<PurchaseInvoice>('/purchases/invoices/', params), mockPurchases);
 }
 
 export async function listPurchasesPage(
@@ -176,7 +176,7 @@ export async function updatePurchaseNumberSeries(payload: {
 }
 
 export async function listPurchaseReturns(params?: Record<string, string>): Promise<PurchaseReturn[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<PurchaseReturn>('/purchases/returns/', params), []);
+  return withMocks(async () => fetchAllPagesMasters<PurchaseReturn>('/purchases/returns/', params), []);
 }
 
 export async function listPurchaseReturnsPage(params?: PageParams): Promise<PageResult<PurchaseReturn>> {
@@ -257,7 +257,7 @@ export async function getPurchaseRegister(params?: {
 // ── Phase 1 purchase documents ───────────────────────────────────────────
 
 export async function listPurchaseCreditNotes(params?: Record<string, string>): Promise<PurchaseCreditNote[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<PurchaseCreditNote>('/purchases/credit-notes/', params), []);
+  return withMocks(async () => fetchAllPagesMasters<PurchaseCreditNote>('/purchases/credit-notes/', params), []);
 }
 
 export async function listPurchaseCreditNotesPage(
@@ -335,7 +335,7 @@ export async function cancelPurchaseCreditNote(id: number): Promise<PurchaseCred
 }
 
 export async function listPurchaseDebitNotes(params?: Record<string, string>): Promise<PurchaseDebitNote[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<PurchaseDebitNote>('/purchases/debit-notes/', params), []);
+  return withMocks(async () => fetchAllPagesMasters<PurchaseDebitNote>('/purchases/debit-notes/', params), []);
 }
 
 export async function listPurchaseDebitNotesPage(
@@ -413,7 +413,7 @@ export async function cancelPurchaseDebitNote(id: number): Promise<PurchaseDebit
 }
 
 export async function listPurchaseOrders(params?: Record<string, string>): Promise<PurchaseOrder[]> {
-  return withMocks(async () => fetchMoneyListFirstPage<PurchaseOrder>('/purchases/orders/', params), []);
+  return withMocks(async () => fetchAllPagesMasters<PurchaseOrder>('/purchases/orders/', params), []);
 }
 
 export async function listPurchaseOrdersPage(params?: PageParams): Promise<PageResult<PurchaseOrder>> {

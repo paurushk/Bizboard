@@ -273,7 +273,7 @@ export function Gstr2bPage() {
       {rows.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <VirtualizedTable rowCount={rows.length} rowHeight={64}>
-            {(virtualRows) => (
+            {({ rows: virtualRows, totalSize, measureElement }) => (
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -299,7 +299,12 @@ export function Gstr2bPage() {
                     const tax =
                       Number(row.igst || 0) + Number(row.cgst || 0) + Number(row.sgst || 0) + Number(row.cess || 0);
                     return (
-                      <TableRow key={row.id} style={{ height: vRow.size }}>
+                      <TableRow
+                        key={row.id}
+                        data-index={vRow.index}
+                        ref={measureElement}
+                        style={{ height: vRow.size }}
+                      >
                         <TableCell>{row.supplierGstin}</TableCell>
                         <TableCell>
                           {row.invoiceNumber}
@@ -358,7 +363,7 @@ export function Gstr2bPage() {
                   {virtualRows.length > 0 ? (
                     <TableRow
                       style={{
-                        height: Math.max(0, rows.length * 64 - virtualRows[virtualRows.length - 1].end),
+                        height: Math.max(0, totalSize - virtualRows[virtualRows.length - 1].end),
                         padding: 0,
                         border: 0,
                       }}

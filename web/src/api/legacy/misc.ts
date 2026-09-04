@@ -1,7 +1,7 @@
 import { apiClient, idempotencyHeaders, newIdempotencyKey, unwrapData } from '../client';
 import { mockSearchResults } from '@/mocks/data';
 import type { ImportJob, ImportKind, PurchaseBillCommitResult, SearchResult, AssistantMessage, AssistantThread, AttentionRow, BusinessAlert, CashflowForecast, DailyBusinessSummary, GrowthHint } from '@/types/domain';
-import { withMocks, fetchPage, fetchMoneyListFirstPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
+import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
 
 /** Master import validate/commit can run long for multi-thousand-row CSVs. */
 const IMPORT_TIMEOUT_MS = 120_000;
@@ -345,7 +345,7 @@ export const listAccounts = () => fetchAllPagesMasters<import('@/types/domain').
 export const createAccount = (payload: Record<string, unknown>) => apiClient.post('/accounting/accounts/', payload).then(({ data }) => unwrapData(data));
 
 export async function listJournals(params?: Record<string, string>): Promise<import('@/types/domain').JournalEntry[]> {
-  return fetchMoneyListFirstPage<import('@/types/domain').JournalEntry>('/accounting/journals/', params);
+  return fetchAllPagesMasters<import('@/types/domain').JournalEntry>('/accounting/journals/', params);
 }
 
 export async function listJournalsPage(params?: PageParams): Promise<PageResult<import('@/types/domain').JournalEntry>> {

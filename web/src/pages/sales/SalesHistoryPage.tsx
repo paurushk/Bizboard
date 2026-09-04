@@ -206,7 +206,7 @@ export function SalesHistoryPage() {
       {rows.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <VirtualizedTable rowCount={rows.length} rowHeight={52}>
-            {(virtualRows) => (
+            {({ rows: virtualRows, totalSize, measureElement }) => (
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -225,7 +225,9 @@ export function SalesHistoryPage() {
                   full scrollable height, but only the current window of rows is rendered
                   in normal flow — without these leading/trailing spacer rows they'd always
                   render right after the header, so scrolling past the first screenful showed
-                  blank space instead of the (correctly computed) later rows. */}
+                  blank space instead of the (correctly computed) later rows.
+                  F3-042: spacer heights derive from the virtualizer's real
+                  measured totalSize, not `rows.length * rowHeight`. */}
               {virtualRows.length > 0 && virtualRows[0].start > 0 ? (
                 <TableRow
                   style={{ height: virtualRows[0].start, padding: 0, border: 0 }}
@@ -239,7 +241,13 @@ export function SalesHistoryPage() {
                 const inv = rows[vRow.index];
                 if (!inv) return null;
                 return (
-                <TableRow key={inv.id} hover style={{ height: vRow.size }}>
+                <TableRow
+                  key={inv.id}
+                  hover
+                  data-index={vRow.index}
+                  ref={measureElement}
+                  style={{ height: vRow.size }}
+                >
                   <TableCell>{inv.invoiceDate}</TableCell>
                   <TableCell>
                     <Typography
@@ -276,10 +284,10 @@ export function SalesHistoryPage() {
                 );
               })}
               {virtualRows.length > 0 &&
-              Math.max(0, rows.length * 52 - virtualRows[virtualRows.length - 1].end) > 0 ? (
+              Math.max(0, totalSize - virtualRows[virtualRows.length - 1].end) > 0 ? (
                 <TableRow
                   style={{
-                    height: Math.max(0, rows.length * 52 - virtualRows[virtualRows.length - 1].end),
+                    height: Math.max(0, totalSize - virtualRows[virtualRows.length - 1].end),
                     padding: 0,
                     border: 0,
                   }}

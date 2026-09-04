@@ -146,9 +146,13 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
       || customers.data?.find((c) => c.id === invoice.customer)?.state
     : undefined;
 
+  // F2-024: was missing assumeLocalStateForBlankParty — NewInvoicePage passes
+  // it, so a note on the same company/customer could show withheld GST here
+  // while the source invoice actually charged it.
   const intraState = isIntraState(
     company.data?.gstin || company.data?.state,
     partyState,
+    { assumeLocalStateForBlankParty: !!company.data?.assumeLocalStateForBlankParty },
   );
 
   const lineTaxes = useMemo(

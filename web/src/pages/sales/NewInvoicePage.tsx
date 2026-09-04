@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -675,7 +675,7 @@ export function NewInvoicePage() {
     barcodeRef.current?.focus();
   };
 
-  const buildPayload = () => ({
+  const buildPayload = useCallback(() => ({
     customer: Number(customerId),
     warehouse: warehouseId ? Number(warehouseId) : undefined,
     companyGstin: companyGstinId ? Number(companyGstinId) : undefined,
@@ -732,13 +732,22 @@ export function NewInvoicePage() {
         ? { serialNumbers: parseSerialNumbersText(l.serialNumbersText) }
         : {}),
     })),
-  });
+  }), [
+    additionalCharges, autoRoundOff, chargesGstRate, chargesHsn, companyGstinId, costCenterId,
+    customerId, dueDate, ecommerceOperatorGstin, invoiceDate, invoiceDiscount, invoiceDiscountMode,
+    invoiceType, isReverseCharge, lines, notes, paymentTermsDays, priceMode, showBank, showQr,
+    showTerms, signatureId, supplyType, tcsAmount, tcsRate, tcsSection, termsText, warehouseId,
+  ]);
 
   const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
+  // F2-030: buildPayload() maps every line and builds nested item objects —
+  // memoize it so the preview payload is only rebuilt when an input that
+  // actually feeds it changes, not on every render of a large invoice.
+  const previewPayload = useMemo(() => buildPayload(), [buildPayload]);
   const preview = usePreviewTotals(
     'sales',
     previewOnline && customerId && lines.some((l) => l.product)
-      ? (buildPayload() as Record<string, unknown>)
+      ? (previewPayload as Record<string, unknown>)
       : null,
   );
 
