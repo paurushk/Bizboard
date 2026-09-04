@@ -45,36 +45,46 @@ const emptyInviteForm = {
 
 type InviteForm = typeof emptyInviteForm;
 
-function capsForRole(role: string): Partial<InviteForm> {
+// F3-021: every branch returns the FULL capability set (explicit false where
+// off) so `{ ...form, ...capsForRole(role) }` is a complete override — a switch
+// from ACCOUNTANT to SALES_STAFF must not silently retain export / financial
+// report access from the prior selection.
+type RoleCaps = Pick<
+  InviteForm,
+  | 'canCreateSales'
+  | 'canCreatePurchases'
+  | 'canCreatePayments'
+  | 'canViewFinancialReports'
+  | 'canExport'
+  | 'canManageInventory'
+  | 'canImport'
+  | 'canCancelDocuments'
+>;
+
+function capsForRole(role: string): RoleCaps {
+  const off: RoleCaps = {
+    canCreateSales: false,
+    canCreatePurchases: false,
+    canCreatePayments: false,
+    canViewFinancialReports: false,
+    canExport: false,
+    canManageInventory: false,
+    canImport: false,
+    canCancelDocuments: false,
+  };
   if (role === 'ACCOUNTANT') {
     return {
-      canCreateSales: false,
+      ...off,
       canCreatePurchases: true,
       canCreatePayments: true,
       canViewFinancialReports: true,
       canExport: true,
-      canManageInventory: false,
-      canImport: false,
-      canCancelDocuments: false,
     };
   }
   if (role === 'VIEWER') {
-    return {
-      canCreateSales: false,
-      canCreatePurchases: false,
-      canCreatePayments: false,
-      canViewFinancialReports: false,
-      canExport: false,
-      canManageInventory: false,
-      canImport: false,
-      canCancelDocuments: false,
-    };
+    return off;
   }
-  return {
-    canCreateSales: true,
-    canCreatePurchases: false,
-    canCreatePayments: true,
-  };
+  return { ...off, canCreateSales: true, canCreatePayments: true };
 }
 
 function hasAnyWorkCap(form: InviteForm): boolean {

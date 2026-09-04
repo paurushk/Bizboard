@@ -76,17 +76,27 @@ export function useCompanySwitcher(onSwitched?: (user: User) => void) {
       // BB-000745: do not persist X-Company-Id until switch API succeeds.
       const previousId = readActiveCompanyId();
       try {
-        const { data } = await apiClient.post('/auth/switch-company/', { company_id: companyId });
-        const body = unwrapData<{ user: User; access?: string | null }>(data);
+        // F1-002: only the switch POST itself may roll back the local
+        // X-Company-Id. Once it returns 2xx the server session is on the new
+        // company — a failure in refresh()/onSwitched() afterwards must NOT
+        // restore the old id (that wedges every subsequent call at 409 until a
+        // full reload).
+        let body: { user: User; access?: string | null };
+        try {
+          const { data } = await apiClient.post('/auth/switch-company/', {
+            company_id: companyId,
+          });
+          body = unwrapData<{ user: User; access?: string | null }>(data);
+        } catch (err) {
+          restoreActiveCompanyId(previousId);
+          throw err;
+        }
         if (body.access) setAccessToken(body.access);
         persistActiveCompanyId(companyId);
         qc.clear();
         await refresh();
         onSwitched?.(body.user);
         return body.user;
-      } catch (err) {
-        restoreActiveCompanyId(previousId);
-        throw err;
       } finally {
         setLoading(false);
       }

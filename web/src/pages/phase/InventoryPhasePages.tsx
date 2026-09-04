@@ -584,6 +584,7 @@ export function PriceListsPage() {
   });
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [slabError, setSlabError] = useState('');
   const [edit, setEdit] = useState<{
     id: number;
     name: string;
@@ -596,26 +597,55 @@ export function PriceListsPage() {
       setName('');
       void qc.invalidateQueries({ queryKey: ['price-lists'] });
     },
+    onError: (e) => setSlabError(getErrorMessage(e)),
   });
+  // F3-028: validate slab rows and block the save with a message instead of
+  // silently dropping the bad ones; also flag overlapping qty ranges.
+  const validateSlabs = (rows: { product: string; minQty: string; maxQty: string; unitPrice: string }[]): string => {
+    const problems: string[] = [];
+    const byProduct = new Map<string, { lo: number; hi: number }[]>();
+    rows.forEach((row, i) => {
+      const n = i + 1;
+      if (!Number(row.product)) problems.push(`Row ${n}: pick a product`);
+      const price = Number(row.unitPrice);
+      if (row.unitPrice.trim() === '' || Number.isNaN(price) || price < 0)
+        problems.push(`Row ${n}: unit price must be a number ≥ 0`);
+      const lo = Number(row.minQty || 1);
+      const hi = row.maxQty.trim() === '' ? Number.POSITIVE_INFINITY : Number(row.maxQty);
+      if (Number.isNaN(lo) || lo < 1) problems.push(`Row ${n}: min qty must be ≥ 1`);
+      if (!Number.isNaN(hi) && hi < lo) problems.push(`Row ${n}: max qty is below min qty`);
+      if (Number(row.product) && !Number.isNaN(lo) && !Number.isNaN(hi)) {
+        const list = byProduct.get(row.product) ?? [];
+        if (list.some((r) => lo <= r.hi && hi >= r.lo)) {
+          problems.push(`Row ${n}: qty range overlaps another slab for this product`);
+        }
+        list.push({ lo, hi });
+        byProduct.set(row.product, list);
+      }
+    });
+    return problems.join('; ');
+  };
   const save = useMutation({
     mutationFn: () => {
       if (!edit) return Promise.reject(new Error('No list'));
+      const msg = validateSlabs(edit.items);
+      if (msg) return Promise.reject(new Error(msg));
       return api.updatePriceList(edit.id, {
         name: edit.name,
-        items: edit.items
-          .filter((row) => Number(row.product) && Number(row.unitPrice) >= 0)
-          .map((row) => ({
-            product: Number(row.product),
-            minQty: Number(row.minQty || 1),
-            maxQty: row.maxQty.trim() === '' ? null : Number(row.maxQty),
-            unitPrice: Number(row.unitPrice),
-          })),
+        items: edit.items.map((row) => ({
+          product: Number(row.product),
+          minQty: Number(row.minQty || 1),
+          maxQty: row.maxQty.trim() === '' ? null : Number(row.maxQty),
+          unitPrice: Number(row.unitPrice),
+        })),
       });
     },
     onSuccess: () => {
       setEdit(null);
+      setSlabError('');
       void qc.invalidateQueries({ queryKey: ['price-lists'] });
     },
+    onError: (e) => setSlabError(getErrorMessage(e)),
   });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
@@ -699,6 +729,11 @@ export function PriceListsPage() {
                     )
                   }
                   sx={{ minWidth: 220 }}
+                  helperText={
+                    (products.data?.count ?? 0) > productRows.length
+                      ? `first ${productRows.length} of ${products.data?.count} shown`
+                      : undefined
+                  }
                 >
                   {productRows.map((p) => (
                     <MenuItem key={p.id} value={String(p.id)}>
@@ -743,8 +778,24 @@ export function PriceListsPage() {
                     )
                   }
                 />
+                <Button
+                  color="error"
+                  size="small"
+                  onClick={() =>
+                    setEdit((cur) =>
+                      cur ? { ...cur, items: cur.items.filter((_, i) => i !== idx) } : cur,
+                    )
+                  }
+                >
+                  Remove
+                </Button>
               </Stack>
             ))}
+            {slabError ? (
+              <Alert severity="error" onClose={() => setSlabError('')}>
+                {slabError}
+              </Alert>
+            ) : null}
             <Button
               onClick={() =>
                 setEdit((cur) =>

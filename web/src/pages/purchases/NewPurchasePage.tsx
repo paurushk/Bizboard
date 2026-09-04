@@ -1082,22 +1082,54 @@ export function NewPurchasePage() {
   const canSave = lines.length > 0 && Boolean(supplierId) && !saveMutation.isPending;
   const missingPurchaseBatch = lines.some((l) => l.trackBatch && !l.batchNo.trim());
   const canComplete = canSave && posKnown && !missingPurchaseBatch && (!previewOnline || preview.ready);
-  const shownTotals = preview.totals
-    ? {
-        ...totals,
-        subtotal: preview.totals.subtotal,
-        taxableTotal: preview.totals.taxableTotal,
-        cgstTotal: preview.totals.cgstTotal,
-        sgstTotal: preview.totals.sgstTotal,
-        igstTotal: preview.totals.igstTotal,
-        cessTotal: preview.totals.cessTotal,
-        taxTotal: preview.totals.taxTotal,
-        roundOff: preview.totals.roundOff,
-        grandTotal: preview.totals.grandTotal,
-      }
-    : preview.error
-      ? totals
-      : totals;
+  const shownTotals = useMemo(
+    () =>
+      preview.totals
+        ? {
+            ...totals,
+            subtotal: preview.totals.subtotal,
+            taxableTotal: preview.totals.taxableTotal,
+            cgstTotal: preview.totals.cgstTotal,
+            sgstTotal: preview.totals.sgstTotal,
+            igstTotal: preview.totals.igstTotal,
+            cessTotal: preview.totals.cessTotal,
+            taxTotal: preview.totals.taxTotal,
+            roundOff: preview.totals.roundOff,
+            grandTotal: preview.totals.grandTotal,
+          }
+        : totals,
+    [preview.totals, totals],
+  );
+
+  // F2-019: drive the RCM tax-liability alert and the payable figure from the
+  // authoritative source (server preview when available), not the client float
+  // path. Tax columns stay in `shownTotals`; payable-to-supplier is taxable +
+  // charges - (after-tax) discount, all from `shownTotals`.
+  const rcmDisplay = useMemo(() => {
+    if (!rcmPreview) return null;
+    const charges = roundMoney(additionalCharges);
+    const discount = roundMoney(invoiceDiscount);
+    const rawPayable =
+      invoiceDiscountMode === 'BEFORE_TAX'
+        ? roundMoney(shownTotals.taxableTotal + charges)
+        : roundMoney(shownTotals.taxableTotal + charges - discount);
+    const clamped = Math.max(0, rawPayable);
+    return {
+      rcmTaxable: shownTotals.taxableTotal,
+      rcmTaxTotal: shownTotals.taxTotal,
+      rcmCgst: shownTotals.cgstTotal,
+      rcmSgst: shownTotals.sgstTotal,
+      rcmIgst: shownTotals.igstTotal,
+      payable: autoRoundOff ? Math.round(clamped) : roundMoney(clamped),
+    };
+  }, [
+    rcmPreview,
+    shownTotals,
+    additionalCharges,
+    invoiceDiscount,
+    invoiceDiscountMode,
+    autoRoundOff,
+  ]);
   const primarySave = primarySaveAction({ isEdit, editingStatus });
   const isCompletedEdit = editingStatus === 'COMPLETED';
   const canAmendMoney = isCompletedEdit && isOwner;
@@ -1652,7 +1684,7 @@ export function NewPurchasePage() {
           <Typography fontWeight={700}>
             {t('billing.totalAmount')}{' '}
             {formatMoney(
-              preview.totals?.grandTotal ?? (rcmPreview ? rcmPreview.payable : totals.grandTotal),
+              preview.totals?.grandTotal ?? (rcmDisplay ? rcmDisplay.payable : totals.grandTotal),
             )}
           </Typography>
         </Box>
@@ -1778,7 +1810,7 @@ export function NewPurchasePage() {
         <DocumentTaxSummary
           totals={shownTotals}
           displayGrandTotal={preview.totals?.grandTotal ?? displayGrandTotal}
-          totalLabel={rcmPreview ? 'Payable (RCM, excl. tax)' : t('billing.totalAmount')}
+          totalLabel={rcmDisplay ? 'Payable (RCM, excl. tax)' : t('billing.totalAmount')}
           additionalCharges={additionalCharges}
           onAdditionalChargesChange={setAdditionalCharges}
           invoiceDiscount={invoiceDiscount}
@@ -1792,12 +1824,12 @@ export function NewPurchasePage() {
           isCompletedEdit={isCompletedEdit}
           canAmendMoney={canAmendMoney}
           extraAlerts={
-            rcmPreview ? (
+            rcmDisplay ? (
               <Alert severity="info">
-                Reverse charge: tax liability {formatMoney(rcmPreview.rcmTaxTotal)} (CGST{' '}
-                {formatMoney(rcmPreview.rcmCgst)}, SGST {formatMoney(rcmPreview.rcmSgst)}, IGST{' '}
-                {formatMoney(rcmPreview.rcmIgst)}). Payable to supplier (excl. tax):{' '}
-                {formatMoney(rcmPreview.payable)}.
+                Reverse charge: tax liability {formatMoney(rcmDisplay.rcmTaxTotal)} (CGST{' '}
+                {formatMoney(rcmDisplay.rcmCgst)}, SGST {formatMoney(rcmDisplay.rcmSgst)}, IGST{' '}
+                {formatMoney(rcmDisplay.rcmIgst)}). Payable to supplier (excl. tax):{' '}
+                {formatMoney(rcmDisplay.payable)}.
               </Alert>
             ) : null
           }

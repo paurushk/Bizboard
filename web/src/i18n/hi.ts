@@ -814,6 +814,8 @@ export const hi = {
     confirmBlankPosTitle: 'सप्लाई स्थान की पुष्टि',
     confirmBlankPosBody:
       'इस ग्राहक का राज्य या GSTIN नहीं है। पूरा करने पर बिक्री राज्य के अंदर मानी जाएगी। जारी रखें?',
+    confirmBlankPosTaxNote:
+      'दिखाया गया कुल पहले से ही स्थानीय CGST + SGST सहित है — यही बुक होगा।',
     confirmBlankPosAction: 'राज्य के अंदर मानकर पूरा करें',
     confirmWalkInTitle: 'नगद ग्राहक की पुष्टि करें',
     confirmWalkInBody: 'यह बिक्री सामान्य नगद ग्राहक पर बिल होगी। जारी रखें?',

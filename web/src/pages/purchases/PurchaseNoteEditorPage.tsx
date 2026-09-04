@@ -145,6 +145,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
           mfgDate: '',
           mrp: 0,
           quantity: qty,
+          maxQty: qty,
           unitPrice,
           gstRate: toNumber(item.gstRate),
           cessRate: toNumber(item.cessRate),
@@ -186,6 +187,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
           mfgDate: '',
           mrp: 0,
           quantity: qty,
+          maxQty: qty,
           unitPrice,
           gstRate: toNumber(item.gstRate),
           cessRate: toNumber(item.cessRate),
@@ -214,7 +216,14 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     [lineTaxes, intraState],
   );
 
-  const canSave = Boolean(supplierId) && lines.length > 0 && canWrite;
+  // F2-012: at least one line must carry a positive quantity, and it must be
+  // within the source purchase quantity.
+  const effectiveLines = lines.filter((l) => Number(l.quantity) > 0);
+  const anyOverCap = lines.some(
+    (l) => l.maxQty != null && Number(l.quantity) > l.maxQty + 1e-9,
+  );
+  const canSave =
+    Boolean(supplierId) && effectiveLines.length > 0 && !anyOverCap && canWrite;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
 
   const addLine = () => {
@@ -233,15 +242,18 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     reason,
     reasonDetail: reason === 'OTHERS' ? reasonDetail : '',
     notes,
-    items: lines.map((l) => ({
-      ...(l.lineId != null ? { id: l.lineId } : {}),
-      product: l.product,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-      gstRate: l.gstRate,
-      cessRate: l.cessRate ?? 0,
-      sourceItem: l.sourceItemId ?? null,
-    })),
+    // F2-012: never send zero-qty lines.
+    items: lines
+      .filter((l) => Number(l.quantity) > 0)
+      .map((l) => ({
+        ...(l.lineId != null ? { id: l.lineId } : {}),
+        product: l.product,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        gstRate: l.gstRate,
+        cessRate: l.cessRate ?? 0,
+        sourceItem: l.sourceItemId ?? null,
+      })),
   });
 
   const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
@@ -371,11 +383,24 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
                       <NumericField
                         size="small"
                         value={l.quantity}
+                        min={0}
                         onValueChange={(v: number) =>
                           setLines((prev) =>
-                            prev.map((x) => (x.key === l.key ? { ...x, quantity: v } : x)),
+                            prev.map((x) =>
+                              x.key === l.key
+                                ? {
+                                    ...x,
+                                    // F2-012: clamp to (0, source quantity].
+                                    quantity: Math.min(
+                                      Math.max(0, v),
+                                      x.maxQty ?? Number.POSITIVE_INFINITY,
+                                    ),
+                                  }
+                                : x,
+                            ),
                           )
                         }
+                        helperText={l.maxQty != null ? `max ${l.maxQty}` : undefined}
                         sx={{ width: 100 }}
                       />
                     ) : (

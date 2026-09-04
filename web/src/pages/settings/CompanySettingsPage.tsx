@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -49,11 +49,19 @@ type CompanyForm = Pick<
 export function CompanySettingsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  const query = useQuery({
+    queryKey: ['company'],
+    queryFn: getCompany,
+    // F3-014: don't silently refetch-and-reset the form (wiping unsaved edits)
+    // when the user tabs away and back.
+    refetchOnWindowFocus: false,
+  });
   const { control, handleSubmit, reset } = useForm<CompanyForm>();
+  const seededRef = useRef(false);
 
   useEffect(() => {
-    if (query.data) {
+    if (query.data && !seededRef.current) {
+      seededRef.current = true;
       reset({
         name: query.data.name,
         legalName: query.data.legalName ?? '',

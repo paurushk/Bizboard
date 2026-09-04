@@ -5,6 +5,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import { getBillingPortal, startBillingCheckout } from '@/api/billing';
+import { isAllowedShareUrl } from '@/utils/safeUrl';
 import { useAuth } from '@/auth/AuthContext';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
@@ -23,8 +24,14 @@ export function BillingPage() {
   const query = useQuery({ queryKey: ['billing-portal', user?.companyId], queryFn: getBillingPortal });
   const checkout = useMutation({
     mutationFn: (planId: number) => startBillingCheckout(planId),
-    onSuccess: () => {
+    onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ['billing-portal'] });
+      // F3-033: if the gateway returned a hosted-checkout page, send the user
+      // there instead of only refetching a query in the background.
+      const url = (res as { checkoutUrl?: string | null }).checkoutUrl;
+      if (url && isAllowedShareUrl(url)) {
+        window.location.assign(url);
+      }
     },
   });
 

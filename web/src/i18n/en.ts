@@ -957,6 +957,8 @@ export const en = {
     confirmBlankPosTitle: 'Confirm place of supply',
     confirmBlankPosBody:
       'This customer has no state or GSTIN. Completing will treat the sale as intra-state. Continue?',
+    confirmBlankPosTaxNote:
+      'The total shown already includes local CGST + SGST — that is what will be booked.',
     confirmBlankPosAction: 'Complete as intra-state',
     confirmWalkInTitle: 'Confirm walk-in customer',
     confirmWalkInBody:

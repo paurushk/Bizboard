@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -85,9 +85,16 @@ export function StockAdjustmentPage() {
     : null;
   const currentRecordedQty = currentStockEntry ? toNumber(currentStockEntry.onHand) : 0;
 
+  const warehouseSeeded = useRef(false);
   useEffect(() => {
+    // F3-014: seed the default godown ONCE — re-forcing it whenever
+    // warehouses.data re-resolves discards a manually chosen warehouse.
+    if (warehouseSeeded.current) return;
     const defaultWarehouse = warehouses.data?.find((warehouse) => warehouse.isDefault);
-    if (defaultWarehouse) setValue('warehouse', defaultWarehouse.id);
+    if (defaultWarehouse) {
+      setValue('warehouse', defaultWarehouse.id);
+      warehouseSeeded.current = true;
+    }
   }, [warehouses.data, setValue]);
 
   const mutation = useMutation({

@@ -119,7 +119,12 @@ export function AccountingBankReconPage() {
   });
   const journals = useQuery({
     queryKey: ['journals'],
-    queryFn: async () => (await api.listJournalsPage({ pageSize: 100 })).results,
+    queryFn: async () => {
+      const page = await api.listJournalsPage({ pageSize: 100 });
+      // F3-019: keep the total so the picker can say it's capped — a bank line
+      // older than the 100 most recent vouchers otherwise silently can't match.
+      return { results: page.results, count: page.count ?? page.results.length };
+    },
   });
   const [account, setAccount] = useState('');
   const [statement, setStatement] = useState('');
@@ -142,7 +147,7 @@ export function AccountingBankReconPage() {
   }, [accounts.data]);
   const unmatchedGl = useMemo(() => {
     if (!account) return [];
-    return (journals.data ?? []).flatMap((entry) => {
+    return (journals.data?.results ?? []).flatMap((entry) => {
       if (entry.status !== 'POSTED') return [];
       return (entry.lines ?? []).filter((line) => {
         const lineAccount = String(line.account);
@@ -153,6 +158,8 @@ export function AccountingBankReconPage() {
       }));
     });
   }, [journals.data, account]);
+  const journalsCapped =
+    (journals.data?.count ?? 0) > (journals.data?.results?.length ?? 0);
   const unmatchedBank = useMemo(() => {
     const lines = (statementDetail.data?.lines as Row[] | undefined) ?? [];
     return lines.filter((line) => String(line.matchStatus ?? line.match_status ?? 'UNMATCHED') !== 'MATCHED');
@@ -254,6 +261,11 @@ export function AccountingBankReconPage() {
             onChange={(e) => setJournalLine(e.target.value)}
             sx={{ minWidth: 240, flex: 1 }}
             disabled={!account}
+            helperText={
+              journalsCapped
+                ? `only the ${journals.data?.results?.length} most recent vouchers are searchable here`
+                : undefined
+            }
           >
             <MenuItem value="">{account ? 'Select journal line' : 'Pick a GL account first'}</MenuItem>
             {unmatchedGl.map((line) => (

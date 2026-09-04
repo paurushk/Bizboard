@@ -43,6 +43,8 @@ export async function getBillingSubscription(): Promise<BillingSubscription | nu
 export async function startBillingCheckout(planId: number): Promise<{
   subscription: BillingSubscription;
   checkoutOrderId: string;
+  /** F3-033: present when the gateway returns a hosted-checkout page. */
+  checkoutUrl?: string | null;
 }> {
   const { data } = await apiClient.post('/billing/checkout/', { planId });
   return unwrapData(data);

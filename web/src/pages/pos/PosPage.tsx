@@ -287,10 +287,19 @@ export function PosPage() {
 
   const intraState = useMemo(() => {
     const party = selectedCustomer.data;
-    return isIntraState(company.data?.gstin ?? company.data?.state, party?.gstin ?? party?.state, {
-      assumeLocalStateForBlankParty: !!company.data?.assumeLocalStateForBlankParty,
-    });
-  }, [company.data, selectedCustomer.data]);
+    const resolved = isIntraState(
+      company.data?.gstin ?? company.data?.state,
+      party?.gstin ?? party?.state,
+      { assumeLocalStateForBlankParty: !!company.data?.assumeLocalStateForBlankParty },
+    );
+    // F2-027: a blank-place-of-supply walk-in RETAIL sale is completed with
+    // confirmBlankPos, and the server then applies assume-local (CGST+SGST).
+    // Show that tax in the tender panel so the displayed total matches what
+    // will actually post — otherwise the cash receipt is booked larger than
+    // the cash taken (till shortage on every such sale).
+    if (resolved === null && taxEnabled) return true;
+    return resolved;
+  }, [company.data, selectedCustomer.data, taxEnabled]);
 
   const isInclusive = company.data?.priceMode === 'INCLUSIVE';
 
@@ -1283,6 +1292,11 @@ export function PosPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
             {t('pos.confirmBlankPosBody')}
           </Typography>
+          {taxEnabled ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              {t('pos.confirmBlankPosTaxNote')}
+            </Typography>
+          ) : null}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setBlankPosMode(null)}>{t('common.cancel')}</Button>

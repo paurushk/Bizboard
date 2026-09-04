@@ -45,9 +45,14 @@ export async function createStockAdjustment(payload: StockAdjustment): Promise<v
   }, undefined);
 }
 
-export async function createOpeningStock(payload: import('@/types/domain').OpeningStockInput): Promise<void> {
+export async function createOpeningStock(
+  payload: import('@/types/domain').OpeningStockInput,
+  options?: { idempotencyKey?: string },
+): Promise<void> {
   return withMocks(async () => {
-    await apiClient.post('/inventory/opening-stock/', payload);
+    await apiClient.post('/inventory/opening-stock/', payload, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
+    });
   }, undefined);
 }
 

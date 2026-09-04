@@ -387,20 +387,26 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
       if (!product && !isService && form.trackInventory) {
         try {
           const defaultCost = Number(form.purchasePrice) > 0 ? Number(form.purchasePrice) : undefined;
+        // F3-010: a stable key per opening-stock lot so a retry after a partial
+        // failure ("item saved, but opening stock failed") skips the lots that
+        // already succeeded instead of doubling them.
         if (form.tracking === 'BATCH') {
-          for (const lot of form.lots) {
+          for (const [i, lot] of form.lots.entries()) {
             const qty = Number(lot.quantity);
             if (qty <= 0) continue;
-            await createOpeningStock({
-              product: saved.id,
-              quantity: qty,
-              unitCost: lot.unitCost ? Number(lot.unitCost) : defaultCost,
-              warehouse: Number(lot.warehouseId) || undefined,
-              batchNo: lot.batchNo,
-              expiryDate: lot.expiryDate || undefined,
-              manufacturingDate: lot.manufacturingDate || undefined,
-              asOf: lot.asOf || undefined,
-            });
+            await createOpeningStock(
+              {
+                product: saved.id,
+                quantity: qty,
+                unitCost: lot.unitCost ? Number(lot.unitCost) : defaultCost,
+                warehouse: Number(lot.warehouseId) || undefined,
+                batchNo: lot.batchNo,
+                expiryDate: lot.expiryDate || undefined,
+                manufacturingDate: lot.manufacturingDate || undefined,
+                asOf: lot.asOf || undefined,
+              },
+              { idempotencyKey: `opening-${saved.id}-b${i}-${lot.warehouseId || 'x'}-${lot.batchNo || 'x'}` },
+            );
           }
         } else if (form.tracking === 'SERIAL') {
           const grouped = new Map<string, SerialRow[]>();
@@ -410,22 +416,28 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
             grouped.set(key, [...(grouped.get(key) ?? []), row]);
           }
           for (const [warehouseId, rows] of grouped) {
-            await createOpeningStock({
-              product: saved.id,
-              quantity: rows.length,
-              warehouse: Number(warehouseId) || undefined,
-              serialNumbers: rows.map((row) => row.serialNo.trim()),
-              unitCost: rows[0]?.unitCost ? Number(rows[0].unitCost) : defaultCost,
-              asOf: rows[0]?.asOf,
-            });
+            await createOpeningStock(
+              {
+                product: saved.id,
+                quantity: rows.length,
+                warehouse: Number(warehouseId) || undefined,
+                serialNumbers: rows.map((row) => row.serialNo.trim()),
+                unitCost: rows[0]?.unitCost ? Number(rows[0].unitCost) : defaultCost,
+                asOf: rows[0]?.asOf,
+              },
+              { idempotencyKey: `opening-${saved.id}-s-${warehouseId || 'x'}` },
+            );
           }
         } else if (Number(form.openingStock) > 0) {
-          await createOpeningStock({
-            product: saved.id,
-            quantity: Number(form.openingStock),
-            unitCost: defaultCost,
-            warehouse: Number(form.warehouseId) || undefined,
-          });
+          await createOpeningStock(
+            {
+              product: saved.id,
+              quantity: Number(form.openingStock),
+              unitCost: defaultCost,
+              warehouse: Number(form.warehouseId) || undefined,
+            },
+            { idempotencyKey: `opening-${saved.id}-simple-${form.warehouseId || 'x'}` },
+          );
         }
         } catch (err) {
           throw new Error(`Item saved, but opening stock failed: ${getErrorMessage(err)}`);

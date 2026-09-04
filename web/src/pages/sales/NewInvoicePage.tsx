@@ -1012,14 +1012,19 @@ export function NewInvoicePage() {
       prev.map((l) => {
         if (l.key !== key) return l;
         let nextPatch = patch;
-        if (patch.quantity != null && patch.unitPrice == null) {
+        // A caller-supplied unitPrice is a direct user edit — remember it so a
+        // later qty change doesn't clobber the override (F2-007).
+        if (patch.unitPrice != null) {
+          nextPatch = { ...patch, priceEdited: true };
+        }
+        if (patch.quantity != null && patch.unitPrice == null && !l.priceEdited) {
           const resolved = resolveListUnitPrice(
             priceLists.data as import('@/utils/priceList').PriceListRow[] | undefined,
             selectedCustomer?.priceList,
             l.product,
             Number(patch.quantity),
           );
-          if (resolved) nextPatch = { ...patch, unitPrice: resolved.unitPrice };
+          if (resolved) nextPatch = { ...nextPatch, unitPrice: resolved.unitPrice };
         }
         const changesGross =
           nextPatch.quantity != null || nextPatch.unitPrice != null;

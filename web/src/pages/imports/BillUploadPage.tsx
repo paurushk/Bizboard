@@ -289,7 +289,19 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
         const next = { ...l, ...patch };
         if ('cs' in patch || 'pcs' in patch || 'upc' in patch) {
           const billed = billedFromPack(next.cs, next.pcs, next.upc);
-          if (billed != null) next.quantity = billed;
+          if (billed != null) {
+            const hasQty = next.quantity != null && String(next.quantity).trim() !== '' && Number(next.quantity) !== 0;
+            if (!hasQty) {
+              // F2-020: only auto-fill when the quantity is blank.
+              next.quantity = billed;
+              next.packQtyHint = undefined;
+            } else if (Number(billed) !== Number(next.quantity)) {
+              // otherwise offer it as a suggestion, don't overwrite.
+              next.packQtyHint = billed;
+            } else {
+              next.packQtyHint = undefined;
+            }
+          }
         }
         return next;
       }),
@@ -741,6 +753,18 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                               onChange={(e) => updateLine(idx, { quantity: e.target.value })}
                               sx={{ width: 90 }}
                             />
+                            {line.packQtyHint ? (
+                              <Typography
+                                variant="caption"
+                                color="warning.main"
+                                sx={{ display: 'block', cursor: 'pointer', mt: 0.25 }}
+                                onClick={() =>
+                                  updateLine(idx, { quantity: line.packQtyHint, packQtyHint: undefined })
+                                }
+                              >
+                                pack = {line.packQtyHint} · apply
+                              </Typography>
+                            ) : null}
                           </TableCell>
                           <TableCell align="right">
                             <TextField

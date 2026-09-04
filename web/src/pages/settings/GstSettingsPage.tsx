@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
@@ -56,7 +56,12 @@ interface GstForm {
 export function GstSettingsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  // F3-014: no refetch-and-reset on window focus — it wipes unsaved edits.
+  const query = useQuery({
+    queryKey: ['company'],
+    queryFn: getCompany,
+    refetchOnWindowFocus: false,
+  });
   const gstinsQuery = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
   const [branchGstin, setBranchGstin] = useState('');
   const [branchState, setBranchState] = useState('');
@@ -84,8 +89,10 @@ export function GstSettingsPage() {
     },
   });
 
+  const gstSeededRef = useRef(false);
   useEffect(() => {
-    if (query.data) {
+    if (query.data && !gstSeededRef.current) {
+      gstSeededRef.current = true;
       const d = query.data;
       reset({
         gstin: d.gstin ?? '',

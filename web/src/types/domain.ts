@@ -854,6 +854,9 @@ export interface PurchaseBillLinePreview {
   mrp?: string;
   include?: boolean;
   flags?: string[];
+  /** F2-020: cs*upc+pcs — shown as a suggestion when it differs from the
+   *  existing quantity, instead of silently overwriting it. */
+  packQtyHint?: string;
 }
 
 export interface BillClarificationOption {
