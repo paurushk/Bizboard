@@ -125,7 +125,7 @@ docker compose config
 GST calculations and invoice layouts require CA approval before a production
 pilot.
 
-## Wave 17–21 honesty (authoritative)
+## Module status (authoritative)
 
 | Module | Honest status |
 |--------|----------------|
@@ -140,18 +140,14 @@ pilot.
 | Tally | Export dump / optional HTTP — not live bidirectional sync |
 | RLS | Off by default (`POSTGRES_RLS_ENABLED=0`) until proven |
 
-Do not cite Wave 17/18 “MVP-complete” scores as launch gates. See `docs/reviews/KNOWN_LIMITATIONS_AND_TECH_DEBT.md`.
+Billing dogfood scope is **MVP-complete, not full Zoho / TallyPrime / ERPNext
+parity**. Do not cite module "MVP-complete" scores as launch gates; Final Gates
+are ops-only. Current limitations, tech debt, and the per-wave history live in
+[`docs/reviews/KNOWN_LIMITATIONS_AND_TECH_DEBT.md`](docs/reviews/KNOWN_LIMITATIONS_AND_TECH_DEBT.md);
+release history is in [`docs/reviews/CHANGELOG.md`](docs/reviews/CHANGELOG.md).
 
-## Wave 18 — POS & billing UX
+## POS & offline drafts
 
 - **POS (`/pos`)** — feature-flagged counter checkout (`VITE_ENABLE_POS` / `ENABLE_POS`). Creates a retail invoice, completes it, records cash/UPI receipt, and downloads thermal PDF when available. MVP only — not a full retail suite.
 - **Offline draft outbox** — Invoice editor and POS share a v2 outbox (`web/src/offline/invoiceDraftCache.ts`): IndexedDB primary with localStorage fallback, flushed with the same idempotency key when back online. Drafts are **plaintext on device** (sign-out wipes). **PWA service worker** (`vite-plugin-pwa`) precaches the app shell and serves `/offline.html` for failed navigations; authenticated `/api` responses are not Workbox-cached. Sign-out / session-expired purge `bizboard-api` and `bizboard-pages` caches. Not a full offline ERP — install is installable shell + draft outbox, not offline install of the whole product.
 - **New Invoice shortcuts** — `Ctrl/Cmd+S` save draft, `Ctrl/Cmd+Enter` save & complete (when available), `Ctrl/Cmd+Shift+L` focus product search, `F2` scan barcode.
-
-## Wave 18 honesty
-
-POS, offline draft outbox, cess, GSTR-1 DOC/AT, ERP FE CRUD, PWA (service worker + offline.html), and Hindi expansion are **MVP-complete for billing dogfood**. Not Zoho/TallyPrime/ERPNext full parity (BB-000591). Manufacturing/payroll/CRM remain preview/dark. Final Gates remain ops-only.
-
-## Wave 19 honesty
-
-Wave 19 closed remaining code residuals (SO/DC/PO cess, invoice IndexedDB/localStorage outbox, statutory events UI, typed domain OpenAPI clients, RLS table+Celery GUC coverage with flag still off by default, resources.ts split + real virtualization, GSTR-9 table 18 + AT depth). Final Gates remain ops-only.
