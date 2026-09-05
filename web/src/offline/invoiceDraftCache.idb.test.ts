@@ -151,12 +151,16 @@ describe('invoice outbox v2 (IndexedDB path)', () => {
   it('enqueueDraft still succeeds via localStorage when IDB.open fails', async () => {
     const companyId = freshCompanyId();
     const originalOpen = indexedDB.open.bind(indexedDB);
-    // @ts-expect-error -- deliberately break IDB.open for this one test.
-    indexedDB.open = () => {
-      const req: Partial<IDBOpenDBRequest> = {};
-      queueMicrotask(() => req.onerror?.(new Event('error') as never));
-      return req as IDBOpenDBRequest;
+    // Each real IDBOpenDBRequest is a fresh object per call; mirror that here
+    // instead of sharing one fake across calls (openDb() is invoked more than
+    // once per enqueueDraft -- mergeDurable's read, then the write).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately fake IDBOpenDBRequest to force an open failure.
+    const fakeOpen = (): any => {
+      const req: { onerror?: (ev: unknown) => void; onsuccess?: (ev: unknown) => void } = {};
+      queueMicrotask(() => req.onerror?.(new Event('error')));
+      return req;
     };
+    indexedDB.open = fakeOpen;
     try {
       const saved = await enqueueDraft(companyId, USER_ID, {
         kind: 'invoice',
