@@ -483,11 +483,18 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
     });
 
   const dirty = open && JSON.stringify(form) !== baselineFormJson;
+  // F3-011: UnsavedChangesGuard only covers browser nav/reload/tab-close --
+  // the Dialog's own close triggers (backdrop click, Escape, Cancel button)
+  // bypassed it entirely and discarded a dirty multi-tab form with no guard.
+  const handleClose = () => {
+    if (dirty && !window.confirm(t('inventory.confirmDiscardItemChanges'))) return;
+    onClose();
+  };
 
   return (
     <>
       <UnsavedChangesGuard when={dirty} />
-      <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+      <Dialog open={open} onClose={handleClose} fullWidth maxWidth="md">
         <DialogTitle>
           {product ? t('common.edit') : t('empty.createItem')}
         </DialogTitle>
@@ -1061,7 +1068,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
           ) : null}
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button onClick={handleClose}>{t('common.cancel')}</Button>
           {!product ? (
             <Button disabled={!canSave || save.isPending} onClick={() => save.mutate(true)}>
               Save & New
