@@ -8,7 +8,7 @@ from django.db import transaction
 logger = logging.getLogger(__name__)
 
 from core.exceptions import BusinessRuleError
-from inventory.models import MovementType, SerialNumber, StockMovement
+from inventory.models import MovementType, SerialNumber, StockBalance, StockMovement
 from inventory.services import InventoryService, InventoryValuationService, SerialNumberService
 
 from .models import WorkOrder, WorkOrderLine
@@ -57,6 +57,23 @@ def _issue_batches(wo, component, qty, line=None):
     """BB-000723: explicit batch or lot_allocations on WorkOrderLine or FEFO allocate."""
     if not component.track_batch:
         return [(getattr(line, "batch", None) if line else None, qty)]
+    # B8-010: FEFO/availability reads below (available_quantity, fefo_batches)
+    # are not locked on their own -- two concurrent work-order releases for
+    # the same component could both plan against the same stale snapshot.
+    # post_movement() already locks (and re-checks) each individual balance
+    # row it writes to, so this can't silently overdraft stock -- but a
+    # legitimate concurrent release could still spuriously fail on the
+    # *first* batch it happens to try, instead of correctly falling through
+    # to the next FEFO batch, purely because its plan was made from a stale
+    # read. Lock every balance row for this component+warehouse up front so
+    # the allocation plan below is computed against a race-free view, for
+    # the lifetime of this work order's transaction.
+    warehouse_for_lock = wo.warehouse or InventoryService.default_warehouse(wo.company)
+    list(
+        StockBalance.objects.select_for_update().filter(
+            company=wo.company, product=component, warehouse=warehouse_for_lock,
+        )
+    )
     batch = getattr(line, "batch", None) if line else None
     if batch is not None:
         warehouse = wo.warehouse or InventoryService.default_warehouse(wo.company)
