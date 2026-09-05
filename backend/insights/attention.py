@@ -9,11 +9,19 @@ from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from .alerts import build_business_alerts, build_leakage_detectors
 from .models import AttentionRowState
 from .services import build_growth_hints
+
+# B9-012: the raw feed (_overdue_customer_rows especially -- a per-customer
+# outstanding/aging/avg-delay computation, up to 30 customers) is the
+# expensive, user-independent part of this endpoint. Cache it per
+# (company, as_of) briefly; per-user dismiss/snooze state and the
+# capability filter below still run fresh on every request.
+_ATTENTION_RAW_TTL = 60
 
 ATTENTION_ROW_KEYS = (
     "code",
@@ -531,8 +539,7 @@ def _apply_state(company, ranked: list[dict]) -> list[dict]:
     return visible
 
 
-def build_attention_rows(company, company_user=None, as_of: date | None = None) -> list[dict]:
-    as_of = as_of or timezone.localdate()
+def _build_raw_rows(company, as_of: date) -> list[dict]:
     raw: list[dict] = []
     raw.extend(_map_legacy_alerts(company, as_of))
     seen = {r["code"] for r in raw}
@@ -544,6 +551,22 @@ def build_attention_rows(company, company_user=None, as_of: date | None = None) 
     raw.extend(_paid_pending_books_rows(company))
     raw.extend(_overdue_customer_rows(company, as_of))
     raw.extend(_expiry_rows(company))
+    return raw
+
+
+def _build_raw_rows_cached(company, as_of: date) -> list[dict]:
+    cache_key = f"insights:attention_raw:{company.pk}:{as_of.isoformat()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    raw = _build_raw_rows(company, as_of)
+    cache.set(cache_key, raw, _ATTENTION_RAW_TTL)
+    return raw
+
+
+def build_attention_rows(company, company_user=None, as_of: date | None = None) -> list[dict]:
+    as_of = as_of or timezone.localdate()
+    raw = _build_raw_rows_cached(company, as_of)
 
     ranked = _merge_and_rank(raw)
     visible = _apply_state(company, ranked)

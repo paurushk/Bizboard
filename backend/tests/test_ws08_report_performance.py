@@ -374,3 +374,77 @@ def test_b8_027_custom_field_values_cache_is_scoped_per_company(tenant_b):
     resp = tenant_b.client.get("/api/v1/products/custom-field-values/")
     assert resp.status_code == 200, resp.data
     assert resp.data.get("brandCode") == ["OTHERCO"]
+
+
+def test_b9_012_attention_feed_raw_computation_is_cached(tenant_a, monkeypatch):
+    """B9-012: build_attention_rows' _overdue_customer_rows does a per-
+    customer outstanding/aging/avg-delay computation (several queries each,
+    up to 30 customers) on every call. The expensive, user-independent raw
+    feed must be cached per (company, as_of); only the cheap per-user
+    dismiss/snooze/capability filtering should still run every call."""
+    import insights.attention as attention_module
+
+    customer = make_customer(tenant_a.company)
+    product = make_product(tenant_a.company, gst_rate="0")
+    add_stock(tenant_a, product, "10")
+    draft = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "500", "gst_rate": "0"}],
+        invoice_type="NON_GST",
+    )
+    resp = tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/complete/")
+    assert resp.status_code == 200, resp.data
+    from django.utils import timezone as _tz
+    from sales.models import SalesInvoice
+
+    past = _tz.localdate() - __import__("datetime").timedelta(days=100)
+    SalesInvoice.objects.filter(pk=draft["id"]).update(invoice_date=past, due_date=past)
+
+    calls = {"n": 0}
+    original = attention_module._build_raw_rows
+
+    def _counting(*args, **kwargs):
+        calls["n"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(attention_module, "_build_raw_rows", _counting)
+
+    cu = tenant_a.company.memberships.get(user=tenant_a.owner)
+    rows1 = attention_module.build_attention_rows(tenant_a.company, company_user=cu)
+    assert calls["n"] == 1
+    rows2 = attention_module.build_attention_rows(tenant_a.company, company_user=cu)
+    assert calls["n"] == 1, "second call within the TTL should hit the raw-rows cache"
+    assert {r["code"] for r in rows1} == {r["code"] for r in rows2}
+
+
+def test_b9_012_attention_feed_snooze_still_applies_immediately_despite_raw_cache(tenant_a):
+    """Correctness guard: caching the raw feed must not delay per-user state
+    (snooze/dismiss) -- a snoozed row must disappear on the very next call,
+    proving the cache boundary sits below _apply_state, not above it."""
+    from insights.attention import build_attention_rows, snooze_attention_row
+
+    customer = make_customer(tenant_a.company)
+    product = make_product(tenant_a.company, gst_rate="0")
+    add_stock(tenant_a, product, "10")
+    draft = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "500", "gst_rate": "0"}],
+        invoice_type="NON_GST",
+    )
+    resp = tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/complete/")
+    assert resp.status_code == 200, resp.data
+    from django.utils import timezone as _tz
+    from sales.models import SalesInvoice
+
+    past = _tz.localdate() - __import__("datetime").timedelta(days=100)
+    SalesInvoice.objects.filter(pk=draft["id"]).update(invoice_date=past, due_date=past)
+
+    cu = tenant_a.company.memberships.get(user=tenant_a.owner)
+    rows = build_attention_rows(tenant_a.company, company_user=cu)
+    overdue_rows = [r for r in rows if r["code"] in ("AR_OVERDUE_CRITICAL", "AR_COLLECTION_RISK", "AR_OVERDUE_CUSTOMER")]
+    assert overdue_rows, "fixture should have produced an overdue-AR row"
+    key = overdue_rows[0]["dedupe_key"]
+
+    snooze_attention_row(tenant_a.company, cu, dedupe_key=key, days=7, reason="testing")
+    rows_after = build_attention_rows(tenant_a.company, company_user=cu)
+    assert key not in {r["dedupe_key"] for r in rows_after}
