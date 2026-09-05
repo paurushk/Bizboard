@@ -296,6 +296,13 @@ class ProductViewSet(CompanyScopedViewSet):
 
     @action(detail=False, methods=["get"], url_path="custom-field-values")
     def custom_field_values(self, request):
+        # B8-027: distinct_values_for_keys() scans every product row with
+        # custom_fields set, in Python, on every call -- this endpoint is hit
+        # on every item-form open. A per-company short-TTL cache (same
+        # pattern/TTL as _CachedMastersListMixin) turns a full-catalog scan
+        # into a once-per-minute cost instead of once-per-request. Values are
+        # dropdown suggestions, not authoritative data, so briefly-stale
+        # results after a product edit are an acceptable tradeoff.
         from masters.custom_fields import active_defs, distinct_values_for_keys
 
         keys = [
@@ -303,7 +310,13 @@ class ProductViewSet(CompanyScopedViewSet):
             for row in active_defs(self.company)
             if row.get("type") == "list" and row.get("key")
         ]
-        return Response(distinct_values_for_keys(self.company, keys))
+        cache_key = f"masters:custom_field_values:{self.company.pk}:{','.join(sorted(keys))}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+        data = distinct_values_for_keys(self.company, keys)
+        cache.set(cache_key, data, _MASTERS_LIST_TTL)
+        return Response(data)
 
     @action(detail=False, methods=["post"], url_path="generate-barcode")
     def generate_barcode(self, request):

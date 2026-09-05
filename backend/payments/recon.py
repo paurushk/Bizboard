@@ -238,7 +238,20 @@ def score_match(line: BankStatementLine, *, receipt: CustomerReceipt | None = No
     return min(score, Decimal("100"))
 
 
-def suggest_matches(*, company, line: BankStatementLine, limit: int = 5) -> list[dict]:
+def suggest_matches(
+    *,
+    company,
+    line: BankStatementLine,
+    limit: int = 5,
+    exclude_receipt_ids=None,
+    exclude_supplier_payment_ids=None,
+) -> list[dict]:
+    """B4-018: `exclude_receipt_ids`/`exclude_supplier_payment_ids` let a
+    caller looping over many lines (commit's auto-match, ReconViewSet.list/
+    suggest) fetch the "already matched" id sets once and pass them in,
+    instead of this function re-querying ReconMatch on every single line.
+    Standalone callers (a one-off suggestion for a single line) can omit
+    both and this queries them itself, unchanged from before."""
     if line.match_status == BankLineMatchStatus.MATCHED:
         return []
     window_start = line.txn_date - timedelta(days=14)
@@ -252,11 +265,11 @@ def suggest_matches(*, company, line: BankStatementLine, limit: int = 5) -> list
             receipt_date__lte=window_end,
             status="POSTED",
         ).select_related("customer")
-        # Exclude already matched receipts
-        matched_ids = ReconMatch.objects.filter(
-            company=company, receipt__isnull=False
-        ).values_list("receipt_id", flat=True)
-        qs = qs.exclude(id__in=matched_ids)
+        if exclude_receipt_ids is None:
+            exclude_receipt_ids = ReconMatch.objects.filter(
+                company=company, receipt__isnull=False
+            ).values_list("receipt_id", flat=True)
+        qs = qs.exclude(id__in=exclude_receipt_ids)
         for receipt in qs[:50]:
             conf = score_match(line, receipt=receipt)
             if conf >= Decimal("40"):
@@ -278,10 +291,11 @@ def suggest_matches(*, company, line: BankStatementLine, limit: int = 5) -> list
             payment_date__gte=window_start,
             payment_date__lte=window_end,
         ).select_related("supplier")
-        matched_ids = ReconMatch.objects.filter(
-            company=company, supplier_payment__isnull=False
-        ).values_list("supplier_payment_id", flat=True)
-        qs = qs.exclude(id__in=matched_ids)
+        if exclude_supplier_payment_ids is None:
+            exclude_supplier_payment_ids = ReconMatch.objects.filter(
+                company=company, supplier_payment__isnull=False
+            ).values_list("supplier_payment_id", flat=True)
+        qs = qs.exclude(id__in=exclude_supplier_payment_ids)
         for payment in qs[:50]:
             conf = score_match(line, payment=payment)
             if conf >= Decimal("40"):
@@ -301,8 +315,20 @@ def suggest_matches(*, company, line: BankStatementLine, limit: int = 5) -> list
     return suggestions[:limit]
 
 
-def _has_hard_recon_anchor(line: BankStatementLine, suggestion: dict) -> bool:
-    """Auto-commit requires UTR match or exact receipt/payment number in narration."""
+def _has_hard_recon_anchor(
+    line: BankStatementLine,
+    suggestion: dict,
+    *,
+    receipt_utr_map=None,
+    supplier_payment_utr_map=None,
+) -> bool:
+    """Auto-commit requires UTR match or exact receipt/payment number in narration.
+
+    B4-018: `receipt_utr_map`/`supplier_payment_utr_map` (``{id: normalized_utr}``)
+    let a caller checking many lines' suggestions (commit's auto-match loop)
+    pass in a prefetched map instead of this function issuing a `.filter(pk=...)`
+    query per suggestion. Omit both for the old single-suggestion behavior.
+    """
     narr = (line.narration or "").upper()
     number = (suggestion.get("number") or "").upper().strip()
     if number and number in narr:
@@ -315,17 +341,23 @@ def _has_hard_recon_anchor(line: BankStatementLine, suggestion: dict) -> bool:
     # and must never be treated as a hard anchor — it stays a soft +points
     # signal in score_match only.
     if suggestion.get("type") == "receipt":
-        receipt = CustomerReceipt.objects.filter(pk=suggestion.get("id"), company_id=line.company_id).only(
-            "utr"
-        ).first()
-        if receipt:
-            target_utr = normalize_utr(receipt.utr)
+        if receipt_utr_map is not None:
+            target_utr = receipt_utr_map.get(suggestion.get("id"), "")
+        else:
+            receipt = CustomerReceipt.objects.filter(pk=suggestion.get("id"), company_id=line.company_id).only(
+                "utr"
+            ).first()
+            if receipt:
+                target_utr = normalize_utr(receipt.utr)
     elif suggestion.get("type") == "supplier_payment":
-        payment = SupplierPayment.objects.filter(pk=suggestion.get("id"), company_id=line.company_id).only(
-            "utr"
-        ).first()
-        if payment:
-            target_utr = normalize_utr(payment.utr)
+        if supplier_payment_utr_map is not None:
+            target_utr = supplier_payment_utr_map.get(suggestion.get("id"), "")
+        else:
+            payment = SupplierPayment.objects.filter(pk=suggestion.get("id"), company_id=line.company_id).only(
+                "utr"
+            ).first()
+            if payment:
+                target_utr = normalize_utr(payment.utr)
     if line_utr and target_utr and line_utr == target_utr:
         return True
     # UTR also accepted when present only in narration.
@@ -334,7 +366,13 @@ def _has_hard_recon_anchor(line: BankStatementLine, suggestion: dict) -> bool:
     return False
 
 
-def is_exact_unique_suggestion(suggestions: list[dict], line: BankStatementLine) -> bool:
+def is_exact_unique_suggestion(
+    suggestions: list[dict],
+    line: BankStatementLine,
+    *,
+    receipt_utr_map=None,
+    supplier_payment_utr_map=None,
+) -> bool:
     """True when exactly one suggestion has high confidence + exact amount + hard ref."""
     if len(suggestions) != 1:
         return False
@@ -349,4 +387,6 @@ def is_exact_unique_suggestion(suggestions: list[dict], line: BankStatementLine)
     if not amount_ok:
         return False
     # Soft score alone is insufficient for auto-commit.
-    return _has_hard_recon_anchor(line, s)
+    return _has_hard_recon_anchor(
+        line, s, receipt_utr_map=receipt_utr_map, supplier_payment_utr_map=supplier_payment_utr_map
+    )

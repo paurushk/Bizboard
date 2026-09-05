@@ -778,6 +778,130 @@ class LedgerService:
         return {sid: max(Decimal("0"), v) for sid, v in nets.items()}
 
     @staticmethod
+    def bulk_purchase_invoice_outstanding(company, invoice_ids=None) -> dict[int, Decimal]:
+        """B5-008: per-invoice outstanding for many invoices in O(1) queries —
+        `{invoice_id: outstanding}`. Mirrors bulk_supplier_outstanding's bulk
+        pattern (BB-000323: exclude returns already relieved via a
+        return-linked auto CN) rather than purchase_invoice_outstanding's
+        per-invoice amount-matching fallback for *unlinked* legacy CNs, which
+        doesn't vectorize into a single query. That fallback only matters for
+        pre-BB-000323 data missing the purchase_return link — callers needing
+        that exact edge-case precision should use the single-invoice
+        purchase_invoice_outstanding instead. Does not consult
+        _use_gl_outstanding: purchase_invoice_outstanding itself doesn't
+        either, so this stays consistent with it, not with
+        bulk_supplier_outstanding's GL branch.
+        """
+        inv_qs = PurchaseInvoice.objects.filter(
+            company=company,
+            status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+        )
+        if invoice_ids is not None:
+            inv_qs = inv_qs.filter(pk__in=invoice_ids)
+        # "number" is only ever used for a warning-log ref, but a bare
+        # `getattr(inv, "number", ...)` still triggers Django's deferred-field
+        # lazy-load per row if it isn't in .only() -- defeating the entire
+        # point of this bulk method. Fetch it up front instead.
+        invoices = list(inv_qs.only("id", "grand_total", "tds_amount", "number"))
+        ids = [inv.id for inv in invoices]
+        if not ids:
+            return {}
+        auto_cn_return_ids = LedgerService._auto_cn_linked_return_ids(company)
+        returns = dict(
+            PurchaseReturn.objects.filter(
+                purchase_invoice_id__in=ids, status=PurchaseReturn.Status.COMPLETED,
+            )
+            .exclude(pk__in=auto_cn_return_ids)
+            .values("purchase_invoice_id")
+            .annotate(total=Sum("grand_total"))
+            .values_list("purchase_invoice_id", "total")
+        )
+        credit_notes = dict(
+            PurchaseCreditNote.objects.filter(
+                purchase_invoice_id__in=ids, status=PurchaseCreditNote.Status.COMPLETED,
+            )
+            .values("purchase_invoice_id")
+            .annotate(total=Sum("grand_total"))
+            .values_list("purchase_invoice_id", "total")
+        )
+        debit_notes = dict(
+            PurchaseDebitNote.objects.filter(
+                purchase_invoice_id__in=ids, status=PurchaseDebitNote.Status.COMPLETED,
+            )
+            .values("purchase_invoice_id")
+            .annotate(total=Sum("grand_total"))
+            .values_list("purchase_invoice_id", "total")
+        )
+        allocated = dict(
+            PaymentAllocation.objects.filter(
+                purchase_invoice_id__in=ids, reversed_at__isnull=True,
+            )
+            .values("purchase_invoice_id")
+            .annotate(total=Sum("amount"))
+            .values_list("purchase_invoice_id", "total")
+        )
+        out = {}
+        for inv in invoices:
+            tds = Decimal(str(inv.tds_amount or 0))
+            raw = (
+                inv.grand_total
+                - tds
+                - (returns.get(inv.id) or Decimal("0"))
+                - (credit_notes.get(inv.id) or Decimal("0"))
+                + (debit_notes.get(inv.id) or Decimal("0"))
+                - (allocated.get(inv.id) or Decimal("0"))
+            )
+            out[inv.id] = _floor_outstanding(
+                raw, kind="purchase invoice", ref=getattr(inv, "number", inv.id)
+            )
+        return out
+
+    @staticmethod
+    def bulk_sales_invoice_outstanding(company, invoice_ids) -> dict[int, Decimal]:
+        """B4-017: per-invoice outstanding for a specific set of sales
+        invoices in O(1) queries, mirroring receivables_aging's existing
+        bulk CN/DN/allocation maps (same formula as the single-invoice
+        sales_invoice_outstanding — no amount-matching heuristic on this
+        side, so this is a straightforward vectorisation, unlike the
+        purchase-side bulk_purchase_invoice_outstanding)."""
+        invoices = list(
+            SalesInvoice.objects.filter(company=company, pk__in=invoice_ids, status__in=OPEN_SALES_STATUSES)
+            .only("id", "grand_total", "tcs_amount", "tcs_in_grand_total", "number")
+        )
+        ids = [inv.id for inv in invoices]
+        if not ids:
+            return {}
+        cn_by_id = dict(
+            SalesCreditNote.objects.filter(sales_invoice_id__in=ids, status=SalesCreditNote.Status.COMPLETED)
+            .values("sales_invoice_id").annotate(total=Sum("grand_total"))
+            .values_list("sales_invoice_id", "total")
+        )
+        dn_by_id = dict(
+            SalesDebitNote.objects.filter(sales_invoice_id__in=ids, status=SalesDebitNote.Status.COMPLETED)
+            .values("sales_invoice_id").annotate(total=Sum("grand_total"))
+            .values_list("sales_invoice_id", "total")
+        )
+        allocated_by_id = dict(
+            PaymentAllocation.objects.filter(sales_invoice_id__in=ids, reversed_at__isnull=True)
+            .values("sales_invoice_id").annotate(total=Sum("amount"))
+            .values_list("sales_invoice_id", "total")
+        )
+        out = {}
+        for inv in invoices:
+            tcs = Decimal("0")
+            if not getattr(inv, "tcs_in_grand_total", False):
+                tcs = Decimal(str(getattr(inv, "tcs_amount", 0) or 0))
+            raw = (
+                inv.grand_total
+                + tcs
+                - (cn_by_id.get(inv.id) or Decimal("0"))
+                + (dn_by_id.get(inv.id) or Decimal("0"))
+                - (allocated_by_id.get(inv.id) or Decimal("0"))
+            )
+            out[inv.id] = _floor_outstanding(raw, kind="sales invoice", ref=inv.number or inv.id)
+        return out
+
+    @staticmethod
     def supplier_statement(company, supplier, date_from=None, date_to=None):
         if LedgerService._use_gl_outstanding(company):
             return LedgerService._gl_party_statement(

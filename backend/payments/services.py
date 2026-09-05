@@ -1585,19 +1585,39 @@ class PaymentService:
                 }
             )
 
-        # Open completed invoices without payment link
+        # B4-017: open completed invoices without payment link -- used to call
+        # LedgerService.sales_invoice_outstanding(inv) per invoice (its own
+        # handful of queries) for up to 50 invoices. bulk_sales_invoice_
+        # outstanding gets all 50 in O(1) queries, matching bulk_customer_
+        # outstanding's approach above. Only company.upi_id is missing gates
+        # this whole block at all (an "and" short-circuit the old code also
+        # had, just re-expressed up front so bulk work is skipped entirely
+        # when it can't matter).
         from sales.models import SalesInvoice
 
-        open_invs = SalesInvoice.objects.filter(company=company, status__in=("COMPLETED", "RETURNED"))[:50]
-        for inv in open_invs:
-            outstanding = LedgerService.sales_invoice_outstanding(inv)
-            if outstanding <= 0:
-                continue
-            if not PaymentLink.objects.filter(
-                company=company,
-                sales_invoice=inv,
-                status__in=(PaymentLinkStatus.CREATED, PaymentLinkStatus.SENT, PaymentLinkStatus.PAID),
-            ).exists() and not (company.upi_id or "").strip():
+        if not (company.upi_id or "").strip():
+            open_inv_ids = list(
+                SalesInvoice.objects.filter(
+                    company=company, status__in=("COMPLETED", "RETURNED")
+                ).values_list("id", flat=True)[:50]
+            )
+            outstanding_by_id = LedgerService.bulk_sales_invoice_outstanding(company, open_inv_ids)
+            linked_ids = set(
+                PaymentLink.objects.filter(
+                    company=company,
+                    sales_invoice_id__in=open_inv_ids,
+                    status__in=(PaymentLinkStatus.CREATED, PaymentLinkStatus.SENT, PaymentLinkStatus.PAID),
+                ).values_list("sales_invoice_id", flat=True)
+            )
+            invoice_lookup = {
+                inv.id: inv
+                for inv in SalesInvoice.objects.filter(pk__in=open_inv_ids).only("id", "number")
+            }
+            for inv_id in open_inv_ids:
+                outstanding = outstanding_by_id.get(inv_id) or Decimal("0")
+                if outstanding <= 0 or inv_id in linked_ids:
+                    continue
+                inv = invoice_lookup[inv_id]
                 alerts.append(
                     {
                         "code": "OPEN_INVOICE_NO_LINK_OR_UPI",

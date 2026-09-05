@@ -1,4 +1,5 @@
 
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
@@ -40,8 +41,10 @@ from .models import (
     PaymentSource,
     ReconMatch,
     SupplierPayment,
+    SupplierPaymentStatus,
 )
 from .recon import is_exact_unique_suggestion, parse_bank_csv, suggest_matches
+from .upi import normalize_utr
 from .serializers import (
     BankAccountSerializer,
     BankStatementLineSerializer,
@@ -675,20 +678,68 @@ class BankStatementViewSet(CompanyScopedViewSet):
         statement.status = BankStatementStatus.COMMITTED
         statement.save(update_fields=["status", "updated_at"])
 
-        # Optional exact auto-match
+        # B4-018: optional exact auto-match -- used to call suggest_matches
+        # (2 queries: a windowed candidate scan + a fresh ReconMatch
+        # exclusion query) plus, for any line with a single high-confidence
+        # suggestion, is_exact_unique_suggestion's own
+        # CustomerReceipt/SupplierPayment.filter(pk=...) UTR lookup, all
+        # per line. The exclusion sets and a UTR map covering the whole
+        # statement's window are now fetched once and reused across every
+        # line; the exclusion sets are updated in-memory as matches are
+        # confirmed so a receipt/payment auto-matched to an earlier line in
+        # this same loop can't also be suggested for a later one.
         if getattr(self.company, "auto_match_bank_exact", False):
-            for line in statement.lines.filter(match_status=BankLineMatchStatus.UNMATCHED):
-                suggestions = suggest_matches(company=self.company, line=line)
-                if is_exact_unique_suggestion(suggestions, line):
-                    s = suggestions[0]
-                    self._confirm_match(
+            unmatched_lines = list(statement.lines.filter(match_status=BankLineMatchStatus.UNMATCHED))
+            if unmatched_lines:
+                matched_receipt_ids = set(
+                    ReconMatch.objects.filter(company=self.company, receipt__isnull=False)
+                    .values_list("receipt_id", flat=True)
+                )
+                matched_supplier_payment_ids = set(
+                    ReconMatch.objects.filter(company=self.company, supplier_payment__isnull=False)
+                    .values_list("supplier_payment_id", flat=True)
+                )
+                window_start = min(line.txn_date for line in unmatched_lines) - timedelta(days=14)
+                window_end = max(line.txn_date for line in unmatched_lines) + timedelta(days=14)
+                receipt_utr_map = {
+                    rid: normalize_utr(utr)
+                    for rid, utr in CustomerReceipt.objects.filter(
+                        company=self.company, status="POSTED",
+                        receipt_date__gte=window_start, receipt_date__lte=window_end,
+                    ).values_list("id", "utr")
+                }
+                supplier_payment_utr_map = {
+                    pid: normalize_utr(utr)
+                    for pid, utr in SupplierPayment.objects.filter(
+                        company=self.company, status=SupplierPaymentStatus.POSTED,
+                        payment_date__gte=window_start, payment_date__lte=window_end,
+                    ).values_list("id", "utr")
+                }
+                for line in unmatched_lines:
+                    suggestions = suggest_matches(
+                        company=self.company,
                         line=line,
-                        receipt_id=s["id"] if s["type"] == "receipt" else None,
-                        payment_id=s["id"] if s["type"] == "supplier_payment" else None,
-                        confidence=s["confidence"],
-                        user=request.user,
-                        notes="auto_exact",
+                        exclude_receipt_ids=matched_receipt_ids,
+                        exclude_supplier_payment_ids=matched_supplier_payment_ids,
                     )
+                    if is_exact_unique_suggestion(
+                        suggestions, line,
+                        receipt_utr_map=receipt_utr_map,
+                        supplier_payment_utr_map=supplier_payment_utr_map,
+                    ):
+                        s = suggestions[0]
+                        self._confirm_match(
+                            line=line,
+                            receipt_id=s["id"] if s["type"] == "receipt" else None,
+                            payment_id=s["id"] if s["type"] == "supplier_payment" else None,
+                            confidence=s["confidence"],
+                            user=request.user,
+                            notes="auto_exact",
+                        )
+                        if s["type"] == "receipt":
+                            matched_receipt_ids.add(s["id"])
+                        else:
+                            matched_supplier_payment_ids.add(s["id"])
         self._audit("UPDATE", statement)
         return Response(self.get_serializer(statement).data)
 
@@ -789,9 +840,24 @@ class ReconViewSet(viewsets.ViewSet):
             .select_related("statement", "statement__bank_account")
             .order_by("txn_date")[:100]
         )
+        # B4-018: fetch the "already matched" exclusion sets once instead of
+        # suggest_matches re-querying ReconMatch for every one of up to 100 lines.
+        matched_receipt_ids = set(
+            ReconMatch.objects.filter(company=self.company, receipt__isnull=False)
+            .values_list("receipt_id", flat=True)
+        )
+        matched_supplier_payment_ids = set(
+            ReconMatch.objects.filter(company=self.company, supplier_payment__isnull=False)
+            .values_list("supplier_payment_id", flat=True)
+        )
         out = []
         for line in lines:
-            suggestions = suggest_matches(company=self.company, line=line)
+            suggestions = suggest_matches(
+                company=self.company,
+                line=line,
+                exclude_receipt_ids=matched_receipt_ids,
+                exclude_supplier_payment_ids=matched_supplier_payment_ids,
+            )
             # BB-000754: GET must not persist SUGGESTED — compute-only.
             display_status = line.match_status
             if suggestions and line.match_status == BankLineMatchStatus.UNMATCHED:
@@ -825,10 +891,24 @@ class ReconViewSet(viewsets.ViewSet):
             .select_related("statement", "statement__bank_account")
             .order_by("txn_date")[:100]
         )
+        # B4-018: same batching as list() above.
+        matched_receipt_ids = set(
+            ReconMatch.objects.filter(company=self.company, receipt__isnull=False)
+            .values_list("receipt_id", flat=True)
+        )
+        matched_supplier_payment_ids = set(
+            ReconMatch.objects.filter(company=self.company, supplier_payment__isnull=False)
+            .values_list("supplier_payment_id", flat=True)
+        )
         updated = 0
         out = []
         for line in lines:
-            suggestions = suggest_matches(company=self.company, line=line)
+            suggestions = suggest_matches(
+                company=self.company,
+                line=line,
+                exclude_receipt_ids=matched_receipt_ids,
+                exclude_supplier_payment_ids=matched_supplier_payment_ids,
+            )
             if suggestions:
                 line.match_status = BankLineMatchStatus.SUGGESTED
                 line.updated_by = request.user

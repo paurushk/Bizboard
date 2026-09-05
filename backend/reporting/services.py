@@ -11,6 +11,7 @@ from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from core.exceptions import BusinessRuleError
 from inventory.models import StockBalance
 from ledgers.services import LedgerService
 from masters.models import Product
@@ -53,6 +54,28 @@ def _as_sort_date(value):
 def _money(value, negate=False):
     amount = value if value is not None else Decimal("0")
     return -amount if negate else amount
+
+
+# B5-010: sales_register/purchase_register build a Python list of every
+# matching document with no LIMIT -- fine for a real date range, but an
+# unbounded call (no date_from) on a large tenant is a multi-MB response and
+# a full raw-document-table scan, exactly what this module's own docstring
+# says API clients never do. Cap it with a cheap .count() before building
+# the row list, rather than truncating silently (which would misrepresent a
+# financial register) or changing the response shape for the common case.
+MAX_REGISTER_ROWS_UNBOUNDED = 5000
+
+
+def _assert_register_within_bound(qs, *, date_from, kind: str) -> None:
+    if date_from:
+        return
+    count = qs.count()
+    if count > MAX_REGISTER_ROWS_UNBOUNDED:
+        raise BusinessRuleError(
+            f"{kind} has {count} documents with no start date filter -- add a "
+            f"date_from (or a narrower range) to keep this under "
+            f"{MAX_REGISTER_ROWS_UNBOUNDED} rows."
+        )
 
 
 class ReportService:
@@ -253,6 +276,7 @@ class ReportService:
             qs = qs.filter(invoice_date__gte=date_from)
         if date_to:
             qs = qs.filter(invoice_date__lte=date_to)
+        _assert_register_within_bound(qs, date_from=date_from, kind="Sales register")
         rows = [
             {
                 "id": i.id,
@@ -351,6 +375,7 @@ class ReportService:
             qs = qs.filter(invoice_date__gte=date_from)
         if date_to:
             qs = qs.filter(invoice_date__lte=date_to)
+        _assert_register_within_bound(qs, date_from=date_from, kind="Purchase register")
         rows = [
             {
                 "id": i.id,
@@ -466,7 +491,14 @@ class ReportService:
 
     @staticmethod
     def payables_aging(company, as_of: date | None = None):
-        """Bucket open purchase invoice outstanding by due date."""
+        """Bucket open purchase invoice outstanding by due date.
+
+        B5-008: was N+1 — one LedgerService.purchase_invoice_outstanding()
+        call per invoice (each its own handful of queries), unlike
+        receivables_aging's twin which precomputes CN/DN/allocation maps in
+        bulk. Now uses bulk_purchase_invoice_outstanding for the same O(1)
+        query shape.
+        """
         from ledgers.services import LedgerService
 
         as_of = as_of or timezone.localdate()
@@ -477,12 +509,19 @@ class ReportService:
             "days_61_90": Decimal("0"),
             "days_90_plus": Decimal("0"),
         }
-        invoices = PurchaseInvoice.objects.filter(
-            company=company,
-            status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
-        ).only("id", "grand_total", "invoice_date", "due_date", "payment_terms_days")
+        invoices = list(
+            PurchaseInvoice.objects.filter(
+                company=company,
+                status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+            ).only("id", "grand_total", "invoice_date", "due_date", "payment_terms_days")
+        )
+        if not invoices:
+            return buckets
+        outstanding_by_id = LedgerService.bulk_purchase_invoice_outstanding(
+            company, invoice_ids=[inv.id for inv in invoices]
+        )
         for inv in invoices:
-            outstanding = LedgerService.purchase_invoice_outstanding(inv)
+            outstanding = outstanding_by_id.get(inv.id) or Decimal("0")
             if outstanding <= 0:
                 continue
             due = inv.due_date or (inv.invoice_date + timedelta(days=inv.payment_terms_days or 0))
@@ -616,30 +655,9 @@ class ReportService:
                 }
             )
         rows.sort(key=lambda x: (x["date"], x["type"], x["id"]))
-        initial_opening = Decimal("0")
-        from payments.models import BankAccount
-
-        if bank_account_id:
-            ba = BankAccount.objects.filter(company=company, pk=bank_account_id).first()
-            if ba:
-                initial_opening = ba.opening_balance or Decimal("0")
-        elif company.opening_cash_balance is not None:
-            initial_opening = company.opening_cash_balance
-
-        opening = initial_opening
-        if date_from:
-            pre_receipts = CustomerReceipt.objects.filter(
-                company=company, status=ReceiptStatus.POSTED, receipt_date__lt=date_from
-            ).exclude(mode="CREDIT")
-            pre_payments = SupplierPayment.objects.filter(
-                company=company, status=SupplierPaymentStatus.POSTED, payment_date__lt=date_from
-            ).exclude(mode="CREDIT")
-            if bank_account_id:
-                pre_receipts = pre_receipts.filter(bank_account_id=bank_account_id)
-                pre_payments = pre_payments.filter(bank_account_id=bank_account_id)
-            pre_inflow = sum((r.amount for r in pre_receipts), Decimal("0"))
-            pre_outflow = sum((p.amount for p in pre_payments), Decimal("0"))
-            opening = initial_opening + pre_inflow - pre_outflow
+        opening = ReportService._cash_opening_balance(
+            company, date_from=date_from, bank_account_id=bank_account_id
+        )
 
         return {
             "opening": opening,
@@ -653,15 +671,91 @@ class ReportService:
         }
 
     @staticmethod
+    def _cash_opening_balance(company, *, date_from=None, bank_account_id=None) -> Decimal:
+        """Shared by cash_book and cash_totals so the opening-balance logic
+        (bank-account opening_balance vs. company.opening_cash_balance, plus
+        every pre-window receipt/payment) only lives in one place."""
+        from payments.models import BankAccount, CustomerReceipt, ReceiptStatus, SupplierPayment, SupplierPaymentStatus
+
+        initial_opening = Decimal("0")
+        if bank_account_id:
+            ba = BankAccount.objects.filter(company=company, pk=bank_account_id).first()
+            if ba:
+                initial_opening = ba.opening_balance or Decimal("0")
+        elif company.opening_cash_balance is not None:
+            initial_opening = company.opening_cash_balance
+
+        if not date_from:
+            return initial_opening
+
+        pre_receipts = CustomerReceipt.objects.filter(
+            company=company, status=ReceiptStatus.POSTED, receipt_date__lt=date_from
+        ).exclude(mode="CREDIT")
+        pre_payments = SupplierPayment.objects.filter(
+            company=company, status=SupplierPaymentStatus.POSTED, payment_date__lt=date_from
+        ).exclude(mode="CREDIT")
+        if bank_account_id:
+            pre_receipts = pre_receipts.filter(bank_account_id=bank_account_id)
+            pre_payments = pre_payments.filter(bank_account_id=bank_account_id)
+        # B5-009: DB-side sums instead of loading every pre-window row into
+        # Python just to add up .amount.
+        pre_inflow = pre_receipts.aggregate(t=Coalesce(Sum("amount"), Decimal("0")))["t"]
+        pre_outflow = pre_payments.aggregate(t=Coalesce(Sum("amount"), Decimal("0")))["t"]
+        return initial_opening + pre_inflow - pre_outflow
+
+    @staticmethod
+    def cash_totals(company, date_from=None, date_to=None, bank_account_id=None):
+        """B5-009: opening/inflow/outflow/closing via pure DB aggregates --
+        no per-row Python iteration, no `rows` list, no select_related joins.
+        cash_book still returns the full transaction list for the Cash Book
+        report page; this is for callers (cash_position/dashboard) that only
+        need the four summary numbers."""
+        from payments.models import CustomerReceipt, ReceiptStatus, SupplierPayment, SupplierPaymentStatus
+
+        receipts = CustomerReceipt.objects.filter(
+            company=company, status=ReceiptStatus.POSTED
+        ).exclude(mode="CREDIT")
+        payments = SupplierPayment.objects.filter(
+            company=company, status=SupplierPaymentStatus.POSTED
+        ).exclude(mode="CREDIT")
+        if date_from:
+            receipts = receipts.filter(receipt_date__gte=date_from)
+            payments = payments.filter(payment_date__gte=date_from)
+        if date_to:
+            receipts = receipts.filter(receipt_date__lte=date_to)
+            payments = payments.filter(payment_date__lte=date_to)
+        if bank_account_id:
+            receipts = receipts.filter(bank_account_id=bank_account_id)
+            payments = payments.filter(bank_account_id=bank_account_id)
+
+        inflow = receipts.aggregate(t=Coalesce(Sum("amount"), Decimal("0")))["t"]
+        outflow = payments.aggregate(t=Coalesce(Sum("amount"), Decimal("0")))["t"]
+        opening = ReportService._cash_opening_balance(
+            company, date_from=date_from, bank_account_id=bank_account_id
+        )
+        return {
+            "opening": opening,
+            "inflow": inflow,
+            "outflow": outflow,
+            "net": inflow - outflow,
+            "closing": opening + inflow - outflow,
+        }
+
+    @staticmethod
     def cash_position(company):
+        """B5-009: used to call the full cash_book() twice (once unbounded)
+        purely to read four numbers off it, materialising + sorting the
+        tenant's entire lifetime of receipts and payments into `rows` on
+        every dashboard load just to throw that list away. Now uses
+        cash_totals, which never builds `rows` at all."""
         from django.utils import timezone
 
         first_of_month = timezone.localdate().replace(day=1)
-        book_mtd = ReportService.cash_book(company, date_from=first_of_month)
-        book_all = ReportService.cash_book(company)
+        totals_mtd = ReportService.cash_totals(company, date_from=first_of_month)
+        totals_all = ReportService.cash_totals(company)
         return {
-            "closing": book_all["closing"],
-            "inflow_mtd": book_mtd["inflow"],
-            "outflow_mtd": book_mtd["outflow"],
+            "closing": totals_all["closing"],
+            "inflow_mtd": totals_mtd["inflow"],
+            "outflow_mtd": totals_mtd["outflow"],
             "kind": "actuals",
         }
