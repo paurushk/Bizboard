@@ -187,6 +187,26 @@ def test_purchase_bill_extraction_failure(mock_llm, tenant_a):
     assert "provider down" in (resp.data.get("failure_reason") or "")
 
 
+@patch("core.services.llm.extract_purchase_bill", return_value=FAKE_EXTRACT)
+def test_b7_016_extraction_refuses_over_budget_without_calling_llm(mock_llm, tenant_a):
+    """B7-016: extract_purchase_bill_task must gate on the company's AI
+    monthly token budget before ever calling the LLM."""
+    from insights.models import AiUsageLedger
+
+    tenant_a.company.ai_monthly_token_budget = 1
+    tenant_a.company.save(update_fields=["ai_monthly_token_budget"])
+    AiUsageLedger.objects.create(
+        company=tenant_a.company, feature=AiUsageLedger.Feature.EXTRACT,
+        tokens_in=10, tokens_out=10,
+    )
+
+    resp = _upload_bill(tenant_a)
+    assert resp.status_code == 201, resp.data
+    assert resp.data["status"] == "FAILED"
+    assert "budget" in (resp.data.get("failure_reason") or "").lower()
+    mock_llm.assert_not_called()
+
+
 def test_purchase_bill_rejects_unsupported_file_type(tenant_a):
     resp = tenant_a.client.post("/api/v1/imports/", {
         "kind": "PURCHASE_BILL",

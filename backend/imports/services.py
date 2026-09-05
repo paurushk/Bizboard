@@ -191,7 +191,7 @@ def _format_validation_detail(detail) -> str:
     return str(detail)
 
 
-def _custom_fields_for_commit(job, row, existing=None) -> dict:
+def _custom_fields_for_commit(job, row, existing=None, *, live_keys: set | None = None) -> dict:
     from rest_framework.exceptions import ValidationError as DRFValidationError
 
     from masters.custom_fields import coerce_values, values_from_row
@@ -200,14 +200,17 @@ def _custom_fields_for_commit(job, row, existing=None) -> dict:
     snapshot = job.custom_field_defs_snapshot or []
     if not header_map:
         return dict(existing or {})
-    job.company.refresh_from_db(fields=["item_custom_field_defs"])
-    live = {
-        str(spec.get("key") or "").casefold()
-        for spec in (job.company.item_custom_field_defs or [])
-        if isinstance(spec, dict) and spec.get("key")
-    }
+    if live_keys is None:
+        # B3-012: caller didn't precompute this (a one-off call site) -- fall
+        # back to a fresh read here, same as before.
+        job.company.refresh_from_db(fields=["item_custom_field_defs"])
+        live_keys = {
+            str(spec.get("key") or "").casefold()
+            for spec in (job.company.item_custom_field_defs or [])
+            if isinstance(spec, dict) and spec.get("key")
+        }
     for dest in header_map.values():
-        if str(dest).casefold() not in live:
+        if str(dest).casefold() not in live_keys:
             raise BusinessRuleError(f"Custom field '{dest}' no longer exists.")
     values = values_from_row(row, header_map)
     try:
@@ -1662,6 +1665,18 @@ class ImportService:
             (p.sku or "").casefold(): p
             for p in Product.objects.filter(company=job.company).exclude(sku="")
         }
+        # B3-012: _custom_fields_for_commit used to refresh_from_db the
+        # company row and rebuild this set on every single preview row. The
+        # live custom-field defs can't change mid-commit (this all runs in
+        # one call), so do it once here instead.
+        live_cf_keys = None
+        if job.custom_field_header_map:
+            job.company.refresh_from_db(fields=["item_custom_field_defs"])
+            live_cf_keys = {
+                str(spec.get("key") or "").casefold()
+                for spec in (job.company.item_custom_field_defs or [])
+                if isinstance(spec, dict) and spec.get("key")
+            }
         creates = []
         create_opening = []
         updates = []
@@ -1746,7 +1761,9 @@ class ImportService:
                     existing.selling_tax_inclusive = _inclusive_flag(row.get("selling_tax_inclusive"))
                 if row.get("purchase_tax_inclusive") not in (None, ""):
                     existing.purchase_tax_inclusive = _inclusive_flag(row.get("purchase_tax_inclusive"))
-                existing.custom_fields = _custom_fields_for_commit(job, row, existing.custom_fields)
+                existing.custom_fields = _custom_fields_for_commit(
+                    job, row, existing.custom_fields, live_keys=live_cf_keys,
+                )
                 existing.updated_by = user
                 existing.updated_at = now
                 updates.append(existing)
@@ -1782,7 +1799,7 @@ class ImportService:
                         track_serial=bool(track_serial) and not is_service,
                         selling_tax_inclusive=_inclusive_flag(row.get("selling_tax_inclusive")),
                         purchase_tax_inclusive=_inclusive_flag(row.get("purchase_tax_inclusive")),
-                        custom_fields=_custom_fields_for_commit(job, row),
+                        custom_fields=_custom_fields_for_commit(job, row, live_keys=live_cf_keys),
                         created_by=user,
                         updated_by=user,
                         created_at=now,

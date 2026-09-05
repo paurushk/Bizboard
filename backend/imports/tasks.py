@@ -136,6 +136,14 @@ def extract_purchase_bill_task(job_id: int, company_id=None):
         return
 
     try:
+        # B7-016: this job has real per-call LLM token cost and previously had
+        # no ceiling at all -- gate it on the same company-wide AI budget the
+        # assistant chat feature already enforces (insights.assistant), so a
+        # company that has exhausted its monthly allowance can't keep kicking
+        # off extraction jobs.
+        from insights.assistant import assert_within_budget
+
+        assert_within_budget(job.company)
         asset = job.file
         with asset.file.open("rb") as handle:
             raw = handle.read()

@@ -17,6 +17,7 @@ from core.idempotency import (
 )
 from core.models import FileAsset
 from core.permissions import CanImport, HasCompany, IsOwner, get_company_user
+from core.throttles import CompanyRateThrottle
 from core.services.files import FileService
 from masters.models import Customer, Supplier
 
@@ -55,6 +56,10 @@ class ImportJobViewSet(
     serializer_class = ImportJobSerializer
     queryset = ImportJob.objects.all()
     permission_classes = [IsAuthenticated, HasCompany, CanImport]
+    # B3-009: bill-photo/PDF extraction has real per-call LLM cost -- cap how
+    # often a company can start a new bill extraction (upload or retry),
+    # independent of the monthly token-budget check in extract_purchase_bill_task.
+    throttle_scope = "llm_bill_extraction"
 
     @property
     def company(self):
@@ -62,6 +67,14 @@ class ImportJobViewSet(
 
     def get_queryset(self):
         return self.queryset.filter(company=self.company)
+
+    def get_throttles(self):
+        if self.action == "create":
+            kind = (self.request.data.get("kind") or "").upper()
+            if kind in ImportJob.BILL_KINDS:
+                return [CompanyRateThrottle()]
+            return []
+        return super().get_throttles()
 
     def create(self, request, *args, **kwargs):
         """Upload + validate (CSV masters) or start bill ingestion (purchase/sales bill)."""
@@ -162,7 +175,7 @@ class ImportJobViewSet(
                 and not created_ok
             ):
                 release_record(company=self.company, scope="import_job_create", raw_key=raw_key)
-    @action(detail=True, methods=["post"], url_path="retry-extract")
+    @action(detail=True, methods=["post"], url_path="retry-extract", throttle_classes=[CompanyRateThrottle])
     def retry_extract(self, request, pk=None):
         """Re-run LLM extraction for FAILED (or UPLOADED) bill jobs."""
         job = self.get_object()

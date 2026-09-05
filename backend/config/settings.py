@@ -323,6 +323,11 @@ REST_FRAMEWORK = {
         # Per-company (CompanyRateThrottle) budgets for expensive reports.
         "gst_reports": "30/min",
         "heavy_reports": "60/min",
+        # B3-009: LLM bill-photo extraction has real per-call token cost;
+        # cap how often a company can kick off a new extraction (upload or
+        # retry) independent of the monthly token budget check in
+        # extract_purchase_bill_task.
+        "llm_bill_extraction": "30/hour",
         "search": "60/min",
         "help_events": "30/min",
         "help_feedback": "20/min",

@@ -528,3 +528,43 @@ def test_import_commit_fails_when_mapped_key_removed(tenant_a):
     tenant_a.company.save(update_fields=["item_custom_field_defs"])
     commit = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
     assert commit.status_code == 400
+
+
+def test_b3_012_commit_products_custom_field_check_query_count_is_flat(tenant_a):
+    """B3-012: _custom_fields_for_commit used to refresh_from_db the company
+    row and rebuild the live-keys set once per preview row. Query count for
+    the custom-field validity check must not scale with row count."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    _set_defs(tenant_a.company, [
+        {"key": "color", "label": "Color", "type": "text", "active": True},
+    ])
+
+    def _csv(n, offset=0):
+        rows = [b"name,sku,Color"]
+        for i in range(n):
+            idx = offset + i
+            rows.append(f"Item{idx},SKU-{idx},Red".encode())
+        return b"\n".join(rows) + b"\n"
+
+    job_small = _upload_products(tenant_a, _csv(2)).data
+    assert job_small["error_rows"] == 0, job_small
+    with CaptureQueriesContext(connection) as small:
+        commit_small = tenant_a.client.post(f"/api/v1/imports/{job_small['id']}/commit/")
+    assert commit_small.status_code == 200, commit_small.data
+
+    job_large = _upload_products(tenant_a, _csv(10, offset=100)).data
+    assert job_large["error_rows"] == 0, job_large
+    with CaptureQueriesContext(connection) as large:
+        commit_large = tenant_a.client.post(f"/api/v1/imports/{job_large['id']}/commit/")
+    assert commit_large.status_code == 200, commit_large.data
+
+    # 10 rows vs 2 must not multiply the query count -- a per-row
+    # refresh_from_db would scale roughly with row count.
+    assert len(large.captured_queries) <= len(small.captured_queries) + 5, (
+        f"{len(small.captured_queries)} queries for 2 rows vs "
+        f"{len(large.captured_queries)} for 10 -- looks like a per-row query regressed"
+    )
+    for i in range(10):
+        assert Product.objects.get(company=tenant_a.company, sku=f"SKU-{100+i}").custom_fields.get("color") == "Red"
