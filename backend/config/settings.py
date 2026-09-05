@@ -721,6 +721,9 @@ else:
 # No SaaS plan: starter seat (1), not unlimited. 0 = explicit unlimited.
 UNSUBSCRIBED_SEAT_LIMIT = _env_int("UNSUBSCRIBED_SEAT_LIMIT", 1)
 BILLING_TRIAL_DAYS = _env_int("BILLING_TRIAL_DAYS", 14)
+# B6-006: a sandbox restore creates a full company copy of real tenant data --
+# cap how many an owner can have live at once.
+MAX_CONCURRENT_SANDBOXES = _env_int("MAX_CONCURRENT_SANDBOXES", 3)
 # BB-000726: PAST_DUE write grace after current_period_end (0 = block immediately).
 BILLING_PAST_DUE_GRACE_DAYS = _env_int("BILLING_PAST_DUE_GRACE_DAYS", 0)
 GSP_LIVE_ENABLED = _env_bool("GSP_LIVE_ENABLED")

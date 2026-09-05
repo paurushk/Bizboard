@@ -236,6 +236,10 @@ class Company(TimeStampedModel):
     feature_flags = models.JSONField(default=dict, blank=True)
     # BB-000671: ops escape hatch — treat SaaS subscription as active/compliant.
     billing_override_active = models.BooleanField(default=False)
+    # B6-006: marks a company created by restore_to_sandbox() (a throwaway
+    # preview copy of a real tenant's data), so it can be excluded from
+    # normal tenant listings/counts and capped per owner.
+    is_sandbox = models.BooleanField(default=False)
     # Wave B onboarding — progress is derived; only user choices/analytics persist.
     onboarding_dismissed_at = models.DateTimeField(null=True, blank=True)
     tax_profile_confirmed_at = models.DateTimeField(null=True, blank=True)

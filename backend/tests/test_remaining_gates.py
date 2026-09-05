@@ -279,6 +279,94 @@ def test_d02_restore_refuses_unbacked_invoices(tenant_a):
         )
 
 
+def _minimal_export_payload(company):
+    return {
+        "source_company_id": company.pk,
+        "gstins": [], "document_series": [], "customers": [], "suppliers": [],
+        "products": [], "warehouses": [], "batch_lots": [], "stock_balances": [],
+        "stock_movements": [], "serial_numbers": [], "inventory_cost_layers": [],
+        "sales_invoices": [], "purchase_invoices": [], "receipts": [],
+        "supplier_payments": [], "allocations": [], "accounts": [], "journals": [],
+        "quotations": [], "sales_orders": [], "delivery_challans": [],
+        "sales_credit_notes": [], "sales_debit_notes": [], "sales_returns": [],
+        "purchase_orders": [], "purchase_credit_notes": [], "purchase_debit_notes": [],
+        "purchase_returns": [], "bills_of_entry": [], "gstr2b": [], "file_assets": [],
+        "payment_links": [], "recon_matches": [],
+    }
+
+
+def test_b6_006_sandbox_restore_copies_real_ai_flags_not_hardcoded_true(tenant_a):
+    """B6-006: a sandbox must not grant AI access a source membership never
+    had -- tenant_a's owner has both AI flags False (conftest default)."""
+    from accounts.models import CompanyUser
+    from accounts.tenant_backup import restore_to_sandbox
+
+    owner_membership = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.owner)
+    assert owner_membership.can_view_ai_insights is False
+    assert owner_membership.can_use_ai_assistant is False
+
+    sandbox = restore_to_sandbox(
+        source_company=tenant_a.company,
+        payload=_minimal_export_payload(tenant_a.company),
+        owner=tenant_a.owner,
+    )
+    sandbox_membership = CompanyUser.objects.get(company=sandbox, user=tenant_a.owner)
+    assert sandbox_membership.can_view_ai_insights is False
+    assert sandbox_membership.can_use_ai_assistant is False
+
+
+def test_b6_006_sandbox_restore_copies_true_ai_flags_when_source_has_them(tenant_a):
+    from accounts.models import CompanyUser
+    from accounts.tenant_backup import restore_to_sandbox
+
+    owner_membership = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.owner)
+    owner_membership.can_view_ai_insights = True
+    owner_membership.can_use_ai_assistant = True
+    owner_membership.save(update_fields=["can_view_ai_insights", "can_use_ai_assistant"])
+
+    sandbox = restore_to_sandbox(
+        source_company=tenant_a.company,
+        payload=_minimal_export_payload(tenant_a.company),
+        owner=tenant_a.owner,
+    )
+    sandbox_membership = CompanyUser.objects.get(company=sandbox, user=tenant_a.owner)
+    assert sandbox_membership.can_view_ai_insights is True
+    assert sandbox_membership.can_use_ai_assistant is True
+
+
+def test_b6_006_sandbox_restore_bootstraps_trial_subscription(tenant_a):
+    from accounts.tenant_backup import restore_to_sandbox
+    from billing.models import Subscription
+
+    sandbox = restore_to_sandbox(
+        source_company=tenant_a.company,
+        payload=_minimal_export_payload(tenant_a.company),
+        owner=tenant_a.owner,
+    )
+    assert sandbox.is_sandbox is True
+    sub = Subscription.objects.filter(company=sandbox).first()
+    assert sub is not None
+    assert sub.status == Subscription.Status.TRIAL
+
+
+@override_settings(MAX_CONCURRENT_SANDBOXES=2)
+def test_b6_006_sandbox_restore_caps_concurrent_sandboxes_per_owner(tenant_a):
+    from accounts.tenant_backup import restore_to_sandbox
+
+    for _ in range(2):
+        restore_to_sandbox(
+            source_company=tenant_a.company,
+            payload=_minimal_export_payload(tenant_a.company),
+            owner=tenant_a.owner,
+        )
+    with pytest.raises(BusinessRuleError, match="sandbox"):
+        restore_to_sandbox(
+            source_company=tenant_a.company,
+            payload=_minimal_export_payload(tenant_a.company),
+            owner=tenant_a.owner,
+        )
+
+
 def test_a01_push_token_patch(tenant_a):
     resp = tenant_a.client.patch("/api/v1/auth/me/", {"pushToken": "tok-android-1"}, format="json")
     assert resp.status_code == 200, resp.data

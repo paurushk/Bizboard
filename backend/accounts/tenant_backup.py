@@ -1143,10 +1143,36 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
 
 @transaction.atomic
 def restore_to_sandbox(*, source_company, payload: dict[str, Any], owner):
+    from django.conf import settings
+
     from accounts.models import Company, CompanyUser
+    from core.exceptions import BusinessRuleError
+
+    # B6-006: a sandbox restore creates a full company copy of real tenant
+    # data -- cap how many an owner can have live at once rather than
+    # letting them accumulate unboundedly.
+    max_sandboxes = int(getattr(settings, "MAX_CONCURRENT_SANDBOXES", 3) or 0)
+    if max_sandboxes > 0:
+        existing = CompanyUser.objects.filter(
+            user=owner, role=CompanyUser.Role.OWNER, company__is_sandbox=True,
+        ).count()
+        if existing >= max_sandboxes:
+            raise BusinessRuleError(
+                f"You already have {existing} sandbox compan{'y' if existing == 1 else 'ies'} "
+                f"(limit {max_sandboxes}). Ask an admin to remove an old one before creating another."
+            )
+
+    # B6-006: copy the requester's real AI capability flags from their
+    # membership on the source company instead of hard-coding everything to
+    # True -- a sandbox must not grant AI access a source membership never had.
+    source_membership = CompanyUser.objects.filter(company=source_company, user=owner).first()
+    ai_insights = bool(source_membership and source_membership.can_view_ai_insights)
+    ai_assistant = bool(source_membership and source_membership.can_use_ai_assistant)
 
     sandbox_name = f"{source_company.name} (sandbox restore)"
-    sandbox = Company.objects.create(name=sandbox_name, state=source_company.state or "")
+    sandbox = Company.objects.create(
+        name=sandbox_name, state=source_company.state or "", is_sandbox=True,
+    )
     CompanyUser.objects.create(
         company=sandbox,
         user=owner,
@@ -1156,13 +1182,20 @@ def restore_to_sandbox(*, source_company, payload: dict[str, Any], owner):
         can_cancel_documents=True,
         can_view_financial_reports=True,
         can_export=True,
-        can_view_ai_insights=True,
-        can_use_ai_assistant=True,
+        can_view_ai_insights=ai_insights,
+        can_use_ai_assistant=ai_assistant,
         can_create_sales=True,
         can_create_purchases=True,
         can_create_payments=True,
         can_post_journals=True,
     )
+    # B6-006: run the sandbox through the same trial/subscription bootstrap
+    # registration gets, instead of leaving it with no Subscription row at
+    # all (which some seat/plan-module checks treat as "unsubscribed" rather
+    # than genuinely unlimited).
+    from billing.services import ensure_register_trial
+
+    ensure_register_trial(sandbox)
     # B6-001: PostgresRlsMiddleware has app.company_id pinned to the requester's
     # *active* company; every tenant-table INSERT for `sandbox` would fail the
     # RLS WITH CHECK. import_payload sets company= explicitly on every row, so a
