@@ -147,6 +147,56 @@ def test_assistant_cross_tenant_customer(tenant_a, tenant_b):
 
 
 @pytest.mark.django_db
+def test_b9_011_daily_summary_tool_is_read_only(tenant_a):
+    """B9-011: the assistant's 'read' tool must not upsert a
+    DailyBusinessSummary -- that write belongs to the scheduled task only."""
+    from insights.models import DailyBusinessSummary
+
+    ex = ToolExecutor(tenant_a.company)
+
+    # No summary generated yet -- read-only tool must not create one.
+    assert DailyBusinessSummary.objects.filter(company=tenant_a.company).count() == 0
+    result = ex.tool_get_daily_summary()
+    assert DailyBusinessSummary.objects.filter(company=tenant_a.company).count() == 0
+    assert result["kpis"] == {}
+    assert "no daily summary" in result["narrative"].lower()
+
+    # Once the scheduled task has actually run, the tool reads that snapshot
+    # verbatim and still writes nothing.
+    persisted = generate_daily_summary(tenant_a.company)
+    before = DailyBusinessSummary.objects.filter(company=tenant_a.company).count()
+    result2 = ex.tool_get_daily_summary()
+    after = DailyBusinessSummary.objects.filter(company=tenant_a.company).count()
+    assert after == before
+    assert result2["summary_date"] == persisted.summary_date.isoformat()
+    assert result2["kpis"] == persisted.kpis
+
+
+@pytest.mark.django_db
+def test_b9_011_list_business_alerts_tool_is_read_only(tenant_a):
+    """B9-011: the assistant's alert-listing tool must not upsert alerts."""
+    from insights.models import BusinessAlertEvent
+
+    ex = ToolExecutor(tenant_a.company)
+    assert BusinessAlertEvent.objects.filter(company=tenant_a.company).count() == 0
+    result = ex.tool_list_business_alerts()
+    assert BusinessAlertEvent.objects.filter(company=tenant_a.company).count() == 0
+    assert result["alerts"] == []
+
+    # An alert already persisted (e.g. by the scheduled upsert) is surfaced
+    # as-is, with no additional write.
+    BusinessAlertEvent.objects.create(
+        company=tenant_a.company, code="LOW_STOCK_FAST_MOVER", severity="warning",
+        message="Test alert", subject_key="p:1", status=BusinessAlertEvent.Status.OPEN,
+    )
+    before = BusinessAlertEvent.objects.filter(company=tenant_a.company).count()
+    result2 = ex.tool_list_business_alerts()
+    after = BusinessAlertEvent.objects.filter(company=tenant_a.company).count()
+    assert after == before
+    assert [a["code"] for a in result2["alerts"]] == ["LOW_STOCK_FAST_MOVER"]
+
+
+@pytest.mark.django_db
 def test_insights_api_owner(tenant_a):
     resp = tenant_a.client.get("/api/v1/insights/daily-summary/")
     assert resp.status_code == 200

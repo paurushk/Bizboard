@@ -21,8 +21,8 @@ from .services import (
     build_growth_hints,
     compute_health_score,
     forecast_cashflow,
-    generate_daily_summary,
-    upsert_alerts,
+    get_daily_summary_readonly,
+    get_open_alerts_readonly,
 )
 
 PROMPT_VERSION = "assistant-v1"
@@ -220,8 +220,20 @@ class ToolExecutor:
     def tool_get_daily_summary(self, date: str | None = None):
         from datetime import date as date_cls
 
+        # B9-011: a "read" tool must not upsert -- generate_daily_summary()
+        # writes (and internally upserts alerts too). The scheduled task
+        # (insights.tasks.generate_daily_summary_for_company) already keeps
+        # this fresh; read the last-persisted snapshot instead.
         d = date_cls.fromisoformat(date) if date else None
-        s = generate_daily_summary(self.company, for_date=d)
+        s = get_daily_summary_readonly(self.company, for_date=d)
+        if s is None:
+            return {
+                "summary_date": (d or timezone.localdate()).isoformat(),
+                "kpis": {},
+                "narrative": "No daily summary has been generated yet for this company.",
+                "alert_codes": [],
+                "citation": {"path": "/insights", "label": "Daily summary"},
+            }
         return {
             "summary_date": s.summary_date.isoformat(),
             "kpis": s.kpis,
@@ -294,7 +306,8 @@ class ToolExecutor:
         }
 
     def tool_list_business_alerts(self):
-        alerts = upsert_alerts(self.company)
+        # B9-011: read-only -- see tool_get_daily_summary's note.
+        alerts = get_open_alerts_readonly(self.company)
         open_alerts = [
             {
                 "code": a.code,
@@ -303,7 +316,6 @@ class ToolExecutor:
                 "cta_path": a.cta_path,
             }
             for a in alerts
-            if a.status == a.Status.OPEN
         ]
         return {
             "alerts": open_alerts,

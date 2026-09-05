@@ -111,6 +111,29 @@ def upsert_alerts(company, as_of: date | None = None) -> list[BusinessAlertEvent
     return results
 
 
+def get_open_alerts_readonly(company) -> list[BusinessAlertEvent]:
+    """B9-011: a read-only view of the last-persisted alerts for callers
+    (the AI assistant) that must not have write side-effects. Alerts are
+    kept fresh by upsert_alerts() being called from generate_daily_summary's
+    own scheduled task + the dashboard views; this never recomputes."""
+    return list(
+        BusinessAlertEvent.objects.filter(
+            company=company, status=BusinessAlertEvent.Status.OPEN,
+        ).order_by("-created_at")
+    )
+
+
+def get_daily_summary_readonly(company, for_date: date | None = None) -> DailyBusinessSummary | None:
+    """B9-011: read the most recent persisted DailyBusinessSummary without
+    generating one -- for callers (the AI assistant) that must not have
+    write side-effects. Returns None if the scheduled task hasn't run yet
+    for this company (e.g. a brand-new tenant)."""
+    qs = DailyBusinessSummary.objects.filter(company=company)
+    if for_date is not None:
+        qs = qs.filter(summary_date=for_date)
+    return qs.order_by("-summary_date").first()
+
+
 def generate_daily_summary(
     company, for_date: date | None = None, *, send_email: bool = False,
 ) -> DailyBusinessSummary:
