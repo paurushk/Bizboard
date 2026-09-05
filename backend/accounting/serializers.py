@@ -145,6 +145,23 @@ class JournalEntrySerializer(serializers.ModelSerializer):
         return attrs
 
 
+class UnreconciledGlLineSerializer(serializers.ModelSerializer):
+    """F2-028: a flat, paginable view of one account's still-unreconciled GL
+    lines for the bank-reconciliation picker (no client-side journal paging)."""
+
+    entry_id = serializers.IntegerField(source="entry.id", read_only=True)
+    entry_number = serializers.CharField(source="entry.number", read_only=True)
+    entry_date = serializers.DateField(source="entry.entry_date", read_only=True)
+    narration = serializers.CharField(source="entry.narration", read_only=True)
+
+    class Meta:
+        model = JournalLine
+        fields = [
+            "id", "entry_id", "entry_number", "entry_date", "narration",
+            "debit", "credit",
+        ]
+
+
 class BankReconSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = BankReconSession

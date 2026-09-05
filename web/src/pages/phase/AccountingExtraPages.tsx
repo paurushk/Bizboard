@@ -128,15 +128,6 @@ export function AccountingBankReconPage() {
     queryKey: ['bank-statements'],
     queryFn: async () => (await api.listBankStatementsPage()).results,
   });
-  const journals = useQuery({
-    queryKey: ['journals'],
-    queryFn: async () => {
-      const page = await api.listJournalsPage({ pageSize: 100 });
-      // F3-019: keep the total so the picker can say it's capped — a bank line
-      // older than the 100 most recent vouchers otherwise silently can't match.
-      return { results: page.results, count: page.count ?? page.results.length };
-    },
-  });
   const [account, setAccount] = useState('');
   const [statement, setStatement] = useState('');
   const [session, setSession] = useState('');
@@ -156,21 +147,20 @@ export function AccountingBankReconPage() {
     });
     return preferred.length ? preferred : all.filter((a) => a.type === 'ASSET');
   }, [accounts.data]);
+  // F2-028: unreconciled GL lines for the chosen account are resolved
+  // server-side now — the old client-side "most recent 100 journals" scan
+  // silently hid any GL line older than that from the match picker.
+  const glLines = useQuery({
+    queryKey: ['unreconciled-gl-lines', account],
+    queryFn: () => api.listUnreconciledGlLines(account),
+    enabled: Boolean(account),
+  });
   const unmatchedGl = useMemo(() => {
-    if (!account) return [];
-    return (journals.data?.results ?? []).flatMap((entry) => {
-      if (entry.status !== 'POSTED') return [];
-      return (entry.lines ?? []).filter((line) => {
-        const lineAccount = String(line.account);
-        return lineAccount === account && !line.bankStatementLine && !line.reconciledAt;
-      }).map((line) => ({
-        ...line,
-        label: `${entry.number || entry.id} · ${entry.entryDate} · Dr ${formatMoney(toNumber(line.debit))} / Cr ${formatMoney(toNumber(line.credit))}`,
-      }));
-    });
-  }, [journals.data, account]);
-  const journalsCapped =
-    (journals.data?.count ?? 0) > (journals.data?.results?.length ?? 0);
+    return (glLines.data ?? []).map((line) => ({
+      ...line,
+      label: `${line.entryNumber || line.entryId} · ${line.entryDate} · Dr ${formatMoney(toNumber(line.debit))} / Cr ${formatMoney(toNumber(line.credit))}`,
+    }));
+  }, [glLines.data]);
   const unmatchedBank = useMemo(() => {
     const lines = (statementDetail.data?.lines as Row[] | undefined) ?? [];
     return lines.filter((line) => String(line.matchStatus ?? line.match_status ?? 'UNMATCHED') !== 'MATCHED');
@@ -190,7 +180,7 @@ export function AccountingBankReconPage() {
       setBankLine('');
       setError('');
       void qc.invalidateQueries({ queryKey: ['accounting-bank-recon'] });
-      void qc.invalidateQueries({ queryKey: ['journals'] });
+      void qc.invalidateQueries({ queryKey: ['unreconciled-gl-lines'] });
       void qc.invalidateQueries({ queryKey: ['bank-statement', statement] });
     },
     onError: (e) => setError(getErrorMessage(e)),
@@ -273,9 +263,11 @@ export function AccountingBankReconPage() {
             sx={{ minWidth: 240, flex: 1 }}
             disabled={!account}
             helperText={
-              journalsCapped
-                ? `only the ${journals.data?.results?.length} most recent vouchers are searchable here`
-                : undefined
+              account && glLines.isFetching
+                ? 'loading unreconciled GL lines…'
+                : account && !unmatchedGl.length
+                  ? 'no unreconciled GL lines for this account'
+                  : undefined
             }
           >
             <MenuItem value="">{account ? 'Select journal line' : 'Pick a GL account first'}</MenuItem>

@@ -351,6 +351,24 @@ export async function listJournals(params?: Record<string, string>): Promise<imp
 export async function listJournalsPage(params?: PageParams): Promise<PageResult<import('@/types/domain').JournalEntry>> {
   return fetchPage<import('@/types/domain').JournalEntry>('/accounting/journals/', params);
 }
+export type UnreconciledGlLine = {
+  id: number;
+  entryId: number;
+  entryNumber: string;
+  entryDate: string;
+  narration: string;
+  debit: string;
+  credit: string;
+};
+
+// F2-028: still-unreconciled GL lines for one account, resolved server-side so
+// the bank-recon picker isn't limited to the most recent journals page.
+export async function listUnreconciledGlLines(accountId: number | string): Promise<UnreconciledGlLine[]> {
+  return fetchAllPagesMasters<UnreconciledGlLine>('/accounting/journals/unreconciled-lines/', {
+    account: String(accountId),
+  });
+}
+
 export const createJournal = (payload: Record<string, unknown>) => apiClient.post('/accounting/journals/', payload).then(({ data }) => unwrapData(data));
 export const postJournal = (id: number) => apiClient.post(`/accounting/journals/${id}/post/`).then(({ data }) => unwrapData(data));
 export const reverseJournal = (id: number) => apiClient.post(`/accounting/journals/${id}/reverse/`).then(({ data }) => unwrapData(data));

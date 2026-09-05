@@ -26,7 +26,7 @@ from .models import Account, AccountingPeriod, BankReconSession, CostCenter, Fix
 from .reports import balance_sheet, cash_flow, close_financial_year, profit_and_loss, trial_balance
 from .serializers import (
     AccountSerializer, AccountingPeriodSerializer, BankReconSessionSerializer, CostCenterSerializer,
-    FixedAssetSerializer, JournalEntrySerializer,
+    FixedAssetSerializer, JournalEntrySerializer, UnreconciledGlLineSerializer,
 )
 from .services import BooksHealthService, PostingService, seed_chart_of_accounts
 
@@ -229,6 +229,38 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     @action(detail=True, methods=["post"])
     def reverse(self, request, pk=None):
         return Response(self.get_serializer(PostingService.reverse(self.get_object(), request.user)).data)
+
+    @action(detail=False, methods=["get"], url_path="unreconciled-lines")
+    def unreconciled_lines(self, request):
+        """F2-028: still-unreconciled GL lines for one account, resolved
+        server-side. The bank-recon picker used to page the most recent 100
+        journals client-side, so a GL line older than that could never be
+        matched to a bank line.
+        """
+        account_id = request.query_params.get("account")
+        if not account_id:
+            raise BusinessRuleError("account query parameter is required.")
+        try:
+            account = Account.objects.get(pk=account_id, company=self.company)
+        except (Account.DoesNotExist, ValueError, TypeError):
+            raise BusinessRuleError("Unknown account.")
+        lines = (
+            JournalLine.objects.filter(
+                company=self.company,
+                account=account,
+                entry__status=JournalEntry.Status.POSTED,
+                bank_statement_line__isnull=True,
+                reconciled_at__isnull=True,
+            )
+            .select_related("entry")
+            .order_by("-entry__entry_date", "-entry__id", "-id")
+        )
+        page = self.paginate_queryset(lines)
+        target = page if page is not None else lines
+        serializer = UnreconciledGlLineSerializer(target, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
 
 class BankReconSessionViewSet(AccountingEnabledMixin, CompanyScopedViewSet):

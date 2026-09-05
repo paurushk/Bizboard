@@ -172,6 +172,84 @@ def test_accounting_bank_recon_match(books):
     assert jl.bank_statement_line_id == bs_line.id
 
 
+def test_f2_028_unreconciled_gl_lines_endpoint_is_not_capped_and_filters(books):
+    """F2-028: the bank-recon picker resolves unreconciled GL lines server-side
+    for one account -- no client-side 'most recent 100 journals' cap, and
+    reconciled / draft lines are excluded."""
+    from payments.models import (
+        BankAccount, BankStatement, BankStatementLine, BankStatementStatus,
+    )
+
+    bank_gl = PostingService._account(books.company, "1500")
+    other_gl = PostingService._account(books.company, "1100")
+    equity = PostingService._account(books.company, "3100")
+
+    # 55 posted entries touching bank_gl -> past the default page size of 50.
+    for i in range(55):
+        PostingService.post(
+            company=books.company, source_type="TEST", source_id=1000 + i, purpose="BANK",
+            entry_date="2026-04-01", user=books.owner,
+            lines=[
+                {"account": bank_gl, "debit": Decimal("10.00")},
+                {"account": equity, "credit": Decimal("10.00")},
+            ],
+        )
+    # one already reconciled -> must be excluded
+    recon_entry = PostingService.post(
+        company=books.company, source_type="TEST", source_id=2000, purpose="BANK",
+        entry_date="2026-04-01", user=books.owner,
+        lines=[
+            {"account": bank_gl, "debit": Decimal("99.00")},
+            {"account": equity, "credit": Decimal("99.00")},
+        ],
+    )
+    bank_acct = BankAccount.objects.create(company=books.company, name="HDFC")
+    statement = BankStatement.objects.create(
+        company=books.company, bank_account=bank_acct, status=BankStatementStatus.COMMITTED,
+    )
+    bs_line = BankStatementLine.objects.create(
+        company=books.company, statement=statement, txn_date="2026-04-01",
+        amount=Decimal("99.00"), narration="x",
+    )
+    recon_line = recon_entry.lines.get(account=bank_gl)
+    recon_line.bank_statement_line = bs_line
+    recon_line.save(update_fields=["bank_statement_line"])
+    # a draft entry -> must be excluded
+    draft = JournalEntry.objects.create(
+        company=books.company, status=JournalEntry.Status.DRAFT, entry_date="2026-04-01",
+    )
+    JournalLine.objects.create(company=books.company, entry=draft, account=bank_gl, debit=Decimal("5.00"))
+
+    resp = books.client.get(
+        "/api/v1/accounting/journals/unreconciled-lines/", {"account": bank_gl.id}
+    )
+    assert resp.status_code == 200, resp.data
+    assert resp.data["count"] == 55
+    assert len(resp.data["results"]) == 50
+    assert resp.data["next"]
+
+    # scoped to the requested account only
+    other = books.client.get(
+        "/api/v1/accounting/journals/unreconciled-lines/", {"account": other_gl.id}
+    )
+    assert other.status_code == 200
+    assert other.data["count"] == 0
+
+
+def test_f2_028_unreconciled_gl_lines_requires_account_and_rejects_foreign(books, tenant_b):
+    tenant_b.company.accounting_enabled = True
+    tenant_b.company.save(update_fields=["accounting_enabled"])
+    seed_chart_of_accounts(tenant_b.company, tenant_b.owner)
+    foreign_acct = PostingService._account(tenant_b.company, "1500")
+
+    missing = books.client.get("/api/v1/accounting/journals/unreconciled-lines/")
+    assert missing.status_code == 400
+    foreign = books.client.get(
+        "/api/v1/accounting/journals/unreconciled-lines/", {"account": foreign_acct.id}
+    )
+    assert foreign.status_code == 400
+
+
 def test_purchase_complete_debits_inventory_not_purchases_expense(books):
     """BB-000322: perpetual inventory — purchase Complete debits 1400 Inventory,
     never the periodic 5100 Purchases expense (COGS is relieved on sale)."""
