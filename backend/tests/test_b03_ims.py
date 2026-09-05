@@ -90,6 +90,37 @@ def test_ims_offline_round_trip(tenant_a):
 
 
 @pytest.mark.django_db
+def test_b5_024_ims_offline_round_trip_preserves_itc_eligibility(tenant_a):
+    """B5-024: itc_eligibility must survive an export -> re-import round trip
+    -- re-import must not silently reset it to UNREVIEWED (which would
+    collapse matched-2B ITC to 0 on GSTR-3B even though the books stay posted)."""
+    row = Gstr2bIngest.objects.create(
+        company=tenant_a.company,
+        period=PERIOD,
+        supplier_gstin="29AAAAA0000A1Z5",
+        invoice_number="ITC-RT-1",
+        invoice_date=timezone.localdate(),
+        taxable_value=Decimal("200.00"),
+        cgst=Decimal("18.00"),
+        sgst=Decimal("18.00"),
+        ims_action=Gstr2bIngest.ImsAction.ACCEPT,
+        itc_eligibility=Gstr2bIngest.ItcEligibility.CLAIMABLE,
+    )
+    exported = export_offline(tenant_a.company, PERIOD)
+    row_payload = next(r for r in exported["rows"] if r["invoice_number"] == "ITC-RT-1")
+    assert row_payload["itc_eligibility"] == Gstr2bIngest.ItcEligibility.CLAIMABLE
+
+    # replace=True wipes the period's rows and recreates them from the file
+    # (a new pk, not an update-in-place) -- re-fetch by natural key rather
+    # than refresh_from_db() on the now-deleted original row.
+    import_offline(tenant_a.company, exported, replace=True)
+    reimported = Gstr2bIngest.objects.get(
+        company=tenant_a.company, period=PERIOD, invoice_number="ITC-RT-1",
+    )
+    assert reimported.itc_eligibility == Gstr2bIngest.ItcEligibility.CLAIMABLE
+
+
+@pytest.mark.django_db
 def test_no_action_at_period_lock_is_not_deemed_accept(tenant_a):
     row = _row(
         tenant_a.company,
