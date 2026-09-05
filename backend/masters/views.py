@@ -214,6 +214,12 @@ class SupplierViewSet(CompanyScopedViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        # F2-033: the Suppliers list filter bar sends status=ACTIVE|INACTIVE.
+        status_filter = (self.request.query_params.get("status") or "").upper()
+        if status_filter == "ACTIVE":
+            qs = qs.filter(is_active=True)
+        elif status_filter == "INACTIVE":
+            qs = qs.filter(is_active=False)
         q = self.request.query_params.get("search") or self.request.query_params.get("q")
         if q:
             qs = qs.filter(Q(name__icontains=q) | Q(phone__icontains=q) | Q(gstin__icontains=q))

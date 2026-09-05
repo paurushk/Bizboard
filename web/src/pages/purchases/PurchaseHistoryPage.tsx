@@ -35,6 +35,12 @@ import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { StatusChip } from '@/components/StatusChip';
+import {
+  HistoryFilterBar,
+  EMPTY_HISTORY_FILTERS,
+  type HistoryFilters,
+} from '@/components/HistoryFilterBar';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { t } from '@/i18n';
 import type { PurchaseInvoice } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
@@ -54,6 +60,8 @@ export function PurchaseHistoryPage() {
   const location = useLocation();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+  const debouncedQ = useDebouncedValue(filters.q, 300);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [active, setActive] = useState<PurchaseInvoice | null>(null);
   const [message, setMessage] = useState<string | null>(() => {
@@ -66,8 +74,16 @@ export function PurchaseHistoryPage() {
   });
 
   const query = useQuery({
-    queryKey: ['purchases', page],
-    queryFn: () => listPurchasesPage({ page, pageSize: PAGE_SIZE }),
+    queryKey: ['purchases', page, filters.status, debouncedQ, filters.dateFrom, filters.dateTo],
+    queryFn: () =>
+      listPurchasesPage({
+        page,
+        pageSize: PAGE_SIZE,
+        status: filters.status || undefined,
+        q: debouncedQ || undefined,
+        date_from: filters.dateFrom || undefined,
+        date_to: filters.dateTo || undefined,
+      }),
     staleTime: 0,
     refetchOnMount: 'always',
   });
@@ -112,8 +128,13 @@ export function PurchaseHistoryPage() {
     completeMutation.isPending || cancelMutation.isPending || deleteMutation.isPending;
 
   const rows = query.data?.results ?? [];
+  const filtersActive = Boolean(
+    filters.status || debouncedQ || filters.dateFrom || filters.dateTo,
+  );
   const showLoading = query.isPending || (query.isFetching && rows.length === 0);
-  const showEmpty = !showLoading && !query.isError && rows.length === 0;
+  const showEmpty = !showLoading && !query.isError && rows.length === 0 && !filtersActive;
+  const showNoMatches =
+    !showLoading && !query.isError && rows.length === 0 && filtersActive;
   const allowCreate = canCreatePurchases(user);
   const allowCancel = canCancelDocuments(user);
 
@@ -135,7 +156,23 @@ export function PurchaseHistoryPage() {
       {error ? (
         <HelpErrorAlert message={error} onClose={() => setError(null)} />
       ) : null}
+      {!query.isError ? (
+        <HistoryFilterBar
+          value={filters}
+          onChange={(next) => {
+            setFilters(next);
+            setPage(1);
+          }}
+          statusOptions={[
+            { value: 'DRAFT', label: t('status.draft') },
+            { value: 'COMPLETED', label: t('status.completed') },
+            { value: 'CANCELLED', label: t('status.cancelled') },
+            { value: 'RETURNED', label: t('status.returned') },
+          ]}
+        />
+      ) : null}
       {showLoading ? <LoadingState /> : null}
+      {showNoMatches ? <Alert severity="info">{t('common.noResults')}</Alert> : null}
       {query.isError ? (
         <ErrorState
           message={getErrorMessage(query.error)}

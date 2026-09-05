@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
@@ -21,6 +21,11 @@ import { createSupplier, getCompany, listSuppliers, updateSupplier, verifySuppli
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StateSelect } from '@/components/StateSelect';
 import { StatusChip } from '@/components/StatusChip';
+import {
+  HistoryFilterBar,
+  EMPTY_HISTORY_FILTERS,
+  type HistoryFilters,
+} from '@/components/HistoryFilterBar';
 import { t } from '@/i18n';
 import type { Supplier } from '@/types/domain';
 import { isValidGstin, isValidIndianPhone } from '@/utils/gst';
@@ -52,6 +57,24 @@ export function SuppliersPage() {
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [nameTouched, setNameTouched] = useState(false);
+  // F2-033: this list loads every supplier at once (no server paging), so the
+  // filter bar narrows the already-loaded set client-side.
+  const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+  const visibleSuppliers = useMemo(() => {
+    const all = query.data ?? [];
+    const needle = filters.q.trim().toLowerCase();
+    return all.filter((s) => {
+      if (filters.status === 'ACTIVE' && !s.isActive) return false;
+      if (filters.status === 'INACTIVE' && s.isActive) return false;
+      if (!needle) return true;
+      return (
+        s.name.toLowerCase().includes(needle) ||
+        (s.phone ?? '').toLowerCase().includes(needle) ||
+        (s.gstin ?? '').toLowerCase().includes(needle)
+      );
+    });
+  }, [query.data, filters.q, filters.status]);
+  const filtersActive = Boolean(filters.q.trim() || filters.status);
 
   // F2-054: mirror CustomersPage — when GST is on and assume-local is off,
   // require a place of supply (State or GSTIN) before a supplier can be saved,
@@ -111,9 +134,23 @@ export function SuppliersPage() {
         </Button>
       </Stack>
       {error ? <HelpErrorAlert message={error} /> : null}
+      {query.data && query.data.length > 0 ? (
+        <HistoryFilterBar
+          value={filters}
+          onChange={setFilters}
+          showDateRange={false}
+          statusOptions={[
+            { value: 'ACTIVE', label: t('status.active') },
+            { value: 'INACTIVE', label: t('status.inactive') },
+          ]}
+        />
+      ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
+      ) : null}
+      {query.data && query.data.length > 0 && visibleSuppliers.length === 0 && filtersActive ? (
+        <EmptyState description={t('common.noResults')} />
       ) : null}
       {query.data?.length === 0 ? (
         <EmptyState
@@ -133,7 +170,7 @@ export function SuppliersPage() {
           }
         />
       ) : null}
-      {query.data && query.data.length > 0 ? (
+      {visibleSuppliers.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
@@ -148,7 +185,7 @@ export function SuppliersPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {query.data.map((s) => (
+              {visibleSuppliers.map((s) => (
                 <TableRow key={s.id}>
                   <TableCell
                     sx={{

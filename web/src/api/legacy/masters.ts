@@ -12,6 +12,7 @@ export async function listCustomersPage(params?: {
   pageSize?: number;
   q?: string;
   gstin?: string;
+  status?: string;
 }): Promise<PageResult<Customer>> {
   return withMocks(
     async () => fetchPage<Customer>('/customers/', params),
@@ -63,6 +64,7 @@ export async function listSuppliersPage(params?: {
   pageSize?: number;
   q?: string;
   gstin?: string;
+  status?: string;
 }): Promise<PageResult<Supplier>> {
   return withMocks(
     async () => fetchPage<Supplier>('/suppliers/', params),

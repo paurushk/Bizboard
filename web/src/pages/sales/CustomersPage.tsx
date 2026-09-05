@@ -27,6 +27,12 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
 import { StateSelect } from '@/components/StateSelect';
 import { StatusChip } from '@/components/StatusChip';
+import {
+  HistoryFilterBar,
+  EMPTY_HISTORY_FILTERS,
+  type HistoryFilters,
+} from '@/components/HistoryFilterBar';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { t } from '@/i18n';
 import type { Customer } from '@/types/domain';
 import { isValidGstin, isValidIndianPhone } from '@/utils/gst';
@@ -66,9 +72,17 @@ export function CustomersPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+  const debouncedQ = useDebouncedValue(filters.q, 300);
   const query = useQuery({
-    queryKey: ['customers', page],
-    queryFn: () => listCustomersPage({ page, pageSize: PAGE_SIZE }),
+    queryKey: ['customers', page, filters.status, debouncedQ],
+    queryFn: () =>
+      listCustomersPage({
+        page,
+        pageSize: PAGE_SIZE,
+        status: filters.status || undefined,
+        q: debouncedQ || undefined,
+      }),
   });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const priceLists = useQuery({ queryKey: ['price-lists'], queryFn: listPriceLists });
@@ -161,11 +175,26 @@ export function CustomersPage() {
         ) : null}
       </Stack>
       {error ? <HelpErrorAlert message={error} /> : null}
+      {!query.isError ? (
+        <HistoryFilterBar
+          value={filters}
+          onChange={(next) => {
+            setFilters(next);
+            setPage(1);
+          }}
+          showDateRange={false}
+          statusOptions={[
+            { value: 'ACTIVE', label: t('status.active') },
+            { value: 'BLOCKED', label: t('status.blocked') },
+            { value: 'INACTIVE', label: t('status.inactive') },
+          ]}
+        />
+      ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {rows.length === 0 && !query.isLoading && !query.isError ? (
+      {rows.length === 0 && !query.isLoading && !query.isError && !filters.status && !debouncedQ ? (
         <EmptyState
           description={t('empty.customers')}
           action={
@@ -178,6 +207,9 @@ export function CustomersPage() {
             </HelpEmptyLink>
           }
         />
+      ) : null}
+      {rows.length === 0 && !query.isLoading && !query.isError && (filters.status || debouncedQ) ? (
+        <EmptyState description={t('common.noResults')} />
       ) : null}
       {rows.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>

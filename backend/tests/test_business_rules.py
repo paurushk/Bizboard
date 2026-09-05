@@ -208,3 +208,43 @@ def test_duplicate_customer_gstin_rejected(tenant_a):
         "name": "Alpha Retail Duplicate", "gstin": "29ABCDE1234F1ZW",
     }, format="json")
     assert resp.status_code == 400
+
+
+def test_f2_033_supplier_list_filters_by_active_status(tenant_a):
+    """F2-033: the Suppliers filter bar sends status=ACTIVE|INACTIVE; the list
+    endpoint honours it against is_active."""
+    from tests.conftest import make_supplier
+
+    active = make_supplier(tenant_a.company, name="Live Vendor", is_active=True)
+    inactive = make_supplier(tenant_a.company, name="Old Vendor", is_active=False)
+
+    all_resp = tenant_a.client.get("/api/v1/suppliers/")
+    assert all_resp.status_code == 200
+    all_ids = {r["id"] for r in all_resp.data["results"]}
+    assert {active.id, inactive.id} <= all_ids
+
+    only_active = tenant_a.client.get("/api/v1/suppliers/", {"status": "ACTIVE"})
+    assert {r["id"] for r in only_active.data["results"]} == {active.id}
+
+    only_inactive = tenant_a.client.get("/api/v1/suppliers/", {"status": "INACTIVE"})
+    assert {r["id"] for r in only_inactive.data["results"]} == {inactive.id}
+
+
+def test_f2_033_sales_invoice_list_filters_by_status_and_number(tenant_a):
+    from sales.models import SalesInvoice
+
+    cust = make_customer(tenant_a.company)
+    d1 = SalesInvoice.objects.create(
+        company=tenant_a.company, customer=cust, number="INV-AAA-1",
+        status=SalesInvoice.Status.DRAFT, invoice_date="2026-04-01",
+    )
+    d2 = SalesInvoice.objects.create(
+        company=tenant_a.company, customer=cust, number="INV-BBB-2",
+        status=SalesInvoice.Status.CANCELLED, invoice_date="2026-04-02",
+    )
+
+    by_status = tenant_a.client.get("/api/v1/sales/invoices/", {"status": "CANCELLED"})
+    assert {r["id"] for r in by_status.data["results"]} == {d2.id}
+
+    by_number = tenant_a.client.get("/api/v1/sales/invoices/", {"q": "AAA"})
+    assert {r["id"] for r in by_number.data["results"]} == {d1.id}
