@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.db import transaction
 from django.http import Http404
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -112,9 +113,13 @@ class AaIngestView(APIView):
                     }
                 )
 
-        created = []
         skipped = 0
         with transaction.atomic():
+            # B4-037: parse + validate every row first (no DB hit yet), then
+            # do the whole ingest in a handful of queries instead of one
+            # update_or_create round-trip per row.
+            parsed_rows = []
+            txn_ids = []
             for row in rows:
                 txn_id = str(row.get("txn_id") or row.get("id") or "")
                 if not txn_id:
@@ -129,19 +134,44 @@ class AaIngestView(APIView):
                     skipped += 1
                     continue
                 txn_date = parse_date(str(row.get("txn_date") or "")) or consent.created_at.date()
-                obj, _ = AaTransaction.objects.update_or_create(
-                    company=company,
-                    txn_id=txn_id,
-                    defaults={
-                        "consent": consent,
-                        "amount": amount,
-                        "txn_date": txn_date,
-                        "raw": row.get("raw") or row,
-                        "created_by": request.user,
-                        "updated_by": request.user,
-                    },
+                parsed_rows.append((txn_id, amount, txn_date, row.get("raw") or row))
+                txn_ids.append(txn_id)
+
+            existing_by_txn_id = {
+                t.txn_id: t
+                for t in AaTransaction.objects.select_for_update().filter(
+                    company=company, txn_id__in=txn_ids
                 )
-                created.append(obj)
+            }
+            now = timezone.now()
+            to_create = []
+            to_update = []
+            for txn_id, amount, txn_date, raw in parsed_rows:
+                existing = existing_by_txn_id.get(txn_id)
+                if existing is None:
+                    to_create.append(AaTransaction(
+                        company=company, txn_id=txn_id, consent=consent, amount=amount,
+                        txn_date=txn_date, raw=raw,
+                        created_by=request.user, updated_by=request.user,
+                    ))
+                else:
+                    existing.consent = consent
+                    existing.amount = amount
+                    existing.txn_date = txn_date
+                    existing.raw = raw
+                    existing.updated_by = request.user
+                    existing.updated_at = now
+                    to_update.append(existing)
+
+            if to_create:
+                AaTransaction.objects.bulk_create(to_create, ignore_conflicts=True)
+            if to_update:
+                AaTransaction.objects.bulk_update(
+                    to_update, ["consent", "amount", "txn_date", "raw", "updated_by", "updated_at"],
+                )
+            created = list(
+                AaTransaction.objects.filter(company=company, txn_id__in=txn_ids)
+            ) if txn_ids else []
 
             matched = match_aa_to_receipts(company=company)
         return Response(
