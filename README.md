@@ -100,6 +100,9 @@ production.
 
 ## Architecture invariants
 
+Full documentation index: [`docs/README.md`](docs/README.md). Consolidated
+architecture reference: [`docs/architecture.md`](docs/architecture.md).
+
 - Completed business documents are the source of truth.
 - There are no customer or supplier ledger tables.
 - Ledger balances are derived from documents, returns, and payment allocations.
