@@ -115,6 +115,10 @@ class SalesInvoice(DocumentTotalsModel):
     eway_status = models.CharField(max_length=12, choices=EwayStatus.choices, default=EwayStatus.NONE)
     eway_bill_no = models.CharField(max_length=32, blank=True)
     eway_valid_upto = models.DateTimeField(null=True, blank=True)
+    # B2-015: when this e-Way bill was generated -- NIC allows cancellation
+    # only within 24h of generation. Null for bills predating this field or
+    # attested via mark-eway-generated (no real GSP generation time is known).
+    eway_generated_at = models.DateTimeField(null=True, blank=True)
     eway_error = models.TextField(blank=True)
     # Filing identity overlays (D16) — blank means use live customer fields.
     filing_party_gstin = models.CharField(max_length=15, blank=True)
@@ -609,6 +613,8 @@ class DeliveryChallan(DocumentTotalsModel):
     )
     eway_bill_no = models.CharField(max_length=32, blank=True)
     eway_valid_upto = models.DateTimeField(null=True, blank=True)
+    # B2-015: see SalesInvoice.eway_generated_at.
+    eway_generated_at = models.DateTimeField(null=True, blank=True)
     eway_error = models.TextField(blank=True)
 
     class Meta:
@@ -660,6 +666,18 @@ class RecurringInvoiceSchedule(models.Model):
     is_active = models.BooleanField(default=True)
     line_template = models.JSONField(default=dict, blank=True)
     notes = models.TextField(blank=True)
+    # B2-026: header-level charges/discount/price-mode a recurring template
+    # previously had no way to express at all -- every generated draft was
+    # silently exclusive-priced with no charges/invoice discount, regardless
+    # of what a one-off invoice for the same customer would normally carry.
+    additional_charges = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    invoice_discount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    invoice_discount_mode = models.CharField(
+        max_length=12, choices=SalesInvoice.DiscountMode.choices, default=SalesInvoice.DiscountMode.AFTER_TAX,
+    )
+    price_mode = models.CharField(
+        max_length=12, choices=SalesInvoice.PriceMode.choices, default=SalesInvoice.PriceMode.EXCLUSIVE,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(

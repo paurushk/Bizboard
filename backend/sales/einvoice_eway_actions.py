@@ -134,6 +134,26 @@ def _require_eway_enabled(company):
         raise BusinessRuleError("e-Way Bill is not enabled for this company.")
 
 
+def _cancel_eway_via_gsp(document, request):
+    """B2-015: NIC allows e-Way cancellation only within 24h of generation,
+    mirroring `_cancel_irn_via_gsp`'s ack_date window. `eway_generated_at` is
+    null for bills predating this field or attested via mark-eway-generated
+    (no real GSP generation time is known) -- skip the window check rather
+    than block on data we don't have."""
+    cnl_rsn, cnl_rem = _eway_cancel_reason(request)
+    generated = getattr(document, "eway_generated_at", None)
+    if generated:
+        if timezone.is_naive(generated):
+            generated = timezone.make_aware(generated)
+        if timezone.now() > generated + timedelta(hours=24):
+            raise BusinessRuleError(
+                "e-Way Bill can be cancelled only within 24 hours of generation."
+            )
+    cancelled_no = document.eway_bill_no
+    get_eway_adapter(document.company).cancel(cancelled_no)
+    return cancelled_no, cnl_rsn, cnl_rem
+
+
 def _eway_cancel_reason(request):
     """Optional NIC e-Way cancel reason + remarks (F3-046).
 
@@ -470,9 +490,12 @@ class InvoiceEinvoiceEwayActionsMixin:
         result = get_eway_adapter(invoice.company).submit(payload)
         invoice.eway_bill_no = result.eway_bill_no
         invoice.eway_valid_upto = result.eway_valid_upto
+        invoice.eway_generated_at = timezone.now()
         invoice.eway_status = SalesInvoice.EwayStatus.GENERATED
         invoice.eway_error = ""
-        invoice.save(update_fields=["eway_bill_no", "eway_valid_upto", "eway_status", "eway_error"])
+        invoice.save(update_fields=[
+            "eway_bill_no", "eway_valid_upto", "eway_generated_at", "eway_status", "eway_error",
+        ])
         log_statutory_event(
             company=invoice.company,
             entity_type="salesinvoice",
@@ -491,13 +514,14 @@ class InvoiceEinvoiceEwayActionsMixin:
         _require_eway_enabled(invoice.company)
         if not invoice.eway_bill_no:
             raise BusinessRuleError("No e-Way Bill to cancel.")
-        cnl_rsn, cnl_rem = _eway_cancel_reason(request)
-        cancelled_no = invoice.eway_bill_no
-        get_eway_adapter(invoice.company).cancel(cancelled_no)
+        cancelled_no, cnl_rsn, cnl_rem = _cancel_eway_via_gsp(invoice, request)
         invoice.eway_status = SalesInvoice.EwayStatus.CANCELLED
         invoice.eway_bill_no = ""
         invoice.eway_valid_upto = None
-        invoice.save(update_fields=["eway_status", "eway_bill_no", "eway_valid_upto"])
+        invoice.eway_generated_at = None
+        invoice.save(update_fields=[
+            "eway_status", "eway_bill_no", "eway_valid_upto", "eway_generated_at",
+        ])
         log_statutory_event(
             company=invoice.company,
             entity_type="salesinvoice",
@@ -703,25 +727,32 @@ class ChallanEwayActionsMixin:
             ) from exc
         challan.eway_bill_no = result.eway_bill_no
         challan.eway_valid_upto = result.eway_valid_upto
+        challan.eway_generated_at = timezone.now()
         challan.eway_status = SalesInvoice.EwayStatus.GENERATED
         challan.eway_error = ""
-        challan.save(update_fields=["eway_bill_no", "eway_valid_upto", "eway_status", "eway_error"])
+        challan.save(update_fields=[
+            "eway_bill_no", "eway_valid_upto", "eway_generated_at", "eway_status", "eway_error",
+        ])
         return Response(self.get_serializer(challan).data)
 
     @action(detail=True, methods=["post"], url_path="cancel-eway")
     def cancel_eway(self, request, pk=None):
         _require_owner(request)
         challan = self.get_object()
+        # B2-015 follow-up: the invoice cancel path already had this guard;
+        # the challan path was missing it -- same sandbox/production check.
+        _assert_sandbox_gsp_allowed(challan.company)
         _require_eway_enabled(challan.company)
         if not challan.eway_bill_no:
             raise BusinessRuleError("No e-Way Bill to cancel.")
-        cnl_rsn, cnl_rem = _eway_cancel_reason(request)
-        cancelled_no = challan.eway_bill_no
-        get_eway_adapter(challan.company).cancel(cancelled_no)
+        cancelled_no, cnl_rsn, cnl_rem = _cancel_eway_via_gsp(challan, request)
         challan.eway_status = SalesInvoice.EwayStatus.CANCELLED
         challan.eway_bill_no = ""
         challan.eway_valid_upto = None
-        challan.save(update_fields=["eway_status", "eway_bill_no", "eway_valid_upto"])
+        challan.eway_generated_at = None
+        challan.save(update_fields=[
+            "eway_status", "eway_bill_no", "eway_valid_upto", "eway_generated_at",
+        ])
         AuditService.log(
             company=challan.company,
             user=request.user,

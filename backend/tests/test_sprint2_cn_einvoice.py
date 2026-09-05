@@ -293,10 +293,69 @@ def test_bb_000653_cancel_clears_eway_bill_no(tenant_a):
     assert invoice.eway_bill_no == ""
 
 
+def test_b2_015_eway_cancel_blocked_after_24h_of_generation(tenant_a):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
+    tenant_a.company.state = "Karnataka"
+    tenant_a.company.einvoice_enabled = True
+    tenant_a.company.eway_enabled = True
+    tenant_a.company.save()
+    product = make_product(tenant_a.company, sku="EWC-2", hsn_code="1001")
+    add_stock(tenant_a, product, "2")
+    customer = make_customer(
+        tenant_a.company, gstin="29AABCU9603R1ZJ", state="Karnataka",
+        billing_address="Blr 560002",
+    )
+    inv = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "2000", "gst_rate": "18"}],
+    )
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+    invoice = SalesInvoice.objects.get(pk=inv["id"])
+    invoice.eway_bill_no = "123456789099"
+    invoice.eway_status = SalesInvoice.EwayStatus.GENERATED
+    invoice.eway_generated_at = timezone.now() - timedelta(hours=25)
+    invoice.save(update_fields=["eway_bill_no", "eway_status", "eway_generated_at"])
+
+    resp = tenant_a.client.post(f"/api/v1/sales/invoices/{invoice.id}/cancel-eway/")
+    assert resp.status_code == 400, resp.data
+    assert "24 hours" in str(resp.data)
+    invoice.refresh_from_db()
+    assert invoice.eway_bill_no == "123456789099"  # not cancelled
+
+    # Still within the window -> cancel succeeds.
+    invoice.eway_generated_at = timezone.now() - timedelta(hours=23)
+    invoice.save(update_fields=["eway_generated_at"])
+    resp2 = tenant_a.client.post(f"/api/v1/sales/invoices/{invoice.id}/cancel-eway/")
+    assert resp2.status_code == 200, resp2.data
+    invoice.refresh_from_db()
+    assert invoice.eway_bill_no == ""
+
+
 @override_settings(DJANGO_ENV="production", GSP_LIVE_ENABLED=True)
 def test_bb_000624_live_irp_fail_closed_in_prod(tenant_a):
     tenant_a.company.gsp_provider = "live-gsp"
     with pytest.raises(BusinessRuleError, match="fail-closed|not NIC"):
         get_irp_adapter(tenant_a.company)
     with pytest.raises(BusinessRuleError, match="not NIC-protocol|fail-closed|Disable GSP_LIVE"):
+        LiveIrpAdapter(tenant_a.company)
+
+
+@override_settings(DJANGO_ENV="production", GSP_LIVE_ENABLED=True, GSP_CERTIFIED=True)
+def test_b7_004_live_irp_refuses_custom_provider_even_when_certified(tenant_a):
+    """B7-004: 'custom' provider's payload wrapper is an HMAC placeholder, not
+    real NIC SEK/AES encryption -- must refuse even when GSP_CERTIFIED=1,
+    since certification never actually covered the 'custom' wrapper.
+    GSP_PROVIDER defaults to "custom" (settings.py) unless the env var is set,
+    and resolve_gsp_provider() checks the *setting* before company.gsp_provider
+    -- override the setting itself to exercise the "genuinely certified" path."""
+    tenant_a.company.gsp_provider = "custom"
+    with pytest.raises(BusinessRuleError, match="custom.*HMAC placeholder|not real NIC SEK"):
+        LiveIrpAdapter(tenant_a.company)
+
+    # A genuinely certified provider still constructs fine under the same flags.
+    with override_settings(GSP_PROVIDER="cleartax"):
         LiveIrpAdapter(tenant_a.company)
