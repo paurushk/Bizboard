@@ -1275,6 +1275,64 @@ class RequestPasswordResetView(APIView):
                     logging.getLogger(__name__).exception(
                         "password reset email send failed"
                     )
+            elif user is not None and not user.has_usable_password():
+                # B6-004: a user provisioned without a password (invited, never
+                # accepted/set one) has no password to reset -- this used to be
+                # a silent no-op with no way forward. Re-send the same
+                # accept-invite/set-password token+link the invite flow uses,
+                # bound to one of their existing memberships, instead of a
+                # normal PasswordResetJti that would have nothing to "reset".
+                # An invited-but-never-accepted user's membership is
+                # is_active=False by design (CompanyUserViewSet.create) --
+                # this is exactly the case this branch exists for, so don't
+                # require is_active here. Prefer an active membership if one
+                # somehow exists (e.g. a second, already-accepted company),
+                # else fall back to any membership at all.
+                membership = (
+                    CompanyUser.objects.filter(user=user, is_active=True, pk=user.active_company_id)
+                    .select_related("company")
+                    .first()
+                    if user.active_company_id
+                    else None
+                )
+                if membership is None:
+                    membership = (
+                        CompanyUser.objects.filter(user=user, is_active=True)
+                        .select_related("company")
+                        .order_by("id")
+                        .first()
+                    )
+                if membership is None:
+                    membership = (
+                        CompanyUser.objects.filter(user=user)
+                        .select_related("company")
+                        .order_by("id")
+                        .first()
+                    )
+                if membership is not None:
+                    invite_token = _make_invite_token(
+                        user_id=user.pk, company_id=membership.company_id, membership_id=membership.pk,
+                    )
+                    invite_url = _invite_url(invite_token)
+                    from django.core.mail import send_mail
+
+                    try:
+                        send_mail(
+                            subject="Set your BizBoard password",
+                            message=(
+                                "Your account doesn't have a password set yet. Use this link to "
+                                f"set one and sign in (valid 7 days):\n{invite_url}\n"
+                            ),
+                            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@bizboard.local"),
+                            recipient_list=[user.email],
+                            fail_silently=False,
+                        )
+                    except Exception:
+                        import logging
+
+                        logging.getLogger(__name__).exception(
+                            "set-password email send failed"
+                        )
         return Response(
             {"detail": "If an account exists for that identifier, a reset link has been sent."}
         )

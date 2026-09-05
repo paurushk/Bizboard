@@ -496,3 +496,58 @@ def test_password_reset_token_is_single_use(tenant_a):
         format="json",
     )
     assert second.status_code == 400
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_forgot_password_for_no_password_user_sends_invite_style_link(tenant_a):
+    """B6-004: a user provisioned without a password ('forgot password' had
+    nothing to reset) now gets the same accept-invite/set-password token an
+    invite would, not silence."""
+    from django.core import mail
+
+    invited = tenant_a.client.post("/api/v1/company/users/", {
+        "email": "nopw.forgot@alpha.test",
+        "role": "SALES_STAFF",
+    }, format="json")
+    assert invited.status_code == 201
+
+    client = APIClient()
+    requested = client.post(
+        "/api/v1/auth/password/reset/",
+        {"email": "nopw.forgot@alpha.test"},
+        format="json",
+    )
+    assert requested.status_code == 200
+    assert mail.outbox
+    subject = mail.outbox[0].subject.lower()
+    assert "set" in subject and "password" in subject and "reset" not in subject
+    token = mail.outbox[0].body.split("token=")[1].split()[0]
+
+    accepted = client.post(
+        "/api/v1/auth/invite/accept/",
+        {"token": token, "new_password": "ForgotButFixed123!"},
+        format="json",
+    )
+    assert accepted.status_code == 200, accepted.data
+    from accounts.models import User
+
+    user = User.objects.get(email="nopw.forgot@alpha.test")
+    assert user.has_usable_password()
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_forgot_password_unaffected_for_user_with_existing_password(tenant_a):
+    """A user who already has a password (the common case) is unaffected --
+    still gets the normal reset token/email, not the invite one."""
+    from django.core import mail
+
+    client = APIClient()
+    requested = client.post(
+        "/api/v1/auth/password/reset/",
+        {"email": tenant_a.owner.email},
+        format="json",
+    )
+    assert requested.status_code == 200
+    assert mail.outbox
+    assert "reset" in mail.outbox[0].subject.lower()
+    assert "/reset-password?token=" in mail.outbox[0].body
