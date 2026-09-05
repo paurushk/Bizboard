@@ -105,6 +105,61 @@ def test_staff_cannot_create_journal(tenant_a):
     assert resp.status_code == 201, resp.data
 
 
+def test_manual_journal_number_claims_series_past_collision(tenant_a):
+    """B1-013: a client-supplied journal number must bump the auto-numbering
+    series past it, so a later auto-allocated number can't collide with it."""
+    import re
+
+    tenant_a.company.accounting_enabled = True
+    tenant_a.company.save(update_fields=["accounting_enabled"])
+    seed_chart_of_accounts(tenant_a.company, tenant_a.owner)
+    cash = PostingService._account(tenant_a.company, "1100")
+    equity = PostingService._account(tenant_a.company, "3100")
+
+    def _lines():
+        return [
+            {"account": cash.id, "debit": "10.00", "credit": "0"},
+            {"account": equity.id, "debit": "0", "credit": "10.00"},
+        ]
+
+    first = tenant_a.client.post(
+        "/api/v1/accounting/journals/",
+        {"entry_date": "2026-04-01", "narration": "t1", "lines": _lines()},
+        format="json",
+    )
+    assert first.status_code == 201, first.data
+    match = re.match(r"^(.*)-(\d+)$", first.data["number"])
+    assert match, first.data["number"]
+    prefix, digits = match.group(1), match.group(2)
+
+    claimed_seq = int(digits) + 10
+    claimed_number = f"{prefix}-{claimed_seq:0{len(digits)}d}"
+    second = tenant_a.client.post(
+        "/api/v1/accounting/journals/",
+        {"entry_date": "2026-04-02", "narration": "t2", "number": claimed_number, "lines": _lines()},
+        format="json",
+    )
+    assert second.status_code == 201, second.data
+    assert second.data["number"] == claimed_number
+
+    third = tenant_a.client.post(
+        "/api/v1/accounting/journals/",
+        {"entry_date": "2026-04-03", "narration": "t3", "lines": _lines()},
+        format="json",
+    )
+    assert third.status_code == 201, third.data
+    third_match = re.match(r"^(.*)-(\d+)$", third.data["number"])
+    assert third_match and third_match.group(1) == prefix
+    assert int(third_match.group(2)) > claimed_seq, (
+        f"auto-allocated {third.data['number']} did not skip past the manually "
+        f"claimed {claimed_number}"
+    )
+    # And the manually-claimed number is genuinely unique (DB constraint holds).
+    assert JournalEntry.objects.filter(
+        company=tenant_a.company, number=claimed_number
+    ).count() == 1
+
+
 def test_staff_without_reports_cannot_view_accounting_reports(tenant_a):
     """BB-000200/201: AccountingReportView requires CanViewFinancialReports."""
     tenant_a.company.accounting_enabled = True

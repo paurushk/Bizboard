@@ -178,12 +178,23 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         # live in JournalLineSerializer (validate_account / validate_cost_center;
         # bank_statement_line is read-only per B1-003) — no duplicate view loop.
         number = (serializer.validated_data.get("number") or "").strip()
-        if not number:
-            from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
+        from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 
+        if not number:
             number = DocumentNumberService.next_number(
                 self.company,
                 "JOURNAL_ENTRY",
+                gstin=resolve_series_gstin(self.company),
+                on_date=serializer.validated_data.get("entry_date"),
+            )
+        else:
+            # B1-013: a client-supplied number is otherwise fully trusted and
+            # can collide with a later auto-allocated one -- bump the series
+            # counter past it when it looks like one of ours.
+            DocumentNumberService.claim_number(
+                self.company,
+                "JOURNAL_ENTRY",
+                number,
                 gstin=resolve_series_gstin(self.company),
                 on_date=serializer.validated_data.get("entry_date"),
             )

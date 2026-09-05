@@ -382,3 +382,43 @@ class DocumentNumberService:
             series.next_number += 1
             series.save(update_fields=["next_number"])
             return number
+
+    @staticmethod
+    def claim_number(company, doc_type: str, number: str, *, gstin=None, on_date=None) -> None:
+        """B1-013: a caller that accepts a client-supplied document number
+        (e.g. manual journal entry) must call this so a later auto-allocated
+        number can't collide with it. Best-effort: only advances the series
+        counter when the supplied number matches this series' own
+        prefix + numeric-suffix shape; an arbitrary/legacy-format number has
+        nothing to bump past and is left alone (uniq_journal_number_per_company
+        still catches an exact duplicate at the DB level either way).
+
+        Must run inside the caller's transaction, same as next_number().
+        """
+        from django.db import connection as _conn
+
+        if not _conn.in_atomic_block:
+            raise RuntimeError("DocumentNumberService.claim_number must run inside a transaction.")
+        number = (number or "").strip()
+        if not number:
+            return
+        gstin_key, fy_label, _on = DocumentNumberService._resolve_keys(
+            company, gstin=gstin, on_date=on_date
+        )
+        with transaction.atomic():
+            DocumentNumberService._ensure_series(
+                company, doc_type, gstin_key=gstin_key, fy_label=fy_label
+            )
+            series = DocumentSeries.objects.select_for_update().get(
+                company=company, doc_type=doc_type, gstin_key=gstin_key, fy_label=fy_label,
+            )
+            prefix = f"{series.prefix}-"
+            if not number.upper().startswith(prefix.upper()):
+                return
+            suffix = number[len(prefix):]
+            if not suffix.isdigit():
+                return
+            claimed_seq = int(suffix)
+            if claimed_seq >= series.next_number:
+                series.next_number = claimed_seq + 1
+                series.save(update_fields=["next_number"])
