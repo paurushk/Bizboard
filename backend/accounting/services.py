@@ -1175,10 +1175,21 @@ class PostingService:
                 grand = Decimal(str(invoice.grand_total or 0))
                 bound = max(Decimal("100"), (grand * Decimal("0.10")).quantize(Decimal("0.01")))
                 if residual > bound:
-                    raise BusinessRuleError(
-                        f"Purchase invoice does not reconcile: ₹{residual} is unaccounted "
-                        f"(grand total minus tax, line value and round-off). Add it as an "
-                        f"explicit additional charge or correct the lines before completing."
+                    # B1-034: a gap this large is unusual enough to warrant a
+                    # trace, but hard-blocking Complete for it can strand a
+                    # legitimate invoice (real freight can exceed 10% of a
+                    # small-ticket purchase). Book it as before and leave an
+                    # audit trail instead of refusing the completion outright.
+                    from core.services.audit import AuditService
+
+                    AuditService.log(
+                        action="UPDATE",
+                        company=invoice.company,
+                        user=user,
+                        entity_type="purchaseinvoice",
+                        entity_id=invoice.pk,
+                        description="acc06.large_unexplained_residual_booked_as_charges",
+                        metadata={"residual": str(residual), "bound": str(bound), "grand_total": str(grand)},
                     )
                 charges = residual
             elif residual > 0:
