@@ -80,7 +80,7 @@ def main() -> int:
     if not _exists("load/README.md"):
         fails.append("W18G: load README missing")
 
-    if not _exists("docs/reviews/_wave18_close_deferred.py"):
+    if not _exists("scripts/ci_gates/_wave18_close_deferred.py"):
         fails.append("W18H: close deferred script missing")
 
     if fails:

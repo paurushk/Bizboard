@@ -73,10 +73,10 @@ jobs:
       - name: Wave 16/17/18 assert gates
         working-directory: .
         run: |
-          python docs/reviews/_wave16_assert_gates.py
-          python docs/reviews/_wave17_assert_gates.py
-          python docs/reviews/_wave18_assert_gates.py
-          python docs/reviews/_wave19_assert_gates.py
+          python scripts/ci_gates/_wave16_assert_gates.py
+          python scripts/ci_gates/_wave17_assert_gates.py
+          python scripts/ci_gates/_wave18_assert_gates.py
+          python scripts/ci_gates/_wave19_assert_gates.py
 
   frontend:
     runs-on: ubuntu-latest
@@ -299,6 +299,6 @@ jobs:
       - name: Wave 17/18/19 assert gates
         working-directory: .
         run: |
-          python docs/reviews/_wave17_assert_gates.py
-          python docs/reviews/_wave18_assert_gates.py
-          python docs/reviews/_wave19_assert_gates.py
+          python scripts/ci_gates/_wave17_assert_gates.py
+          python scripts/ci_gates/_wave18_assert_gates.py
+          python scripts/ci_gates/_wave19_assert_gates.py

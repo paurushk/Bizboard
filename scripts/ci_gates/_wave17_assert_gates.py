@@ -108,7 +108,7 @@ def main() -> int:
         fails.append("W17G: feature-flags API missing")
 
     # W17H
-    if not _exists("docs/reviews/_wave17_close_deferred.py"):
+    if not _exists("scripts/ci_gates/_wave17_close_deferred.py"):
         fails.append("W17H: close deferred script missing")
 
     if fails:

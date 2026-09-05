@@ -88,7 +88,7 @@ def main() -> int:
             break
 
     # BB-000548 — this script itself is the semantic gate
-    if not (ROOT / "docs/reviews/_wave14_assert_gates.py").exists():
+    if not (ROOT / "scripts/ci_gates/_wave14_assert_gates.py").exists():
         fails.append("548: _wave14_assert_gates.py missing")
 
     if fails:

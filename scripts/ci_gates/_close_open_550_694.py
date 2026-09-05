@@ -279,7 +279,7 @@ Closed **{len(resolved_done) + len(deferred_done)}** Open issues in `BB-000550`â
 - `test_bb_000598_adrs_adopted` / `test_bb_000591_competitor_honesty`
 - FE: `invoiceDraftCache.test.ts` cess round-trip + logout wipe (BB-000572/577)
 
-Script: `docs/reviews/_close_open_550_694.py`.
+Script: `scripts/ci_gates/_close_open_550_694.py`.
 
 **Open count for 550â€“694: 0.**
 
