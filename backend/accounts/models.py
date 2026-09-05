@@ -177,8 +177,15 @@ class Company(TimeStampedModel):
     valuation_business_date_order = models.BooleanField(
         default=False,
         help_text=(
-            "W0-06: order historical valuation by movement_date instead of insert time. "
-            "Default off for existing companies — turning this on can restate inventory/COGS. Take a backup."
+            "W0-06: order HISTORICAL point-in-time valuation (valuation(as_of=<date>)) by "
+            "movement_date instead of insert time. Default off for existing companies — turning "
+            "this on can restate inventory/COGS. Take a backup. "
+            "B8-036: this does NOT affect current/live valuation (as_of=None) for FIFO, which "
+            "always reads the live InventoryCostLayer rows as they were actually peeled "
+            "(insertion order) — a back-dated movement entered out of chronological order still "
+            "affects live FIFO cost basis in the order it was POSTED, not its movement_date, "
+            "regardless of this flag. Making the perpetual layer engine itself consume in "
+            "business-date order is a separate, larger change to core FIFO posting."
         ),
     )
     recompute_tax_on_complete = models.BooleanField(

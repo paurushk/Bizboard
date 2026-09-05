@@ -1561,6 +1561,14 @@ class InventoryValuationService:
             # instead of re-deriving FIFO from scratch via a full-ledger
             # _replay that doesn't know about invented shortfall peels,
             # ADJUSTMENT WAVG-fallback costs, or restored/retired layers.
+            #
+            # B8-036: `use_business_date` is intentionally NOT consulted here.
+            # These layers were peeled by _apply_cost_layers in the order
+            # movements were actually posted (insertion order), not
+            # movement_date — a back-dated movement still affects the live
+            # cost basis in posting order regardless of this flag. Only the
+            # as_of branch below (historical valuation) honours it. See
+            # Company.valuation_business_date_order's help text.
             layers = InventoryCostLayer.objects.filter(company=company, qty_remaining__gt=0)
             if warehouse:
                 layers = layers.filter(warehouse=warehouse)
