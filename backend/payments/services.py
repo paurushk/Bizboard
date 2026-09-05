@@ -1122,6 +1122,23 @@ class PaymentService:
         return existing
 
     @staticmethod
+    def _company_owner_user(company):
+        """B4-032: automated retries have no real acting user. Attribute the
+        resulting receipts/JEs to the tenant's owner (accountable for the
+        company's data either way) instead of leaving created_by NULL --
+        cheaper and lower-risk than introducing a new global system-user
+        concept this codebase doesn't otherwise have."""
+        from accounts.models import CompanyUser
+
+        cu = (
+            CompanyUser.objects.filter(company=company, role="OWNER", is_active=True)
+            .select_related("user")
+            .order_by("id")
+            .first()
+        )
+        return cu.user if cu else None
+
+    @staticmethod
     def reconcile_gateway_captures(*, company_id=None, older_than_minutes: int = 5):
         """Retry parked captures. Default: park until the period is open (no silent next-period post).
 
@@ -1166,6 +1183,7 @@ class PaymentService:
                     fee=gp.fee or Decimal("0"),
                     payment_link=gp.payment_link,
                     raw_payload=gp.raw_payload,
+                    user=PaymentService._company_owner_user(gp.company),
                 )
                 if result.status == GatewayPaymentStatus.CAPTURED:
                     posted += 1
@@ -1188,12 +1206,15 @@ class PaymentService:
             gp = GatewayPayment.objects.select_for_update().get(pk=gp.pk)
             if gp.status != GatewayPaymentStatus.CAPTURED_PENDING_BOOKS:
                 return 0
+            owner = PaymentService._company_owner_user(gp.company)
             outbox, created = GatewayRefundOutbox.objects.get_or_create(
                 company=gp.company,
                 gateway_payment=gp,
                 amount=gp.amount,
                 defaults={
                     "provider_payment_id": gp.provider_payment_id,
+                    "created_by": owner,
+                    "updated_by": owner,
                 },
             )
         if created:

@@ -92,6 +92,25 @@ def test_closed_period_webhook_holds_then_reconcile_posts(tenant_a):
     assert retrieved2.data["payment_state"] == "PAID"
 
 
+def test_b4_032_reconcile_attributes_receipt_to_company_owner_not_null(tenant_a):
+    """B4-032: an automated holding-reconcile retry previously left
+    created_by NULL on the generated receipt/JE. It should now attribute to
+    the tenant's owner instead."""
+    inv, link, body = _link_and_body(tenant_a, payment_id="pay_b4032_1")
+    period = _period_for_today()
+    soft_close_period(tenant_a.company, period, tenant_a.owner)
+
+    wh = _post_sandbox_webhook(tenant_a.client, tenant_a.company.id, body)
+    assert wh.status_code == 200, wh.data
+
+    reopen_period(tenant_a.company, period)
+    posted, attempted = PaymentService.reconcile_gateway_captures(older_than_minutes=0)
+    assert posted == 1
+
+    receipt = CustomerReceipt.objects.get(company=tenant_a.company)
+    assert receipt.created_by_id == tenant_a.owner.id
+
+
 def test_b4_010_reconcile_drains_existing_parked_captures_when_flag_disabled(tenant_a):
     """B4-010: the GATEWAY_HOLDING_STATE flag must only gate whether a *new*
     capture gets parked, not whether an already-parked one can ever be
