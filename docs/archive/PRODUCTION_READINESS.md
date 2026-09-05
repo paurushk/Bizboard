@@ -4,11 +4,11 @@
 
 | Artifact | Role |
 |----------|------|
-| [`docs/reviews/01_EXECUTIVE_SUMMARY.md`](docs/reviews/01_EXECUTIVE_SUMMARY.md) | Current scores |
-| [`docs/reviews/21_PRODUCTION_READINESS.md`](docs/reviews/21_PRODUCTION_READINESS.md) | Readiness narrative |
-| [`docs/reviews/QUALITY_AUDIT_LIVE_2026-09-02.md`](docs/reviews/QUALITY_AUDIT_LIVE_2026-09-02.md) | Live defect register |
-| [`docs/pilot/FINAL_GATES_10.md`](docs/pilot/FINAL_GATES_10.md) | Non-negotiable for **10/10** |
-| [`docs/pilot/GO_NO_GO.md`](docs/pilot/GO_NO_GO.md) | Human sign-off |
+| [`docs/reviews/01_EXECUTIVE_SUMMARY.md`](../reviews/01_EXECUTIVE_SUMMARY.md) | Current scores |
+| [`docs/reviews/21_PRODUCTION_READINESS.md`](../reviews/21_PRODUCTION_READINESS.md) | Readiness narrative |
+| [`docs/reviews/QUALITY_AUDIT_LIVE_2026-09-02.md`](../reviews/QUALITY_AUDIT_LIVE_2026-09-02.md) | Live defect register |
+| [`docs/pilot/FINAL_GATES_10.md`](../pilot/FINAL_GATES_10.md) | Non-negotiable for **10/10** |
+| [`docs/pilot/GO_NO_GO.md`](../pilot/GO_NO_GO.md) | Human sign-off |
 
 ## Honest status (2026-09-02)
 
