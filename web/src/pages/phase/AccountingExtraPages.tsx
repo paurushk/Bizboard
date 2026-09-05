@@ -74,7 +74,10 @@ export function AccountingSettingsPage() {
             <Button variant="contained" disabled={writesBlocked || m.isPending} onClick={() => m.mutate(true)}>
               Enable accounting
             </Button>
-            <Button variant="outlined" disabled={writesBlocked || m.isPending} onClick={() => m.mutate(false)}>
+            <Button variant="outlined" disabled={writesBlocked || m.isPending} onClick={() => {
+              if (!window.confirm(t('phase.confirmDisableAccounting'))) return;
+              m.mutate(false);
+            }}>
               Disable
             </Button>
           </Stack>

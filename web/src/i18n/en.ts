@@ -1059,6 +1059,7 @@ export const en = {
     godown: 'Godown',
     confirmWriteoff: 'Write off expired lots? This posts an inventory adjustment.',
     confirmPostCount: 'Post stock count variances? This will adjust inventory.',
+    confirmDiscardItemChanges: 'Discard unsaved changes to this item?',
     stockCounts: 'Stock counts',
     stockCountsSubtitle:
       'Physical count sessions post quantity variance as ADJUSTMENT movements. Per-godown reorder lives here too.',
@@ -1490,6 +1491,13 @@ export const en = {
     confirmDeleteGodown: 'Delete this godown?',
     confirmCloseFy:
       'Close this financial year? Income/expense accounts will zero to Retained Earnings and overlapping periods will lock CLOSED.',
+    confirmClosePeriod: 'Close this period? No further postings will be allowed into it.',
+    confirmSoftClosePeriod: 'Soft-close this period? Back-dated postings into it will be blocked until reopened.',
+    confirmDeactivateWarehouse: 'Deactivate this godown? It will no longer be available for new stock movements.',
+    confirmCancelTransfer: 'Cancel this stock transfer? This cannot be undone.',
+    confirmScrapSerial: 'Mark this serial as scrapped? This cannot be undone.',
+    confirmCommitStatement: 'Commit this bank statement? Matched lines will be finalized and this cannot be undone.',
+    confirmDisableAccounting: 'Disable accounting? Journal posting will stop for all documents until re-enabled.',
   },
   settings: {
     dunningTitle: 'Payment reminders (dunning)',

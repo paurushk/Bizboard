@@ -36,12 +36,23 @@ export function PeriodsPage() {
     onError: (e) => setError(getErrorMessage(e)),
   });
   const setStatus = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: string }) => api.updateAccountingPeriod(id, { status }),
+    mutationFn: ({ id, status }: { id: number; status: string }) => {
+      // F3-005: closing/soft-closing a period blocks further postings into
+      // it -- same "financial action needs confirmation" treatment as Close FY.
+      const message = status === 'CLOSED' ? t('phase.confirmClosePeriod') : t('phase.confirmSoftClosePeriod');
+      if (!window.confirm(message)) {
+        throw new Error('Cancelled');
+      }
+      return api.updateAccountingPeriod(id, { status });
+    },
     onSuccess: () => {
       setError('');
       void qc.invalidateQueries({ queryKey: ['accounting-periods'] });
     },
-    onError: (e) => setError(getErrorMessage(e)),
+    onError: (e) => {
+      if (getErrorMessage(e) === 'Cancelled') return;
+      setError(getErrorMessage(e));
+    },
   });
   const fyClose = useMutation({
     mutationFn: () => {

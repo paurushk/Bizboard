@@ -91,7 +91,10 @@ export function WarehousesPage() {
         actions={(row) => (
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             {row.isActive && !row.isDefault ? (
-              <Button size="small" onClick={() => deactivate.mutate(Number(row.id))} disabled={writesBlocked || deactivate.isPending}>
+              <Button size="small" onClick={() => {
+                if (!window.confirm(t('phase.confirmDeactivateWarehouse'))) return;
+                deactivate.mutate(Number(row.id));
+              }} disabled={writesBlocked || deactivate.isPending}>
                 Deactivate
               </Button>
             ) : null}
@@ -246,7 +249,10 @@ export function StockTransferPage() {
               Complete
             </Button>
           ) : r.status === 'COMPLETED' ? (
-            <Button size="small" color="error" disabled={writesBlocked} onClick={() => cancel.mutate(Number(r.id))}>
+            <Button size="small" color="error" disabled={writesBlocked} onClick={() => {
+              if (!window.confirm(t('phase.confirmCancelTransfer'))) return;
+              cancel.mutate(Number(r.id));
+            }}>
               Cancel
             </Button>
           ) : null
@@ -509,7 +515,10 @@ export function SerialsPage() {
                 Last: {status}
               </Typography>
               {target ? (
-                <Button size="small" disabled={writesBlocked} onClick={() => transition.mutate({ id: Number(row.id), status: target })}>
+                <Button size="small" disabled={writesBlocked} onClick={() => {
+                  if (target === 'SCRAPPED' && !window.confirm(t('phase.confirmScrapSerial'))) return;
+                  transition.mutate({ id: Number(row.id), status: target });
+                }}>
                   Mark {target.toLowerCase()}
                 </Button>
               ) : null}

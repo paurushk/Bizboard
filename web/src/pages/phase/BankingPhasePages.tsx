@@ -590,7 +590,10 @@ export function BankStatementsPage() {
         ]}
         actions={(r) =>
           r.status === 'PREVIEW' ? (
-            <Button size="small" variant="contained" disabled={writesBlocked} onClick={() => commit.mutate(Number(r.id))}>
+            <Button size="small" variant="contained" disabled={writesBlocked} onClick={() => {
+              if (!window.confirm(t('phase.confirmCommitStatement'))) return;
+              commit.mutate(Number(r.id));
+            }}>
               Commit
             </Button>
           ) : null
