@@ -1,14 +1,14 @@
 # Phase 7 — Ecosystem & scale
 
-This root file is a **pointer stub** (same pattern as Phase 2). Execute from the canonical doc only.
+This file is a **plan-map pointer** (same pattern as Phase 2). Execute from the canonical doc only.
 
-**Canonical plan:** [`docs/phase7/PHASE_7_ECOSYSTEM_SCALE.md`](docs/phase7/PHASE_7_ECOSYSTEM_SCALE.md)
+**Canonical plan:** [`docs/phase7/PHASE_7_ECOSYSTEM_SCALE.md`](../phase7/PHASE_7_ECOSYSTEM_SCALE.md)
 
 | What you want | Location |
 |---------------|----------|
 | Phase 0–2 | See [`PHASE2_IMPLEMENTATION_PLAN.md`](PHASE2_IMPLEMENTATION_PLAN.md) plan map |
-| Phase 6 (AI differentiator) | [`docs/phase6/PHASE_6_AI_DIFFERENTIATOR.md`](docs/phase6/PHASE_6_AI_DIFFERENTIATOR.md) |
-| **Phase 7 (this)** | [`docs/phase7/PHASE_7_ECOSYSTEM_SCALE.md`](docs/phase7/PHASE_7_ECOSYSTEM_SCALE.md) |
+| Phase 6 (AI differentiator) | [`docs/phase6/PHASE_6_AI_DIFFERENTIATOR.md`](../phase6/PHASE_6_AI_DIFFERENTIATOR.md) |
+| **Phase 7 (this)** | [`docs/phase7/PHASE_7_ECOSYSTEM_SCALE.md`](../phase7/PHASE_7_ECOSYSTEM_SCALE.md) |
 
 **Start gates:** Phase 0 Go · Phase 1+2.0 billing/GST depth · demand signal per integration · DPDP/legal for KYC + WhatsApp templates.
 

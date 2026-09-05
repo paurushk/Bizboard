@@ -1,16 +1,16 @@
 # Phase 4 — Inventory depth
 
-This root file is a **pointer stub** (same pattern as Phase 2 / 6). Execute from the canonical doc only.
+This file is a **plan-map pointer** (same pattern as Phase 2 / 6). Execute from the canonical doc only.
 
-**Canonical plan:** [`docs/phase4/PHASE_4_INVENTORY_DEPTH.md`](docs/phase4/PHASE_4_INVENTORY_DEPTH.md)
+**Canonical plan:** [`docs/phase4/PHASE_4_INVENTORY_DEPTH.md`](../phase4/PHASE_4_INVENTORY_DEPTH.md)
 
 | What you want | Location |
 |---------------|----------|
-| Phase 0–2 | [`docs/pilot/`](docs/pilot/) · [`docs/phase1/`](docs/phase1/) · [`docs/phase2/`](docs/phase2/) |
-| Phase 3 (payments & cash ops) | [`docs/phase3/PHASE_3_PAYMENTS_CASH_OPS.md`](docs/phase3/PHASE_3_PAYMENTS_CASH_OPS.md) |
-| **Phase 4 (this)** | [`docs/phase4/PHASE_4_INVENTORY_DEPTH.md`](docs/phase4/PHASE_4_INVENTORY_DEPTH.md) |
-| Phase 5 (light accounting) | [`docs/phase5/PHASE_5_LIGHT_ACCOUNTING.md`](docs/phase5/PHASE_5_LIGHT_ACCOUNTING.md) |
-| Phase 6–7 | [`docs/phase6/`](docs/phase6/) · [`docs/phase7/`](docs/phase7/) |
+| Phase 0–2 | [`docs/pilot/`](../pilot/) · [`docs/phase1/`](../phase1/) · [`docs/phase2/`](../phase2/) |
+| Phase 3 (payments & cash ops) | [`docs/phase3/PHASE_3_PAYMENTS_CASH_OPS.md`](../phase3/PHASE_3_PAYMENTS_CASH_OPS.md) |
+| **Phase 4 (this)** | [`docs/phase4/PHASE_4_INVENTORY_DEPTH.md`](../phase4/PHASE_4_INVENTORY_DEPTH.md) |
+| Phase 5 (light accounting) | [`docs/phase5/PHASE_5_LIGHT_ACCOUNTING.md`](../phase5/PHASE_5_LIGHT_ACCOUNTING.md) |
+| Phase 6–7 | [`docs/phase6/`](../phase6/) · [`docs/phase7/`](../phase7/) |
 
 **Start gates:** Phase 1 stock posting on Complete/Cancel/Return stable · append-only `StockMovement` invariants green · ≥ 1 wholesale/distributor pilot asking for batch or multi-location.
 

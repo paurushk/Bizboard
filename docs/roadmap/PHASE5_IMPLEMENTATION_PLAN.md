@@ -1,16 +1,16 @@
 # Phase 5 — Light accounting
 
-This root file is a **pointer stub** (same pattern as Phase 2 / 6). Execute from the canonical doc only.
+This file is a **plan-map pointer** (same pattern as Phase 2 / 6). Execute from the canonical doc only.
 
-**Canonical plan:** [`docs/phase5/PHASE_5_LIGHT_ACCOUNTING.md`](docs/phase5/PHASE_5_LIGHT_ACCOUNTING.md)
+**Canonical plan:** [`docs/phase5/PHASE_5_LIGHT_ACCOUNTING.md`](../phase5/PHASE_5_LIGHT_ACCOUNTING.md)
 
 | What you want | Location |
 |---------------|----------|
-| Phase 0–2 | [`docs/pilot/`](docs/pilot/) · [`docs/phase1/`](docs/phase1/) · [`docs/phase2/`](docs/phase2/) |
-| Phase 3 (payments & bank recon feed) | [`docs/phase3/PHASE_3_PAYMENTS_CASH_OPS.md`](docs/phase3/PHASE_3_PAYMENTS_CASH_OPS.md) |
-| Phase 4 (inventory / COGS inputs) | [`docs/phase4/PHASE_4_INVENTORY_DEPTH.md`](docs/phase4/PHASE_4_INVENTORY_DEPTH.md) |
-| **Phase 5 (this)** | [`docs/phase5/PHASE_5_LIGHT_ACCOUNTING.md`](docs/phase5/PHASE_5_LIGHT_ACCOUNTING.md) |
-| Phase 6–7 | [`docs/phase6/`](docs/phase6/) · [`docs/phase7/`](docs/phase7/) |
+| Phase 0–2 | [`docs/pilot/`](../pilot/) · [`docs/phase1/`](../phase1/) · [`docs/phase2/`](../phase2/) |
+| Phase 3 (payments & bank recon feed) | [`docs/phase3/PHASE_3_PAYMENTS_CASH_OPS.md`](../phase3/PHASE_3_PAYMENTS_CASH_OPS.md) |
+| Phase 4 (inventory / COGS inputs) | [`docs/phase4/PHASE_4_INVENTORY_DEPTH.md`](../phase4/PHASE_4_INVENTORY_DEPTH.md) |
+| **Phase 5 (this)** | [`docs/phase5/PHASE_5_LIGHT_ACCOUNTING.md`](../phase5/PHASE_5_LIGHT_ACCOUNTING.md) |
+| Phase 6–7 | [`docs/phase6/`](../phase6/) · [`docs/phase7/`](../phase7/) |
 
 **Start gates:** Phase 0 Go · “documents as truth” still marketing-accurate · **≥ 3 pilots explicitly demand books** (journals / TB / P&L) · Phase 3.2 bank statement import live (bank recon ties to Phase 3) · CA workshop on chart-of-accounts defaults.
 

@@ -2,7 +2,7 @@
 
 **Status:** Implemented in code (2026-08-02) — warehouses, batch/expiry, WAVG/FIFO, price lists, serials. SO reservation is live (D5); challan stock remains opt-in.  
 **Canonical path:** [`docs/phase4/PHASE_4_INVENTORY_DEPTH.md`](./PHASE_4_INVENTORY_DEPTH.md)  
-**Root pointer:** [`PHASE4_IMPLEMENTATION_PLAN.md`](../../PHASE4_IMPLEMENTATION_PLAN.md)  
+**Roadmap plan-map:** [`docs/roadmap/PHASE4_IMPLEMENTATION_PLAN.md`](../roadmap/PHASE4_IMPLEMENTATION_PLAN.md)  
 **Stack:** Django 5 + DRF (`backend/inventory/`, `masters.Product`) · React 18 + MUI · append-only `StockMovement` + rebuildable `StockBalance` · line `batch_no` already on sales/purchase items (UI optional) · single-warehouse MVP lock on `Company`.
 
 ---

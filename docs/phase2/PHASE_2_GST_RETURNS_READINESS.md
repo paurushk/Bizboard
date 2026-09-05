@@ -2,7 +2,7 @@
 
 **Status:** Implemented in code (2026-08-02; worksheets patched 2026-08-21) — GSTR-1 SUPECOM Table 15 aid; GSTR-9 tables 4–8 books/2B worksheets; `format=gstn-json` dark. Sandbox GSP adapters; real GSP procurement remains PM track (GST-014).  
 **Canonical path:** [`docs/phase2/PHASE_2_GST_RETURNS_READINESS.md`](./PHASE_2_GST_RETURNS_READINESS.md)  
-**Root pointer:** [`PHASE2_IMPLEMENTATION_PLAN.md`](../../PHASE2_IMPLEMENTATION_PLAN.md)  
+**Roadmap plan-map:** [`docs/roadmap/PHASE2_IMPLEMENTATION_PLAN.md`](../roadmap/PHASE2_IMPLEMENTATION_PLAN.md)  
 **Stack:** Django 5 + DRF (`backend/`) · React 18 + MUI (`web/`) · tax via `core.services.billing.compute_document_totals` · offline GSTR via `reporting/gst_returns.py` · e-Invoice/e-Way payload builders in `sales/einvoice_payload.py` + `sales/eway_payload.py` (no live IRP/NIC yet).
 
 ---

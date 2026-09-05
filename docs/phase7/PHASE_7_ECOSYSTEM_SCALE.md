@@ -2,7 +2,7 @@
 
 **Status:** Phase 7.0 Tally import/export implemented; CompanyGstin + switch-company exist (7.2 remaining is PM isolation UAT). PAN/UDYAM format + HTTP sandbox shipped. Thermal 80mm and FY GSTIN series are in product. 7.4+ live India Stack / ONDC remain demand-gated.  
 **Canonical path:** [`docs/phase7/PHASE_7_ECOSYSTEM_SCALE.md`](./PHASE_7_ECOSYSTEM_SCALE.md)  
-**Root pointer:** [`PHASE7_IMPLEMENTATION_PLAN.md`](../../PHASE7_IMPLEMENTATION_PLAN.md)  
+**Roadmap plan-map:** [`docs/roadmap/PHASE7_IMPLEMENTATION_PLAN.md`](../roadmap/PHASE7_IMPLEMENTATION_PLAN.md)  
 **Stack:** Django 5 + DRF (`backend/`) · React 18 + MUI (`web/`) · Celery + Redis · adapter pattern already used for GSP/IRP (`core/services/gsp_adapters.py`) · notifications (`core/services/notifications.py`) · imports pipeline (`imports/`) · tenancy via `company_id` (**must evolve** for multi-company).
 
 ---

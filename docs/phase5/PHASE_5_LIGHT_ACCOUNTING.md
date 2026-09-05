@@ -2,7 +2,7 @@
 
 **Status:** Implemented in code (2026-08-02) — opt-in CoA/posting, journals, TB/P&L/BS overlay, bank recon, cost centers, fixed assets. `accounting_enabled` stays default False until #9 is signed.  
 **Canonical path:** [`docs/phase5/PHASE_5_LIGHT_ACCOUNTING.md`](./PHASE_5_LIGHT_ACCOUNTING.md)  
-**Root pointer:** [`PHASE5_IMPLEMENTATION_PLAN.md`](../../PHASE5_IMPLEMENTATION_PLAN.md)  
+**Roadmap plan-map:** [`docs/roadmap/PHASE5_IMPLEMENTATION_PLAN.md`](../roadmap/PHASE5_IMPLEMENTATION_PLAN.md)  
 **Stack:** Django 5 + DRF · React 18 + MUI · today: **no GL tables** — `LedgerService` derives party statements from documents · Phase 3 bank lines feed recon · Phase 4 valuation feeds inventory/COGS · CA validation baseline in `ACCOUNTING_VALIDATION.md`.
 
 ---

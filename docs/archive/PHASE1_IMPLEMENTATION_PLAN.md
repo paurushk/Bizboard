@@ -2,7 +2,7 @@
 
 > **Archived.** Pilot hardening is **Phase 0** — see [`docs/pilot/`](../pilot/).  
 > Post-pilot document completeness is **Phase 1** — see [`docs/phase1/PHASE_1_DOCUMENT_COMPLETENESS.md`](../phase1/PHASE_1_DOCUMENT_COMPLETENESS.md).  
-> Root stub: [`PHASE1_IMPLEMENTATION_PLAN.md`](../../PHASE1_IMPLEMENTATION_PLAN.md).
+> Roadmap plan-map: [`docs/roadmap/PHASE1_IMPLEMENTATION_PLAN.md`](../roadmap/PHASE1_IMPLEMENTATION_PLAN.md).
 
 **Status:** Archived (historical)  
 **Goal:** Make BizBoard safe for a **paid pilot (20–50 businesses)** with CA-credible GST math, hardened ops/security, and clear UX.  

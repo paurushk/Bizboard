@@ -2,7 +2,7 @@
 
 **Status:** Implemented in code (2026-08-02) — rules-first insights + tool-grounded assistant; Phase 7.0 Tally follows separately.  
 **Canonical path:** [`docs/phase6/PHASE_6_AI_DIFFERENTIATOR.md`](./PHASE_6_AI_DIFFERENTIATOR.md)  
-**Root pointer:** [`PHASE6_IMPLEMENTATION_PLAN.md`](../../PHASE6_IMPLEMENTATION_PLAN.md)  
+**Roadmap plan-map:** [`docs/roadmap/PHASE6_IMPLEMENTATION_PLAN.md`](../roadmap/PHASE6_IMPLEMENTATION_PLAN.md)  
 **Stack:** Django 5 + DRF (`backend/`) · React 18 + MUI (`web/`) · Celery + Redis · existing LLM client in `core/services/llm.py` · dashboards via `reporting/services.py` · alerts pattern from `reporting/gst_health.py` · tenancy via `company_id` on every query.
 
 ---

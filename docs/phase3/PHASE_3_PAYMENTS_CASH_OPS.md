@@ -2,7 +2,7 @@
 
 **Status:** Implemented in code (2026-08-02; 2026-08-21: MDR posts to 5200 when books-on; HDFC/ICICI/SBI CSV fixtures). Razorpay primary + Cashfree/PayU adapters; sandbox webhooks for CI.  
 **Canonical path:** [`docs/phase3/PHASE_3_PAYMENTS_CASH_OPS.md`](./PHASE_3_PAYMENTS_CASH_OPS.md)  
-**Root pointer:** [`PHASE3_IMPLEMENTATION_PLAN.md`](../../PHASE3_IMPLEMENTATION_PLAN.md)  
+**Roadmap plan-map:** [`docs/roadmap/PHASE3_IMPLEMENTATION_PLAN.md`](../roadmap/PHASE3_IMPLEMENTATION_PLAN.md)  
 **Stack:** Django 5 + DRF (`backend/payments/`, `backend/ledgers/`) · React 18 + MUI (`web/`) · Celery + Redis · existing `PaymentService` (record-only) · `Company.upi_id` / bank fields · invoice PDF QR toggle (`include_payment_qr`) · Phase 6 cashflow forecast is **prediction only** — this phase owns **actual cash tracking**.
 
 ---

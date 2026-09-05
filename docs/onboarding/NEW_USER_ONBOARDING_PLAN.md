@@ -2,7 +2,7 @@
 
 **Status:** Implemented (2026-08-21) — Waves A-D; wizard behind ENABLE_SETUP_WIZARD (default off)  
 **Canonical path:** [`docs/onboarding/NEW_USER_ONBOARDING_PLAN.md`](./NEW_USER_ONBOARDING_PLAN.md)  
-**Root pointer:** [`ONBOARDING_IMPLEMENTATION_PLAN.md`](../../ONBOARDING_IMPLEMENTATION_PLAN.md)  
+**Roadmap plan-map:** [`docs/roadmap/ONBOARDING_IMPLEMENTATION_PLAN.md`](../roadmap/ONBOARDING_IMPLEMENTATION_PLAN.md)  
 **Related:** [`docs/pilot/ONBOARDING.md`](../pilot/ONBOARDING.md) · MVP E6.4 · BB-000251 / BB-000389 / BB-000007 / BB-000418
 
 **Stack touchpoints:**  
