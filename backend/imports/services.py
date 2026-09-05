@@ -2845,8 +2845,24 @@ class BillImportService:
         return result
 
     @staticmethod
+    def _infer_supplier_rcm(supplier) -> bool:
+        """B3-028: mirror PurchaseService._unregistered_rcm_gate -- an
+        UNREGISTERED supplier, or a blank GSTIN with no explicit
+        regular/composition classification, is an RCM purchase."""
+        taxpayer = (getattr(supplier, "taxpayer_type", "") or "")
+        blank_gstin = not (getattr(supplier, "gstin", "") or "").strip()
+        registered = taxpayer in (
+            Customer.TaxpayerType.REGULAR,
+            Customer.TaxpayerType.COMPOSITION,
+        )
+        return taxpayer == Customer.TaxpayerType.UNREGISTERED or (
+            blank_gstin and not registered
+        )
+
+    @staticmethod
     def _commit_purchase(job: ImportJob, preview: dict, lines: list[dict], user) -> dict:
         supplier = BillImportService._resolve_supplier(job, user)
+        infer_rcm = BillImportService._infer_supplier_rcm(supplier)
         items_data = []
         products_created = 0
         # B3-025: the preview-time normalize already snapped/warned on an
@@ -2875,14 +2891,31 @@ class BillImportService:
                 ),
             })
 
+        # B3-027: don't force purchase_type=GST on every imported bill -- a bill
+        # whose every line is 0-rated (a bill of supply, e.g. from a composition
+        # supplier) is a non-GST purchase. A misread rate keeps it GST; Complete's
+        # composition check is the backstop there.
+        all_zero = bool(items_data) and all(
+            Decimal(str(it["gst_rate"] or 0)) == 0 for it in items_data
+        )
+        purchase_type = (
+            PurchaseInvoice.PurchaseType.NON_GST if all_zero
+            else PurchaseInvoice.PurchaseType.GST
+        )
+
         notes = "Created from purchase bill upload"
         if rate_warnings:
             notes += " — " + "; ".join(rate_warnings)
+        if purchase_type == PurchaseInvoice.PurchaseType.NON_GST:
+            notes += " — all lines 0-rated: booked as non-GST (bill of supply)"
+        if infer_rcm:
+            notes += " — supplier unregistered / blank GSTIN: reverse charge set, review before Complete"
         invoice = PurchaseInvoice.objects.create(
             company=job.company,
             supplier=supplier,
             company_gstin=_resolve_import_company_gstin(job.company, preview, kind=ImportJob.Kind.PURCHASE_BILL),
-            purchase_type=PurchaseInvoice.PurchaseType.GST,
+            purchase_type=purchase_type,
+            is_reverse_charge=infer_rcm,
             invoice_date=BillImportService._parse_bill_date(
                 str(preview.get("bill_date") or ""),
                 required=True,
@@ -2904,6 +2937,8 @@ class BillImportService:
                 "products_created": products_created,
                 "lines": len(items_data),
                 "purchase_invoice_id": invoice.pk,
+                "purchase_type": purchase_type,
+                "is_reverse_charge": infer_rcm,
                 **({"gst_rate_warnings": rate_warnings} if rate_warnings else {}),
             },
         )

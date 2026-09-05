@@ -677,6 +677,90 @@ def test_purchase_bill_creates_supplier_from_extracted_name(mock_llm, tenant_a):
 
 
 @patch("core.services.llm.extract_purchase_bill", return_value=FAKE_EXTRACT)
+def test_b3_028_import_infers_reverse_charge_for_unregistered_supplier(mock_llm, tenant_a):
+    """B3-028: an UNREGISTERED resolved supplier -> the draft is created with
+    is_reverse_charge already set, not left for the user to catch at Complete."""
+    supplier = make_supplier(
+        tenant_a.company, name="Kirana Unregd", taxpayer_type="UNREGISTERED", gstin=""
+    )
+    job = _upload_bill(tenant_a, supplier_id=supplier.id).data
+    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp.status_code == 200, resp.data
+    invoice = PurchaseInvoice.objects.get(pk=resp.data["purchase_invoice_id"])
+    assert invoice.is_reverse_charge is True
+    assert "reverse charge set" in invoice.notes
+
+
+@patch("core.services.llm.extract_purchase_bill", return_value=FAKE_EXTRACT)
+def test_b3_028_import_infers_reverse_charge_for_blank_gstin_unclassified_supplier(mock_llm, tenant_a):
+    """R2-011 parity: a blank GSTIN with no explicit regular/composition
+    classification is an unregistered dealer for RCM purposes."""
+    supplier = make_supplier(tenant_a.company, name="No GSTIN Co", taxpayer_type="", gstin="")
+    job = _upload_bill(tenant_a, supplier_id=supplier.id).data
+    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp.status_code == 200, resp.data
+    invoice = PurchaseInvoice.objects.get(pk=resp.data["purchase_invoice_id"])
+    assert invoice.is_reverse_charge is True
+
+
+@patch("core.services.llm.extract_purchase_bill", return_value=FAKE_EXTRACT)
+def test_b3_028_import_no_reverse_charge_for_registered_supplier(mock_llm, tenant_a):
+    supplier = make_supplier(
+        tenant_a.company, name="Regular GST Co",
+        taxpayer_type="REGULAR", gstin="29ABCDE1234F1ZW",
+    )
+    job = _upload_bill(tenant_a, supplier_id=supplier.id).data
+    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp.status_code == 200, resp.data
+    invoice = PurchaseInvoice.objects.get(pk=resp.data["purchase_invoice_id"])
+    assert invoice.is_reverse_charge is False
+    assert invoice.purchase_type == PurchaseInvoice.PurchaseType.GST
+
+
+_ZERO_RATED_EXTRACT = {
+    "supplier_name": "Compo Trader",
+    "supplier_gstin": "",
+    "bill_number": "BOS-7",
+    "bill_date": "2026-07-01",
+    "lines": [
+        {"name": "Rice 25kg", "sku": "RICE-25", "hsn_code": "1006",
+         "quantity": "4", "unit_price": "1100", "gst_rate": "0", "mrp": "0"},
+        {"name": "Atta 10kg", "sku": "ATTA-10", "hsn_code": "1101",
+         "quantity": "6", "unit_price": "420", "gst_rate": "0", "mrp": "0"},
+    ],
+}
+
+
+@patch("core.services.llm.extract_purchase_bill", return_value=_ZERO_RATED_EXTRACT)
+def test_b3_027_import_books_all_zero_rated_bill_as_non_gst(mock_llm, tenant_a):
+    """B3-027: a bill whose every line is 0-rated (a bill of supply, e.g. from a
+    composition supplier) is stamped NON_GST instead of forcing GST."""
+    supplier = make_supplier(
+        tenant_a.company, name="Compo Trader", taxpayer_type="COMPOSITION", gstin="29ZZZZZ1234F1Z5"
+    )
+    job = _upload_bill(tenant_a, supplier_id=supplier.id).data
+    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp.status_code == 200, resp.data
+    invoice = PurchaseInvoice.objects.get(pk=resp.data["purchase_invoice_id"])
+    assert invoice.purchase_type == PurchaseInvoice.PurchaseType.NON_GST
+    assert invoice.is_reverse_charge is False
+    assert "non-GST" in invoice.notes
+
+
+@patch("core.services.llm.extract_purchase_bill", return_value=FAKE_EXTRACT)
+def test_b3_027_import_keeps_gst_when_lines_carry_a_rate(mock_llm, tenant_a):
+    supplier = make_supplier(
+        tenant_a.company, name="Regular GST Co",
+        taxpayer_type="REGULAR", gstin="29ABCDE1234F1ZW",
+    )
+    job = _upload_bill(tenant_a, supplier_id=supplier.id).data
+    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp.status_code == 200, resp.data
+    invoice = PurchaseInvoice.objects.get(pk=resp.data["purchase_invoice_id"])
+    assert invoice.purchase_type == PurchaseInvoice.PurchaseType.GST
+
+
+@patch("core.services.llm.extract_purchase_bill", return_value=FAKE_EXTRACT)
 def test_purchase_bill_rejects_unparseable_date(mock_llm, tenant_a):
     supplier = make_supplier(tenant_a.company)
     job = _upload_bill(tenant_a, supplier_id=supplier.id).data
