@@ -98,6 +98,24 @@ def _depreciate_company_assets(company_id) -> int:
                     amount = min(locked.monthly_depreciation, remaining)
                     if amount <= 0:
                         break
+                    # B1-021: SLM charged a full month's depreciation for the
+                    # acquisition month regardless of how many days into that
+                    # month the asset was actually acquired. Prorate that one
+                    # month by days-in-service; the existing remaining-balance
+                    # clamp below already handles the schedule naturally
+                    # running one extra (smaller) month at the tail end to
+                    # make up the difference -- no other change needed.
+                    if (
+                        (locked.method or FixedAsset.Method.SLM) == FixedAsset.Method.SLM
+                        and locked.acquisition_date
+                        and _month_end(locked.acquisition_date) == cm
+                    ):
+                        days_in_month = (cm - cm.replace(day=1)).days + 1
+                        days_in_service = (cm - locked.acquisition_date).days + 1
+                        if 0 < days_in_service < days_in_month:
+                            amount = (
+                                amount * days_in_service / days_in_month
+                            ).quantize(_D("0.01"))
                     if remaining - amount <= _D("1"):
                         amount = remaining
                     try:

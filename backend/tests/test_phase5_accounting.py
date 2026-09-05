@@ -350,6 +350,70 @@ def test_fa_wdv_depreciation_respects_salvage_and_trues_up(books):
     assert slm.written_down_value == Decimal("1000.00")  # == salvage_value
 
 
+def test_b1_021_slm_prorates_acquisition_month_by_days_in_service(books):
+    """B1-021: an asset acquired mid-month must not get a full month's SLM
+    charge for its acquisition month."""
+    from datetime import timedelta
+
+    from accounting.models import FixedAsset
+    from accounting.tasks import _charge_month_bounds, _depreciate_company_assets
+
+    seed_chart_of_accounts(books.company, books.owner)
+    asset_acct = PostingService._account(books.company, "1600")
+    accum_acct = PostingService._account(books.company, "1650")
+    expense_acct = PostingService._account(books.company, "5300")
+
+    _key, charge_date, month_start = _charge_month_bounds()
+    days_in_month = (charge_date - month_start).days + 1
+    acquisition_date = month_start + timedelta(days=days_in_month // 2)
+    days_in_service = (charge_date - acquisition_date).days + 1
+    assert 0 < days_in_service < days_in_month  # sanity: genuinely mid-month
+
+    asset = FixedAsset.objects.create(
+        company=books.company, name="Mid-month Asset", asset_account=asset_acct,
+        accumulated_depreciation_account=accum_acct, depreciation_expense_account=expense_acct,
+        acquisition_date=acquisition_date, acquisition_cost=Decimal("12000.00"),
+        useful_life_months=12,
+    )
+    full_month_charge = asset.monthly_depreciation
+    assert full_month_charge == Decimal("1000.00")
+    expected_prorated = (full_month_charge * days_in_service / days_in_month).quantize(Decimal("0.01"))
+    assert Decimal("0") < expected_prorated < full_month_charge
+
+    _depreciate_company_assets(books.company.id)
+    asset.refresh_from_db()
+    assert asset.depreciated_amount == expected_prorated
+
+
+def test_b1_034_large_unexplained_residual_books_as_charges_not_blocked(books):
+    """B1-034: a residual beyond the sane ACC-06 bound must not hard-block
+    Complete -- book it to Purchase Charges (5110) and leave an audit trail."""
+    from core.models import AuditEvent
+    from purchases.models import PurchaseInvoice
+
+    seed_chart_of_accounts(books.company, books.owner)
+    supplier = make_supplier(books.company)
+    product = make_product(books.company, sku="B1034-1", purchase_price="100", gst_rate="0")
+    pur = create_draft_purchase(
+        books, supplier, [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+        purchase_type="NON_GST",
+    )
+    invoice = PurchaseInvoice.objects.get(pk=pur["id"])
+    # Simulate a data-integrity gap far beyond max(100, 10% of grand_total):
+    # taxable is 100, so a grand_total of 500 leaves a 400 residual.
+    invoice.grand_total = Decimal("500.00")
+
+    entry = PostingService.post_purchase(invoice, user=books.owner)
+
+    charges_account = PostingService._account(books.company, "5110")
+    charged = sum(line.debit for line in entry.lines.filter(account=charges_account))
+    assert charged == Decimal("400.00")
+    assert AuditEvent.objects.filter(
+        company=books.company, entity_type="purchaseinvoice", entity_id=str(invoice.pk),
+        description="acc06.large_unexplained_residual_booked_as_charges",
+    ).exists()
+
+
 def test_fa_dispose_with_proceeds_gain(books):
     """BB-000459: proceeds > NBV credits Gain 5700."""
     from accounting.models import FixedAsset, JournalEntry
