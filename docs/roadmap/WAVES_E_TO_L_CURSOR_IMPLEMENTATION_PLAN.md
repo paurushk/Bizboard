@@ -29,7 +29,7 @@ Stop when DoD is met.
 
 **Integrator:** `docs/roadmap/ticket-logs/INTEGRATOR.md` — not “PM until §0.5”. §0.5 has been open since 2026-08-21.
 
-**Charters (H–K):** copy [`charters/_TEMPLATE.md`](_TEMPLATE.md) (path: `docs/roadmap/charters/_TEMPLATE.md`). **Wave L is retired** — demand-gated India Stack tickets live in [`WAVES_M_TO_S_CURSOR_IMPLEMENTATION_PLAN.md`](WAVES_M_TO_S_CURSOR_IMPLEMENTATION_PLAN.md) Wave P (`P-01`…`P-06c`) and still need ≥3 rows in [`charters/demand-log.md`](demand-log.md) unless the charter records a PM exception.
+**Charters (H–K):** copy [`charters/_TEMPLATE.md`](charters/_TEMPLATE.md) (path: `docs/roadmap/charters/_TEMPLATE.md`). **Wave L is retired** — demand-gated India Stack tickets live in [`WAVES_M_TO_S_CURSOR_IMPLEMENTATION_PLAN.md`](WAVES_M_TO_S_CURSOR_IMPLEMENTATION_PLAN.md) Wave P (`P-01`…`P-06c`) and still need ≥3 rows in [`charters/demand-log.md`](charters/demand-log.md) unless the charter records a PM exception.
 
 **Bug-fix track** (`BUG-*`) does **not** wait for a charter. It applies to dark/flagged tenants already in the tree.
 
