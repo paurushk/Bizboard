@@ -333,8 +333,13 @@ export function Gstr3bReportPage() {
   return <GstReturnPage kind="gstr3b" />;
 }
 
+// F3-008: this was a full nav destination with a working-looking period
+// picker and a raw-JSON `<details>` dump for a return type that does
+// nothing -- for gstr4/cmp08 the query wasn't even wired (enabled: false),
+// so it was a warning banner and a date field. Replaced with a single,
+// unmistakable "not available yet" state and a link to file directly on
+// the GST portal, matching the review's fix -- no period picker, no dump.
 function GstStubPage({ kind }: { kind: 'gstr4' | 'cmp08' | 'gstr6' | 'gstr7' | 'gstr8' }) {
-  const [period, setPeriod] = useState(currentPeriod());
   const title =
     kind === 'gstr4'
       ? t('nav.gstr4')
@@ -345,45 +350,22 @@ function GstStubPage({ kind }: { kind: 'gstr4' | 'cmp08' | 'gstr6' | 'gstr7' | '
           : kind === 'gstr7'
             ? t('nav.gstr7')
             : t('nav.gstr8');
-  // `getGstReturn` only serves gstr6/7/8 here (gstr4 / cmp08 render from their
-  // own components); `enabled` guarantees the queryFn never runs for those.
-  const isServerReturn = kind === 'gstr6' || kind === 'gstr7' || kind === 'gstr8';
-  const query = useQuery({
-    queryKey: ['gst-return', kind, period],
-    queryFn: () =>
-      getGstReturn(kind as 'gstr6' | 'gstr7' | 'gstr8', { period }),
-    enabled: isServerReturn,
-  });
   return (
-    <Stack spacing={2}>
+    <Stack spacing={2} alignItems="center" sx={{ textAlign: 'center', py: 8, maxWidth: 480, mx: 'auto' }}>
       <Typography variant="h4">{title}</Typography>
-      <TextField
-        type="month"
-        size="small"
-        label={t('reports.period')}
-        InputLabelProps={{ shrink: true }}
-        value={period}
-        onChange={(e) => setPeriod(e.target.value)}
-        sx={{ maxWidth: 220 }}
-      />
-      <Alert severity="warning">
+      <Alert severity="warning" sx={{ width: '100%', textAlign: 'left' }}>
         <Typography fontWeight={600}>{t('gstHonesty.stubTitle')}</Typography>
         <Typography variant="body2">{t('gstHonesty.stubBody')}</Typography>
       </Alert>
-      {query.isLoading ? <LoadingState /> : null}
-      {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
-      ) : null}
-      {query.data ? (
-        <details>
-          <summary>{t('gstHonesty.rawPayload')}</summary>
-          <Paper sx={{ p: 2, overflow: 'auto', mt: 1 }}>
-            <Typography variant="body2" component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap' }}>
-              {JSON.stringify(query.data, null, 2)}
-            </Typography>
-          </Paper>
-        </details>
-      ) : null}
+      <Button
+        variant="contained"
+        component="a"
+        href="https://www.gst.gov.in/"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {t('gstHonesty.filePortalLink')}
+      </Button>
     </Stack>
   );
 }

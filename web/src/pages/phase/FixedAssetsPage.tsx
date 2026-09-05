@@ -16,6 +16,8 @@ import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 
+const DEFAULT_USEFUL_LIFE_MONTHS = '36';
+
 export function FixedAssetsPage() {
   const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
@@ -24,20 +26,61 @@ export function FixedAssetsPage() {
     queryFn: () => api.listFixedAssets(),
   });
   const [open, setOpen] = useState(false);
+  // F3-024: null = creating a new asset; otherwise the id being edited.
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState('');
   const [cost, setCost] = useState('');
+  const [acquisitionDate, setAcquisitionDate] = useState(todayIso());
+  const [usefulLifeMonths, setUsefulLifeMonths] = useState(DEFAULT_USEFUL_LIFE_MONTHS);
+  const [depreciatedAmount, setDepreciatedAmount] = useState(0);
   const [error, setError] = useState('');
+
+  const resetForm = () => {
+    setEditingId(null);
+    setName('');
+    setCost('');
+    setAcquisitionDate(todayIso());
+    setUsefulLifeMonths(DEFAULT_USEFUL_LIFE_MONTHS);
+    setDepreciatedAmount(0);
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setOpen(true);
+  };
+
+  const openEdit = (row: Record<string, unknown>) => {
+    setEditingId(Number(row.id));
+    setName(String(row.name ?? ''));
+    setCost(String(row.acquisitionCost ?? ''));
+    setAcquisitionDate(String(row.acquisitionDate ?? todayIso()).slice(0, 10));
+    setUsefulLifeMonths(String(row.usefulLifeMonths ?? DEFAULT_USEFUL_LIFE_MONTHS));
+    setDepreciatedAmount(Number(row.depreciatedAmount ?? 0));
+    setOpen(true);
+  };
+
   const create = useMutation({
-    mutationFn: () =>
-      api.createFixedAsset({
+    mutationFn: () => {
+      const payload = {
         name,
-        acquisitionCost: Number(cost),
-        acquisitionDate: todayIso(),
-        usefulLifeMonths: 36,
-      }),
+        acquisitionDate,
+        usefulLifeMonths: Number(usefulLifeMonths),
+      };
+      if (editingId != null) {
+        // Depreciation already posted against the old schedule -- the cost
+        // basis and schedule inputs are frozen; only the name can still be
+        // corrected. (A schedule change after posting needs a real
+        // recompute/catch-up, out of scope here.)
+        return depreciatedAmount > 0
+          ? api.updateFixedAsset(editingId, { name })
+          : api.updateFixedAsset(editingId, payload);
+      }
+      return api.createFixedAsset({ ...payload, acquisitionCost: Number(cost) });
+    },
     onSuccess: () => {
       setOpen(false);
       setError('');
+      resetForm();
       void qc.invalidateQueries({ queryKey: ['fixed-assets'] });
     },
     onError: (e) => setError(getErrorMessage(e)),
@@ -57,7 +100,7 @@ export function FixedAssetsPage() {
       title={t('phase.fixedAssets')}
       subtitle={t('phase.fixedAssetsSubtitle')}
       actions={
-        <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
+        <Button variant="contained" onClick={openCreate} disabled={writesBlocked}>
           Add asset
         </Button>
       }
@@ -72,21 +115,70 @@ export function FixedAssetsPage() {
           { key: 'usefulLifeMonths', label: 'Life (mo)' },
           { key: 'status', label: 'Status', status: true },
         ]}
-        actions={(row) => row.status === 'ACTIVE' ? (
-          <Button size="small" color="error" disabled={writesBlocked} onClick={() => dispose.mutate(Number(row.id))}>Dispose</Button>
-        ) : null}
+        actions={(row) => (
+          <Stack direction="row" spacing={1}>
+            {row.status === 'ACTIVE' ? (
+              <Button size="small" disabled={writesBlocked} onClick={() => openEdit(row)}>Edit</Button>
+            ) : null}
+            {row.status === 'ACTIVE' ? (
+              <Button size="small" color="error" disabled={writesBlocked} onClick={() => dispose.mutate(Number(row.id))}>Dispose</Button>
+            ) : null}
+          </Stack>
+        )}
       />
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Fixed asset</DialogTitle>
+      <Dialog
+        open={open}
+        onClose={() => {
+          setOpen(false);
+          resetForm();
+        }}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>{editingId != null ? 'Edit fixed asset' : 'Fixed asset'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {error ? <HelpErrorAlert message={error} /> : null}
             <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-            <TextField label="Acquisition cost" type="number" value={cost} onChange={(e) => setCost(e.target.value)} />
+            <TextField
+              label="Acquisition cost"
+              type="number"
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
+              disabled={editingId != null}
+              helperText={editingId != null ? 'Cost is fixed once postings exist against this asset.' : undefined}
+            />
+            <TextField
+              label="Acquisition date"
+              type="date"
+              value={acquisitionDate}
+              onChange={(e) => setAcquisitionDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              disabled={editingId != null && depreciatedAmount > 0}
+            />
+            <TextField
+              label="Useful life (months)"
+              type="number"
+              value={usefulLifeMonths}
+              onChange={(e) => setUsefulLifeMonths(e.target.value)}
+              disabled={editingId != null && depreciatedAmount > 0}
+              helperText={
+                editingId != null && depreciatedAmount > 0
+                  ? 'Depreciation has already posted against this schedule — only the name can be corrected now.'
+                  : undefined
+              }
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setOpen(false);
+              resetForm();
+            }}
+          >
+            Cancel
+          </Button>
           <Button variant="contained" disabled={writesBlocked || !name || !cost || create.isPending} onClick={() => create.mutate()}>
             Save
           </Button>

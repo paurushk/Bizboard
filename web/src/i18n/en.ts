@@ -95,7 +95,10 @@ export const en = {
     gst: 'GST',
     units: 'Units',
     itemSettings: 'Item Settings',
-    invoiceTemplates: 'Invoice Templates',
+    // F3-009: the page offers no template selection, only a terms/footer
+    // editor for the one fixed GST Tax Invoice layout -- renamed so the nav
+    // label doesn't promise template management the page doesn't deliver.
+    invoiceTemplates: 'Invoice terms & footer',
     users: 'Users',
     backupExport: 'Backup / Export',
     importData: 'Import Data',
@@ -1097,6 +1100,7 @@ export const en = {
     stubBody:
       'This return type is not implemented. The API returns an empty payload with supported: false. Do not use this for GSTN filing.',
     rawPayload: 'Technical payload',
+    filePortalLink: 'File on the GST portal',
   },
   aaHonesty: {
     title: 'No consent UI in this app',

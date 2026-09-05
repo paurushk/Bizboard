@@ -79,6 +79,7 @@ export function InvoiceSourceLineTable({
               <TableCell>{t('nav.products')}</TableCell>
               <TableCell align="right">{t('billing.qty')}</TableCell>
               <TableCell align="right">{t('billing.priceShort')}</TableCell>
+              <TableCell align="right">{t('billing.discountPercent')}</TableCell>
               <TableCell align="right">{t('common.total')}</TableCell>
               {!readOnly ? <TableCell /> : null}
             </TableRow>
@@ -86,7 +87,7 @@ export function InvoiceSourceLineTable({
           <TableBody>
             {active.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={readOnly ? 4 : 5} align="center">
+                <TableCell colSpan={readOnly ? 5 : 6} align="center">
                   {t('phase1.selectInvoiceLines')}
                 </TableCell>
               </TableRow>
@@ -120,7 +121,38 @@ export function InvoiceSourceLineTable({
                         />
                       )}
                     </TableCell>
-                    <TableCell align="right">{formatMoney(line.unitPrice)}</TableCell>
+                    <TableCell align="right">
+                      {readOnly ? (
+                        formatMoney(line.unitPrice)
+                      ) : (
+                        <TextField
+                          type="number"
+                          size="small"
+                          value={line.unitPrice}
+                          onChange={(e) =>
+                            updateLine(line.key, { unitPrice: Number(e.target.value) })
+                          }
+                          inputProps={{ min: 0, step: 'any', style: { width: 88 } }}
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell align="right">
+                      {readOnly ? (
+                        `${line.discountPercent}%`
+                      ) : (
+                        <TextField
+                          type="number"
+                          size="small"
+                          value={line.discountPercent}
+                          onChange={(e) =>
+                            updateLine(line.key, {
+                              discountPercent: Math.min(100, Math.max(0, Number(e.target.value))),
+                            })
+                          }
+                          inputProps={{ min: 0, max: 100, step: 'any', style: { width: 72 } }}
+                        />
+                      )}
+                    </TableCell>
                     <TableCell align="right">{formatMoney(tax.lineTotal)}</TableCell>
                     {!readOnly ? (
                       <TableCell align="right">

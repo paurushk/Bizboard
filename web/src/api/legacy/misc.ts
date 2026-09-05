@@ -365,6 +365,8 @@ export async function listFixedAssetsPage(params?: PageParams): Promise<PageResu
   return fetchPage<Record<string, unknown>>('/accounting/fixed-assets/', { pageSize: 200, ...params });
 }
 export const createFixedAsset = (payload: Record<string, unknown>) => apiClient.post('/accounting/fixed-assets/', payload).then(({ data }) => unwrapData(data));
+// F3-024: correct a wrong useful-life/acquisition-date entered at create time.
+export const updateFixedAsset = (id: number, payload: Record<string, unknown>) => apiClient.patch(`/accounting/fixed-assets/${id}/`, payload).then(({ data }) => unwrapData(data));
 export const disposeFixedAsset = (id: number) => apiClient.post(`/accounting/fixed-assets/${id}/dispose/`).then(({ data }) => unwrapData(data));
 export async function listAccountingPeriods(params?: Record<string, string>): Promise<Record<string, unknown>[]> {
   return fetchAllPagesMasters<Record<string, unknown>>('/accounting/periods/', params);

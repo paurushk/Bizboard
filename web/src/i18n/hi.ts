@@ -95,7 +95,7 @@ export const hi = {
     gst: 'जीएसटी',
     units: 'इकाइयाँ',
     itemSettings: 'आइटम सेटिंग्स',
-    invoiceTemplates: 'इनवॉइस टेम्पलेट',
+    invoiceTemplates: 'इनवॉइस शर्तें व फ़ुटर',
     users: 'उपयोगकर्ता',
     backupExport: 'बैकअप / निर्यात',
     importData: 'डेटा आयात',
@@ -948,6 +948,7 @@ export const hi = {
     stubBody:
       'यह रिटर्न प्रकार लागू नहीं है। API supported: false के साथ खाली पेलोड देता है। GSTN फाइलिंग के लिए उपयोग न करें।',
     rawPayload: 'तकनीकी पेलोड',
+    filePortalLink: 'GST पोर्टल पर फाइल करें',
   },
   aaHonesty: {
     title: 'इस ऐप में सहमति UI नहीं है',

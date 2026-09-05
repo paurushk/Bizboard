@@ -30,6 +30,9 @@ export function JournalsPage() {
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: api.listAccounts });
   const [open, setOpen] = useState(false);
   const [narration, setNarration] = useState('');
+  // F3-025: the backend already accepts a back-dated entryDate (open-period
+  // rules enforced server-side) -- the dialog just never exposed the field.
+  const [entryDate, setEntryDate] = useState(todayIso());
   const [lines, setLines] = useState([
     { account: '', debit: '', credit: '' },
     { account: '', debit: '', credit: '' },
@@ -45,7 +48,7 @@ export function JournalsPage() {
     mutationFn: () =>
       api.createJournal({
         narration,
-        entryDate: todayIso(),
+        entryDate,
         lines: lines
           .filter((l) => l.account)
           .map((l) => ({
@@ -56,6 +59,7 @@ export function JournalsPage() {
       }),
     onSuccess: () => {
       setOpen(false);
+      setEntryDate(todayIso());
       void qc.invalidateQueries({ queryKey: ['journals'] });
     },
     onError: (e) => setError(getErrorMessage(e)),
@@ -118,6 +122,14 @@ export function JournalsPage() {
         <DialogTitle>Journal voucher</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              type="date"
+              label="Entry date"
+              value={entryDate}
+              onChange={(e) => setEntryDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ maxWidth: 220 }}
+            />
             <TextField label="Narration" value={narration} onChange={(e) => setNarration(e.target.value)} fullWidth />
             {lines.map((line, idx) => (
               <Stack key={idx} direction={{ xs: 'column', sm: 'row' }} spacing={1}>
