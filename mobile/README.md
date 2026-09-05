@@ -43,6 +43,29 @@ If `cap add android` fails because the Android SDK is not installed, install And
 
 This scaffold is a WebView wrapper, not a native feature rewrite.
 
+### Command-line release build (M1-017)
+
+The signed `bundleRelease` path (CI or any non-Android-Studio build):
+
+```bash
+cd web && npm run build
+cd ../mobile && npx cap sync android
+cd android && ./gradlew :app:bundleRelease -x lint \
+  -PbizboardVersionCode=$(git rev-list --count HEAD) \
+  -PbizboardVersionName=1.0
+```
+
+Signing is picked up from environment variables (or `-P` properties):
+`BIZBOARD_KEYSTORE_FILE`, `BIZBOARD_KEYSTORE_PASSWORD`, `BIZBOARD_KEY_ALIAS`,
+`BIZBOARD_KEY_PASSWORD`. When they're absent the release AAB/APK builds
+**unsigned** (unchanged prior behaviour) — install/upload will fail until it's
+signed. `versionCode` defaults to `1` locally; always drive it from CI so a
+second Play upload doesn't reuse it.
+
+> **M1-001 (pending):** Play now requires `targetSdk 35`, which needs Capacitor 7
+> + AGP ≥ 8.6 + a Gradle 8.7+ wrapper + a regenerated `package-lock.json` and a
+> device smoke on Android 15. Not done in this checkout — see `FIX_PLAN`.
+
 ## Secure cookie / WebView notes
 
 - Production must be **HTTPS**. Do not enable cleartext HTTP traffic in release (`android:usesCleartextTraffic` must stay false for prod).

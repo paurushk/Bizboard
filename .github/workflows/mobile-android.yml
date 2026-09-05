@@ -1,0 +1,79 @@
+name: Mobile Android
+
+# M1-003: the main CI `mobile` job only greps one manifest line -- it never
+# syncs or compiles the native Android tree, so a broken Gradle DSL, a missing
+# ProGuard keep rule, or drift between capacitor.config.ts and android/ ships
+# undetected until someone's local Android Studio build or a Play upload.
+#
+# This job actually exercises it on an Android-SDK runner. It is intentionally
+# NOT a PR merge gate (Android SDK setup + Gradle is slow and flaky); it runs
+# nightly and on demand, and a failure is a signal to fix the native tree, not
+# a block on unrelated web/backend PRs.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # NOTE: this repo pins every action to a full commit SHA (see ci.yml).
+      # checkout / setup-node reuse the SHAs already vetted there; setup-java,
+      # setup-android and upload-artifact MUST be pinned to a reviewed SHA
+      # before this workflow is enabled -- left on version tags here only
+      # because their SHAs aren't otherwise referenced in-repo.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            mobile/package-lock.json
+
+      - uses: actions/setup-java@v4 # TODO(M1-006): pin to SHA before enabling
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3 # TODO(M1-006): pin to SHA before enabling
+
+      - name: Build the web bundle
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Sync Capacitor -> android/
+        working-directory: mobile
+        run: |
+          npm ci
+          npx cap sync android
+
+      - name: Assemble release bundle (no lint)
+        working-directory: mobile/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:bundleRelease -x lint --stacktrace \
+            -PbizboardVersionCode=${{ github.run_number }} \
+            -PbizboardVersionName=0.0-ci
+
+      - name: Archive R8 mapping (M1-018)
+        if: always()
+        uses: actions/upload-artifact@v4 # TODO(M1-006): pin to SHA before enabling
+        with:
+          name: android-mapping
+          path: mobile/android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: ignore

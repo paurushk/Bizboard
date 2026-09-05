@@ -1,5 +1,12 @@
 ext {
-    minSdkVersion = 22
+    // M1-024: 22 (Android 5.1) has an unpatched system WebView with no TLS 1.3;
+    // 24 is a safer floor for an app handling auth cookies and financial data.
+    minSdkVersion = 24
+    // M1-001 (NOT done here): Google Play requires new/updated submissions to
+    // target API 35, which needs Capacitor 7 + AGP >= 8.6 + a Gradle 8.7+
+    // wrapper and a regenerated package-lock.json + `npx cap sync android` +
+    // an Android 15 device smoke -- a toolchain-dependent upgrade that can't be
+    // verified in this repo checkout. Tracked in FIX_PLAN as pending.
     compileSdkVersion = 34
     targetSdkVersion = 34
     androidxActivityVersion = '1.8.0'

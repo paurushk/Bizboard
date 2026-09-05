@@ -1,5 +1,15 @@
 apply plugin: 'com.android.application'
 
+// M1-017: a release signing config sourced from CI secrets / env, with a
+// graceful fallback -- when the keystore vars are absent (a local dev or the
+// lightweight CI gate) the release build behaves exactly as before: unsigned.
+def releaseStoreFile = System.getenv("BIZBOARD_KEYSTORE_FILE") ?: project.findProperty("bizboard.keystoreFile")
+def releaseStorePassword = System.getenv("BIZBOARD_KEYSTORE_PASSWORD") ?: project.findProperty("bizboard.keystorePassword")
+def releaseKeyAlias = System.getenv("BIZBOARD_KEY_ALIAS") ?: project.findProperty("bizboard.keyAlias")
+def releaseKeyPassword = System.getenv("BIZBOARD_KEY_PASSWORD") ?: project.findProperty("bizboard.keyPassword")
+def hasReleaseSigning = releaseStoreFile && file(releaseStoreFile).exists() &&
+        releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
 android {
     namespace "in.bizboard.app"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +17,10 @@ android {
         applicationId "in.bizboard.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // M1-017: Play rejects a second upload that reuses versionCode. CI passes
+        // -PbizboardVersionCode=$(git rev-list --count HEAD); local builds keep 1.
+        versionCode ((project.findProperty("bizboardVersionCode") ?: "1") as String).toInteger()
+        versionName ((project.findProperty("bizboardVersionName") ?: "1.0") as String)
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +28,23 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    if (hasReleaseSigning) {
+        signingConfigs {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
