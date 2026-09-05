@@ -172,3 +172,75 @@ def test_stale_inflight_money_scope_is_not_reclaimed(tenant_a):
     with pytest.raises(IdempotencyInFlightError):
         begin_record(company=company, scope=scope, raw_key=key)
     assert IdempotencyRecord.objects.filter(pk=first.pk).exists()
+
+
+@override_settings(RAZORPAY_KEY_ID="rzp_test_key", RAZORPAY_KEY_SECRET="rzp_test_secret")
+def test_b9_005_live_plan_switch_defers_to_next_cycle_no_proration(tenant_a):
+    """B9-005: an already-live paying subscriber changing plans must not be
+    charged for the new plan immediately while the old one is still also
+    billing through its cancel-at-cycle-end window. The switch is deferred:
+    the new Razorpay subscription is scheduled to start_at the current
+    period's end, and `plan`/entitlements stay on the old (already paid for)
+    plan until the webhook confirms the new one actually started."""
+    from unittest.mock import patch
+
+    old_plan = _plan(slug="b9005-old", razorpay_plan_id="rzp_plan_old")
+    new_plan = _plan(slug="b9005-new", razorpay_plan_id="rzp_plan_new")
+    period_end = timezone.now() + timedelta(days=12)
+    sub = Subscription.objects.create(
+        company=tenant_a.company,
+        plan=old_plan,
+        status=Subscription.Status.ACTIVE,
+        razorpay_subscription_id="rzp_sub_old",
+        current_period_end=period_end,
+    )
+
+    with (
+        patch("billing.services._create_razorpay_subscription", return_value="rzp_sub_new") as create_mock,
+        patch("billing.services._cancel_razorpay_subscription") as cancel_mock,
+    ):
+        updated, order_id = start_or_update_subscription(company=tenant_a.company, plan=new_plan)
+
+    # The new subscription was scheduled to start exactly at the old one's
+    # period end -- not immediately (no double-billing window).
+    create_mock.assert_called_once()
+    assert create_mock.call_args.kwargs.get("start_at") == int(period_end.timestamp())
+    cancel_mock.assert_called_once_with("rzp_sub_old", at_cycle_end=True)
+
+    updated.refresh_from_db()
+    assert order_id == "rzp_sub_new"
+    assert updated.razorpay_subscription_id == "rzp_sub_new"
+    # Deferred: still on the old plan (what the tenant already paid for) and
+    # still ACTIVE -- no proration charge, no premature entitlement change.
+    assert updated.plan_id == old_plan.pk
+    assert updated.status == Subscription.Status.ACTIVE
+    assert updated.pending_plan_id == new_plan.pk
+
+    # Webhook confirms the new subscription actually started billing.
+    from billing.services import apply_razorpay_subscription_status
+
+    confirmed = apply_razorpay_subscription_status(
+        "rzp_sub_new", "active", current_end=int((period_end + timedelta(days=30)).timestamp())
+    )
+    assert confirmed.plan_id == new_plan.pk
+    assert confirmed.pending_plan_id is None
+
+
+@override_settings(RAZORPAY_KEY_ID="rzp_test_key", RAZORPAY_KEY_SECRET="rzp_test_secret")
+def test_b9_005_fresh_subscription_still_switches_immediately(tenant_a):
+    """A brand-new subscriber (no live prior plan to protect) keeps the
+    existing immediate-switch behavior -- deferral only applies when there is
+    something already paid-for to avoid double-charging."""
+    from unittest.mock import patch
+
+    plan = _plan(slug="b9005-fresh", razorpay_plan_id="rzp_plan_fresh")
+
+    with (
+        patch("billing.services._create_razorpay_subscription", return_value="rzp_sub_fresh") as create_mock,
+        patch("billing.services._cancel_razorpay_subscription"),
+    ):
+        sub, _order = start_or_update_subscription(company=tenant_a.company, plan=plan)
+
+    assert create_mock.call_args.kwargs.get("start_at") is None
+    assert sub.plan_id == plan.pk
+    assert sub.pending_plan_id is None

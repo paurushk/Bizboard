@@ -39,6 +39,15 @@ class Subscription(TimeStampedModel):
     trial_ends_at = models.DateTimeField(null=True, blank=True)
     razorpay_subscription_id = models.CharField(max_length=64, blank=True, db_index=True)
     current_period_end = models.DateTimeField(null=True, blank=True)
+    # B9-005: a plan switch on an already-live paying subscription is deferred
+    # to the next billing cycle (no proration) — `plan`/entitlements stay on
+    # what the tenant already paid for until the new Razorpay subscription's
+    # webhook confirms it actually started, at which point `pending_plan` is
+    # promoted to `plan`. Null for a fresh subscription or a switch that
+    # doesn't need deferring (no live prior plan to protect).
+    pending_plan = models.ForeignKey(
+        Plan, null=True, blank=True, on_delete=models.SET_NULL, related_name="pending_subscriptions"
+    )
 
     class Meta:
         indexes = [models.Index(fields=["status", "trial_ends_at"])]

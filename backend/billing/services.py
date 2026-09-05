@@ -113,8 +113,20 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
     checkout_order_id = stub_order
     if razorpay_key and razorpay_secret and plan.razorpay_plan_id:
         prior_remote_id = (sub.razorpay_subscription_id or "").strip()
+        # B9-005: an already-live paying subscriber switching plans gets no
+        # proration — the change takes effect at the next billing cycle, not
+        # immediately. Schedule the new Razorpay subscription to start when
+        # the current one's paid-for period ends, instead of starting (and
+        # charging) it right away while the old one is still also billing
+        # through cancel_at_cycle_end.
+        is_live_switch = (
+            live_razorpay and sub.status in live and sub.plan_id != plan.pk and bool(prior_remote_id)
+        )
+        start_at = None
+        if is_live_switch and sub.current_period_end and sub.current_period_end > now:
+            start_at = int(sub.current_period_end.timestamp())
         try:
-            remote_id = _create_razorpay_subscription(plan, company)
+            remote_id = _create_razorpay_subscription(plan, company, start_at=start_at)
         except Exception:
             if created_new:
                 sub.delete()
@@ -127,16 +139,25 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
             # not billed on two subscriptions after a plan switch.
             if prior_remote_id and prior_remote_id != remote_id:
                 _cancel_razorpay_subscription(prior_remote_id, at_cycle_end=True)
-            sub.plan = plan
             sub.razorpay_subscription_id = remote_id
-            if sub.status not in live:
-                sub.status = Subscription.Status.PENDING
-            sub.save(update_fields=["plan", "razorpay_subscription_id", "status", "updated_at"])
+            if start_at is not None:
+                # Deferred switch: keep the entitlements/plan the tenant already
+                # paid for until the webhook confirms the new cycle started.
+                sub.pending_plan = plan
+                sub.save(update_fields=["pending_plan", "razorpay_subscription_id", "updated_at"])
+            else:
+                sub.plan = plan
+                sub.pending_plan = None
+                if sub.status not in live:
+                    sub.status = Subscription.Status.PENDING
+                sub.save(
+                    update_fields=["plan", "pending_plan", "razorpay_subscription_id", "status", "updated_at"]
+                )
             checkout_order_id = remote_id
     return sub, checkout_order_id
 
 
-def _create_razorpay_subscription(plan: Plan, company) -> str:
+def _create_razorpay_subscription(plan: Plan, company, *, start_at: int | None = None) -> str:
     import json
     from urllib.request import Request, urlopen
 
@@ -144,14 +165,18 @@ def _create_razorpay_subscription(plan: Plan, company) -> str:
     secret = (getattr(settings, "RAZORPAY_KEY_SECRET", "") or "").strip()
     if not key or not secret or not plan.razorpay_plan_id:
         return ""
-    body = json.dumps(
-        {
-            "plan_id": plan.razorpay_plan_id,
-            "total_count": 120,
-            "customer_notify": 1,
-            "notes": {"company_id": str(company.pk)},
-        }
-    ).encode("utf-8")
+    payload_body: dict[str, Any] = {
+        "plan_id": plan.razorpay_plan_id,
+        "total_count": 120,
+        "customer_notify": 1,
+        "notes": {"company_id": str(company.pk)},
+    }
+    if start_at is not None:
+        # B9-005: defer the first charge to the given Unix timestamp (the
+        # existing subscription's current_period_end) so a plan switch on a
+        # live subscriber doesn't double-bill.
+        payload_body["start_at"] = start_at
+    body = json.dumps(payload_body).encode("utf-8")
     req = Request(
         "https://api.razorpay.com/v1/subscriptions",
         data=body,
@@ -230,6 +255,13 @@ def apply_razorpay_subscription_status(
         else:
             sub.current_period_end = timezone.now() + timedelta(days=30)
         update_fields.append("current_period_end")
+        # B9-005: the deferred plan switch's new subscription has now actually
+        # started billing (Razorpay confirmed ACTIVE) -- promote the pending
+        # plan the tenant only just started paying for.
+        if sub.pending_plan_id:
+            sub.plan = sub.pending_plan
+            sub.pending_plan = None
+            update_fields.extend(["plan", "pending_plan"])
     sub.save(update_fields=update_fields)
     return sub
 
