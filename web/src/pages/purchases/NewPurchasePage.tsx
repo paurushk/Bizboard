@@ -1871,6 +1871,8 @@ export function NewPurchasePage() {
                   setAmountPaid(n);
                 }}
                 min={0}
+                // F2-006: an overpayment (supplier payment) must not be auto-created by a typo.
+                max={displayGrandTotal}
                 decimals={2}
                 placeholder={t('billing.enterPaymentAmount')}
                 InputProps={{

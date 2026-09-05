@@ -1869,6 +1869,8 @@ export function NewInvoicePage() {
                   setAmountReceived(n);
                 }}
                 min={0}
+                // F2-006: an overpayment receipt must not be auto-created by a typo.
+                max={shownTotals.grandTotal}
                 decimals={2}
                 placeholder={t('billing.enterPaymentAmount')}
                 InputProps={{

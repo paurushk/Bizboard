@@ -15,13 +15,14 @@ function formatNumericText(value: number, decimals?: number): string {
 
 function parseNumericText(
   text: string,
-  opts: { min: number; emptyAs: number; decimals?: number },
+  opts: { min: number; max?: number; emptyAs: number; decimals?: number },
 ): number {
   const trimmed = text.trim();
   if (trimmed === '' || trimmed === '.') return opts.emptyAs;
   const n = Number(trimmed);
   if (!Number.isFinite(n)) return opts.emptyAs;
-  const clamped = Math.max(opts.min, n);
+  let clamped = Math.max(opts.min, n);
+  if (opts.max != null) clamped = Math.min(opts.max, clamped);
   return opts.decimals != null ? roundMoney(clamped) : clamped;
 }
 
@@ -30,6 +31,7 @@ export function NumericField({
   value,
   onValueChange,
   min = 0,
+  max,
   emptyAs = 0,
   decimals,
   fullWidth = false,
@@ -41,6 +43,9 @@ export function NumericField({
   value: number;
   onValueChange: (n: number) => void;
   min?: number;
+  /** F2-006: clamp the value to this ceiling (e.g. grand total) instead of
+   * letting an overpayment/over-allocation amount through unclamped. */
+  max?: number;
   emptyAs?: number;
   decimals?: number;
 }) {
@@ -64,7 +69,7 @@ export function NumericField({
       }}
       onBlur={(e) => {
         setFocused(false);
-        const parsed = parseNumericText(text, { min, emptyAs, decimals });
+        const parsed = parseNumericText(text, { min, max, emptyAs, decimals });
         setText(formatNumericText(parsed, decimals));
         onValueChange(parsed);
         rest.onBlur?.(e);
@@ -82,7 +87,8 @@ export function NumericField({
         // F2-031: apply the same `decimals` rounding here as onBlur does, so the
         // value the parent (and the tax preview) sees mid-edit matches what
         // snaps back on blur — no brief unrounded rate/qty feeding totals.
-        const clamped = Math.max(min, n);
+        let clamped = Math.max(min, n);
+        if (max != null) clamped = Math.min(max, clamped);
         onValueChange(decimals != null ? roundMoney(clamped) : clamped);
       }}
       inputProps={{ inputMode: 'decimal', ...inputProps }}
