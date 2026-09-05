@@ -536,6 +536,17 @@ class LiveIrpAdapter:
                 "Live IRP adapter requires GSP_LIVE_ENABLED=1 and GSP_CERTIFIED=1. "
                 "Disable GSP_LIVE_ENABLED in production until a certified GSP ships."
             )
+        # B7-004: the "custom" provider's payload wrapper is an HMAC
+        # placeholder (wrap_irp_payload), not real NIC SEK/AES session-key
+        # encryption -- refuse it live rather than silently shipping
+        # unencrypted-as-required data to an IRP endpoint under a
+        # `GSP_CERTIFIED=1` sign-off that never actually covered "custom".
+        if resolve_gsp_provider(company) == "custom":
+            raise BusinessRuleError(
+                "Live IRP adapter refuses provider='custom' -- its payload wrapper is an "
+                "HMAC placeholder, not real NIC SEK/AES encryption. Configure a certified "
+                "GSP_PROVIDER (cleartax/mastergst) or implement real SEK wrapping first."
+            )
 
     def _base(self) -> str:
         return (getattr(settings, "GSP_LIVE_BASE_URL", None) or "").rstrip("/")
