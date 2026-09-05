@@ -120,9 +120,16 @@ TAX_OUTPUT_STRIP = re.compile(
 
 
 def _month_token_usage(company) -> int:
+    # B9-013: DB-side aggregate instead of pulling every row of the month into
+    # Python just to sum two integer columns.
+    from django.db.models import F, IntegerField, Sum
+    from django.db.models.functions import Coalesce
+
     start = timezone.localdate().replace(day=1)
-    rows = AiUsageLedger.objects.filter(company=company, created_at__date__gte=start)
-    return sum((r.tokens_in + r.tokens_out) for r in rows)
+    total = AiUsageLedger.objects.filter(company=company, created_at__date__gte=start).aggregate(
+        total=Coalesce(Sum(F("tokens_in") + F("tokens_out")), 0, output_field=IntegerField())
+    )["total"]
+    return int(total or 0)
 
 
 def assert_within_budget(company):

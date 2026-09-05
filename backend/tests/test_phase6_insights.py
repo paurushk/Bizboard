@@ -116,6 +116,29 @@ def test_assistant_budget_hard_fail(tenant_a):
 
 
 @pytest.mark.django_db
+def test_month_token_usage_db_aggregate_matches_python_sum(tenant_a):
+    """B9-013: _month_token_usage was rewritten to a DB Sum aggregate --
+    prove it still sums correctly across several rows, including ones with
+    only tokens_in or only tokens_out set."""
+    from insights.assistant import _month_token_usage
+    from insights.models import AiUsageLedger
+
+    for tin, tout in [(100, 50), (0, 25), (75, 0), (10, 10)]:
+        AiUsageLedger.objects.create(
+            company=tenant_a.company, feature=AiUsageLedger.Feature.ASSISTANT,
+            tokens_in=tin, tokens_out=tout,
+        )
+    assert _month_token_usage(tenant_a.company) == 270
+
+
+@pytest.mark.django_db
+def test_month_token_usage_zero_when_no_rows(tenant_a):
+    from insights.assistant import _month_token_usage
+
+    assert _month_token_usage(tenant_a.company) == 0
+
+
+@pytest.mark.django_db
 def test_assistant_cross_tenant_customer(tenant_a, tenant_b):
     other = Customer.objects.create(company=tenant_b.company, name="Secret Co", state="Maharashtra")
     ex = ToolExecutor(tenant_a.company)
