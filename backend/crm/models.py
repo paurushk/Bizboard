@@ -55,6 +55,8 @@ class Opportunity(CompanyScopedModel):
     title = models.CharField(max_length=255)
     amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     stage = models.CharField(max_length=16, choices=Stage.choices, default=Stage.OPEN)
+    # B9-039: stamped once, the first time stage moves to a terminal value.
+    closed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

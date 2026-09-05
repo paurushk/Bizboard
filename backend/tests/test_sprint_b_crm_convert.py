@@ -96,3 +96,36 @@ def test_lead_activities_get_post(tenant_a):
 def test_crm_convert_gated_when_flag_off(tenant_a):
     assert tenant_a.client.get("/api/v1/crm/leads/").status_code == 404
     assert tenant_a.client.post("/api/v1/crm/leads/1/convert/").status_code == 404
+
+
+def test_opportunity_stage_is_terminal_once_won(tenant_a):
+    """B9-039: WON/LOST are terminal -- can't flip back to OPEN or to each other."""
+    opp = Opportunity.objects.create(company=tenant_a.company, title="Deal 1", amount="500")
+    won = tenant_a.client.patch(
+        f"/api/v1/crm/opportunities/{opp.id}/", {"stage": "WON"}, format="json",
+    )
+    assert won.status_code == 200, won.data
+    assert won.data["stage"] == "WON"
+    assert won.data["closed_at"] is not None
+
+    reopen = tenant_a.client.patch(
+        f"/api/v1/crm/opportunities/{opp.id}/", {"stage": "OPEN"}, format="json",
+    )
+    assert reopen.status_code == 400, reopen.data
+
+    flip = tenant_a.client.patch(
+        f"/api/v1/crm/opportunities/{opp.id}/", {"stage": "LOST"}, format="json",
+    )
+    assert flip.status_code == 400, flip.data
+
+
+def test_opportunity_open_to_lost_stamps_closed_at_once(tenant_a):
+    opp = Opportunity.objects.create(company=tenant_a.company, title="Deal 2", amount="200")
+    assert opp.closed_at is None
+    resp = tenant_a.client.patch(
+        f"/api/v1/crm/opportunities/{opp.id}/", {"stage": "LOST"}, format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    opp.refresh_from_db()
+    assert opp.stage == Opportunity.Stage.LOST
+    assert opp.closed_at is not None
