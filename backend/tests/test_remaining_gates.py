@@ -423,7 +423,12 @@ def test_b02_gstr9_is_unsupported_worksheet(tenant_a):
     assert "books worksheet, not filing pack" in (payload.get("disclaimer") or "").lower()
 
 
-@override_settings(GSP_LIVE_ENABLED=True, GSP_CERTIFIED=True, GSP_LIVE_BASE_URL="https://gsp.example")
+@override_settings(
+    GSP_LIVE_ENABLED=True,
+    GSP_CERTIFIED=True,
+    GSP_LIVE_BASE_URL="https://gsp.example",
+    GSP_PROVIDER="cleartax",
+)
 def test_b01_placeholder_secrets_do_not_http(tenant_a, monkeypatch):
     tenant_a.company.gsp_provider = "cleartax"
     tenant_a.company.gsp_credentials_encrypted = encrypt_gsp_credentials(
