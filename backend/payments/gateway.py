@@ -218,10 +218,20 @@ class SandboxAdapter:
         data = _json_body(body)
         if not data:
             return None
+
+        def _paise(raw) -> Decimal:
+            # B4-029: paise-denominated like RazorpayAdapter, so the sandbox
+            # exercises the same parsing/quantization path as production
+            # instead of a rupees-direct shortcut that never gets tested.
+            try:
+                return (Decimal(str(raw or 0)) / Decimal("100")).quantize(Decimal("0.01"))
+            except Exception:
+                return Decimal("0")
+
         return WebhookEvent(
             provider_payment_id=str(data.get("payment_id") or data.get("id") or ""),
-            amount=Decimal(str(data.get("amount", "0"))),
-            fee=Decimal(str(data.get("fee", "0"))),
+            amount=_paise(data.get("amount")),
+            fee=_paise(data.get("fee")),
             status=str(data.get("status", "CAPTURED")).upper(),
             payment_link_id=str(data.get("payment_link_id") or ""),
             raw=data,

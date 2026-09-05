@@ -170,7 +170,8 @@ def test_sandbox_hmac_settles(tenant_a):
     )
     body_dict = {
         "payment_id": "pay_hmac",
-        "amount": "1000.00",
+        # B4-029: sandbox is paise-denominated like Razorpay -- 100000 paise = 1000.00.
+        "amount": "100000",
         "fee": "0",
         "status": "CAPTURED",
         "payment_link_id": link.provider_link_id,

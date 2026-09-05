@@ -92,6 +92,32 @@ def test_closed_period_webhook_holds_then_reconcile_posts(tenant_a):
     assert retrieved2.data["payment_state"] == "PAID"
 
 
+def test_b4_010_reconcile_drains_existing_parked_captures_when_flag_disabled(tenant_a):
+    """B4-010: the GATEWAY_HOLDING_STATE flag must only gate whether a *new*
+    capture gets parked, not whether an already-parked one can ever be
+    retried again. Disabling the flag after some captures were parked must
+    not strand them forever."""
+    from django.test import override_settings
+
+    inv, link, body = _link_and_body(tenant_a, payment_id="pay_b4010_1")
+    period = _period_for_today()
+    soft_close_period(tenant_a.company, period, tenant_a.owner)
+
+    wh = _post_sandbox_webhook(tenant_a.client, tenant_a.company.id, body)
+    assert wh.status_code == 200, wh.data
+    gp = GatewayPayment.objects.get(provider_payment_id="pay_b4010_1")
+    assert gp.status == GatewayPaymentStatus.CAPTURED_PENDING_BOOKS
+
+    reopen_period(tenant_a.company, period)
+    with override_settings(GATEWAY_HOLDING_STATE=False):
+        posted, attempted = PaymentService.reconcile_gateway_captures(older_than_minutes=0)
+    assert attempted >= 1
+    assert posted == 1
+    gp.refresh_from_db()
+    assert gp.status == GatewayPaymentStatus.CAPTURED
+    assert CustomerReceipt.objects.filter(company=tenant_a.company).count() == 1
+
+
 def test_duplicate_webhook_one_receipt(tenant_a):
     _inv, _link, body = _link_and_body(tenant_a, payment_id="pay_dup_1")
     wh1 = _post_sandbox_webhook(tenant_a.client, tenant_a.company.id, body)

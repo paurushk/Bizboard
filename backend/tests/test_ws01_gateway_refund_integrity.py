@@ -229,3 +229,91 @@ def test_provider_failure_leaves_pending_outbox_and_no_book_effect(books, monkey
     gp.refresh_from_db()
     assert gp.status == GatewayPaymentStatus.PARTIALLY_REFUNDED
     assert (gp.raw_payload.get("partial_refunds") or [])[0]["amount"] == "250.00"
+
+
+# --------------------------------------------------------------------------- #
+# B4-013 — a double-submitted refund request (same Idempotency-Key) must not
+# refund/unwind twice, even though refund_gateway_payment's own select_for_update
+# only protects the brief phase-1 window, not the provider HTTP call.
+# --------------------------------------------------------------------------- #
+def test_refund_action_double_submit_with_same_idempotency_key_refunds_once(
+    books, monkeypatch,  # noqa: F811 (books re-imported from test_sprint_a_accounting_p1)
+):
+    _inv, gp, receipt = _captured_gp_with_alloc(books, amount="1000.00")
+    rec = _RecordingAdapter()
+    monkeypatch.setattr("payments.services.get_adapter", lambda *a, **k: rec)
+    monkeypatch.setattr("payments.services.decrypt_gateway_credentials", lambda *a, **k: {})
+
+    headers = {"HTTP_IDEMPOTENCY_KEY": "double-click-1"}
+    resp1 = books.client.post(
+        f"/api/v1/payments/gateway-payments/{gp.id}/refund/",
+        {"amount": "400.00"}, format="json", **headers,
+    )
+    assert resp1.status_code == 200, resp1.data
+    resp2 = books.client.post(
+        f"/api/v1/payments/gateway-payments/{gp.id}/refund/",
+        {"amount": "400.00"}, format="json", **headers,
+    )
+    assert resp2.status_code == 200, resp2.data
+
+    # The provider must only ever have been asked to refund once.
+    assert rec.calls == 1
+    gp.refresh_from_db()
+    assert gp.status == GatewayPaymentStatus.PARTIALLY_REFUNDED
+    assert (gp.raw_payload.get("partial_refunds") or []) == [
+        {"amount": "400.00", "reason": "", "books": True}
+    ]
+    assert _refund_je_total(books.company, receipt) == Decimal("400.00")
+    # The second response is the replayed first response, not a fresh refund.
+    assert resp1.data == resp2.data
+
+
+# --------------------------------------------------------------------------- #
+# B4-036 — a refund spanning more than one receipt against the same gateway
+# payment must post a proportional JE per receipt (not the whole amount on
+# receipts[0]), and only mark a receipt REFUNDED once *its own* balance is
+# fully reversed.
+# --------------------------------------------------------------------------- #
+def test_refund_across_two_receipts_posts_proportional_jes(books, monkeypatch):  # noqa: F811
+    from accounting.services import PostingService
+    from payments.models import ReceiptStatus
+
+    customer = make_customer(books.company)
+    inv_a = _completed_invoice(
+        books.company, customer, grand="600.00", taxable="600.00", cgst="0", sgst="0",
+    )
+    inv_b = _completed_invoice(
+        books.company, customer, grand="400.00", taxable="400.00", cgst="0", sgst="0",
+    )
+    PostingService.post_sales_invoice(inv_a, books.owner)
+    PostingService.post_sales_invoice(inv_b, books.owner)
+
+    gp = GatewayPayment.objects.create(
+        company=books.company, provider="sandbox", provider_payment_id="pay_multi",
+        amount=Decimal("1000.00"), status=GatewayPaymentStatus.CAPTURED,
+    )
+    receipt_a = PaymentService.create_receipt(
+        company=books.company, customer=customer, amount=Decimal("600.00"), mode="UPI",
+        receipt_date=inv_a.invoice_date, user=books.owner, gateway_payment=gp,
+    )
+    receipt_b = PaymentService.create_receipt(
+        company=books.company, customer=customer, amount=Decimal("400.00"), mode="UPI",
+        receipt_date=inv_b.invoice_date, user=books.owner, gateway_payment=gp,
+    )
+    PaymentService.allocate_receipt(receipt=receipt_a, sales_invoice=inv_a, amount=Decimal("600.00"), user=books.owner)
+    PaymentService.allocate_receipt(receipt=receipt_b, sales_invoice=inv_b, amount=Decimal("400.00"), user=books.owner)
+
+    rec = _RecordingAdapter()
+    monkeypatch.setattr("payments.services.get_adapter", lambda *a, **k: rec)
+    monkeypatch.setattr("payments.services.decrypt_gateway_credentials", lambda *a, **k: {})
+
+    PaymentService.refund_gateway_payment(gateway_payment=gp, user=books.owner)  # full refund, both receipts
+
+    assert _refund_je_total(books.company, receipt_a) == Decimal("600.00")
+    assert _refund_je_total(books.company, receipt_b) == Decimal("400.00")
+    receipt_a.refresh_from_db()
+    receipt_b.refresh_from_db()
+    assert receipt_a.status == ReceiptStatus.REFUNDED
+    assert receipt_b.status == ReceiptStatus.REFUNDED
+    gp.refresh_from_db()
+    assert gp.status == GatewayPaymentStatus.REFUNDED

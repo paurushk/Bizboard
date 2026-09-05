@@ -47,6 +47,11 @@ MONEY_IDEMPOTENCY_SCOPES = frozenset({
     # F3-010: opening stock posts an OPENING_STOCK movement + GL entry — a retry
     # after a partial failure must not double the quantity.
     "opening_stock",
+    # B4-013: a gateway refund double-submit (e.g. a UI double-click) with no
+    # request-level idempotency check races two `refund_gateway_payment` calls
+    # against the same in-book "remaining" balance -- each gets its own
+    # provider idempotency key and books entry, refunding/unwinding twice.
+    "gateway_payment_refund",
 })
 
 # PD-01: 4xx that are safe to retry with the same key after the condition clears

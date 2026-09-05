@@ -526,6 +526,15 @@ class GatewayPaymentViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"], url_path="refund")
     def refund(self, request, pk=None):
+        # B4-013: without a request-level idempotency claim, a double-submit
+        # (e.g. a UI double-click) races two refund_gateway_payment() calls
+        # against the same pre-unwind "remaining" balance -- each gets its own
+        # provider idempotency key and books entry, refunding/unwinding twice.
+        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        if raw_key:
+            claimed = begin_record(company=self.company, scope="gateway_payment_refund", raw_key=raw_key)
+            if isinstance(claimed, Response):
+                return claimed
         gp = self.get_object()
         amount = request.data.get("amount")
         reason = request.data.get("reason") or ""
@@ -535,14 +544,28 @@ class GatewayPaymentViewSet(CompanyScopedViewSet):
                 parsed_amount = Decimal(str(amount))
             except (InvalidOperation, TypeError, ValueError):
                 raise ValidationError({"amount": "Enter a valid refund amount."})
-        gp = PaymentService.refund_gateway_payment(
-            gateway_payment=gp,
-            amount=parsed_amount,
-            user=request.user,
-            reason=reason,
-        )
+        try:
+            gp = PaymentService.refund_gateway_payment(
+                gateway_payment=gp,
+                amount=parsed_amount,
+                user=request.user,
+                reason=reason,
+            )
+        except Exception:
+            if raw_key:
+                release_record(company=self.company, scope="gateway_payment_refund", raw_key=raw_key)
+            raise
         self._audit("UPDATE", gp)
-        return Response(GatewayPaymentSerializer(gp).data)
+        response = Response(GatewayPaymentSerializer(gp).data)
+        if raw_key:
+            store_record(
+                company=self.company,
+                scope="gateway_payment_refund",
+                raw_key=raw_key,
+                response=response,
+                resource_id=str(gp.pk),
+            )
+        return response
 
     @action(detail=True, methods=["post"], url_path="retry-books")
     def retry_books(self, request, pk=None):

@@ -1123,13 +1123,16 @@ class PaymentService:
 
     @staticmethod
     def reconcile_gateway_captures(*, company_id=None, older_than_minutes: int = 5):
-        """Retry parked captures. Default: park until the period is open (no silent next-period post)."""
+        """Retry parked captures. Default: park until the period is open (no silent next-period post).
+
+        B4-010: the holding *flag* only gates whether a new capture gets parked
+        (see `finalize_gateway_payment`/webhook views) -- it must not gate this
+        drain. Turning holding off after some captures were already parked
+        must not strand them; keep retrying/refunding existing
+        CAPTURED_PENDING_BOOKS rows regardless of the current flag value.
+        """
         from datetime import timedelta as _td
 
-        from payments.holding import gateway_holding_enabled
-
-        if not gateway_holding_enabled():
-            return 0, 0
         qs = GatewayPayment.objects.filter(
             status=GatewayPaymentStatus.CAPTURED_PENDING_BOOKS
         ).select_related("company", "payment_link")
@@ -1231,9 +1234,17 @@ class PaymentService:
             .select_for_update()
         )
         je_seq = int(raw.get("refund_je_seq") or 0)
+        # B4-036: a refund can span more than one receipt against the same
+        # gateway payment. Track how much was actually unwound from *each*
+        # receipt so the GL posting below is proportional, not lumped onto
+        # receipts[0] for the whole amount; and only mark a receipt REFUNDED
+        # once its own allocations are fully reversed, not just because the
+        # overall gateway-payment refund happened to be "full".
+        unwound_by_receipt: dict[int, Decimal] = {}
         for receipt in receipts:
             if leftover <= 0:
                 break
+            leftover_before = leftover
             for alloc in list(
                 receipt.allocations.select_for_update()
                 .filter(reversed_at__isnull=True)
@@ -1254,12 +1265,14 @@ class PaymentService:
                             receipt=receipt, sales_invoice=invoice, amount=keep, user=user
                         )
                     leftover = Decimal("0")
+            unwound_by_receipt[receipt.pk] = leftover_before - leftover
             note = (receipt.notes or "").strip()
-            refund_note = f"Refunded {refund_amount} via {gp.provider}" + (
+            refund_note = f"Refunded {unwound_by_receipt[receipt.pk]} via {gp.provider}" + (
                 f": {reason}" if reason else ""
             )
             receipt.notes = f"{note}\n{refund_note}".strip() if note else refund_note
-            if full:
+            receipt_fully_reversed = not receipt.allocations.filter(reversed_at__isnull=True).exists()
+            if full and receipt_fully_reversed:
                 receipt.status = ReceiptStatus.REFUNDED
             receipt.updated_by = user
             receipt.save(update_fields=["notes", "status", "updated_by", "updated_at"])
@@ -1267,23 +1280,28 @@ class PaymentService:
             from accounting.services import PostingService
             from reporting.gst_periods import assert_period_allows_money_amend
 
-            je_seq += 1
-            # B4-008: the refund must not be blocked (the customer's money has
-            # left), but it must not post into a closed/filed GST period either.
-            # Post on the original receipt date when that period is open, else
-            # today — same policy as void_* / _reverse_money_document_journal.
-            refund_entry_date = receipts[0].receipt_date or timezone.localdate()
-            try:
-                assert_period_allows_money_amend(company, refund_entry_date)
-            except BusinessRuleError:
-                refund_entry_date = timezone.localdate()
-            PostingService.post_receipt_refund(
-                receipts[0],
-                user=user,
-                amount=refund_amount,
-                purpose="REFUND" if full else f"REFUND_{je_seq}",
-                entry_date=refund_entry_date,
-            )
+            for receipt in receipts:
+                receipt_amount = unwound_by_receipt.get(receipt.pk) or Decimal("0")
+                if receipt_amount <= 0:
+                    continue
+                je_seq += 1
+                # B4-008: the refund must not be blocked (the customer's money
+                # has left), but it must not post into a closed/filed GST
+                # period either. Post on the original receipt date when that
+                # period is open, else today — same policy as void_* /
+                # _reverse_money_document_journal.
+                refund_entry_date = receipt.receipt_date or timezone.localdate()
+                try:
+                    assert_period_allows_money_amend(company, refund_entry_date)
+                except BusinessRuleError:
+                    refund_entry_date = timezone.localdate()
+                PostingService.post_receipt_refund(
+                    receipt,
+                    user=user,
+                    amount=receipt_amount,
+                    purpose="REFUND" if full else f"REFUND_{je_seq}",
+                    entry_date=refund_entry_date,
+                )
         if full and gp.payment_link_id:
             link = PaymentLink.objects.select_for_update().filter(pk=gp.payment_link_id).first()
             if link is not None:

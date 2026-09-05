@@ -20,10 +20,20 @@ pytestmark = pytest.mark.django_db
 
 
 def _post_sandbox_webhook(client, company_id: int, body: dict):
-    """POST sandbox webhook with valid per-company HMAC (BB-000412)."""
+    """POST sandbox webhook with valid per-company HMAC (BB-000412).
+
+    B4-029: SandboxAdapter.parse_webhook is paise-denominated like the real
+    Razorpay adapter. Callers here keep writing rupee amounts (e.g.
+    "1000.00") for readability; convert to the paise wire format so the
+    request actually exercises the same parsing path production traffic does.
+    """
     from payments.gateway import sandbox_webhook_secret_for_company
 
-    raw = json.dumps(body).encode()
+    wire_body = dict(body)
+    for field in ("amount", "fee"):
+        if field in wire_body:
+            wire_body[field] = str(int((Decimal(str(wire_body[field])) * 100).to_integral_value()))
+    raw = json.dumps(wire_body).encode()
     secret = sandbox_webhook_secret_for_company(company_id)
     sig = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
     return client.post(
