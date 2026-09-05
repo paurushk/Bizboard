@@ -181,9 +181,11 @@ class TallyHttpPushView(APIView):
         dt = _parse_iso_date(date_to)
         try:
             if kind == "vouchers":
-                result = push_vouchers_http(cu.company, date_from=df, date_to=dt, base_url=base_url)
+                result = push_vouchers_http(
+                    cu.company, date_from=df, date_to=dt, base_url=base_url, user=request.user,
+                )
             else:
-                result = push_masters_http(cu.company, base_url=base_url)
+                result = push_masters_http(cu.company, base_url=base_url, user=request.user)
         except BusinessRuleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         result["mode"] = "export_dump"

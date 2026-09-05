@@ -847,7 +847,47 @@ def _vouchers_xml(company, date_from=None, date_to=None) -> str:
     return "".join(parts)
 
 
-def push_masters_http(company, base_url: str | None = None) -> dict[str, Any]:
+def _record_export_run(
+    company, user, *, kind: str, url: str, result: dict, extra_counts: dict | None = None,
+) -> None:
+    """B9-010: the HTTP push previously left no trace anywhere -- no record
+    of what was sent, when, to which URL, or whether it succeeded, and no
+    audit trail. Record both, and warn that a re-push resends every voucher
+    as a fresh ACTION="Create" (no REMOTEID/dedupe marker exists yet on the
+    Tally side, so re-running this against the same Tally company will
+    duplicate vouchers there -- a real Tally-side dedupe needs a maintained
+    REMOTEID scheme, tracked separately; this is the documented minimum)."""
+    from core.services.audit import AuditService
+
+    counts = {"url": url, **(extra_counts or {})}
+    run = IntegrationSyncRun.objects.create(
+        company=company,
+        kind=IntegrationSyncRun.Kind.TALLY_EXPORT,
+        status=(
+            IntegrationSyncRun.Status.COMMITTED if result.get("ok")
+            else IntegrationSyncRun.Status.FAILED
+        ),
+        counts=counts,
+        result={"status_code": result.get("status_code"), "body": (result.get("body") or "")[:2000]},
+        failure_reason="" if result.get("ok") else f"HTTP {result.get('status_code')}",
+    )
+    AuditService.log(
+        action="TALLY_EXPORT",
+        company=company,
+        user=user,
+        entity_type="IntegrationSyncRun",
+        entity_id=run.id,
+        description=f"Tally {kind} export pushed to {url}",
+        metadata=counts,
+    )
+    result["sync_run_id"] = run.id
+    result["warning"] = (
+        "Re-pushing this export will create duplicate vouchers in Tally -- "
+        "this is a one-shot dump, not an idempotent sync."
+    )
+
+
+def push_masters_http(company, base_url: str | None = None, *, user=None) -> dict[str, Any]:
     """One-shot Tally master XML dump (not live sync)."""
     from django.conf import settings
 
@@ -858,6 +898,7 @@ def push_masters_http(company, base_url: str | None = None) -> dict[str, Any]:
     result["kind"] = "masters"
     result["mode"] = "export_dump"
     result["sync"] = False
+    _record_export_run(company, user, kind="masters", url=url, result=result)
     return result
 
 
@@ -866,6 +907,8 @@ def push_vouchers_http(
     date_from=None,
     date_to=None,
     base_url: str | None = None,
+    *,
+    user=None,
 ) -> dict[str, Any]:
     """One-shot Tally voucher XML dump (not live sync)."""
     from django.conf import settings
@@ -877,4 +920,11 @@ def push_vouchers_http(
     result["kind"] = "vouchers"
     result["mode"] = "export_dump"
     result["sync"] = False
+    _record_export_run(
+        company, user, kind="vouchers", url=url, result=result,
+        extra_counts={
+            "date_from": date_from.isoformat() if date_from else None,
+            "date_to": date_to.isoformat() if date_to else None,
+        },
+    )
     return result

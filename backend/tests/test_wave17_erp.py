@@ -200,3 +200,70 @@ def test_tally_http_push_via_api(mock_post, tenant_a):
     body = _body(resp)
     assert body["ok"] is True
     mock_post.assert_called_once()
+
+
+@patch("requests.post")
+def test_b9_010_tally_push_records_sync_run_and_audit_log(mock_post, tenant_a):
+    """B9-010: the HTTP push previously left no trace -- an IntegrationSyncRun
+    row and an audit log entry must exist afterward, and the response must
+    warn that a re-push duplicates vouchers in Tally."""
+    from core.models import AuditEvent
+    from integrations.models import IntegrationSyncRun
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.ok = True
+    mock_resp.text = "<RESPONSE>Success</RESPONSE>"
+    mock_post.return_value = mock_resp
+
+    before_runs = IntegrationSyncRun.objects.filter(
+        company=tenant_a.company, kind=IntegrationSyncRun.Kind.TALLY_EXPORT,
+    ).count()
+
+    resp = tenant_a.client.post(
+        "/api/v1/integrations/tally/push-http/",
+        {"kind": "vouchers", "baseUrl": "http://tally.test:9000", "dateFrom": "2026-01-01", "dateTo": "2026-01-31"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    body = _body(resp)
+    assert body["ok"] is True
+    assert "warning" in body
+    assert body.get("sync_run_id") or body.get("syncRunId")
+
+    runs = IntegrationSyncRun.objects.filter(
+        company=tenant_a.company, kind=IntegrationSyncRun.Kind.TALLY_EXPORT,
+    )
+    assert runs.count() == before_runs + 1
+    run = runs.latest("id")
+    assert run.status == IntegrationSyncRun.Status.COMMITTED
+    assert run.counts.get("url") == "http://tally.test:9000"
+    assert run.counts.get("date_from") == "2026-01-01"
+
+    assert AuditEvent.objects.filter(
+        company=tenant_a.company, action="TALLY_EXPORT", entity_type="IntegrationSyncRun",
+        entity_id=str(run.id),
+    ).exists()
+
+
+@patch("requests.post")
+def test_b9_010_tally_push_failure_records_failed_sync_run(mock_post, tenant_a):
+    from integrations.models import IntegrationSyncRun
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 500
+    mock_resp.ok = False
+    mock_resp.text = "boom"
+    mock_post.return_value = mock_resp
+
+    resp = tenant_a.client.post(
+        "/api/v1/integrations/tally/push-http/",
+        {"kind": "masters", "baseUrl": "http://tally.test:9000"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data  # the push itself is not a Bizboard-side error
+    run = IntegrationSyncRun.objects.filter(
+        company=tenant_a.company, kind=IntegrationSyncRun.Kind.TALLY_EXPORT,
+    ).latest("id")
+    assert run.status == IntegrationSyncRun.Status.FAILED
+    assert "500" in run.failure_reason
