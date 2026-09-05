@@ -158,3 +158,38 @@ def test_bb_000671_owner_plans_checkout_portal(tenant_a):
     assert portal.status_code == 200
     assert portal.data["subscription"]["plan"]["slug"] == "pro"
     assert portal.data["seat_limit"] == plan.seat_limit
+
+
+def test_b9_006_downgrade_allowed_then_blocks_new_seats_over_limit(tenant_a):
+    """B9-006: a plan downgrade is not blocked (per-user decision: allow
+    immediately, then restrict forward) -- but once active seats already
+    exceed the new plan's seat_limit, no *new* seat can be added until back
+    under it. _enforce_plan_seat_limit already reads the live plan on every
+    invite/accept, so this must already hold with no extra enforcement code;
+    this pins that behaviour as a real regression test."""
+    big_plan = _plan(slug="big", seat_limit=5)
+    Subscription.objects.create(
+        company=tenant_a.company, plan=big_plan, status=Subscription.Status.TRIAL,
+    )
+    # Owner + 2 invited staff = 3 active seats, well under the 5-seat plan.
+    for i in range(2):
+        invited = tenant_a.client.post("/api/v1/company/users/", {
+            "email": f"seat{i}@alpha.test", "role": "SALES_STAFF",
+        }, format="json")
+        assert invited.status_code == 201, invited.data
+
+    small_plan = _plan(slug="small", seat_limit=2)
+    checkout = tenant_a.client.post(
+        "/api/v1/billing/checkout/", {"plan_id": small_plan.id}, format="json",
+    )
+    # The downgrade itself is not blocked, even though 3 active seats > 2.
+    assert checkout.status_code == 201, checkout.data
+    assert checkout.data["subscription"]["plan"]["slug"] == "small"
+
+    # Existing over-limit seats are grandfathered (not force-deactivated) --
+    # but growth is now blocked until the tenant is back under the limit.
+    blocked = tenant_a.client.post("/api/v1/company/users/", {
+        "email": "seat-too-many@alpha.test", "role": "SALES_STAFF",
+    }, format="json")
+    assert blocked.status_code == 400, blocked.data
+    assert "seat limit" in str(blocked.data).lower()
