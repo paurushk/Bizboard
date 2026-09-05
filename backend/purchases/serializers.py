@@ -356,7 +356,8 @@ class BillOfEntrySerializer(CompanyScopedSerializerMixin, serializers.ModelSeria
         fields = [
             "id", "supplier", "supplier_name", "boe_number", "boe_date", "port_code",
             "reference", "assessable_value", "bcd_amount", "igst_amount", "cess_amount",
-            "itc_eligibility", "itc_period", "status", "completed_at", "cancelled_at",
+            "itc_eligibility", "itc_period", "icegate_verified", "status",
+            "completed_at", "cancelled_at",
             "notes", "claimable_itc", "total_customs_paid", "created_at", "updated_at",
         ]
         read_only_fields = ["status", "completed_at", "cancelled_at"]

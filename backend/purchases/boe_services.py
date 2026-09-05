@@ -8,6 +8,32 @@ from core.exceptions import BusinessRuleError
 from .models import BillOfEntry
 
 
+def _assert_boe_import_itc_reconciled(boe: BillOfEntry) -> None:
+    """B3-022: mirror `assert_claimable_itc_allowed` for import ITC.
+
+    If the availing period already has GSTR-2B ingest, ELIGIBLE import ITC on a
+    Bill of Entry must be reconciled against ICEGATE / GSTR-2B (table IMPG)
+    before Complete posts it. No 2B data for the period -> no gate (same escape
+    hatch the domestic-ITC check uses).
+    """
+    if boe.itc_eligibility != BillOfEntry.ItcEligibility.ELIGIBLE:
+        return
+    if boe.icegate_verified:
+        return
+    period = boe.resolved_itc_period()
+    if not period:
+        return
+    from reporting.models import Gstr2bIngest
+
+    if not Gstr2bIngest.objects.filter(company=boe.company, period=period).exists():
+        return
+    raise BusinessRuleError(
+        "Import ITC on this Bill of Entry can't be claimed until it's reconciled "
+        f"against ICEGATE / GSTR-2B (table IMPG) for {period}. Verify the BoE in "
+        "ICEGATE and set icegate_verified, or mark the ITC INELIGIBLE."
+    )
+
+
 class BillOfEntryService:
     @staticmethod
     @transaction.atomic
@@ -19,6 +45,7 @@ class BillOfEntryService:
             raise BusinessRuleError("A cancelled Bill of Entry cannot be completed.")
         if locked.total_customs_paid <= 0:
             raise BusinessRuleError("A Bill of Entry needs a non-zero IGST / cess / BCD amount.")
+        _assert_boe_import_itc_reconciled(locked)
 
         from reporting.gst_periods import (
             assert_period_allows_money_amend,

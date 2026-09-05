@@ -401,6 +401,11 @@ class BillOfEntry(CompanyScopedModel):
         max_length=7, blank=True,
         help_text="YYYY-MM period in which the import ITC is availed (defaults to boe_date month).",
     )
+    # B3-022: import ITC must not be booked ahead of ICEGATE / GSTR-2B (table
+    # IMPG). Mirrors PurchaseInvoice's "never claim until reconciled" posture --
+    # Complete refuses to post ELIGIBLE import ITC for a period that already has
+    # GSTR-2B ingest until this is set.
+    icegate_verified = models.BooleanField(default=False)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
     completed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)

@@ -85,6 +85,52 @@ def test_boe_ineligible_itc_is_all_cost(tenant_a):
     assert b3["itc"]["import_itc"]["igst"] == "0.00"
 
 
+def test_b3_022_import_itc_blocked_until_icegate_verified_when_2b_ingested(tenant_a):
+    """B3-022: mirror the domestic-ITC 2B gate -- once the period has GSTR-2B
+    ingest, ELIGIBLE import ITC needs an explicit ICEGATE / 2B reconciliation
+    before Complete posts it."""
+    from reporting.models import Gstr2bIngest
+
+    _enable_books(tenant_a)
+    boe = BillOfEntry.objects.create(
+        company=tenant_a.company, boe_number="BOE-2B", boe_date=f"{PERIOD}-15",
+        igst_amount=Decimal("9000.00"),
+    )
+    Gstr2bIngest.objects.create(company=tenant_a.company, period=PERIOD)
+
+    blocked = tenant_a.client.post(f"/api/v1/purchases/bills-of-entry/{boe.id}/complete/")
+    assert blocked.status_code == 400
+    assert "ICEGATE" in str(blocked.data)
+    boe.refresh_from_db()
+    assert boe.status == BillOfEntry.Status.DRAFT
+
+    boe.icegate_verified = True
+    boe.save(update_fields=["icegate_verified"])
+    done = tenant_a.client.post(f"/api/v1/purchases/bills-of-entry/{boe.id}/complete/")
+    assert done.status_code == 200, done.data
+    entry = JournalEntry.objects.get(
+        company=tenant_a.company, source_type="BILL_OF_ENTRY", source_id=boe.id, purpose="COMPLETE",
+    )
+    lines = {ln.account.code: (ln.debit or Decimal("0")) - (ln.credit or Decimal("0"))
+             for ln in entry.lines.all()}
+    assert lines["1330"] == Decimal("9000.00")
+
+
+def test_b3_022_ineligible_import_itc_is_never_gated(tenant_a):
+    """An INELIGIBLE BoE has no ITC to protect -- the 2B gate must not block it."""
+    from reporting.models import Gstr2bIngest
+
+    _enable_books(tenant_a)
+    boe = BillOfEntry.objects.create(
+        company=tenant_a.company, boe_number="BOE-2B-NIL", boe_date=f"{PERIOD}-16",
+        igst_amount=Decimal("4000.00"),
+        itc_eligibility=BillOfEntry.ItcEligibility.INELIGIBLE,
+    )
+    Gstr2bIngest.objects.create(company=tenant_a.company, period=PERIOD)
+    done = tenant_a.client.post(f"/api/v1/purchases/bills-of-entry/{boe.id}/complete/")
+    assert done.status_code == 200, done.data
+
+
 def test_boe_cancel_reverses_gl(tenant_a):
     _enable_books(tenant_a)
     boe = BillOfEntry.objects.create(
