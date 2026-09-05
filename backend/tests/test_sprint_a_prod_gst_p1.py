@@ -262,4 +262,68 @@ def test_gstr1_at_scoped_to_primary_gstin(tenant_a):
     primary_rows = _gstr1_at_table(company, date_from, date_to, company_gstin_id=primary.id)
     secondary_rows = _gstr1_at_table(company, date_from, date_to, company_gstin_id=secondary.id)
     assert primary_rows
-    assert secondary_rows == []
+    # B5-020: a non-primary GSTIN can't be attributed a real unallocated
+    # receipt (CustomerReceipt has no GSTIN stamp), but the review flagged
+    # a bare `[]` here as indistinguishable from "genuinely nil" -- it must
+    # surface an explicit disclosure instead of silently understating
+    # advance-tax for this registration.
+    assert secondary_rows
+    assert secondary_rows[0]["aid_kind"] == "unattributable_to_gstin"
+    assert secondary_rows[0]["honesty"] == "unattributable_do_not_assume_nil"
+    assert secondary_rows[0]["gross_advance"] == "50.00"
+
+
+def test_gstr1_at_secondary_gstin_genuinely_nil_when_no_receipts(tenant_a):
+    """The disclosure row is not just for the secondary GSTIN's presence --
+    it must not fire when there really are no unallocated receipts."""
+    from datetime import date
+
+    from accounts.models import CompanyGstin
+    from reporting.gst_returns import _gstr1_at_table
+
+    company = _gst_company(tenant_a)
+    CompanyGstin.objects.create(
+        company=company, gstin="29ABCDE1234F1ZW", state="Karnataka",
+        is_primary=True, is_active=True,
+    )
+    secondary = CompanyGstin.objects.create(
+        company=company, gstin="27AAAAA0000A1Z2", state="Maharashtra",
+        is_primary=False, is_active=True,
+    )
+    year, month = PERIOD.split("-")
+    date_from = date(int(year), int(month), 1)
+    date_to = date(int(year), int(month), 28)
+    assert _gstr1_at_table(company, date_from, date_to, company_gstin_id=secondary.id) == []
+
+
+def test_gstr1_txpd_passes_through_unattributable_disclosure(tenant_a):
+    """B5-020: TXPD mirrors AT rows but must not relabel the disclosure row
+    with its generic 'copies unallocated advances' note -- that would bury
+    the actual reason (non-attribution) behind an unrelated rate caveat."""
+    from datetime import date
+
+    from accounts.models import CompanyGstin
+    from payments.models import CustomerReceipt, PaymentMode, ReceiptStatus
+    from reporting.gst_returns import _gstr1_txpd_table
+
+    company = _gst_company(tenant_a)
+    CompanyGstin.objects.create(
+        company=company, gstin="29ABCDE1234F1ZW", state="Karnataka",
+        is_primary=True, is_active=True,
+    )
+    secondary = CompanyGstin.objects.create(
+        company=company, gstin="27AAAAA0000A1Z2", state="Maharashtra",
+        is_primary=False, is_active=True,
+    )
+    customer = make_customer(company)
+    CustomerReceipt.objects.create(
+        company=company, customer=customer, amount=Decimal("75.00"),
+        mode=PaymentMode.CASH, receipt_date=f"{PERIOD}-10", status=ReceiptStatus.POSTED,
+    )
+    year, month = PERIOD.split("-")
+    date_from = date(int(year), int(month), 1)
+    date_to = date(int(year), int(month), 28)
+    rows = _gstr1_txpd_table(company, date_from, date_to, company_gstin_id=secondary.id)
+    assert rows
+    assert rows[0]["aid_kind"] == "unattributable_to_gstin"
+    assert rows[0]["gross_advance"] == "75.00"

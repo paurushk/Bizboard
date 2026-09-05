@@ -163,6 +163,57 @@ def test_wo_issue_stamps_wavg_unit_cost(books):
     assert Decimal(str(move.unit_cost or 0)) > 0
 
 
+def test_wo_release_blocks_when_component_is_unstocked_subassembly(books):
+    """B8-008: BOM explosion is single-level only. A component that is
+    itself a manufactured item (has its own ACTIVE BOM) is never exploded
+    into its own materials -- releasing against it with no finished stock
+    on hand must fail with a clear, specific error, not a generic
+    stock-shortage message or a silent negative issue."""
+    from manufacturing.models import Bom, BomLine, WorkOrder
+    from manufacturing.services import release_work_order
+
+    fg = make_product(books.company, name="FG", sku="B8008-FG")
+    subassembly = make_product(books.company, name="Sub", sku="B8008-SUB", purchase_price="10")
+    Bom.objects.create(
+        company=books.company, product=subassembly, name="Sub BOM", status=Bom.Status.ACTIVE,
+    )
+    bom = Bom.objects.create(company=books.company, product=fg, name="FG BOM", status=Bom.Status.ACTIVE)
+    BomLine.objects.create(bom=bom, component=subassembly, qty=Decimal("2"))
+    wo = WorkOrder.objects.create(
+        company=books.company, bom=bom, qty=Decimal("3"), status=WorkOrder.Status.DRAFT,
+    )
+    with pytest.raises(BusinessRuleError, match="manufactured sub-assembly"):
+        release_work_order(wo, books.owner)
+
+
+def test_wo_release_allows_subassembly_component_when_stock_exists(books):
+    """The guard only blocks when finished stock of the sub-assembly is
+    actually short -- issuing from real on-hand stock is a legitimate
+    single-level operation and must not be rejected."""
+    from manufacturing.models import Bom, BomLine, WorkOrder
+    from manufacturing.services import release_work_order
+
+    fg = make_product(books.company, name="FG2", sku="B8008-FG2")
+    subassembly = make_product(books.company, name="Sub2", sku="B8008-SUB2", purchase_price="10")
+    add_stock(books, subassembly, 10, unit_cost="15")
+    Bom.objects.create(
+        company=books.company, product=subassembly, name="Sub2 BOM", status=Bom.Status.ACTIVE,
+    )
+    bom = Bom.objects.create(company=books.company, product=fg, name="FG2 BOM", status=Bom.Status.ACTIVE)
+    BomLine.objects.create(bom=bom, component=subassembly, qty=Decimal("2"))
+    wo = WorkOrder.objects.create(
+        company=books.company, bom=bom, qty=Decimal("3"), status=WorkOrder.Status.DRAFT,
+    )
+    release_work_order(wo, books.owner)
+    move = StockMovement.objects.get(
+        company=books.company,
+        reference_type="work_order",
+        reference_id=str(wo.id),
+        movement_type=MovementType.MANUFACTURE_ISSUE,
+    )
+    assert abs(move.quantity) == Decimal("6")
+
+
 def test_refund_soft_reverses_allocations(books, monkeypatch):
     customer = make_customer(books.company)
     invoice = SalesInvoice.objects.create(

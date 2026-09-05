@@ -230,6 +230,17 @@ class ReBITClient:
     (``_rebit_session_key`` / ``decrypt_fi_data``) follows the Sahamati
     ``ecc-crypto`` scheme; **still validate the exact HKDF salt / IV derivation
     against your live aggregator's sandbox** before enabling `ENABLE_AA_LIVE`.
+
+    B4-020: this class is a scaffold, not wired into any live ingest path
+    today (``AaIngestView`` / ``fetch_live_transactions_for_consent`` in this
+    file are a separate, simpler mock/live-fetch pair -- ``ReBITClient`` is
+    only exercised by the crypto unit test). Critically, ``fetch_fi_data`` /
+    ``decrypt_fi_records`` below never verify the CR's signed consent
+    artefact or the FIP's per-block JWS signature -- payloads are trusted
+    after a bearer-token HTTP call. Wiring this into a real ingest flow
+    before adding that verification would let forged/altered FI data (or a
+    MITM on FIU_BASE_URL) be ingested as authentic bank transactions. The
+    guard below keeps that a hard failure, not just a docstring warning.
     """
 
     def __init__(self):
@@ -243,6 +254,13 @@ class ReBITClient:
         if not self.base or not self.api_key:
             raise BusinessRuleError(
                 "AA/ReBIT is fail-closed: set FIU_BASE_URL and FIU_API_KEY."
+            )
+        if not getattr(settings, "AA_REBIT_SIGNATURES_VERIFIED", False):
+            raise BusinessRuleError(
+                "AA/ReBIT is fail-closed: this scaffold does not verify the CR/FIP "
+                "JWS signatures (B4-020). Implement Sahamati JWS verification in "
+                "fetch_fi_data/decrypt_fi_records, then set "
+                "AA_REBIT_SIGNATURES_VERIFIED=True to unblock this client."
             )
 
     def _post(self, path: str, body: dict) -> dict:
@@ -294,7 +312,13 @@ class ReBITClient:
         return {"session_id": session_id, "key_material": km}
 
     def fetch_fi_data(self, *, session_id: str) -> dict:
-        """Step 4 — the encrypted FI payload envelope."""
+        """Step 4 — the encrypted FI payload envelope.
+
+        B4-020: the response is trusted as-is once the bearer token
+        authenticates. Sahamati requires the FIP to sign each FI block
+        (detached JWS) -- that signature must be verified here (or in
+        ``decrypt_fi_records`` before decrypting) before this can be
+        trusted with real transaction data."""
         import json
         import urllib.error
         import urllib.request
@@ -313,7 +337,10 @@ class ReBITClient:
     def decrypt_fi_records(self, *, fi_fetch_response: dict, key_material: dict) -> list[str]:
         """Step 5 — decrypt every ``encryptedFI`` in a FI/fetch response to its
         plaintext FI document, using the KeyMaterial we sent in step 3 and the
-        FIP's KeyMaterial echoed back per FI block."""
+        FIP's KeyMaterial echoed back per FI block.
+
+        B4-020: no signature check on ``fi_fetch_response`` before decrypting
+        -- see the class docstring and ``fetch_fi_data``."""
         out: list[str] = []
         for fi in fi_fetch_response.get("FI") or []:
             fip_km = (fi.get("KeyMaterial") or {})

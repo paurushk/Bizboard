@@ -298,6 +298,14 @@ class Product(CompanyScopedModel):
 
 
 class PriceList(CompanyScopedModel):
+    """B8-032 (documented limitation, not built here): prices here (and on
+    Product) have no currency field — every price list is implicitly the
+    company's home currency. An export customer (Customer.TaxpayerType has
+    EXPWP/EXPWOP) cannot have a USD/EUR price list today. Adding currency
+    is more than a field: it needs a conversion-rate story for documents,
+    and interacts with GST math that assumes INR — a real design decision,
+    not a speculative migration."""
+
     name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
 

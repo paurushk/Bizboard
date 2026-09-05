@@ -207,6 +207,39 @@ def test_bank_statement_upload_and_recon(tenant_a):
     )
     assert confirm.status_code == 201, confirm.data
 
+    # B4-016: the operator confirmed the wrong match -- undo it.
+    from payments.models import BankStatementLine, ReconMatch
+
+    unmatch = tenant_a.client.post(
+        "/api/v1/payments/recon/unmatch/", {"line": line_id}, format="json"
+    )
+    assert unmatch.status_code == 200, unmatch.data
+    assert unmatch.data["match_status"] == "UNMATCHED"
+    assert not ReconMatch.objects.filter(company=tenant_a.company, line_id=line_id).exists()
+    assert (
+        BankStatementLine.objects.get(pk=line_id).match_status == "UNMATCHED"
+    )
+
+    # A statement with a still-MATCHED line can't be voided -- unmatch first.
+    confirm2 = tenant_a.client.post(
+        "/api/v1/payments/recon/confirm/",
+        {"line": line_id, "receipt": receipt.id, "confidence": 95},
+        format="json",
+    )
+    assert confirm2.status_code == 201, confirm2.data
+    blocked = tenant_a.client.post(f"/api/v1/payments/statements/{sid}/void/")
+    assert blocked.status_code == 400, blocked.data
+
+    tenant_a.client.post("/api/v1/payments/recon/unmatch/", {"line": line_id}, format="json")
+    voided = tenant_a.client.post(f"/api/v1/payments/statements/{sid}/void/")
+    assert voided.status_code == 200, voided.data
+    assert voided.data["status"] == "VOID"
+
+    # Voiding twice is a no-op, not an error.
+    again = tenant_a.client.post(f"/api/v1/payments/statements/{sid}/void/")
+    assert again.status_code == 200
+    assert again.data["status"] == "VOID"
+
 
 def test_cash_book_report(tenant_a):
     customer = make_customer(tenant_a.company)

@@ -417,6 +417,15 @@ def _credit_line(account, amount: Decimal):
 
 @transaction.atomic
 def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> PayRun:
+    """B9-036 (documented limitation, not built here): the only per-employee
+    input this run accepts is the `lop` action, which sets paid_days and
+    forces gross = emp.salary. There is no way to add a bonus, arrear,
+    advance recovery, or one-off deduction to a slip — any month with a
+    salary revision effective mid-period, a bonus, or a recovery cannot be
+    represented. Modeling this needs a real PaySlip earning/deduction-lines
+    schema (with its own TDS/PF/ESI tax-treatment rules per line type) —
+    a payroll feature build with real compliance stakes, not something to
+    improvise here."""
     locked = PayRun.objects.select_for_update().get(pk=pay_run.pk)
     if locked.status == PayRun.Status.COMPLETED:
         raise BusinessRuleError("Pay run already completed.")

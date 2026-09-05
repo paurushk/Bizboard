@@ -143,6 +143,35 @@ def release_work_order(wo, user, *, component_serials=None):
     requirements = _component_requirements(wo)
     if not requirements:
         raise BusinessRuleError("BOM has no component lines.")
+    # B8-008: BOM explosion is single-level only -- a component that is
+    # itself a manufactured sub-assembly (has its own ACTIVE BOM) is never
+    # exploded into its own materials. Issuing from finished stock of that
+    # sub-assembly is fine if it exists; silently proceeding when it
+    # doesn't would issue negative/short stock with no explanation. Fail
+    # loudly and specifically instead of letting a generic stock-shortage
+    # error (or a negative-stock issue, if allowed) obscure the real cause.
+    from .models import Bom as _Bom
+
+    subassembly_ids = {
+        pk
+        for pk in _Bom.objects.filter(
+            company=wo.company,
+            product_id__in=[component.pk for component, _qty, _line in requirements],
+            status=_Bom.Status.ACTIVE,
+        ).values_list("product_id", flat=True)
+    }
+    if subassembly_ids:
+        for component, qty, _line in requirements:
+            if component.pk not in subassembly_ids:
+                continue
+            available = InventoryService.available_quantity(wo.company, component, warehouse)
+            if available < qty:
+                raise BusinessRuleError(
+                    f"'{component.name}' is itself a manufactured sub-assembly (has an "
+                    f"active BOM) — this app does not explode multi-level BOMs. Only "
+                    f"{available} is available against {qty} required; manufacture it "
+                    f"via its own work order first, or reduce this work order's quantity."
+                )
     for component, qty, line in requirements:
         lot_payload = []
         for batch, take in _issue_batches(wo, component, qty, line):
@@ -201,6 +230,15 @@ def release_work_order(wo, user, *, component_serials=None):
 
 @transaction.atomic
 def complete_work_order(wo, user):
+    """B8-009 (documented limitation, not built here): this posts exactly one
+    MANUFACTURE_RECEIPT for wo.bom.product, loading 100% of issue_cost onto
+    the primary finished good. There is no model or code path for
+    by-products, co-products, or scrap yield — a real by-product must be
+    added via a separate manual stock adjustment with a manually-guessed
+    cost. Modeling this properly needs a BomOutput (product, qty,
+    cost-allocation %) concept and splitting issue_cost across it on
+    completion — a real feature build (new model + migration + UI), not a
+    quick fix, so it's flagged here rather than attempted speculatively."""
     wo = WorkOrder.objects.select_for_update().get(pk=wo.pk)
     from django.utils import timezone
 

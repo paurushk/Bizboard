@@ -177,6 +177,13 @@ def _maybe_alert_budget_threshold(company, used: int, budget: int) -> None:
 
 
 def record_usage(company, *, feature, tokens_in=0, tokens_out=0, model_name=""):
+    """B9-024 (documented limitation, not built here): cost_estimate is left
+    at its default 0 — nothing populates it, so budgets and the usage view
+    are token-only with no rupee/dollar cost visibility. Computing it needs
+    a maintained per-model $/token price table (rates change, and differ by
+    provider/model), which is a standing maintenance commitment, not a
+    one-time fix — flagged here rather than hardcoding a table that goes
+    stale on the next pricing change."""
     AiUsageLedger.objects.create(
         company=company,
         feature=feature,

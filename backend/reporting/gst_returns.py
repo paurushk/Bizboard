@@ -1144,9 +1144,19 @@ def _gstr1_doc_table(
 def _gstr1_at_table(company, date_from, date_to, *, company_gstin_id=None) -> list[dict]:
     """GSTR-1 AT aid: unallocated customer receipts in period (advances).
 
-    Advances are company-level until allocated to a stamped invoice. When a
-    non-primary ``company_gstin_id`` is requested, return empty (ATADJ covers
-    stamp-scoped allocations). Primary / unset stamp includes all unallocated.
+    Advances are company-level until allocated to a stamped invoice --
+    CustomerReceipt has no company_gstin of its own to scope this to a
+    specific registration, so a non-primary ``company_gstin_id`` genuinely
+    cannot be attributed a slice of them without a schema change (adding
+    that FK, deciding how it gets set, and a migration/backfill policy) --
+    out of scope here. Primary / unset stamp includes all unallocated.
+
+    B5-020: a non-primary GSTIN used to just get `[]` here indistinguishable
+    from "genuinely nil this period" -- silently understating advance-tax
+    disclosure. If real unallocated receipts exist company-wide, surface an
+    explicit "not attributable" row instead of a bare empty list, so this
+    GSTIN's filer knows to check the primary registration's aid / their own
+    records rather than trusting a false zero.
     """
     from django.db.models import Sum as DjSum
 
@@ -1159,7 +1169,7 @@ def _gstr1_at_table(company, date_from, date_to, *, company_gstin_id=None) -> li
             company=company, is_primary=True, is_active=True
         ).first()
         if primary is not None and primary.id != company_gstin_id:
-            return []
+            return _gstr1_at_unattributable_rows(company, date_from, date_to)
 
     rows = []
     receipts = CustomerReceipt.objects.filter(
@@ -1197,6 +1207,47 @@ def _gstr1_at_table(company, date_from, date_to, *, company_gstin_id=None) -> li
             "honesty": "rate_unknown_do_not_file_as_at",
         })
     return rows
+
+
+def _gstr1_at_unattributable_rows(company, date_from, date_to) -> list[dict]:
+    """B5-020: company-wide unallocated-receipt total for the disclosure row
+    a non-primary GSTIN's AT aid falls back to -- see _gstr1_at_table."""
+    from django.db.models import Sum as DjSum
+
+    from payments.models import CustomerReceipt, PaymentAllocation, ReceiptStatus
+
+    receipts = CustomerReceipt.objects.filter(
+        company=company,
+        receipt_date__gte=date_from,
+        receipt_date__lte=date_to,
+        status=ReceiptStatus.POSTED,
+    )
+    total_unalloc = Decimal("0")
+    count = 0
+    for rec in receipts:
+        allocated = (
+            PaymentAllocation.objects.filter(receipt=rec, reversed_at__isnull=True).aggregate(t=DjSum("amount"))["t"]
+            or Decimal("0")
+        )
+        unalloc = Decimal(str(rec.amount or 0)) - Decimal(str(allocated or 0))
+        if unalloc > 0:
+            total_unalloc += unalloc
+            count += 1
+    if count == 0:
+        return []
+    return [{
+        "aid_kind": "unattributable_to_gstin",
+        "receipt_count": count,
+        "gross_advance": _money(total_unalloc),
+        "tax_status": "not_attributable",
+        "note": (
+            f"{count} unallocated customer receipt(s) totalling {_money(total_unalloc)} exist "
+            "company-wide this period, but this app cannot attribute them to a specific "
+            "GSTIN (CustomerReceipt has no GSTIN stamp of its own). Check the primary "
+            "registration's AT aid or your own records before filing this GSTIN's advances."
+        ),
+        "honesty": "unattributable_do_not_assume_nil",
+    }]
 
 
 def _gstr1_atadj_table(company, date_from, date_to, *, company_gstin_id=None) -> list[dict]:
@@ -1245,6 +1296,11 @@ def _gstr1_txpd_table(company, date_from, date_to, *, company_gstin_id=None) -> 
             "supported": False,
             "note": "No unallocated advances in period — TXPD is nil for this aid.",
         }]
+    # B5-020: the AT "unattributable" disclosure isn't a real advance row to
+    # relabel as TXPD -- pass it through as-is rather than overwriting its
+    # honesty note with the generic "copies unallocated advances" text.
+    if any(row.get("aid_kind") == "unattributable_to_gstin" for row in at_rows):
+        return at_rows
     return [
         {
             **row,

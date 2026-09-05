@@ -82,7 +82,19 @@ def _matching_slab(*, price_list_id, product, quantity: Decimal | None):
 
 
 def resolve_party_price(*, customer, product, quantity=None) -> tuple[Decimal | None, str]:
-    """Return (list unit price, list name) or (None, "") if no party list/slab."""
+    """Return (list unit price, list name) or (None, "") if no party list/slab.
+
+    B8-033 (documented limitation, not built here): only the customer's own
+    assigned price_list is ever consulted. There is no company-wide default
+    price list to fall back to, and Product.wholesale_price is never
+    referenced here — a customer with no list assigned falls straight
+    through to product.selling_price regardless of any wholesale/retail
+    distinction. Wiring in a real precedence chain (customer list -> company
+    default list -> wholesale/retail -> selling_price) needs a new
+    Company.default_price_list field and a decision on how wholesale vs.
+    retail actually gets determined per customer — a pricing-behavior
+    change affecting every invoice at every company without a customer
+    list, not something to guess at here."""
     fallback = None
     price_list_id = getattr(customer, "price_list_id", None) if customer is not None else None
     if not price_list_id:

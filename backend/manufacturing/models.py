@@ -6,6 +6,19 @@ from core.models import CompanyScopedModel
 
 
 class Bom(CompanyScopedModel):
+    """B8-018 (documented limitation, not built here): there is no
+    uniqueness constraint on (company, product, status=ACTIVE) and no
+    effective_from/version concept, so multiple ACTIVE BOMs for the same
+    finished good are allowed. WorkOrder.bom is always explicit so a
+    released/completed WO is never ambiguous, but any "get the BOM for this
+    product" lookup (costing estimates, MRP, UI defaulting) has to pick
+    arbitrarily among them. Adding a bare partial-unique constraint now is
+    riskier than it looks: a migration would fail outright against any
+    tenant that already has two ACTIVE BOMs for one product, and the
+    better long-term answer is probably BOM versioning with effective
+    dates, not a hard single-active rule — both need a real design
+    decision, not a speculative migration."""
+
     class Status(models.TextChoices):
         DRAFT = "DRAFT"
         ACTIVE = "ACTIVE"

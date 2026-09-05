@@ -44,6 +44,7 @@ from .models import (
 from .recon import is_exact_unique_suggestion, parse_bank_csv, suggest_matches
 from .serializers import (
     BankAccountSerializer,
+    BankStatementLineSerializer,
     BankStatementSerializer,
     CustomerReceiptSerializer,
     GatewayPaymentSerializer,
@@ -606,6 +607,9 @@ class BankStatementViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPaymentSurfaces()]
+        # B4-016: voiding an imported statement is a cancel-shaped action.
+        if action == "void":
+            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
         return super().get_permissions()
 
     @action(detail=False, methods=["post"], url_path="upload")
@@ -688,6 +692,27 @@ class BankStatementViewSet(CompanyScopedViewSet):
         self._audit("UPDATE", statement)
         return Response(self.get_serializer(statement).data)
 
+    @action(detail=True, methods=["post"], url_path="void")
+    def void(self, request, pk=None):
+        """B4-016: a statement imported for the wrong account/period had no
+        way to be voided -- BankStatementStatus.VOID existed but nothing
+        transitioned to it. Refuse while any line is MATCHED so voiding
+        never silently orphans a live ReconMatch; the operator unmatches
+        those lines first (recon/unmatch) so the effect stays a simple,
+        auditable state change with no cascading side effects."""
+        statement = self.get_object()
+        if statement.status == BankStatementStatus.VOID:
+            return Response(self.get_serializer(statement).data)
+        if statement.lines.filter(match_status=BankLineMatchStatus.MATCHED).exists():
+            raise BusinessRuleError(
+                "Unmatch every reconciled line on this statement before voiding it."
+            )
+        statement.status = BankStatementStatus.VOID
+        statement.updated_by = request.user
+        statement.save(update_fields=["status", "updated_by", "updated_at"])
+        self._audit("VOID", statement)
+        return Response(self.get_serializer(statement).data)
+
     def _confirm_match(self, *, line, receipt_id, payment_id, confidence, user, notes="", allow_amount_mismatch=False):
         receipt = None
         payment = None
@@ -742,6 +767,12 @@ class BankStatementViewSet(CompanyScopedViewSet):
 
 class ReconViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated, HasCompany, CanCreatePayments]
+
+    def get_permissions(self):
+        # B4-016: undoing a confirmed match is a cancel-shaped action.
+        if getattr(self, "action", None) == "unmatch":
+            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        return super().get_permissions()
 
     @property
     def company(self):
@@ -850,6 +881,35 @@ class ReconViewSet(viewsets.ViewSet):
             entity_id=match.id,
         )
         return Response(ReconMatchSerializer(match).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="unmatch")
+    def unmatch(self, request):
+        """B4-016: undo a confirmed match -- an operator who confirmed the
+        wrong receipt/payment (or an auto-match that confirmed wrongly, see
+        B4-014) previously had no way to fix it short of direct DB access."""
+        line_id = request.data.get("line")
+        line = BankStatementLine.objects.filter(company=self.company, pk=line_id).first()
+        if not line:
+            raise BusinessRuleError("Statement line not found.")
+        with transaction.atomic():
+            line = BankStatementLine.objects.select_for_update().get(pk=line.pk)
+            match = ReconMatch.objects.filter(company=self.company, line=line).first()
+            if match is None:
+                raise BusinessRuleError("This line is not matched.")
+            match_id = match.id
+            match.delete()
+            line.match_status = BankLineMatchStatus.UNMATCHED
+            line.updated_by = request.user
+            line.save(update_fields=["match_status", "updated_by", "updated_at"])
+        AuditService.log(
+            company=self.company,
+            user=request.user,
+            action="DELETE",
+            entity_type="ReconMatch",
+            entity_id=match_id,
+            description=f"Unmatched bank statement line {line.pk}",
+        )
+        return Response(BankStatementLineSerializer(line).data)
 
     @action(detail=False, methods=["post"], url_path="create-receipt-from-line")
     def create_receipt_from_line(self, request):
