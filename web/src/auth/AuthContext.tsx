@@ -4,11 +4,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
+import { useNavigate } from 'react-router-dom';
 import * as authApi from '@/api/auth';
 import { ACTIVE_COMPANY_STORAGE_KEY, shouldUseMocks, silentRefreshAccessToken } from '@/api/client';
 import { clearFeatureFlagsCache, fetchFeatureFlags } from '@/config/featureFlags';
@@ -20,6 +22,7 @@ import {
   setStoredUser,
 } from '@/auth/session';
 import { clearAllDrafts } from '@/offline/invoiceDraftCache';
+import { isNative, onDeepLink, registerForPushNotifications } from '@/lib/native';
 import { clearBizboardPwaCaches } from '@/pwaCaches';
 import type { User } from '@/types/domain';
 
@@ -39,6 +42,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const navigate = useNavigate();
   // BB-000228 / BB-000266: access is memory-only — always boot via cookie refresh.
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -101,6 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // with mid-logout; the network call + cleanup run after.
     setUser(null);
     setUsingMockSession(false);
+    // A shared device's next login is a different user -- let it re-register.
+    pushRegisteredRef.current = false;
     try {
       await authApi.logout();
     } catch {
@@ -158,6 +164,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('bizboard:company-context-conflict', onCompanyConflict);
     };
   }, []);
+
+  // M1-009: register this device's push token once per login, native shells
+  // only. No-ops instantly on web (isNative() false) or if the plugin isn't
+  // wired (no google-services.json bundled) — see lib/native.ts.
+  const pushRegisteredRef = useRef(false);
+  useEffect(() => {
+    if (!user || !isNative() || pushRegisteredRef.current) return;
+    pushRegisteredRef.current = true;
+    void (async () => {
+      const token = await registerForPushNotifications();
+      if (token) {
+        try {
+          await authApi.registerPushToken(token);
+        } catch {
+          /* best-effort — a failed PATCH just means no push this session */
+        }
+      }
+    })();
+  }, [user]);
+
+  // M1-008: a custom-scheme deep link opened while the app is already running
+  // (in.bizboard.app://...) — strip the scheme/host and route to the path
+  // within the existing app shell. Native shells only; no-ops on web.
+  useEffect(() => {
+    return onDeepLink((url) => {
+      try {
+        const parsed = new URL(url);
+        // For a custom (non-http) scheme, the WHATWG parser treats whatever
+        // follows "://" up to the next "/" as `host`, not `pathname` — so
+        // `in.bizboard.app://invoices/123` parses as host="invoices",
+        // pathname="/123". Recombine both to get the intended route.
+        const path = `/${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`.replace(/\/+/g, '/');
+        navigate(path || '/');
+      } catch {
+        /* malformed deep link — ignore rather than crash the shell */
+      }
+    });
+  }, [navigate]);
 
   // UXW2-002: proactive sliding refresh so long invoice forms do not dump to /login
   // on the first Save after access JWT expiry. Also refresh on tab focus.

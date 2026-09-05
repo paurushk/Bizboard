@@ -133,6 +133,12 @@ export async function fetchCurrentUser(): Promise<User> {
   return unwrapData<User>(data);
 }
 
+/** M1-009: register this device's push token (native shell only — a no-op result on web). */
+export async function registerPushToken(pushToken: string): Promise<void> {
+  if (shouldUseMocks() || !pushToken) return;
+  await apiClient.patch('/auth/me/', { pushToken });
+}
+
 export async function logout(): Promise<void> {
   if (shouldUseMocks()) return;
   try {

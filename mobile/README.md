@@ -71,5 +71,27 @@ This README does **not** claim the app is listed on Google Play.
 ## Notes
 
 - `capacitor.config.ts` points `webDir` at `../web/dist` — rebuild web before `cap sync` when UI changes.
-- Push: native shell registers a device token and PATCHes `/auth/me/` `{ pushToken }`. No new notification product.
+- Push (M1-009): the web app registers for `@capacitor/push-notifications` on
+  login (native shells only — `web/src/lib/native.ts::registerForPushNotifications`,
+  wired in `AuthContext`) and PATCHes the resulting device token to
+  `/auth/me/` `{ pushToken }`. No new notification product — just device-token
+  capture. **This is dead on arrival until Firebase is provisioned**:
+  1. Create a Firebase project, add an Android app with package name
+     `in.bizboard.app` (matches `android/app/build.gradle`'s `applicationId`).
+  2. Download `google-services.json` and place it at
+     `android/app/google-services.json` (gitignored — never commit it).
+     `build.gradle` only applies the `com.google.gms.google-services` plugin
+     when that file exists; it's a silent no-op without it.
+  3. `cap sync android`, rebuild. `PushNotifications.register()` will then
+     actually reach FCM instead of failing silently.
+  4. iOS needs the equivalent APNs/`GoogleService-Info.plist` setup — not
+     done here.
+- Deep links (M1-008): the custom scheme `in.bizboard.app://` is wired end to
+  end — `AndroidManifest.xml`'s `VIEW`/`BROWSABLE` intent-filter,
+  `MainActivity.onNewIntent`, and the web app's `@capacitor/app` listener
+  (`native.ts::onDeepLink`, wired in `AuthContext`) route
+  `in.bizboard.app://<path>` straight into the existing app shell's router.
+  An `https://` **App Link** (so a real web URL also opens the app) is *not*
+  done — that needs a production domain hosting `/.well-known/assetlinks.json`
+  with `autoVerify="true"`, which this repo doesn't have configured.
 - Outbox: IndexedDB wins when both IDB and Preferences have a copy. Web without Capacitor uses localStorage + IDB only.

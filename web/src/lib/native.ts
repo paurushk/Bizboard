@@ -2,9 +2,31 @@
 
 export type NetworkStatus = { connected: boolean };
 
+type PushToken = { value: string };
+type PushError = { error: string };
+type PushNotificationsPlugin = {
+  requestPermissions?: () => Promise<{ receive: 'granted' | 'denied' | 'prompt' }>;
+  register?: () => Promise<void>;
+  addListener?: (
+    event: 'registration' | 'registrationError',
+    cb: (data: PushToken | PushError) => void,
+  ) => Promise<{ remove: () => void }>;
+};
+
+type AppUrlOpenData = { url: string };
+type AppPlugin = {
+  addListener?: (
+    event: 'appUrlOpen',
+    cb: (data: AppUrlOpenData) => void,
+  ) => Promise<{ remove: () => void }>;
+};
+
 type CapacitorBridge = {
   isNativePlatform?: () => boolean;
-  Plugins?: Record<string, { getStatus?: () => Promise<NetworkStatus>; addListener?: (...args: unknown[]) => unknown }>;
+  Plugins?: Record<string, { getStatus?: () => Promise<NetworkStatus>; addListener?: (...args: unknown[]) => unknown }> & {
+    PushNotifications?: PushNotificationsPlugin;
+    App?: AppPlugin;
+  };
 };
 
 function capacitor(): CapacitorBridge | null {
@@ -18,6 +40,72 @@ export function isNative(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * M1-009: register this device for push notifications. No-ops on web (not
+ * native) or if the plugin isn't present (e.g. no google-services.json was
+ * bundled, so `PushNotifications` never registers with the WebView bridge).
+ * Resolves with the device token once Capacitor's `registration` event
+ * fires, or `null` on denial/error/timeout — callers PATCH it to
+ * `/auth/me/`. Never throws.
+ */
+export async function registerForPushNotifications(): Promise<string | null> {
+  const cap = capacitor();
+  const plugin = cap?.Plugins?.PushNotifications;
+  if (!isNative() || !plugin?.requestPermissions || !plugin.register || !plugin.addListener) {
+    return null;
+  }
+  try {
+    const perm = await plugin.requestPermissions();
+    if (perm.receive !== 'granted') return null;
+    return await new Promise<string | null>((resolve) => {
+      let settled = false;
+      const finish = (value: string | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      // Belt-and-suspenders: registration should fire quickly; don't hang
+      // the caller forever if the native side never responds.
+      const timer = setTimeout(() => finish(null), 10_000);
+      void plugin
+        .addListener!('registration', (data) => {
+          clearTimeout(timer);
+          finish('value' in data ? data.value : null);
+        })
+        .catch(() => finish(null));
+      void plugin
+        .addListener!('registrationError', () => {
+          clearTimeout(timer);
+          finish(null);
+        })
+        .catch(() => {});
+      void plugin.register!().catch(() => finish(null));
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * M1-008: subscribe to a custom-scheme deep link being opened while the app
+ * is already running (`onNewIntent` -> Capacitor's `App.appUrlOpen`). `cb`
+ * receives the full URL (e.g. `in.bizboard.app://invoices/123`) — callers
+ * strip the scheme/host and navigate. No-ops on web or if `@capacitor/app`
+ * isn't present. Returns an unsubscribe function (always safe to call).
+ */
+export function onDeepLink(cb: (url: string) => void): () => void {
+  const plugin = capacitor()?.Plugins?.App;
+  if (!isNative() || !plugin?.addListener) return () => {};
+  let handle: { remove: () => void } | null = null;
+  void plugin
+    .addListener('appUrlOpen', (data) => cb(data.url))
+    .then((h) => {
+      handle = h;
+    })
+    .catch(() => {});
+  return () => handle?.remove();
 }
 
 export async function getNetworkStatus(): Promise<NetworkStatus> {

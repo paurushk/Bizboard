@@ -62,7 +62,8 @@ captures/
 .cxx/
 
 # Google Services (e.g. APIs or Firebase)
-# google-services.json
+# M1-009: real FCM credentials — never commit.
+google-services.json
 
 # Freeline
 freeline.py
