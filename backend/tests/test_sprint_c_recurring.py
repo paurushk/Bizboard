@@ -47,6 +47,48 @@ def test_beat_creates_draft_invoice(tenant_a, schedule):
     assert run.period_key.startswith("20")
 
 
+def test_b2_026_schedule_carries_line_and_header_fields_previously_dropped(tenant_a):
+    """B2-026: cess_rate/supply_nature/unit_price_inclusive per line, and
+    additional_charges/invoice_discount/price_mode on the header, must reach
+    the generated draft -- SalesService already accepted all of them, the
+    template just never forwarded them."""
+    customer = make_customer(tenant_a.company)
+    product = make_product(tenant_a.company, gst_rate="18")
+    now = timezone.now() - timedelta(minutes=5)
+    sched = RecurringInvoiceSchedule.objects.create(
+        company=tenant_a.company,
+        customer=customer,
+        cadence=RecurringInvoiceSchedule.Cadence.MONTHLY,
+        next_run_at=now,
+        is_active=True,
+        line_template={
+            "items": [{
+                "product": product.id, "quantity": "2", "unit_price": "118",
+                "cess_rate": "5", "supply_nature": "TAXABLE", "unit_price_inclusive": "118",
+            }]
+        },
+        additional_charges="50.00",
+        invoice_discount="10.00",
+        invoice_discount_mode=SalesInvoice.DiscountMode.AFTER_TAX,
+        price_mode=SalesInvoice.PriceMode.INCLUSIVE,
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+
+    run = generate_draft_for_schedule(sched, user=tenant_a.owner)
+    inv = run.invoice
+    assert inv.price_mode == SalesInvoice.PriceMode.INCLUSIVE
+    assert inv.additional_charges == 50
+    assert inv.invoice_discount == 10
+    item = inv.items.get()
+    assert item.cess_rate == 5
+    assert item.supply_nature == "TAXABLE"
+    # Inclusive pricing actually took effect: unit_price was derived down
+    # from the inclusive figure, not left at the raw 118 exclusive.
+    assert item.unit_price < 118
+    assert item.unit_price_inclusive == 118
+
+
 def test_skips_locked_accounting_period(tenant_a, schedule):
     sched, _product, _customer = schedule
     on = sched.next_run_at.date()

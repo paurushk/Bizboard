@@ -552,6 +552,8 @@ class RecurringInvoiceScheduleSerializer(CompanyScopedSerializerMixin, serialize
         fields = [
             "id", "customer", "customer_name", "company_gstin", "cadence",
             "next_run_at", "is_active", "line_template", "notes",
+            # B2-026: header-level charges/discount/price-mode.
+            "additional_charges", "invoice_discount", "invoice_discount_mode", "price_mode",
             "created_at", "updated_at",
         ]
 

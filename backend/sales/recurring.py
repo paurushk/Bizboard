@@ -87,6 +87,18 @@ def _template_items(company, template) -> list[dict]:
         discount = line.get("discount_percent", line.get("discountPercent", None))
         if discount is not None:
             item["discount_percent"] = Decimal(str(discount))
+        # B2-026: these were silently dropped even though SalesService
+        # already accepts all three on every line (_build_items) -- the
+        # template just never forwarded them.
+        cess_rate = line.get("cess_rate", line.get("cessRate", None))
+        if cess_rate is not None:
+            item["cess_rate"] = Decimal(str(cess_rate))
+        supply_nature = line.get("supply_nature", line.get("supplyNature", None))
+        if supply_nature is not None:
+            item["supply_nature"] = str(supply_nature).upper()
+        inclusive = line.get("unit_price_inclusive", line.get("unitPriceInclusive", None))
+        if inclusive is not None:
+            item["unit_price_inclusive"] = Decimal(str(inclusive))
         items.append(item)
     return items
 
@@ -118,6 +130,12 @@ def generate_draft_for_schedule(schedule: RecurringInvoiceSchedule, *, run_date:
         invoice_date=on_date,
         notes=schedule.notes or "",
         status=SalesInvoice.Status.DRAFT,
+        # B2-026: carry the schedule's header-level charges/discount/price-mode
+        # through to every generated draft, same as a one-off invoice would have.
+        additional_charges=schedule.additional_charges,
+        invoice_discount=schedule.invoice_discount,
+        invoice_discount_mode=schedule.invoice_discount_mode,
+        price_mode=schedule.price_mode,
         created_by=user,
         updated_by=user,
     )
