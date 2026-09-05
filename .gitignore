@@ -5,6 +5,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+.vite/
+backend/_tmp_*
+backend/_pytest_fail_extract.txt
 backend/db.sqlite3
 backend/media/
 backend/test_media/
