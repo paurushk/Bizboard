@@ -535,7 +535,12 @@ class LedgerService:
                 "number": receipt.number,
                 "reference_id": receipt.pk,
                 "debit": Decimal("0"),
-                "credit": receipt.amount,
+                # B1-009: credit only the allocated portion so the running
+                # balance foots customer_outstanding() (which only nets
+                # PaymentAllocation rows, not gross receipt amounts) --
+                # unallocated cash is still fully visible via is_advance/
+                # unallocated on this same row, just doesn't move the balance.
+                "credit": allocated,
                 "is_advance": unallocated > 0,
                 "unallocated": unallocated,
             })
@@ -975,7 +980,10 @@ class LedgerService:
                 "number": payment.number,
                 "reference_id": payment.pk,
                 "credit": Decimal("0"),
-                "debit": payment.amount,
+                # B1-009 (AP side): debit only the allocated portion so the
+                # running balance foots supplier_outstanding() the same way
+                # the customer statement now foots customer_outstanding().
+                "debit": allocated,
                 "is_advance": unallocated > 0,
                 "unallocated": unallocated,
             })
