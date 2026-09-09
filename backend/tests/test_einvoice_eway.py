@@ -291,3 +291,61 @@ def test_cancel_blocked_while_live_irn(tenant_a):
     assert "IRN" in str(resp.data)
     invoice.refresh_from_db()
     assert invoice.status == SalesInvoice.Status.COMPLETED
+
+
+def test_einvoice_specific_cess_lands_in_cesnonadvlamt(tenant_a):
+    """SR-10 / D9b: per-unit (specific) compensation cess must populate the NIC
+    ``CesNonAdvlAmt`` field, stay out of ad-valorem ``CesAmt``, and foot to the
+    header ``CesVal``."""
+    _gst_ready_company(tenant_a)
+    # HSN 7318 is not in the starter rate catalog, so the line's cess_rate/=0
+    # and cess_amount stand (no HSN override).
+    product = make_product(tenant_a.company, sku="SPCESS-1", hsn_code="7318", gst_rate="18")
+    add_stock(tenant_a, product, "50")
+    customer = _gst_ready_customer(tenant_a.company)
+    inv = create_draft_invoice(
+        tenant_a,
+        customer,
+        [{
+            "product": product.id, "quantity": "10", "unit_price": "100",
+            "gst_rate": "18", "cess_rate": "0", "cess_amount": "3",
+        }],
+    )
+    resp = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    assert resp.status_code == 200, resp.data
+
+    invoice = SalesInvoice.objects.get(pk=inv["id"])
+    item = invoice.items.first()
+    assert item.cess == Decimal("30.00"), item.cess  # 10 units x Rs 3/unit specific
+
+    prep = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/prepare-einvoice/")
+    assert prep.status_code == 200, prep.data
+    line = prep.data["payload"]["ItemList"][0]
+    assert line["CesRt"] == "0.00"
+    assert line["CesAmt"] == "0.00"            # no ad-valorem cess
+    assert line["CesNonAdvlAmt"] == "30.00"    # specific cess = qty x per-unit rate
+    assert prep.data["payload"]["ValDtls"]["CesVal"] == "30.00"
+
+
+def test_einvoice_advalorem_cess_unaffected_by_split(tenant_a):
+    """Ad-valorem-only cess keeps landing in ``CesAmt`` with ``CesNonAdvlAmt`` 0."""
+    _gst_ready_company(tenant_a)
+    product = make_product(tenant_a.company, sku="ADCESS-1", hsn_code="7318", gst_rate="18")
+    add_stock(tenant_a, product, "50")
+    customer = _gst_ready_customer(tenant_a.company)
+    inv = create_draft_invoice(
+        tenant_a,
+        customer,
+        [{
+            "product": product.id, "quantity": "5", "unit_price": "100",
+            "gst_rate": "18", "cess_rate": "12", "cess_amount": "0",
+        }],
+    )
+    resp = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    assert resp.status_code == 200, resp.data
+    prep = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/prepare-einvoice/")
+    assert prep.status_code == 200, prep.data
+    line = prep.data["payload"]["ItemList"][0]
+    assert line["CesRt"] == "12.00"
+    assert line["CesAmt"] == "60.00"           # 12% of 500 taxable
+    assert line["CesNonAdvlAmt"] == "0.00"

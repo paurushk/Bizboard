@@ -51,6 +51,7 @@ def _append_charge_item(item_list: list, document, *, intra_state: bool) -> None
         "IgstAmt": _num(charge.igst),
         "CesRt": _num(0),
         "CesAmt": _num(0),
+        "CesNonAdvlAmt": _num(0),
         "TotItemVal": _num(charge.line_total),
     })
 
@@ -192,6 +193,29 @@ def _num(value: Decimal | int | float | str | None) -> str:
     return f"{q2(Decimal(str(value or 0))):.2f}"
 
 
+def _cess_split(item, taxable) -> tuple[Decimal, Decimal]:
+    """(ad-valorem cess amount, non-ad-valorem / specific cess amount) for a line.
+
+    NIC schema carries these as separate fields ``CesAmt`` and ``CesNonAdvlAmt``.
+    The line's stored ``cess`` is ad-valorem + specific combined (they are
+    additive — see core.models DocumentLineModel.cess_amount); ``cess_amount`` is
+    the per-unit specific rate and ``cess_rate`` the ad-valorem %.
+    """
+    qty = Decimal(str(getattr(item, "quantity", 0) or 0))
+    specific_rate = Decimal(str(getattr(item, "cess_amount", 0) or 0))
+    non_advl = q2(qty * specific_rate) if specific_rate > 0 else Decimal("0")
+    total = Decimal(str(getattr(item, "cess", 0) or 0))
+    advl = total - non_advl
+    if advl <= 0:
+        cess_rate = Decimal(str(getattr(item, "cess_rate", 0) or 0))
+        advl = (
+            q2(Decimal(str(taxable or 0)) * cess_rate / Decimal("100"))
+            if cess_rate > 0
+            else Decimal("0")
+        )
+    return q2(advl), non_advl
+
+
 def build_einvoice_payload(invoice: SalesInvoice, *, skip_item_validation: bool = False) -> dict:
     errors = validate_einvoice_readiness(invoice, skip_item_validation=skip_item_validation)
     if errors:
@@ -289,6 +313,7 @@ def build_einvoice_payload(invoice: SalesInvoice, *, skip_item_validation: bool 
         product = item.product
         is_service = bool(getattr(product, "is_service", False) or getattr(product, "product_type", "") == "SERVICE")
         uqc = (item.uqc_code or "").strip() or "NOS"
+        cess_advl, cess_nonadvl = _cess_split(item, ass_amt)
         item_list.append({
             "SlNo": str(idx),
             "PrdDesc": item.description or product.name,
@@ -305,7 +330,8 @@ def build_einvoice_payload(invoice: SalesInvoice, *, skip_item_validation: bool 
             "SgstAmt": _num(item.sgst),
             "IgstAmt": _num(item.igst),
             "CesRt": _num(getattr(item, "cess_rate", 0)),
-            "CesAmt": _num(getattr(item, "cess", 0)),
+            "CesAmt": _num(cess_advl),
+            "CesNonAdvlAmt": _num(cess_nonadvl),
             "TotItemVal": _num(item.line_total),
         })
     _append_charge_item(item_list, invoice, intra_state=_intra_state_for(invoice))
@@ -527,6 +553,7 @@ def build_einvoice_payload_from_note(note) -> dict:
             discount = Decimal("0")
         product = item.product
         is_service = bool(getattr(product, "is_service", False) or getattr(product, "product_type", "") == "SERVICE")
+        cess_advl, cess_nonadvl = _cess_split(item, item.taxable_amount)
         item_list.append({
             "SlNo": str(idx),
             "PrdDesc": item.description or product.name,
@@ -543,7 +570,8 @@ def build_einvoice_payload_from_note(note) -> dict:
             "SgstAmt": _num(item.sgst),
             "IgstAmt": _num(item.igst),
             "CesRt": _num(getattr(item, "cess_rate", 0)),
-            "CesAmt": _num(getattr(item, "cess", 0)),
+            "CesAmt": _num(cess_advl),
+            "CesNonAdvlAmt": _num(cess_nonadvl),
             "TotItemVal": _num(item.line_total),
         })
     _append_charge_item(item_list, note, intra_state=_intra_state_for(inv))
