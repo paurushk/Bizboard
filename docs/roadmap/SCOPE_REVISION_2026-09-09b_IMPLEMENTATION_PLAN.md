@@ -26,8 +26,8 @@ This plan does **not** re-open D6–D11. Re-opening any demoted item requires a 
 | ID | Item | Workstream | Owner | Est. | Status | Blocks / dep |
 |----|------|-----------|-------|------|--------|--------------|
 | SR-01 | FREEZE_SCOPE + persona doc re-sync to 2026-09-09b | 1 Scope hygiene | LLM | 0.5d | ☑ | — |
-| SR-02 | Pilot-profile flag flips for demoted D6–D11 | 1 | LLM | 0.5d | ◐ | — |
-| SR-03 | "Route inert in pilot profile" assertion tests (D6–D11) | 1 | LLM | 2d | ☐ | SR-02 |
+| SR-02 | Pilot-profile flag flips for demoted D6–D11 | 1 | LLM | 0.5d | ☑ | ENABLE_FIXED_ASSETS + ENABLE_BOE |
+| SR-03 | "Route inert in pilot profile" assertion tests (D6–D11) | 1 | LLM | 2d | ☑ | test_freeze_demoted_surfaces.py |
 | SR-04 | Pilot-user LIM notes (help / ONBOARDING / DPDP) | 1 | LLM | 0.5d | ☑ | — |
 | SR-05 | Regenerate Phase 2 chain list (drop WF-53–58) | 1 | LLM | 0.5d | ☑ | — |
 | SR-10 | `CesNonAdvlAmt` in e-invoice payload (invoice + note) | 2 D9b | LLM | 1d | ☑ | — |
@@ -57,12 +57,12 @@ This plan does **not** re-open D6–D11. Re-opening any demoted item requires a 
 | SR-55 | Pilot onboarding runbook (ARCH03_PILOT_RUNBOOK.md) | 6 | LLM | 0.5d | ☑ | — |
 | SR-56 | Recruitment outreach + screening checklist | 6 | LLM | 0.5d | ☑ | — |
 | SR-57 | Pilot agreement outline | 6 | LLM+PO | 0.5d | ◐ | outline done; PO/legal to finalise |
-| SR-60 | Chain — purchase bill → stock/AP atomic | 7 ARCH-03 loop | LLM | 2d | ☐ | — |
-| SR-61 | Chain — quotation → SO → credit/overdue gate | 7 | LLM | 2d | ☐ | SR-60 |
-| SR-62 | Chain — DC → B2B invoice → derived AR | 7 | LLM | 2d | ☐ | SR-61 |
-| SR-63 | Chain — receipt (UTR) → allocation → statement | 7 | LLM | 2d | ☐ | SR-62 |
-| SR-64 | Chain — period close → GSTR-1/3B worksheet → TB=0 | 7 | LLM | 2d | ☐ | SR-63 |
-| SR-65 | End-to-end assembly + Postgres lane + golden snapshot | 7 | LLM | 2d | ☐ | SR-60..64 |
+| SR-60 | Chain — purchase bill → stock/AP atomic | 7 ARCH-03 loop | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
+| SR-61 | Chain — quotation → SO → credit/overdue gate | 7 | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
+| SR-62 | Chain — DC → B2B invoice → derived AR | 7 | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
+| SR-63 | Chain — receipt (UTR) → allocation → statement | 7 | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
+| SR-64 | Chain — period close → GSTR-1/3B worksheet → TB=0 | 7 | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
+| SR-65 | End-to-end assembly + Postgres lane + golden snapshot | 7 | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
 | SR-90 | Full Freeze Gate re-run on the retained scope | 8 Gate | LLM | 1d | ☐ | all above |
 | SR-91 | Ratification checklist + PO/founder sign-off | 8 | PO+FDR | — | ☐ | SR-90 |
 
@@ -360,6 +360,9 @@ None of these now **block** forward progress — each has a default applied and 
 | 2026-09-09 | SR-30 | ◐ Proceeding on default: DROP `@capacitor/push-notifications` for pilot 1. PO to confirm. |
 | 2026-09-09 | SR-40 | ◐ Proceeding on default: anonymised statutory tombstone, 8-yr retention then purge. Founder to confirm before SR-42 merges. |
 | 2026-09-09 | SR-02 | ◐ Started. Confirmed: D6/D8/D9/D10 are NOT flag-gated (always-on capabilities) → inert-ness handled via SR-03 route guards + onboarding screening. D11 uses `plan.seat_limit` / `plan_modules_for_company` + `UNSUBSCRIBED_SEAT_LIMIT`. Flag/profile edits + `FG-1` reconcile pending. |
+| 2026-09-10 | WIP checkpoint | `commit cb238a5` — committed the ~497-file pre-existing working-tree WIP (service refactors, `core/invariants/`, `tests/workflows|errors|edge|gst|tenancy|snapshots|regression|matrices`, `scripts/ci_gates` guards, migrations, docs, `.env.pilot.example`) so the branch is self-contained and later SR commits no longer need isolation surgery. |
+| 2026-09-10 | SR-60..65 | ☑ `commit 0881bf5` — `tests/workflows/test_wf_arch03_complete_loop.py`: one golden journey — purchase bill → stock+AP atomic (JE balanced, 2100+1400) → quotation → convert-to-order → SO confirm → **credit gate: over-limit invoice complete rejected** → challan → complete → convert → invoice → complete → derived AR == grand → receipt (UTR) + allocation → AR 0 → soft-close → GSTR-1 b2b (82650 taxable, 7438.50 CGST/SGST) + GSTR-3B 3.1(a) tie → TB balanced → `assert_all_invariants`. `tests/workflows/` 40 passed / 22 skipped. |
+| 2026-09-10 | SR-02/03 | ☑ `commit d3ba068` — `ENABLE_FIXED_ASSETS` + `ENABLE_BOE` env flags (default ON, `=0` in `.env.pilot.example`), `initial()` 404-guards on `FixedAssetViewSet` + `BillOfEntryViewSet`, FREEZE_SCOPE §B+§E rows (FG-1 config guard **OK**). `tests/test_freeze_demoted_surfaces.py` (9 tests): fixed-assets + bills-of-entry 404 under pilot profile / reachable with flag on; GSTR-7/8 + CMP-08/GSTR-4 already 404 via `ENABLE_GSTR=0` (D7/D9); `is_reverse_charge` (D8) still accepted — screening-controlled. Regression 57 passed. No WIP surgery (WIP now committed). |
 | 2026-09-09 | SR-02/03 | Investigated. **GSTR-7, GSTR-8, CMP-08, GSTR-4 report routes are ALREADY inert in the pilot** — each calls `assert_gstr_enabled()` and `ENABLE_GSTR=0` in the pilot profile → HTTP 404. Only **D6 fixed-assets** (`accounting/fixed-assets/`, gated on `accounting_enabled` which ≥1 pilot company has ON) and **D10 Bill-of-Entry** (`purchases/bills-of-entry/`, no gate at all) still need a route guard. D8 RCM (`is_reverse_charge` field, no route) and D11 quotas are screening-controlled, not code-gated — to be recorded, not gated. Plan: add `ENABLE_FIXED_ASSETS` + `ENABLE_BOE` env flags (default ON, `=0` in `.env.pilot.example`), guard the two viewsets like `assert_manufacturing_enabled`, wire into `feature_flags.ENV_FLAG_KEYS` + `settings.py` + FREEZE_SCOPE §E (FG-1 config guard requires the §E row), + `tests/test_freeze_demoted_surfaces.py` parametrized over all 6 routes. ~4 WIP-entangled files (`settings.py`, `feature_flags.py`, `accounting/views.py`, `purchases/views.py`) → needs the isolation surgery. NOT yet implemented. |
 | 2026-09-09 | SR-60..65 | Investigated. `tests/workflows/test_wf01_sale_intrastate.py` and `test_wf04_purchase.py` (both pre-existing untracked WIP) already cover SR-60 (purchase→stock+AP atomic→supplier payment) and much of SR-62/63. Remaining real work = **SR-65**: one end-to-end golden-journey test `test_wf_arch03_complete_loop.py` chaining purchase bill → quotation w/ slabs → SO → credit/overdue gate → delivery challan → B2B invoice → derived AR → receipt (UTR) → allocation → statement → period close → GSTR-1/3B worksheets → TB=0, on a semi-wholesaler fixture. Endpoints: `quotations/{id}/convert`, `quotations/{id}/convert-to-order`, `orders/*`, `delivery-challans/*`. No source change; new test file only (no surgery). NOT yet implemented. |
 | 2026-09-09 | SR-20..23 | ☑ `commit 67a315a` (D14). SR-20: `tests/errors/test_llm_extraction_failures.py` — timeout/5xx/429/reset/malformed-JSON/empty/SoftTimeLimit → job FAILED, no 500, no partial draft, retryable (9 tests). SR-21: injection guard in `core/services/llm._normalize_payload` (regex detect, drop hostile line, quarantine headers + planted-but-format-valid GSTIN, `injection_flagged`, confidence→0.0) propagated through both merge fns; `tests/errors/test_llm_injection_guard.py` (4 tests, unit + e2e). SR-22: `MAX_EXTRACT_CHUNKS` bound test. SR-23: `apply_extraction` appends a warning + forces low-confidence; existing OCR-confidence commit gate then blocks commit until the operator sets `low_confidence_accepted` on the preview. Regression: `tests/errors/` + `test_purchase_bill_import` + `test_imports` **107 passed**. Same WIP-entanglement as SR-12 in `core/services/llm.py` + `imports/services.py` (pre-existing opening-stock / `_clean_header_str` WIP) — reset + re-split so the commit carries only the 76-line D14 change; WIP restored to the working tree (2 tests that depend on it were briefly red during the split, green again after restore). FE warning banner still TODO. |
