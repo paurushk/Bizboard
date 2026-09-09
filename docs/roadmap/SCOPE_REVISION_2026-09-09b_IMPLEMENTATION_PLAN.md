@@ -49,7 +49,7 @@ This plan does **not** re-open D6–D11. Re-opening any demoted item requires a 
 | SR-43 | Post-erasure zero-ref assertion + FK handling | 5 | LLM | 2d | ☐ | SR-41 |
 | SR-44 | Export-before-erase pairing | 5 | LLM | 1d | ☐ | SR-42 |
 | SR-45 | Audit-log PII handling under erasure | 5 | LLM | 1.5d | ☐ | SR-40 |
-| SR-50 | H-05 seed command + report packet + CA cover sheet | 6 Enablement | LLM | 1d | ☐ | — |
+| SR-50 | H-05 seed command + report packet + CA cover sheet | 6 Enablement | LLM | 1d | ☑ | v2: opening balances + CDNR |
 | SR-51 | Offline outbox conflict test + fix | 6 | LLM | 3d | ☐ | — |
 | SR-52 | Telemetry event model + backend emit points | 6 | LLM | 2d | ☐ | — |
 | SR-53 | Internal metrics view (H-01/H-03/H-04) | 6 | LLM | 1.5d | ☐ | SR-52 |
@@ -360,6 +360,7 @@ None of these now **block** forward progress — each has a default applied and 
 | 2026-09-09 | SR-30 | ◐ Proceeding on default: DROP `@capacitor/push-notifications` for pilot 1. PO to confirm. |
 | 2026-09-09 | SR-40 | ◐ Proceeding on default: anonymised statutory tombstone, 8-yr retention then purge. Founder to confirm before SR-42 merges. |
 | 2026-09-09 | SR-02 | ◐ Started. Confirmed: D6/D8/D9/D10 are NOT flag-gated (always-on capabilities) → inert-ness handled via SR-03 route guards + onboarding screening. D11 uses `plan.seat_limit` / `plan_modules_for_company` + `UNSUBSCRIBED_SEAT_LIMIT`. Flag/profile edits + `FG-1` reconcile pending. |
+| 2026-09-09 | SR-50 | ☑ `seed_h05_demo` runs green: TB **Dr 2,549,786.70 = Cr**, `assert_all_invariants` OK. GSTR-1 = 11 rate-split B2B rows (5% sand + 18% cement/bolt/MCB), 2 inter-state IGST invoices (POS 27), footing OK; GSTR-3B 3.1(a) ties to GSTR-1 totals. Packet + SUMMARY.md in `build/h05_packet/` (gitignored). `--reset` teardown uses `wipe_logical_tenant_rows` + clears AuditEvent/MoneyFieldAudit/StatutoryDocumentEvent (Company FKs are PROTECT). Corrected rate mix: catalog resolves electrical HSNs to 18% at the doc date, so used non-catalog HSNs (2505/2523/7318) to carry authentic 5%/18% for a building-supplies trader. Cover doc `docs/ca/H05_CA_REVIEW_COVER.md`. Files: `backend/accounts/management/commands/seed_h05_demo.py`, `docs/ca/H05_CA_REVIEW_COVER.md`, `.gitignore`. **v2 backlog:** opening party balances + one sales credit note / purchase debit note (CDNR). |
 
 ---
 

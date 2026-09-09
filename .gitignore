@@ -49,3 +49,10 @@ web/playwright-report/
 # M1-013: local DB dumps — never commit (multi-tenant PII / financials)
 backups/
 *.sql.gz
+
+# local pytest reuse-db
+backend/.pytest_local.db
+backend/.pytest_local.db-journal
+
+# SR-50: generated H-05 CA-review packet (regenerate with `manage.py seed_h05_demo`)
+build/h05_packet/
