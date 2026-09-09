@@ -78,6 +78,8 @@ interface FormState {
   hsnCode: string;
   description: string;
   gstRate: string;
+  cessRate: string;
+  cessAmount: string;
   purchasePrice: string;
   sellingPrice: string;
   mrp: string;
@@ -136,6 +138,8 @@ function buildForm(
     hsnCode: product?.hsnCode ?? '',
     description: product?.description ?? '',
     gstRate: String(product?.gstRate ?? '18'),
+    cessRate: String(product?.cessRate ?? '0'),
+    cessAmount: String(product?.cessAmount ?? '0'),
     purchasePrice: String(product?.purchasePrice ?? '0'),
     sellingPrice: String(product?.sellingPrice ?? '0'),
     mrp: String(product?.mrp ?? '0'),
@@ -367,6 +371,8 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
         hsnCode: form.hsnCode.trim() || undefined,
         description: form.description.trim() || undefined,
         gstRate: normalizeGstRate(Number(form.gstRate) || 0),
+        cessRate: Number(form.cessRate) || 0,
+        cessAmount: Number(form.cessAmount) || 0,
         purchasePrice: Number(form.purchasePrice),
         sellingPrice: Number(form.sellingPrice),
         mrp: Number(form.mrp) || 0,
@@ -996,6 +1002,22 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                   </MenuItem>
                 ))}
               </TextField>
+              <TextField
+                label="Cess rate %"
+                type="number"
+                value={form.cessRate}
+                onChange={(e) => setForm((current) => ({ ...current, cessRate: e.target.value }))}
+                helperText="Compensation cess, ad-valorem (blank/0 for most goods)"
+                inputProps={{ min: 0, step: '0.01' }}
+              />
+              <TextField
+                label="Cess per unit (₹)"
+                type="number"
+                value={form.cessAmount}
+                onChange={(e) => setForm((current) => ({ ...current, cessAmount: e.target.value }))}
+                helperText="Specific cess per unit, added on top of the % cess (pan-masala / tobacco)"
+                inputProps={{ min: 0, step: '0.01' }}
+              />
               <TextField
                 label="Default discount %"
                 type="number"
