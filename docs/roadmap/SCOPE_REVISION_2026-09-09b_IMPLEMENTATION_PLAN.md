@@ -37,13 +37,13 @@ This plan does **not** re-open D6–D11. Re-opening any demoted item requires a 
 | SR-21 | Prompt-injection guard + crafted-bill test | 3 | LLM | 2d | ☑ | — |
 | SR-22 | Extraction cost-ceiling assertion | 3 | LLM | 0.5d | ☑ | — |
 | SR-23 | Draft-with-warning surfaced in preview (API + FE) | 3 | LLM | 1.5d | ☑ | FE banner still TODO |
-| SR-30 | Push-notifications: keep or drop for pilot | 4 D12 | PO | 0.25d | ◐ | proceeding: DROP (default) |
-| SR-31 | CI Capacitor APK build + artifact | 4 | LLM+INF | 1.5d | ☐ | SR-30 |
-| SR-32 | Mobile lane — session persistence across restart | 4 | LLM | 1.5d | ☐ | — |
-| SR-33 | Mobile lane — deep links | 4 | LLM | 1d | ☐ | — |
+| SR-30 | Push-notifications: keep or drop for pilot | 4 D12 | PO | 0.25d | ☑ | KEEP — registration already wired (M1-009); FCM delivery deferred |
+| SR-31 | CI Capacitor APK build + artifact | 4 | LLM+INF | 1.5d | ☐ | INF — needs CI Android SDK |
+| SR-32 | Mobile lane — session persistence across restart | 4 | LLM | 1.5d | ◐ | @capacitor/preferences wired (prefsGet/Set); test lane pending |
+| SR-33 | Mobile lane — deep links | 4 | LLM | 1d | ◐ | onDeepLink wired (M1-008); test lane pending |
 | SR-34 | Mobile lane — offline-on-mobile outbox flush | 4 | LLM | 2d | ☐ | SR-51 |
 | SR-35 | Emulator smoke in CI | 4 | INF+LLM | 2d | ☐ | SR-31 |
-| SR-40 | Erasure retention carve-out policy | 5 D13 | FDR | 0.5d | ⛔ | v1 keeps nothing; endpoint gated OFF pending sign-off |
+| SR-40 | Erasure retention carve-out policy | 5 D13 | FDR | 0.5d | ☑ | SIGNED: anon tombstone, 8-yr, then purge |
 | SR-41 | erasure model-coverage drift guard | 5 | LLM | 3d | ☑ | assert_erasure_model_coverage |
 | SR-42 | Owner-initiated erasure endpoint / command | 5 | LLM | 2d | ☑ | gated by ENABLE_TENANT_ERASURE |
 | SR-43 | Post-erasure zero-ref assertion + FK handling | 5 | LLM | 2d | ☑ | test_erasure.py (114 relations) |
@@ -53,7 +53,7 @@ This plan does **not** re-open D6–D11. Re-opening any demoted item requires a 
 | SR-51 | Offline outbox conflict test + fix | 6 | LLM | 3d | ☑ | park+surface permanent-conflict drafts |
 | SR-52 | Telemetry event model + backend emit points | 6 | LLM | 2d | ☑ | ShopFloorEvent + allocation/period emits |
 | SR-53 | Internal metrics view (H-01/H-03/H-04) | 6 | LLM | 1.5d | ☑ | /insights/telemetry/ scoreboard |
-| SR-54 | FE keyboard-only / mouse-touch counter (H-02) | 6 | LLM | 1.5d | ☐ | FE — tap_count field ready |
+| SR-54 | FE keyboard-only / mouse-touch counter (H-02) | 6 | LLM | 1.5d | ☑ | PosPage pointerdown counter + scoreboard rate |
 | SR-55 | Pilot onboarding runbook (ARCH03_PILOT_RUNBOOK.md) | 6 | LLM | 0.5d | ☑ | — |
 | SR-56 | Recruitment outreach + screening checklist | 6 | LLM | 0.5d | ☑ | — |
 | SR-57 | Pilot agreement outline | 6 | LLM+PO | 0.5d | ◐ | outline done; PO/legal to finalise |
@@ -360,6 +360,9 @@ None of these now **block** forward progress — each has a default applied and 
 | 2026-09-09 | SR-30 | ◐ Proceeding on default: DROP `@capacitor/push-notifications` for pilot 1. PO to confirm. |
 | 2026-09-09 | SR-40 | ◐ Proceeding on default: anonymised statutory tombstone, 8-yr retention then purge. Founder to confirm before SR-42 merges. |
 | 2026-09-09 | SR-02 | ◐ Started. Confirmed: D6/D8/D9/D10 are NOT flag-gated (always-on capabilities) → inert-ness handled via SR-03 route guards + onboarding screening. D11 uses `plan.seat_limit` / `plan_modules_for_company` + `UNSUBSCRIBED_SEAT_LIMIT`. Flag/profile edits + `FG-1` reconcile pending. |
+| 2026-09-10 | SR-30 | ☑ **Decision: KEEP** `@capacitor/push-notifications` (founder). Registration flow is already wired — `web/src/lib/native.ts::registerForPushNotifications` + `AuthContext` M1-009 (once per login, native only, best-effort) + `registerPushToken` → `PATCH /auth/me {pushToken}`; backend `User.push_token` + `MeView.patch`; `test_remaining_gates::test_a01_push_token_patch*` cover it; `AndroidManifest.xml` has `POST_NOTIFICATIONS`. Remaining for actual push *delivery*: an FCM sender + `google-services.json` — a future notification feature, no pilot use case, out of D12 scope. |
+| 2026-09-10 | SR-40 | ☑ **SIGNED** `commit 67fa171` — anonymised tombstone, 8-yr retention. `erase_company(mode="tombstone")` (endpoint default): deletes all operational rows, keeps statutory tax docs with party PII scrubbed + `Company` row as scrubbed placeholder (`erased_at`); `purge_tombstoned_companies` hard-deletes after 8y+2d. `mode="hard"` unchanged. `TOMBSTONE_RETAINED` covers the tax docs + the masters/warehouse/batch/cost-centre they PROTECT-reference. 8 erasure tests green, FG-1 OK. `ENABLE_TENANT_ERASURE` stays OFF by default (flip per deployment). |
+| 2026-09-10 | SR-54 | ☑ `commit 80fc3a2` — `PosPage` counts `window` `pointerdown` events per cart (reset on first line), sends as `tap_count` on `invoice_complete` (FE telemetry lib + ingest already carried the field). `/insights/telemetry/` H-02 block adds `checkouts_measured` / `keyboard_only_checkouts` / `keyboard_only_rate`. `tsc` clean; pos + telemetry tests green. |
 | 2026-09-10 | SR-51 | ☑ `commit 0ed4ed5` — `web/src/offline/invoiceDraftCache.ts`: `OutboxDraft.conflict` + `isPermanentConflict` (4xx the server keeps rejecting) vs transient; `flushOutbox` → `{flushed, failed, conflicts, errors}` — a permanent conflict parks the draft (stops auto-retry), transient stays retryable; editing clears the flag. `OfflineOutboxPage` shows "Rejected: <reason>" + a review banner. 4 new vitest cases; offline suite 27 green; `tsc` clean. |
 | 2026-09-10 | SR-52/53 | ☑ `commit 88568a3` — extended the existing `ShopFloorEvent` telemetry (PII-free) with `allocation_reconciled` (H-01: `tap_count=1` when derived invoice outstanding leaves `[0, grand]`) emitted from `PaymentService.allocate_receipt`, and `period_closed` from `soft_close_period`. `GET /insights/telemetry/` scoreboard now reports H-01 (allocations / discrepancies / ok), H-03 (offline_ok), periods_closed. `insights/telemetry.py` best-effort emitter. `test_pilot_telemetry.py` (3) green. **Also fixed SR-65**'s test: it posted an inline `allocations` key the receipts endpoint ignores — now allocates via `POST /payments/allocations/`. |
 | 2026-09-10 | SR-40..45 | ☑ `commit 93cea09` (D13 v1). `accounts/erasure.py::erase_company` — export-first, `wipe_logical_tenant_rows` + delete the 3 PROTECT audit tables (party PII → delete, not orphan) + `company.delete()` (CASCADE resolves the other ~108 of 114 `company` FK relations) + immutable `TenantErasureLog` (id/name/requester/export-sha256, no PII), idempotent. `assert_erasure_model_coverage` (SR-41) fails if a new model gains an un-erasable `company` FK. `POST /company/erase/` (owner, `ENABLE_TENANT_ERASURE=0`, echo name) + `manage.py erase_company`. `test_erasure.py` (7) green — full erase leaves 0 rows across all 114 relations. **SR-40** (statutory-retention tombstone) = founder decision, NOT built; endpoint stays gated. (Pre-existing `test_auth.py` OTP failures ×2 confirmed to pre-date this work.) |
