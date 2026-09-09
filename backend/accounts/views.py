@@ -1482,6 +1482,10 @@ class CompanyEraseView(APIView):
 
         from accounts.erasure import erase_company
 
+        mode = str(request.data.get("mode") or "tombstone").strip()
+        if mode not in ("tombstone", "hard"):
+            raise ValidationError({"mode": "mode must be 'tombstone' or 'hard'."})
+
         blob = None
         if not request.data.get("skip_export"):
             from accounts.tenant_backup import build_export_payload, encrypt_export_zip
@@ -1489,13 +1493,15 @@ class CompanyEraseView(APIView):
             blob = encrypt_export_zip(build_export_payload(company))
 
         result = erase_company(
-            company, requested_by_email=request.user.email, reason=reason, skip_export=True,
+            company, mode=mode, requested_by_email=request.user.email, reason=reason, skip_export=True,
         )
         body = {
             "erased": True,
+            "mode": result.mode,
             "company_id": result.company_id,
             "company_name": result.company_name,
             "erasure_log_id": result.log_id,
+            "retained_counts": result.retained,
         }
         if blob is not None:
             import base64

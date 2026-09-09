@@ -20,6 +20,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--company-id", type=int, required=True)
         parser.add_argument("--confirm", required=True, help="Exact company name, echoed to confirm.")
+        parser.add_argument("--mode", choices=("tombstone", "hard"), default="tombstone",
+                            help="tombstone = keep scrubbed statutory tax docs (SR-40 default); hard = delete everything.")
         parser.add_argument("--reason", default="", help="Recorded on the erasure log.")
         parser.add_argument("--requested-by", default="cli", help="Email / identifier of the requester.")
         parser.add_argument("--skip-export", action="store_true", help="Do not build the pre-erasure export.")
@@ -43,11 +45,13 @@ class Command(BaseCommand):
 
         result = erase_company(
             company,
+            mode=options["mode"],
             requested_by_email=options["requested_by"],
             reason=options["reason"],
             skip_export=options["skip_export"],
         )
         self.stdout.write(self.style.SUCCESS(
-            f"Erased company {result.company_id} ({result.company_name!r}). "
-            f"erasure log id={result.log_id}, export sha256={result.export_sha256 or '(skipped)'}"
+            f"Erased company {result.company_id} ({result.company_name!r}) mode={result.mode}. "
+            f"erasure log id={result.log_id}, export sha256={result.export_sha256 or '(skipped)'}, "
+            f"retained={result.retained or '{}'}"
         ))

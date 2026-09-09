@@ -242,6 +242,10 @@ class Company(TimeStampedModel):
     is_sandbox = models.BooleanField(default=False)
     # R-014: sandbox copies expire; Celery daily sweep wipes then deletes them.
     sandbox_expires_at = models.DateTimeField(null=True, blank=True)
+    # D13 / SR-40: set when a tombstone erasure has run — the row is a scrubbed
+    # placeholder retaining only statutory tax documents. purge_expired_tombstones
+    # hard-deletes it once the GST retention window elapses.
+    erased_at = models.DateTimeField(null=True, blank=True)
     # Wave B onboarding — progress is derived; only user choices/analytics persist.
     onboarding_dismissed_at = models.DateTimeField(null=True, blank=True)
     tax_profile_confirmed_at = models.DateTimeField(null=True, blank=True)
@@ -536,6 +540,8 @@ class TenantErasureLog(models.Model):
     requested_by_email = models.EmailField(blank=True)
     reason = models.TextField(blank=True)
     export_sha256 = models.CharField(max_length=64, blank=True)
+    mode = models.CharField(max_length=16, default="hard")  # "tombstone" | "hard"
+    retained_counts = models.JSONField(default=dict, blank=True)
     erased_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

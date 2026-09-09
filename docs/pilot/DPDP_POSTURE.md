@@ -41,10 +41,16 @@ export checksum only — no party PII). A drift guard (`assert_erasure_model_cov
 model gains an un-erasable `company` FK. Surfaces: `POST /company/erase/` (owner, echo the exact company
 name) and `manage.py erase_company`.
 
-**v1 keeps nothing.** The statutory-retention *tombstone* carve-out (retain anonymised tax documents for
-N years, then purge) is **founder decision SR-40** and is NOT implemented. Until it is signed off the HTTP
-endpoint stays behind `ENABLE_TENANT_ERASURE` (default OFF / 404) — the CLI command and the service are
-available for a support-ticket-driven erasure in the meantime.
+**SR-40 signed 2026-09-10 — anonymised tombstone, 8-year retention.** The endpoint's default `mode` is
+`tombstone`: every operational row is deleted, but the **statutory tax documents** (sales/purchase
+invoices, credit/debit notes, returns, Bill of Entry, GST return snapshots + periods) are kept with all
+party PII scrubbed — `Customer`/`Supplier` names → `[erased]`, phone/email/GSTIN/address blanked; the
+`Company` row survives as a scrubbed placeholder with `erased_at` set. `manage.py
+purge_tombstoned_companies` (daily) hard-deletes a tombstone once `erased_at` is older than the 8-year GST
+retention window. `mode=hard` (CLI / purge job) keeps nothing.
+
+`ENABLE_TENANT_ERASURE` stays **OFF by default** — flip it per deployment when erasure requests are handled
+in-product; the CLI command works regardless for a support-ticket-driven erasure.
 
 ## Privacy notice
 
