@@ -43,17 +43,17 @@ This plan does **not** re-open D6–D11. Re-opening any demoted item requires a 
 | SR-33 | Mobile lane — deep links | 4 | LLM | 1d | ☐ | — |
 | SR-34 | Mobile lane — offline-on-mobile outbox flush | 4 | LLM | 2d | ☐ | SR-51 |
 | SR-35 | Emulator smoke in CI | 4 | INF+LLM | 2d | ☐ | SR-31 |
-| SR-40 | Erasure retention carve-out policy | 5 D13 | FDR | 0.5d | ◐ | proceeding: anon tombstone, 8-yr (default) |
-| SR-41 | `tenancy.no_orphans_after_erasure` invariant | 5 | LLM | 3d | ☐ | — |
-| SR-42 | Owner-initiated erasure endpoint / command | 5 | LLM | 2d | ☐ | SR-40 |
-| SR-43 | Post-erasure zero-ref assertion + FK handling | 5 | LLM | 2d | ☐ | SR-41 |
-| SR-44 | Export-before-erase pairing | 5 | LLM | 1d | ☐ | SR-42 |
-| SR-45 | Audit-log PII handling under erasure | 5 | LLM | 1.5d | ☐ | SR-40 |
+| SR-40 | Erasure retention carve-out policy | 5 D13 | FDR | 0.5d | ⛔ | v1 keeps nothing; endpoint gated OFF pending sign-off |
+| SR-41 | erasure model-coverage drift guard | 5 | LLM | 3d | ☑ | assert_erasure_model_coverage |
+| SR-42 | Owner-initiated erasure endpoint / command | 5 | LLM | 2d | ☑ | gated by ENABLE_TENANT_ERASURE |
+| SR-43 | Post-erasure zero-ref assertion + FK handling | 5 | LLM | 2d | ☑ | test_erasure.py (114 relations) |
+| SR-44 | Export-before-erase pairing | 5 | LLM | 1d | ☑ | export sha256 on TenantErasureLog |
+| SR-45 | Audit-log PII handling under erasure | 5 | LLM | 1.5d | ☑ | audit tables deleted not orphaned |
 | SR-50 | H-05 seed command + report packet + CA cover sheet | 6 Enablement | LLM | 1d | ☑ | v2: opening balances + CDNR |
-| SR-51 | Offline outbox conflict test + fix | 6 | LLM | 3d | ☐ | — |
-| SR-52 | Telemetry event model + backend emit points | 6 | LLM | 2d | ☐ | — |
-| SR-53 | Internal metrics view (H-01/H-03/H-04) | 6 | LLM | 1.5d | ☐ | SR-52 |
-| SR-54 | FE keyboard-only / mouse-touch counter (H-02) | 6 | LLM | 1.5d | ☐ | SR-52 |
+| SR-51 | Offline outbox conflict test + fix | 6 | LLM | 3d | ☑ | park+surface permanent-conflict drafts |
+| SR-52 | Telemetry event model + backend emit points | 6 | LLM | 2d | ☑ | ShopFloorEvent + allocation/period emits |
+| SR-53 | Internal metrics view (H-01/H-03/H-04) | 6 | LLM | 1.5d | ☑ | /insights/telemetry/ scoreboard |
+| SR-54 | FE keyboard-only / mouse-touch counter (H-02) | 6 | LLM | 1.5d | ☐ | FE — tap_count field ready |
 | SR-55 | Pilot onboarding runbook (ARCH03_PILOT_RUNBOOK.md) | 6 | LLM | 0.5d | ☑ | — |
 | SR-56 | Recruitment outreach + screening checklist | 6 | LLM | 0.5d | ☑ | — |
 | SR-57 | Pilot agreement outline | 6 | LLM+PO | 0.5d | ◐ | outline done; PO/legal to finalise |
@@ -360,6 +360,9 @@ None of these now **block** forward progress — each has a default applied and 
 | 2026-09-09 | SR-30 | ◐ Proceeding on default: DROP `@capacitor/push-notifications` for pilot 1. PO to confirm. |
 | 2026-09-09 | SR-40 | ◐ Proceeding on default: anonymised statutory tombstone, 8-yr retention then purge. Founder to confirm before SR-42 merges. |
 | 2026-09-09 | SR-02 | ◐ Started. Confirmed: D6/D8/D9/D10 are NOT flag-gated (always-on capabilities) → inert-ness handled via SR-03 route guards + onboarding screening. D11 uses `plan.seat_limit` / `plan_modules_for_company` + `UNSUBSCRIBED_SEAT_LIMIT`. Flag/profile edits + `FG-1` reconcile pending. |
+| 2026-09-10 | SR-51 | ☑ `commit 0ed4ed5` — `web/src/offline/invoiceDraftCache.ts`: `OutboxDraft.conflict` + `isPermanentConflict` (4xx the server keeps rejecting) vs transient; `flushOutbox` → `{flushed, failed, conflicts, errors}` — a permanent conflict parks the draft (stops auto-retry), transient stays retryable; editing clears the flag. `OfflineOutboxPage` shows "Rejected: <reason>" + a review banner. 4 new vitest cases; offline suite 27 green; `tsc` clean. |
+| 2026-09-10 | SR-52/53 | ☑ `commit 88568a3` — extended the existing `ShopFloorEvent` telemetry (PII-free) with `allocation_reconciled` (H-01: `tap_count=1` when derived invoice outstanding leaves `[0, grand]`) emitted from `PaymentService.allocate_receipt`, and `period_closed` from `soft_close_period`. `GET /insights/telemetry/` scoreboard now reports H-01 (allocations / discrepancies / ok), H-03 (offline_ok), periods_closed. `insights/telemetry.py` best-effort emitter. `test_pilot_telemetry.py` (3) green. **Also fixed SR-65**'s test: it posted an inline `allocations` key the receipts endpoint ignores — now allocates via `POST /payments/allocations/`. |
+| 2026-09-10 | SR-40..45 | ☑ `commit 93cea09` (D13 v1). `accounts/erasure.py::erase_company` — export-first, `wipe_logical_tenant_rows` + delete the 3 PROTECT audit tables (party PII → delete, not orphan) + `company.delete()` (CASCADE resolves the other ~108 of 114 `company` FK relations) + immutable `TenantErasureLog` (id/name/requester/export-sha256, no PII), idempotent. `assert_erasure_model_coverage` (SR-41) fails if a new model gains an un-erasable `company` FK. `POST /company/erase/` (owner, `ENABLE_TENANT_ERASURE=0`, echo name) + `manage.py erase_company`. `test_erasure.py` (7) green — full erase leaves 0 rows across all 114 relations. **SR-40** (statutory-retention tombstone) = founder decision, NOT built; endpoint stays gated. (Pre-existing `test_auth.py` OTP failures ×2 confirmed to pre-date this work.) |
 | 2026-09-10 | WIP checkpoint | `commit cb238a5` — committed the ~497-file pre-existing working-tree WIP (service refactors, `core/invariants/`, `tests/workflows|errors|edge|gst|tenancy|snapshots|regression|matrices`, `scripts/ci_gates` guards, migrations, docs, `.env.pilot.example`) so the branch is self-contained and later SR commits no longer need isolation surgery. |
 | 2026-09-10 | SR-60..65 | ☑ `commit 0881bf5` — `tests/workflows/test_wf_arch03_complete_loop.py`: one golden journey — purchase bill → stock+AP atomic (JE balanced, 2100+1400) → quotation → convert-to-order → SO confirm → **credit gate: over-limit invoice complete rejected** → challan → complete → convert → invoice → complete → derived AR == grand → receipt (UTR) + allocation → AR 0 → soft-close → GSTR-1 b2b (82650 taxable, 7438.50 CGST/SGST) + GSTR-3B 3.1(a) tie → TB balanced → `assert_all_invariants`. `tests/workflows/` 40 passed / 22 skipped. |
 | 2026-09-10 | SR-02/03 | ☑ `commit d3ba068` — `ENABLE_FIXED_ASSETS` + `ENABLE_BOE` env flags (default ON, `=0` in `.env.pilot.example`), `initial()` 404-guards on `FixedAssetViewSet` + `BillOfEntryViewSet`, FREEZE_SCOPE §B+§E rows (FG-1 config guard **OK**). `tests/test_freeze_demoted_surfaces.py` (9 tests): fixed-assets + bills-of-entry 404 under pilot profile / reachable with flag on; GSTR-7/8 + CMP-08/GSTR-4 already 404 via `ENABLE_GSTR=0` (D7/D9); `is_reverse_charge` (D8) still accepted — screening-controlled. Regression 57 passed. No WIP surgery (WIP now committed). |
