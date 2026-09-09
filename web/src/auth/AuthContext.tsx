@@ -22,6 +22,7 @@ import {
   setStoredUser,
 } from '@/auth/session';
 import { clearAllDrafts } from '@/offline/invoiceDraftCache';
+import { clearPosPendingStorageForUser } from '@/pages/pos/posStatus';
 import { isNative, onDeepLink, registerForPushNotifications } from '@/lib/native';
 import { clearBizboardPwaCaches } from '@/pwaCaches';
 import type { User } from '@/types/domain';
@@ -87,15 +88,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback(
     async (payload: authApi.RegisterPayload) => {
-      const result = await authApi.register(payload);
-      if (result.kind === 'pending') {
-        return 'pending';
-      }
-      applySession(result.user, result.tokens.access);
-      await fetchFeatureFlags(true);
-      return 'session';
+      await authApi.register(payload);
+      // R-068: never auto-issue a session after register; operator must sign in.
+      return 'pending' as const;
     },
-    [applySession],
+    [],
   );
 
   const logout = useCallback(async () => {
@@ -113,11 +110,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // already logging out locally — a failed server logout must not block it
     }
     if (companyId && userId) {
+      // CR-109: drop mid-settlement cash/UPI cues so the next operator cannot resume them.
+      clearPosPendingStorageForUser(companyId, userId);
       try {
         await clearAllDrafts(companyId, userId);
       } catch {
         // best-effort wipe
       }
+    }
+    // CR-007: Wipe shared counter IndexedDB outbox on explicit logout to prevent cross-tenant draft leaks
+    if (typeof indexedDB !== 'undefined' && indexedDB.deleteDatabase) {
+      try {
+        indexedDB.deleteDatabase('bizboard-invoice-outbox');
+      } catch {}
     }
     await clearBizboardPwaCaches();
     clearFeatureFlagsCache();
@@ -133,9 +138,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userId = stored?.id;
       clearFeatureFlagsCache();
       if (companyId && userId) {
+        clearPosPendingStorageForUser(companyId, userId);
         void clearAllDrafts(companyId, userId).catch(() => {
           // best-effort wipe
         });
+      }
+      if (typeof indexedDB !== 'undefined' && indexedDB.deleteDatabase) {
+        try {
+          indexedDB.deleteDatabase('bizboard-invoice-outbox');
+        } catch {}
       }
       void clearBizboardPwaCaches();
       clearSession();
@@ -245,6 +256,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         // Drop any legacy full-user blob before me settles (no capability flash).
         setStoredUser(getStoredUser());
+
+        // GAP-008: On unauthenticated public routes with no prior session in storage,
+        // do not fire silentRefreshAccessToken to eliminate benign 401 console noise.
+        const isPublicPath =
+          window.location.pathname.startsWith('/login') ||
+          window.location.pathname.startsWith('/register') ||
+          window.location.pathname.startsWith('/forgot-password') ||
+          window.location.pathname.startsWith('/reset-password') ||
+          window.location.pathname.startsWith('/pay/');
+        if (!getStoredUser() && isPublicPath) {
+          clearSession();
+          setUser(null);
+          setUsingMockSession(false);
+          return;
+        }
+
         // Do not notify on boot failure — anonymous visitors have no cookie.
         const access = await silentRefreshAccessToken({ notifyOnFailure: false });
         if (cancelled) return;

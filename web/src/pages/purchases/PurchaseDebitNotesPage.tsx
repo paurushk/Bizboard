@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Button from '@mui/material/Button';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import {
   cancelPurchaseDebitNote,
   completePurchaseDebitNote,
@@ -11,6 +11,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DocumentListPage } from '@/components/DocumentListPage';
 import { t } from '@/i18n';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import { canCancelDocuments, canCreatePurchases } from '@/utils/permissions';
 
 const PAGE_SIZE = 50;
@@ -28,7 +29,14 @@ export function PurchaseDebitNotesPage() {
     queryFn: () => listPurchaseDebitNotesPage({ page, pageSize: PAGE_SIZE }),
   });
   const complete = useMutation({
-    mutationFn: (id: number) => completePurchaseDebitNote(id),
+    // CR-129: prompt + retry on the additional-debit confirm code.
+    mutationFn: (id: number) =>
+      completeWithConfirms((extra) =>
+        completePurchaseDebitNote(id, {
+          idempotencyKey: userGestureIdempotencyKey(),
+          confirmAdditionalDebit: extra.confirmAdditionalDebit,
+        }),
+      ),
     onSuccess: () => {
       setError(null);
       void qc.invalidateQueries({ queryKey: ['purchase-debit-notes'] });

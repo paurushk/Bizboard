@@ -17,6 +17,7 @@ import { formatMoney } from '@/utils/money';
 import { calculateLineTax } from '@/utils/tax';
 import type { InvoiceSourceLine } from './invoiceSourceLines';
 import { clampSourceLineQty } from './invoiceSourceLines';
+import { parseSerialNumbersText } from './lineHelpers';
 
 interface Props {
   lines: InvoiceSourceLine[];
@@ -196,10 +197,12 @@ export function InvoiceReturnLineTable({
   lines,
   onChange,
   readOnly = false,
+  showLot = false,
 }: {
   lines: InvoiceSourceLine[];
   onChange: (lines: InvoiceSourceLine[]) => void;
   readOnly?: boolean;
+  showLot?: boolean;
 }) {
   const updateLine = (key: string, patch: Partial<InvoiceSourceLine>) => {
     onChange(
@@ -220,6 +223,8 @@ export function InvoiceReturnLineTable({
     );
   };
 
+  const showSerial = lines.some((l) => l.trackSerial);
+
   return (
     <Paper sx={{ overflow: 'auto' }}>
       <Table size="small">
@@ -228,6 +233,8 @@ export function InvoiceReturnLineTable({
             {!readOnly ? <TableCell padding="checkbox" /> : null}
             <TableCell>{t('nav.products')}</TableCell>
             <TableCell>Condition</TableCell>
+            {showLot ? <TableCell>{t('billing.batchNo')}</TableCell> : null}
+            {showSerial ? <TableCell>{t('erp.serialNumbers')}</TableCell> : null}
             <TableCell align="right">{t('billing.qty')}</TableCell>
             <TableCell align="right">{t('billing.priceShort')}</TableCell>
           </TableRow>
@@ -262,6 +269,43 @@ export function InvoiceReturnLineTable({
                   </TextField>
                 )}
               </TableCell>
+              {showLot ? (
+                <TableCell>
+                  {readOnly || !line.included || !line.trackBatch ? (
+                    line.batchNo || '—'
+                  ) : (
+                    <TextField
+                      size="small"
+                      value={line.batchNo ?? ''}
+                      onChange={(e) => {
+                        const batchNo = e.target.value;
+                        updateLine(line.key, {
+                          batchNo,
+                          batch: batchNo.trim() ? line.batch : null,
+                        });
+                      }}
+                      placeholder="FEFO"
+                      sx={{ minWidth: 100 }}
+                    />
+                  )}
+                </TableCell>
+              ) : null}
+              {showSerial ? (
+                <TableCell>
+                  {readOnly || !line.included || !line.trackSerial ? (
+                    line.serialNumbersText || '—'
+                  ) : (
+                    <TextField
+                      size="small"
+                      value={line.serialNumbersText ?? ''}
+                      onChange={(e) => updateLine(line.key, { serialNumbersText: e.target.value })}
+                      helperText={`${parseSerialNumbersText(line.serialNumbersText ?? '').length} serial(s)`}
+                      FormHelperTextProps={{ sx: { m: 0 } }}
+                      sx={{ minWidth: 160 }}
+                    />
+                  )}
+                </TableCell>
+              ) : null}
               <TableCell align="right">
                 {readOnly || !line.included ? (
                   line.included ? line.quantity : '—'

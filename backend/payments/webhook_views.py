@@ -39,13 +39,19 @@ class PaymentWebhookThrottle(AnonRateThrottle):
 @permission_classes([AllowAny])
 @throttle_classes([PublicPayThrottle])
 def public_payment_link(request, token: str):
-    link = (
-        PaymentLink.objects.select_related("company", "customer", "sales_invoice")
-        .filter(token=token)
-        .first()
-    )
+    from core.rls import rls_bypass, set_rls_company
+
+    with rls_bypass():
+        link = (
+            PaymentLink.objects.select_related("company", "customer", "sales_invoice")
+            .filter(token=token)
+            .first()
+        )
     if not link:
         return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+    if link.company_id is None:
+        return Response({"detail": "Not found."}, status=status.HTTP_410_GONE)
+    set_rls_company(link.company_id)
     from payments.holding import link_payment_state, link_shows_paid
 
     received = link_shows_paid(link)
@@ -107,19 +113,22 @@ def payment_webhook(request, provider: str):
 
     event_probe = parse_webhook_probe(provider, body)
 
+    from core.rls import rls_bypass, set_rls_company
+
     link = None
     if event_probe and getattr(event_probe, "payment_link_id", None):
-        qs = PaymentLink.objects.filter(
-            provider_link_id=event_probe.payment_link_id,
-            provider=provider,
-        )
-        count = qs.count()
-        if count > 1:
-            return Response(
-                {"detail": "Ambiguous payment_link_id."},
-                status=status.HTTP_409_CONFLICT,
+        with rls_bypass():
+            qs = PaymentLink.objects.filter(
+                provider_link_id=event_probe.payment_link_id,
+                provider=provider,
             )
-        link = qs.first()
+            count = qs.count()
+            if count > 1:
+                return Response(
+                    {"detail": "Ambiguous payment_link_id."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            link = qs.select_related("company").first()
 
     if link is None:
         return Response(
@@ -128,6 +137,8 @@ def payment_webhook(request, provider: str):
         )
 
     company = link.company
+    if company is None:
+        return Response({"detail": "Payment link company is gone."}, status=status.HTTP_410_GONE)
     if query_company_id and str(company.id) != str(query_company_id):
         return Response(
             {"detail": "company_id does not match payment link."},
@@ -154,6 +165,8 @@ def payment_webhook(request, provider: str):
     headers = {k: v for k, v in request.headers.items()}
     if not adapter.verify_webhook(headers=headers, body=body):
         return Response({"detail": "Invalid signature."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    set_rls_company(company.id)
 
     event = adapter.parse_webhook(body=body)
     if not event or not event.provider_payment_id:
@@ -221,6 +234,13 @@ def payment_webhook(request, provider: str):
                 amount=getattr(event, "amount", None),
                 reason="webhook",
                 skip_gateway=True,
+                provider_refund_id=getattr(event, "provider_refund_id", "") or "",
+                refund_key_override=(
+                    f"{event.provider_payment_id}:evt:{_event_id or hashlib.sha256(body).hexdigest()}"
+                    if not getattr(event, "provider_refund_id", "")
+                    and (getattr(event, "amount", None) is None or event.amount <= 0)
+                    else ""
+                ),
             )
         except BusinessRuleError as exc:
             return Response({"detail": str(exc.detail)}, status=status.HTTP_400_BAD_REQUEST)

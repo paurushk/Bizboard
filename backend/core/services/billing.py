@@ -118,6 +118,29 @@ def q2(value: Decimal) -> Decimal:
     return value.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
 
 
+def fold_tds_from_rate(*, tds_rate, tds_amount, taxable_total, document=None) -> Decimal:
+    """R-023: rate-only TDS → amount. A positive supplied amount wins.
+
+    CR-084: when both rate and amount are provided and diverge, stash override
+    metadata on ``document._tds_override`` (TCS parity) for statutory audit.
+    """
+    rate = Decimal(str(tds_rate or 0))
+    amount = Decimal(str(tds_amount if tds_amount not in (None, "") else 0))
+    if rate > 0 and amount == 0:
+        return q2(Decimal(str(taxable_total or 0)) * rate / Decimal("100"))
+    if document is not None:
+        document._tds_override = None
+        if rate > 0 and amount > 0:
+            from_rate = q2(Decimal(str(taxable_total or 0)) * rate / Decimal("100"))
+            if abs(from_rate - q2(amount)) > Decimal("0.05"):
+                document._tds_override = {
+                    "tds_rate": str(rate),
+                    "tds_amount_supplied": str(q2(amount)),
+                    "tds_amount_from_rate": str(from_rate),
+                }
+    return q2(amount)
+
+
 def extract_state_code(value: str | None) -> str | None:
     """
     Canonical GST state code from a full GSTIN, exact 2-digit code, or mapped name/abbr.
@@ -408,17 +431,20 @@ def apply_effective_gst_rate(document, item, *, tax_enabled: bool) -> None:
         if not reason:
             raise BusinessRuleError("GST rate override requires a reason.")
         item.applied_rate = Decimal(str(item.gst_rate or 0))
-        item.rate_version = item.rate_version or "override"
-        from core.services.audit import AuditService
+        # Preview `_Item` stubs may omit rate_version; getattr keeps quote-only safe.
+        item.rate_version = getattr(item, "rate_version", None) or "override"
+        # R-048: quote-only preview must not emit rate-override audit events.
+        if not getattr(document, "_preview_rateable", False):
+            from core.services.audit import AuditService
 
-        AuditService.log(
-            action="UPDATE",
-            company=getattr(document, "company", None),
-            entity_type=item.__class__.__name__,
-            entity_id=getattr(item, "pk", "") or "",
-            description=f"GST rate override {item.gst_rate}%: {reason}",
-            metadata={"reason": reason, "applied_rate": str(item.gst_rate)},
-        )
+            AuditService.log(
+                action="UPDATE",
+                company=getattr(document, "company", None),
+                entity_type=item.__class__.__name__,
+                entity_id=getattr(item, "pk", "") or "",
+                description=f"GST rate override {item.gst_rate}%: {reason}",
+                metadata={"reason": reason, "applied_rate": str(item.gst_rate)},
+            )
         item._billing_rate = Decimal(str(item.gst_rate or 0))  # noqa: SLF001
         return
     from masters.hsn_catalog import rate_for
@@ -717,6 +743,7 @@ def recompute_totals_for_stamped_gstin(
         party_gstin or "",
         seller_state=getattr(stamp, "state", None) or "",
         seller_gstin=getattr(stamp, "gstin", None) or "",
+        supply_type=getattr(document, "supply_type", ""),
     )
     lines_intra = sum((Decimal(str(it.cgst or 0)) for it in items), Decimal("0")) > 0
     lines_inter = sum((Decimal(str(it.igst or 0)) for it in items), Decimal("0")) > 0
@@ -782,6 +809,7 @@ def build_totals_preview(
         party_gstin or "",
         seller_state=seller_state,
         seller_gstin=seller_gstin,
+        supply_type=supply_type,
     )
 
     class _Doc:
@@ -794,6 +822,11 @@ def build_totals_preview(
         charges_hsn = data.get("charges_hsn") or ""
         charges_gst_rate = data.get("charges_gst_rate") or 0
         is_reverse_charge = bool(data.get("is_reverse_charge"))
+        rcm_taxable = 0
+        rcm_cgst = 0
+        rcm_sgst = 0
+        rcm_igst = 0
+        rcm_cess = 0
         supply_type = data.get("supply_type") or ""
         invoice_date = data.get("invoice_date") or data.get("bill_date")
         status = "DRAFT"
@@ -828,6 +861,7 @@ def build_totals_preview(
         item.product = product
         item.rate_override = bool(raw.get("rate_override"))
         item.rate_override_reason = raw.get("rate_override_reason") or ""
+        item.rate_version = raw.get("rate_version") or ""
         items.append(item)
 
     doc = _Doc()
@@ -873,7 +907,21 @@ def build_totals_preview(
                 consideration += _charges
         # BILL-05: ROUND_HALF_UP, consistent with q2 / the rest of the invoice.
         tcs_amount = q2(consideration * tcs_rate / Decimal("100"))
-    amount_due = Decimal(str(doc.grand_total or 0)) + tcs_amount
+    tds_rate = Decimal(str(data.get("tds_rate") or 0))
+    tds_key_present = "tds_amount" in data
+    if tds_key_present:
+        raw_tds = data.get("tds_amount")
+        provided_tds = Decimal(str(raw_tds if raw_tds not in (None, "") else 0))
+    else:
+        provided_tds = Decimal("0")
+    tds_amount = fold_tds_from_rate(
+        tds_rate=tds_rate,
+        tds_amount=provided_tds if tds_key_present else Decimal("0"),
+        taxable_total=doc.taxable_total,
+    )
+    amount_due = Decimal(str(doc.grand_total or 0)) + tcs_amount - tds_amount
+    if amount_due < 0:
+        amount_due = Decimal("0")
     return {
         "subtotal": doc.subtotal,
         "discount_total": doc.discount_total,
@@ -882,10 +930,17 @@ def build_totals_preview(
         "sgst_total": doc.sgst_total,
         "igst_total": doc.igst_total,
         "cess_total": getattr(doc, "cess_total", 0),
+        "rcm_taxable": getattr(doc, "rcm_taxable", 0),
+        "rcm_cgst": getattr(doc, "rcm_cgst", 0),
+        "rcm_sgst": getattr(doc, "rcm_sgst", 0),
+        "rcm_igst": getattr(doc, "rcm_igst", 0),
+        "rcm_cess": getattr(doc, "rcm_cess", 0),
         "round_off": doc.round_off,
         "grand_total": doc.grand_total,
         "tcs_rate": tcs_rate,
         "tcs_amount": tcs_amount,
+        "tds_rate": tds_rate,
+        "tds_amount": tds_amount,
         "amount_due": amount_due,
         "invoice_discount_mode": doc.invoice_discount_mode,
         "intra_state": intra,

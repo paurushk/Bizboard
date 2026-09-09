@@ -82,13 +82,30 @@ def _step_already_sent(invoice, bucket: int) -> bool:
     ).exists()
 
 
+def _in_bucket_window(days_overdue: int, bucket: int, buckets: list[int]) -> bool:
+    """R-042: catch-up stays in this bucket until the next configured day.
+
+    Day-7 with buckets 3/7/14 is eligible on days 7–13 (e.g. 7–9 after a
+    quiet-hours skip on the exact bucket day).
+    """
+    later = [b for b in buckets if b > bucket]
+    end = (min(later) - 1) if later else days_overdue
+    return bucket <= days_overdue <= end
+
+
 def _next_due_bucket(days_overdue: int, buckets: list[int], invoice) -> int | None:
     """B4-026: the STRONGEST configured step warranted by the current age that
     is still unsent — so an invoice first picked up at 40 days overdue escalates
     straight to the "14 days" tier instead of getting three gentle nudges for
-    3/7/14 spread over three days and then capping out."""
+    3/7/14 spread over three days and then capping out.
+
+    R-042: a missed bucket day (quiet hours) remains eligible while still inside
+    that bucket's window (until the next configured day).
+    """
     for bucket in sorted(buckets, reverse=True):
-        if days_overdue >= bucket and not _step_already_sent(invoice, bucket):
+        if not _in_bucket_window(days_overdue, bucket, buckets):
+            continue
+        if not _step_already_sent(invoice, bucket):
             return bucket
     return None
 
@@ -128,15 +145,21 @@ def eligible_invoices(company, *, as_of: date):
     )
 
 
-def _record(invoice, *, sent_on, days_overdue, channel, status, error=""):
+def _record(invoice, *, sent_on, days_overdue, channel, status, error="", now=None):
     from payments.models import DunningReminder
 
+    attempted = now or timezone.now()
     # PAY-13: don't pile up SKIPPED rows for the same invoice/day — the unique
     # constraint no longer covers them, so de-dupe here instead.
-    if status == DunningReminder.Status.SKIPPED and DunningReminder.objects.filter(
-        invoice=invoice, sent_on=sent_on, status=DunningReminder.Status.SKIPPED
-    ).exists():
-        return None
+    if status == DunningReminder.Status.SKIPPED:
+        existing = DunningReminder.objects.filter(
+            invoice=invoice, sent_on=sent_on, status=DunningReminder.Status.SKIPPED
+        ).first()
+        if existing:
+            existing.last_attempt_on = attempted
+            existing.error = (error or existing.error or "")[:500]
+            existing.save(update_fields=["last_attempt_on", "error", "updated_at"])
+            return existing
     try:
         return DunningReminder.objects.create(
             company=invoice.company,
@@ -147,6 +170,7 @@ def _record(invoice, *, sent_on, days_overdue, channel, status, error=""):
             channel=channel,
             status=status,
             error=(error or "")[:500],
+            last_attempt_on=attempted,
         )
     except IntegrityError:
         return None
@@ -191,7 +215,7 @@ def _send_sms(invoice, body) -> bool:
     return n.status in (Notification.Status.SENT, Notification.Status.QUEUED)
 
 
-def remind_invoice(invoice, *, sent_on: date, days_overdue: int) -> str:
+def remind_invoice(invoice, *, sent_on: date, days_overdue: int, now: datetime | None = None) -> str:
     company = invoice.company
     body = (
         f"Payment reminder from {company.name}: invoice {invoice.number} "
@@ -206,6 +230,7 @@ def remind_invoice(invoice, *, sent_on: date, days_overdue: int) -> str:
                     days_overdue=days_overdue,
                     channel="WHATSAPP",
                     status="SENT",
+                    now=now,
                 ) is None:
                     # B4-034: another worker already has a reminder row for this
                     # (invoice, day). The message went out but must not inflate
@@ -231,6 +256,7 @@ def remind_invoice(invoice, *, sent_on: date, days_overdue: int) -> str:
                     days_overdue=days_overdue,
                     channel="SMS",
                     status="SENT",
+                    now=now,
                 ) is None:
                     logger.warning(
                         "dunning: duplicate SMS reminder for invoice %s on %s (row already exists)",
@@ -246,6 +272,7 @@ def remind_invoice(invoice, *, sent_on: date, days_overdue: int) -> str:
                 channel="SMS",
                 status="FAILED",
                 error=str(exc)[:500],
+                now=now,
             )
             return "failed"
     _record(
@@ -255,6 +282,7 @@ def remind_invoice(invoice, *, sent_on: date, days_overdue: int) -> str:
         channel="SMS",
         status="FAILED",
         error=(last_wa or "No Cloud WhatsApp or SMS channel available.")[:500],
+        now=now,
     )
     return "failed"
 
@@ -262,9 +290,9 @@ def remind_invoice(invoice, *, sent_on: date, days_overdue: int) -> str:
 def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
     if not getattr(company, "dunning_enabled", False):
         return {"sent": 0, "skipped": 0, "reason": "disabled"}
-    if in_quiet_hours(company, now):
-        return {"sent": 0, "skipped": 0, "reason": "quiet_hours"}
     as_of = _ist_today(now)
+    attempted_at = _ist_now(now)
+    quiet = in_quiet_hours(company, now)
     buckets = configured_days(company)
     max_n = int(getattr(company, "dunning_max_reminders", 3) or 3)
     sent = skipped = 0
@@ -292,13 +320,29 @@ def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
         if is_paid_pending_books(invoice):
             skipped += 1
             continue
-        result = remind_invoice(invoice, sent_on=as_of, days_overdue=bucket)
+        if quiet:
+            # R-042: persist last_attempt_on so the next eligible run (still in
+            # the bucket window) can catch up instead of dropping the step.
+            _record(
+                invoice,
+                sent_on=as_of,
+                days_overdue=bucket,
+                channel="SMS",
+                status="SKIPPED",
+                error="quiet_hours",
+                now=attempted_at,
+            )
+            skipped += 1
+            continue
+        result = remind_invoice(invoice, sent_on=as_of, days_overdue=bucket, now=attempted_at)
         if result in ("whatsapp", "sms"):
             sent += 1
         else:
             # B4-034: "duplicate" (a lost DunningReminder insert race) and
             # "failed" both count as skipped, not sent.
             skipped += 1
+    if quiet:
+        return {"sent": 0, "skipped": skipped, "reason": "quiet_hours"}
     return {"sent": sent, "skipped": skipped, "reason": "ok"}
 
 

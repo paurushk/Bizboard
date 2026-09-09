@@ -73,7 +73,8 @@ def test_w0_04_cancelled_invoice_on_register_keeps_number(tenant_a):
         "/api/v1/reports/cancelled-document-numbers/", {"fy": fy, "format": "csv"}
     )
     assert csv_resp.status_code == 200
-    assert number.encode() in csv_resp.content
+    csv_content = getattr(csv_resp, "content", None) or b"".join(csv_resp.streaming_content)
+    assert number.encode() in csv_content
 
 
 def test_w0_04_fy_restart_warning_text(tenant_a):

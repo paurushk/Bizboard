@@ -171,8 +171,31 @@ _REGISTER_DETAIL = "If this email can be registered, an account has been prepare
 
 
 def _client_ip(request):
-    fwd = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
-    return fwd or request.META.get("REMOTE_ADDR") or "unknown"
+    """Client IP for login lock / rate-limit keys.
+
+    Production/staging: hop ``len(xff) - NUM_TRUSTED_PROXIES`` (from the right
+    of X-Forwarded-For), else REMOTE_ADDR. Do not use the leftmost
+    client-supplied hop. CDN+LB → set NUM_TRUSTED_PROXIES=2.
+
+    DEBUG / local / test may keep the first XFF hop so existing local tests
+    can pass a synthetic address without a proxy chain.
+    """
+    remote = (request.META.get("REMOTE_ADDR") or "").strip() or "unknown"
+    hops = [
+        part.strip()
+        for part in (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")
+        if part.strip()
+    ]
+    env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
+    if env not in ("production", "staging"):
+        return hops[0] if hops else remote
+    trusted = max(int(getattr(settings, "NUM_TRUSTED_PROXIES", 1) or 0), 0)
+    if not hops or trusted <= 0:
+        return remote
+    idx = len(hops) - trusted
+    if idx < 0:
+        return remote
+    return hops[idx]
 
 
 def _login_fail_key(email):
@@ -244,6 +267,18 @@ def _record_otp_phone_request(phone: str) -> None:
                 cache.incr(hour_key)
             except ValueError:
                 cache.set(hour_key, 1, OTP_PHONE_HOUR_SECONDS)
+
+
+def _unrecord_otp_phone_request(phone: str) -> None:
+    """Undo cooldown + hourly after a failed SMS send so a known user can retry."""
+    cache.delete(_otp_phone_cooldown_key(phone))
+    hour_key = _otp_phone_hour_key(phone)
+    try:
+        new_val = int(cache.decr(hour_key))
+    except (ValueError, TypeError):
+        return
+    if new_val < 0:
+        cache.set(hour_key, 0, OTP_PHONE_HOUR_SECONDS)
 
 
 def _register_payload():
@@ -484,14 +519,16 @@ class RequestOtpView(APIView):
             raise ValidationError(
                 {"detail": "OTP login requires a real SMS provider outside development."}
             )
-        # BB-000332: OTP enabled via OTP_ENABLED or a non-stub SMS provider — not OTP_DEBUG_ECHO.
-        otp_on = bool(getattr(settings, "OTP_ENABLED", False)) or not stub_sms
+        # BB-000332: OTP enabled via OTP_ENABLED, non-stub SMS provider, or development/test env.
+        otp_on = (
+            bool(getattr(settings, "OTP_ENABLED", False))
+            or not stub_sms
+            or env in ("development", "test", "local", "")
+        )
         if not otp_on:
-            # Dev convenience: console SMS + OTP_DEBUG_ECHO still allows local OTP testing.
-            if not (sms == "console" and settings.OTP_DEBUG_ECHO):
-                raise ValidationError(
-                    {"detail": "OTP login is not configured. Use email/password or contact support."}
-                )
+            raise ValidationError(
+                {"detail": "OTP login is not configured. Use email/password or contact support."}
+            )
         payload = {"detail": "If this phone number is registered, an OTP has been sent."}
         # Per-phone rate limit before existence check — same response either way.
         if _otp_phone_rate_limited(phone):
@@ -518,6 +555,12 @@ class RequestOtpView(APIView):
                     exc_info=True,
                 )
                 challenge.delete()
+                # Known users only: SMS never left, so do not burn cooldown/hourly.
+                # Unknown phones stay recorded (anti-enum — same 200 either way).
+                _unrecord_otp_phone_request(phone)
+            else:
+                if settings.OTP_DEBUG_ECHO or env in ("development", "test", "local", ""):
+                    payload["debug_code"] = code
         return Response(payload)
 
 
@@ -527,9 +570,14 @@ class VerifyOtpView(APIView):
 
     def post(self, request):
         sms = (getattr(settings, "SMS_PROVIDER", "") or "").strip().lower()
+        env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
         stub_sms = sms in ("", "off", "disabled", "console", "stub")
-        otp_on = bool(getattr(settings, "OTP_ENABLED", False)) or not stub_sms
-        if not otp_on and not (sms == "console" and settings.OTP_DEBUG_ECHO):
+        otp_on = (
+            bool(getattr(settings, "OTP_ENABLED", False))
+            or not stub_sms
+            or env in ("development", "test", "local", "")
+        )
+        if not otp_on:
             raise ValidationError({"detail": "OTP login is not configured."})
         try:
             phone = normalize_e164(request.data.get("phone") or "")
@@ -902,7 +950,7 @@ class AcceptInviteView(APIView):
                         "password": "This account already has a password. Enter your password or sign in first."
                     })
             if not membership.is_active:
-                _enforce_plan_seat_limit(membership.company)
+                _enforce_plan_seat_limit(membership.company, exclude_membership_pk=membership.pk)
                 membership.is_active = True
                 membership.save(update_fields=["is_active", "updated_at"])
             if not user.active_company_id:
@@ -1007,12 +1055,33 @@ def _invite_caps(data: dict) -> dict:
     return _staff_invite_caps(data)
 
 
-def _enforce_plan_seat_limit(company) -> None:
-    """Reject invite/accept when active members >= plan.seat_limit.
+def _occupied_seat_count(company, *, exclude_pk=None) -> int:
+    """Active members plus pending invites (inactive + unused invite token)."""
+    from django.db.models import Exists, OuterRef
 
-    Concurrent accepts serialize on the company (and subscription) row.
-    ``seat_limit <= 0`` on a plan is explicit unlimited. No subscription uses
-    ``UNSUBSCRIBED_SEAT_LIMIT`` (default 1), not unlimited.
+    unused_invite = InviteJti.objects.filter(
+        membership_id=OuterRef("pk"),
+        consumed_at__isnull=True,
+        expires_at__gt=timezone.now(),
+    )
+    active = CompanyUser.objects.filter(company=company, is_active=True)
+    pending = CompanyUser.objects.filter(company=company, is_active=False).filter(
+        Exists(unused_invite)
+    )
+    if exclude_pk is not None:
+        active = active.exclude(pk=exclude_pk)
+        pending = pending.exclude(pk=exclude_pk)
+    return active.count() + pending.count()
+
+
+def _enforce_plan_seat_limit(company, *, exclude_membership_pk=None) -> None:
+    """Reject invite/accept when occupied seats >= plan.seat_limit.
+
+    Occupied = ``is_active=True`` plus pending invites (``is_active=False``
+    with an unused, unexpired invite token). Concurrent accepts serialize on
+    the company (and subscription) row. ``seat_limit <= 0`` on a plan is
+    explicit unlimited. No subscription uses ``UNSUBSCRIBED_SEAT_LIMIT``
+    (default 1), not unlimited.
     """
     from billing.models import Subscription
 
@@ -1031,8 +1100,8 @@ def _enforce_plan_seat_limit(company) -> None:
         limit = int(getattr(settings, "UNSUBSCRIBED_SEAT_LIMIT", 1) or 0)
         if limit <= 0:
             return
-    active = CompanyUser.objects.filter(company=company, is_active=True).count()
-    if active >= limit:
+    occupied = _occupied_seat_count(company, exclude_pk=exclude_membership_pk)
+    if occupied >= limit:
         raise ValidationError({
             "detail": f"Seat limit of {limit} reached for the current plan.",
         })
@@ -1152,7 +1221,7 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
                 if _active_owner_count(instance.company, exclude_pk=instance.pk) == 0:
                     raise ValidationError({"detail": "Cannot remove the company's last active Owner."})
             if new_active and not instance.is_active:
-                _enforce_plan_seat_limit(instance.company)
+                _enforce_plan_seat_limit(instance.company, exclude_membership_pk=instance.pk)
             updated = serializer.save(company=get_company_user(self.request).company)
             if deactivating:
                 _revoke_sessions_if_last_active_membership(updated.user)
@@ -1289,7 +1358,7 @@ class RequestPasswordResetView(APIView):
                 # somehow exists (e.g. a second, already-accepted company),
                 # else fall back to any membership at all.
                 membership = (
-                    CompanyUser.objects.filter(user=user, is_active=True, pk=user.active_company_id)
+                    CompanyUser.objects.filter(user=user, company_id=user.active_company_id)
                     .select_related("company")
                     .first()
                     if user.active_company_id

@@ -54,7 +54,14 @@ def test_bb_000656_purchase_dn_headroom(tenant_a):
         format="json",
     )
     assert ok.status_code == 201, ok.data
-    assert tenant_a.client.post(f"/api/v1/purchases/debit-notes/{ok.data['id']}/complete/").status_code == 200
+    assert (
+        tenant_a.client.post(
+            f"/api/v1/purchases/debit-notes/{ok.data['id']}/complete/",
+            {"confirm_additional_debit": True},
+            format="json",
+        ).status_code
+        == 200
+    )
     second = tenant_a.client.post(
         "/api/v1/purchases/debit-notes/",
         {
@@ -66,7 +73,11 @@ def test_bb_000656_purchase_dn_headroom(tenant_a):
         format="json",
     )
     assert second.status_code == 201, second.data
-    blocked = tenant_a.client.post(f"/api/v1/purchases/debit-notes/{second.data['id']}/complete/")
+    blocked = tenant_a.client.post(
+        f"/api/v1/purchases/debit-notes/{second.data['id']}/complete/",
+        {"confirm_additional_debit": True},
+        format="json",
+    )
     assert blocked.status_code == 400
 
 

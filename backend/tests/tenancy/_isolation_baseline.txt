@@ -1,0 +1,10 @@
+# Tenant-isolation baseline (FG-2d).
+#
+# API view class names that the structural heuristic in
+# test_endpoint_isolation.py cannot prove are tenant-scoped. This set may ONLY
+# SHRINK — a NEW unscoped view fails the test. To remove an entry: give the view
+# a real cross-tenant test (or make its scoping visible in the class source),
+# then delete the line here.
+#
+# Currently EMPTY: every /api/v1/ view either subclasses CompanyScopedViewSet or
+# carries a company-scoping signal in its class source. Keep it that way.

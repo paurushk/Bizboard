@@ -41,7 +41,8 @@ def test_tds_worksheet_csv_escapes_formula_in_supplier_name(books):  # noqa: F81
     import csv as _csv
     import io as _io
 
-    reader = _csv.reader(_io.StringIO(resp.content.decode()))
+    content = getattr(resp, "content", None) or b"".join(resp.streaming_content)
+    reader = _csv.reader(_io.StringIO(content.decode()))
     supplier_cells = [
         cell for row in reader for cell in row if "calc" in cell and "cmd" in cell
     ]

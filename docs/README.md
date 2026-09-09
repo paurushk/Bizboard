@@ -33,7 +33,8 @@ These are covered in the two READMEs rather than duplicated here:
 | [`help/`](help/) | In-app help system: codes, intents, event schema, triage, copy sign-off, contributing | **Active** |
 | [`onboarding/`](onboarding/) | New-user product onboarding plan | **Active** |
 | [`ca/`](ca/) | Chartered-accountant sign-off checklist (GST calc + invoice layouts) | **Active** |
-| [`reviews/`](reviews/) | Engineering audit apparatus: numbered reviews `01`–`21`, `MASTER_ISSUE_REGISTER.md`, `CHANGELOG.md`, `REMEDIATION_ROADMAP.md`, `KNOWN_LIMITATIONS_AND_TECH_DEBT.md`, wave findings, audit master prompts | **Mixed** — see note below |
+| [`reviews/`](reviews/) | Engineering audit apparatus: numbered reviews `01`–`21`, `MASTER_ISSUE_REGISTER.md`, `CHANGELOG.md`, `REMEDIATION_ROADMAP.md`, `KNOWN_LIMITATIONS_AND_TECH_DEBT.md`, wave findings, audit master prompts | **History, not scope** — see [`reviews/README.md`](reviews/README.md) |
+| [`FREEZE_SCOPE.md`](FREEZE_SCOPE.md) | Authoritative freeze scope: SUPPORTED / NOT SUPPORTED / KNOWN LIMITATIONS, frozen flag profile, founder decisions | **Active** — supersedes the README module table for scope |
 | [`archive/`](archive/) | Superseded historical reports kept for reference (security/test/bug/perf snapshots, old code-review dumps, UX audits, old Phase 1 plan) | **Frozen** — do not update |
 
 ### Notes

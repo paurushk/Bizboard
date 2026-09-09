@@ -8,6 +8,7 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { HonestyBanner } from '@/components/HonestyBanner';
 import { EmptyState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { FAQ_CATEGORIES, FAQ_ITEMS, type FaqItem } from './faqContent';
@@ -50,6 +51,7 @@ export function HelpPageV0() {
       <Typography variant="body2" color="text.secondary">
         {t('help.subtitle')}
       </Typography>
+      <HonestyBanner messageKey="honesty.mobileWebview" />
       <TextField
         label={t('help.searchLabel')}
         value={query}

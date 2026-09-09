@@ -1,0 +1,19 @@
+# Intended CI job set for .github/workflows/ci.yml.
+# guard_required_checks_match.py asserts this name set == the jobs defined in ci.yml.
+# When you add/rename/remove a job, update this file in the SAME commit, and
+# update the GitHub branch-protection "required status checks" rule to match the
+# non-advisory entries below.
+#
+# name            # advisory  -> runs in CI but is NOT a merge blocker
+# name                        -> merge blocker (add to branch protection)
+
+backend
+frontend
+mobile
+e2e               # advisory  — light e2e, no API; merge gate is e2e-golden
+e2e-golden
+docker
+load-harness      # advisory  — presence check only, not a soak
+postgres-rls      # advisory  — optional RLS isolation job (NOT SUPPORTED in freeze scope)
+determinism-probe # advisory  — suite with frozen clock + network ban; flip to blocking when green
+invariant-sweep   # Phase 2   — workflow contracts + invariant smoke blocking; full strict sweep advisory within the job

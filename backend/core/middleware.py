@@ -1,6 +1,7 @@
 """BB-000372 / BB-000443 / BB-000478: request-id + JSON access log with duration + hashed IDs."""
 
 import hashlib
+import io
 import json
 import logging
 import re
@@ -45,28 +46,44 @@ class MaxBodySizeMiddleware:
         self.get_response = get_response
         self.max_bytes = int(getattr(settings, "MAX_REQUEST_BODY_SIZE", 25 * 1024 * 1024))
 
+    def _too_large(self, size):
+        from django.http import JsonResponse
+
+        return JsonResponse(
+            {
+                "error": {
+                    "code": "request_too_large",
+                    "message": (
+                        f"Request body {size} bytes exceeds the "
+                        f"{self.max_bytes}-byte limit."
+                    ),
+                }
+            },
+            status=413,
+        )
+
     def __call__(self, request):
         if request.method in ("POST", "PUT", "PATCH") and self.max_bytes > 0:
             raw = request.META.get("CONTENT_LENGTH") or ""
             try:
-                declared = int(raw)
+                declared = int(raw) if str(raw).strip() else None
             except (TypeError, ValueError):
-                declared = 0
-            if declared > self.max_bytes:
-                from django.http import JsonResponse
-
-                return JsonResponse(
-                    {
-                        "error": {
-                            "code": "request_too_large",
-                            "message": (
-                                f"Request body {declared} bytes exceeds the "
-                                f"{self.max_bytes}-byte limit."
-                            ),
-                        }
-                    },
-                    status=413,
-                )
+                declared = None
+            if declared is not None and declared > self.max_bytes:
+                return self._too_large(declared)
+            # R-035: chunked / undeclared bodies have no Content-Length.
+            # Cap-read so they cannot bypass the 413 ceiling.
+            if declared is None or declared == 0:
+                if hasattr(request, "_body"):
+                    body = request._body or b""
+                    if len(body) > self.max_bytes:
+                        return self._too_large(len(body))
+                else:
+                    chunk = request.read(self.max_bytes + 1)
+                    if len(chunk) > self.max_bytes:
+                        return self._too_large(len(chunk))
+                    request._body = chunk
+                    request._stream = io.BytesIO(chunk)
         return self.get_response(request)
 
 

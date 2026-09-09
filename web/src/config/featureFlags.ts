@@ -35,6 +35,7 @@ const MOCK_FLAGS: RuntimeFeatureFlags = {
   ENABLE_TDS: false,
   ENABLE_WHATSAPP_CLOUD: false,
   ENABLE_ACCOUNT_AGGREGATOR: false,
+  ENABLE_AA_CONSENT: false,
   ENABLE_CASHFREE: false,
   ENABLE_PAYU: false,
   ENABLE_POS: true,
@@ -43,8 +44,8 @@ const MOCK_FLAGS: RuntimeFeatureFlags = {
   ENABLE_GSTR: false,
   ENABLE_TALLY: false,
   ENABLE_SETUP_WIZARD: false,
-  item_custom_fields_v2: true,
-  itemCustomFieldsV2: true,
+  item_custom_fields_v2: false,
+  itemCustomFieldsV2: false,
   helpV2: false,
 };
 

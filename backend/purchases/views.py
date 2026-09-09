@@ -7,6 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from billing.permissions import SubscriptionWritesAllowed
 from core.exceptions import BusinessRuleError
 from core.idempotency import wrap_idempotent
 from core.permissions import (
@@ -33,7 +34,7 @@ from .services import PurchaseService
 
 
 class PurchaseInvoiceViewSet(CompanyScopedViewSet):
-    queryset = PurchaseInvoice.objects.select_related("supplier").prefetch_related("items__product")
+    queryset = PurchaseInvoice.objects.select_related("supplier", "bill_of_entry").prefetch_related("items__product")
     serializer_class = PurchaseInvoiceSerializer
 
     def create(self, request, *args, **kwargs):
@@ -51,9 +52,9 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
     def get_permissions(self):
         action = getattr(self, "action", None)
         if action == "cancel":
-            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in ("create", "complete", "update", "partial_update", "destroy", "preview_totals"):
-            return [IsAuthenticated(), HasCompany(), CanCreatePurchases()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePurchases()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
         if action == "number_series":
@@ -76,22 +77,64 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
                 Value(0, output_field=DecimalField(max_digits=14, decimal_places=2)),
             )
         )
+        # R-038: validate before feeding query params to the ORM so bad input
+        # is a 400, not a 500 (same pattern as sales invoices).
+        from datetime import date as _date
+
         params = self.request.query_params
-        if params.get("status"):
-            qs = qs.filter(status=params["status"])
+        status = params.get("status")
+        if status:
+            if status not in PurchaseInvoice.Status.values:
+                raise BusinessRuleError(f"Unknown status {status!r}.")
+            qs = qs.filter(status=status)
         if params.get("supplier"):
-            qs = qs.filter(supplier_id=params["supplier"])
-        if params.get("date_from"):
-            qs = qs.filter(invoice_date__gte=params["date_from"])
-        if params.get("date_to"):
-            qs = qs.filter(invoice_date__lte=params["date_to"])
+            try:
+                qs = qs.filter(supplier_id=int(params["supplier"]))
+            except (TypeError, ValueError):
+                raise BusinessRuleError("supplier must be a numeric id.")
+        for key, lookup in (("date_from", "invoice_date__gte"), ("date_to", "invoice_date__lte")):
+            raw = params.get(key)
+            if raw:
+                try:
+                    qs = qs.filter(**{lookup: _date.fromisoformat(str(raw)[:10])})
+                except ValueError:
+                    raise BusinessRuleError(f"{key} must be an ISO date (YYYY-MM-DD).")
         if params.get("q"):
             qs = qs.filter(number__icontains=params["q"])
         return qs
 
+    def get_serializer(self, *args, **kwargs):
+        # CR-016 twin: attach CN/DN-aware outstanding for list rows in one bulk query.
+        if self.action == "list" and args and kwargs.get("many", True):
+            from decimal import Decimal
+
+            from ledgers.services import LedgerService
+
+            instances = args[0]
+            try:
+                rows = list(instances) if not isinstance(instances, list) else instances
+            except TypeError:
+                rows = None
+            if rows is not None and rows and hasattr(rows[0], "pk"):
+                ids = [r.pk for r in rows if getattr(r, "pk", None)]
+                outstanding = LedgerService.bulk_purchase_invoice_outstanding(
+                    self.company, invoice_ids=ids
+                )
+                for row in rows:
+                    row._list_outstanding = outstanding.get(row.pk, Decimal("0"))
+                args = (rows,) + args[1:]
+                kwargs["many"] = True
+        return super().get_serializer(*args, **kwargs)
+
     def perform_destroy(self, instance):
         if instance.status != PurchaseInvoice.Status.DRAFT:
             raise BusinessRuleError("Only draft purchases can be deleted; use Cancel instead.")
+        from core.models import IdempotencyRecord
+
+        IdempotencyRecord.objects.filter(
+            company=self.company,
+            resource_id=str(instance.pk),
+        ).delete()
         super().perform_destroy(instance)
 
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
@@ -218,9 +261,9 @@ class PurchaseReturnViewSet(CompanyScopedViewSet):
         if action == "number_series":
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         if action == "cancel":
-            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in ("create", "update", "partial_update", "destroy", "complete"):
-            return [IsAuthenticated(), HasCompany(), CanCreatePurchases()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePurchases()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
         return super().get_permissions()
@@ -243,12 +286,31 @@ class PurchaseReturnViewSet(CompanyScopedViewSet):
         return Response(data)
 
     def get_queryset(self):
+        # CR-046: validate query params against status enum and int supplier
         qs = super().get_queryset()
-        if self.request.query_params.get("status"):
-            qs = qs.filter(status=self.request.query_params["status"])
-        if self.request.query_params.get("supplier"):
-            qs = qs.filter(supplier_id=self.request.query_params["supplier"])
+        params = self.request.query_params
+        status = params.get("status")
+        if status:
+            if status not in PurchaseReturn.Status.values:
+                raise BusinessRuleError(f"Unknown status {status!r}.")
+            qs = qs.filter(status=status)
+        if params.get("supplier"):
+            try:
+                qs = qs.filter(supplier_id=int(params["supplier"]))
+            except (TypeError, ValueError):
+                raise BusinessRuleError("supplier must be a numeric id.")
         return qs
+
+    def create(self, request, *args, **kwargs):
+        def _run():
+            return super(PurchaseReturnViewSet, self).create(request, *args, **kwargs)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="purchase_return_create",
+            build=_run,
+        )
 
     def perform_destroy(self, instance):
         if instance.status != PurchaseReturn.Status.DRAFT:
@@ -257,8 +319,16 @@ class PurchaseReturnViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
-        purchase_return = PurchaseService.complete_return(self.get_object(), request.user)
-        return Response(self.get_serializer(purchase_return).data)
+        def _run():
+            purchase_return = PurchaseService.complete_return(self.get_object(), request.user)
+            return Response(self.get_serializer(purchase_return).data)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="purchase_return_complete",
+            build=_run,
+        )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -275,23 +345,41 @@ class BillOfEntryViewSet(CompanyScopedViewSet):
     def get_permissions(self):
         action = getattr(self, "action", None)
         if action == "cancel":
-            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in ("create", "update", "partial_update", "destroy", "complete"):
-            return [IsAuthenticated(), HasCompany(), CanCreatePurchases()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePurchases()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
         return super().get_permissions()
 
     def get_queryset(self):
+        # CR-046: validate query params against status enum and int supplier
         qs = super().get_queryset()
         params = self.request.query_params
-        if params.get("status"):
-            qs = qs.filter(status=params["status"])
+        status = params.get("status")
+        if status:
+            if status not in BillOfEntry.Status.values:
+                raise BusinessRuleError(f"Unknown status {status!r}.")
+            qs = qs.filter(status=status)
         if params.get("supplier"):
-            qs = qs.filter(supplier_id=params["supplier"])
+            try:
+                qs = qs.filter(supplier_id=int(params["supplier"]))
+            except (TypeError, ValueError):
+                raise BusinessRuleError("supplier must be a numeric id.")
         if params.get("period"):
             qs = qs.filter(boe_date__startswith=params["period"])
         return qs
+
+    def create(self, request, *args, **kwargs):
+        def _run():
+            return super(BillOfEntryViewSet, self).create(request, *args, **kwargs)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="bill_of_entry_create",
+            build=_run,
+        )
 
     def perform_destroy(self, instance):
         if instance.status != BillOfEntry.Status.DRAFT:
@@ -300,8 +388,16 @@ class BillOfEntryViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
-        boe = BillOfEntryService.complete(self.get_object(), request.user)
-        return Response(self.get_serializer(boe).data)
+        def _run():
+            boe = BillOfEntryService.complete(self.get_object(), request.user)
+            return Response(self.get_serializer(boe).data)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="bill_of_entry_complete",
+            build=_run,
+        )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):

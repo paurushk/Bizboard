@@ -14,7 +14,8 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
-import { getErrorCode, getErrorMessage } from '@/api/client';
+import { getErrorMessage } from '@/api/client';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import {
   cancelPurchase,
   completePurchase,
@@ -47,16 +48,7 @@ export function PurchaseDetailPage() {
   });
 
   const completeMutation = useMutation({
-    mutationFn: async () => {
-      try {
-        return await completePurchase(purchaseId);
-      } catch (err) {
-        if (getErrorCode(err) === 'GSTIN_TOTAL_CHANGED' && window.confirm(t('billing.confirmGstinTotalChange'))) {
-          return await completePurchase(purchaseId, { confirmGstinTotalChange: true });
-        }
-        throw err;
-      }
-    },
+    mutationFn: () => completeWithConfirms((extra) => completePurchase(purchaseId, extra)),
     onSuccess: () => {
       setMessage('Purchase completed');
       void qc.invalidateQueries({ queryKey: ['purchase-invoice', purchaseId] });

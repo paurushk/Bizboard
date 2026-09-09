@@ -106,6 +106,9 @@ def test_purchase_credit_and_debit_note_complete(tenant_a):
         purchase_type="NON_GST",
     )
     assert tenant_a.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/").status_code == 200
+    from purchases.models import PurchaseItem
+
+    src = PurchaseItem.objects.get(invoice_id=pur["id"])
 
     cn = tenant_a.client.post(
         "/api/v1/purchases/credit-notes/",
@@ -114,7 +117,13 @@ def test_purchase_credit_and_debit_note_complete(tenant_a):
             "purchase_invoice": pur["id"],
             "reason": "CORRECTION_OF_INVOICE",
             "items": [
-                {"product": product.id, "quantity": "1", "unit_price": "50", "gst_rate": "0"}
+                {
+                    "product": product.id,
+                    "quantity": "1",
+                    "unit_price": "200",
+                    "gst_rate": "0",
+                    "source_item": src.id,
+                }
             ],
         },
         format="json",
@@ -132,14 +141,25 @@ def test_purchase_credit_and_debit_note_complete(tenant_a):
             "purchase_invoice": pur["id"],
             "reason": "CORRECTION_OF_INVOICE",
             "items": [
-                {"product": product.id, "quantity": "1", "unit_price": "40", "gst_rate": "0"}
+                {
+                    "product": product.id,
+                    "quantity": "1",
+                    "unit_price": "200",
+                    "gst_rate": "0",
+                    "source_item": src.id,
+                }
             ],
         },
         format="json",
     )
     assert dn.status_code == 201, dn.data
+    # CR-129: additional debit (no CN headroom left after CN) needs confirm.
     assert (
-        tenant_a.client.post(f"/api/v1/purchases/debit-notes/{dn.data['id']}/complete/").status_code
+        tenant_a.client.post(
+            f"/api/v1/purchases/debit-notes/{dn.data['id']}/complete/",
+            {"confirm_additional_debit": True},
+            format="json",
+        ).status_code
         == 200
     )
 
@@ -184,7 +204,11 @@ def test_credit_note_pdf_ready_after_complete(tenant_a):
         format="json",
     )
     assert cn.status_code == 201, cn.data
-    done = tenant_a.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/")
+    done = tenant_a.client.post(
+        f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/",
+        {"confirm_price_override": True},
+        format="json",
+    )
     assert done.status_code == 200, done.data
     note = SalesCreditNote.objects.get(pk=cn.data["id"])
     assert note.pdf_status == "READY"
@@ -231,3 +255,131 @@ def test_debit_note_and_challan_pdf_ready(tenant_a):
         == 200
     )
     assert DeliveryChallan.objects.get(pk=challan.data["id"]).pdf_status == "READY"
+
+
+def test_purchase_complete_returns_all_confirm_codes(tenant_a):
+    """R-010: one 409 lists every pending confirm code."""
+    product = make_product(tenant_a.company)
+    supplier = make_supplier(tenant_a.company, gstin="", taxpayer_type="")
+    first = create_draft_purchase(
+        tenant_a,
+        supplier,
+        [{"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "18"}],
+    )
+    patch = tenant_a.client.patch(
+        f"/api/v1/purchases/invoices/{first['id']}/",
+        {"supplier_bill_number": "BILL-DUP-1"},
+        format="json",
+    )
+    assert patch.status_code == 200, patch.data
+    ok = tenant_a.client.post(
+        f"/api/v1/purchases/invoices/{first['id']}/complete/",
+        {"confirm_no_rcm": True},
+        format="json",
+    )
+    assert ok.status_code == 200, ok.data
+
+    second = create_draft_purchase(
+        tenant_a,
+        supplier,
+        [{"product": product.id, "quantity": "1", "unit_price": "80", "gst_rate": "18"}],
+    )
+    patch2 = tenant_a.client.patch(
+        f"/api/v1/purchases/invoices/{second['id']}/",
+        {"supplier_bill_number": "BILL-DUP-1"},
+        format="json",
+    )
+    assert patch2.status_code == 200, patch2.data
+    blocked = tenant_a.client.post(f"/api/v1/purchases/invoices/{second['id']}/complete/")
+    assert blocked.status_code == 409, blocked.data
+    err = blocked.data.get("error") or blocked.data
+    details = err.get("details") or {}
+    codes = details.get("confirm_codes") or []
+    assert "confirm_no_rcm" in codes
+    assert "confirm_duplicate_bill" in codes
+
+
+def test_credit_note_omit_lineage_400(tenant_a):
+    """R-025: CN Complete refuses lines with no source_item when the invoice has items."""
+    invoice, product, customer = _complete_invoice(tenant_a)
+    cn = tenant_a.client.post(
+        "/api/v1/sales/credit-notes/",
+        {
+            "customer": customer.id,
+            "sales_invoice": invoice.id,
+            "reason": "CORRECTION_OF_INVOICE",
+            "items": [
+                {"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "0"}
+            ],
+        },
+        format="json",
+    )
+    assert cn.status_code == 201, cn.data
+    from sales.models import SalesCreditNoteItem
+
+    SalesCreditNoteItem.objects.filter(credit_note_id=cn.data["id"]).update(source_item=None)
+    fail = tenant_a.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/")
+    assert fail.status_code == 400, fail.data
+    assert SalesCreditNote.objects.get(pk=cn.data["id"]).status == "DRAFT"
+
+
+def test_purchase_return_before_invoice_date_400(tenant_a):
+    """R-026: purchase complete_return rejects return_date < invoice.invoice_date."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from purchases.models import PurchaseInvoice
+
+    product = make_product(tenant_a.company)
+    supplier = make_supplier(tenant_a.company)
+    pur = create_draft_purchase(
+        tenant_a,
+        supplier,
+        [{"product": product.id, "quantity": "2", "unit_price": "80"}],
+        purchase_type="NON_GST",
+    )
+    assert tenant_a.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/").status_code == 200
+    invoice = PurchaseInvoice.objects.get(pk=pur["id"])
+    yesterday = (timezone.localdate() - timedelta(days=1)).isoformat()
+    ret = tenant_a.client.post(
+        "/api/v1/purchases/returns/",
+        {
+            "supplier": supplier.id,
+            "purchase_invoice": invoice.id,
+            "return_date": yesterday,
+            "items": [{"product": product.id, "quantity": "1", "unit_price": "80"}],
+        },
+        format="json",
+    )
+    assert ret.status_code == 201, ret.data
+    resp = tenant_a.client.post(f"/api/v1/purchases/returns/{ret.data['id']}/complete/")
+    assert resp.status_code == 400, resp.data
+
+
+def test_lapsed_subscription_blocks_purchase_complete(tenant_a, settings):
+    """R-012: SubscriptionWritesAllowed on purchase Complete (middleware off)."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from billing.models import Plan, Subscription
+
+    settings.MIDDLEWARE = [m for m in settings.MIDDLEWARE if "SubscriptionWriteGate" not in m]
+    product = make_product(tenant_a.company)
+    supplier = make_supplier(tenant_a.company)
+    pur = create_draft_purchase(
+        tenant_a,
+        supplier,
+        [{"product": product.id, "quantity": "1", "unit_price": "80"}],
+        purchase_type="NON_GST",
+    )
+    plan = Plan.objects.create(name="R012", slug="r012-lapsed", seat_limit=3, price_paise=0)
+    Subscription.objects.create(
+        company=tenant_a.company,
+        plan=plan,
+        status=Subscription.Status.PAST_DUE,
+        current_period_end=timezone.now() - timedelta(days=1),
+    )
+    resp = tenant_a.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/")
+    assert resp.status_code in (402, 403), resp.data

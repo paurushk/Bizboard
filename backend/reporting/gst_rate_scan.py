@@ -23,7 +23,12 @@ def backscan_rate_exposure(company, *, date_from: date | None = None, date_to: d
         SalesItem.objects.filter(
             invoice__company=company,
             invoice__status=SalesInvoice.Status.COMPLETED,
-            invoice__invoice_type=SalesInvoice.InvoiceType.GST,
+            invoice__invoice_type__in=[
+                SalesInvoice.InvoiceType.GST,
+                SalesInvoice.InvoiceType.TAX,
+                SalesInvoice.InvoiceType.RETAIL,
+            ],
+            invoice__is_opening_balance=False,
             invoice__invoice_date__gte=date_from,
             invoice__invoice_date__lte=date_to,
         )

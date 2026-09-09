@@ -113,6 +113,7 @@ export function InsightsAssistantPage() {
           </Button>
         }
       />
+      <DisclaimerBanner>{t('honesty.insightsNotBooks')}</DisclaimerBanner>
       <DisclaimerBanner>{t('insights.disclaimer')}</DisclaimerBanner>
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="stretch">

@@ -13,6 +13,7 @@ import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemText from '@mui/material/ListItemText';
+import Snackbar from '@mui/material/Snackbar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
@@ -26,17 +27,14 @@ import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { useFeatureFlagEpoch } from '@/config/featureFlags';
 import { getLocale, subscribeLocale, t } from '@/i18n';
-import { filterNav, type NavItem } from '@/navigation/menu';
+import { filterNav, isNavPathActive, type NavItem } from '@/navigation/menu';
 import { listDrafts } from '@/offline/invoiceDraftCache';
 
 const DRAWER_WIDTH = 272;
 const MOBILE_BILLING_TIP_KEY = 'bizboard.dismiss.mobileBillingTip';
 
 function navPathSelected(pathname: string, path?: string): boolean {
-  if (!path) return false;
-  if (pathname === path) return true;
-  if (path !== '/' && pathname.startsWith(`${path}/`)) return true;
-  return false;
+  return isNavPathActive(pathname, path);
 }
 
 /** Re-render shell copy when locale changes without a full reload (FE-18). */
@@ -118,7 +116,19 @@ export function AppShell() {
     () => typeof window !== 'undefined' && localStorage.getItem(MOBILE_BILLING_TIP_KEY) === '1',
   );
   const [pendingDrafts, setPendingDrafts] = useState(0);
+  const [pwaReloadFn, setPwaReloadFn] = useState<(() => void) | null>(null);
   const items = useMemo(() => filterNav(user), [user, flagEpoch]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const custom = e as CustomEvent<{ reload?: () => void }>;
+      if (custom.detail?.reload) {
+        setPwaReloadFn(() => custom.detail.reload);
+      }
+    };
+    window.addEventListener('bizboard:pwa-update-available', handler);
+    return () => window.removeEventListener('bizboard:pwa-update-available', handler);
+  }, []);
 
   useEffect(() => {
     const companyId = user?.companyId;
@@ -214,7 +224,7 @@ export function AppShell() {
           overflow: { xs: 'visible', sm: 'hidden' },
         }}
       >
-        <Toolbar sx={{ gap: 1, minHeight: 64, flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
+        <Toolbar sx={{ gap: 1, minHeight: { xs: 56, sm: 64 } }}>
           <IconButton
             color="inherit"
             edge="start"
@@ -227,7 +237,7 @@ export function AppShell() {
           <Typography variant="h6" sx={{ flexGrow: { xs: 1, sm: 0 }, mr: { sm: 2 }, flexShrink: 0 }}>
             {t('app.name')}
           </Typography>
-          <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: { xs: 'stretch', sm: 'center' }, minWidth: 0 }}>
+          <Box sx={{ flexGrow: 1, display: { xs: 'none', sm: 'flex' }, justifyContent: 'center', minWidth: 0 }}>
             <UniversalSearch />
           </Box>
           {pendingDrafts > 0 &&
@@ -282,7 +292,10 @@ export function AppShell() {
         tabIndex={-1}
         sx={{
           flexGrow: 1,
-          width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
+          width: { xs: '100%', md: `calc(100% - ${DRAWER_WIDTH}px)` },
+          maxWidth: '100%',
+          overflowX: 'hidden',
+          boxSizing: 'border-box',
           p: { xs: 2, md: 3 },
           background:
             'linear-gradient(180deg, #E8F3F1 0%, #F3F6F5 140px, #F3F6F5 100%)',
@@ -331,6 +344,22 @@ export function AppShell() {
           <Outlet />
         </ErrorBoundary>
         <CompanyRequiredDialog />
+        <Snackbar
+          open={Boolean(pwaReloadFn)}
+          message="A new version of Bizboard is available."
+          action={
+            <Button
+              color="primary"
+              size="small"
+              variant="contained"
+              onClick={() => {
+                if (pwaReloadFn) pwaReloadFn();
+              }}
+            >
+              Update Now
+            </Button>
+          }
+        />
       </Box>
     </Box>
   );

@@ -32,7 +32,7 @@ def test_convert_lead_creates_customer_and_open_opportunity(tenant_a):
     assert lead.customer_id is not None
     customer = Customer.objects.get(pk=lead.customer_id)
     assert customer.name == "Prospect Co"
-    assert customer.phone == "9876543210"
+    assert customer.phone == "+919876543210"
     assert customer.email == "p@example.com"
     opp = Opportunity.objects.get(pk=body["opportunity"]["id"])
     assert opp.stage == Opportunity.Stage.OPEN
@@ -68,6 +68,89 @@ def test_convert_reuses_existing_customer(tenant_a):
     assert converted.status_code == 200, converted.data
     assert Customer.objects.filter(company=tenant_a.company).count() == before
     assert Lead.objects.get(pk=lead_id).customer_id == customer.id
+
+
+def test_r077_e164_lead_matches_ten_digit_customer(tenant_a):
+    """R-077: +91 lead phone matches a legacy 10-digit customer."""
+    from crm.services import convert_lead
+
+    ten = "9876512345"
+    e164 = "+919876512345"
+
+    cust_ten = Customer.objects.create(
+        company=tenant_a.company,
+        name="Ten Digit",
+        phone=ten,
+        state=tenant_a.company.state or "MH",
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+    lead_e164 = Lead.objects.create(
+        company=tenant_a.company,
+        name="E164 Lead",
+        phone=e164,
+        status=Lead.Status.NEW,
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+    assert lead_e164.phone == e164
+    _lead, _opp, matched = convert_lead(lead_e164, tenant_a.owner)
+    assert matched.id == cust_ten.id
+
+
+def test_r077_ten_digit_lead_matches_e164_customer(tenant_a):
+    """R-077: 10-digit lead canonicalizes and matches an E.164 customer."""
+    from crm.services import convert_lead
+
+    ten = "9876512346"
+    e164 = "+919876512346"
+
+    cust_e164 = Customer.objects.create(
+        company=tenant_a.company,
+        name="E164 Cust",
+        phone=e164,
+        state=tenant_a.company.state or "MH",
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+    lead_ten = Lead.objects.create(
+        company=tenant_a.company,
+        name="Ten Lead",
+        phone=ten,
+        status=Lead.Status.NEW,
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+    assert lead_ten.phone == e164
+    _lead, _opp, matched = convert_lead(lead_ten, tenant_a.owner)
+    assert matched.id == cust_e164.id
+
+
+def test_r077_multiple_phone_matches_raise(tenant_a):
+    """R-077: ambiguous phone twins stay a BusinessRuleError."""
+    from core.exceptions import BusinessRuleError
+    from crm.services import convert_lead
+
+    phone = "9876599999"
+    for name in ("Dup A", "Dup B"):
+        Customer.objects.create(
+            company=tenant_a.company,
+            name=name,
+            phone=phone,
+            state=tenant_a.company.state or "MH",
+            created_by=tenant_a.owner,
+            updated_by=tenant_a.owner,
+        )
+    lead = Lead.objects.create(
+        company=tenant_a.company,
+        name="Ambiguous",
+        phone=f"+91{phone}",
+        status=Lead.Status.NEW,
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+    with pytest.raises(BusinessRuleError, match="Multiple customers share this phone"):
+        convert_lead(lead, tenant_a.owner)
 
 
 def test_lead_activities_get_post(tenant_a):

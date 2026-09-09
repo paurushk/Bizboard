@@ -15,7 +15,14 @@
     "allocation_party_mismatch",
     "import_invalid_rows",
     "pdf_or_share_unavailable",
-    "permission_denied"
+    "permission_denied",
+    "GSTIN_TOTAL_CHANGED",
+    "confirm_no_rcm",
+    "confirm_duplicate_bill",
+    "confirm_additional_debit",
+    "confirm_cn_on_paid_invoice",
+    "confirm_cn_price_override",
+    "confirm_non_gst_bill"
   ],
   "errorCodeToIntent": {
     "insufficient_stock": "stock-in-another-godown",
@@ -33,7 +40,14 @@
     "allocation_party_mismatch": "payment-wont-allocate",
     "import_invalid_rows": "import-row-errors",
     "pdf_or_share_unavailable": "pdf-or-share-unavailable",
-    "permission_denied": "login-cant-do-this"
+    "permission_denied": "login-cant-do-this",
+    "GSTIN_TOTAL_CHANGED": "cannot-complete-invoice",
+    "confirm_no_rcm": "cannot-complete-invoice",
+    "confirm_duplicate_bill": "cannot-complete-invoice",
+    "confirm_additional_debit": "cannot-complete-invoice",
+    "confirm_cn_on_paid_invoice": "cannot-complete-invoice",
+    "confirm_cn_price_override": "cannot-complete-invoice",
+    "confirm_non_gst_bill": "cannot-complete-invoice"
   },
   "errorCodeToLeaf": {
     "inactive_product": "inactive",
@@ -46,6 +60,7 @@
     "invalid_gst_rate": "rate",
     "allocation_exceeds_unallocated": "amount",
     "allocation_party_mismatch": "party",
-    "import_invalid_rows": "one-bad-row"
+    "import_invalid_rows": "one-bad-row",
+    "GSTIN_TOTAL_CHANGED": "gstin"
   }
 }

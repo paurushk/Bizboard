@@ -70,6 +70,7 @@ export async function createSalesInvoice(
     tcsSection?: string;
     tcsRate?: number | string;
     tcsAmount?: number | string;
+    warehouse?: number | null;
     items: Array<Partial<LineItem>>;
   },
   options?: { idempotencyKey?: string },
@@ -85,6 +86,40 @@ export async function createSalesInvoice(
     status: 'DRAFT',
     customer: payload.customer,
     items: payload.items as LineItem[],
+  });
+}
+
+export interface PosCheckoutResult {
+  invoice: SalesInvoice;
+  receipt?: Record<string, unknown> | null;
+}
+
+export async function posCheckout(
+  payload: {
+    invoice: Record<string, unknown>;
+    payment?: {
+      mode?: string;
+      amount?: number | string;
+      tendered_amount?: number | string;
+      notes?: string;
+      reference?: string;
+      bank_account?: number | null;
+    };
+  },
+  options?: { idempotencyKey?: string },
+): Promise<PosCheckoutResult> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post('/sales/invoices/pos-checkout/', payload, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
+    });
+    return unwrapData<PosCheckoutResult>(data);
+  }, {
+    invoice: {
+      ...mockInvoices[0],
+      id: Date.now(),
+      status: 'COMPLETED',
+    },
+    receipt: null,
   });
 }
 
@@ -136,10 +171,16 @@ export type PreviewTotals = {
   sgstTotal: number;
   igstTotal: number;
   cessTotal: number;
+  rcmTaxable?: number;
+  rcmCgst?: number;
+  rcmSgst?: number;
+  rcmIgst?: number;
+  rcmCess?: number;
   roundOff: number;
   grandTotal: number;
   taxTotal: number;
   tcsAmount?: number;
+  tdsAmount?: number;
   amountDue?: number;
   intraState?: boolean | null;
   invoiceDiscountMode?: string;
@@ -167,9 +208,15 @@ export function mapPreviewTotals(raw: Record<string, unknown>): PreviewTotals {
     igstTotal: igst,
     cessTotal: cess,
     taxTotal: Math.round((cgst + sgst + igst + cess) * 100) / 100,
+    rcmTaxable: n('rcmTaxable', 'rcm_taxable'),
+    rcmCgst: n('rcmCgst', 'rcm_cgst'),
+    rcmSgst: n('rcmSgst', 'rcm_sgst'),
+    rcmIgst: n('rcmIgst', 'rcm_igst'),
+    rcmCess: n('rcmCess', 'rcm_cess'),
     roundOff: n('roundOff', 'round_off'),
     grandTotal: n('grandTotal', 'grand_total'),
     tcsAmount: n('tcsAmount', 'tcs_amount'),
+    tdsAmount: n('tdsAmount', 'tds_amount'),
     amountDue: n('amountDue', 'amount_due'),
     intraState: intra === true ? true : intra === false ? false : null,
     invoiceDiscountMode: String(raw.invoiceDiscountMode ?? raw.invoice_discount_mode ?? 'AFTER_TAX'),
@@ -577,6 +624,34 @@ export async function createSalesReturn(payload: {
   });
 }
 
+export async function updateSalesReturn(
+  id: number,
+  payload: {
+    reason?: string;
+    items?: Array<Partial<LineItem>>;
+  },
+): Promise<SalesReturn> {
+  return withMocks(async () => {
+    const { data } = await apiClient.patch(`/sales/returns/${id}/`, payload);
+    return unwrapData<SalesReturn>(data);
+  }, {
+    id,
+    status: 'DRAFT',
+    customer: 0,
+    salesInvoice: 0,
+    returnDate: '',
+    items: (payload.items ?? []) as LineItem[],
+    subtotal: 0,
+    discountTotal: 0,
+    taxableTotal: 0,
+    cgstTotal: 0,
+    sgstTotal: 0,
+    igstTotal: 0,
+    roundOff: 0,
+    grandTotal: 0,
+  });
+}
+
 export async function completeSalesReturn(id: number, options?: { idempotencyKey?: string }): Promise<SalesReturn> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/returns/${id}/complete/`, undefined, {
@@ -756,12 +831,20 @@ export async function updateSalesCreditNote(
 
 export async function completeSalesCreditNote(
   id: number,
-  options?: { confirmBlankPos?: boolean; confirmGstinTotalChange?: boolean },
+  options?: {
+    confirmBlankPos?: boolean;
+    confirmGstinTotalChange?: boolean;
+    confirmPaidInvoice?: boolean;
+    confirmPriceOverride?: boolean;
+  },
 ): Promise<SalesCreditNote> {
   return withMocks(async () => {
+    // CamelCaseJSONParser maps these to confirm_paid_invoice / confirm_price_override.
     const { data } = await apiClient.post(`/sales/credit-notes/${id}/complete/`, {
       confirmBlankPos: Boolean(options?.confirmBlankPos),
       confirmGstinTotalChange: Boolean(options?.confirmGstinTotalChange),
+      confirmPaidInvoice: Boolean(options?.confirmPaidInvoice),
+      confirmPriceOverride: Boolean(options?.confirmPriceOverride),
     });
     return unwrapData<SalesCreditNote>(data);
   }, { ...(await getSalesCreditNote(id)), status: 'COMPLETED', number: `SCN-${id}` });
@@ -853,9 +936,14 @@ export async function updateSalesDebitNote(
   }, { ...(await getSalesDebitNote(id)), ...payload } as SalesDebitNote);
 }
 
-export async function completeSalesDebitNote(id: number): Promise<SalesDebitNote> {
+export async function completeSalesDebitNote(
+  id: number,
+  options?: { confirmAdditionalDebit?: boolean },
+): Promise<SalesDebitNote> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/sales/debit-notes/${id}/complete/`);
+    const { data } = await apiClient.post(`/sales/debit-notes/${id}/complete/`, {
+      confirmAdditionalDebit: Boolean(options?.confirmAdditionalDebit),
+    });
     return unwrapData<SalesDebitNote>(data);
   }, { ...(await getSalesDebitNote(id)), status: 'COMPLETED', number: `SDN-${id}` });
 }

@@ -510,6 +510,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "core.tasks.prune_idempotency_records_task",
         "schedule": crontab(hour=3, minute=40),
     },
+    # R-014: expired sandbox companies from tenant restore (wipe then delete).
+    "accounts-sweep-expired-sandboxes": {
+        "task": "accounts.tasks.sweep_expired_sandboxes_task",
+        "schedule": crontab(hour=4, minute=10),
+    },
     "payments-ar-dunning": {
         "task": "payments.tasks.run_ar_dunning_task",
         "schedule": crontab(minute=20),
@@ -795,11 +800,16 @@ TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
 
 # SYS-01 — Postgres Row-Level Security (defense-in-depth tenant isolation).
 # Migration core.0020 puts a company_id policy on every tenant table (FORCE RLS).
-# Now ON by default; `PostgresRlsMiddleware` SETs app.company_id per request and
-# clears every RLS GUC afterwards. No-op on SQLite. Stage on a Postgres replica
-# / staging environment and soak before the prod cut-over; set
-# POSTGRES_RLS_ENABLED=0 to fall back to app-level filtering only.
-POSTGRES_RLS_ENABLED = _env_bool("POSTGRES_RLS_ENABLED", "1")
+# Default OFF to match docker-compose and README until proven (CI postgres-rls sets 1).
+# PostgresRlsMiddleware SETs app.company_id per request and clears GUCs afterwards.
+# No-op on SQLite. Set POSTGRES_RLS_ENABLED=1 on staging after webhook RLS (R-005) soaks.
+POSTGRES_RLS_ENABLED = _env_bool("POSTGRES_RLS_ENABLED", "0")
+# Emergency rollback for R-002/R-003: set 0 to restore startswith("refund.") → REFUNDED.
+PAYMENTS_REFUND_EVENT_MAP_V2 = _env_bool("PAYMENTS_REFUND_EVENT_MAP_V2", "1")
+# Login lock / rate-limit client IP: hop index from the right of X-Forwarded-For.
+NUM_TRUSTED_PROXIES = _env_int("NUM_TRUSTED_PROXIES", 1)
+# R-019: COMPLETED docs older than this ISO date warn instead of blocking period close.
+BOOKS_HEALTH_MISSING_POSTING_SINCE = (os.environ.get("BOOKS_HEALTH_MISSING_POSTING_SINCE") or "").strip()
 
 # Wave 16C — GSP HTTP sandbox / live
 GSP_HTTP_SANDBOX = _env_bool("GSP_HTTP_SANDBOX")

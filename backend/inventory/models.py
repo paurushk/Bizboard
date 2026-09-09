@@ -113,19 +113,36 @@ class StockMovement(models.Model):
             models.Index(fields=["company", "warehouse", "product", "movement_date"]),
         ]
         constraints = [
+            # CR-053: void uses compensating import_void ADJUSTMENT (append-only).
+            # Manual openings: one active row per location (excludes import rows).
             models.UniqueConstraint(
                 fields=["company", "warehouse", "product", "batch"],
                 condition=Q(movement_type="OPENING_STOCK")
-                & ~Q(reference_type="import_voided")
+                & ~Q(reference_type__in=["import", "import_voided"])
                 & Q(batch__isnull=False),
-                name="uniq_opening_stock_with_batch",
+                name="uniq_opening_stock_manual_with_batch",
             ),
             models.UniqueConstraint(
                 fields=["company", "warehouse", "product"],
                 condition=Q(movement_type="OPENING_STOCK")
-                & ~Q(reference_type="import_voided")
+                & ~Q(reference_type__in=["import", "import_voided"])
                 & Q(batch__isnull=True),
-                name="uniq_opening_stock_no_batch",
+                name="uniq_opening_stock_manual_no_batch",
+            ),
+            # Import openings: one per import job per location (re-import after void OK).
+            models.UniqueConstraint(
+                fields=["company", "warehouse", "product", "batch", "reference_id"],
+                condition=Q(movement_type="OPENING_STOCK")
+                & Q(reference_type="import")
+                & Q(batch__isnull=False),
+                name="uniq_opening_stock_import_with_batch",
+            ),
+            models.UniqueConstraint(
+                fields=["company", "warehouse", "product", "reference_id"],
+                condition=Q(movement_type="OPENING_STOCK")
+                & Q(reference_type="import")
+                & Q(batch__isnull=True),
+                name="uniq_opening_stock_import_no_batch",
             ),
         ]
 

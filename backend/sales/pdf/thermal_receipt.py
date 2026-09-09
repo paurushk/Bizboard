@@ -23,14 +23,15 @@ def _page_width_mm(width_mm: int) -> int:
 
 def _thermal_styles(*, narrow: bool):
     base = getSampleStyleSheet()
-    body_size = 7 if narrow else 8
+    body_size = 6.5 if narrow else 8
+    leading = 8.5 if narrow else 10
     return {
         "center_bold": ParagraphStyle(
             "ThermalCenterBold",
             parent=base["Normal"],
             fontName="Helvetica-Bold",
-            fontSize=10 if narrow else 11,
-            leading=12 if narrow else 13,
+            fontSize=9 if narrow else 11,
+            leading=11 if narrow else 13,
             alignment=TA_CENTER,
         ),
         "center": ParagraphStyle(
@@ -38,7 +39,7 @@ def _thermal_styles(*, narrow: bool):
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=body_size,
-            leading=body_size + 2,
+            leading=leading,
             alignment=TA_CENTER,
         ),
         "body": ParagraphStyle(
@@ -46,7 +47,7 @@ def _thermal_styles(*, narrow: bool):
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=body_size,
-            leading=body_size + 2,
+            leading=leading,
             alignment=TA_LEFT,
         ),
         "body_right": ParagraphStyle(
@@ -54,7 +55,7 @@ def _thermal_styles(*, narrow: bool):
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=body_size,
-            leading=body_size + 2,
+            leading=leading,
             alignment=TA_RIGHT,
         ),
         "bold": ParagraphStyle(
@@ -62,15 +63,15 @@ def _thermal_styles(*, narrow: bool):
             parent=base["Normal"],
             fontName="Helvetica-Bold",
             fontSize=body_size,
-            leading=body_size + 2,
+            leading=leading,
             alignment=TA_LEFT,
         ),
         "grand": ParagraphStyle(
             "ThermalGrand",
             parent=base["Normal"],
             fontName="Helvetica-Bold",
-            fontSize=9 if narrow else 10,
-            leading=11 if narrow else 12,
+            fontSize=8.5 if narrow else 10,
+            leading=10.5 if narrow else 12,
             alignment=TA_RIGHT,
         ),
         "divider": ParagraphStyle(
@@ -78,7 +79,7 @@ def _thermal_styles(*, narrow: bool):
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=body_size,
-            leading=body_size + 2,
+            leading=leading,
             alignment=TA_CENTER,
             textColor=LINE,
         ),

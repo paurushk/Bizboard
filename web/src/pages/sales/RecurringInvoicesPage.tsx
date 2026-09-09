@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
@@ -86,6 +87,7 @@ export function RecurringInvoicesPage() {
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell title={t('nav.recurringInvoices')} subtitle={t('recurring.subtitle')}>
+      <Alert severity="info">{t('recurring.draftOnlyBanner')}</Alert>
       {error ? <Typography color="error" variant="body2" sx={{ mb: 1 }}>{error}</Typography> : null}
       {canWrite ? (
       <Paper variant="outlined" sx={{ p: 2 }}>
@@ -171,7 +173,7 @@ export function RecurringInvoicesPage() {
       <ConfirmDialog
         open={confirmRun !== null}
         title={t('recurring.runNow')}
-        body="This generates a live invoice for this schedule right now."
+        body={t('recurring.runNowConfirm')}
         confirmLabel={t('recurring.runNow')}
         confirming={runNow.isPending}
         onClose={() => setConfirmRun(null)}

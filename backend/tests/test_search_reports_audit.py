@@ -116,22 +116,26 @@ def test_inventory_summary_and_product_sales(tenant_a):
 
 def test_csv_export(tenant_a):
     _setup_documents(tenant_a)
+
+    def _body(r):
+        return b"".join(r.streaming_content) if getattr(r, "streaming", False) else r.content
+
     # Sales register export
     resp = tenant_a.client.get("/api/v1/exports/sales-register/")
     assert resp.status_code == 200
     assert resp["Content-Type"] == "text/csv"
-    assert b"INV-00001" in resp.content
+    assert b"INV-00001" in _body(resp)
 
-    # Sales alias and date filtering
-    resp_filtered = tenant_a.client.get("/api/v1/exports/sales/?date_from=2020-01-01&date_to=2030-12-31")
+    # Sales alias and date filtering (CR-074: date span <= 366 days)
+    resp_filtered = tenant_a.client.get("/api/v1/exports/sales/?date_from=2026-01-01&date_to=2026-12-31")
     assert resp_filtered.status_code == 200
-    assert b"INV-00001" in resp_filtered.content
+    assert b"INV-00001" in _body(resp_filtered)
 
     # Customer export
     resp_cust = tenant_a.client.get("/api/v1/exports/customers/")
     assert resp_cust.status_code == 200
     assert resp_cust["Content-Type"] == "text/csv"
-    assert b"Sharma Stores" in resp_cust.content
+    assert b"Sharma Stores" in _body(resp_cust)
 
     # Purchase register export
     resp_pur = tenant_a.client.get("/api/v1/exports/purchases/")
@@ -142,7 +146,7 @@ def test_csv_export(tenant_a):
     resp_inv = tenant_a.client.get("/api/v1/exports/inventory/")
     assert resp_inv.status_code == 200
     assert resp_inv["Content-Type"] == "text/csv"
-    assert b"PEN-B" in resp_inv.content
+    assert b"PEN-B" in _body(resp_inv)
 
 
 def test_csv_export_requires_can_export(tenant_a):

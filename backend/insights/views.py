@@ -33,7 +33,6 @@ from .services import (
     compute_health_score,
     forecast_cashflow,
     generate_daily_summary,
-    snapshot_health,
     upsert_alerts,
 )
 
@@ -80,16 +79,22 @@ class DailySummaryView(APIView):
 
             for_date = date_cls.fromisoformat(date_str)
         for_date = for_date or timezone.localdate()
+        # R-044: GET reads the last snapshot and must not insert/write.
         existing = DailyBusinessSummary.objects.filter(
             company=company, summary_date=for_date
         ).first()
-        # GET is cached for the date. Regenerate only when missing or empty (stale).
-        # Owner POST below force-generates.
-        if existing is None or not existing.kpis:
-            obj = generate_daily_summary(company, for_date=for_date)
-        else:
-            obj = existing
-        return Response(DailyBusinessSummarySerializer(obj).data)
+        if existing is None:
+            return Response({
+                "id": None,
+                "summary_date": for_date.isoformat(),
+                "kpis": {},
+                "alert_codes": [],
+                "narrative": "",
+                "prompt_version": "",
+                "email_sent_at": None,
+                "created_at": None,
+            })
+        return Response(DailyBusinessSummarySerializer(existing).data)
 
     def post(self, request):
         """Force-generate (Owner)."""
@@ -160,8 +165,7 @@ class HealthHistoryView(APIView):
 
     def get(self, request):
         company = get_company_user(request).company
-        # Ensure today's snapshot exists
-        snapshot_health(company)
+        # R-044: GET reads last snapshots; scheduled tasks persist new ones.
         qs = BusinessHealthSnapshot.objects.filter(company=company).order_by("-as_of")[:90]
         return Response(BusinessHealthSnapshotSerializer(qs, many=True).data)
 

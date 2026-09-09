@@ -361,3 +361,45 @@ def test_rebuild_stock_balances_command_reconciles_batch_reservations(tenant_a):
     assert bal_a.reserved == Decimal("5")
     assert bal_b.reserved == Decimal("3")
     assert not StockBalance.objects.filter(batch=orphan_batch).exists()
+
+
+def test_verify_stock_balances_integrity_task_repairs_drift(tenant_a):
+    """CR-171: Celery task verify_stock_balances_integrity detects and repairs
+    drifted StockBalance.on_hand and reconciles batch reservations."""
+    from inventory.models import BatchLot
+    from inventory.tasks import verify_stock_balances_integrity
+    from sales.models import SalesInvoice, SalesOrder
+    from sales.notes_services import SalesNotesService
+
+    product = make_product(tenant_a.company, sku="TASK-DRIFT-1", track_batch=True)
+    warehouse = InventoryService.default_warehouse(tenant_a.company)
+    lot = BatchLot.objects.create(
+        company=tenant_a.company, product=product, batch_no="TD1", expiry_date=date(2099, 1, 1),
+    )
+    InventoryService.post_opening(
+        company=tenant_a.company, product=product, quantity=Decimal("10"),
+        unit_cost=Decimal("25"), warehouse=warehouse, batch=lot, user=tenant_a.owner,
+    )
+    customer = make_customer(tenant_a.company)
+    order = SalesOrder.objects.create(
+        company=tenant_a.company, customer=customer,
+        invoice_type=SalesInvoice.InvoiceType.NON_GST,
+        created_by=tenant_a.owner, updated_by=tenant_a.owner,
+    )
+    SalesNotesService.set_order_items(
+        order,
+        [{"product": product, "quantity": Decimal("4"), "unit_price": Decimal("50"), "gst_rate": Decimal("0")}],
+        tenant_a.owner,
+    )
+    SalesNotesService.confirm_sales_order(order, tenant_a.owner)
+
+    # Deliberately corrupt on_hand to simulate silent drift
+    StockBalance.objects.filter(company=tenant_a.company, product=product, batch=lot).update(on_hand=Decimal("999"))
+
+    res = verify_stock_balances_integrity()
+    assert res.get("repaired_balances", 0) >= 1
+
+    bal = StockBalance.objects.get(company=tenant_a.company, product=product, batch=lot)
+    assert bal.on_hand == Decimal("10")
+    assert bal.reserved == Decimal("4")
+

@@ -23,6 +23,30 @@ class Lead(CompanyScopedModel):
         "masters.Customer", null=True, blank=True, on_delete=models.SET_NULL, related_name="leads",
     )
 
+    def save(self, *args, **kwargs):
+        # R-077: same E.164 collapse as User so convert_lead phone twin-check works.
+        raw = (self.phone or "").strip()
+        if raw:
+            from accounts.otp_utils import canonicalize_user_phone
+
+            try:
+                self.phone = canonicalize_user_phone(raw)
+            except ValueError:
+                import re
+
+                digits = re.sub(r"\D", "", raw)
+                if digits.startswith("0") and len(digits) == 11:
+                    self.phone = canonicalize_user_phone(digits[1:])
+                else:
+                    from django.core.exceptions import ValidationError
+
+                    raise ValidationError(
+                        {"phone": "Enter a valid mobile number (E.164 or 10-digit Indian)."}
+                    )
+        else:
+            self.phone = ""
+        return super().save(*args, **kwargs)
+
     class Meta:
         ordering = ["-created_at"]
 

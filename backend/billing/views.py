@@ -153,12 +153,12 @@ class RazorpayWebhookView(APIView):
         rzp_id = str(entity.get("id") or "")
         rzp_status = str(entity.get("status") or "")
 
-        # SUB-05: event-level replay guard. Razorpay may redeliver a webhook; a
-        # replayed event for the same subscription id re-applies stale state.
-        # Dedup on the event id (header, else a body hash) for 24h.
         from django.core.cache import cache
         from django.db import IntegrityError
 
+        from accounts.models import Company
+        from billing.models import Subscription
+        from core.rls import rls_bypass, set_rls_company
         from payments.models import ProcessedWebhookEvent
 
         event_id = (
@@ -169,16 +169,32 @@ class RazorpayWebhookView(APIView):
         dedup_key = "bizboard:billing_webhook_seen:" + hashlib.sha256(
             f"{rzp_id}|{rzp_status}|{event_id}".encode()
         ).hexdigest()
-        # B9-034: cache.add alone is per-process for LocMemCache (the default
-        # outside a shared Redis deployment) — a redelivery landing on a
-        # different gunicorn worker sailed straight past it. Same durable
-        # backstop as payments/webhook_views.py's B4-031 fix: the unique
-        # constraint on ProcessedWebhookEvent.dedup_key makes a second insert
-        # fail atomically regardless of which worker or cache state sees it.
         if cache.get(dedup_key):
             return Response({"ok": True, "duplicate": True})
+
+        with rls_bypass():
+            sub = Subscription.objects.filter(razorpay_subscription_id=rzp_id).select_related("company").first()
+            company = sub.company if sub is not None else None
+            if sub is not None and (
+                company is None or not Company.objects.filter(pk=company.pk).exists()
+            ):
+                return Response({"ok": True, "ignored": True}, status=status.HTTP_410_GONE)
+            if company is None:
+                try:
+                    ProcessedWebhookEvent.objects.create(
+                        dedup_key=dedup_key, provider="razorpay_subscription", company=None
+                    )
+                except IntegrityError:
+                    cache.set(dedup_key, "1", timeout=24 * 60 * 60)
+                    return Response({"ok": True, "duplicate": True})
+                cache.set(dedup_key, "1", timeout=24 * 60 * 60)
+                return Response({"ok": True, "ignored": True})
+
+        set_rls_company(company.id)
         try:
-            ProcessedWebhookEvent.objects.create(dedup_key=dedup_key, provider="razorpay_subscription")
+            ProcessedWebhookEvent.objects.create(
+                dedup_key=dedup_key, provider="razorpay_subscription", company=company
+            )
         except IntegrityError:
             cache.set(dedup_key, "1", timeout=24 * 60 * 60)
             return Response({"ok": True, "duplicate": True})

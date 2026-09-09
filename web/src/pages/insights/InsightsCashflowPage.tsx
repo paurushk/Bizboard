@@ -58,6 +58,7 @@ export function InsightsCashflowPage() {
           </TextField>
         }
       />
+      <DisclaimerBanner>{t('honesty.insightsNotBooks')}</DisclaimerBanner>
       <DisclaimerBanner severity="warning">{t('insights.cashflowDisclaimer')}</DisclaimerBanner>
       <Typography variant="body2" color="text.secondary">
         This is a forecast. Use the Cash Book for posted cash and bank actuals.

@@ -90,6 +90,14 @@ class PurchaseInvoice(DocumentTotalsModel):
     tds_section = models.CharField(max_length=16, blank=True)
     tds_rate = models.DecimalField(max_digits=6, decimal_places=3, default=0)
     tds_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # R-024: this purchase's Bill of Entry — not "any completed BoE for the supplier".
+    bill_of_entry = models.ForeignKey(
+        "purchases.BillOfEntry",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="purchase_invoices",
+    )
 
     class PriceMode(models.TextChoices):
         EXCLUSIVE = "EXCLUSIVE", "Tax exclusive"
@@ -169,6 +177,8 @@ class PurchaseReturnItem(DocumentLineModel):
     )
     serial_numbers = models.JSONField(default=list, blank=True)
     condition = models.CharField(max_length=16, choices=Condition.choices, default=Condition.SELLABLE)
+    # CR-045: snapshot unit for stock qty conversion (mirrors invoice line).
+    unit_name = models.CharField(max_length=32, blank=True, default="PCS")
 
 
 class PurchaseNoteReason(models.TextChoices):
@@ -289,6 +299,8 @@ class PurchaseDebitNote(DocumentTotalsModel):
     rcm_sgst = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     rcm_igst = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     rcm_cess = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # CR-132: parity with PurchaseCreditNote / PurchaseInvoice freight lines.
+    additional_charges = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 
     class Meta:
         ordering = ["-note_date", "-id"]
@@ -370,7 +382,10 @@ class BillOfEntry(CompanyScopedModel):
 
     Tracks the IGST + compensation cess paid at customs so it flows into
     GSTR-3B table 4(A)(5) (ITC on import of goods). Basic Customs Duty (BCD)
-    is a cost, not a credit — captured for the GL / landed-cost picture only.
+    is always a P&L cost (GL 5110 via PostingService.post_bill_of_entry), never
+    ITC and never allocated into purchase stock unit_cost / FIFO layers
+    (CR-033). Linked import purchases stock at commercial invoice line prices
+    only; customs cash cost is books-side, not inventory valuation.
     """
 
     class Status(models.TextChoices):
@@ -442,3 +457,74 @@ class BillOfEntry(CompanyScopedModel):
 
     def resolved_itc_period(self) -> str:
         return self.itc_period or self.boe_date.strftime("%Y-%m")
+
+
+class GoodsReceipt(CompanyScopedModel):
+    """Goods Receipt Note (GRN) for recording warehouse receipts from suppliers (FR-018)."""
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT"
+        COMPLETED = "COMPLETED"
+        CANCELLED = "CANCELLED"
+
+    supplier = models.ForeignKey(
+        "masters.Supplier", on_delete=models.PROTECT, related_name="goods_receipts"
+    )
+    purchase_order = models.ForeignKey(
+        PurchaseOrder, null=True, blank=True, on_delete=models.SET_NULL, related_name="goods_receipts"
+    )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse", null=True, blank=True, on_delete=models.SET_NULL, related_name="goods_receipts"
+    )
+    number = models.CharField(max_length=32, blank=True, db_index=True)
+    receipt_date = models.DateField(default=timezone.localdate)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    supplier_challan_number = models.CharField(max_length=64, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    converted_purchase = models.ForeignKey(
+        PurchaseInvoice, null=True, blank=True, on_delete=models.SET_NULL, related_name="source_grns"
+    )
+
+    class Meta:
+        ordering = ["-receipt_date", "-id"]
+        indexes = [models.Index(fields=["company", "status", "receipt_date"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "number"],
+                condition=~models.Q(number=""),
+                name="uniq_goods_receipt_number_per_company",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.number or 'Draft'} ({self.supplier})"
+
+
+class GoodsReceiptItem(CompanyScopedModel):
+    goods_receipt = models.ForeignKey(
+        GoodsReceipt, on_delete=models.CASCADE, related_name="items"
+    )
+    product = models.ForeignKey(
+        "masters.Product", on_delete=models.PROTECT, related_name="goods_receipt_items"
+    )
+    quantity_received = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+    quantity_accepted = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+    quantity_rejected = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+    unit_price = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    rejection_reason = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(quantity_received__gte=0)
+                & models.Q(quantity_accepted__gte=0)
+                & models.Q(quantity_rejected__gte=0),
+                name="grn_item_quantities_non_negative",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.product.name} ({self.quantity_accepted} accepted)"
+

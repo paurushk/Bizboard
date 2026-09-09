@@ -34,6 +34,7 @@ export function InsightsHealthPage() {
   return (
     <Stack spacing={2}>
       <PageHeader title={t('nav.insightsHealth')} subtitle={t('insights.score')} />
+      <DisclaimerBanner>{t('honesty.insightsNotBooks')}</DisclaimerBanner>
       <DisclaimerBanner>{t('insights.disclaimer')}</DisclaimerBanner>
       {data.limitedData ? (
         <DisclaimerBanner severity="warning">{t('insights.limitedData')}</DisclaimerBanner>

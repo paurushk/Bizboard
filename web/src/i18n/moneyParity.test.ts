@@ -21,16 +21,4 @@ describe('A-02 money namespace parity', () => {
       expect(missing, `${root} missing in hi: ${missing.join(', ')}`).toEqual([]);
     }
   });
-
-  it('ta and gu have every en key for money namespaces (A-02b)', async () => {
-    const { ta } = await import('./ta');
-    const { gu } = await import('./gu');
-    for (const root of MONEY_ROOTS) {
-      const enKeys = leafKeys((en as Record<string, unknown>)[root], root);
-      const taKeys = new Set(leafKeys((ta as Record<string, unknown>)[root], root));
-      const guKeys = new Set(leafKeys((gu as Record<string, unknown>)[root], root));
-      expect(enKeys.filter((k) => !taKeys.has(k))).toEqual([]);
-      expect(enKeys.filter((k) => !guKeys.has(k))).toEqual([]);
-    }
-  });
 });

@@ -171,23 +171,20 @@ def process_due_schedules(*, now=None):
             created += _created
             skipped_locked += _locked
             skipped_duplicate += _dup
-        except Exception:  # noqa: BLE001
-            # B2-006: one poison schedule (invalid template product, missing
-            # items) must not abort recurring generation for every other
-            # tenant. Log it, count it, and advance next_run_at so the batch
-            # is not permanently wedged on the same row.
+        except Exception as exc:  # noqa: BLE001
+            # CR-121: do NOT advance next_run_at on error — retry same period after fix.
+            # (B2-006 still isolates poison schedules from aborting the whole batch.)
             logger.exception(
-                "recurring: schedule %s failed; advancing next_run_at", schedule.pk
+                "recurring: schedule %s failed; will retry same next_run_at", schedule.pk
             )
             skipped_error += 1
             try:
-                schedule.next_run_at = advance_next_run(
-                    schedule.next_run_at, schedule.cadence, schedule.anchor_day
-                )
-                schedule.save(update_fields=["next_run_at", "updated_at"])
+                if hasattr(schedule, "last_error"):
+                    schedule.last_error = str(exc)[:2000] or "generation_failed"
+                    schedule.save(update_fields=["last_error", "updated_at"])
             except Exception:  # noqa: BLE001
                 logger.exception(
-                    "recurring: could not advance next_run_at for schedule %s", schedule.pk
+                    "recurring: could not record last_error for schedule %s", schedule.pk
                 )
     return {
         "created": created,
@@ -197,50 +194,74 @@ def process_due_schedules(*, now=None):
     }
 
 
-def _process_one_schedule(schedule, *, now):
-    """Run a single due schedule. Returns (created, skipped_locked, skipped_duplicate)."""
-    on_date = timezone.localtime(schedule.next_run_at).date() if timezone.is_aware(schedule.next_run_at) else schedule.next_run_at.date()
-    key = period_key_for(schedule.cadence, on_date)
-    if RecurringInvoiceRun.objects.filter(schedule=schedule, period_key=key).exists():
-        schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence, schedule.anchor_day)
-        schedule.save(update_fields=["next_run_at", "updated_at"])
-        return 0, 0, 1
-    if period_is_locked(schedule.company, on_date):
-        schedule.next_run_at = advance_next_run(schedule.next_run_at, schedule.cadence, schedule.anchor_day)
-        schedule.save(update_fields=["next_run_at", "updated_at"])
-        return 0, 1, 0
-    run = generate_draft_for_schedule(schedule, run_date=on_date)
-    if run is not None and run.invoice_id:
-        inv = run.invoice
-        # M1-037/S101: was a bare `assert` — silently stripped under `python -O`,
-        # so this invariant would go unchecked in an optimized deployment. The
-        # per-schedule try/except in the caller already handles this raising.
-        if inv.status != SalesInvoice.Status.DRAFT:
-            raise AssertionError(
-                f"Recurring-generated invoice {inv.pk} expected DRAFT, got {inv.status!r}"
-            )
-        from accounts.models import CompanyUser
-        from core.models import Notification
-        from core.services.notifications import NotificationService
+MAX_CATCHUP_TICKS = 12  # CR-027: Cap catch-up loop per schedule run to prevent timeouts
 
-        owner = (
-            CompanyUser.objects.filter(
-                company=schedule.company, role=CompanyUser.Role.OWNER
-            )
-            .select_related("user")
-            .first()
+
+def _process_one_schedule(schedule, *, now):
+    """Run a single due schedule. Loops up to MAX_CATCHUP_TICKS while next_run_at <= now.
+    Returns (created, skipped_locked, skipped_duplicate).
+    """
+    total_created = 0
+    total_locked = 0
+    total_dup = 0
+    ticks = 0
+    while schedule.next_run_at <= now and ticks < MAX_CATCHUP_TICKS:
+        ticks += 1
+        on_date = (
+            timezone.localtime(schedule.next_run_at).date()
+            if timezone.is_aware(schedule.next_run_at)
+            else schedule.next_run_at.date()
         )
-        recipient = (owner.user.email if owner and owner.user else "") or (schedule.company.email or "")
-        if recipient:
-            NotificationService.send(
-                company=schedule.company,
-                channel=Notification.Channel.EMAIL,
-                recipient=recipient,
-                subject="Recurring invoice draft ready",
-                body=(
-                    f"Draft invoice #{inv.pk} was generated from a recurring schedule. "
-                    "Complete it when ready — BizBoard never auto-completes recurring invoices."
-                ),
+        key = period_key_for(schedule.cadence, on_date)
+        if RecurringInvoiceRun.objects.filter(schedule=schedule, period_key=key).exists():
+            schedule.next_run_at = advance_next_run(
+                schedule.next_run_at, schedule.cadence, schedule.anchor_day
             )
-        return 1, 0, 0
-    return 0, 0, 0
+            schedule.save(update_fields=["next_run_at", "updated_at"])
+            total_dup += 1
+            continue
+        if period_is_locked(schedule.company, on_date):
+            # CR-015: do not advance next_run_at — retry the same period_key after unlock.
+            total_locked += 1
+            break
+        run = generate_draft_for_schedule(schedule, run_date=on_date)
+        schedule.refresh_from_db()
+        if run is not None and run.invoice_id:
+            if getattr(schedule, "last_error", None):
+                schedule.last_error = ""
+                schedule.save(update_fields=["last_error", "updated_at"])
+            inv = run.invoice
+            # M1-037/S101: was a bare `assert` — silently stripped under `python -O`,
+            # so this invariant would go unchecked in an optimized deployment. The
+            # per-schedule try/except in the caller already handles this raising.
+            if inv.status != SalesInvoice.Status.DRAFT:
+                raise AssertionError(
+                    f"Recurring-generated invoice {inv.pk} expected DRAFT, got {inv.status!r}"
+                )
+            from accounts.models import CompanyUser
+            from core.models import Notification
+            from core.services.notifications import NotificationService
+
+            owner = (
+                CompanyUser.objects.filter(
+                    company=schedule.company, role=CompanyUser.Role.OWNER
+                )
+                .select_related("user")
+                .first()
+            )
+            recipient = (owner.user.email if owner and owner.user else "") or (schedule.company.email or "")
+            if recipient:
+                NotificationService.send(
+                    company=schedule.company,
+                    channel=Notification.Channel.EMAIL,
+                    recipient=recipient,
+                    subject="Recurring invoice draft ready",
+                    body=(
+                        f"Draft invoice #{inv.pk} was generated from a recurring schedule. "
+                        "Complete it when ready — BizBoard never auto-completes recurring invoices."
+                    ),
+                )
+            total_created += 1
+        else:
+            break
+    return total_created, total_locked, total_dup

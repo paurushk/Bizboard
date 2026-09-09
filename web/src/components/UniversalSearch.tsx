@@ -62,7 +62,9 @@ export function UniversalSearch() {
         if (!value || !isReallyReachable(user, value.path)) return;
         navigate(value.path);
       }}
-      noOptionsText={debounced.length < 2 ? t('common.search') : t('common.noResults')}
+      noOptionsText={
+        debounced.length < 2 ? t('common.typeAtLeastToSearch', { count: 2 }) : t('common.noResults')
+      }
       renderGroup={(params) => (
         <li key={params.key}>
           {params.group ? (

@@ -55,6 +55,8 @@ def _claim_einvoice_submit(invoice, *, allow_queued_retry=False):
     # last 2 minutes is a genuine in-flight submit — don't let a double-click
     # fire a second IRP request. Only a *stale* QUEUED job is retryable.
     invoice.refresh_from_db()
+    if invoice.einvoice_status == SalesInvoice.EInvoiceStatus.CANCELLED:
+        raise BusinessRuleError("E-invoice for this document has been cancelled and cannot be re-submitted.")
     if (
         invoice.einvoice_status == SalesInvoice.EInvoiceStatus.QUEUED
         and not invoice.irn
@@ -345,17 +347,12 @@ class InvoiceEinvoiceEwayActionsMixin:
         if invoice.einvoice_status != SalesInvoice.EInvoiceStatus.MANUAL_IRN:
             _cancel_irn_via_gsp(invoice, request)
         invoice.einvoice_status = SalesInvoice.EInvoiceStatus.CANCELLED
-        invoice.irn = ""
-        invoice.ack_no = ""
-        invoice.ack_date = None
+        # CR-013: Retain IRN, ack_no, and ack_date for statutory retention (6-year requirement under GST).
         invoice.einvoice_qr = ""
         invoice.einvoice_error = ""
         invoice.save(
             update_fields=[
                 "einvoice_status",
-                "irn",
-                "ack_no",
-                "ack_date",
                 "einvoice_qr",
                 "einvoice_error",
             ]
@@ -873,12 +870,10 @@ class NoteEinvoiceActionsMixin:
         if getattr(note, "einvoice_status", None) != SalesInvoice.EInvoiceStatus.MANUAL_IRN:
             _cancel_irn_via_gsp(note, request)
         note.einvoice_status = SalesInvoice.EInvoiceStatus.CANCELLED
-        note.irn = ""
-        note.ack_no = ""
-        note.ack_date = None
+        # CR-013: Retain IRN, ack_no, and ack_date for statutory retention (6-year requirement under GST).
         note.einvoice_qr = ""
         note.einvoice_error = ""
         note.save(
-            update_fields=["einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error"]
+            update_fields=["einvoice_status", "einvoice_qr", "einvoice_error"]
         )
         return Response(self.get_serializer(note).data)

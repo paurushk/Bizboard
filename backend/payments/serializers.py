@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.db.models import Sum
 from rest_framework import serializers
 
+from core.serializers import CompanyPrimaryKeyRelatedField
 from purchases.models import PurchaseInvoice
 from sales.models import SalesInvoice
 
@@ -85,12 +86,50 @@ class CustomerReceiptSerializer(serializers.ModelSerializer):
 
         return _check_utr_duplicate(company=obj.company, utr=obj.utr, exclude_receipt_id=obj.pk)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # CR-047: scope party FK to request company
+        request = self.context.get("request")
+        if not request:
+            return
+        from core.permissions import get_company_user
+
+        cu = get_company_user(request)
+        if cu and "customer" in self.fields:
+            from masters.models import Customer
+
+            self.fields["customer"].queryset = Customer.objects.filter(company=cu.company)
+        # CR-008 / CR-136: bank_account FK must be company-scoped
+        if cu and "bank_account" in self.fields:
+            from payments.models import BankAccount
+
+            self.fields["bank_account"].queryset = BankAccount.objects.filter(company=cu.company)
+
 
 class SupplierPaymentSerializer(serializers.ModelSerializer):
     supplier_name = serializers.CharField(source="supplier.name", read_only=True)
     bank_account_name = serializers.CharField(source="bank_account.name", read_only=True, default="")
     allocated = serializers.SerializerMethodField()
     unallocated = serializers.SerializerMethodField()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # CR-047: scope party FK to request company
+        request = self.context.get("request")
+        if not request:
+            return
+        from core.permissions import get_company_user
+
+        cu = get_company_user(request)
+        if cu and "supplier" in self.fields:
+            from masters.models import Supplier
+
+            self.fields["supplier"].queryset = Supplier.objects.filter(company=cu.company)
+        # CR-136: bank_account FK must be company-scoped
+        if cu and "bank_account" in self.fields:
+            from payments.models import BankAccount
+
+            self.fields["bank_account"].queryset = BankAccount.objects.filter(company=cu.company)
 
     class Meta:
         model = SupplierPayment
@@ -130,16 +169,16 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
 
 
 class PaymentAllocationSerializer(serializers.ModelSerializer):
-    receipt = serializers.PrimaryKeyRelatedField(
+    receipt = CompanyPrimaryKeyRelatedField(
         queryset=CustomerReceipt.objects.all(), required=False, allow_null=True, default=None
     )
-    supplier_payment = serializers.PrimaryKeyRelatedField(
+    supplier_payment = CompanyPrimaryKeyRelatedField(
         queryset=SupplierPayment.objects.all(), required=False, allow_null=True, default=None
     )
-    sales_invoice = serializers.PrimaryKeyRelatedField(
+    sales_invoice = CompanyPrimaryKeyRelatedField(
         queryset=SalesInvoice.objects.all(), required=False, allow_null=True, default=None
     )
-    purchase_invoice = serializers.PrimaryKeyRelatedField(
+    purchase_invoice = CompanyPrimaryKeyRelatedField(
         queryset=PurchaseInvoice.objects.all(), required=False, allow_null=True, default=None
     )
 

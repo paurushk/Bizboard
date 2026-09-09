@@ -13,7 +13,7 @@ import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, isNetworkError } from '@/api/client';
 import * as api from '@/api/resources';
 import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -24,6 +24,7 @@ import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import type { Product } from '@/types/domain';
+import { HonestyBanner } from '@/components/HonestyBanner';
 import { t } from '@/i18n';
 import { useAuth } from '@/auth/AuthContext';
 import { enqueueDraft } from '@/offline/invoiceDraftCache';
@@ -154,7 +155,7 @@ export function StockTransferPage() {
   const create = useMutation({
     mutationFn: () => {
       if (!fromWh || !toWh || fromWh === toWh) {
-        throw new Error('Choose a different destination godown');
+        throw new Error(t('phase.chooseDifferentGodown'));
       }
       return api.createTransfer({
         fromWarehouse: Number(fromWh),
@@ -179,7 +180,7 @@ export function StockTransferPage() {
   });
   const complete = useMutation({
     mutationFn: async (id: number) => {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const queue = async () => {
         const companyId = user?.companyId;
         const userId = user?.id;
         if (!companyId || !userId) throw new Error(t('inventory.offlineNeedLogin'));
@@ -188,9 +189,18 @@ export function StockTransferPage() {
           payload: { transferId: id },
           idempotencyKey: `stock-transfer-${id}`,
         });
-        return { offline: true };
+        return { offline: true as const };
+      };
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return queue();
       }
-      return api.completeTransfer(id, { idempotencyKey: `stock-transfer-${id}` });
+      try {
+        return await api.completeTransfer(id, { idempotencyKey: `stock-transfer-${id}` });
+      } catch (err) {
+        // R-046: CSRF/network reject must queue, not drop the transfer.
+        if (isNetworkError(err)) return queue();
+        throw err;
+      }
     },
     onSuccess: () => {
       setError('');
@@ -216,7 +226,7 @@ export function StockTransferPage() {
       subtitle={t('phase.stockTransfersSubtitle')}
       actions={
         <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
-          New transfer
+          {t('phase.newTransfer')}
         </Button>
       }
     >
@@ -235,36 +245,36 @@ export function StockTransferPage() {
             (warehouses.data ?? []).find((w) => w.id === Number(r.toWarehouse))?.name ??
             r.toWarehouse,
         }))}
-        empty="No transfers yet."
+        empty={t('phase.noTransfers')}
         columns={[
-          { key: 'number', label: 'Number' },
-          { key: 'fromWarehouse', label: 'From' },
-          { key: 'toWarehouse', label: 'To' },
-          { key: 'status', label: 'Status', status: true },
-          { key: 'notes', label: 'Notes' },
+          { key: 'number', label: t('common.number') },
+          { key: 'fromWarehouse', label: t('common.from') },
+          { key: 'toWarehouse', label: t('common.to') },
+          { key: 'status', label: t('common.status'), status: true },
+          { key: 'notes', label: t('phase.transferNotes') },
         ]}
         actions={(r) =>
           r.status === 'DRAFT' ? (
             <Button size="small" variant="contained" disabled={writesBlocked} onClick={() => complete.mutate(Number(r.id))}>
-              Complete
+              {t('common.complete')}
             </Button>
           ) : r.status === 'COMPLETED' ? (
             <Button size="small" color="error" disabled={writesBlocked} onClick={() => {
               if (!window.confirm(t('phase.confirmCancelTransfer'))) return;
               cancel.mutate(Number(r.id));
             }}>
-              Cancel
+              {t('common.cancel')}
             </Button>
           ) : null
         }
       />
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>New stock transfer</DialogTitle>
+        <DialogTitle>{t('phase.newStockTransfer')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               select
-              label="From godown"
+              label={t('phase.fromGodown')}
               value={fromWh}
               onChange={(e) => {
                 setFromWh(e.target.value);
@@ -277,7 +287,7 @@ export function StockTransferPage() {
                 </MenuItem>
               ))}
             </TextField>
-            <TextField select label="To godown" value={toWh} onChange={(e) => setToWh(e.target.value)}>
+            <TextField select label={t('phase.toGodown')} value={toWh} onChange={(e) => setToWh(e.target.value)}>
               {(warehouses.data ?? [])
                 .filter((w) => String(w.id) !== fromWh)
                 .map((w) => (
@@ -304,41 +314,41 @@ export function StockTransferPage() {
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Product"
+                  label={t('phase.product')}
                   helperText={productSearch.helperText}
                 />
               )}
             />
-            <TextField select label="Batch (optional)" value={batch} onChange={(e) => setBatch(e.target.value)}>
-              <MenuItem value="">No batch</MenuItem>
+            <TextField select label={t('phase.batchOptional')} value={batch} onChange={(e) => setBatch(e.target.value)}>
+              <MenuItem value="">{t('phase.noBatch')}</MenuItem>
               {(batches.data ?? []).map((lot) => (
                 <MenuItem key={String(lot.id)} value={String(lot.id)}>
                   {lot.batchNo}
                 </MenuItem>
               ))}
             </TextField>
-            <TextField label="Quantity" type="number" value={qty} onChange={(e) => setQty(e.target.value)} />
+            <TextField label={t('phase.quantity')} type="number" value={qty} onChange={(e) => setQty(e.target.value)} />
             {trackSerial ? (
               <TextField
-                label="Serial numbers (optional)"
+                label={t('phase.serialsOptional')}
                 multiline
                 minRows={2}
                 value={serials}
                 onChange={(e) => setSerials(e.target.value)}
-                helperText="Comma or newline separated; count must match quantity"
+                helperText={t('phase.serialsMatchQty')}
               />
             ) : null}
             {error ? <HelpErrorAlert message={error} /> : null}
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
             disabled={writesBlocked || !fromWh || !toWh || fromWh === toWh || !selectedProduct || create.isPending}
             onClick={() => create.mutate()}
           >
-            Create draft
+            {t('phase.createDraft')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -573,6 +583,10 @@ export function StockValuationPage() {
         </TextField>
       }
     >
+      <HonestyBanner
+        messageKey="honesty.valuationMethod"
+        vars={{ method: String(data.method || 'WAVG') }}
+      />
       <DataTable
         rows={items}
         empty="No valuation rows."

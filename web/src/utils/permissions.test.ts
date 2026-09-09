@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canAccessPos,
   canAdjustInventory,
   canCancelDocuments,
   canCreatePurchases,
@@ -60,6 +61,19 @@ describe('permissions', () => {
     expect(canCreateSales({ ...mockSalesUser, canCreateSales: false })).toBe(false);
     expect(canCreateSales({ ...mockSalesUser, canCreateSales: true })).toBe(true);
     expect(canCreateSales({ ...mockUser, canCreateSales: false })).toBe(true);
+  });
+
+  it('CR-003: canAccessPos requires sales create and payments create', () => {
+    expect(
+      canAccessPos({ ...mockSalesUser, canCreateSales: true, canCreatePayments: false }),
+    ).toBe(false);
+    expect(
+      canAccessPos({ ...mockSalesUser, canCreateSales: false, canCreatePayments: true }),
+    ).toBe(false);
+    expect(
+      canAccessPos({ ...mockSalesUser, canCreateSales: true, canCreatePayments: true }),
+    ).toBe(true);
+    expect(canAccessPos({ ...mockUser, canCreateSales: false, canCreatePayments: false })).toBe(true);
   });
 
   it('VIEWER cannot create sales/purchases even if flags are true', () => {

@@ -40,10 +40,15 @@ class ReturnService:
                 if len(numbers) != int(Decimal(str(line["quantity"]))):
                     raise BusinessRuleError(
                         f"Exactly {line['quantity']} serial number(s) are required for "
-                        f"tracked product '{product.name}'."
+                        f"tracked product '{product.name}'.",
+                        code="serial_required",
                     )
         sales_return.items.all().delete()
         items = _build_items(SalesReturnItem, "sales_return", sales_return, items_data)
+        if sales_return.sales_invoice_id:
+            SalesInvoice.objects.select_for_update().get(
+                pk=sales_return.sales_invoice_id, company_id=sales_return.company_id
+            )
         compute_document_totals(
             sales_return,
             items,
@@ -79,7 +84,11 @@ class ReturnService:
         assert_period_allows_money_amend(sales_return.company, sales_return.return_date)
         if sales_return.status != SalesReturn.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete a return in status {sales_return.status}.")
-        invoice = sales_return.sales_invoice
+        # CR-014: lock source invoice before remaining-qty headroom check.
+        invoice = SalesInvoice.objects.select_for_update().get(
+            pk=sales_return.sales_invoice_id,
+            company_id=sales_return.company_id,
+        )
         if invoice.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
             raise BusinessRuleError("Sales return must reference a completed invoice.")
         if (
@@ -266,13 +275,22 @@ class ReturnService:
                 })
             from .notes_services import SalesNotesService
 
+            # R-006: set_credit_note_items applies RCM memo when the source
+            # invoice is reverse-charge so the auto-CN grand_total excludes GST.
             SalesNotesService.set_credit_note_items(note, items_data, user)
             if tcs_share > 0:
                 note.tcs_amount = tcs_share
                 note.tcs_in_grand_total = True
                 note.grand_total = (Decimal(str(note.grand_total or 0)) + tcs_share).quantize(Decimal("0.01"))
                 note.save(update_fields=["grand_total", "tcs_amount", "tcs_in_grand_total"])
-            SalesNotesService.complete_credit_note(note, user)
+            # CR-124: a return against a paid invoice must not silently override
+            # payment allocations. confirm_paid_invoice=True routes through
+            # complete_credit_note's single auto-unallocate pass (receipt money
+            # up to the CN amount → unallocated customer advance), instead of
+            # duplicating that logic here or hard-failing the whole return.
+            SalesNotesService.complete_credit_note(
+                note, user, confirm_paid_invoice=True, confirm_price_override=True
+            )
 
         if sales_return.company.accounting_enabled:
             from accounting.services import PostingService
@@ -396,14 +414,20 @@ class ReturnService:
                         user=user,
                     )
             if invoice.status == SalesInvoice.Status.RETURNED:
+                from .models import SalesInvoice as SI
                 from .models import SalesReturn as SR
 
+                # CR-095: lock invoice before other_open check + status flip.
+                invoice = SI.objects.select_for_update().get(
+                    pk=invoice.pk,
+                    company_id=sales_return.company_id,
+                )
                 other_open = SR.objects.filter(
                     sales_invoice=invoice,
                     status=SR.Status.COMPLETED,
                 ).exclude(pk=sales_return.pk).exists()
-                if not other_open:
-                    invoice.status = SalesInvoice.Status.COMPLETED
+                if not other_open and invoice.status == SI.Status.RETURNED:
+                    invoice.status = SI.Status.COMPLETED
                     invoice.save(update_fields=["status"])
             # Mark the return CANCELLED first so `cancel_credit_note`'s
             # "cancel the sales return instead" guard (active only while the

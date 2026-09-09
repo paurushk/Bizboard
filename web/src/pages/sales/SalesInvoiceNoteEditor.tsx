@@ -9,6 +9,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import {
   cancelSalesCreditNote,
   cancelSalesDebitNote,
@@ -237,8 +238,8 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
       }
       if (mode === 'complete' && doc.status === 'DRAFT') {
         doc = isCredit
-          ? await completeSalesCreditNote(doc.id)
-          : await completeSalesDebitNote(doc.id);
+          ? await completeWithConfirms((extra) => completeSalesCreditNote(doc.id, extra))
+          : await completeWithConfirms((extra) => completeSalesDebitNote(doc.id, extra));
       }
       return doc;
     },

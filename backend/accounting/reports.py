@@ -10,7 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=None, exclude_fy_close=False, exclude_fy_close_after=None):
-    qs = JournalLine.objects.filter(entry__company=company, entry__status=JournalEntry.Status.POSTED).select_related("account")
+    qs = JournalLine.objects.filter(
+        entry__company=company,
+        entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
+    ).select_related("account")
     if as_of:
         qs = qs.filter(entry__entry_date__lte=as_of)
     if date_from:
@@ -180,6 +183,8 @@ def balance_sheet(company, as_of=None, cost_center=None):
 
 def cash_flow(company, date_from=None, date_to=None, cost_center=None):
     """Direct cash flow statement derived from Cash (1100) & Bank (1500) movements."""
+    from django.db.models import Case, DecimalField, F, Sum, Value, When
+
     if date_from is None and date_to is not None:
         date_from, _ = _indian_fy_bounds(date_to, company)
     elif date_from is None and date_to is None:
@@ -194,9 +199,9 @@ def cash_flow(company, date_from=None, date_to=None, cost_center=None):
     )
     qs = JournalLine.objects.filter(
         entry__company=company,
-        entry__status=JournalEntry.Status.POSTED,
+        entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
         account__in=cash_accounts,
-    ).select_related("entry", "account")
+    )
     if date_from:
         qs = qs.filter(entry__entry_date__gte=date_from)
     if date_to:
@@ -204,26 +209,63 @@ def cash_flow(company, date_from=None, date_to=None, cost_center=None):
     if cost_center:
         qs = qs.filter(cost_center_id=cost_center)
 
-    operating_inflows = Decimal("0")
-    operating_outflows = Decimal("0")
-    investing_outflows = Decimal("0")
-    financing_inflows = Decimal("0")
-
-    for line in qs:
-        if line.debit > 0:
-            if line.entry.source_type in ("CUSTOMER_RECEIPT", "SALES_INVOICE"):
-                operating_inflows += line.debit
-            elif line.entry.source_type == "EQUITY":
-                financing_inflows += line.debit
-            else:
-                operating_inflows += line.debit
-        if line.credit > 0:
-            if line.entry.source_type in ("SUPPLIER_PAYMENT", "PURCHASE_INVOICE", "EXPENSE"):
-                operating_outflows += line.credit
-            elif line.entry.source_type in ("FIXED_ASSET", "INVESTMENT"):
-                investing_outflows += line.credit
-            else:
-                operating_outflows += line.credit
+    # CR-077: aggregate in SQL instead of iterating every cash journal line.
+    zero = Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))
+    agg = qs.aggregate(
+        financing_inflows=Sum(
+            Case(
+                When(debit__gt=0, entry__source_type="EQUITY", then=F("debit")),
+                default=zero,
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        ),
+        operating_inflows=Sum(
+            Case(
+                When(
+                    debit__gt=0,
+                    then=Case(
+                        When(entry__source_type="EQUITY", then=zero),
+                        default=F("debit"),
+                        output_field=DecimalField(max_digits=14, decimal_places=2),
+                    ),
+                ),
+                default=zero,
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        ),
+        investing_outflows=Sum(
+            Case(
+                When(
+                    credit__gt=0,
+                    entry__source_type__in=("FIXED_ASSET", "INVESTMENT"),
+                    then=F("credit"),
+                ),
+                default=zero,
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        ),
+        operating_outflows=Sum(
+            Case(
+                When(
+                    credit__gt=0,
+                    then=Case(
+                        When(
+                            entry__source_type__in=("FIXED_ASSET", "INVESTMENT"),
+                            then=zero,
+                        ),
+                        default=F("credit"),
+                        output_field=DecimalField(max_digits=14, decimal_places=2),
+                    ),
+                ),
+                default=zero,
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        ),
+    )
+    operating_inflows = agg["operating_inflows"] or Decimal("0")
+    operating_outflows = agg["operating_outflows"] or Decimal("0")
+    investing_outflows = agg["investing_outflows"] or Decimal("0")
+    financing_inflows = agg["financing_inflows"] or Decimal("0")
 
     net_operating = operating_inflows - operating_outflows
     net_investing = -investing_outflows
@@ -248,11 +290,14 @@ def cash_flow(company, date_from=None, date_to=None, cost_center=None):
             "net": net_financing,
         },
         "net_cash_flow": net_change,
-        "aid_kind": "cash_movement",
+        "aid_kind": "gl_cash_flow",
+        "label": "GL cash-flow aid (1100/1500)",
+        # CR-076: distinguish from document cash book (receipts/payments).
         "disclaimer": (
-            "Cash-movement aid from Cash (1100) and Bank (1500) GL lines — "
-            "not a Schedule III / Ind AS cash-flow statement. "
-            "Unclassified source types are treated as operating."
+            "GL cash-movement aid from Cash (1100) and Bank (1500) journal lines — "
+            "not the document cash book (posted receipts/supplier payments), and not a "
+            "Schedule III / Ind AS cash-flow statement. Unclassified source types are "
+            "treated as operating."
         ),
     }
 
@@ -321,7 +366,8 @@ def close_financial_year(company, fy_end, user=None):
         source_id=source_id,
         purpose="FY_CLOSE",
         status=JournalEntry.Status.POSTED,
-    ).first()
+        lines__isnull=False,
+    ).distinct().first()
     if existing:
         AccountingPeriod.objects.filter(
             company=company, start_date__lte=fy_end, end_date__gte=fy_start,
@@ -369,13 +415,14 @@ def close_financial_year(company, fy_end, user=None):
     if WorkOrder.objects.filter(
         company=company,
         status=WorkOrder.Status.RELEASED,
-    ).filter(Q(released_at__lte=fy_end) | Q(released_at__isnull=True)).exists():
+        released_at__lte=fy_end,
+    ).exists():
         raise BusinessRuleError(
             "Financial-year close blocked: OPEN_WIP — released work orders exist. Complete or cancel them first."
         )
     wip = JournalLine.objects.filter(
         entry__company=company,
-        entry__status=JournalEntry.Status.POSTED,
+        entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
         entry__entry_date__lte=fy_end,
         account__code="1450",
     ).aggregate(d=Sum("debit"), c=Sum("credit"))
@@ -405,7 +452,7 @@ def close_financial_year(company, fy_end, user=None):
 
     qs = JournalLine.objects.filter(
         entry__company=company,
-        entry__status=JournalEntry.Status.POSTED,
+        entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
         entry__entry_date__gte=fy_start,
         entry__entry_date__lte=fy_end,
         account__type__in=(Account.Type.INCOME, Account.Type.EXPENSE),
@@ -420,7 +467,7 @@ def close_financial_year(company, fy_end, user=None):
         net = debit - credit
         if net == 0:
             continue
-        account = Account.objects.get(pk=row["account_id"])
+        account = Account.objects.get(company=company, pk=row["account_id"])
         if net > 0:
             lines.append({"account": account, "credit": net})
             re_debit += net

@@ -546,7 +546,18 @@ const MORE_FAQ: FaqItem[] = [
     ['sales order', 'reserve', 'confirmed so', 'fefo', 'allocated stock'],
     [
       'Yes. Confirming a sales order reserves quantity. Available = on hand − reserved. Billing and low-stock use available.',
+      'Reservation stays until the invoice or delivery challan Completes — converting to a draft invoice does not release stock early.',
       'Cancel or invoice the order to release or consume the reserve. Batch items reserve FEFO lots (nearest expiry first).',
+    ],
+  ),
+  faq(
+    'partial-so-convert',
+    'Quotations, orders & challans',
+    'Can I convert only part of a sales order?',
+    ['partial convert', 'partial challan', 'split so', 'partial invoice'],
+    [
+      // CR-022: known pilot limitation — document only.
+      'Not yet. Converting a sales order or delivery challan copies all lines. For a partial dispatch, split into separate orders or reduce the order before convert.',
     ],
   ),
   faq(
@@ -688,7 +699,7 @@ const MORE_FAQ: FaqItem[] = [
     'Why won’t the purchase bill Complete?',
     ['purchase complete', 'purchase blocked', 'supplier gstin', 'purchase error'],
     [
-      'Same GST gates as sales: supplier state or GSTIN, registration type, closed period. Extra purchase rules: unregistered supplier needs reverse charge on, or confirm no RCM; foreign or import suppliers are not supported yet; duplicate supplier bill number needs confirm.',
+      'Same GST gates as sales: supplier state or GSTIN, registration type, closed period. Extra purchase rules: unregistered supplier needs reverse charge on, or confirm no RCM; foreign/import uses Bill of Entry + NON_GST purchase; duplicate supplier bill number needs confirm.',
       'Read the error on **t:nav.purchases**.',
     ],
   ),
@@ -702,14 +713,15 @@ const MORE_FAQ: FaqItem[] = [
       'GTA-like lines (SAC 9965/9967 or “gta” in the name) show a Section 9(3) warning — still confirm deliberately.',
     ],
   ),
+  // CR-040: Document Bill of Entry workflow for import purchases
   faq(
     'foreign-purchase',
     'Purchases & ITC',
     'Can I enter an import purchase?',
     ['import', 'foreign supplier', 'overseas', 'bill of entry'],
     [
-      'Not yet. Foreign supplier / import-of-goods is a hard block.',
-      'Record the landed cost outside this flow or use a domestic supplier bill. Do not fake an Indian GSTIN to bypass the gate.',
+      'Yes. Create and complete a Bill of Entry at Purchases → Bills of Entry (customs IGST/cess).',
+      'Then book the landed goods as a NON_GST purchase for that supplier and link the completed BoE. Do not put customs IGST on a GST purchase invoice.',
     ],
   ),
   faq(

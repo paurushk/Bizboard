@@ -33,14 +33,18 @@ MONEY_IDEMPOTENCY_SCOPES = frozenset({
     "receipt_create",
     "supplier_payment_create",
     "allocation_create",
+    "allocation_unallocate",
     "sales_invoice_create",
     "sales_invoice_complete",
     "purchase_invoice_create",
     "purchase_invoice_complete",
     "sales_credit_note_complete",
     "sales_debit_note_complete",
+    "purchase_credit_note_complete",
+    "purchase_debit_note_complete",
     "stock_transfer_complete",
     "stock_count_post",
+    "pos_checkout",
     # B3-013: a bill-import commit creates a real purchase/sales invoice — an
     # in-flight claim must not be auto-reclaimed while the first commit runs.
     "import_job_commit",
@@ -52,6 +56,23 @@ MONEY_IDEMPOTENCY_SCOPES = frozenset({
     # against the same in-book "remaining" balance -- each gets its own
     # provider idempotency key and books entry, refunding/unwinding twice.
     "gateway_payment_refund",
+    # R-066: return create+complete are money-posting; a stale in-flight
+    # reclaim would duplicate stock and the auto credit note.
+    "sales_return_create",
+    "sales_return_complete",
+    "purchase_return_create",
+    "purchase_return_complete",
+    # R-024: BoE create/complete post customs IGST; a stale in-flight reclaim
+    # would duplicate the customs payable and import ITC.
+    "bill_of_entry_create",
+    "bill_of_entry_complete",
+    # R-014: sandbox restore creates a full tenant copy — a stale in-flight
+    # reclaim must not spawn a second company.
+    "tenant_restore_sandbox",
+    # CR-126: delivery challan complete posts stock; retry must replay, not double SALE.
+    "delivery_challan_complete",
+    # CR-134: PO→bill convert creates a money document; twin of challan complete.
+    "purchase_order_convert",
 })
 
 # PD-01: 4xx that are safe to retry with the same key after the condition clears
@@ -74,9 +95,21 @@ TRANSIENT_4XX_CODES = frozenset({
     "GSTIN_TOTAL_CHANGED",
     "place_of_supply_unresolved",
     "sales_rcm_unconfirmed",
+    "confirm_no_rcm",
+    "confirm_duplicate_bill",
+    "confirm_additional_debit",
+    # CR-129: purchase CN/DN confirm-required 409s must release the key so the
+    # operator can retry the same gesture with the confirm flag set, instead of
+    # replaying the cached 409 forever.
+    "confirm_cn_on_paid_invoice",
+    "confirm_cn_price_override",
+    "confirm_non_gst_bill",
     "not_authenticated",
     "authentication_failed",
     "permission_denied",
+    # R-066: create/complete 400s while the operator fills serials must
+    # release the key so the same family (key / key-complete) can retry.
+    "serial_required",
 })
 
 

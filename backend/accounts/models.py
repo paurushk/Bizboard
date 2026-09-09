@@ -240,6 +240,8 @@ class Company(TimeStampedModel):
     # preview copy of a real tenant's data), so it can be excluded from
     # normal tenant listings/counts and capped per owner.
     is_sandbox = models.BooleanField(default=False)
+    # R-014: sandbox copies expire; Celery daily sweep wipes then deletes them.
+    sandbox_expires_at = models.DateTimeField(null=True, blank=True)
     # Wave B onboarding — progress is derived; only user choices/analytics persist.
     onboarding_dismissed_at = models.DateTimeField(null=True, blank=True)
     tax_profile_confirmed_at = models.DateTimeField(null=True, blank=True)
@@ -352,8 +354,11 @@ class CompanyUser(TimeStampedModel):
 
     class Role(models.TextChoices):
         OWNER = "OWNER", "Owner/Admin"
+        MANAGER = "MANAGER", "Manager"
         SALES_STAFF = "SALES_STAFF", "Sales Staff"
+        INVENTORY_STAFF = "INVENTORY_STAFF", "Inventory Staff"
         ACCOUNTANT = "ACCOUNTANT", "Accountant"
+        AUDITOR = "AUDITOR", "Auditor"
         VIEWER = "VIEWER", "Viewer"
 
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="memberships")
@@ -362,7 +367,49 @@ class CompanyUser(TimeStampedModel):
 
     @classmethod
     def capability_defaults_for_role(cls, role: str) -> dict | None:
-        """Fixed capability defaults applied on invite for ACCOUNTANT / VIEWER."""
+        """Fixed capability defaults applied on invite for roles (§5)."""
+        if role == cls.Role.MANAGER:
+            return {
+                "can_manage_inventory": True,
+                "can_import": True,
+                "can_cancel_documents": True,
+                "can_view_financial_reports": True,
+                "can_export": True,
+                "can_view_ai_insights": True,
+                "can_use_ai_assistant": True,
+                "can_create_sales": True,
+                "can_create_purchases": True,
+                "can_create_payments": True,
+                "can_post_journals": True,
+            }
+        if role == cls.Role.INVENTORY_STAFF:
+            return {
+                "can_manage_inventory": True,
+                "can_import": False,
+                "can_cancel_documents": False,
+                "can_view_financial_reports": False,
+                "can_export": False,
+                "can_view_ai_insights": False,
+                "can_use_ai_assistant": False,
+                "can_create_sales": False,
+                "can_create_purchases": True,
+                "can_create_payments": False,
+                "can_post_journals": False,
+            }
+        if role == cls.Role.AUDITOR:
+            return {
+                "can_manage_inventory": False,
+                "can_import": False,
+                "can_cancel_documents": False,
+                "can_view_financial_reports": True,
+                "can_export": True,
+                "can_view_ai_insights": False,
+                "can_use_ai_assistant": False,
+                "can_create_sales": False,
+                "can_create_purchases": False,
+                "can_create_payments": False,
+                "can_post_journals": False,
+            }
         if role == cls.Role.ACCOUNTANT:
             return {
                 "can_manage_inventory": False,
@@ -382,8 +429,6 @@ class CompanyUser(TimeStampedModel):
                 "can_manage_inventory": False,
                 "can_import": False,
                 "can_cancel_documents": False,
-                # Wave 12B: least privilege — VIEWER no longer defaults into
-                # financial reports visibility; grant explicitly if needed.
                 "can_view_financial_reports": False,
                 "can_export": False,
                 "can_view_ai_insights": False,

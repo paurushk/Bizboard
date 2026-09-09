@@ -22,6 +22,7 @@ import {
   uploadTallyMasters,
 } from '@/api/resources';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { HonestyBanner } from '@/components/HonestyBanner';
 import { DisclaimerBanner, PageHeader } from '@/components/insights';
 import { ErrorState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
@@ -234,6 +235,7 @@ export function TallyMigrationPage() {
   return (
     <Stack spacing={2}>
       <PageHeader title={t('tally.title')} />
+      <HonestyBanner messageKey="honesty.tallyDump" />
       <DisclaimerBanner severity="warning">{t('tally.disclaimer')}</DisclaimerBanner>
       <Stepper activeStep={step} alternativeLabel>
         {steps.map((label) => (

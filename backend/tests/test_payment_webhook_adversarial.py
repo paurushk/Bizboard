@@ -347,3 +347,50 @@ def test_company_patch_cannot_set_gateway_test_mode(tenant_a):
     tenant_a.company.refresh_from_db()
     assert tenant_a.company.payment_gateway_test_mode is False
     assert (tenant_a.company.payment_gateway_provider or "razorpay") != "cashfree"
+
+
+def _rzp_refund_body(*, event: str, refund_id: str, payment_id: str, amount_paise: int, link_id: str = "plink_x"):
+    return {
+        "event": event,
+        "payload": {
+            "refund": {"entity": {"id": refund_id, "payment_id": payment_id, "amount": amount_paise}},
+            "payment": {"entity": {"id": payment_id, "amount": amount_paise * 2, "fee": 0}},
+            "payment_link": {"entity": {"id": link_id}},
+        },
+    }
+
+
+def test_razorpay_refund_failed_is_not_refunded():
+    adapter = RazorpayAdapter({"webhook_secret": "whsec"})
+    body = json.dumps(_rzp_refund_body(event="refund.failed", refund_id="rfnd_fail", payment_id="pay_1", amount_paise=10000)).encode()
+    event = adapter.parse_webhook(body=body)
+    assert event is not None
+    assert event.status == "FAILED"
+    assert event.provider_refund_id == "rfnd_fail"
+
+
+def test_razorpay_refund_created_is_ignored():
+    adapter = RazorpayAdapter({"webhook_secret": "whsec"})
+    body = json.dumps(_rzp_refund_body(event="refund.created", refund_id="rfnd_c", payment_id="pay_1", amount_paise=10000)).encode()
+    event = adapter.parse_webhook(body=body)
+    assert event is not None
+    assert event.status == "IGNORED"
+
+
+def test_razorpay_refund_processed_is_refunded():
+    adapter = RazorpayAdapter({"webhook_secret": "whsec"})
+    body = json.dumps(_rzp_refund_body(event="refund.processed", refund_id="rfnd_p", payment_id="pay_1", amount_paise=5000)).encode()
+    event = adapter.parse_webhook(body=body)
+    assert event is not None
+    assert event.status == "REFUNDED"
+    assert event.amount == Decimal("50.00")
+    assert event.provider_refund_id == "rfnd_p"
+
+
+@override_settings(PAYMENTS_REFUND_EVENT_MAP_V2=False)
+def test_razorpay_refund_failed_legacy_map_is_refunded():
+    adapter = RazorpayAdapter({"webhook_secret": "whsec"})
+    body = json.dumps(_rzp_refund_body(event="refund.failed", refund_id="rfnd_leg", payment_id="pay_1", amount_paise=10000)).encode()
+    event = adapter.parse_webhook(body=body)
+    assert event is not None
+    assert event.status == "REFUNDED"

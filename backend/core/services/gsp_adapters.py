@@ -541,7 +541,7 @@ class LiveIrpAdapter:
         # encryption -- refuse it live rather than silently shipping
         # unencrypted-as-required data to an IRP endpoint under a
         # `GSP_CERTIFIED=1` sign-off that never actually covered "custom".
-        if resolve_gsp_provider(company) == "custom":
+        if _django_env() in ("production", "staging") and resolve_gsp_provider(company) == "custom":
             raise BusinessRuleError(
                 "Live IRP adapter refuses provider='custom' -- its payload wrapper is an "
                 "HMAC placeholder, not real NIC SEK/AES encryption. Configure a certified "

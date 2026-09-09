@@ -1,0 +1,32 @@
+{
+  "b2cs_present": true,
+  "hsn_present": true,
+  "section_keys": [
+    "amendments",
+    "at",
+    "atadj",
+    "b2b",
+    "b2cl",
+    "b2cs",
+    "builder_version",
+    "cdnr",
+    "cdnur",
+    "company",
+    "company_gstin_id",
+    "date_from",
+    "date_to",
+    "disclaimer",
+    "doc",
+    "docs",
+    "exp",
+    "hsn",
+    "issues",
+    "nil",
+    "period",
+    "return_type",
+    "sez",
+    "supecom",
+    "totals",
+    "txpd"
+  ]
+}

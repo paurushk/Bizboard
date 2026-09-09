@@ -182,7 +182,14 @@ def test_credit_note_einvoice_prepare_endpoint(tenant_a):
         format="json",
     )
     assert cn.status_code == 201, cn.data
-    assert tenant_a.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/").status_code == 200
+    assert (
+        tenant_a.client.post(
+            f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/",
+            {"confirm_price_override": True},
+            format="json",
+        ).status_code
+        == 200
+    )
     prep = tenant_a.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/prepare-einvoice/")
     assert prep.status_code == 200, prep.data
 

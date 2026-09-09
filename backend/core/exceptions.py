@@ -10,6 +10,21 @@ class BusinessRuleError(APIException):
     default_code = "business_rule_violation"
 
 
+def raise_confirm_required(codes, message):
+    """409 with one or more operator-confirm codes (R-010)."""
+    codes = [c for c in codes if c]
+    if not codes:
+        raise BusinessRuleError(message)
+    detail = {
+        "code": codes[0],
+        "message": message,
+        "confirm_codes": list(codes),
+    }
+    exc = BusinessRuleError(detail, code=codes[0])
+    exc.status_code = status.HTTP_409_CONFLICT
+    raise exc
+
+
 class OtpExpiredError(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "OTP expired or not found."

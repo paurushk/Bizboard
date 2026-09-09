@@ -43,6 +43,7 @@ import {
   searchProducts,
   listStock,
   listWarehouses,
+  listBillsOfEntryPage,
   updatePurchase,
   updateSupplier,
   uploadFile,
@@ -156,7 +157,6 @@ export function NewPurchasePage() {
     clearFeedback,
     flashSaveAndNew,
     flashError,
-    flashWarning,
   } = useBillingSaveFeedback();
   const [editingStatus, setEditingStatus] = useState<PurchaseInvoice['status'] | null>(null);
   const [loadedEdit, setLoadedEdit] = useState(false);
@@ -170,6 +170,7 @@ export function NewPurchasePage() {
   const [companyGstinId, setCompanyGstinId] = useState<number | ''>('');
   const [purchaseType, setPurchaseType] = useState<PurchaseType>('NON_GST');
   const [purchaseTypeTouched, setPurchaseTypeTouched] = useState(false);
+  const [billOfEntryId, setBillOfEntryId] = useState<number | ''>('');
   const [priceMode, setPriceMode] = useState<PriceMode>('EXCLUSIVE');
   const [isReverseCharge, setIsReverseCharge] = useState(false);
   const [itcEligibility, setItcEligibility] = useState<'CLAIMABLE' | 'INELIGIBLE' | 'REVERSED'>('CLAIMABLE');
@@ -199,6 +200,7 @@ export function NewPurchasePage() {
   const [tdsSection, setTdsSection] = useState('');
   const [tdsRate, setTdsRate] = useState(0);
   const [tdsAmount, setTdsAmount] = useState(0);
+  const [tdsAmountManual, setTdsAmountManual] = useState(false);
 
   const [additionalCharges, setAdditionalCharges] = useState(0);
   const [invoiceDiscount, setInvoiceDiscount] = useState(0);
@@ -253,6 +255,14 @@ export function NewPurchasePage() {
     enabled: Boolean(supplierId),
   });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
+  const billsOfEntry = useQuery({
+    queryKey: ['bills-of-entry', supplierId],
+    queryFn: () => listBillsOfEntryPage({
+      pageSize: 100,
+      ...(supplierId ? { supplier: String(supplierId) } : {}),
+    }),
+    enabled: Boolean(supplierId),
+  });
   const companyGstins = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
   const costCenters = useQuery({
     queryKey: ['cost-centers'],
@@ -383,6 +393,7 @@ export function NewPurchasePage() {
     setCostCenterId(inv.costCenter ?? '');
     setCompanyGstinId((inv as { companyGstin?: number | null }).companyGstin ?? '');
     setPurchaseType(inv.purchaseType);
+    setBillOfEntryId(inv.billOfEntry ?? '');
     setPriceMode((inv.priceMode as PriceMode) || 'EXCLUSIVE');
     setIsReverseCharge(!!inv.isReverseCharge);
     setItcEligibility(inv.itcEligibility ?? 'CLAIMABLE');
@@ -404,6 +415,7 @@ export function NewPurchasePage() {
     setTdsSection(inv.tdsSection ?? '');
     setTdsRate(toNumber(inv.tdsRate));
     setTdsAmount(toNumber(inv.tdsAmount));
+    setTdsAmountManual(false);
     setShowTds(Boolean(inv.tdsSection || toNumber(inv.tdsAmount)));
     setAutoRoundOff(inv.autoRoundOff ?? true);
     setSignatureId(inv.signature ?? null);
@@ -662,6 +674,7 @@ export function NewPurchasePage() {
     setTdsSection('');
     setTdsRate(0);
     setTdsAmount(0);
+    setTdsAmountManual(false);
     if (companyId && userId) {
       void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
     }
@@ -695,6 +708,7 @@ export function NewPurchasePage() {
     costCenter: costCenterId ? Number(costCenterId) : undefined,
     companyGstin: companyGstinId ? Number(companyGstinId) : undefined,
     purchaseType,
+    billOfEntry: billOfEntryId ? Number(billOfEntryId) : null,
     priceMode,
     isReverseCharge,
     itcEligibility,
@@ -713,7 +727,7 @@ export function NewPurchasePage() {
     includeTerms: showTerms,
     signature: signatureId,
     ...(isRuntimeFlagEnabled('ENABLE_TDS')
-      ? { tdsSection, tdsRate, tdsAmount }
+      ? { tdsSection, tdsRate, ...(tdsAmountManual ? { tdsAmount } : {}) }
       : {}),
     items: lines.map((l) => ({
       ...(l.lineId != null ? { id: l.lineId } : {}),
@@ -737,8 +751,8 @@ export function NewPurchasePage() {
   }), [
     additionalCharges, autoRoundOff, companyGstinId, costCenterId, dueDate, invoiceDate,
     invoiceDiscount, invoiceDiscountMode, isReverseCharge, itcEligibility, lines, notes,
-    paymentTermsDays, priceMode, purchaseType, showBank, showQr, showTerms, signatureId,
-    supplierBillNumber, supplierId, tdsAmount, tdsRate, tdsSection, termsText, warehouseId,
+    paymentTermsDays, priceMode, purchaseType, billOfEntryId, showBank, showQr, showTerms, signatureId,
+    supplierBillNumber, supplierId, tdsAmount, tdsAmountManual, tdsRate, tdsSection, termsText, warehouseId,
   ]);
 
   const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
@@ -873,9 +887,13 @@ export function NewPurchasePage() {
     },
     onSuccess: async ({ invoice, mode, paymentWarning }) => {
       skipLeaveGuard.current = true;
-      flashWarning(paymentWarning ?? null);
       void qc.invalidateQueries({ queryKey: ['purchase-invoice-number-series'] });
       void qc.invalidateQueries({ queryKey: ['purchase-invoice', invoice.id] });
+      void qc.invalidateQueries({ queryKey: ['purchases'] });
+      void qc.invalidateQueries({ queryKey: ['suppliers'] });
+      void qc.invalidateQueries({ queryKey: ['products'] });
+      void qc.invalidateQueries({ queryKey: ['stock-balance'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
       if (companyId && userId) {
         void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
       }
@@ -1083,15 +1101,19 @@ export function NewPurchasePage() {
             taxTotal: preview.totals.taxTotal,
             roundOff: preview.totals.roundOff,
             grandTotal: preview.totals.grandTotal,
+            rcmTaxable: preview.totals.rcmTaxable,
+            rcmCgst: preview.totals.rcmCgst,
+            rcmSgst: preview.totals.rcmSgst,
+            rcmIgst: preview.totals.rcmIgst,
+            rcmCess: preview.totals.rcmCess,
+            tdsAmount: preview.totals.tdsAmount,
           }
         : totals,
     [preview.totals, totals],
   );
 
-  // F2-019: drive the RCM tax-liability alert and the payable figure from the
-  // authoritative source (server preview when available), not the client float
-  // path. Tax columns stay in `shownTotals`; payable-to-supplier is taxable +
-  // charges - (after-tax) discount, all from `shownTotals`.
+  // F2-019 / R-027: RCM liability comes from preview rcm_* (charged GST is
+  // zeroed). Offline fallback uses the client tax split, which is not memoized.
   const rcmDisplay = useMemo(() => {
     if (!rcmPreview) return null;
     const charges = roundMoney(additionalCharges);
@@ -1101,17 +1123,26 @@ export function NewPurchasePage() {
         ? roundMoney(shownTotals.taxableTotal + charges)
         : roundMoney(shownTotals.taxableTotal + charges - discount);
     const clamped = Math.max(0, rawPayable);
+    const fromPreview = Boolean(preview.totals);
+    const rcmCgst = fromPreview ? (preview.totals?.rcmCgst ?? 0) : shownTotals.cgstTotal;
+    const rcmSgst = fromPreview ? (preview.totals?.rcmSgst ?? 0) : shownTotals.sgstTotal;
+    const rcmIgst = fromPreview ? (preview.totals?.rcmIgst ?? 0) : shownTotals.igstTotal;
+    const rcmCess = fromPreview ? (preview.totals?.rcmCess ?? 0) : (shownTotals.cessTotal ?? 0);
     return {
-      rcmTaxable: shownTotals.taxableTotal,
-      rcmTaxTotal: shownTotals.taxTotal,
-      rcmCgst: shownTotals.cgstTotal,
-      rcmSgst: shownTotals.sgstTotal,
-      rcmIgst: shownTotals.igstTotal,
+      rcmTaxable: fromPreview
+        ? (preview.totals?.rcmTaxable ?? shownTotals.taxableTotal)
+        : shownTotals.taxableTotal,
+      rcmTaxTotal: roundMoney(rcmCgst + rcmSgst + rcmIgst + rcmCess),
+      rcmCgst,
+      rcmSgst,
+      rcmIgst,
+      rcmCess,
       payable: autoRoundOff ? Math.round(clamped) : roundMoney(clamped),
     };
   }, [
     rcmPreview,
     shownTotals,
+    preview.totals,
     additionalCharges,
     invoiceDiscount,
     invoiceDiscountMode,
@@ -1401,6 +1432,20 @@ export function NewPurchasePage() {
                   <MenuItem value="GST">GST</MenuItem>
                 ) : null}
                 <MenuItem value="NON_GST">Non-GST</MenuItem>
+              </CompactField>
+              <CompactField
+                select
+                label={t('boe.linkOnPurchase')}
+                value={billOfEntryId}
+                onChange={(e) => setBillOfEntryId(e.target.value === '' ? '' : Number(e.target.value))}
+                sx={{ minWidth: 200 }}
+              >
+                <MenuItem value="">{t('boe.none')}</MenuItem>
+                {(billsOfEntry.data?.results ?? []).map((b) => (
+                  <MenuItem key={b.id} value={b.id}>
+                    {b.boeNumber} ({b.status})
+                  </MenuItem>
+                ))}
               </CompactField>
               {purchaseType === 'GST' ? (
                 <CompactField
@@ -1757,7 +1802,7 @@ export function NewPurchasePage() {
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
                     <TextField size="small" label="Section" value={tdsSection} onChange={(e) => setTdsSection(e.target.value)} placeholder="194C" />
                     <TextField size="small" type="number" label="Rate %" inputProps={{ min: 0, max: 100, step: 0.01 }} value={tdsRate || ''} onChange={(e) => setTdsRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
-                    <TextField size="small" type="number" label="TDS amount" inputProps={{ min: 0 }} value={tdsAmount || ''} onChange={(e) => setTdsAmount(Math.max(0, Number(e.target.value) || 0))} />
+                    <TextField size="small" type="number" label="TDS amount" inputProps={{ min: 0 }} value={tdsAmount || ''} onChange={(e) => { setTdsAmountManual(true); setTdsAmount(Math.max(0, Number(e.target.value) || 0)); }} />
                   </Stack>
                 </Paper>
               )}

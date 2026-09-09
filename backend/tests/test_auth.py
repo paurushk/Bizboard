@@ -536,6 +536,149 @@ def test_forgot_password_for_no_password_user_sends_invite_style_link(tenant_a):
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_password_reset_invite_uses_membership_company_id(tenant_a):
+    """R-021: invite resend looks up CompanyUser by company_id, not membership pk."""
+    from django.core import mail
+
+    from accounts.models import Company, CompanyUser, User
+    from accounts.views import _load_invite_token
+
+    user = User.objects.create_user(
+        email="nopw.two-cos@alpha.test",
+        password=None,
+        full_name="Two Cos",
+    )
+    user.set_unusable_password()
+    user.save(update_fields=["password"])
+    first_co = Company.objects.create(name="First Co", state="Karnataka")
+    second_co = Company.objects.create(name="Second Co", state="Maharashtra")
+    CompanyUser.objects.create(
+        company=first_co, user=user, role=CompanyUser.Role.OWNER, is_active=True,
+    )
+    second_membership = CompanyUser.objects.create(
+        company=second_co, user=user, role=CompanyUser.Role.OWNER, is_active=True,
+    )
+    assert second_membership.pk != second_co.id
+    user.active_company_id = second_co.id
+    user.save(update_fields=["active_company_id"])
+
+    requested = APIClient().post(
+        "/api/v1/auth/password/reset/",
+        {"email": user.email},
+        format="json",
+    )
+    assert requested.status_code == 200
+    assert mail.outbox
+    token = mail.outbox[0].body.split("token=")[1].split()[0]
+    payload = _load_invite_token(token)
+    assert payload["cid"] == second_co.id
+    assert payload["mid"] == second_membership.pk
+    assert payload["uid"] == user.pk
+
+
+def test_otp_sms_failure_unrecords_cooldown(tenant_a, monkeypatch):
+    """R-022: SMS fail deletes the challenge and unrecords cooldown/hourly."""
+    from accounts.models import OtpChallenge
+    from accounts.otp_utils import normalize_e164
+    from accounts.views import (
+        _otp_phone_cooldown_key,
+        _otp_phone_hour_key,
+    )
+
+    monkeypatch.setattr("django.conf.settings.OTP_ENABLED", True)
+    monkeypatch.setattr("django.conf.settings.SMS_PROVIDER", "console")
+
+    def _boom(_phone, _code):
+        raise RuntimeError("SMS provider down")
+
+    monkeypatch.setattr("accounts.views.SmsProvider.send_otp", _boom)
+
+    known = normalize_e164(tenant_a.owner.phone)
+    client = APIClient()
+    resp = client.post("/api/v1/auth/otp/request/", {"phone": tenant_a.owner.phone}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["detail"]
+    assert not OtpChallenge.objects.filter(phone=known, consumed=False).exists()
+    assert cache.get(_otp_phone_cooldown_key(known)) is None
+    hour = cache.get(_otp_phone_hour_key(known))
+    assert hour in (None, 0)
+
+    unknown_raw = "9999999998"
+    unknown = normalize_e164(unknown_raw)
+    unknown_resp = client.post("/api/v1/auth/otp/request/", {"phone": unknown_raw}, format="json")
+    assert unknown_resp.status_code == 200
+    assert unknown_resp.data["detail"] == resp.data["detail"]
+    assert cache.get(_otp_phone_cooldown_key(unknown)) == 1
+    assert int(cache.get(_otp_phone_hour_key(unknown)) or 0) >= 1
+
+    monkeypatch.setattr(
+        "accounts.views.SmsProvider.send_otp",
+        lambda _phone, _code: None,
+    )
+    retry = client.post("/api/v1/auth/otp/request/", {"phone": tenant_a.owner.phone}, format="json")
+    assert retry.status_code == 200
+    assert OtpChallenge.objects.filter(phone=known, consumed=False).exists()
+
+
+def test_seat_limit_counts_pending_invites(tenant_a):
+    """R-033: unused invite tokens consume seats along with active members."""
+    from billing.models import Plan, Subscription
+
+    from accounts.models import CompanyUser
+
+    plan = Plan.objects.create(
+        name="Three seats", slug="r033-seats", seat_limit=3, price_paise=0,
+    )
+    Subscription.objects.create(
+        company=tenant_a.company, plan=plan, status=Subscription.Status.ACTIVE,
+    )
+    assert CompanyUser.objects.filter(company=tenant_a.company, is_active=True).count() == 2
+
+    pending = tenant_a.client.post("/api/v1/company/users/", {
+        "email": "pending.seat@alpha.test",
+        "role": "SALES_STAFF",
+    }, format="json")
+    assert pending.status_code == 201, pending.data
+
+    blocked = tenant_a.client.post("/api/v1/company/users/", {
+        "email": "over.seat@alpha.test",
+        "role": "SALES_STAFF",
+    }, format="json")
+    assert blocked.status_code == 400, blocked.data
+    assert "seat" in str(blocked.data).lower()
+
+    accept = APIClient().post("/api/v1/auth/invite/accept/", {
+        "token": pending.data["invite_token"],
+        "new_password": "InvitePass123!",
+    }, format="json")
+    assert accept.status_code == 200, accept.data
+
+
+@override_settings(DEBUG=False, DJANGO_ENV="production", NUM_TRUSTED_PROXIES=1)
+def test_spoofed_leftmost_xff_does_not_rotate_login_lock(tenant_a):
+    """R-034: login lock uses hop len(xff)-NUM_TRUSTED_PROXIES, not leftmost."""
+    client = APIClient()
+    for i in range(10):
+        resp = client.post(
+            "/api/v1/auth/login/",
+            {"email": tenant_a.owner.email, "password": "wrong"},
+            format="json",
+            HTTP_X_FORWARDED_FOR=f"203.0.113.{i}, 198.51.100.10",
+            REMOTE_ADDR="10.0.0.1",
+        )
+        assert resp.status_code == 401
+
+    locked = client.post(
+        "/api/v1/auth/login/",
+        {"email": tenant_a.owner.email, "password": "StrongPass123!"},
+        format="json",
+        HTTP_X_FORWARDED_FOR="203.0.113.99, 198.51.100.10",
+        REMOTE_ADDR="10.0.0.1",
+    )
+    assert locked.status_code == 429
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 def test_forgot_password_unaffected_for_user_with_existing_password(tenant_a):
     """A user who already has a password (the common case) is unaffected --
     still gets the normal reset token/email, not the invite one."""

@@ -179,13 +179,23 @@ class AdjustmentView(APIView):
             )
         else:
             batch = None
-        # B8-013: a manual adjustment hits the GL when accounting is on — do not
+        # B8-013 / CR-011: a manual adjustment hits the GL when accounting is on — do not
         # let it post into a closed / filed GST period.
         from django.utils import timezone as _tz
 
         from reporting.gst_periods import assert_period_allows_money_amend
 
-        assert_period_allows_money_amend(company, _tz.localdate())
+        adj_date = serializer.validated_data.get("date") or _tz.localdate()
+        assert_period_allows_money_amend(company, adj_date)
+        warnings = []
+        qty = Decimal(str(serializer.validated_data["quantity"]))
+        if qty < 0:
+            # CR-050: surface WARN like unbatched invoice; BLOCK raises inside check.
+            warning = InventoryService.check_negative_stock(
+                company, product, -qty, warehouse, batch=batch
+            )
+            if warning:
+                warnings.append(warning)
         movement = InventoryService.post_movement(
             company=company,
             product=product,
@@ -202,7 +212,10 @@ class AdjustmentView(APIView):
             entity_type="StockMovement", entity_id=movement.id,
             description=f"Adjustment: {serializer.validated_data['reason']}",
         )
-        return Response(StockMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
+        data = StockMovementSerializer(movement).data
+        if warnings:
+            data["warnings"] = warnings
+        return Response(data, status=status.HTTP_201_CREATED)
 
 
 class OpeningStockView(APIView):
@@ -340,9 +353,11 @@ class StockTransferViewSet(CompanyScopedViewSet):
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
         def build():
-            return Response(
-                self.get_serializer(StockTransferService.complete(self.get_object(), request.user)).data
-            )
+            transfer, warnings = StockTransferService.complete(self.get_object(), request.user)
+            data = self.get_serializer(transfer).data
+            if warnings:
+                data["warnings"] = warnings
+            return Response(data)
 
         return wrap_idempotent(
             request=request,
@@ -368,6 +383,112 @@ class BatchLotViewSet(CompanyScopedViewSet):
         return qs
 
 
+def _sale_movement_for_serial(company, serial):
+    """Resolve the SALE StockMovement that issued ``serial`` (invoice or challan).
+
+    Serials live on document lines, not on ``StockMovement`` (CR-048).
+    CR-099 / CR-142: prefer COMPLETED/RETURNED invoices that actually have SALE
+    moves (draft shadows must not win). When one invoice has multiple SALE moves
+    for the same SKU, map the serial's index on the *line* onto the peel that
+    consumed that unit — not always moves[0] or product-wide first move.
+    """
+    from sales.cogs_service import CogsService
+    from sales.models import DeliveryChallanItem, SalesInvoice, SalesItem
+
+    def _move_for_serial_index(moves, serials, sn):
+        if not moves:
+            return None
+        try:
+            idx = list(serials or []).index(sn)
+        except ValueError:
+            return moves[0]
+        cursor = 0
+        for move in moves:
+            q = int(abs(Decimal(str(move.quantity or 0))))
+            if q <= 0:
+                continue
+            if idx < cursor + q:
+                return move
+            cursor += q
+        return moves[-1]
+
+    def _line_scoped_moves(invoice, item):
+        """Map serial index onto SALE moves for this invoice+SKU, offset by
+        earlier lines of the same product so multi-line peels stay aligned."""
+        moves = CogsService.invoice_sale_moves(invoice, product=serial.product)
+        if not moves:
+            return []
+        prior_qty = Decimal("0")
+        for sib in invoice.items.filter(product_id=item.product_id).order_by("id"):
+            if sib.pk == item.pk:
+                break
+            prior_qty += abs(Decimal(str(sib.quantity or 0)))
+        cursor = Decimal("0")
+        scoped = []
+        for move in moves:
+            q = abs(Decimal(str(move.quantity or 0)))
+            if q <= 0:
+                continue
+            # Keep moves that overlap this line's quantity window.
+            move_end = cursor + q
+            if move_end > prior_qty and cursor < prior_qty + abs(Decimal(str(item.quantity or 0))):
+                scoped.append(move)
+            cursor = move_end
+        return scoped or moves
+
+    sn = serial.serial_number
+    candidates = []
+    for item in (
+        SalesItem.objects.filter(product=serial.product, invoice__company=company)
+        .select_related("invoice")
+        .order_by("-invoice_id", "-id")[:200]
+    ):
+        if sn not in (item.serial_numbers or []):
+            continue
+        inv = item.invoice
+        moves = _line_scoped_moves(inv, item)
+        if not moves:
+            continue
+        posted = inv.status in (
+            SalesInvoice.Status.COMPLETED,
+            SalesInvoice.Status.RETURNED,
+        )
+        candidates.append((posted, inv.pk, item, moves))
+
+    # Prefer posted invoices with SALE moves; among those, newest invoice wins.
+    candidates.sort(key=lambda row: (not row[0], -row[1], -row[2].pk))
+    for _posted, _inv_id, item, moves in candidates:
+        hit = _move_for_serial_index(moves, item.serial_numbers, sn)
+        if hit is not None:
+            return hit
+
+    for item in (
+        DeliveryChallanItem.objects.filter(
+            product=serial.product,
+            challan__company=company,
+            challan__stock_posted=True,
+        )
+        .select_related("challan")
+        .order_by("-challan_id", "-id")[:200]
+    ):
+        if sn not in (item.serial_numbers or []):
+            continue
+        moves = list(
+            StockMovement.objects.filter(
+                company=company,
+                product=serial.product,
+                movement_type=MovementType.SALE,
+                reference_type="delivery_challan",
+                reference_id=str(item.challan_id),
+            )
+            .order_by("id")
+        )
+        hit = _move_for_serial_index(moves, item.serial_numbers, sn)
+        if hit is not None:
+            return hit
+    return None
+
+
 class SerialNumberViewSet(CompanyScopedViewSet):
     queryset = SerialNumber.objects.select_related("product", "warehouse")
     serializer_class = SerialNumberSerializer
@@ -385,7 +506,8 @@ class SerialNumberViewSet(CompanyScopedViewSet):
         target = request.data.get("status")
         allowed = {
             SerialNumber.Status.AVAILABLE: {SerialNumber.Status.SCRAPPED},
-            SerialNumber.Status.SOLD: {SerialNumber.Status.RETURNED},
+            # API still accepts RETURNED; sellable path lands on AVAILABLE (CR-049).
+            SerialNumber.Status.SOLD: {SerialNumber.Status.RETURNED, SerialNumber.Status.AVAILABLE},
             SerialNumber.Status.RETURNED: {SerialNumber.Status.SCRAPPED},
             SerialNumber.Status.SCRAPPED: set(),
         }
@@ -401,65 +523,72 @@ class SerialNumberViewSet(CompanyScopedViewSet):
         warehouse = serial.warehouse
         if warehouse_id:
             warehouse = Warehouse.objects.filter(company=self.company, pk=warehouse_id).first() or warehouse
-        if target == SerialNumber.Status.RETURNED and from_status == SerialNumber.Status.SOLD:
-            # B8-006: cost the return-in at the price the unit went out at.
-            # Find the SALE movement that carried this serial and reuse its
-            # unit_cost, so a manual serial return doesn't create zero-cost
-            # stock and desync FIFO / WAVG from the balance.
-            from inventory.models import StockMovement
 
-            sale_cost = None
-            for mv in (
-                StockMovement.objects.filter(
+        with transaction.atomic():
+            if target in (
+                SerialNumber.Status.RETURNED,
+                SerialNumber.Status.AVAILABLE,
+            ) and from_status == SerialNumber.Status.SOLD:
+                # CR-048 / CR-049: match document sales-return semantics —
+                # cost from linked SALE (not nonexistent StockMovement.serial_numbers),
+                # post SALES_RETURN, restore FIFO peels, mark AVAILABLE for resale.
+                sale_move = _sale_movement_for_serial(self.company, serial)
+                if sale_move is not None:
+                    sale_cost = Decimal(str(sale_move.unit_cost or 0))
+                    restore_wh = sale_move.warehouse or warehouse
+                else:
+                    sale_cost = InventoryValuationService.unit_cost(
+                        self.company, serial.product, warehouse
+                    )
+                    restore_wh = warehouse
+                inbound = InventoryService.post_movement(
                     company=self.company,
+                    warehouse=restore_wh,
                     product=serial.product,
-                    movement_type=MovementType.SALE,
-                )
-                .order_by("-id")
-                .only("unit_cost", "serial_numbers")[:200]
-            ):
-                if serial.serial_number in (mv.serial_numbers or []):
-                    sale_cost = mv.unit_cost
-                    break
-            if sale_cost is None:
-                sale_cost = InventoryService.unit_cost(
-                    self.company, serial.product, warehouse
-                )
-            InventoryService.post_movement(
-                company=self.company,
-                warehouse=warehouse,
-                product=serial.product,
-                quantity=Decimal("1"),
-                unit_cost=sale_cost,
-                movement_type=MovementType.SALES_RETURN,
-                reference_type="serial_manual_return",
-                reference_id=serial.pk,
-                reason=f"Serial {serial.serial_number} returned",
-                user=request.user,
-            )
-        if target == SerialNumber.Status.SCRAPPED and from_status in (
-            SerialNumber.Status.AVAILABLE,
-            SerialNumber.Status.RETURNED,
-        ):
-            on_hand = InventoryService.available_quantity(
-                self.company, serial.product, warehouse
-            )
-            if from_status == SerialNumber.Status.AVAILABLE or on_hand >= 1:
-                InventoryService.post_movement(
-                    company=self.company,
-                    warehouse=warehouse,
-                    product=serial.product,
-                    quantity=Decimal("-1"),
-                    movement_type=MovementType.ADJUSTMENT,
-                    reference_type="serial_scrap",
+                    batch=getattr(sale_move, "batch", None) if sale_move else None,
+                    quantity=Decimal("1"),
+                    unit_cost=sale_cost,
+                    movement_type=MovementType.SALES_RETURN,
+                    reference_type="serial_manual_return",
                     reference_id=serial.pk,
-                    reason=f"Serial {serial.serial_number} scrapped",
+                    reason=f"Serial {serial.serial_number} returned",
                     user=request.user,
                 )
-        serial.status = target
-        serial.warehouse_id = warehouse_id
-        serial.updated_by = request.user
-        serial.save(update_fields=["status", "warehouse", "updated_by", "updated_at"])
+                if sale_move is not None:
+                    InventoryService.restore_fifo_peels(sale_move, inbound)
+                target = SerialNumber.Status.AVAILABLE
+                warehouse = restore_wh
+                warehouse_id = restore_wh.id if restore_wh is not None else warehouse_id
+
+            if target == SerialNumber.Status.SCRAPPED and from_status in (
+                SerialNumber.Status.AVAILABLE,
+                SerialNumber.Status.RETURNED,
+            ):
+                on_hand = InventoryService.available_quantity(
+                    self.company, serial.product, warehouse
+                )
+                # CR-057: AVAILABLE scrap requires on_hand >= 1 (refuse desync hit).
+                if from_status == SerialNumber.Status.AVAILABLE and on_hand < 1:
+                    return Response(
+                        {"detail": "Cannot scrap: no on-hand quantity for this product."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if on_hand >= 1:
+                    InventoryService.post_movement(
+                        company=self.company,
+                        warehouse=warehouse,
+                        product=serial.product,
+                        quantity=Decimal("-1"),
+                        movement_type=MovementType.ADJUSTMENT,
+                        reference_type="serial_scrap",
+                        reference_id=serial.pk,
+                        reason=f"Serial {serial.serial_number} scrapped",
+                        user=request.user,
+                    )
+            serial.status = target
+            serial.warehouse_id = warehouse_id
+            serial.updated_by = request.user
+            serial.save(update_fields=["status", "warehouse", "updated_by", "updated_at"])
         return Response(self.get_serializer(serial).data)
 
 
@@ -520,6 +649,7 @@ class ExpiryAlertsView(APIView):
             user=request.user,
             warehouse=warehouse,
             batch=batch,
+            skip_negative_check=True,
         )
         return Response(StockMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
 
@@ -588,6 +718,13 @@ class StockCountSessionViewSet(CompanyScopedViewSet):
                     raise BusinessRuleError("Save the count before posting.")
                 if session.lines.filter(counted_qty__isnull=True).exists():
                     raise BusinessRuleError("Save all counted quantities before posting.")
+                # CR-052 / CR-040: same period gate as manual adjustments; evaluate counted_on if set.
+                from django.utils import timezone as _tz
+
+                from reporting.gst_periods import assert_period_allows_money_amend
+
+                count_date = session.counted_on or _tz.localdate()
+                assert_period_allows_money_amend(session.company, count_date)
                 from .item_stock import remaining_qty
 
                 lines = list(session.lines.select_related("product", "batch"))
@@ -618,6 +755,8 @@ class StockCountSessionViewSet(CompanyScopedViewSet):
                     if line.counted_qty is None:
                         continue
                     current = current_by_line[line.pk]
+                    # CR-056: KEEP_SERVER skips adjustment for drifted lines (abandons
+                    # the physical count for those SKUs) while still marking POSTED.
                     if conflicts and current != line.system_qty and resolve == "KEEP_SERVER":
                         continue
                     variance = line.counted_qty - current
@@ -634,6 +773,7 @@ class StockCountSessionViewSet(CompanyScopedViewSet):
                         user=request.user,
                         warehouse=session.warehouse,
                         batch=line.batch,
+                        movement_date=session.counted_on,
                     )
                 session.status = StockCountSession.Status.POSTED
                 session.posted_at = timezone.now()

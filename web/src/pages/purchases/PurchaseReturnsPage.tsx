@@ -22,14 +22,17 @@ import {
   completePurchaseReturn,
   createPurchaseReturn,
   getPurchase,
+  listProducts,
   listPurchaseReturns,
   listPurchaseReturnsPage,
   listPurchasesPage,
+  updatePurchaseReturn,
 } from '@/api/resources';
 import {
   InvoiceReturnLineTable,
   activeSourceLines,
   invoiceItemsToSourceLines,
+  sourceLineReturnPayload,
   todayIso,
   useDebouncedValue,
   type InvoiceSourceLine,
@@ -79,6 +82,13 @@ export function PurchaseReturnsPage() {
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<number | null>(null);
+  const [gestureKey, setGestureKey] = useState<string | null>(null);
+  const products = useQuery({
+    queryKey: ['products'],
+    queryFn: () => listProducts(),
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     if (searchParams.get('create') !== '1') return;
@@ -112,7 +122,18 @@ export function PurchaseReturnsPage() {
     } catch {
       /* best-effort */
     }
-    setLines(invoiceItemsToSourceLines(full.items, returnedByProduct));
+    const catalog = products.data?.length ? products.data : await listProducts();
+    const byId = new Map(catalog.map((p) => [p.id, p]));
+    setLines(invoiceItemsToSourceLines(full.items, returnedByProduct, byId));
+  };
+
+  const resetDialog = () => {
+    setPurchase(null);
+    setLines([]);
+    setReason('');
+    setDraftId(null);
+    setGestureKey(null);
+    setError(null);
   };
 
   const createMutation = useMutation({
@@ -120,29 +141,35 @@ export function PurchaseReturnsPage() {
       if (!purchase) throw new Error(t('phase1.selectPurchaseInvoice'));
       const selected = activeSourceLines(lines);
       if (selected.length === 0) throw new Error(t('phase1.selectInvoiceLines'));
-      const key = userGestureIdempotencyKey();
-      const draft = await createPurchaseReturn({
-        supplier: purchase.supplier,
-        purchaseInvoice: purchase.id,
-        returnDate: todayIso(),
-        reason,
-        items: selected.map((l) => ({
-          product: l.product,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          gstRate: l.gstRate,
-          condition: l.condition || 'SELLABLE',
-        })),
-      }, { idempotencyKey: key });
-      return completePurchaseReturn(draft.id, { idempotencyKey: `${key}-complete` });
+      const key = gestureKey ?? userGestureIdempotencyKey();
+      if (!gestureKey) setGestureKey(key);
+      const items = selected.map((l) => sourceLineReturnPayload(l, { includeBatch: true }));
+      let id = draftId;
+      if (!id) {
+        const draft = await createPurchaseReturn({
+          supplier: purchase.supplier,
+          purchaseInvoice: purchase.id,
+          returnDate: todayIso(),
+          reason,
+          items,
+        }, { idempotencyKey: key });
+        id = draft.id;
+        setDraftId(id);
+      } else {
+        await updatePurchaseReturn(id, { reason, items });
+      }
+      return completePurchaseReturn(id, { idempotencyKey: `${key}-complete` });
     },
     onSuccess: () => {
       setOpen(false);
-      setMessage('Purchase return completed');
-      setPurchase(null);
-      setLines([]);
-      setReason('');
+      setMessage(t('phase1.purchaseReturnCompleted'));
+      resetDialog();
       void qc.invalidateQueries({ queryKey: ['purchase-returns'] });
+      void qc.invalidateQueries({ queryKey: ['purchase-credit-notes'] });
+      void qc.invalidateQueries({ queryKey: ['purchases'] });
+      void qc.invalidateQueries({ queryKey: ['products'] });
+      void qc.invalidateQueries({ queryKey: ['stock-balance'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -154,7 +181,13 @@ export function PurchaseReturnsPage() {
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.purchaseReturns')}</Typography>
         {canWrite ? (
-        <Button variant="contained" onClick={() => setOpen(true)}>
+        <Button
+          variant="contained"
+          onClick={() => {
+            resetDialog();
+            setOpen(true);
+          }}
+        >
           {t('phase1.newPurchaseReturn')}
         </Button>
         ) : null}
@@ -165,7 +198,24 @@ export function PurchaseReturnsPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {returns.length === 0 && query.isSuccess ? <EmptyState /> : null}
+      {returns.length === 0 && query.isSuccess ? (
+        <EmptyState
+          description={t('empty.purchaseReturns')}
+          action={
+            canWrite ? (
+              <Button
+                variant="contained"
+                onClick={() => {
+                  resetDialog();
+                  setOpen(true);
+                }}
+              >
+                {t('phase1.newPurchaseReturn')}
+              </Button>
+            ) : null
+          }
+        />
+      ) : null}
       {returns.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <Table size="small">
@@ -216,10 +266,19 @@ export function PurchaseReturnsPage() {
         </Stack>
       ) : null}
 
-      <Dialog open={open && canWrite} onClose={() => setOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle>New purchase return</DialogTitle>
+      <Dialog
+        open={open && canWrite}
+        onClose={() => {
+          setOpen(false);
+          resetDialog();
+        }}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>{t('phase1.newPurchaseReturn')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            {error ? <HelpErrorAlert message={error} /> : null}
             <Autocomplete
               options={completed}
               getOptionLabel={(o) => `${o.number ?? o.id} · ${o.supplierName ?? ''}`}
@@ -229,10 +288,16 @@ export function PurchaseReturnsPage() {
               onChange={(_, v) => void onPurchasePick(v)}
               loading={purchases.isLoading}
               filterOptions={(x) => x}
-              renderInput={(params) => <TextField {...params} label="Original purchase" placeholder="Search by purchase # or supplier" />}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label={t('phase1.originalPurchase')}
+                  placeholder={t('phase1.searchPurchaseOrSupplier')}
+                />
+              )}
             />
             {lines.length > 0 ? (
-              <InvoiceReturnLineTable lines={lines} onChange={setLines} />
+              <InvoiceReturnLineTable lines={lines} onChange={setLines} showLot />
             ) : null}
             <TextField
               label={t('common.reason')}
@@ -242,7 +307,14 @@ export function PurchaseReturnsPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+          <Button
+            onClick={() => {
+              setOpen(false);
+              resetDialog();
+            }}
+          >
+            {t('common.cancel')}
+          </Button>
           <Button
             variant="contained"
             disabled={!purchase || activeSourceLines(lines).length === 0 || createMutation.isPending}

@@ -73,6 +73,28 @@ class BillOfEntryService:
         locked = BillOfEntry.objects.select_for_update().get(pk=boe.pk)
         if locked.status == BillOfEntry.Status.CANCELLED:
             return locked
+        # CR-044: block cancel when a completed purchase still links this BoE.
+        from purchases.models import PurchaseInvoice
+
+        linked = PurchaseInvoice.objects.filter(
+            company=locked.company,
+            bill_of_entry=locked,
+            status=PurchaseInvoice.Status.COMPLETED,
+        ).exists()
+        if linked:
+            raise BusinessRuleError(
+                "Cannot cancel a Bill of Entry while a completed purchase invoice "
+                "still links it. Cancel or unlink that purchase first."
+            )
+        # CR-098: draft PIs linking this BoE would fail Complete after cancel.
+        draft_linked = PurchaseInvoice.objects.filter(
+            company=locked.company,
+            bill_of_entry=locked,
+        ).exclude(
+            status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.CANCELLED)
+        )
+        if draft_linked.exists():
+            draft_linked.update(bill_of_entry=None)
         was_completed = locked.status == BillOfEntry.Status.COMPLETED
         if was_completed:
             from reporting.gst_periods import assert_period_allows_money_amend

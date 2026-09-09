@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.exceptions import BusinessRuleError
-from core.idempotency import begin_record, release_record, store_record
+from core.idempotency import begin_record, release_record, store_record, wrap_idempotent
 from core.permissions import (
     CanCancelDocuments,
     CanCreatePayments,
@@ -214,8 +214,12 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if self.request.query_params.get("supplier"):
-            qs = qs.filter(supplier_id=self.request.query_params["supplier"])
+        raw_supplier = self.request.query_params.get("supplier")
+        if raw_supplier:
+            try:
+                qs = qs.filter(supplier_id=int(raw_supplier))
+            except (TypeError, ValueError):
+                raise BusinessRuleError("Invalid supplier ID.")
         return qs
 
     def create(self, request, *args, **kwargs):
@@ -337,6 +341,12 @@ class PaymentAllocationViewSet(
                 raise BusinessRuleError("Invalid receipt reference.")
             if payment and payment.company_id != self.company.id:
                 raise BusinessRuleError("Invalid payment reference.")
+            sales_invoice = data.get("sales_invoice")
+            if sales_invoice and sales_invoice.company_id != self.company.id:
+                raise BusinessRuleError("Invalid sales invoice reference.")
+            purchase_invoice = data.get("purchase_invoice")
+            if purchase_invoice and purchase_invoice.company_id != self.company.id:
+                raise BusinessRuleError("Invalid purchase invoice reference.")
 
             from reporting.gst_periods import assert_period_allows_money_amend, period_complete_warning
 
@@ -395,7 +405,21 @@ class PaymentAllocationViewSet(
 
     @action(detail=True, methods=["post"])
     def unallocate(self, request, pk=None):
-        allocation = PaymentService.reverse_allocation(allocation=self.get_object(), user=request.user)
+        raw_key = request.headers.get("Idempotency-Key") or request.headers.get("X-Idempotency-Key")
+        if raw_key:
+            record_or_response = begin_record(
+                company=self.company, scope="allocation_unallocate", raw_key=raw_key
+            )
+            if isinstance(record_or_response, Response):
+                return record_or_response
+
+        try:
+            allocation = PaymentService.reverse_allocation(allocation=self.get_object(), user=request.user)
+        except Exception:
+            if raw_key:
+                release_record(company=self.company, scope="allocation_unallocate", raw_key=raw_key)
+            raise
+
         AuditService.log(
             company=self.company,
             user=request.user,
@@ -403,7 +427,16 @@ class PaymentAllocationViewSet(
             entity_type="PaymentAllocation",
             entity_id=allocation.id,
         )
-        return Response(self.get_serializer(allocation).data)
+        response = Response(self.get_serializer(allocation).data)
+        if raw_key:
+            store_record(
+                company=self.company,
+                scope="allocation_unallocate",
+                raw_key=raw_key,
+                response=response,
+                resource_id=str(allocation.pk),
+            )
+        return response
 
 
 class PaymentLinkViewSet(CompanyScopedViewSet):
@@ -695,76 +728,84 @@ class BankStatementViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"], url_path="commit")
     def commit(self, request, pk=None):
-        statement = self.get_object()
-        if statement.status == BankStatementStatus.COMMITTED:
-            return Response(self.get_serializer(statement).data)
-        statement.status = BankStatementStatus.COMMITTED
-        statement.save(update_fields=["status", "updated_at"])
+        def _run():
+            statement = self.get_object()
+            if statement.status == BankStatementStatus.COMMITTED:
+                return Response(self.get_serializer(statement).data)
+            statement.status = BankStatementStatus.COMMITTED
+            statement.save(update_fields=["status", "updated_at"])
 
-        # B4-018: optional exact auto-match -- used to call suggest_matches
-        # (2 queries: a windowed candidate scan + a fresh ReconMatch
-        # exclusion query) plus, for any line with a single high-confidence
-        # suggestion, is_exact_unique_suggestion's own
-        # CustomerReceipt/SupplierPayment.filter(pk=...) UTR lookup, all
-        # per line. The exclusion sets and a UTR map covering the whole
-        # statement's window are now fetched once and reused across every
-        # line; the exclusion sets are updated in-memory as matches are
-        # confirmed so a receipt/payment auto-matched to an earlier line in
-        # this same loop can't also be suggested for a later one.
-        if getattr(self.company, "auto_match_bank_exact", False):
-            unmatched_lines = list(statement.lines.filter(match_status=BankLineMatchStatus.UNMATCHED))
-            if unmatched_lines:
-                matched_receipt_ids = set(
-                    ReconMatch.objects.filter(company=self.company, receipt__isnull=False)
-                    .values_list("receipt_id", flat=True)
-                )
-                matched_supplier_payment_ids = set(
-                    ReconMatch.objects.filter(company=self.company, supplier_payment__isnull=False)
-                    .values_list("supplier_payment_id", flat=True)
-                )
-                window_start = min(line.txn_date for line in unmatched_lines) - timedelta(days=14)
-                window_end = max(line.txn_date for line in unmatched_lines) + timedelta(days=14)
-                receipt_utr_map = {
-                    rid: normalize_utr(utr)
-                    for rid, utr in CustomerReceipt.objects.filter(
-                        company=self.company, status="POSTED",
-                        receipt_date__gte=window_start, receipt_date__lte=window_end,
-                    ).values_list("id", "utr")
-                }
-                supplier_payment_utr_map = {
-                    pid: normalize_utr(utr)
-                    for pid, utr in SupplierPayment.objects.filter(
-                        company=self.company, status=SupplierPaymentStatus.POSTED,
-                        payment_date__gte=window_start, payment_date__lte=window_end,
-                    ).values_list("id", "utr")
-                }
-                for line in unmatched_lines:
-                    suggestions = suggest_matches(
-                        company=self.company,
-                        line=line,
-                        exclude_receipt_ids=matched_receipt_ids,
-                        exclude_supplier_payment_ids=matched_supplier_payment_ids,
+            # B4-018: optional exact auto-match -- used to call suggest_matches
+            # (2 queries: a windowed candidate scan + a fresh ReconMatch
+            # exclusion query) plus, for any line with a single high-confidence
+            # suggestion, is_exact_unique_suggestion's own
+            # CustomerReceipt/SupplierPayment.filter(pk=...) UTR lookup, all
+            # per line. The exclusion sets and a UTR map covering the whole
+            # statement's window are now fetched once and reused across every
+            # line; the exclusion sets are updated in-memory as matches are
+            # confirmed so a receipt/payment auto-matched to an earlier line in
+            # this same loop can't also be suggested for a later one.
+            if getattr(self.company, "auto_match_bank_exact", False):
+                unmatched_lines = list(statement.lines.filter(match_status=BankLineMatchStatus.UNMATCHED))
+                if unmatched_lines:
+                    matched_receipt_ids = set(
+                        ReconMatch.objects.filter(company=self.company, receipt__isnull=False)
+                        .values_list("receipt_id", flat=True)
                     )
-                    if is_exact_unique_suggestion(
-                        suggestions, line,
-                        receipt_utr_map=receipt_utr_map,
-                        supplier_payment_utr_map=supplier_payment_utr_map,
-                    ):
-                        s = suggestions[0]
-                        self._confirm_match(
+                    matched_supplier_payment_ids = set(
+                        ReconMatch.objects.filter(company=self.company, supplier_payment__isnull=False)
+                        .values_list("supplier_payment_id", flat=True)
+                    )
+                    window_start = min(line.txn_date for line in unmatched_lines) - timedelta(days=14)
+                    window_end = max(line.txn_date for line in unmatched_lines) + timedelta(days=14)
+                    receipt_utr_map = {
+                        rid: normalize_utr(utr)
+                        for rid, utr in CustomerReceipt.objects.filter(
+                            company=self.company, status="POSTED",
+                            receipt_date__gte=window_start, receipt_date__lte=window_end,
+                        ).values_list("id", "utr")
+                    }
+                    supplier_payment_utr_map = {
+                        pid: normalize_utr(utr)
+                        for pid, utr in SupplierPayment.objects.filter(
+                            company=self.company, status=SupplierPaymentStatus.POSTED,
+                            payment_date__gte=window_start, payment_date__lte=window_end,
+                        ).values_list("id", "utr")
+                    }
+                    for line in unmatched_lines:
+                        suggestions = suggest_matches(
+                            company=self.company,
                             line=line,
-                            receipt_id=s["id"] if s["type"] == "receipt" else None,
-                            payment_id=s["id"] if s["type"] == "supplier_payment" else None,
-                            confidence=s["confidence"],
-                            user=request.user,
-                            notes="auto_exact",
+                            exclude_receipt_ids=matched_receipt_ids,
+                            exclude_supplier_payment_ids=matched_supplier_payment_ids,
                         )
-                        if s["type"] == "receipt":
-                            matched_receipt_ids.add(s["id"])
-                        else:
-                            matched_supplier_payment_ids.add(s["id"])
-        self._audit("UPDATE", statement)
-        return Response(self.get_serializer(statement).data)
+                        if is_exact_unique_suggestion(
+                            suggestions, line,
+                            receipt_utr_map=receipt_utr_map,
+                            supplier_payment_utr_map=supplier_payment_utr_map,
+                        ):
+                            s = suggestions[0]
+                            self._confirm_match(
+                                line=line,
+                                receipt_id=s["id"] if s["type"] == "receipt" else None,
+                                payment_id=s["id"] if s["type"] == "supplier_payment" else None,
+                                confidence=s["confidence"],
+                                user=request.user,
+                                notes="auto_exact",
+                            )
+                            if s["type"] == "receipt":
+                                matched_receipt_ids.add(s["id"])
+                            else:
+                                matched_supplier_payment_ids.add(s["id"])
+            self._audit("UPDATE", statement)
+            return Response(self.get_serializer(statement).data)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="statement_commit",
+            build=_run,
+        )
 
     @action(detail=True, methods=["post"], url_path="void")
     def void(self, request, pk=None):

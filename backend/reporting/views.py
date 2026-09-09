@@ -3,12 +3,18 @@ import io
 from datetime import date
 
 from django.db import transaction
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, StreamingHttpResponse
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+
+class Echo:
+    """A file-like object that returns written data instead of buffering."""
+    def write(self, value):
+        return value
 
 from core.csv_utils import csv_safe
 from core.exceptions import BusinessRuleError
@@ -19,7 +25,7 @@ from core.throttles import CompanyRateThrottle
 from masters.models import Customer, Supplier
 
 from .gst_health import build_gst_health
-from .gst_periods import reopen_period, soft_close_period
+from .gst_periods import accounting_period_open_warnings, reopen_period, soft_close_period
 from .gst_returns import (
     build_ca_pack_zip,
     build_gstr1,
@@ -33,7 +39,7 @@ from .gst_returns import (
 from .models import Gstr2bIngest
 from .permissions import assert_gstr_enabled
 from .serializers import Gstr2bIngestSerializer
-from .services import ReportService
+from .services import ReportService, assert_report_date_span
 
 
 def _tds_worksheets_readable(company) -> bool:
@@ -105,10 +111,13 @@ class SalesRegisterView(BaseReportView):
     throttle_scope = "heavy_reports"
 
     def get(self, request):
-        return Response(ReportService.sales_register(
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        assert_report_date_span(date_from, date_to, kind="Sales register")
+        data = ReportService.sales_register(
             self.company,
-            date_from=_parse_date(request.query_params.get("date_from")),
-            date_to=_parse_date(request.query_params.get("date_to")),
+            date_from=date_from,
+            date_to=date_to,
             customer_id=_int_or_none(request.query_params.get("customer")),
             status=request.query_params.get("status"),
             warehouse_id=_int_or_none(request.query_params.get("warehouse")),
@@ -116,7 +125,29 @@ class SalesRegisterView(BaseReportView):
                 request.query_params.get("company_gstin")
                 or request.query_params.get("gstin")
             ),
-        ))
+        )
+        page = request.query_params.get("page")
+        page_size = request.query_params.get("page_size")
+        if page or page_size or request.query_params.get("paginate"):
+            try:
+                p = max(1, int(page or 1))
+                ps = min(1000, max(1, int(page_size or 100)))
+            except (ValueError, TypeError):
+                p, ps = 1, 100
+            rows = data.get("rows", [])
+            total_count = len(rows)
+            start_idx = (p - 1) * ps
+            end_idx = start_idx + ps
+            paginated_rows = rows[start_idx:end_idx]
+            return Response({
+                "count": total_count,
+                "page": p,
+                "page_size": ps,
+                "results": paginated_rows,
+                "rows": paginated_rows,
+                "totals": data.get("totals", {}),
+            })
+        return Response(data)
 
 
 class PurchaseRegisterView(BaseReportView):
@@ -124,14 +155,39 @@ class PurchaseRegisterView(BaseReportView):
     throttle_scope = "heavy_reports"
 
     def get(self, request):
-        return Response(ReportService.purchase_register(
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        assert_report_date_span(date_from, date_to, kind="Purchase register")
+        data = ReportService.purchase_register(
             self.company,
-            date_from=_parse_date(request.query_params.get("date_from")),
-            date_to=_parse_date(request.query_params.get("date_to")),
+            date_from=date_from,
+            date_to=date_to,
             supplier_id=_int_or_none(request.query_params.get("supplier")),
             status=request.query_params.get("status"),
             warehouse_id=_int_or_none(request.query_params.get("warehouse")),
-        ))
+        )
+        page = request.query_params.get("page")
+        page_size = request.query_params.get("page_size")
+        if page or page_size or request.query_params.get("paginate"):
+            try:
+                p = max(1, int(page or 1))
+                ps = min(1000, max(1, int(page_size or 100)))
+            except (ValueError, TypeError):
+                p, ps = 1, 100
+            rows = data.get("rows", [])
+            total_count = len(rows)
+            start_idx = (p - 1) * ps
+            end_idx = start_idx + ps
+            paginated_rows = rows[start_idx:end_idx]
+            return Response({
+                "count": total_count,
+                "page": p,
+                "page_size": ps,
+                "results": paginated_rows,
+                "rows": paginated_rows,
+                "totals": data.get("totals", {}),
+            })
+        return Response(data)
 
 
 class InventorySummaryView(BaseReportView):
@@ -141,7 +197,8 @@ class InventorySummaryView(BaseReportView):
     def get(self, request):
         return Response(ReportService.inventory_summary(
             self.company,
-            warehouse_id=request.query_params.get("warehouse"),
+            # CR-068: normalize warehouse like sibling report views.
+            warehouse_id=_int_or_none(request.query_params.get("warehouse")),
         ))
 
 
@@ -150,10 +207,14 @@ class ProductSalesView(BaseReportView):
     throttle_scope = "heavy_reports"
 
     def get(self, request):
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        # CR-150: product sales honor the same date-span guard as registers.
+        assert_report_date_span(date_from, date_to, kind="Product sales")
         return Response(ReportService.product_sales(
             self.company,
-            date_from=_parse_date(request.query_params.get("date_from")),
-            date_to=_parse_date(request.query_params.get("date_to")),
+            date_from=date_from,
+            date_to=date_to,
         ))
 
 
@@ -162,10 +223,14 @@ class CustomerSalesView(BaseReportView):
     throttle_scope = "heavy_reports"
 
     def get(self, request):
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        # CR-150: customer sales honor the same date-span guard as registers.
+        assert_report_date_span(date_from, date_to, kind="Customer sales")
         return Response(ReportService.customer_sales(
             self.company,
-            date_from=_parse_date(request.query_params.get("date_from")),
-            date_to=_parse_date(request.query_params.get("date_to")),
+            date_from=date_from,
+            date_to=date_to,
         ))
 
 
@@ -187,11 +252,14 @@ class CashBookView(BaseReportView):
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
     def get(self, request):
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        assert_report_date_span(date_from, date_to, kind="Cash book")
         payload = ReportService.cash_book(
             self.company,
-            date_from=_parse_date(request.query_params.get("date_from")),
-            date_to=_parse_date(request.query_params.get("date_to")),
-            bank_account_id=request.query_params.get("bank_account"),
+            date_from=date_from,
+            date_to=date_to,
+            bank_account_id=_int_or_none(request.query_params.get("bank_account")),
         )
         # Prefer export= over format= — DRF treats ?format= as renderer negotiation.
         export_format = (
@@ -510,8 +578,11 @@ class CancelledDocumentNumbersView(BaseReportView):
         return (JSONRenderer(), "application/json")
 
     def get(self, request):
+        from datetime import date as date_cls
+
+        from django.db.models import Q
+
         from core.models import StatutoryDocumentEvent
-        from core.services.document_numbers import gst_fy_label_for
         from purchases.models import PurchaseInvoice
         from sales.models import SalesCreditNote, SalesDebitNote, SalesInvoice
 
@@ -523,10 +594,10 @@ class CancelledDocumentNumbersView(BaseReportView):
         if not re.fullmatch(r"\d{4}-\d{2}", fy):
             raise BusinessRuleError("Query parameter 'fy' must look like 2026-27.")
 
-        def _in_fy(doc_date) -> bool:
-            if doc_date is None:
-                return False
-            return gst_fy_label_for(doc_date) == fy
+        # CR-075: GST FY is always Apr–Mar — bound queries in SQL, not Python.
+        start_year = int(fy[:4])
+        fy_start = date_cls(start_year, 4, 1)
+        fy_end = date_cls(start_year + 1, 3, 31)
 
         rows = []
 
@@ -536,28 +607,44 @@ class CancelledDocumentNumbersView(BaseReportView):
                 return (getattr(stamp, "gstin", None) or "").strip().upper()
             return (getattr(self.company, "gstin", None) or "").strip().upper()
 
-        def _reason(entity_type, entity_id, fallback=""):
-            ev = (
-                StatutoryDocumentEvent.objects.filter(
-                    company=self.company,
-                    entity_type=entity_type,
-                    entity_id=entity_id,
-                    event_type=StatutoryDocumentEvent.EventType.CANCEL,
-                )
-                .order_by("-id")
-                .first()
+        reason_map: dict[tuple[str, int], str] = {}
+        for ev in (
+            StatutoryDocumentEvent.objects.filter(
+                company=self.company,
+                event_type=StatutoryDocumentEvent.EventType.CANCEL,
+                entity_type__in=(
+                    "sales_invoice",
+                    "purchase_invoice",
+                    "sales_credit_note",
+                    "sales_debit_note",
+                ),
             )
-            if ev and isinstance(ev.payload, dict):
-                return str(ev.payload.get("reason") or fallback or "")
-            return fallback
+            .order_by("entity_type", "entity_id", "-id")
+            .only("entity_type", "entity_id", "payload")
+        ):
+            key = (ev.entity_type, ev.entity_id)
+            if key in reason_map:
+                continue
+            reason_map[key] = (
+                str(ev.payload.get("reason") or "") if isinstance(ev.payload, dict) else ""
+            )
+
+        def _reason(entity_type, entity_id, fallback=""):
+            return reason_map.get((entity_type, entity_id), "") or fallback
 
         for inv in (
             SalesInvoice.objects.filter(company=self.company, status=SalesInvoice.Status.CANCELLED)
             .exclude(number="")
+            .filter(
+                Q(invoice_date__gte=fy_start, invoice_date__lte=fy_end)
+                | Q(
+                    invoice_date__isnull=True,
+                    cancelled_at__date__gte=fy_start,
+                    cancelled_at__date__lte=fy_end,
+                )
+            )
             .select_related("company_gstin", "updated_by")
         ):
-            if not _in_fy(inv.invoice_date or (inv.cancelled_at.date() if inv.cancelled_at else None)):
-                continue
             rows.append({
                 "number": inv.number,
                 "doc_type": "SALES_INVOICE",
@@ -568,13 +655,14 @@ class CancelledDocumentNumbersView(BaseReportView):
             })
         for inv in (
             PurchaseInvoice.objects.filter(
-                company=self.company, status=PurchaseInvoice.Status.CANCELLED
+                company=self.company,
+                status=PurchaseInvoice.Status.CANCELLED,
+                invoice_date__gte=fy_start,
+                invoice_date__lte=fy_end,
             )
             .exclude(number="")
             .select_related("updated_by")
         ):
-            if not _in_fy(inv.invoice_date):
-                continue
             rows.append({
                 "number": inv.number,
                 "doc_type": "PURCHASE_INVOICE",
@@ -584,10 +672,11 @@ class CancelledDocumentNumbersView(BaseReportView):
                 "user": getattr(inv.updated_by, "email", "") or "",
             })
         for note in SalesCreditNote.objects.filter(
-            company=self.company, status=SalesCreditNote.Status.CANCELLED
+            company=self.company,
+            status=SalesCreditNote.Status.CANCELLED,
+            note_date__gte=fy_start,
+            note_date__lte=fy_end,
         ).exclude(number=""):
-            if not _in_fy(note.note_date):
-                continue
             rows.append({
                 "number": note.number,
                 "doc_type": "SALES_CREDIT_NOTE",
@@ -597,10 +686,11 @@ class CancelledDocumentNumbersView(BaseReportView):
                 "user": "",
             })
         for note in SalesDebitNote.objects.filter(
-            company=self.company, status=SalesDebitNote.Status.CANCELLED
+            company=self.company,
+            status=SalesDebitNote.Status.CANCELLED,
+            note_date__gte=fy_start,
+            note_date__lte=fy_end,
         ).exclude(number=""):
-            if not _in_fy(note.note_date):
-                continue
             rows.append({
                 "number": note.number,
                 "doc_type": "SALES_DEBIT_NOTE",
@@ -612,14 +702,14 @@ class CancelledDocumentNumbersView(BaseReportView):
         rows.sort(key=lambda r: (r["date"], r["number"]))
         export_format = (request.query_params.get("format") or "json").lower()
         if export_format == "csv":
-            buf = io.StringIO()
-            writer = csv.DictWriter(
-                buf, fieldnames=["number", "doc_type", "gstin", "date", "reason", "user"]
-            )
-            writer.writeheader()
-            for row in rows:
-                writer.writerow({k: csv_safe(v) for k, v in row.items()})
-            response = HttpResponse(buf.getvalue(), content_type="text/csv")
+            def stream_cancelled():
+                writer = csv.DictWriter(
+                    Echo(), fieldnames=["number", "doc_type", "gstin", "date", "reason", "user"]
+                )
+                yield writer.writeheader()
+                for row in rows:
+                    yield writer.writerow({k: csv_safe(v) for k, v in row.items()})
+            response = StreamingHttpResponse(stream_cancelled(), content_type="text/csv")
             response["Content-Disposition"] = f'attachment; filename="cancelled-numbers-{fy}.csv"'
             return response
         return Response({"fy": fy, "columns": ["number", "doc_type", "gstin", "date", "reason", "user"], "rows": rows})
@@ -703,11 +793,14 @@ class GstPeriodView(BaseReportView):
             obj = reopen_period(self.company, period)
         else:
             raise BusinessRuleError("action must be soft_close or reopen.")
-        return Response({
+        payload = {
             "period": obj.period,
             "status": obj.status,
             "dirty_after_snapshot": obj.dirty_after_snapshot,
-        })
+        }
+        if action == "soft_close":
+            payload["warnings"] = accounting_period_open_warnings(self.company, period)
+        return Response(payload)
 
 
 # B5-007: same DoS-prevention ceiling as imports.services.MAX_IMPORT_ROWS --
@@ -1184,20 +1277,17 @@ class TdsWorksheetView(APIView):
         except ValueError as exc:
             raise BusinessRuleError(str(exc)) from exc
         rows = tds_worksheet_rows(company, period)
-        buffer = io.StringIO()
         fieldnames = [
             "date", "invoice", "supplier", "supplier_gstin", "section", "rate",
             "taxable", "grand_total", "tds_amount", "net_payable", "source",
         ]
-        # extrasaction="ignore": a compliance export must never 500 because a
-        # row helper grew an extra key.
-        writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerow({"date": "# 26Q worksheet aid — not a live IT portal upload", "invoice": ""})
-        # B5-002: supplier / invoice / section are user-controlled — neutralise
-        # spreadsheet formula injection, matching ExportView.
-        writer.writerows({k: csv_safe(v) for k, v in row.items()} for row in rows)
-        response = HttpResponse(buffer.getvalue(), content_type="text/csv")
+        def stream_tds():
+            writer = csv.DictWriter(Echo(), fieldnames=fieldnames, extrasaction="ignore")
+            yield writer.writeheader()
+            yield writer.writerow({"date": "# 26Q worksheet aid — not a live IT portal upload", "invoice": ""})
+            for row in rows:
+                yield writer.writerow({k: csv_safe(v) for k, v in row.items()})
+        response = StreamingHttpResponse(stream_tds(), content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="tds-26q-{period}.csv"'
         return response
 
@@ -1222,17 +1312,17 @@ class TcsWorksheetView(APIView):
         except ValueError as exc:
             raise BusinessRuleError(str(exc)) from exc
         rows = tcs_worksheet_rows(company, period)
-        buffer = io.StringIO()
         fieldnames = [
             "date", "invoice", "customer", "customer_gstin", "section", "rate",
             "taxable", "grand_total", "tcs_amount", "receivable", "source",
         ]
-        writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerow({"date": "# 27EQ worksheet aid — not a live IT portal upload", "invoice": ""})
-        # B5-002: customer / invoice / section are user-controlled.
-        writer.writerows({k: csv_safe(v) for k, v in row.items()} for row in rows)
-        response = HttpResponse(buffer.getvalue(), content_type="text/csv")
+        def stream_tcs():
+            writer = csv.DictWriter(Echo(), fieldnames=fieldnames, extrasaction="ignore")
+            yield writer.writeheader()
+            yield writer.writerow({"date": "# 27EQ worksheet aid — not a live IT portal upload", "invoice": ""})
+            for row in rows:
+                yield writer.writerow({k: csv_safe(v) for k, v in row.items()})
+        response = StreamingHttpResponse(stream_tcs(), content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="tcs-27eq-{period}.csv"'
         return response
 
@@ -1242,26 +1332,80 @@ _csv_safe = csv_safe
 
 
 class ExportView(BaseReportView):
-    """CSV export of registers via Report Service (E5.8)."""
+    """CSV and XLSX export of registers via Report Service (E5.8 / FR-019)."""
 
     permission_classes = [IsAuthenticated, HasCompany, CanExport]
     throttle_classes = [CompanyRateThrottle]
     throttle_scope = "heavy_reports"
 
+    def perform_content_negotiation(self, request, force=False):
+        renderers = self.get_renderers()
+        return (renderers[0], renderers[0].media_type)
+
     def get(self, request, report):
         if report not in EXPORTS:
             raise BusinessRuleError(f"Unknown export '{report}'. Available: {', '.join(EXPORTS)}.")
+        # CR-074: cap dated register exports (inventory/party lists have no date span).
+        if report in (
+            "sales-register", "sales", "purchase-register", "purchases",
+        ):
+            assert_report_date_span(
+                _parse_date(request.query_params.get("date_from")),
+                _parse_date(request.query_params.get("date_to")),
+                kind=f"Export '{report}'",
+            )
         rows = EXPORTS[report](self.company, request.query_params)
-        buffer = io.StringIO()
         # BUG-323: a filtered-to-zero-rows export used to produce a
         # completely empty file with no header, which some spreadsheet
         # tools mis-render as a corrupt/blank CSV.
         fieldnames = EXPORT_FIELDS.get(report) or (list(rows[0].keys()) if rows else [])
-        if fieldnames:
-            writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
-            writer.writeheader()
-            for row in rows:
-                writer.writerow({k: _csv_safe(row.get(k)) for k in fieldnames})
-        response = HttpResponse(buffer.getvalue(), content_type="text/csv")
+        fmt = (request.query_params.get("format") or "csv").strip().lower()
+        if fmt in ("xlsx", "excel"):
+            import io
+            import openpyxl
+            from openpyxl.styles import Alignment, Font, PatternFill
+            from django.http import HttpResponse
+
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = report.replace("-", " ").title()[:31]
+
+            header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+            header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+            header_alignment = Alignment(horizontal="center", vertical="center")
+
+            if fieldnames:
+                ws.append(list(fieldnames))
+                for col_num in range(1, len(fieldnames) + 1):
+                    cell = ws.cell(row=1, column=col_num)
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = header_alignment
+
+                for row in rows:
+                    ws.append([_csv_safe(row.get(k)) for k in fieldnames])
+
+                for col in ws.columns:
+                    max_len = max(len(str(cell.value or "")) for cell in col)
+                    col_letter = openpyxl.utils.get_column_letter(col[0].column)
+                    ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 50)
+
+            buf = io.BytesIO()
+            wb.save(buf)
+            buf.seek(0)
+            response = HttpResponse(
+                buf.getvalue(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            response["Content-Disposition"] = f'attachment; filename="{report}.xlsx"'
+            return response
+
+        def stream_export():
+            if fieldnames:
+                writer = csv.DictWriter(Echo(), fieldnames=fieldnames, extrasaction="ignore")
+                yield writer.writeheader()
+                for row in rows:
+                    yield writer.writerow({k: _csv_safe(row.get(k)) for k in fieldnames})
+        response = StreamingHttpResponse(stream_export(), content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="{report}.csv"'
         return response

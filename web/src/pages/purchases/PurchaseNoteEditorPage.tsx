@@ -14,7 +14,7 @@ import Typography from '@mui/material/Typography';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import {
   cancelPurchaseCreditNote,
   cancelPurchaseDebitNote,
@@ -52,6 +52,7 @@ import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
 import { useAuth } from '@/auth/AuthContext';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import { canCancelDocuments, canCreatePurchases } from '@/utils/permissions';
 import type { NoteReason, Product, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, Supplier } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
@@ -308,7 +309,23 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
         doc = isCredit ? await createPurchaseCreditNote(payload) : await createPurchaseDebitNote(payload);
       }
       if (mode === 'complete' && doc.status === 'DRAFT') {
-        doc = isCredit ? await completePurchaseCreditNote(doc.id) : await completePurchaseDebitNote(doc.id);
+        const completedId = doc.id;
+        // CR-129: prompt + retry on purchase note confirm codes (paid invoice,
+        // price override, additional debit) instead of hard-failing at 409.
+        doc = isCredit
+          ? await completeWithConfirms((extra) =>
+              completePurchaseCreditNote(completedId, {
+                idempotencyKey: userGestureIdempotencyKey(),
+                confirmPaidInvoice: extra.confirmPaidInvoice,
+                confirmPriceOverride: extra.confirmPriceOverride,
+              }),
+            )
+          : await completeWithConfirms((extra) =>
+              completePurchaseDebitNote(completedId, {
+                idempotencyKey: userGestureIdempotencyKey(),
+                confirmAdditionalDebit: extra.confirmAdditionalDebit,
+              }),
+            );
       }
       return doc;
     },

@@ -5,6 +5,7 @@ import {
   listDrafts,
   removeDraft,
   setOutboxStorageMode,
+  updateDraft,
 } from './invoiceDraftCache';
 
 describe('invoice outbox v2 (localStorage path)', () => {
@@ -31,6 +32,23 @@ describe('invoice outbox v2 (localStorage path)', () => {
 
     await removeDraft(1, 9, 'key-a');
     expect(await listDrafts(1, 9)).toHaveLength(0);
+  });
+
+  it('updateDraft binds customerId onto an existing POS draft (CR-004)', async () => {
+    await enqueueDraft(1, 2, {
+      kind: 'pos',
+      payload: { pendingCustomerName: 'Ravi Cash' },
+      pendingCustomerName: 'Ravi Cash',
+      idempotencyKey: 'pos-bind',
+    });
+    const updated = await updateDraft(1, 2, 'pos-bind', {
+      customerId: 88,
+      payload: { pendingCustomerName: 'Ravi Cash', customer: 88 },
+    });
+    expect(updated.customerId).toBe(88);
+    expect(updated.payload.customer).toBe(88);
+    const listed = await listDrafts(1, 2);
+    expect(listed.find((d) => d.idempotencyKey === 'pos-bind')?.customerId).toBe(88);
   });
 
   it('persists POS pending customer name and invoice complete intent', async () => {

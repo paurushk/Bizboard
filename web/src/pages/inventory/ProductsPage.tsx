@@ -35,7 +35,8 @@ import { useColumnPrefs, type ColumnSpec } from '@/hooks/useColumnPrefs';
 import { t } from '@/i18n';
 import type { Product } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
-import { canImport, isViewer } from '@/utils/permissions';
+import { ForbiddenPage } from '@/pages/ForbiddenPage';
+import { canAdjustInventory, canImport, canViewInventorySurfaces } from '@/utils/permissions';
 import { productStatusTone, statusLabelKey } from '@/utils/status';
 import { isItemCustomFieldsV2Enabled, isSetupWizardEnabled } from '@/config/features';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -97,7 +98,7 @@ export function ProductsPage() {
   const [exporting, setExporting] = useState(false);
   const [bulkAnchor, setBulkAnchor] = useState<null | HTMLElement>(null);
   const rows = query.data?.results ?? [];
-  const canMutate = !!user && !isViewer(user.role);
+  const canMutate = canAdjustInventory(user);
   const canContinueSetup =
     isSetupWizardEnabled() &&
     user?.role === 'OWNER' &&
@@ -151,6 +152,10 @@ export function ProductsPage() {
       setExporting(false);
     }
   };
+
+  if (!canViewInventorySurfaces(user)) {
+    return <ForbiddenPage />;
+  }
 
   return (
     <Stack spacing={2}>

@@ -202,7 +202,7 @@ def test_feature_flags_endpoint(tenant_a):
     assert resp.data["ENABLE_MANUFACTURING"] is False
     assert resp.data["ENABLE_PAYROLL"] is False
     assert resp.data["ENABLE_CRM"] is True
-    assert resp.data["item_custom_fields_v2"] is True
+    assert resp.data["item_custom_fields_v2"] is False
 
 
 def test_feature_flags_anonymous_ok():

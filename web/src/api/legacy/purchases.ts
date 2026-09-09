@@ -1,6 +1,6 @@
 import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockPurchases } from '@/mocks/data';
-import type { LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchaseReturn, ReportResponse } from '@/types/domain';
+import type { BillOfEntry, LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchaseReturn, ReportResponse } from '@/types/domain';
 import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
 import { mapPreviewTotals, type PreviewTotals } from './sales';
 
@@ -62,6 +62,7 @@ export async function createPurchase(
     tdsSection?: string;
     tdsRate?: number | string;
     tdsAmount?: number | string;
+    billOfEntry?: number | null;
     items: Array<Partial<LineItem>>;
   },
   options?: { idempotencyKey?: string },
@@ -104,6 +105,7 @@ export async function updatePurchase(
     tdsSection?: string;
     tdsRate?: number | string;
     tdsAmount?: number | string;
+    billOfEntry?: number | null;
   },
 ): Promise<PurchaseInvoice> {
   return withMocks(async () => {
@@ -218,6 +220,34 @@ export async function createPurchaseReturn(payload: {
   });
 }
 
+export async function updatePurchaseReturn(
+  id: number,
+  payload: {
+    reason?: string;
+    items?: Array<Partial<LineItem>>;
+  },
+): Promise<PurchaseReturn> {
+  return withMocks(async () => {
+    const { data } = await apiClient.patch(`/purchases/returns/${id}/`, payload);
+    return unwrapData<PurchaseReturn>(data);
+  }, {
+    id,
+    status: 'DRAFT',
+    supplier: 0,
+    purchaseInvoice: 0,
+    returnDate: '',
+    items: (payload.items ?? []) as LineItem[],
+    subtotal: 0,
+    discountTotal: 0,
+    taxableTotal: 0,
+    cgstTotal: 0,
+    sgstTotal: 0,
+    igstTotal: 0,
+    roundOff: 0,
+    grandTotal: 0,
+  });
+}
+
 export async function completePurchaseReturn(id: number, options?: { idempotencyKey?: string }): Promise<PurchaseReturn> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/purchases/returns/${id}/complete/`, undefined, {
@@ -320,9 +350,25 @@ export async function updatePurchaseCreditNote(
   }, { ...(await getPurchaseCreditNote(id)), ...payload } as PurchaseCreditNote);
 }
 
-export async function completePurchaseCreditNote(id: number): Promise<PurchaseCreditNote> {
+export async function completePurchaseCreditNote(
+  id: number,
+  options?: {
+    idempotencyKey?: string;
+    // CR-129: paid-bill / price-override confirms (CamelCaseJSONParser maps to
+    // confirm_paid_invoice / confirm_price_override on the backend).
+    confirmPaidInvoice?: boolean;
+    confirmPriceOverride?: boolean;
+  },
+): Promise<PurchaseCreditNote> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/purchases/credit-notes/${id}/complete/`);
+    const { data } = await apiClient.post(
+      `/purchases/credit-notes/${id}/complete/`,
+      {
+        confirmPaidInvoice: Boolean(options?.confirmPaidInvoice),
+        confirmPriceOverride: Boolean(options?.confirmPriceOverride),
+      },
+      { headers: idempotencyHeaders(options?.idempotencyKey) },
+    );
     return unwrapData<PurchaseCreditNote>(data);
   }, { ...(await getPurchaseCreditNote(id)), status: 'COMPLETED', number: `PCN-${id}` });
 }
@@ -398,9 +444,20 @@ export async function updatePurchaseDebitNote(
   }, { ...(await getPurchaseDebitNote(id)), ...payload } as PurchaseDebitNote);
 }
 
-export async function completePurchaseDebitNote(id: number): Promise<PurchaseDebitNote> {
+export async function completePurchaseDebitNote(
+  id: number,
+  options?: {
+    idempotencyKey?: string;
+    // CR-129: additional-debit confirm (maps to confirm_additional_debit).
+    confirmAdditionalDebit?: boolean;
+  },
+): Promise<PurchaseDebitNote> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/purchases/debit-notes/${id}/complete/`);
+    const { data } = await apiClient.post(
+      `/purchases/debit-notes/${id}/complete/`,
+      { confirmAdditionalDebit: Boolean(options?.confirmAdditionalDebit) },
+      { headers: idempotencyHeaders(options?.idempotencyKey) },
+    );
     return unwrapData<PurchaseDebitNote>(data);
   }, { ...(await getPurchaseDebitNote(id)), status: 'COMPLETED', number: `PDN-${id}` });
 }
@@ -485,6 +542,37 @@ export async function cancelPurchaseOrder(id: number): Promise<PurchaseOrder> {
     const { data } = await apiClient.post(`/purchases/orders/${id}/cancel/`);
     return unwrapData<PurchaseOrder>(data);
   }, { ...(await getPurchaseOrder(id)), status: 'CANCELLED' });
+}
+
+export async function listBillsOfEntryPage(
+  params?: PageParams & { status?: string; supplier?: number | string },
+): Promise<PageResult<BillOfEntry>> {
+  return fetchPage<BillOfEntry>('/purchases/bills-of-entry/', params);
+}
+
+export async function createBillOfEntry(
+  payload: Record<string, unknown>,
+  options?: { idempotencyKey?: string },
+): Promise<BillOfEntry> {
+  const { data } = await apiClient.post('/purchases/bills-of-entry/', payload, {
+    headers: idempotencyHeaders(options?.idempotencyKey),
+  });
+  return unwrapData<BillOfEntry>(data);
+}
+
+export async function completeBillOfEntry(
+  id: number,
+  options?: { idempotencyKey?: string },
+): Promise<BillOfEntry> {
+  const { data } = await apiClient.post(`/purchases/bills-of-entry/${id}/complete/`, {}, {
+    headers: idempotencyHeaders(options?.idempotencyKey),
+  });
+  return unwrapData<BillOfEntry>(data);
+}
+
+export async function cancelBillOfEntry(id: number): Promise<BillOfEntry> {
+  const { data } = await apiClient.post(`/purchases/bills-of-entry/${id}/cancel/`);
+  return unwrapData<BillOfEntry>(data);
 }
 
 // ---- Phases 3–5: payments, inventory, accounting ----

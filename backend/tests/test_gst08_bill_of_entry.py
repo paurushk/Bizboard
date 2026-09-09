@@ -146,3 +146,56 @@ def test_boe_cancel_reverses_gl(tenant_a):
     ).exists()
     b3 = build_gstr3b(tenant_a.company, PERIOD)
     assert b3["itc"]["import_itc"]["igst"] == "0.00"
+
+
+def test_r024_import_complete_requires_this_invoice_boe(tenant_a):
+    """R-024: PI Complete needs THIS invoice's completed BoE, not any supplier BoE."""
+    from tests.conftest import create_draft_purchase, make_product, make_supplier
+
+    product = make_product(tenant_a.company, sku="IMP-1")
+    foreign = make_supplier(
+        tenant_a.company, name="HK Exports", state="Hong Kong", gstin="",
+    )
+    items = [{"product": product.id, "quantity": 1, "unit_price": "100"}]
+
+    gst_draft = create_draft_purchase(tenant_a, foreign, items, purchase_type="GST")
+    gst_blocked = tenant_a.client.post(f"/api/v1/purchases/invoices/{gst_draft['id']}/complete/")
+    assert gst_blocked.status_code == 400, gst_blocked.data
+    assert "bill of entry" in str(gst_blocked.data).lower()
+    assert "/purchases/bills-of-entry" in str(gst_blocked.data)
+
+    stale = BillOfEntry.objects.create(
+        company=tenant_a.company,
+        supplier=foreign,
+        boe_number="BOE-STALE",
+        boe_date=f"{PERIOD}-01",
+        igst_amount=Decimal("1800.00"),
+    )
+    stale_done = tenant_a.client.post(f"/api/v1/purchases/bills-of-entry/{stale.id}/complete/")
+    assert stale_done.status_code == 200, stale_done.data
+
+    nongst = create_draft_purchase(tenant_a, foreign, items, purchase_type="NON_GST")
+    stale_unlock = tenant_a.client.post(f"/api/v1/purchases/invoices/{nongst['id']}/complete/")
+    assert stale_unlock.status_code == 400, stale_unlock.data
+    assert "/purchases/bills-of-entry" in str(stale_unlock.data)
+
+    this_boe = BillOfEntry.objects.create(
+        company=tenant_a.company,
+        supplier=foreign,
+        boe_number="BOE-THIS",
+        boe_date=f"{PERIOD}-10",
+        igst_amount=Decimal("1800.00"),
+    )
+    this_done = tenant_a.client.post(f"/api/v1/purchases/bills-of-entry/{this_boe.id}/complete/")
+    assert this_done.status_code == 200, this_done.data
+
+    linked = tenant_a.client.patch(
+        f"/api/v1/purchases/invoices/{nongst['id']}/",
+        {"bill_of_entry": this_boe.id},
+        format="json",
+    )
+    assert linked.status_code == 200, linked.data
+    done = tenant_a.client.post(f"/api/v1/purchases/invoices/{nongst['id']}/complete/")
+    assert done.status_code == 200, done.data
+    assert done.data["status"] == "COMPLETED"
+    assert done.data["bill_of_entry"] == this_boe.id

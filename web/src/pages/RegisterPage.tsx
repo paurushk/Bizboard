@@ -65,11 +65,10 @@ export function RegisterPage() {
       setIsSubmitting(true);
       setError(null);
       try {
-        const result = await registerUser({ ...values, password });
+        await registerUser({ ...values, password });
+        // R-068: register never issues a session — send the operator to sign in.
         navigate(
-          result === 'pending'
-            ? `/login?registered=pending&email=${encodeURIComponent(values.email)}`
-            : '/',
+          `/login?registered=1&email=${encodeURIComponent(values.email)}`,
           { replace: true, state: { email: values.email } },
         );
       } catch (err) {

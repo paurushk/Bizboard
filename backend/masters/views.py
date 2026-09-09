@@ -249,9 +249,14 @@ class SupplierViewSet(CompanyScopedViewSet):
         return Response(self.get_serializer(supplier).data)
 
 
-class ProductViewSet(CompanyScopedViewSet):
+class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
     queryset = Product.objects.select_related("category", "brand", "unit")
     serializer_class = ProductSerializer
+    list_cache_kind = "products"
+
+    def _bust_list_cache(self):
+        super()._bust_list_cache()
+        cache.delete(f"masters:hsn:{self.company.pk}")
 
     def get_permissions(self):
         if getattr(self, "action", None) in _MUTATE_ACTIONS:
@@ -283,6 +288,18 @@ class ProductViewSet(CompanyScopedViewSet):
             )
         qs = apply_cf_filters(qs, self.request.query_params, defs)
         return qs
+
+    def list(self, request, *args, **kwargs):
+        # Cache the unfiltered catalog; filtered lists stay live.
+        if request.query_params:
+            return super().list(request, *args, **kwargs)
+        key = f"masters:products:{self.company.pk}"
+        cached = cache.get(key)
+        if cached is not None:
+            return Response(cached)
+        response = super().list(request, *args, **kwargs)
+        cache.set(key, response.data, _MASTERS_LIST_TTL)
+        return response
 
     def perform_destroy(self, instance):
         from django.db.models import ProtectedError
@@ -340,6 +357,7 @@ class ProductViewSet(CompanyScopedViewSet):
                     product.barcode = candidate
                     product.updated_by = request.user
                     product.save(update_fields=["barcode", "updated_by"])
+                    self._bust_list_cache()
                     return Response({**self.get_serializer(product).data, "svg": _barcode_svg(candidate)})
                 return Response({"barcode": candidate, "svg": _barcode_svg(candidate)})
         raise BusinessRuleError("Could not generate a unique barcode. Retry.")
@@ -370,6 +388,7 @@ class ProductViewSet(CompanyScopedViewSet):
             product.updated_by = request.user
             product.save(update_fields=["status", "updated_by"])
             self._audit("UPDATE", product)
+            self._bust_list_cache()
             return Response(
                 {"detail": "Product is referenced by documents; marked Inactive instead of deleting."},
                 status=200,
@@ -381,6 +400,7 @@ class ProductViewSet(CompanyScopedViewSet):
             product.updated_by = request.user
             product.save(update_fields=["status", "updated_by"])
             self._audit("UPDATE", product)
+            self._bust_list_cache()
             return Response(
                 {"detail": "Product is protected by database constraints; marked Inactive instead of deleting."},
                 status=200,

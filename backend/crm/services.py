@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 
-from accounts.otp_utils import phone_lookup_values
+from accounts.otp_utils import canonicalize_user_phone, phone_lookup_values
 from core.exceptions import BusinessRuleError
 from masters.models import Customer
 
@@ -115,10 +115,14 @@ def convert_lead(
                 )
             gstin = getattr(lead, "gstin", "") or ""
             address = getattr(lead, "address", "") or ""
+            try:
+                phone = canonicalize_user_phone(lead.phone or "")
+            except ValueError:
+                phone = (lead.phone or "").strip()
             customer = Customer.objects.create(
                 company=lead.company,
                 name=lead.name,
-                phone=lead.phone or "",
+                phone=phone,
                 email=lead.email or "",
                 state=state,
                 gstin=gstin,

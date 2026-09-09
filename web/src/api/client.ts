@@ -54,6 +54,12 @@ function readCsrfToken(): string | null {
 
 let csrfPromise: Promise<void> | null = null;
 
+/** Shared copy so `isNetworkError` can treat CSRF-block as outbox-queueable. */
+const CSRF_UNAVAILABLE_MESSAGE =
+  'CSRF token is unavailable. If the app and API are on different domains, ' +
+  'your browser may be blocking third-party cookies — host them on the same ' +
+  'site, or refresh the page and try again.';
+
 // BB-000751: independent callers (request interceptor per unsafe method,
 // AuthContext boot, the refresh flow) used to race this on a fresh page load,
 // each seeing no cookie yet and firing its own GET — dedup to one in flight.
@@ -74,11 +80,7 @@ export async function ensureCsrfCookie(force = false): Promise<void> {
   }
   await csrfPromise;
   if (!readCsrfToken()) {
-    throw new Error(
-      'CSRF token is unavailable. If the app and API are on different domains, ' +
-        'your browser may be blocking third-party cookies — host them on the same ' +
-        'site, or refresh the page and try again.',
-    );
+    throw new Error(CSRF_UNAVAILABLE_MESSAGE);
   }
 }
 
@@ -98,20 +100,17 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
   const method = (config.method || 'get').toUpperCase();
   if (!['GET', 'HEAD', 'OPTIONS', 'TRACE'].includes(method)) {
     try {
-      try {
-        await ensureCsrfCookie();
-      } catch {
-        await ensureCsrfCookie(true);
-      }
-    } catch (err) {
-      // F1-006: when the /auth/csrf/ GET itself fails on the network (offline,
-      // or a flaky connection), don't reject the real request here with a
-      // confusing CSRF wall-of-text. Let it go out header-less — the server
-      // 403 is then handled by the response interceptor's CSRF auto-retry, or
-      // the offline queue classifies it as a network failure.
-      if (!isNetworkError(err)) throw err;
+      await ensureCsrfCookie();
+    } catch {
+      await ensureCsrfCookie(true);
     }
+    // R-046: never send a mutate without the CSRF header. A header-less POST
+    // 403s and is not a network error, so outbox callers would drop the draft.
+    // Reject here so `isNetworkError` / offline pages can queue instead.
     applyCsrfHeader(config);
+    if (!readCsrfToken()) {
+      throw new Error(CSRF_UNAVAILABLE_MESSAGE);
+    }
   }
   const companyId = readActiveCompanyId();
   if (companyId) {
@@ -179,40 +178,102 @@ function isAuthCredentialUrl(url?: string): boolean {
 let lastRefreshSuccessTime = 0;
 const MIN_REFRESH_INTERVAL_MS = 5000;
 
+/** Test-only: drop in-memory CSRF / refresh bookkeeping between cases. */
+export function resetApiClientTestState(): void {
+  csrfTokenFromBody = null;
+  csrfPromise = null;
+  refreshPromise = null;
+  lastRefreshSuccessTime = 0;
+  activeRefreshNotifyOnFailure = false;
+}
+
+function refreshFailureStatus(err: unknown): number | undefined {
+  if (axios.isAxiosError(err)) return err.response?.status;
+  if (err && typeof err === 'object' && 'response' in err) {
+    return (err as { response?: { status?: number } }).response?.status;
+  }
+  return undefined;
+}
+
+function refreshFailureBlob(err: unknown): string {
+  let data: unknown;
+  if (axios.isAxiosError(err)) data = err.response?.data;
+  else if (err && typeof err === 'object' && 'response' in err) {
+    data = (err as { response?: { data?: unknown } }).response?.data;
+  }
+  const message = err instanceof Error ? err.message : '';
+  if (data && typeof data === 'object') {
+    const rec = data as {
+      error?: { code?: string; message?: string };
+      code?: string;
+      detail?: string;
+      message?: string;
+    };
+    return [
+      rec.error?.code,
+      rec.error?.message,
+      rec.code,
+      rec.detail,
+      rec.message,
+      JSON.stringify(data),
+      message,
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+  if (typeof data === 'string') return `${data} ${message}`;
+  return message;
+}
+
+const INVALID_REFRESH_TOKEN_RE =
+  /token_not_valid|invalid[_-]?token|invalid refresh token|token is invalid|token expired|token_expired/i;
+
+/** R-045: logout only when refresh says the token is actually invalid. */
+function isInvalidRefreshTokenError(err: unknown): boolean {
+  return refreshFailureStatus(err) === 401 && INVALID_REFRESH_TOKEN_RE.test(refreshFailureBlob(err));
+}
+
+function expireSessionOnInvalidRefresh(opts?: { notifyOnFailure?: boolean }): void {
+  clearTokens();
+  if (opts?.notifyOnFailure !== false || activeRefreshNotifyOnFailure) {
+    window.dispatchEvent(new Event('bizboard:session-expired'));
+  }
+}
+
+async function postRefresh(): Promise<string | null> {
+  await ensureCsrfCookie();
+  const csrf = readCsrfToken();
+  const { data, status } = await axios.post(
+    `${baseURL}/auth/refresh/`,
+    {},
+    {
+      withCredentials: true,
+      timeout: 15000,
+      headers: csrf ? { 'X-CSRFToken': csrf } : undefined,
+    },
+  );
+  if (status >= 200 && status < 300) {
+    lastRefreshSuccessTime = Date.now();
+    const access = data?.data?.access ?? data?.access;
+    const token = typeof access === 'string' && access ? access : 'cookie';
+    setAccessToken(token);
+    return token;
+  }
+  return null;
+}
+
 async function doRefresh(opts?: { notifyOnFailure?: boolean }): Promise<string | null> {
   try {
-    await ensureCsrfCookie();
-    const csrf = readCsrfToken();
-    const { data, status } = await axios.post(
-      `${baseURL}/auth/refresh/`,
-      {},
-      {
-        withCredentials: true,
-        timeout: 15000,
-        headers: csrf ? { 'X-CSRFToken': csrf } : undefined,
-      },
-    );
-    if (status >= 200 && status < 300) {
-      lastRefreshSuccessTime = Date.now();
-      const access = data?.data?.access ?? data?.access;
-      const token = typeof access === 'string' && access ? access : 'cookie';
-      setAccessToken(token);
-      return token;
+    try {
+      return await postRefresh();
+    } catch (err) {
+      // R-045: one retry on a transient 4G / timeout — do not clear session.
+      if (!isNetworkError(err)) throw err;
+      return await postRefresh();
     }
-    return null;
   } catch (err) {
-    // BUG-407: only treat HTTP 401/403 from refresh as a real session expiry.
-    // Transient network (no response) must not log the user out.
-    const status = axios.isAxiosError(err)
-      ? err.response?.status
-      : err && typeof err === 'object' && 'response' in err
-        ? (err as { response?: { status?: number } }).response?.status
-        : undefined;
-    if (status === 401 || status === 403) {
-      clearTokens();
-      if (opts?.notifyOnFailure !== false || activeRefreshNotifyOnFailure) {
-        window.dispatchEvent(new Event('bizboard:session-expired'));
-      }
+    if (isInvalidRefreshTokenError(err)) {
+      expireSessionOnInvalidRefresh(opts);
     }
     return null;
   }
@@ -316,6 +377,11 @@ export function unwrapData<T>(payload: unknown): T {
 }
 
 export function isNetworkError(error: unknown): boolean {
+  // R-046: CSRF preflight reject must queue like a network blip — callers use
+  // this helper to enqueue instead of dropping the draft or posting header-less.
+  if (error instanceof Error && error.message === CSRF_UNAVAILABLE_MESSAGE) {
+    return true;
+  }
   if (!axios.isAxiosError(error)) return false;
   return !error.response || error.code === 'ERR_NETWORK' || error.message === 'Network Error';
 }

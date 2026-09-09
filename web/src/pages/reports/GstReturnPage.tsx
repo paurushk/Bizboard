@@ -7,9 +7,19 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { downloadGstCaPack, downloadGstReturn, getGstReturn, listCompanyGstins } from '@/api/resources';
+import {
+  downloadGstCaPack,
+  downloadGstReturn,
+  getCmp08,
+  getCompany,
+  getGstReturn,
+  getGstr4,
+  listCompanyGstins,
+} from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { GstHonestyHeader } from '@/components/GstHonestyHeader';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { formatMoney, toNumber } from '@/utils/money';
@@ -22,6 +32,13 @@ function currentPeriod(): string {
   const now = new Date();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   return `${now.getFullYear()}-${month}`;
+}
+
+function defaultFy(): string {
+  const now = new Date();
+  const year = now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1;
+  const end = String((year + 1) % 100).padStart(2, '0');
+  return `${year}-${end}`;
 }
 
 function downloadBlobUrl(url: string, filename: string) {
@@ -43,12 +60,52 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function isCompositionUnavailableError(message: string): boolean {
-  const m = message.toLowerCase();
+function isProvisionalOrNo2b(basis: string, itcProvisional?: boolean): boolean {
+  if (itcProvisional) return true;
+  const b = basis.toLowerCase();
+  if (!b) return true;
+  if (b.includes('provisional')) return true;
+  if (!b.includes('2b')) return true;
+  return false;
+}
+
+function CompositionAidsAlert() {
   return (
-    m.includes('composition') ||
-    m.includes('cmp-08') ||
-    m.includes('not available')
+    <Alert
+      severity="warning"
+      action={
+        <Stack direction="row" spacing={1}>
+          <Button color="inherit" size="small" component={RouterLink} to="/reports/cmp08">
+            {t('gstHonesty.openCmp08')}
+          </Button>
+          <Button color="inherit" size="small" component={RouterLink} to="/reports/gstr4">
+            {t('gstHonesty.openGstr4')}
+          </Button>
+        </Stack>
+      }
+    >
+      {t('gstHonesty.compositionUseAids')}
+    </Alert>
+  );
+}
+
+function CompositionOnlyAlert() {
+  return (
+    <Alert
+      severity="info"
+      action={
+        <Stack direction="row" spacing={1}>
+          <Button color="inherit" size="small" component={RouterLink} to="/reports/gstr1">
+            {t('nav.gstr1')}
+          </Button>
+          <Button color="inherit" size="small" component={RouterLink} to="/reports/gstr3b">
+            {t('nav.gstr3b')}
+          </Button>
+        </Stack>
+      }
+    >
+      {t('gstHonesty.compositionOnly')}
+    </Alert>
   );
 }
 
@@ -59,10 +116,17 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
   const [companyGstin, setCompanyGstin] = useState<string>('');
   const title = kind === 'gstr1' ? t('nav.gstr1') : t('nav.gstr3b');
   const gstins = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
+  const companyQuery = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  const registrationType =
+    companyQuery.data?.registrationType ?? user?.company?.registrationType;
+  const isComposition = registrationType === 'COMPOSITION';
+  const registrationReady =
+    companyQuery.isSuccess || companyQuery.isError || Boolean(user?.company);
 
   const query = useQuery({
     queryKey: ['gst-return', kind, period, companyGstin],
     queryFn: () => getGstReturn(kind, { period, companyGstin: companyGstin || undefined }),
+    enabled: registrationReady && !isComposition,
   });
 
   const exportMutation = useMutation({
@@ -87,7 +151,6 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
 
   const issues = (query.data?.issues as Array<{ code?: string; message?: string; number?: string }> | undefined) ?? [];
   const queryErrorMessage = query.isError ? getErrorMessage(query.error) : '';
-  const compositionBlocked = query.isError && isCompositionUnavailableError(queryErrorMessage);
 
   const outward = useMemo(() => {
     if (!query.data) return null;
@@ -142,7 +205,7 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
               </TextField>
               <Button
                 variant="outlined"
-                disabled={exportMutation.isPending}
+                disabled={exportMutation.isPending || isComposition}
                 onClick={() => exportMutation.mutate()}
               >
                 {t('common.export')}
@@ -159,16 +222,8 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
         </Stack>
       </Stack>
 
-      <Alert severity="info">{t('reports.gstOfflineDisclaimer')}</Alert>
+      <GstHonestyHeader />
       {kind === 'gstr1' ? <Alert severity="warning">{t('reports.supecomWarning')}</Alert> : null}
-      {kind === 'gstr3b' && (query.data?.itc as { provisional?: boolean; disclaimer?: string } | undefined)?.provisional ? (
-        <Alert severity="warning">
-          {String(
-            (query.data!.itc as { disclaimer?: string }).disclaimer
-              ?? t('reports.itcProvisionalBanner'),
-          )}
-        </Alert>
-      ) : null}
       {issues.length > 0 ? (
         <Alert severity="warning">
           {t('reports.issuesStrip')}: {issues.length}
@@ -189,18 +244,15 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
       {caPackMutation.isError ? (
         <HelpErrorAlert error={caPackMutation.error} />
       ) : null}
-      {compositionBlocked ? (
-        <Alert severity="warning">
-          Composition dealers cannot use GSTR-1 / GSTR-3B return aids in BizBoard. Use the CMP-08 and
-          GSTR-4 worksheet aids, then file on the GST portal or with your CA.
-        </Alert>
+      {isComposition ? <CompositionAidsAlert /> : null}
+      {(!registrationReady && companyQuery.isLoading) || (query.isLoading && !isComposition) ? (
+        <LoadingState />
       ) : null}
-      {query.isLoading ? <LoadingState /> : null}
-      {query.isError && !compositionBlocked ? (
+      {query.isError && !isComposition ? (
         <ErrorState message={queryErrorMessage} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
 
-      {query.data && outward ? (
+      {query.data && outward && !isComposition ? (
         <Paper sx={{ p: 2 }}>
           <Stack spacing={2}>
             {kind === 'gstr3b' ? (
@@ -234,39 +286,37 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
                   | undefined;
                 const netRaw =
                   beNet != null ? toNumber(beNet) : totalTaxLiability - totalItc;
-                const netGstPayable = Math.max(0, netRaw);
+                const worksheetNet = Math.max(0, netRaw);
                 const creditCarryForward = netRaw < 0 ? -netRaw : 0;
+                const basis = String(rec?.basis ?? itcData.basis ?? '');
+                const itcMeta = query.data?.itc as { provisional?: boolean } | undefined;
+                const showProvisional = isProvisionalOrNo2b(basis, itcMeta?.provisional);
 
                 return (
-                  <Paper
-                    variant="outlined"
-                    sx={{
-                      p: 2,
-                      bgcolor: 'primary.50',
-                      borderColor: 'primary.main',
-                      borderRadius: 1,
-                    }}
-                  >
-                    <Typography variant="subtitle1" fontWeight={700} color="primary.main">
-                      {t('billing.netGstPayable')}
+                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
+                    <Typography variant="subtitle1" fontWeight={700}>
+                      {t('gstHonesty.worksheetNet')}
                     </Typography>
-                    <Typography variant="h4" fontWeight={700} sx={{ my: 1, color: netGstPayable > 0 ? 'error.main' : 'success.main' }}>
-                      {formatMoney(netGstPayable)}
+                    {showProvisional ? (
+                      <Alert severity="warning" sx={{ mt: 1 }}>
+                        {t('gstHonesty.provisionalNo2b')}
+                      </Alert>
+                    ) : null}
+                    <Typography variant="h4" fontWeight={700} sx={{ my: 1 }}>
+                      {formatMoney(worksheetNet)}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Tax collected on Sales ({formatMoney(totalTaxLiability)}) − ITC from Purchases ({formatMoney(totalItc)})
+                      {t('gstHonesty.booksAidNotChallan')}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      {t('gstHonesty.taxMinusItc', {
+                        tax: formatMoney(totalTaxLiability),
+                        itc: formatMoney(totalItc),
+                      })}
                     </Typography>
                     {creditCarryForward > 0 ? (
-                      <Typography variant="body2" color="success.main" fontWeight={600} sx={{ mt: 0.5 }}>
-                        ITC credit carried forward: {formatMoney(creditCarryForward)}
-                      </Typography>
-                    ) : null}
-                    {rec ? (
-                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-                        ITC basis: {String(rec.basis ?? 'books')}
-                        {String(rec.basis ?? '') === 'min(books, gstr2b_matched)'
-                          ? ' — the lower of your books and GSTR-2B matched'
-                          : ' — provisional until GSTR-2B match'}
+                      <Typography variant="body2" color="text.secondary" fontWeight={600} sx={{ mt: 0.5 }}>
+                        {t('gstHonesty.itcCreditCarry', { amount: formatMoney(creditCarryForward) })}
                       </Typography>
                     ) : null}
                   </Paper>
@@ -333,26 +383,13 @@ export function Gstr3bReportPage() {
   return <GstReturnPage kind="gstr3b" />;
 }
 
-// F3-008: this was a full nav destination with a working-looking period
-// picker and a raw-JSON `<details>` dump for a return type that does
-// nothing -- for gstr4/cmp08 the query wasn't even wired (enabled: false),
-// so it was a warning banner and a date field. Replaced with a single,
-// unmistakable "not available yet" state and a link to file directly on
-// the GST portal, matching the review's fix -- no period picker, no dump.
-function GstStubPage({ kind }: { kind: 'gstr4' | 'cmp08' | 'gstr6' | 'gstr7' | 'gstr8' }) {
+function GstStubPage({ kind }: { kind: 'gstr6' | 'gstr7' | 'gstr8' }) {
   const title =
-    kind === 'gstr4'
-      ? t('nav.gstr4')
-      : kind === 'cmp08'
-        ? t('nav.cmp08')
-        : kind === 'gstr6'
-          ? t('nav.gstr6')
-          : kind === 'gstr7'
-            ? t('nav.gstr7')
-            : t('nav.gstr8');
+    kind === 'gstr6' ? t('nav.gstr6') : kind === 'gstr7' ? t('nav.gstr7') : t('nav.gstr8');
   return (
     <Stack spacing={2} alignItems="center" sx={{ textAlign: 'center', py: 8, maxWidth: 480, mx: 'auto' }}>
       <Typography variant="h4">{title}</Typography>
+      <GstHonestyHeader />
       <Alert severity="warning" sx={{ width: '100%', textAlign: 'left' }}>
         <Typography fontWeight={600}>{t('gstHonesty.stubTitle')}</Typography>
         <Typography variant="body2">{t('gstHonesty.stubBody')}</Typography>
@@ -370,12 +407,153 @@ function GstStubPage({ kind }: { kind: 'gstr4' | 'cmp08' | 'gstr6' | 'gstr7' | '
   );
 }
 
+function Cmp08WorksheetPage() {
+  const [period, setPeriod] = useState(currentPeriod());
+  const { user } = useAuth();
+  const companyQuery = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  const isComposition =
+    (companyQuery.data?.registrationType ?? user?.company?.registrationType) === 'COMPOSITION';
+  const query = useQuery({
+    queryKey: ['cmp08', period],
+    queryFn: () => getCmp08({ period }),
+    enabled: isComposition,
+  });
+
+  return (
+    <Stack spacing={2}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+        <Typography variant="h4">{t('nav.cmp08')}</Typography>
+        <TextField
+          type="month"
+          size="small"
+          label={t('reports.period')}
+          InputLabelProps={{ shrink: true }}
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+          disabled={!isComposition}
+        />
+      </Stack>
+      <GstHonestyHeader />
+      {companyQuery.isLoading ? <LoadingState /> : null}
+      {companyQuery.isSuccess && !isComposition ? <CompositionOnlyAlert /> : null}
+      {isComposition && query.isLoading ? <LoadingState /> : null}
+      {isComposition && query.isError ? (
+        <ErrorState
+          message={getErrorMessage(query.error)}
+          error={query.error}
+          onRetry={() => void query.refetch()}
+        />
+      ) : null}
+      {isComposition && query.data ? (
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Stack spacing={1.5}>
+            {query.data.disclaimer ? (
+              <Alert severity="info">{String(query.data.disclaimer)}</Alert>
+            ) : null}
+            <Typography variant="body2" color="text.secondary">
+              {t('gstHonesty.booksAidNotChallan')}
+            </Typography>
+            <SummaryRow
+              label={t('gstHonesty.cmp08Table1')}
+              value={formatMoney(String(query.data.table_1_outward_taxable ?? query.data.outward_taxable ?? '0'))}
+            />
+            <SummaryRow
+              label={t('gstHonesty.cmp08Table2Taxable')}
+              value={formatMoney(String(query.data.table_2_inward_rcm_taxable ?? '0'))}
+            />
+            <SummaryRow
+              label={t('gstHonesty.cmp08Table2Tax')}
+              value={formatMoney(String(query.data.table_2_inward_rcm_tax ?? '0'))}
+            />
+            <SummaryRow
+              label={t('gstHonesty.cmp08Table3')}
+              value={formatMoney(String(query.data.table_3_tax_payable ?? '0'))}
+            />
+            <SummaryRow
+              label={t('gstHonesty.compositionRate')}
+              value={String(query.data.composition_rate ?? '')}
+            />
+          </Stack>
+        </Paper>
+      ) : null}
+    </Stack>
+  );
+}
+
+function Gstr4WorksheetPage() {
+  const [fy, setFy] = useState(defaultFy());
+  const { user } = useAuth();
+  const companyQuery = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  const isComposition =
+    (companyQuery.data?.registrationType ?? user?.company?.registrationType) === 'COMPOSITION';
+  const query = useQuery({
+    queryKey: ['gstr4', fy],
+    queryFn: () => getGstr4({ fy }),
+    enabled: isComposition,
+  });
+  const tables = (query.data?.tables ?? {}) as Record<string, { note?: string } | string>;
+
+  return (
+    <Stack spacing={2}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+        <Typography variant="h4">{t('nav.gstr4')}</Typography>
+        <TextField
+          size="small"
+          label={t('reports.fy')}
+          value={fy}
+          onChange={(e) => setFy(e.target.value)}
+          helperText="e.g. 2025-26"
+          disabled={!isComposition}
+        />
+      </Stack>
+      <GstHonestyHeader />
+      {companyQuery.isLoading ? <LoadingState /> : null}
+      {companyQuery.isSuccess && !isComposition ? <CompositionOnlyAlert /> : null}
+      {isComposition && query.isLoading ? <LoadingState /> : null}
+      {isComposition && query.isError ? (
+        <ErrorState
+          message={getErrorMessage(query.error)}
+          error={query.error}
+          onRetry={() => void query.refetch()}
+        />
+      ) : null}
+      {isComposition && query.data ? (
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Stack spacing={1.5}>
+            {query.data.disclaimer ? (
+              <Alert severity="info">{String(query.data.disclaimer)}</Alert>
+            ) : null}
+            {query.data.supported === false ? (
+              <Alert severity="warning">
+                <Typography fontWeight={600}>{t('gstHonesty.stubTitle')}</Typography>
+                <Typography variant="body2">{t('gstHonesty.stubBody')}</Typography>
+              </Alert>
+            ) : null}
+            <Typography variant="body2" color="text.secondary">
+              {t('gstHonesty.booksAidNotChallan')}
+            </Typography>
+            {Object.entries(tables).map(([key, value]) => {
+              const note = typeof value === 'string' ? value : value?.note;
+              if (!note) return null;
+              return (
+                <Typography key={key} variant="body2">
+                  {key}: {note}
+                </Typography>
+              );
+            })}
+          </Stack>
+        </Paper>
+      ) : null}
+    </Stack>
+  );
+}
+
 export function Gstr4ReportPage() {
-  return <GstStubPage kind="gstr4" />;
+  return <Gstr4WorksheetPage />;
 }
 
 export function Cmp08ReportPage() {
-  return <GstStubPage kind="cmp08" />;
+  return <Cmp08WorksheetPage />;
 }
 
 export function Gstr6ReportPage() {

@@ -12,8 +12,9 @@ import csv
 import hashlib
 import io
 import json
+import logging
 import zipfile
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -25,6 +26,8 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 EXPORT_VERSION = 1
 SMALL_FILE_MAX_BYTES = 256 * 1024
@@ -44,7 +47,88 @@ COMPANY_SKIP_FIELDS = frozenset(
         "pan_raw_payload",
         "udyam_raw_payload",
         "billing_override_active",
+        "is_sandbox",
+        "sandbox_expires_at",
     }
+)
+
+SANDBOX_TTL_DAYS = 30
+SANDBOX_NAME_PREFIX = "[sandbox] "
+JSON_SECTIONS = (
+    "company",
+    "gstins",
+    "document_series",
+    "warehouses",
+    "customers",
+    "suppliers",
+    "products",
+    "batch_lots",
+    "stock_balances",
+    "stock_movements",
+    "serial_numbers",
+    "inventory_cost_layers",
+    "sales_invoices",
+    "sales_items",
+    "quotations",
+    "quotation_items",
+    "sales_orders",
+    "sales_order_items",
+    "delivery_challans",
+    "delivery_challan_items",
+    "purchase_invoices",
+    "purchase_items",
+    "receipts",
+    "supplier_payments",
+    "allocations",
+    "accounts",
+    "journals",
+    "journal_lines",
+    "gstr2b",
+    "file_assets",
+    # R-014: every wipe target so restore/unbacked_live_counts stay honest.
+    "bank_accounts",
+    "leads",
+    "lead_activities",
+    "opportunities",
+    "employees",
+    "pay_runs",
+    "pay_slips",
+    "payment_links",
+    "gateway_payments",
+    "gateway_refund_outbox",
+    "dunning_reminders",
+    "bank_statements",
+    "bank_statement_lines",
+    "bank_recon_sessions",
+    "recon_matches",
+    "sales_credit_notes",
+    "sales_credit_note_items",
+    "sales_debit_notes",
+    "sales_debit_note_items",
+    "sales_returns",
+    "sales_return_items",
+    "purchase_orders",
+    "purchase_order_items",
+    "purchase_credit_notes",
+    "purchase_debit_notes",
+    "purchase_returns",
+    "purchase_return_items",
+    "bills_of_entry",
+    "recurring_schedules",
+    "recurring_runs",
+    "fixed_assets",
+    "boms",
+    "bom_lines",
+    "work_orders",
+    "work_order_lines",
+    "stock_transfers",
+    "stock_transfer_lines",
+    "stock_count_sessions",
+    "warehouse_reorder_levels",
+    "inventory_running_costs",
+    "inventory_valuation_snapshots",
+    "import_jobs",
+    "ims_action_history",
 )
 
 
@@ -116,6 +200,145 @@ def _row_dict(instance, *, extra_exclude: set[str] | frozenset[str] = frozenset(
 
 def _rows(qs, *, extra_exclude: set[str] | frozenset[str] = frozenset()) -> list[dict]:
     return [_row_dict(obj, extra_exclude=extra_exclude) for obj in qs.iterator()]
+
+
+def _optional_rows(model, company, *, extra_exclude: set[str] | frozenset[str] = frozenset()) -> list[dict]:
+    try:
+        return _rows(model.objects.filter(company=company).order_by("id"), extra_exclude=extra_exclude)
+    except Exception:  # noqa: BLE001 — optional apps / missing tables
+        return []
+
+
+def _wipe_target_sections(company) -> dict[str, list[dict]]:
+    """Serialize every wipe-target table that the core payload does not already cover."""
+    extra: dict[str, list[dict]] = {}
+    try:
+        from payments.models import (
+            BankAccount,
+            BankStatement,
+            BankStatementLine,
+            DunningReminder,
+            GatewayPayment,
+            GatewayRefundOutbox,
+            PaymentLink,
+            ReconMatch,
+        )
+
+        extra["bank_accounts"] = _optional_rows(BankAccount, company)
+        extra["payment_links"] = _optional_rows(PaymentLink, company)
+        extra["gateway_payments"] = _optional_rows(GatewayPayment, company)
+        extra["gateway_refund_outbox"] = _optional_rows(GatewayRefundOutbox, company)
+        extra["dunning_reminders"] = _optional_rows(DunningReminder, company)
+        extra["bank_statements"] = _optional_rows(BankStatement, company)
+        extra["bank_statement_lines"] = _optional_rows(BankStatementLine, company)
+        extra["recon_matches"] = _optional_rows(ReconMatch, company)
+    except Exception:
+        pass
+    try:
+        from accounting.models import BankReconSession, FixedAsset
+
+        extra["bank_recon_sessions"] = _optional_rows(BankReconSession, company)
+        extra["fixed_assets"] = _optional_rows(FixedAsset, company)
+    except Exception:
+        pass
+    try:
+        from crm.models import Lead, LeadActivity, Opportunity
+
+        extra["leads"] = _optional_rows(Lead, company)
+        extra["lead_activities"] = _optional_rows(LeadActivity, company)
+        extra["opportunities"] = _optional_rows(Opportunity, company)
+    except Exception:
+        pass
+    try:
+        from payroll.models import Employee, PayRun, PaySlip
+
+        extra["employees"] = _optional_rows(Employee, company)
+        extra["pay_runs"] = _optional_rows(PayRun, company)
+        extra["pay_slips"] = _optional_rows(PaySlip, company)
+    except Exception:
+        pass
+    try:
+        from sales.models import (
+            RecurringInvoiceRun,
+            RecurringInvoiceSchedule,
+            SalesCreditNote,
+            SalesCreditNoteItem,
+            SalesDebitNote,
+            SalesDebitNoteItem,
+            SalesReturn,
+            SalesReturnItem,
+        )
+
+        extra["recurring_schedules"] = _optional_rows(RecurringInvoiceSchedule, company)
+        extra["recurring_runs"] = _optional_rows(RecurringInvoiceRun, company)
+        extra["sales_credit_notes"] = _optional_rows(SalesCreditNote, company)
+        extra["sales_credit_note_items"] = _optional_rows(SalesCreditNoteItem, company)
+        extra["sales_debit_notes"] = _optional_rows(SalesDebitNote, company)
+        extra["sales_debit_note_items"] = _optional_rows(SalesDebitNoteItem, company)
+        extra["sales_returns"] = _optional_rows(SalesReturn, company)
+        extra["sales_return_items"] = _optional_rows(SalesReturnItem, company)
+    except Exception:
+        pass
+    try:
+        from purchases.models import (
+            BillOfEntry,
+            PurchaseCreditNote,
+            PurchaseDebitNote,
+            PurchaseOrder,
+            PurchaseOrderItem,
+            PurchaseReturn,
+            PurchaseReturnItem,
+        )
+
+        extra["purchase_orders"] = _optional_rows(PurchaseOrder, company)
+        extra["purchase_order_items"] = _optional_rows(PurchaseOrderItem, company)
+        extra["purchase_credit_notes"] = _optional_rows(PurchaseCreditNote, company)
+        extra["purchase_debit_notes"] = _optional_rows(PurchaseDebitNote, company)
+        extra["purchase_returns"] = _optional_rows(PurchaseReturn, company)
+        extra["purchase_return_items"] = _optional_rows(PurchaseReturnItem, company)
+        extra["bills_of_entry"] = _optional_rows(BillOfEntry, company)
+    except Exception:
+        pass
+    try:
+        from manufacturing.models import Bom, BomLine, WorkOrder, WorkOrderLine
+
+        extra["boms"] = _optional_rows(Bom, company)
+        extra["bom_lines"] = _optional_rows(BomLine, company)
+        extra["work_orders"] = _optional_rows(WorkOrder, company)
+        extra["work_order_lines"] = _optional_rows(WorkOrderLine, company)
+    except Exception:
+        pass
+    try:
+        from inventory.models import (
+            InventoryRunningCost,
+            InventoryValuationSnapshot,
+            StockCountSession,
+            StockTransfer,
+            StockTransferLine,
+            WarehouseReorderLevel,
+        )
+
+        extra["stock_transfers"] = _optional_rows(StockTransfer, company)
+        extra["stock_transfer_lines"] = _optional_rows(StockTransferLine, company)
+        extra["stock_count_sessions"] = _optional_rows(StockCountSession, company)
+        extra["warehouse_reorder_levels"] = _optional_rows(WarehouseReorderLevel, company)
+        extra["inventory_running_costs"] = _optional_rows(InventoryRunningCost, company)
+        extra["inventory_valuation_snapshots"] = _optional_rows(InventoryValuationSnapshot, company)
+    except Exception:
+        pass
+    try:
+        from imports.models import ImportJob
+
+        extra["import_jobs"] = _optional_rows(ImportJob, company, extra_exclude={"file_id"})
+    except Exception:
+        pass
+    try:
+        from reporting.models import ImsActionHistory
+
+        extra["ims_action_history"] = _optional_rows(ImsActionHistory, company)
+    except Exception:
+        pass
+    return extra
 
 
 def _csv_bytes(rows: list[dict]) -> bytes:
@@ -304,6 +527,7 @@ def build_export_payload(company) -> dict[str, Any]:
         "gstr2b": gstr2b_rows,
         "file_assets": file_manifest,
         "file_asset_warnings": file_asset_warnings,
+        **_wipe_target_sections(company),
     }
 
 
@@ -320,39 +544,7 @@ def encrypt_export_zip(payload: dict[str, Any]) -> bytes:
             "file_asset_warning_count": len(_asset_warnings),
             "file_asset_warnings": _asset_warnings,
         }, default=_json_default, indent=2))
-        json_sections = (
-            "company",
-            "gstins",
-            "document_series",
-            "warehouses",
-            "customers",
-            "suppliers",
-            "products",
-            "batch_lots",
-            "stock_balances",
-            "stock_movements",
-            "serial_numbers",
-            "inventory_cost_layers",
-            "sales_invoices",
-            "sales_items",
-            "quotations",
-            "quotation_items",
-            "sales_orders",
-            "sales_order_items",
-            "delivery_challans",
-            "delivery_challan_items",
-            "purchase_invoices",
-            "purchase_items",
-            "receipts",
-            "supplier_payments",
-            "allocations",
-            "accounts",
-            "journals",
-            "journal_lines",
-            "gstr2b",
-            "file_assets",
-        )
-        for key in json_sections:
+        for key in JSON_SECTIONS:
             zf.writestr(f"{key}.json", json.dumps(payload.get(key), default=_json_default, indent=2))
         for key in ("customers", "suppliers", "products", "sales_invoices", "purchase_invoices"):
             rows = payload.get(key) or []
@@ -409,37 +601,10 @@ def decrypt_export_zip(blob: bytes, *, company_id: int | None = None) -> dict[st
             "source_company_id": manifest.get("source_company_id"),
             "source_company_name": manifest.get("source_company_name"),
             "gstr2b_summary": manifest.get("gstr2b_summary") or _load("gstr2b_summary.json") or {},
-            "company": _load("company.json") or {},
-            "gstins": _load("gstins.json") or [],
-            "document_series": _load("document_series.json") or [],
-            "customers": _load("customers.json") or [],
-            "suppliers": _load("suppliers.json") or [],
-            "products": _load("products.json") or [],
-            "warehouses": _load("warehouses.json") or [],
-            "batch_lots": _load("batch_lots.json") or [],
-            "stock_balances": _load("stock_balances.json") or [],
-            "stock_movements": _load("stock_movements.json") or [],
-            "serial_numbers": _load("serial_numbers.json") or [],
-            "inventory_cost_layers": _load("inventory_cost_layers.json") or [],
-            "sales_invoices": _load("sales_invoices.json") or [],
-            "sales_items": _load("sales_items.json") or [],
-            "quotations": _load("quotations.json") or [],
-            "quotation_items": _load("quotation_items.json") or [],
-            "sales_orders": _load("sales_orders.json") or [],
-            "sales_order_items": _load("sales_order_items.json") or [],
-            "delivery_challans": _load("delivery_challans.json") or [],
-            "delivery_challan_items": _load("delivery_challan_items.json") or [],
-            "purchase_invoices": _load("purchase_invoices.json") or [],
-            "purchase_items": _load("purchase_items.json") or [],
-            "receipts": _load("receipts.json") or [],
-            "supplier_payments": _load("supplier_payments.json") or [],
-            "allocations": _load("allocations.json") or [],
-            "accounts": _load("accounts.json") or [],
-            "journals": _load("journals.json") or [],
-            "journal_lines": _load("journal_lines.json") or [],
-            "gstr2b": _load("gstr2b.json") or [],
-            "file_assets": _load("file_assets.json") or [],
         }
+        for key in JSON_SECTIONS:
+            default: dict | list = {} if key == "company" else []
+            payload[key] = _load(f"{key}.json") or default
     return payload
 
 
@@ -687,6 +852,331 @@ def _apply_company_profile(company, profile: dict) -> None:
             continue
         setattr(company, key, value)
     company.save()
+
+
+def _create_mapped(model, row, *, company, owner, skip: set[str], remap: dict, require: tuple[str, ...] = ()):
+    kwargs = _copy_model_fields(model, row, skip=skip | {"id", "company_id", "created_by_id", "updated_by_id"}, remap=remap)
+    if any(not kwargs.get(key) for key in require):
+        return None
+    field_names = {f.name for f in model._meta.concrete_fields}
+    extras = {}
+    if "created_by" in field_names:
+        extras["created_by"] = owner
+    if "updated_by" in field_names:
+        extras["updated_by"] = owner
+    return model.objects.create(company=company, **extras, **kwargs)
+
+
+def _import_wipe_target_rows(
+    *,
+    target_company,
+    payload: dict[str, Any],
+    owner,
+    customer_map,
+    supplier_map,
+    product_map,
+    sales_map,
+    purchase_map,
+    warehouse_map,
+    gstin_map,
+    account_map,
+    batch_map,
+) -> None:
+    """Restore wipe-target tables that sit outside the original core payload."""
+    bank_map: dict[Any, int] = {}
+    try:
+        from payments.models import BankAccount
+
+        for row in payload.get("bank_accounts") or []:
+            if row.get("is_default") and BankAccount.objects.filter(company=target_company, is_default=True).exists():
+                row = {**row, "is_default": False}
+            obj = _create_mapped(
+                BankAccount, row, company=target_company, owner=owner,
+                skip=set(), remap={},
+            )
+            if obj:
+                bank_map[row.get("id")] = obj.pk
+    except Exception:
+        pass
+
+    lead_map: dict[Any, int] = {}
+    try:
+        from crm.models import Lead, LeadActivity, Opportunity
+
+        for row in payload.get("leads") or []:
+            obj = _create_mapped(
+                Lead, row, company=target_company, owner=owner,
+                skip=set(), remap={"customer_id": customer_map},
+            )
+            if obj:
+                lead_map[row.get("id")] = obj.pk
+        for row in payload.get("lead_activities") or []:
+            _create_mapped(
+                LeadActivity, row, company=target_company, owner=owner,
+                skip=set(), remap={"lead_id": lead_map}, require=("lead_id",),
+            )
+        for row in payload.get("opportunities") or []:
+            _create_mapped(
+                Opportunity, row, company=target_company, owner=owner,
+                skip=set(), remap={"lead_id": lead_map, "customer_id": customer_map},
+            )
+    except Exception:
+        pass
+
+    employee_map: dict[Any, int] = {}
+    payrun_map: dict[Any, int] = {}
+    try:
+        from payroll.models import Employee, PayRun, PaySlip
+
+        for row in payload.get("employees") or []:
+            obj = _create_mapped(
+                Employee, row, company=target_company, owner=owner,
+                skip=set(), remap={},
+            )
+            if obj:
+                employee_map[row.get("id")] = obj.pk
+        for row in payload.get("pay_runs") or []:
+            obj = _create_mapped(
+                PayRun, row, company=target_company, owner=owner,
+                skip=set(), remap={},
+            )
+            if obj:
+                payrun_map[row.get("id")] = obj.pk
+        for row in payload.get("pay_slips") or []:
+            _create_mapped(
+                PaySlip, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"employee_id": employee_map, "pay_run_id": payrun_map},
+                require=("employee_id", "pay_run_id"),
+            )
+    except Exception:
+        pass
+
+    try:
+        from sales.models import (
+            RecurringInvoiceSchedule,
+            RecurringInvoiceRun,
+            SalesCreditNote,
+            SalesCreditNoteItem,
+            SalesDebitNote,
+            SalesDebitNoteItem,
+            SalesReturn,
+            SalesReturnItem,
+        )
+
+        schedule_map: dict[Any, int] = {}
+        for row in payload.get("recurring_schedules") or []:
+            obj = _create_mapped(
+                RecurringInvoiceSchedule, row, company=target_company, owner=owner,
+                skip={"converted_invoice_id"},
+                remap={"customer_id": customer_map, "company_gstin_id": gstin_map},
+                require=("customer_id",),
+            )
+            if obj:
+                schedule_map[row.get("id")] = obj.pk
+        for row in payload.get("recurring_runs") or []:
+            _create_mapped(
+                RecurringInvoiceRun, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"schedule_id": schedule_map, "invoice_id": sales_map},
+                require=("schedule_id",),
+            )
+        cn_map: dict[Any, int] = {}
+        for row in payload.get("sales_credit_notes") or []:
+            obj = _create_mapped(
+                SalesCreditNote, row, company=target_company, owner=owner,
+                skip={"sales_return_id"},
+                remap={"customer_id": customer_map, "sales_invoice_id": sales_map},
+                require=("customer_id", "sales_invoice_id"),
+            )
+            if obj:
+                cn_map[row.get("id")] = obj.pk
+        for row in payload.get("sales_credit_note_items") or []:
+            _create_mapped(
+                SalesCreditNoteItem, row, company=target_company, owner=owner,
+                skip={"source_item_id"},
+                remap={"credit_note_id": cn_map, "product_id": product_map},
+                require=("credit_note_id", "product_id"),
+            )
+        dn_map: dict[Any, int] = {}
+        for row in payload.get("sales_debit_notes") or []:
+            obj = _create_mapped(
+                SalesDebitNote, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"customer_id": customer_map, "sales_invoice_id": sales_map},
+                require=("customer_id", "sales_invoice_id"),
+            )
+            if obj:
+                dn_map[row.get("id")] = obj.pk
+        for row in payload.get("sales_debit_note_items") or []:
+            _create_mapped(
+                SalesDebitNoteItem, row, company=target_company, owner=owner,
+                skip={"source_item_id"},
+                remap={"debit_note_id": dn_map, "product_id": product_map},
+                require=("debit_note_id", "product_id"),
+            )
+        sr_map: dict[Any, int] = {}
+        for row in payload.get("sales_returns") or []:
+            obj = _create_mapped(
+                SalesReturn, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"customer_id": customer_map, "sales_invoice_id": sales_map},
+                require=("customer_id", "sales_invoice_id"),
+            )
+            if obj:
+                sr_map[row.get("id")] = obj.pk
+        for row in payload.get("sales_return_items") or []:
+            _create_mapped(
+                SalesReturnItem, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"sales_return_id": sr_map, "product_id": product_map},
+                require=("sales_return_id", "product_id"),
+            )
+    except Exception:
+        pass
+
+    try:
+        from purchases.models import (
+            BillOfEntry,
+            PurchaseCreditNote,
+            PurchaseDebitNote,
+            PurchaseOrder,
+            PurchaseOrderItem,
+            PurchaseReturn,
+            PurchaseReturnItem,
+        )
+
+        po_map: dict[Any, int] = {}
+        for row in payload.get("purchase_orders") or []:
+            obj = _create_mapped(
+                PurchaseOrder, row, company=target_company, owner=owner,
+                skip={"converted_purchase_id"},
+                remap={"supplier_id": supplier_map},
+                require=("supplier_id",),
+            )
+            if obj:
+                po_map[row.get("id")] = obj.pk
+        for row in payload.get("purchase_order_items") or []:
+            _create_mapped(
+                PurchaseOrderItem, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"purchase_order_id": po_map, "product_id": product_map},
+                require=("purchase_order_id", "product_id"),
+            )
+        for row in payload.get("purchase_credit_notes") or []:
+            _create_mapped(
+                PurchaseCreditNote, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"supplier_id": supplier_map, "purchase_invoice_id": purchase_map},
+                require=("supplier_id",),
+            )
+        for row in payload.get("purchase_debit_notes") or []:
+            _create_mapped(
+                PurchaseDebitNote, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"supplier_id": supplier_map, "purchase_invoice_id": purchase_map},
+                require=("supplier_id",),
+            )
+        pr_map: dict[Any, int] = {}
+        for row in payload.get("purchase_returns") or []:
+            obj = _create_mapped(
+                PurchaseReturn, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"supplier_id": supplier_map, "purchase_invoice_id": purchase_map},
+                require=("supplier_id",),
+            )
+            if obj:
+                pr_map[row.get("id")] = obj.pk
+        for row in payload.get("purchase_return_items") or []:
+            _create_mapped(
+                PurchaseReturnItem, row, company=target_company, owner=owner,
+                skip={"batch_id"},
+                remap={"purchase_return_id": pr_map, "product_id": product_map},
+                require=("purchase_return_id", "product_id"),
+            )
+        for row in payload.get("bills_of_entry") or []:
+            _create_mapped(
+                BillOfEntry, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"supplier_id": supplier_map},
+            )
+    except Exception:
+        pass
+
+    try:
+        from payments.models import PaymentLink
+        import secrets
+
+        for row in payload.get("payment_links") or []:
+            kwargs = _copy_model_fields(
+                PaymentLink, row,
+                skip={"id", "company_id", "created_by_id", "updated_by_id", "token",
+                      "provider_link_id", "provider_short_url", "paid_receipt_id"},
+                remap={"sales_invoice_id": sales_map, "customer_id": customer_map},
+            )
+            PaymentLink.objects.create(
+                company=target_company, created_by=owner, updated_by=owner,
+                token=secrets.token_urlsafe(32), **kwargs,
+            )
+    except Exception:
+        pass
+
+    try:
+        from manufacturing.models import Bom, BomLine, WorkOrder, WorkOrderLine
+
+        bom_map: dict[Any, int] = {}
+        for row in payload.get("boms") or []:
+            obj = _create_mapped(
+                Bom, row, company=target_company, owner=owner,
+                skip=set(), remap={"product_id": product_map}, require=("product_id",),
+            )
+            if obj:
+                bom_map[row.get("id")] = obj.pk
+        for row in payload.get("bom_lines") or []:
+            _create_mapped(
+                BomLine, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"bom_id": bom_map, "component_id": product_map},
+                require=("bom_id", "component_id"),
+            )
+        wo_map: dict[Any, int] = {}
+        for row in payload.get("work_orders") or []:
+            obj = _create_mapped(
+                WorkOrder, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={"bom_id": bom_map, "warehouse_id": warehouse_map},
+                require=("bom_id",),
+            )
+            if obj:
+                wo_map[row.get("id")] = obj.pk
+        for row in payload.get("work_order_lines") or []:
+            _create_mapped(
+                WorkOrderLine, row, company=target_company, owner=owner,
+                skip={"batch_id"},
+                remap={"work_order_id": wo_map, "component_id": product_map},
+                require=("work_order_id", "component_id"),
+            )
+    except Exception:
+        pass
+
+    try:
+        from accounting.models import FixedAsset
+
+        for row in payload.get("fixed_assets") or []:
+            _create_mapped(
+                FixedAsset, row, company=target_company, owner=owner,
+                skip=set(),
+                remap={
+                    "asset_account_id": account_map,
+                    "accumulated_depreciation_account_id": account_map,
+                    "depreciation_expense_account_id": account_map,
+                },
+                require=("asset_account_id",),
+            )
+    except Exception:
+        pass
+
+    _ = (bank_map, batch_map)
 
 
 def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
@@ -1121,6 +1611,21 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         )
         Gstr2bIngest.objects.create(company=target_company, **kwargs)
 
+    _import_wipe_target_rows(
+        target_company=target_company,
+        payload=payload,
+        owner=owner,
+        customer_map=customer_map,
+        supplier_map=supplier_map,
+        product_map=product_map,
+        sales_map=sales_map,
+        purchase_map=purchase_map,
+        warehouse_map=warehouse_map,
+        gstin_map=gstin_map,
+        account_map=account_map,
+        batch_map=batch_map,
+    )
+
     for row in payload.get("file_assets") or []:
         raw_b64 = row.get("bytes_b64")
         if not raw_b64:
@@ -1169,9 +1674,14 @@ def restore_to_sandbox(*, source_company, payload: dict[str, Any], owner):
     ai_insights = bool(source_membership and source_membership.can_view_ai_insights)
     ai_assistant = bool(source_membership and source_membership.can_use_ai_assistant)
 
-    sandbox_name = f"{source_company.name} (sandbox restore)"
+    source_name = (source_company.name or "company").strip() or "company"
+    sandbox_name = f"{SANDBOX_NAME_PREFIX}{source_name}"[:255]
+    expires = timezone.now() + timedelta(days=SANDBOX_TTL_DAYS)
     sandbox = Company.objects.create(
-        name=sandbox_name, state=source_company.state or "", is_sandbox=True,
+        name=sandbox_name,
+        state=source_company.state or "",
+        is_sandbox=True,
+        sandbox_expires_at=expires,
     )
     CompanyUser.objects.create(
         company=sandbox,
@@ -1189,13 +1699,22 @@ def restore_to_sandbox(*, source_company, payload: dict[str, Any], owner):
         can_create_payments=True,
         can_post_journals=True,
     )
-    # B6-006: run the sandbox through the same trial/subscription bootstrap
-    # registration gets, instead of leaving it with no Subscription row at
-    # all (which some seat/plan-module checks treat as "unsubscribed" rather
-    # than genuinely unlimited).
-    from billing.services import ensure_register_trial
+    # R-014: inherit the source plan (modules/seat_limit) without extra seats —
+    # sandbox membership is the same Owner only. Do not copy Razorpay ids.
+    from billing.models import Subscription
+    from billing.services import ensure_register_trial, subscription_for_company
 
-    ensure_register_trial(sandbox)
+    source_sub = subscription_for_company(source_company)
+    if source_sub and source_sub.plan_id:
+        Subscription.objects.create(
+            company=sandbox,
+            plan=source_sub.plan,
+            status=source_sub.status,
+            trial_ends_at=source_sub.trial_ends_at,
+            current_period_end=source_sub.current_period_end,
+        )
+    else:
+        ensure_register_trial(sandbox)
     # B6-001: PostgresRlsMiddleware has app.company_id pinned to the requester's
     # *active* company; every tenant-table INSERT for `sandbox` would fail the
     # RLS WITH CHECK. import_payload sets company= explicitly on every row, so a
@@ -1205,9 +1724,18 @@ def restore_to_sandbox(*, source_company, payload: dict[str, Any], owner):
     with rls_bypass():
         import_payload(target_company=sandbox, payload=payload, owner=owner)
     sandbox.refresh_from_db()
+    touch = []
     if sandbox.name != sandbox_name:
         sandbox.name = sandbox_name
-        sandbox.save(update_fields=["name"])
+        touch.append("name")
+    if not sandbox.is_sandbox:
+        sandbox.is_sandbox = True
+        touch.append("is_sandbox")
+    if sandbox.sandbox_expires_at != expires:
+        sandbox.sandbox_expires_at = expires
+        touch.append("sandbox_expires_at")
+    if touch:
+        sandbox.save(update_fields=touch)
     return sandbox
 
 
@@ -1218,7 +1746,7 @@ def unbacked_live_counts(company, payload: dict[str, Any]) -> dict[str, int]:
     from core.models import DocumentSeries, FileAsset
     from inventory.models import BatchLot, InventoryCostLayer, SerialNumber, StockBalance, StockMovement, Warehouse
     from masters.models import Customer, Product, Supplier
-    from payments.models import CustomerReceipt, PaymentAllocation, PaymentLink, ReconMatch, SupplierPayment
+    from payments.models import BankAccount, CustomerReceipt, PaymentAllocation, PaymentLink, ReconMatch, SupplierPayment
     from purchases.models import (
         BillOfEntry,
         PurchaseCreditNote,
@@ -1272,6 +1800,7 @@ def unbacked_live_counts(company, payload: dict[str, Any]) -> dict[str, int]:
         ("file_assets", FileAsset),
         ("payment_links", PaymentLink),
         ("recon_matches", ReconMatch),
+        ("bank_accounts", BankAccount),
     )
     try:
         from accounting.models import FixedAsset
@@ -1283,6 +1812,18 @@ def unbacked_live_counts(company, payload: dict[str, Any]) -> dict[str, int]:
             ("boms", Bom),
             ("recurring_schedules", RecurringInvoiceSchedule),
         )
+    except Exception:
+        pass
+    try:
+        from crm.models import Lead
+
+        mapping = mapping + (("leads", Lead),)
+    except Exception:
+        pass
+    try:
+        from payroll.models import Employee
+
+        mapping = mapping + (("employees", Employee),)
     except Exception:
         pass
     extra: dict[str, int] = {}
@@ -1313,3 +1854,39 @@ def restore_destroy_in_place(*, company, payload: dict[str, Any], owner, confirm
         wipe_logical_tenant_rows(company)
         import_payload(target_company=company, payload=payload, owner=owner)
     return company
+
+
+def delete_sandbox_company(company) -> None:
+    """Wipe business rows, clear PROTECT audit trails, then delete the sandbox company."""
+    from accounts.models import CompanyUser, User
+    from core.models import AuditEvent, MoneyFieldAudit, StatutoryDocumentEvent
+    from core.rls import rls_bypass
+
+    with rls_bypass():
+        wipe_logical_tenant_rows(company)
+        AuditEvent.objects.filter(company=company).update(company=None)
+        MoneyFieldAudit.objects.filter(company=company).delete()
+        StatutoryDocumentEvent.objects.filter(company=company).delete()
+        User.objects.filter(active_company=company).update(active_company=None)
+        CompanyUser.objects.filter(company=company).delete()
+        company.delete()
+
+
+def sweep_expired_sandboxes() -> int:
+    """Daily janitor: delete sandbox companies whose sandbox_expires_at has passed."""
+    from accounts.models import Company
+    from core.rls import rls_bypass
+
+    now = timezone.now()
+    with rls_bypass():
+        expired = list(
+            Company.objects.filter(is_sandbox=True, sandbox_expires_at__isnull=False, sandbox_expires_at__lte=now)
+        )
+    deleted = 0
+    for sandbox in expired:
+        try:
+            delete_sandbox_company(sandbox)
+            deleted += 1
+        except Exception:  # noqa: BLE001 — one bad sandbox must not block the sweep
+            logger.exception("Failed to delete expired sandbox company %s", sandbox.pk)
+    return deleted

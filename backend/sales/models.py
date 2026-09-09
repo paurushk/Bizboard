@@ -666,6 +666,8 @@ class RecurringInvoiceSchedule(models.Model):
     is_active = models.BooleanField(default=True)
     line_template = models.JSONField(default=dict, blank=True)
     notes = models.TextField(blank=True)
+    # CR-121: last generation failure text (optional; absent until migration).
+    last_error = models.TextField(blank=True, default="")
     # B2-026: header-level charges/discount/price-mode a recurring template
     # previously had no way to express at all -- every generated draft was
     # silently exclusive-priced with no charges/invoice discount, regardless

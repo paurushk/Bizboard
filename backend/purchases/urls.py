@@ -1,6 +1,7 @@
 from rest_framework.routers import DefaultRouter
 
 from .phase1_views import (
+    GoodsReceiptViewSet,
     PurchaseCreditNoteViewSet,
     PurchaseDebitNoteViewSet,
     PurchaseOrderViewSet,
@@ -14,5 +15,6 @@ router.register("bills-of-entry", BillOfEntryViewSet, basename="bills-of-entry")
 router.register("credit-notes", PurchaseCreditNoteViewSet, basename="purchase-credit-notes")
 router.register("debit-notes", PurchaseDebitNoteViewSet, basename="purchase-debit-notes")
 router.register("orders", PurchaseOrderViewSet, basename="purchase-orders")
+router.register("grns", GoodsReceiptViewSet, basename="goods-receipts")
 
 urlpatterns = router.urls

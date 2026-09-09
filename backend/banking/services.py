@@ -25,6 +25,20 @@ _UTR_RE = re.compile(r"\b([A-Z]{0,4}\d{9,22})\b")
 _MIN_REF_LEN = 8
 
 
+def _amount_date_deltas(aa_txn, receipt) -> tuple:
+    amt_delta = abs(Decimal(str(receipt.amount or 0)) - aa_txn.amount)
+    if aa_txn.txn_date and receipt.receipt_date:
+        date_delta = abs((receipt.receipt_date - aa_txn.txn_date).days)
+    else:
+        date_delta = 10**6
+    return amt_delta, date_delta, receipt.pk
+
+
+def _rank_receipts(aa_txn, receipts) -> list:
+    """R-043: |amount-delta| then |date-delta|, then id. Cap is applied after sort."""
+    return sorted(receipts, key=lambda r: _amount_date_deltas(aa_txn, r))
+
+
 def _candidate_refs(aa_txn) -> list[str]:
     refs: list[str] = []
     tid = (aa_txn.txn_id or "").strip()
@@ -75,11 +89,19 @@ def _match_one(company, aa_txn_id, tol: Decimal) -> str | None:
         receipt = None
         refs = _candidate_refs(aa_txn)
         if refs:
+            # R-043: amount filter is already on base_qs — only then icontains.
+            # Do not select_for_update the first fuzzy row; rank, then lock the winner.
             ref_q = Q()
             for r in refs:
-                ref_q |= Q(reference__iexact=r) | Q(utr__iexact=r)
-            receipt = base_qs.filter(ref_q).select_for_update().first()
-            if receipt is not None:
+                ref_q |= (
+                    Q(reference__iexact=r)
+                    | Q(utr__iexact=r)
+                    | Q(reference__icontains=r)
+                    | Q(utr__icontains=r)
+                )
+            ranked = _rank_receipts(aa_txn, list(base_qs.filter(ref_q)))
+            if ranked:
+                receipt = CustomerReceipt.objects.select_for_update().get(pk=ranked[0].pk)
                 method = "ref"
         if receipt is None:
             # INTG-02: fall back to a *unique* amount+date candidate. Ambiguous
@@ -87,12 +109,12 @@ def _match_one(company, aa_txn_id, tol: Decimal) -> str | None:
             # B4-025: a receipt already confirmed against a bank line (ReconMatch)
             # must not be re-matched by the weak amount+date rule — it only stays
             # eligible for an exact ref/UTR match above.
-            candidates = list(
-                base_qs.filter(recon_matches__isnull=True).order_by("id")[:2]
+            ranked = _rank_receipts(
+                aa_txn, list(base_qs.filter(recon_matches__isnull=True))
             )
-            if len(candidates) == 1:
+            if len(ranked) == 1:
                 receipt = (
-                    CustomerReceipt.objects.select_for_update().get(pk=candidates[0].pk)
+                    CustomerReceipt.objects.select_for_update().get(pk=ranked[0].pk)
                 )
                 method = "amount_date"
         if receipt is None:

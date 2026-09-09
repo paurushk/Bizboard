@@ -419,11 +419,15 @@ def compute_health_score(company, as_of: date | None = None) -> dict:
     else:
         prior_month_start = month_start.replace(month=month_start.month - 1)
     prior_month_end = month_start - timedelta(days=1)
+    # CR-065: same opening exclusion as dashboard KPIs (is_opening_balance).
     prior_mtd = (
         SalesInvoice.objects.filter(
-            company=company, status__in=OPEN_SALES,
-            invoice_date__gte=prior_month_start, invoice_date__lte=prior_month_end,
-        ).exclude(notes="TALLY_OPENING").aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
+            company=company,
+            status__in=OPEN_SALES,
+            invoice_date__gte=prior_month_start,
+            invoice_date__lte=prior_month_end,
+            is_opening_balance=False,
+        ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
         or Decimal("0")
     )
 

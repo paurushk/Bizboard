@@ -47,10 +47,12 @@ export function PageShell({
 }) {
   return (
     <Fade in>
-      <Stack spacing={2}>
+      <Stack spacing={2} sx={{ maxWidth: '100%', overflowX: 'hidden' }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1}>
           <Box>
-            <Typography variant="h4">{title}</Typography>
+            <Typography variant="h4" sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' }, fontWeight: 700 }}>
+              {title}
+            </Typography>
             {subtitle ? (
               <Typography variant="body2" color="text.secondary">
                 {subtitle}
@@ -76,7 +78,8 @@ export function BoolChip({ value }: { value: unknown }) {
   );
 }
 
-function dataTableCell(row: Row, c: { key: string; money?: boolean; status?: boolean; bool?: boolean }): ReactNode {
+function dataTableCell(row: Row, c: { key: string; money?: boolean; status?: boolean; bool?: boolean; render?: (row: Row) => ReactNode }): ReactNode {
+  if (c.render) return c.render(row);
   const raw = row[c.key];
   let cell: ReactNode = raw == null || raw === '' ? '—' : String(raw);
   if (c.money) cell = formatMoney(toNumber(raw as string | number));
@@ -99,7 +102,7 @@ export function DataTable({
   maxHeight = 560,
   rowHeight = 52,
 }: {
-  columns: Array<{ key: string; label: string; money?: boolean; status?: boolean; bool?: boolean }>;
+  columns: Array<{ key: string; label: string; money?: boolean; status?: boolean; bool?: boolean; render?: (row: Row) => ReactNode }>;
   rows: Row[];
   empty: string;
   emptyAction?: ReactNode;
@@ -162,8 +165,18 @@ export function DataTable({
   }
 
   return (
-    <Paper variant="outlined" sx={{ overflow: 'auto' }}>
-      <Table size="small">
+    <Paper
+      variant="outlined"
+      sx={{
+        overflow: 'auto',
+        maxWidth: '100%',
+        width: '100%',
+        WebkitOverflowScrolling: 'touch',
+        scrollbarWidth: 'thin',
+        borderRadius: 1,
+      }}
+    >
+      <Table size="small" sx={{ minWidth: { xs: 480, sm: 'auto' } }}>
         <TableHead>
           <TableRow>
             {columns.map((c) => (

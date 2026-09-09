@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import Sum
 from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
@@ -499,82 +499,92 @@ class PostingService:
         # R3-009: `uniq_accounting_source_posting` (company, source_type,
         # source_id, purpose | source_id NOT NULL & status=POSTED) is the real
         # guard against a concurrent double-post — this `.first()` is only the
-        # fast path.
+        # fast path. CR-078: never reuse a POSTED header with zero lines.
         existing = JournalEntry.objects.filter(
             company=company, source_type=source_type, source_id=source_id, purpose=purpose,
             status=JournalEntry.Status.POSTED,
         ).first()
         if existing:
-            return existing
-        debit = sum((Decimal(str(line.get("debit", 0))) for line in lines), Decimal("0"))
-        credit = sum((Decimal(str(line.get("credit", 0))) for line in lines), Decimal("0"))
+            if existing.lines.exists():
+                return existing
+            # Incomplete prior post (header without lines) — drop and recreate.
+            existing.delete()
+        # CR-088: quantize to 2dp before balance check and persistence.
+        q2 = Decimal("0.01")
+        normalized = []
+        for line in lines:
+            debit_amt = Decimal(str(line.get("debit", 0) or 0)).quantize(q2)
+            credit_amt = Decimal(str(line.get("credit", 0) or 0)).quantize(q2)
+            normalized.append({**line, "debit": debit_amt, "credit": credit_amt})
+        lines = normalized
+        debit = sum((line["debit"] for line in lines), Decimal("0"))
+        credit = sum((line["credit"] for line in lines), Decimal("0"))
         if not lines or debit != credit:
             raise BusinessRuleError("Journal posting must contain balanced debit and credit lines.")
-        blocking_statuses = [AccountingPeriod.Status.CLOSED]
-        if not allow_soft_closed:
-            blocking_statuses.append(AccountingPeriod.Status.SOFT_CLOSED)
-        if AccountingPeriod.objects.filter(
-            company=company, start_date__lte=entry_date, end_date__gte=entry_date,
-            status__in=blocking_statuses,
-        ).exists():
-            raise BusinessRuleError("Cannot post to a closed accounting period.")
-        # ACC-04: opt-in — the date must fall inside an OPEN period, not merely
-        # avoid a closed one (a back-dated entry to a year with no period rows
-        # otherwise bypasses period control entirely).
-        if getattr(company, "require_open_period_for_posting", False):
-            in_open = AccountingPeriod.objects.filter(
+        # CR-081: lock overlapping period rows so soft_close/close serialize with posters.
+        list(
+            AccountingPeriod.objects.select_for_update().filter(
                 company=company,
                 start_date__lte=entry_date,
                 end_date__gte=entry_date,
-                status=AccountingPeriod.Status.OPEN,
-            ).exists()
-            if not in_open:
-                raise BusinessRuleError(
-                    f"{entry_date} is not inside an open accounting period. "
-                    "Create the period (or open it) before posting."
-                )
+            )
+        )
+        # CR-080: GST + accounting period gate (allow_soft_closed for cancel/reverse unwind).
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(
+            company, entry_date, allow_soft_closed=allow_soft_closed,
+        )
         # BB-000432: sequential journal numbers unique per company.
         # ACC-12: allocate the voucher number *inside* the same savepoint that
         # inserts the entry, so a concurrent-double-post IntegrityError rolls the
         # series increment back too — otherwise every lost race burned a number
         # and left a gap in a statutory sequence.
+        # CR-078: JE header + lines must commit together (same atomic).
         from core.services.document_numbers import DocumentNumberService
 
         from django.db import IntegrityError
 
-        try:
-            with transaction.atomic():
-                number = DocumentNumberService.next_number(company, "JOURNAL_ENTRY")
-                entry = JournalEntry.objects.create(
-                    company=company, number=number, entry_date=entry_date,
-                    status=JournalEntry.Status.POSTED, source_type=source_type, source_id=source_id,
-                    purpose=purpose, narration=narration, posted_at=timezone.now(), posted_by=user,
-                    created_by=user, updated_by=user,
-                )
-        except IntegrityError:
-            # R3-009: a concurrent Complete won the `uniq_accounting_source_posting`
-            # race — replay its entry instead of surfacing a 400/500.
-            existing = JournalEntry.objects.filter(
-                company=company, source_type=source_type, source_id=source_id, purpose=purpose,
-                status=JournalEntry.Status.POSTED,
-            ).first()
-            if existing is not None:
-                return existing
-            raise
-        JournalLine.objects.bulk_create([
-            JournalLine(
-                company=entry.company,
-                entry=entry,
-                account=line["account"],
-                debit=Decimal(str(line.get("debit", 0))),
-                credit=Decimal(str(line.get("credit", 0))),
-                cost_center=line.get("cost_center"),
-                dimension=line.get("dimension", ""),
-                customer=line.get("customer"),
-                supplier=line.get("supplier"),
-            )
-            for line in lines
-        ])
+        entry = None
+        for attempt in range(2):
+            try:
+                with transaction.atomic():
+                    number = DocumentNumberService.next_number(company, "JOURNAL_ENTRY")
+                    entry = JournalEntry.objects.create(
+                        company=company, number=number, entry_date=entry_date,
+                        status=JournalEntry.Status.POSTED, source_type=source_type, source_id=source_id,
+                        purpose=purpose, narration=narration, posted_at=timezone.now(), posted_by=user,
+                        created_by=user, updated_by=user,
+                    )
+                    JournalLine.objects.bulk_create([
+                        JournalLine(
+                            company=entry.company,
+                            entry=entry,
+                            account=line["account"],
+                            debit=line["debit"],
+                            credit=line["credit"],
+                            cost_center=line.get("cost_center"),
+                            dimension=line.get("dimension", ""),
+                            customer=line.get("customer"),
+                            supplier=line.get("supplier"),
+                        )
+                        for line in lines
+                    ])
+                break
+            except IntegrityError:
+                # R3-009: a concurrent Complete won the `uniq_accounting_source_posting`
+                # race — replay its entry instead of surfacing a 400/500.
+                existing = JournalEntry.objects.filter(
+                    company=company, source_type=source_type, source_id=source_id, purpose=purpose,
+                    status=JournalEntry.Status.POSTED,
+                ).first()
+                if existing is not None and existing.lines.exists():
+                    return existing
+                # CR-078: concurrent winner left an incomplete header — drop and retry once.
+                if existing is not None and attempt == 0:
+                    existing.delete()
+                    continue
+                raise
         return entry
 
     @classmethod
@@ -1162,49 +1172,59 @@ class PostingService:
         )
         round_off = Decimal(str(getattr(invoice, "round_off", 0) or 0))
         charges = Decimal(str(getattr(invoice, "additional_charges", 0) or 0))
-        # If charges not on header, derive residual of grand_total - tax - taxable - round_off.
-        if charges <= 0:
-            residual = Decimal(str(invoice.grand_total or 0)) - tax - line_taxable - round_off
-            if residual >= Decimal("1"):
-                # ACC-06: a rupee-plus unexplained gap with no header
-                # `additional_charges` is booked to 5110 Purchase Charges as
-                # untracked freight — but only up to a sane bound. A larger gap
-                # is almost certainly a dropped line or a header/line tax drift;
-                # surface it instead of silently capitalising a data bug (sales
-                # has a ±5 paise guard — purchases needs a real one too).
-                grand = Decimal(str(invoice.grand_total or 0))
-                bound = max(Decimal("100"), (grand * Decimal("0.10")).quantize(Decimal("0.01")))
-                if residual > bound:
-                    # B1-034: a gap this large is unusual enough to warrant a
-                    # trace, but hard-blocking Complete for it can strand a
-                    # legitimate invoice (real freight can exceed 10% of a
-                    # small-ticket purchase). Book it as before and leave an
-                    # audit trail instead of refusing the completion outright.
-                    from core.services.audit import AuditService
-
-                    AuditService.log(
-                        action="UPDATE",
-                        company=invoice.company,
-                        user=user,
-                        entity_type="purchaseinvoice",
-                        entity_id=invoice.pk,
-                        description="acc06.large_unexplained_residual_booked_as_charges",
-                        metadata={"residual": str(residual), "bound": str(bound), "grand_total": str(grand)},
-                    )
-                charges = residual
-            elif residual > 0:
-                # R3-012: a sub-rupee unexplained gap is line-rounding drift, not
-                # freight — keep it out of 5110 Purchase Charges and let it land
-                # in 5500 Round Off so the entry still balances.
-                round_off = round_off + residual
+        # CR-160: align with sales TAX_LINE_DRIFT_MAX (₹0.05) — refuse unexplained
+        # residual instead of absorbing rupee+ gaps into 5110 Purchase Charges.
+        TAX_LINE_DRIFT_MAX = Decimal("0.05")
+        items = list(invoice.items.all())
+        line_cgst = sum((Decimal(str(getattr(li, "cgst", 0) or 0)) for li in items), Decimal("0"))
+        line_sgst = sum((Decimal(str(getattr(li, "sgst", 0) or 0)) for li in items), Decimal("0"))
+        line_igst = sum((Decimal(str(getattr(li, "igst", 0) or 0)) for li in items), Decimal("0"))
+        line_cess = sum((Decimal(str(getattr(li, "cess", 0) or 0)) for li in items), Decimal("0"))
+        hdr_cgst = Decimal(str(invoice.cgst_total or 0))
+        hdr_sgst = Decimal(str(invoice.sgst_total or 0))
+        hdr_igst = Decimal(str(invoice.igst_total or 0))
+        hdr_cess = Decimal(str(getattr(invoice, "cess_total", 0) or 0))
+        tax_hdr_line_drift = (
+            abs(line_cgst - hdr_cgst)
+            + abs(line_sgst - hdr_sgst)
+            + abs(line_igst - hdr_igst)
+            + abs(line_cess - hdr_cess)
+        )
+        if tax_hdr_line_drift > TAX_LINE_DRIFT_MAX:
+            raise BusinessRuleError(
+                "Purchase tax headers do not match line tax totals; cannot post GL."
+            )
         # R3-010: an AFTER_TAX invoice-level discount is not in the taxable base,
         # so grand_total (= AP credit) sits below Σtaxable+tax+charges and the
         # value legs would not balance. Net it into inventory cost.
         _inv_discount = Decimal(str(getattr(invoice, "invoice_discount", 0) or 0))
         _disc_mode = str(getattr(invoice, "invoice_discount_mode", "") or "").upper()
-        after_tax_discount = (
+        _after_tax_disc_for_residual = (
             _inv_discount if (_inv_discount > 0 and _disc_mode == "AFTER_TAX") else Decimal("0")
         )
+        # If charges not on header, derive residual of grand_total - tax - taxable
+        # - round_off (adding back a legitimate AFTER_TAX discount). CR-160: refuse
+        # any unexplained drift in EITHER direction — a negative residual would
+        # otherwise slip through here and only blow up later at the JE balance check.
+        if charges <= 0:
+            residual = (
+                Decimal(str(invoice.grand_total or 0))
+                - tax
+                - line_taxable
+                - round_off
+                + _after_tax_disc_for_residual
+            )
+            if abs(residual) > TAX_LINE_DRIFT_MAX:
+                raise BusinessRuleError(
+                    f"Purchase tax/totals residual {residual} exceeds "
+                    f"TAX_LINE_DRIFT_MAX {TAX_LINE_DRIFT_MAX}; "
+                    "fix header/line tax or set additional_charges before Completing."
+                )
+            if residual > 0:
+                # Sub-paise…0.05: treat as round-off drift (sales twin).
+                round_off = round_off + residual
+                charges = Decimal("0")
+        after_tax_discount = _after_tax_disc_for_residual
         inventory_amount = line_taxable
         if getattr(invoice, "is_reverse_charge", False):
             rcm_cgst = Decimal(str(getattr(invoice, "rcm_cgst", 0) or 0))
@@ -1345,7 +1365,9 @@ class PostingService:
           Dr 5110 Purchase Charges      bcd_amount (+ igst+cess when INELIGIBLE)
           Cr 2100 Accounts Payable      total customs paid
 
-        BCD is always a cost; IGST/cess are ITC when eligible, otherwise cost.
+        BCD is always a cost (CR-033); IGST/cess are ITC when eligible, otherwise
+        cost. Nothing here (or on linked purchase Complete) capitalizes BCD into
+        inventory 1400 / stock layers — layers stay at commercial invoice cost.
         Idempotent on (BILL_OF_ENTRY, id, COMPLETE).
         """
         company = boe.company
@@ -1462,6 +1484,8 @@ class PostingService:
         BB-000336: purchase notes against an RCM invoice reverse RCM payable
         (2240-2260) / Input ITC (1310-1330) instead of normal Input GST/AP,
         mirroring post_purchase's RCM branch.
+        CR-083: purchase notes against a TDS invoice reverse/credit 2265
+        proportionally instead of dumping the TDS slice into 1250 advances.
         """
         cls._ensure_chart(note.company)
         cgst = Decimal(str(note.cgst_total or 0))
@@ -1565,19 +1589,67 @@ class PostingService:
                 if cap:
                     inv_amt = inv_amt + cap
                 parent_bill = getattr(note, "purchase_invoice", None)
-                ap_debit = note.grand_total
+                ap_debit = Decimal(str(note.grand_total or 0))
                 advance_debit = Decimal("0")
+                tds_debit = Decimal("0")
                 if parent_bill is not None:
-                    from ledgers.services import LedgerService
+                    parent_tds = Decimal(str(getattr(parent_bill, "tds_amount", 0) or 0))
+                    parent_grand = Decimal(str(getattr(parent_bill, "grand_total", 0) or 0))
+                    if parent_tds > 0 and parent_grand > 0:
+                        # CR-083: reverse proportional TDS to 2265 — never dump the
+                        # TDS slice into Supplier Advances (1250).
+                        from django.db.models import Sum as _Sum
 
-                    ap_out = max(LedgerService.purchase_invoice_outstanding(parent_bill), Decimal("0"))
-                    ap_debit = min(note.grand_total, ap_out)
-                    advance_debit = note.grand_total - ap_debit
+                        from purchases.models import PurchaseCreditNote as _PCN
+
+                        prior_cn = (
+                            _PCN.objects.filter(
+                                purchase_invoice_id=parent_bill.pk,
+                                status=_PCN.Status.COMPLETED,
+                            )
+                            .exclude(pk=note.pk)
+                            .aggregate(t=_Sum("grand_total"))["t"]
+                            or Decimal("0")
+                        )
+                        prior_cn = Decimal(str(prior_cn))
+                        tds_already = (parent_tds * prior_cn / parent_grand).quantize(Decimal("0.01"))
+                        remaining_tds = max(parent_tds - tds_already, Decimal("0"))
+                        tds_debit = min(
+                            (parent_tds * ap_debit / parent_grand).quantize(Decimal("0.01")),
+                            remaining_tds,
+                            ap_debit,
+                        )
+                        ap_debit = ap_debit - tds_debit
+                        booked_ap_remaining = max(
+                            (parent_grand - parent_tds) - (prior_cn - tds_already),
+                            Decimal("0"),
+                        )
+                        if ap_debit > booked_ap_remaining:
+                            advance_debit = ap_debit - booked_ap_remaining
+                            ap_debit = booked_ap_remaining
+                    else:
+                        from ledgers.services import LedgerService
+
+                        # Outstanding already nets this completed note — add it back
+                        # so the AP split sees pre-note open amount.
+                        ap_out = max(
+                            LedgerService.purchase_invoice_outstanding(parent_bill)
+                            + Decimal(str(note.grand_total or 0)),
+                            Decimal("0"),
+                        )
+                        ap_debit = min(Decimal(str(note.grand_total or 0)), ap_out)
+                        advance_debit = Decimal(str(note.grand_total or 0)) - ap_debit
                 lines = []
                 if ap_debit > 0:
                     lines.append({
                         "account": cls._account(note.company, "2100"),
                         "debit": ap_debit,
+                        "supplier": note.supplier,
+                    })
+                if tds_debit > 0:
+                    lines.append({
+                        "account": cls._account(note.company, "2265"),
+                        "debit": tds_debit,
                         "supplier": note.supplier,
                     })
                 if advance_debit > 0:
@@ -1627,11 +1699,35 @@ class PostingService:
                 )
                 if cap:
                     inv_amt = inv_amt + cap
+                parent_bill = getattr(note, "purchase_invoice", None)
+                ap_credit = Decimal(str(note.grand_total or 0))
+                tds_credit = Decimal("0")
+                if parent_bill is not None:
+                    parent_tds = Decimal(str(getattr(parent_bill, "tds_amount", 0) or 0))
+                    parent_grand = Decimal(str(getattr(parent_bill, "grand_total", 0) or 0))
+                    parent_rate = Decimal(str(getattr(parent_bill, "tds_rate", 0) or 0))
+                    # CR-083: debit notes that enlarge a TDS bill must credit 2265.
+                    if parent_rate > 0:
+                        tds_credit = (inv_amt * parent_rate / Decimal("100")).quantize(Decimal("0.01"))
+                    elif parent_tds > 0 and parent_grand > 0:
+                        tds_credit = (parent_tds * ap_credit / parent_grand).quantize(Decimal("0.01"))
+                    tds_credit = min(tds_credit, ap_credit)
+                    ap_credit = ap_credit - tds_credit
                 lines = [
                     {"account": cls._account(note.company, "1400"), "debit": inv_amt},
                     *itc_lines,
-                    {"account": cls._account(note.company, "2100"), "credit": note.grand_total, "supplier": note.supplier},
+                    {
+                        "account": cls._account(note.company, "2100"),
+                        "credit": ap_credit,
+                        "supplier": note.supplier,
+                    },
                 ]
+                if tds_credit > 0:
+                    lines.append({
+                        "account": cls._account(note.company, "2265"),
+                        "credit": tds_credit,
+                        "supplier": note.supplier,
+                    })
                 if charges > 0:
                     lines.insert(1, {"account": cls._account(note.company, "5110"), "debit": charges})
             round_off_line = cls._round_off_line(note.company, round_off, side="debit")
@@ -1701,10 +1797,12 @@ class PostingService:
                 cls.reverse(entry, user=user)
 
     @classmethod
+    @transaction.atomic
     def reverse(cls, entry, user=None, entry_date=None, *, allow_soft_closed=None):
         # R3-016: the real "already reversed" guard is the status check — a
         # REVERSED entry can't be reversed again. (The old `hasattr(entry,
         # "reversal_of")` test was dead: there is no such relation.)
+        # CR-079: reversal JE + original status flip must be one atomic unit.
         if entry.status != JournalEntry.Status.POSTED or entry.reversed_entry_id is not None:
             raise BusinessRuleError("Only an unreversed posted journal may be reversed.")
         if allow_soft_closed is None:
@@ -1764,12 +1862,16 @@ class BooksHealthService:
 
         blockers: list[dict] = []
         health = BooksHealthService.control_balances(company)
+        has_legacy = any(a.get("code") == "legacy_unposted" for a in health["alerts"])
         for alert in health["alerts"]:
             code = alert["code"]
             if code in ("AR_CONTROL_MISMATCH", "AP_CONTROL_MISMATCH"):
                 blockers.append(alert)
             elif code == "DOCUMENT_MISSING_POSTING" and company.accounting_enabled:
                 blockers.append(alert)
+            # CR-159: docs↔GL drift blocks close (was warn-only), unless grandfathered legacy unposted docs exist (R-019).
+            elif code in ("DOCS_GL_AR_MISMATCH", "DOCS_GL_AP_MISMATCH") and not has_legacy:
+                blockers.append({**alert, "severity": "error"})
         gst = build_gst_health(company, period)
         blockers.extend(a for a in gst["alerts"] if a.get("severity") == "critical")
         from calendar import monthrange
@@ -1797,7 +1899,7 @@ class BooksHealthService:
             try:
                 year, month = int(str(period)[:4]), int(str(period)[5:7])
                 period_end = date_cls(year, month, monthrange(year, month)[1])
-                wo_qs = wo_qs.filter(Q(released_at__lte=period_end) | Q(released_at__isnull=True))
+                wo_qs = wo_qs.filter(released_at__lte=period_end)
             except (TypeError, ValueError):
                 pass
         if wo_qs.exists():
@@ -1817,10 +1919,94 @@ class BooksHealthService:
         raise BusinessRuleError(f"Period close blocked due to health alerts: {codes}.")
 
     @staticmethod
+    def missing_posting_cutoff(company):
+        """R-019: docs completed before this date warn (`legacy_unposted`) instead of blocking."""
+        from datetime import date as date_cls
+
+        from django.conf import settings
+
+        raw = (getattr(settings, "BOOKS_HEALTH_MISSING_POSTING_SINCE", None) or "").strip()
+        if raw:
+            return date_cls.fromisoformat(str(raw)[:10])
+        oldest = (
+            AccountingPeriod.objects.filter(
+                company=company, status=AccountingPeriod.Status.OPEN,
+            )
+            .order_by("start_date")
+            .first()
+        )
+        if oldest is not None:
+            return oldest.start_date
+        created = getattr(company, "created_at", None)
+        if created is not None:
+            return created.date() if hasattr(created, "date") else created
+        return date_cls.min
+
+    @staticmethod
+    def _doc_complete_date(doc):
+        when = getattr(doc, "completed_at", None) or getattr(doc, "created_at", None)
+        if when is None:
+            return None
+        return when.date() if hasattr(when, "date") else when
+
+    @staticmethod
+    def _unposted_qs(company, qs, source_type, purpose=None):
+        # CR-158 / CR-169: empty or unposted JEs must not count as "done".
+        je = JournalEntry.objects.filter(
+            company=company,
+            source_type=source_type,
+            status=JournalEntry.Status.POSTED,
+            lines__isnull=False,
+        ).distinct()
+        if purpose is not None:
+            je = je.filter(purpose=purpose)
+        return qs.exclude(id__in=je.values("source_id"))
+
+    @staticmethod
+    def _unposted_purchase_returns(company, qs):
+        """A purchase return is posted if it has a PR JE or a linked completed PCN JE."""
+        je_direct = JournalEntry.objects.filter(
+            company=company,
+            source_type="PURCHASE_RETURN",
+            status=JournalEntry.Status.POSTED,
+            lines__isnull=False,
+        ).values("source_id")
+        posted_cn = JournalEntry.objects.filter(
+            company=company,
+            source_type="PURCHASE_CREDIT_NOTE",
+            purpose="COMPLETE",
+            status=JournalEntry.Status.POSTED,
+            lines__isnull=False,
+        ).values("source_id")
+        from purchases.models import PurchaseCreditNote
+
+        posted_via_cn = qs.filter(
+            credit_notes__status=PurchaseCreditNote.Status.COMPLETED,
+            credit_notes__id__in=posted_cn,
+        ).values("id")
+        return qs.exclude(id__in=je_direct).exclude(id__in=posted_via_cn).distinct()
+
+    @classmethod
+    def _split_legacy_unposted(cls, company, qs) -> tuple[bool, int]:
+        cutoff = cls.missing_posting_cutoff(company)
+        blocking = False
+        legacy = 0
+        for doc in qs.only("id", "completed_at", "created_at").iterator(chunk_size=500):
+            when = cls._doc_complete_date(doc)
+            if when is not None and when < cutoff:
+                legacy += 1
+            else:
+                blocking = True
+        return blocking, legacy
+
+    @staticmethod
     def control_balances(company):
         def net(code):
-            aggregate = JournalLine.objects.filter(entry__company=company, entry__status=JournalEntry.Status.POSTED,
-                account__code=code).aggregate(d=Sum("debit"), c=Sum("credit"))
+            aggregate = JournalLine.objects.filter(
+                entry__company=company,
+                entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
+                account__code=code,
+            ).aggregate(d=Sum("debit"), c=Sum("credit"))
             return (aggregate["d"] or Decimal("0")) - (aggregate["c"] or Decimal("0"))
         ar = net("1200")
         ap = -net("2100")
@@ -1829,14 +2015,20 @@ class BooksHealthService:
         def tagged_net(code, party_field):
             aggregate = JournalLine.objects.filter(
                 entry__company=company,
-                entry__status=JournalEntry.Status.POSTED,
+                entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
                 account__code=code,
                 **{f"{party_field}__isnull": False},
             ).aggregate(d=Sum("debit"), c=Sum("credit"))
             return (aggregate["d"] or Decimal("0")) - (aggregate["c"] or Decimal("0"))
 
+        # CR-157 / CR-105: AR/AP *control* health compares bare control accounts
+        # to tagged lines on the same accounts only. Advances (2300/1250) belong
+        # in docs↔GL / advance recon — folding them into expected_ar/ap false-alarms
+        # whenever unallocated receipts exist and blocks period close.
         expected_ar = tagged_net("1200", "customer")
         expected_ap = -tagged_net("2100", "supplier")
+        docs_gl_ar = expected_ar + tagged_net("2300", "customer")
+        docs_gl_ap = expected_ap + (-tagged_net("1250", "supplier"))
         alerts = []
         # R3-013: a paise of rounding (or one untagged manual-journal line)
         # must not hard-block period close. Tolerance mirrors _advance_recon_alerts.
@@ -1849,20 +2041,28 @@ class BooksHealthService:
             alerts.append({"code": "AP_CONTROL_MISMATCH", "severity": "error", "message": "Accounts payable control balance differs from supplier ledger."})
         if AccountingPeriod.objects.filter(company=company, status=AccountingPeriod.Status.SOFT_CLOSED).exists():
             alerts.append({"code": "PERIOD_SOFT_CLOSED", "severity": "warning", "message": "One or more accounting periods are soft closed."})
-        from sales.models import SalesInvoice, SalesCreditNote, SalesDebitNote
-        from purchases.models import PurchaseInvoice
+        from sales.models import SalesInvoice, SalesCreditNote, SalesDebitNote, SalesReturn
+        from purchases.models import (
+            BillOfEntry,
+            PurchaseCreditNote,
+            PurchaseDebitNote,
+            PurchaseInvoice,
+            PurchaseReturn,
+        )
         from payments.models import CustomerReceipt, SupplierPayment, ReceiptStatus, SupplierPaymentStatus
         from manufacturing.models import WorkOrder
         from payroll.models import PayRun
 
-        # BB-000364 / BB-000713: missing posting across invoices, cash, notes, payroll, WO.
+        # BB-000364 / BB-000713 / R-019: missing posting across invoices, cash,
+        # notes, payroll, WO, returns, and BoE. New types (PCN/PDN/PR/SR/BoE)
+        # older than the cutoff warn as legacy_unposted instead of blocking.
         missing = False
+        legacy_unposted = 0
         if company.accounting_enabled:
             def _has_missing(qs, source_type, purpose=None):
-                je = JournalEntry.objects.filter(company=company, source_type=source_type)
-                if purpose is not None:
-                    je = je.filter(purpose=purpose)
-                return qs.exclude(id__in=je.values("source_id")).exists()
+                return BooksHealthService._unposted_qs(
+                    company, qs, source_type, purpose,
+                ).exists()
 
             missing = (
                 _has_missing(
@@ -1923,16 +2123,129 @@ class BooksHealthService:
                     None,
                 )
             )
+            expanded = (
+                (
+                    PurchaseCreditNote.objects.filter(
+                        company=company, status=PurchaseCreditNote.Status.COMPLETED,
+                    ),
+                    "PURCHASE_CREDIT_NOTE",
+                    "COMPLETE",
+                ),
+                (
+                    PurchaseDebitNote.objects.filter(
+                        company=company, status=PurchaseDebitNote.Status.COMPLETED,
+                    ),
+                    "PURCHASE_DEBIT_NOTE",
+                    "COMPLETE",
+                ),
+                (
+                    SalesReturn.objects.filter(
+                        company=company, status=SalesReturn.Status.COMPLETED,
+                    ),
+                    "SALES_RETURN",
+                    None,
+                ),
+                (
+                    BillOfEntry.objects.filter(
+                        company=company, status=BillOfEntry.Status.COMPLETED,
+                    ),
+                    "BILL_OF_ENTRY",
+                    "COMPLETE",
+                ),
+            )
+            for qs, source_type, purpose in expanded:
+                blocking, legacy = BooksHealthService._split_legacy_unposted(
+                    company,
+                    BooksHealthService._unposted_qs(company, qs, source_type, purpose),
+                )
+                missing = missing or blocking
+                legacy_unposted += legacy
+            pr_blocking, pr_legacy = BooksHealthService._split_legacy_unposted(
+                company,
+                BooksHealthService._unposted_purchase_returns(
+                    company,
+                    PurchaseReturn.objects.filter(
+                        company=company, status=PurchaseReturn.Status.COMPLETED,
+                    ),
+                ),
+            )
+            missing = missing or pr_blocking
+            legacy_unposted += pr_legacy
         if missing:
             alerts.append({
                 "code": "DOCUMENT_MISSING_POSTING",
                 "severity": "error" if company.accounting_enabled else "warning",
                 "message": "Completed documents are missing their accounting posting.",
             })
+        if legacy_unposted:
+            alerts.append({
+                "code": "legacy_unposted",
+                "severity": "warning",
+                "message": (
+                    f"{legacy_unposted} completed document(s) older than the "
+                    "missing-posting cutoff have no journal entry."
+                ),
+            })
         alerts.extend(BooksHealthService._depreciation_alerts(company))
         alerts.extend(BooksHealthService._advance_recon_alerts(company))
+        # CR-082: warn when document AR/AP totals diverge from tagged GL party nets
+        # (including advances 2300/1250 — not the bare control expected_* used above).
+        if company.accounting_enabled:
+            alerts.extend(BooksHealthService._docs_gl_party_alerts(company, docs_gl_ar, docs_gl_ap))
         return {"ar": {"gl": ar, "ledger": expected_ar, "healthy": ar_healthy},
                 "ap": {"gl": ap, "ledger": expected_ap, "healthy": ap_healthy}, "alerts": alerts}
+
+    @staticmethod
+    def _docs_gl_party_alerts(company, gl_ar, gl_ap):
+        """CR-082: compare document outstanding totals to tagged GL party nets (warn)."""
+        from ledgers.services import LedgerService
+
+        _TOL = Decimal("1.00")
+        prev = getattr(company, "outstanding_basis", None)
+        # Force document formula even when outstanding_basis is GL_WHEN_BOOKS.
+        company.outstanding_basis = "DOCUMENTS_ALWAYS"
+        try:
+            doc_ar = sum(
+                LedgerService.bulk_customer_outstanding(company, floor=False).values(),
+                Decimal("0"),
+            )
+            doc_ap = sum(
+                LedgerService.bulk_supplier_outstanding(company, floor=False).values(),
+                Decimal("0"),
+            )
+        finally:
+            if prev is None:
+                if hasattr(company, "outstanding_basis"):
+                    try:
+                        delattr(company, "outstanding_basis")
+                    except AttributeError:
+                        company.outstanding_basis = "GL_WHEN_BOOKS"
+            else:
+                company.outstanding_basis = prev
+        alerts = []
+        if abs(doc_ar - gl_ar) > _TOL:
+            alerts.append({
+                "code": "DOCS_GL_AR_MISMATCH",
+                "severity": "error",
+                "message": (
+                    f"Document AR ({doc_ar}) differs from tagged GL party AR ({gl_ar}). "
+                    "Invoice outstanding and party ledger may disagree."
+                ),
+                "document": str(doc_ar),
+                "gl": str(gl_ar),
+            })
+        if abs(doc_ap - gl_ap) > _TOL:
+            alerts.append({
+                "code": "DOCS_GL_AP_MISMATCH",
+                "severity": "error",
+                "message": (
+                    f"Document AP ({doc_ap}) differs from tagged GL party AP ({gl_ap}). "
+                    "Bill outstanding and party ledger may disagree."
+                ),
+                "document": str(doc_ap),
+                "gl": str(gl_ap),
+            })
+        return alerts
 
     @staticmethod
     def _advance_recon_alerts(company):
@@ -1954,7 +2267,7 @@ class BooksHealthService:
         def net(code):
             aggregate = JournalLine.objects.filter(
                 entry__company=company,
-                entry__status=JournalEntry.Status.POSTED,
+                entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
                 account__code=code,
             ).aggregate(d=Sum("debit"), c=Sum("credit"))
             return (aggregate["d"] or Decimal("0")) - (aggregate["c"] or Decimal("0"))

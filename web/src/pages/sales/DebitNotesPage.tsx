@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Button from '@mui/material/Button';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import {
   cancelSalesDebitNote,
   completeSalesDebitNote,
@@ -30,7 +31,8 @@ export function DebitNotesPage() {
     queryFn: () => listSalesDebitNotesPage({ page, pageSize: PAGE_SIZE }),
   });
   const complete = useMutation({
-    mutationFn: (id: number) => completeSalesDebitNote(id),
+    mutationFn: (id: number) =>
+      completeWithConfirms((extra) => completeSalesDebitNote(id, extra)),
     onSuccess: () => {
       setError(null);
       void qc.invalidateQueries({ queryKey: ['sales-debit-notes'] });

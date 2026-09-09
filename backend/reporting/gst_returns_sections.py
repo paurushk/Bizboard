@@ -10,7 +10,8 @@ def accumulate_hsn_line(hsn_buckets: dict, item, *, sign: Decimal = Decimal("1")
     """Roll one line into the HSN summary buckets."""
     hsn = (getattr(item, "hsn_code", None) or "").strip() or "NA"
     uqc = (getattr(item, "uqc_code", None) or "").strip() or "OTH"
-    rate = Decimal(str(getattr(item, "gst_rate", 0) or 0))
+    # CR-071: same rate key as GSTR `_rate_buckets` (applied_rate → gst_rate).
+    rate = Decimal(str(getattr(item, "applied_rate", None) or getattr(item, "gst_rate", 0) or 0))
     key = (hsn, str(rate), uqc)
     hsn_buckets[key]["quantity"] += sign * Decimal(str(getattr(item, "quantity", 0) or 0))
     hsn_buckets[key]["taxable_value"] += sign * Decimal(str(getattr(item, "taxable_amount", 0) or 0))

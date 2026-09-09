@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.exceptions import BusinessRuleError
+from core.idempotency import wrap_idempotent
 from core.permissions import IsOwner, get_company_user
 from core.services.audit import AuditService
 
@@ -39,31 +40,40 @@ class TenantExportView(APIView):
         cu = get_company_user(request)
         company = cu.company
         cache_key = f"tenant-export:{company.pk}"
-        if cache.get(cache_key):
+        # R-051: claim the 10-minute lock *before* build. A crash mid-export
+        # deletes the key so the owner can retry; a dead worker unblocks when
+        # the TTL expires. Never a TTL-less lock.
+        if not cache.add(cache_key, 1, timeout=EXPORT_CACHE_TTL):
             return Response(
                 {"detail": "Export is limited to once every 10 minutes per company."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
-        payload = build_export_payload(company)
-        blob = encrypt_export_zip(payload)
-        cache.set(cache_key, 1, timeout=EXPORT_CACHE_TTL)
-        AuditService.log(
-            action="tenant.export",
-            company=company,
-            user=request.user,
-            entity_type="Company",
-            entity_id=company.pk,
-            description="Owner downloaded encrypted tenant export.",
-            metadata={"bytes": len(blob), "version": payload.get("version")},
-        )
-        filename = f"bizboard-tenant-{company.pk}-{timezone.now().strftime('%Y%m%dT%H%M%SZ')}.bin"
-        response = HttpResponse(blob, content_type="application/octet-stream")
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        return response
+        try:
+            payload = build_export_payload(company)
+            blob = encrypt_export_zip(payload)
+            AuditService.log(
+                action="tenant.export",
+                company=company,
+                user=request.user,
+                entity_type="Company",
+                entity_id=company.pk,
+                description="Owner downloaded encrypted tenant export.",
+                metadata={"bytes": len(blob), "version": payload.get("version")},
+            )
+            filename = f"bizboard-tenant-{company.pk}-{timezone.now().strftime('%Y%m%dT%H%M%SZ')}.bin"
+            response = HttpResponse(blob, content_type="application/octet-stream")
+            response["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return response
+        except Exception:
+            cache.delete(cache_key)
+            raise
 
 
 class TenantRestoreView(APIView):
-    """Restore an encrypted tenant export into a sandbox (default) or destroy-in-place."""
+    """Restore an encrypted tenant export into a sandbox (default) or destroy-in-place.
+
+    The SPA only posts restore=sandbox. Destroy-in-place remains API-only for ops.
+    """
 
     permission_classes = [IsAuthenticated, IsOwner]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -71,68 +81,78 @@ class TenantRestoreView(APIView):
     def post(self, request):
         cu = get_company_user(request)
         company = cu.company
-        cache_key = f"tenant-restore:{company.pk}"
-        if cache.get(cache_key):
-            return Response(
-                {"detail": "Restore is limited to once every 10 minutes per company."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-        blob = _read_export_blob(request)
-        payload = decrypt_export_zip(blob, company_id=company.pk)
-        if payload.get("source_company_id") != company.pk:
-            raise BusinessRuleError(
-                "Export was created for a different company and cannot be restored here."
-            )
-        # B6-024: only hold the 10-minute lock once a restore actually
-        # succeeds — a failure mid-restore rolls back but must not lock the
-        # company out of retrying.
-        confirm_destroy = _truthy(request.data.get("confirm_destroy"))
-        typed_name = (request.data.get("typed_name") or request.data.get("typedName") or "").strip()
 
-        if confirm_destroy:
-            if typed_name != company.name:
-                raise BusinessRuleError(
-                    "Destroy-in-place restore requires typed_name to match the company name exactly."
+        def _run():
+            cache_key = f"tenant-restore:{company.pk}"
+            if cache.get(cache_key):
+                return Response(
+                    {"detail": "Restore is limited to once every 10 minutes per company."},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
                 )
-            confirm_unbacked = _truthy(
-                request.data.get("confirm_destroy_unbacked")
-                or request.data.get("confirmDestroyUnbacked")
-            )
-            restore_destroy_in_place(
-                company=company,
-                payload=payload,
-                owner=request.user,
-                confirm_destroy_unbacked=confirm_unbacked,
-            )
+            blob = _read_export_blob(request)
+            payload = decrypt_export_zip(blob, company_id=company.pk)
+            if payload.get("source_company_id") != company.pk:
+                raise BusinessRuleError(
+                    "Export was created for a different company and cannot be restored here."
+                )
+            confirm_destroy = _truthy(request.data.get("confirm_destroy"))
+            restore_mode = str(request.data.get("restore") or "").strip().lower()
+            # SPA contract: restore=sandbox only. confirm_destroy stays API-only.
+            if confirm_destroy and restore_mode != "sandbox":
+                typed_name = (request.data.get("typed_name") or request.data.get("typedName") or "").strip()
+                if typed_name != company.name:
+                    raise BusinessRuleError(
+                        "Destroy-in-place restore requires typed_name to match the company name exactly."
+                    )
+                confirm_unbacked = _truthy(
+                    request.data.get("confirm_destroy_unbacked")
+                    or request.data.get("confirmDestroyUnbacked")
+                )
+                restore_destroy_in_place(
+                    company=company,
+                    payload=payload,
+                    owner=request.user,
+                    confirm_destroy_unbacked=confirm_unbacked,
+                )
+                AuditService.log(
+                    action="tenant.restore_destroy",
+                    company=company,
+                    user=request.user,
+                    entity_type="Company",
+                    entity_id=company.pk,
+                    description="Owner restored tenant export in-place after confirm_destroy.",
+                )
+                cache.set(cache_key, 1, timeout=EXPORT_CACHE_TTL)
+                return Response({"company_id": company.pk, "mode": "destroy_in_place", "name": company.name})
+
+            sandbox = restore_to_sandbox(source_company=company, payload=payload, owner=request.user)
             AuditService.log(
-                action="tenant.restore_destroy",
+                action="tenant.restore_sandbox",
                 company=company,
                 user=request.user,
                 entity_type="Company",
-                entity_id=company.pk,
-                description="Owner restored tenant export in-place after confirm_destroy.",
+                entity_id=sandbox.pk,
+                description="Owner restored tenant export into a sandbox company.",
+                metadata={"sandbox_company_id": sandbox.pk, "sandbox_name": sandbox.name},
             )
             cache.set(cache_key, 1, timeout=EXPORT_CACHE_TTL)
-            return Response({"company_id": company.pk, "mode": "destroy_in_place", "name": company.name})
+            return Response(
+                {
+                    "company_id": sandbox.pk,
+                    "mode": "sandbox",
+                    "name": sandbox.name,
+                    "sandbox_expires_at": sandbox.sandbox_expires_at.isoformat()
+                    if sandbox.sandbox_expires_at
+                    else None,
+                },
+                status=status.HTTP_201_CREATED,
+            )
 
-        sandbox = restore_to_sandbox(source_company=company, payload=payload, owner=request.user)
-        AuditService.log(
-            action="tenant.restore_sandbox",
+        return wrap_idempotent(
+            request=request,
             company=company,
-            user=request.user,
-            entity_type="Company",
-            entity_id=sandbox.pk,
-            description="Owner restored tenant export into a sandbox company.",
-            metadata={"sandbox_company_id": sandbox.pk, "sandbox_name": sandbox.name},
-        )
-        cache.set(cache_key, 1, timeout=EXPORT_CACHE_TTL)
-        return Response(
-            {
-                "company_id": sandbox.pk,
-                "mode": "sandbox",
-                "name": sandbox.name,
-            },
-            status=status.HTTP_201_CREATED,
+            scope="tenant_restore_sandbox",
+            build=_run,
         )
 
 

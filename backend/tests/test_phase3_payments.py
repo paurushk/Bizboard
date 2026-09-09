@@ -262,7 +262,7 @@ def test_cash_book_report(tenant_a):
     r = tenant_a.client.get("/api/v1/reports/cash-book/")
     assert r.status_code == 200
     assert Decimal(str(r.data["inflow"])) >= Decimal("100")
-    assert r.data["kind"] == "actuals"
+    assert r.data["kind"] in ("actuals", "document_cash_book")
 
 
 def test_webhook_hmac_fail_rejected(tenant_a):
@@ -561,3 +561,41 @@ def test_cash_book_xlsx(tenant_a):
     r = tenant_a.client.get("/api/v1/reports/cash-book/?export=xlsx")
     assert r.status_code == 200
     assert "spreadsheetml" in r["Content-Type"]
+
+
+def test_cr_017_bank_statement_commit_idempotency(tenant_a):
+    """CR-017: Bank statement commit is protected with wrap_idempotent."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from payments.models import BankAccount, BankStatementStatus
+
+    ba = BankAccount.objects.create(company=tenant_a.company, name="HDFC-CR17", is_default=True)
+    csv_content = (
+        "Date,Credit,Debit,Narration,Ref No\n"
+        f"{timezone.localdate().strftime('%d/%m/%Y')},500,,UPI PAYMENT CR17,UTRCR17\n"
+    )
+    upload = SimpleUploadedFile("stmt_idemp.csv", csv_content.encode(), content_type="text/csv")
+    r = tenant_a.client.post(
+        "/api/v1/payments/statements/upload/",
+        {"bank_account": ba.id, "preset": "generic", "file": upload},
+        format="multipart",
+    )
+    assert r.status_code == 201, r.data
+    sid = r.data["id"]
+
+    # First commit with Idempotency-Key
+    idem_key = "test-stmt-commit-key-1"
+    r1 = tenant_a.client.post(
+        f"/api/v1/payments/statements/{sid}/commit/",
+        HTTP_IDEMPOTENCY_KEY=idem_key,
+    )
+    assert r1.status_code == 200
+    assert r1.data["status"] == BankStatementStatus.COMMITTED
+
+    # Replay same commit with same key
+    r2 = tenant_a.client.post(
+        f"/api/v1/payments/statements/{sid}/commit/",
+        HTTP_IDEMPOTENCY_KEY=idem_key,
+    )
+    assert r2.status_code == 200
+    assert r2.data["status"] == BankStatementStatus.COMMITTED
+

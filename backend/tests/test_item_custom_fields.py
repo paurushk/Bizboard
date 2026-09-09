@@ -448,9 +448,13 @@ def test_import_reassign_released_barcode(tenant_a):
     assert Product.objects.get(company=tenant_a.company, sku="NEW-1").barcode == "111"
 
 
-def test_item_custom_fields_v2_flag_default_on(tenant_a):
+def test_item_custom_fields_v2_flag_default_off(tenant_a):
     resp = tenant_a.client.get("/api/v1/feature-flags/")
     assert resp.status_code == 200
+    assert resp.data["item_custom_fields_v2"] is False
+    tenant_a.company.feature_flags = {"item_custom_fields_v2": True}
+    tenant_a.company.save(update_fields=["feature_flags"])
+    resp = tenant_a.client.get("/api/v1/feature-flags/")
     assert resp.data["item_custom_fields_v2"] is True
     tenant_a.company.feature_flags = {"item_custom_fields_v2": False}
     tenant_a.company.save(update_fields=["feature_flags"])

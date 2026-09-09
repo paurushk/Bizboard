@@ -160,7 +160,14 @@ class LedgerService:
             ),
             "grand_total",
         )
-        allocated = _sum(PaymentAllocation.objects.filter(sales_invoice=invoice, reversed_at__isnull=True))
+        allocated = _sum(
+            PaymentAllocation.objects.filter(
+                sales_invoice=invoice,
+                receipt__isnull=False,
+                supplier_payment__isnull=True,  # R2-020 / CR-061
+                reversed_at__isnull=True,
+            )
+        )
         tcs = Decimal("0")
         if not getattr(invoice, "tcs_in_grand_total", False):
             tcs = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
@@ -193,7 +200,14 @@ class LedgerService:
             ),
             "grand_total",
         )
-        allocated = _sum(PaymentAllocation.objects.filter(purchase_invoice=invoice, reversed_at__isnull=True))
+        allocated = _sum(
+            PaymentAllocation.objects.filter(
+                purchase_invoice=invoice,
+                supplier_payment__isnull=False,
+                receipt__isnull=True,  # CR-100 / R2-020: AP side only
+                reversed_at__isnull=True,
+            )
+        )
         # BB-000281: when auto CNs exist for returns, do not also subtract return totals.
         return_rows = list(
             PurchaseReturn.objects.filter(
@@ -267,38 +281,40 @@ class LedgerService:
 
     @staticmethod
     def _use_gl_outstanding(company) -> bool:
-        """PD-02: GL 1200 net 2300 when books on, unless outstanding_basis=DOCUMENTS_ALWAYS."""
+        """Honor outstanding_basis when accounting is enabled (CR-059)."""
         if not getattr(company, "accounting_enabled", False):
             return False
-        basis = getattr(company, "outstanding_basis", "GL_WHEN_BOOKS") or "GL_WHEN_BOOKS"
-        return basis != "DOCUMENTS_ALWAYS"
+        return getattr(company, "outstanding_basis", None) == "GL_WHEN_BOOKS"
 
     @staticmethod
     def customer_exposure_for_credit_limit(company, customer) -> Decimal:
         """Outstanding reduced by unallocated advances (Phase 1 D7 / §3.2).
 
-        When PD-02 GL outstanding is on, advances are already netted — do not
-        subtract them a second time.
-
-        LED-01: a credit-limit decision must not ride on a GL figure that has
-        drifted from the sub-ledger. When the GL basis is in force, cross-check
-        against the document basis and take the *more conservative* (higher)
-        number for the limit check, logging the drift so it can be reconciled.
+        CR-146: party outstanding is document-basis (dashboard-aligned). When books
+        are on, still cross-check GL and take the *more conservative* (higher)
+        number for the limit check, logging drift for reconciliation.
         """
-        if LedgerService._use_gl_outstanding(company):
-            gl_outstanding = LedgerService.customer_outstanding(company, customer)
-            doc_outstanding = LedgerService._customer_outstanding_documents(company, customer)
-            if abs(gl_outstanding - doc_outstanding) > Decimal("1"):
-                _logger.warning(
-                    "Customer %s credit exposure: GL %.2f vs documents %.2f — "
-                    "using the higher for the limit check; reconcile 1200/2300.",
-                    getattr(customer, "pk", customer),
-                    gl_outstanding,
-                    doc_outstanding,
-                )
-            return max(gl_outstanding, doc_outstanding)
-        outstanding = LedgerService.customer_outstanding(company, customer)
-        return outstanding - LedgerService.customer_unallocated_receipts(company, customer)
+        outstanding = LedgerService._customer_outstanding_documents(company, customer)
+        advances = LedgerService.customer_unallocated_receipts(company, customer)
+        docs_exposure = outstanding - advances
+        if not getattr(company, "accounting_enabled", False):
+            return docs_exposure
+        gl_ar = LedgerService._party_account_net(
+            company, account_code="1200", customer=customer
+        )
+        gl_adv = LedgerService._party_account_net(
+            company, account_code="2300", customer=customer
+        )
+        gl_outstanding = max(Decimal("0"), gl_ar + gl_adv)
+        if abs(gl_outstanding - docs_exposure) > Decimal("1"):
+            _logger.warning(
+                "Customer %s credit exposure: GL %.2f vs documents %.2f — "
+                "using the higher for the limit check; reconcile 1200/2300.",
+                getattr(customer, "pk", customer),
+                gl_outstanding,
+                docs_exposure,
+            )
+        return max(gl_outstanding, docs_exposure)
 
     # ---------------- Customer ledger ----------------
 
@@ -306,19 +322,18 @@ class LedgerService:
     def customer_outstanding(company, customer) -> Decimal:
         """Party AR that every money surface must foot.
 
-        PD-02 / W0-07a:
-        - books on + GL_WHEN_BOOKS: GL AR 1200 debit-positive net of advances 2300
-          (same number as customer_statement closing).
-        - books off or DOCUMENTS_ALWAYS: invoices − allocations − completed CNs + DNs.
+        CR-146 / W0-07: uses GL (1200 net of 2300 advances) when accounting is
+        enabled and outstanding_basis is GL_WHEN_BOOKS. When books are off or
+        basis is DOCUMENTS_ALWAYS, uses document formula.
         """
         if LedgerService._use_gl_outstanding(company):
-            ar = LedgerService._party_account_net(
+            gl_ar = LedgerService._party_account_net(
                 company, account_code="1200", customer=customer
             )
-            advances = LedgerService._party_account_net(
+            gl_adv = LedgerService._party_account_net(
                 company, account_code="2300", customer=customer
             )
-            return max(Decimal("0"), ar + advances)
+            return max(Decimal("0"), gl_ar + gl_adv)
         return LedgerService._customer_outstanding_documents(company, customer)
 
     @staticmethod
@@ -651,13 +666,16 @@ class LedgerService:
 
     @staticmethod
     def supplier_outstanding(company, supplier) -> Decimal:
-        if LedgerService._use_gl_outstanding(company):
-            # AP 2100 (credit increases payable) net of supplier advances 1250.
-            ap = LedgerService._party_account_net(company, account_code="2100", supplier=supplier)
-            prepaid = LedgerService._party_account_net(
-                company, account_code="1250", supplier=supplier
-            )
-            return max(Decimal("0"), -(ap + prepaid))
+        """Party AP that every money surface must foot.
+
+        CR-146 / dashboard twin: always document formula (bills − allocations
+        − completed CNs + DNs), including when books are on. GL nets stay on
+        books-health / recon surfaces.
+        """
+        return LedgerService._supplier_outstanding_documents(company, supplier)
+
+    @staticmethod
+    def _supplier_outstanding_documents(company, supplier) -> Decimal:
         inv_qs = PurchaseInvoice.objects.filter(
             company=company,
             supplier=supplier,
@@ -839,7 +857,10 @@ class LedgerService:
         )
         allocated = dict(
             PaymentAllocation.objects.filter(
-                purchase_invoice_id__in=ids, reversed_at__isnull=True,
+                purchase_invoice_id__in=ids,
+                supplier_payment__isnull=False,
+                receipt__isnull=True,  # CR-100 / R2-020: AP side only
+                reversed_at__isnull=True,
             )
             .values("purchase_invoice_id")
             .annotate(total=Sum("amount"))
@@ -887,7 +908,12 @@ class LedgerService:
             .values_list("sales_invoice_id", "total")
         )
         allocated_by_id = dict(
-            PaymentAllocation.objects.filter(sales_invoice_id__in=ids, reversed_at__isnull=True)
+            PaymentAllocation.objects.filter(
+                sales_invoice_id__in=ids,
+                receipt__isnull=False,
+                supplier_payment__isnull=True,  # R2-020 / CR-061
+                reversed_at__isnull=True,
+            )
             .values("sales_invoice_id").annotate(total=Sum("amount"))
             .values_list("sales_invoice_id", "total")
         )

@@ -137,6 +137,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
+  const [confirmNonGst, setConfirmNonGst] = useState(false);
 
   const jobQuery = useQuery({
     queryKey: ['import-job', jobId],
@@ -157,6 +158,9 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     setLines(toPreviewLines(job.preview));
     setBillNumber(job.preview.billNumber ?? '');
     setBillDate(job.preview.billDate ?? '');
+    if ('confirm_non_gst' in job.preview) {
+      setConfirmNonGst(Boolean(job.preview.confirm_non_gst));
+    }
     const detectedPartyId = isSales ? job.customer : job.supplier;
     if (detectedPartyId) {
       void (isSales ? getCustomer(detectedPartyId) : getSupplier(detectedPartyId))
@@ -228,6 +232,8 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
         billNumber,
         billDate,
         lines: payloadLines,
+        confirmNonGst: !isSales ? confirmNonGst : undefined,
+        confirm_non_gst: !isSales ? confirmNonGst : undefined,
       });
       return commitImport(
         jobId,
@@ -235,6 +241,8 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
           billNumber,
           billDate,
           lines: payloadLines,
+          confirmNonGst: !isSales ? confirmNonGst : undefined,
+          confirm_non_gst: !isSales ? confirmNonGst : undefined,
         },
         { idempotencyKey: commitKeyRef.current.key || undefined },
       );
@@ -282,6 +290,8 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
       !(Number(l.unitPrice) >= 0) ||
       Number.isNaN(Number(l.unitPrice)),
   ).length;
+  const allZeroRate =
+    includedCount > 0 && includedLines.every((l) => Number(l.gstRate || 0) === 0);
   // one stable idempotency key per job so a retry after the button re-enables
   // doesn't create a second draft.
   const commitKeyRef = useRef<{ jobId: number | null; key: string }>({ jobId: null, key: '' });
@@ -838,6 +848,29 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
             )}
 
             <Box>
+              {allZeroRate && !isSales ? (
+                <Box sx={{ mb: 2, p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={confirmNonGst}
+                        onChange={(e) => setConfirmNonGst(e.target.checked)}
+                        color="primary"
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography variant="body2" fontWeight={600}>
+                          Book as Non-GST Bill (Bill of Supply)
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          All lines have 0% GST. Check this box to record as Non-GST bill; leave unchecked to record as Nil/Exempt GST.
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </Box>
+              ) : null}
               <Button
                 variant="contained"
                 color="secondary"

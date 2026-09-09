@@ -89,7 +89,11 @@ def test_credit_note_reduces_outstanding_and_caps(tenant_a):
         format="json",
     )
     assert cn.status_code == 201, cn.data
-    done = tenant_a.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/")
+    done = tenant_a.client.post(
+        f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/",
+        {"confirm_price_override": True},
+        format="json",
+    )
     assert done.status_code == 200, done.data
     invoice.refresh_from_db()
     assert LedgerService.sales_invoice_outstanding(invoice) == Decimal("600.00")
@@ -235,8 +239,8 @@ def test_purchase_credit_note_complete_hard_blocked_in_soft_closed_period(tenant
 
     today = date.today()
     period = f"{today.year:04d}-{today.month:02d}"
-    GstReturnPeriod.objects.create(
-        company=tenant_a.company, period=period, status=GstReturnPeriod.Status.SOFT_CLOSED,
+    GstReturnPeriod.objects.update_or_create(
+        company=tenant_a.company, period=period, defaults={"status": GstReturnPeriod.Status.SOFT_CLOSED},
     )
     resp = tenant_a.client.post(f"/api/v1/purchases/credit-notes/{cn.data['id']}/complete/")
     assert resp.status_code == 400
@@ -254,19 +258,84 @@ def test_purchase_credit_note_capped_to_outstanding(tenant_a):
         purchase_type="NON_GST",
     )
     assert tenant_a.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/").status_code == 200
+    from purchases.models import PurchaseItem
+
+    src = PurchaseItem.objects.get(invoice_id=pur["id"])
 
     cn = tenant_a.client.post(
         "/api/v1/purchases/credit-notes/",
         {
             "supplier": supplier.id, "purchase_invoice": pur["id"], "reason": "CORRECTION_OF_INVOICE",
-            "items": [{"product": product.id, "quantity": "2", "unit_price": "100", "gst_rate": "0"}],
+            "items": [
+                {
+                    "product": product.id,
+                    "quantity": "1",
+                    "unit_price": "250",
+                    "gst_rate": "0",
+                    "source_item": src.id,
+                }
+            ],
         },
         format="json",
     )
     assert cn.status_code == 201, cn.data
-    resp = tenant_a.client.post(f"/api/v1/purchases/credit-notes/{cn.data['id']}/complete/")
+    resp = tenant_a.client.post(
+        f"/api/v1/purchases/credit-notes/{cn.data['id']}/complete/",
+        {"confirm_price_override": True},
+        format="json",
+    )
     assert resp.status_code == 400
     assert "outstanding" in str(resp.data).lower()
+
+def test_rcm_sales_credit_note_grand_total_excludes_gst(tenant_a):
+    """R-006: CN against an RCM invoice must not include GST in grand_total."""
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
+    tenant_a.company.state = "Karnataka"
+    tenant_a.company.save()
+    product = make_product(tenant_a.company, sku="RCM-CN", hsn_code="9983", gst_rate="18")
+    add_stock(tenant_a, product, "5")
+    customer = make_customer(
+        tenant_a.company, name="RCM Buyer", state="Karnataka", gstin="29AABCU9603R1ZJ"
+    )
+    created = tenant_a.client.post(
+        "/api/v1/sales/invoices/",
+        {
+            "customer": customer.id,
+            "invoice_type": "GST",
+            "is_reverse_charge": True,
+            "items": [
+                {"product": product.id, "quantity": "1", "unit_price": "1000", "gst_rate": "18"}
+            ],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.data
+    assert Decimal(str(created.data["grand_total"])) == Decimal("1000.00")
+    done = tenant_a.client.post(
+        f"/api/v1/sales/invoices/{created.data['id']}/complete/",
+        {"confirm_sales_rcm": True},
+        format="json",
+    )
+    assert done.status_code == 200, done.data
+    cn = tenant_a.client.post(
+        "/api/v1/sales/credit-notes/",
+        {
+            "customer": customer.id,
+            "sales_invoice": created.data["id"],
+            "reason": "CORRECTION_OF_INVOICE",
+            "items": [
+                {"product": product.id, "quantity": "1", "unit_price": "1000", "gst_rate": "18"}
+            ],
+        },
+        format="json",
+    )
+    assert cn.status_code == 201, cn.data
+    assert Decimal(str(cn.data["cgst_total"])) == Decimal("0.00")
+    assert Decimal(str(cn.data["sgst_total"])) == Decimal("0.00")
+    assert Decimal(str(cn.data["igst_total"])) == Decimal("0.00")
+    assert Decimal(str(cn.data["grand_total"])) == Decimal("1000.00")
+    note = SalesCreditNote.objects.get(pk=cn.data["id"])
+    assert note.grand_total == Decimal("1000.00")
 
 
 def test_sales_order_convert_copies_money_fields(tenant_a):

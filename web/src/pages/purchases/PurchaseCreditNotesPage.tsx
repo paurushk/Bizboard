@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Button from '@mui/material/Button';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import {
   cancelPurchaseCreditNote,
   completePurchaseCreditNote,
@@ -11,6 +11,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DocumentListPage } from '@/components/DocumentListPage';
 import { t } from '@/i18n';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import { canCancelDocuments, canCreatePurchases } from '@/utils/permissions';
 
 const PAGE_SIZE = 50;
@@ -28,7 +29,15 @@ export function PurchaseCreditNotesPage() {
     queryFn: () => listPurchaseCreditNotesPage({ page, pageSize: PAGE_SIZE }),
   });
   const complete = useMutation({
-    mutationFn: (id: number) => completePurchaseCreditNote(id),
+    // CR-129: prompt + retry on paid-invoice / price-override confirm codes.
+    mutationFn: (id: number) =>
+      completeWithConfirms((extra) =>
+        completePurchaseCreditNote(id, {
+          idempotencyKey: userGestureIdempotencyKey(),
+          confirmPaidInvoice: extra.confirmPaidInvoice,
+          confirmPriceOverride: extra.confirmPriceOverride,
+        }),
+      ),
     onSuccess: () => {
       setError(null);
       void qc.invalidateQueries({ queryKey: ['purchase-credit-notes'] });

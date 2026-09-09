@@ -31,5 +31,6 @@ export {
   clampSourceLineQty,
   invoiceItemsToSourceLines,
   noteItemsToSourceLines,
+  sourceLineReturnPayload,
 } from './invoiceSourceLines';
-export type { InvoiceSourceLine } from './invoiceSourceLines';
+export type { InvoiceSourceLine, SourceLineProductMeta } from './invoiceSourceLines';

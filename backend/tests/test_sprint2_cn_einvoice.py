@@ -42,7 +42,11 @@ def test_bb_000648_cn_allowed_after_full_receipt(tenant_a):
         format="json",
     )
     assert cn.status_code == 201, cn.data
-    done = tenant_a.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/")
+    done = tenant_a.client.post(
+        f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/",
+        {"confirm_paid_invoice": True},
+        format="json",
+    )
     assert done.status_code == 200, done.data
 
 
@@ -111,6 +115,30 @@ def test_bb_000663_auto_return_cn_copies_discount(tenant_a):
     note = SalesCreditNote.objects.get(sales_return_id=ret.data["id"])
     assert note.invoice_discount == Decimal("20.00")
 
+    # BB-000663 / BILL-04: `taxable_total` is stored net of *line* discounts only;
+    # the header-level AFTER_TAX `invoice_discount` is a separate subtraction, not
+    # folded into `taxable_total`. The auto-return credit note copies the invoice
+    # discount and runs the same billing math, so its header totals must foot the
+    # *same* way the source invoice's do:
+    #   taxable + cgst + sgst + igst + cess + charges − invoice_discount ± round_off == grand_total
+    # (charges are non-taxable on this NON_GST path, so they sit outside taxable_total.)
+    invoice = SalesInvoice.objects.get(pk=created.data["id"])
+    for doc in (invoice, note):
+        footed = (
+            doc.taxable_total
+            + doc.cgst_total
+            + doc.sgst_total
+            + doc.igst_total
+            + doc.cess_total
+            + Decimal(str(getattr(doc, "additional_charges", 0) or 0))
+            - Decimal(str(doc.invoice_discount or 0))
+            + doc.round_off
+        )
+        assert footed == doc.grand_total, (
+            f"{doc.__class__.__name__} header totals do not foot: "
+            f"{footed} != {doc.grand_total}"
+        )
+
 
 def test_bb_000647_note_irn_builder_crn_precdoc(tenant_a):
     tenant_a.company.gstin = "29ABCDE1234F1ZW"
@@ -148,7 +176,14 @@ def test_bb_000647_note_irn_builder_crn_precdoc(tenant_a):
         format="json",
     )
     assert cn.status_code == 201, cn.data
-    assert tenant_a.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/").status_code == 200
+    assert (
+        tenant_a.client.post(
+            f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/",
+            {"confirm_price_override": True},
+            format="json",
+        ).status_code
+        == 200
+    )
     note = SalesCreditNote.objects.get(pk=cn.data["id"])
     payload = build_einvoice_payload_from_note(note)
     assert payload["DocDtls"]["Typ"] == "CRN"
@@ -359,3 +394,50 @@ def test_b7_004_live_irp_refuses_custom_provider_even_when_certified(tenant_a):
     # A genuinely certified provider still constructs fine under the same flags.
     with override_settings(GSP_PROVIDER="cleartax"):
         LiveIrpAdapter(tenant_a.company)
+
+
+def test_cr_013_einvoice_cancel_retains_statutory_irn(tenant_a):
+    """CR-013: Statutory record retention requires IRN, AckNo, AckDt to be preserved on cancel."""
+    from django.utils import timezone
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
+    tenant_a.company.state = "Karnataka"
+    tenant_a.company.einvoice_enabled = True
+    tenant_a.company.save()
+    product = make_product(tenant_a.company, sku="EINV-1", hsn_code="1001")
+    add_stock(tenant_a, product, "5")
+    customer = make_customer(
+        tenant_a.company, gstin="29AABCU9603R1ZJ", state="Karnataka",
+        billing_address="Blr 560002",
+    )
+    inv = create_draft_invoice(
+        tenant_a,
+        customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "2000", "gst_rate": "18"}],
+    )
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+    invoice = SalesInvoice.objects.get(pk=inv["id"])
+    invoice.irn = "a" * 64
+    invoice.ack_no = "123456789012"
+    invoice.ack_date = timezone.now()
+    invoice.einvoice_status = SalesInvoice.EInvoiceStatus.GENERATED
+    invoice.einvoice_qr = "QR_DATA_HERE"
+    invoice.save(update_fields=["irn", "ack_no", "ack_date", "einvoice_status", "einvoice_qr"])
+
+    # Cancel the e-invoice
+    resp = tenant_a.client.post(
+        f"/api/v1/sales/invoices/{invoice.id}/cancel-einvoice/",
+        {"cnl_rsn": "1", "cnl_rem": "Duplicate invoice"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    invoice.refresh_from_db()
+    assert invoice.einvoice_status == SalesInvoice.EInvoiceStatus.CANCELLED
+    assert invoice.irn == "a" * 64, "IRN must be retained for 6-year statutory audit trail"
+    assert invoice.ack_no == "123456789012"
+    assert invoice.ack_date is not None
+    assert invoice.einvoice_qr == ""
+
+    # Re-submitting cancelled invoice must be rejected
+    resp_re = tenant_a.client.post(f"/api/v1/sales/invoices/{invoice.id}/submit-einvoice/")
+    assert resp_re.status_code in (400, 409)
+

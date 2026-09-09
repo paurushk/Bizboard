@@ -9,6 +9,7 @@ import Button from '@mui/material/Button';
 import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { isOwner } from '@/utils/permissions';
+import { HonestyBanner } from '@/components/HonestyBanner';
 import { EmptyState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { HELP_EVENTS, trackHelpEvent } from './analytics';
@@ -111,6 +112,7 @@ export function HelpPageV2() {
       <Typography variant="body2" color="text.secondary">
         {t('help.subtitleV2')}
       </Typography>
+      <HonestyBanner messageKey="honesty.mobileWebview" />
       <TextField
         label={t('help.searchLabelV2')}
         value={query}

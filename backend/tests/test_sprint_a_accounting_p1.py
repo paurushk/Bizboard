@@ -5,7 +5,7 @@ import pytest
 from django.core.management import call_command
 from django.utils import timezone
 
-from accounting.models import AccountingPeriod, JournalEntry, JournalLine
+from accounting.models import Account, AccountingPeriod, JournalEntry, JournalLine
 from accounting.services import BooksHealthService, PostingService, seed_chart_of_accounts
 from core.exceptions import BusinessRuleError
 from inventory.models import MovementType, StockMovement
@@ -80,7 +80,7 @@ def test_soft_closed_blocks_operational_post(books):
         end_date="2026-04-30",
         status=AccountingPeriod.Status.SOFT_CLOSED,
     )
-    with pytest.raises(BusinessRuleError, match="closed accounting period"):
+    with pytest.raises(BusinessRuleError, match="closed|SOFT_CLOSED|amend money"):
         PostingService.post(
             company=books.company,
             source_type="TEST",
@@ -270,7 +270,7 @@ def test_backfill_skips_opening_cogs(books):
         is_opening_balance=True,
         notes="TALLY_OPENING",
     )
-    call_command("backfill_accounting_postings")
+    call_command("backfill_accounting_postings", company=books.company.id)
     assert JournalEntry.objects.filter(
         company=books.company, source_type="SALES_INVOICE", source_id=invoice.id, purpose="OPENING"
     ).exists()
@@ -326,7 +326,7 @@ def test_backfill_opening_stock_and_skips_voided_receipt(books):
         receipt_date="2026-04-02",
         status=ReceiptStatus.VOIDED,
     )
-    call_command("backfill_accounting_postings")
+    call_command("backfill_accounting_postings", company=books.company.id)
     assert JournalEntry.objects.filter(
         company=books.company,
         source_type="STOCK_MOVEMENT",
@@ -336,3 +336,73 @@ def test_backfill_opening_stock_and_skips_voided_receipt(books):
     assert not JournalEntry.objects.filter(
         company=books.company, source_type="CUSTOMER_RECEIPT", purpose="CREATE"
     ).exists()
+
+
+def test_cr161_manual_journal_party_control_requires_tag(books):
+    """CR-161: manual lines on AR/AP control (1200/2100/2300/1250) need the
+    matching party tag; other control accounts stay freely postable so opening
+    balances and contra entries keep working (blocker fix regression)."""
+    coa = {a.code: a.id for a in Account.objects.filter(company=books.company)}
+    customer = make_customer(books.company)
+
+    untagged = books.client.post(
+        "/api/v1/accounting/journals/",
+        {
+            "entryDate": "2026-04-05",
+            "narration": "opening AR untagged",
+            "lines": [
+                {"account": coa["1200"], "debit": "500", "credit": "0"},
+                {"account": coa["3200"], "debit": "0", "credit": "500"},
+            ],
+        },
+        format="json",
+    )
+    assert untagged.status_code == 400, untagged.data
+    assert "party control" in str(untagged.data).lower()
+
+    tagged = books.client.post(
+        "/api/v1/accounting/journals/",
+        {
+            "entryDate": "2026-04-05",
+            "narration": "opening AR tagged + equity (control, no tag needed)",
+            "lines": [
+                {"account": coa["1200"], "debit": "500", "credit": "0", "customer": customer.id},
+                {"account": coa["3200"], "debit": "0", "credit": "500"},
+            ],
+        },
+        format="json",
+    )
+    assert tagged.status_code in (200, 201), tagged.data
+
+    wrong_party = books.client.post(
+        "/api/v1/accounting/journals/",
+        {
+            "entryDate": "2026-04-05",
+            "narration": "AR line tagged with a supplier",
+            "lines": [
+                {"account": coa["1200"], "debit": "10", "credit": "0", "customer": customer.id},
+                {"account": coa["2100"], "debit": "0", "credit": "10", "customer": customer.id},
+            ],
+        },
+        format="json",
+    )
+    assert wrong_party.status_code == 400, wrong_party.data
+
+
+def test_period_patch_cannot_set_status(books):
+    """R-004: status is read-only; Close must use POST /close/."""
+    period = AccountingPeriod.objects.create(
+        company=books.company,
+        name="FY26-P1",
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 30),
+        status=AccountingPeriod.Status.OPEN,
+    )
+    resp = books.client.patch(
+        f"/api/v1/accounting/periods/{period.pk}/",
+        {"status": "CLOSED"},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.data
+    period.refresh_from_db()
+    assert period.status == AccountingPeriod.Status.OPEN

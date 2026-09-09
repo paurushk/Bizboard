@@ -157,6 +157,8 @@ export async function updateImportPreview(
     billNumber?: string;
     billDate?: string;
     lines?: Array<Record<string, unknown>>;
+    confirmNonGst?: boolean;
+    confirm_non_gst?: boolean;
   },
 ): Promise<ImportJob> {
   return withMocks(async () => {
@@ -395,6 +397,10 @@ export async function listAccountingPeriodsPage(params?: PageParams): Promise<Pa
 }
 export const createAccountingPeriod = (payload: Record<string, unknown>) => apiClient.post('/accounting/periods/', payload).then(({ data }) => unwrapData(data));
 export const updateAccountingPeriod = (id: number, payload: Record<string, unknown>) => apiClient.patch(`/accounting/periods/${id}/`, payload).then(({ data }) => unwrapData(data));
+export const softCloseAccountingPeriod = (id: number) => apiClient.post(`/accounting/periods/${id}/soft-close/`).then(({ data }) => unwrapData(data));
+export const closeAccountingPeriod = (id: number) => apiClient.post(`/accounting/periods/${id}/close/`).then(({ data }) => unwrapData(data));
+export const softCloseGstPeriod = (period: string) =>
+  apiClient.post('/reports/gst-period/', { period, action: 'soft_close' }).then(({ data }) => unwrapData(data));
 export async function getDailySummary(params?: { date?: string }): Promise<DailyBusinessSummary> {
   const { data } = await apiClient.get('/insights/daily-summary/', { params });
   return unwrapData<DailyBusinessSummary>(data);

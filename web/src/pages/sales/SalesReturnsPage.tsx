@@ -22,14 +22,17 @@ import {
   completeSalesReturn,
   createSalesReturn,
   getSalesInvoice,
+  listProducts,
   listSalesInvoicesPage,
   listSalesReturns,
   listSalesReturnsPage,
+  updateSalesReturn,
 } from '@/api/resources';
 import {
   InvoiceReturnLineTable,
   activeSourceLines,
   invoiceItemsToSourceLines,
+  sourceLineReturnPayload,
   todayIso,
   useDebouncedValue,
   type InvoiceSourceLine,
@@ -80,6 +83,13 @@ export function SalesReturnsPage() {
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<number | null>(null);
+  const [gestureKey, setGestureKey] = useState<string | null>(null);
+  const products = useQuery({
+    queryKey: ['products'],
+    queryFn: () => listProducts(),
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     if (searchParams.get('create') !== '1') return;
@@ -114,7 +124,18 @@ export function SalesReturnsPage() {
     } catch {
       /* best-effort — fall back to full invoice quantities */
     }
-    setLines(invoiceItemsToSourceLines(full.items, returnedByProduct));
+    const catalog = products.data?.length ? products.data : await listProducts();
+    const byId = new Map(catalog.map((p) => [p.id, p]));
+    setLines(invoiceItemsToSourceLines(full.items, returnedByProduct, byId));
+  };
+
+  const resetDialog = () => {
+    setInvoice(null);
+    setLines([]);
+    setReason('');
+    setDraftId(null);
+    setGestureKey(null);
+    setError(null);
   };
 
   const createMutation = useMutation({
@@ -122,30 +143,31 @@ export function SalesReturnsPage() {
       if (!invoice) throw new Error(t('phase1.selectInvoice'));
       const selected = activeSourceLines(lines);
       if (selected.length === 0) throw new Error(t('phase1.selectInvoiceLines'));
-      // F2-013: one key per gesture — a retry of create won't make a second
-      // draft, and complete is idempotent too.
-      const key = userGestureIdempotencyKey();
-      const draft = await createSalesReturn({
-        customer: invoice.customer,
-        salesInvoice: invoice.id,
-        returnDate: todayIso(),
-        reason,
-        items: selected.map((l) => ({
-          product: l.product,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          gstRate: l.gstRate,
-          condition: l.condition || 'SELLABLE',
-        })),
-      }, { idempotencyKey: key });
-      return completeSalesReturn(draft.id, { idempotencyKey: `${key}-complete` });
+      // R-066: one key family (key, key-complete). Create the draft first;
+      // if Complete 400s the dialog stays open so serials can be filled.
+      const key = gestureKey ?? userGestureIdempotencyKey();
+      if (!gestureKey) setGestureKey(key);
+      const items = selected.map((l) => sourceLineReturnPayload(l));
+      let id = draftId;
+      if (!id) {
+        const draft = await createSalesReturn({
+          customer: invoice.customer,
+          salesInvoice: invoice.id,
+          returnDate: todayIso(),
+          reason,
+          items,
+        }, { idempotencyKey: key });
+        id = draft.id;
+        setDraftId(id);
+      } else {
+        await updateSalesReturn(id, { reason, items });
+      }
+      return completeSalesReturn(id, { idempotencyKey: `${key}-complete` });
     },
     onSuccess: () => {
       setOpen(false);
-      setMessage('Sales return completed');
-      setInvoice(null);
-      setLines([]);
-      setReason('');
+      setMessage(t('phase1.salesReturnCompleted'));
+      resetDialog();
       void qc.invalidateQueries({ queryKey: ['sales-returns'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -159,7 +181,7 @@ export function SalesReturnsPage() {
         <Button
           variant="contained"
           onClick={() => {
-            setError(null);
+            resetDialog();
             setOpen(true);
           }}
         >
@@ -173,7 +195,24 @@ export function SalesReturnsPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {returns.length === 0 && query.isSuccess ? <EmptyState /> : null}
+      {returns.length === 0 && query.isSuccess ? (
+        <EmptyState
+          description={t('empty.salesReturns')}
+          action={
+            canWrite ? (
+              <Button
+                variant="contained"
+                onClick={() => {
+                  resetDialog();
+                  setOpen(true);
+                }}
+              >
+                {t('phase1.newSalesReturn')}
+              </Button>
+            ) : null
+          }
+        />
+      ) : null}
       {returns.length > 0 ? (
         <Paper sx={{ overflow: 'auto' }}>
           <Table size="small">
@@ -224,15 +263,23 @@ export function SalesReturnsPage() {
         </Stack>
       ) : null}
 
-      <Dialog open={open && canWrite} onClose={() => setOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle>New sales return</DialogTitle>
+      <Dialog
+        open={open && canWrite}
+        onClose={() => {
+          setOpen(false);
+          resetDialog();
+        }}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>{t('phase1.newSalesReturn')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {/* Same-family fix as UXW2B-011/UXW2B-010: surface mutation errors inside
                 the modal itself — a page-level Alert behind the Dialog is invisible. */}
             {error ? <HelpErrorAlert message={error} /> : null}
             {invoice && lines.length > 0 && activeSourceLines(lines).length === 0 ? (
-              <Alert severity="warning">Select at least one item to return.</Alert>
+              <Alert severity="warning">{t('phase1.selectItemToReturn')}</Alert>
             ) : null}
             <Autocomplete
               options={invoices.data ?? []}
@@ -243,7 +290,13 @@ export function SalesReturnsPage() {
               onChange={(_, v) => void onInvoicePick(v)}
               loading={invoices.isLoading}
               filterOptions={(x) => x}
-              renderInput={(params) => <TextField {...params} label="Original invoice" placeholder="Search by invoice # or customer" />}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label={t('phase1.originalInvoice')}
+                  placeholder={t('phase1.searchInvoiceOrCustomer')}
+                />
+              )}
             />
             {lines.length > 0 ? (
               <InvoiceReturnLineTable lines={lines} onChange={setLines} />
@@ -256,7 +309,14 @@ export function SalesReturnsPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+          <Button
+            onClick={() => {
+              setOpen(false);
+              resetDialog();
+            }}
+          >
+            {t('common.cancel')}
+          </Button>
           <Button
             variant="contained"
             disabled={!invoice || activeSourceLines(lines).length === 0 || createMutation.isPending}

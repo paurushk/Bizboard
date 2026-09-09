@@ -144,6 +144,11 @@ export function InvoiceDetailPage() {
       const warns = (data?.warnings ?? []).filter(Boolean).join(' ');
       setMessage(warns ? `${t('billing.invoiceCompleted')} ${warns}` : t('billing.invoiceCompleted'));
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
+      void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
+      void qc.invalidateQueries({ queryKey: ['customers'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+      void qc.invalidateQueries({ queryKey: ['products'] });
+      void qc.invalidateQueries({ queryKey: ['stock-balance'] });
     },
     onError: (err) => captureError(err),
   });
@@ -153,6 +158,11 @@ export function InvoiceDetailPage() {
     onSuccess: () => {
       setMessage(t('billing.invoiceCancelled'));
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
+      void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
+      void qc.invalidateQueries({ queryKey: ['customers'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+      void qc.invalidateQueries({ queryKey: ['products'] });
+      void qc.invalidateQueries({ queryKey: ['stock-balance'] });
     },
     onError: (err) => captureError(err),
   });

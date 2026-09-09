@@ -5,10 +5,8 @@ import { hi } from './hi';
 // F1-023: moneyParity.test.ts only checked 5 namespaces (billing, pos,
 // einvoice, receipts, inventory) — a key missing from `hi` anywhere else
 // falls through `t()`'s `en` fallback silently, so nothing ever signalled a
-// drift outside those 5 roots. `hi` is the only catalog meant to be a full
-// second locale (`ta`/`gu` are deliberately partial — see i18n/index.ts,
-// which won't even select them as the active locale), so this checks the
-// whole tree.
+// drift outside those 5 roots. `hi` is the only full second locale (R-084:
+// ta/gu catalogs were deleted; switcher is en/hi only).
 
 function leafKeys(obj: unknown, prefix = ''): string[] {
   if (typeof obj === 'string') return prefix ? [prefix] : [];

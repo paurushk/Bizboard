@@ -79,9 +79,35 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
         if (r.invoice_number or "").strip()
     }
 
+    needed_numbers = {
+        (row.invoice_number or "").strip()
+        for row in rows
+        if (row.invoice_number or "").strip()
+        and row.purchase_invoice_id is None
+        and row.match_status not in (
+            Gstr2bIngest.MatchStatus.MATCHED,
+            Gstr2bIngest.MatchStatus.PARTIAL,
+        )
+    }
+    invoices_by_num: dict[str, list] = {}
+    if needed_numbers:
+        candidate_qs = PurchaseInvoice.objects.filter(
+            company=company,
+            number__in=list(needed_numbers),
+            status__in=(
+                PurchaseInvoice.Status.COMPLETED,
+                PurchaseInvoice.Status.RETURNED,
+            ),
+        ).select_related("supplier")
+        for inv in candidate_qs:
+            invoices_by_num.setdefault((inv.number or "").strip().upper(), []).append(inv)
+
+    rows_to_update = []
     for row in rows:
-        refresh_16_4(row)
-        deadline = row.section_16_4_deadline
+        deadline = section_16_4_deadline(row.invoice_date)
+        deadline_changed = row.section_16_4_deadline != deadline
+        if deadline_changed:
+            row.section_16_4_deadline = deadline
         past_window = bool(deadline and as_of > deadline)
         key = f"{(row.supplier_gstin or '').upper()}|{(row.invoice_number or '').strip()}"
         klass = Gstr2bIngest.MatchClass.OTHER
@@ -96,31 +122,41 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
             if row.match_status == Gstr2bIngest.MatchStatus.PARTIAL:
                 klass = Gstr2bIngest.MatchClass.VALUE_MISMATCH
             else:
-                other_qs = PurchaseInvoice.objects.filter(
-                    company=company,
-                    number__iexact=(row.invoice_number or "").strip(),
-                    status__in=(
-                        PurchaseInvoice.Status.COMPLETED,
-                        PurchaseInvoice.Status.RETURNED,
-                    ),
-                ).exclude(supplier__gstin__iexact=row.supplier_gstin or "")
-                if row.invoice_date:
-                    from .gstr2b import _indian_fy_start_year
+                inv_num_key = (row.invoice_number or "").strip().upper()
+                candidates = invoices_by_num.get(inv_num_key, [])
+                supplier_gstin_clean = (row.supplier_gstin or "").strip().upper()
+                other = None
+                from .gstr2b import _indian_fy_start_year
 
-                    fy = _indian_fy_start_year(row.invoice_date)
-                    other_qs = other_qs.filter(
-                        invoice_date__gte=date(fy, 4, 1),
-                        invoice_date__lt=date(fy + 1, 4, 1),
-                    )
-                other = other_qs.first()
+                for cand in candidates:
+                    cand_gstin = (getattr(cand.supplier, "gstin", "") or "").strip().upper()
+                    if cand_gstin == supplier_gstin_clean:
+                        continue
+                    if row.invoice_date:
+                        fy = _indian_fy_start_year(row.invoice_date)
+                        if not (date(fy, 4, 1) <= cand.invoice_date < date(fy + 1, 4, 1)):
+                            continue
+                    other = cand
+                    break
+
                 if other is not None:
                     klass = Gstr2bIngest.MatchClass.WRONG_GSTIN
                 else:
                     klass = Gstr2bIngest.MatchClass.MISSING_IN_BOOKS
-        if persist:
-            if row.match_class != klass:
-                row.match_class = klass
-                row.save(update_fields=["match_class", "updated_at"])
+
+        class_changed = row.match_class != klass
+        if class_changed:
+            row.match_class = klass
+
+        if persist and (class_changed or deadline_changed):
+            rows_to_update.append(row)
+
+    if persist and rows_to_update:
+        Gstr2bIngest.objects.bulk_update(
+            rows_to_update,
+            ["match_class", "section_16_4_deadline"],
+            batch_size=IMS_BULK_CHUNK,
+        )
 
     missing_in_ims = sorted(
         f"{gstin}|{number}" if gstin else number

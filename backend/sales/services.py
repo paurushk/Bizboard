@@ -26,7 +26,9 @@ from masters.models import Customer, Product
 from .models import (
     Quotation,
     QuotationItem,
+    SalesCreditNote,
     SalesCreditNoteItem,
+    SalesDebitNote,
     SalesDebitNoteItem,
     SalesInvoice,
     SalesItem,
@@ -60,6 +62,13 @@ def _validate_lines(items_data, company, *, check_active=True):
                 f"Invalid GST rate {gst_rate}. Allowed: {', '.join(ALLOWED_GST_RATES)}%.",
                 code=HelpCode.INVALID_GST_RATE,
             )
+        # CR-028: validate cess bounds (model validators bypassed on bulk_create)
+        cess_rate = Decimal(str(line.get("cess_rate", 0) or 0))
+        if cess_rate < 0 or cess_rate > 100:
+            raise BusinessRuleError("Cess rate must be between 0 and 100.")
+        cess_amount = Decimal(str(line.get("cess_amount", 0) or 0))
+        if cess_amount < 0:
+            raise BusinessRuleError("Cess amount cannot be negative.")
         product = line["product"]
         if product.company_id != company.id:
             raise BusinessRuleError("Invalid product reference.")
@@ -74,6 +83,13 @@ def _validate_lines(items_data, company, *, check_active=True):
                 f"Cannot sell inactive product '{product.name}'.",
                 code=HelpCode.INACTIVE_PRODUCT,
             )
+        # CR-021: validate string field bounds before bulk_create
+        desc = str(line.get("description") or "")
+        if len(desc) > 255:
+            raise BusinessRuleError("Line description exceeds maximum length of 255 characters.")
+        batch_no = str(line.get("batch_number") or getattr(batch, "batch_number", "") or "")
+        if len(batch_no) > 64:
+            raise BusinessRuleError("Batch number exceeds maximum length of 64 characters.")
 
 
 def apply_tcs_fold(invoice) -> None:
@@ -304,6 +320,8 @@ def _build_items(model_cls, parent_field, parent, items_data):
         if model_cls is SalesReturnItem:
             kwargs["serial_numbers"] = line.get("serial_numbers") or []
             kwargs["condition"] = line.get("condition") or SalesReturnItem.Condition.SELLABLE
+        if model_cls in (SalesCreditNoteItem, SalesDebitNoteItem) and source_item is not None:
+            kwargs["source_item"] = source_item
         items.append(model_cls(**kwargs))
     return items
 
@@ -445,7 +463,13 @@ class SalesService:
 
     @staticmethod
     def _sale_batches(invoice, item):
-        """Resolve an explicit batch or allocate the issue across FEFO lots."""
+        """Resolve an explicit batch or allocate the issue across FEFO lots.
+
+        CR-050: under ``negative_stock_policy=WARN``, shortfalls allow + warn
+        (same as unbatched invoice complete) instead of hard-failing. ``BLOCK``
+        still raises. Callers should already have collected WARN strings via
+        ``check_negative_stock``.
+        """
         from inventory.item_stock import base_quantity
 
         qty = base_quantity(item.product, item.quantity, getattr(item, "unit_name", None))
@@ -465,13 +489,14 @@ class SalesService:
                 raise BusinessRuleError(
                     f"Unknown batch '{batch_no}' for '{item.product.name}'."
                 ) from exc
+        policy = getattr(invoice.company, "negative_stock_policy", "BLOCK") or "BLOCK"
         if batch_id or batch is not None:
             chosen = batch or item.batch
             warehouse = getattr(invoice, "warehouse", None)
             available = InventoryService.available_quantity(
                 invoice.company, item.product, warehouse, chosen
             )
-            if available < qty:
+            if available < qty and policy == "BLOCK":
                 raise BusinessRuleError(
                     f"Insufficient stock in batch '{getattr(chosen, 'batch_no', chosen)}' "
                     f"for '{item.product.name}': available {available}, required {qty}."
@@ -493,12 +518,31 @@ class SalesService:
                 remaining -= take
             if remaining <= 0:
                 break
-        if not allocations:
-            raise BusinessRuleError(f"No stock batch is available for '{item.product.name}'.")
         if remaining > 0:
-            raise BusinessRuleError(
-                f"Insufficient batched stock for '{item.product.name}': {remaining} unavailable."
-            )
+            if policy == "BLOCK":
+                if not allocations:
+                    raise BusinessRuleError(
+                        f"No stock batch is available for '{item.product.name}'."
+                    )
+                raise BusinessRuleError(
+                    f"Insufficient batched stock for '{item.product.name}': "
+                    f"{remaining} unavailable."
+                )
+            # WARN: hang the shortfall on the last allocated lot, else any lot.
+            if allocations:
+                last_lot, last_qty = allocations[-1]
+                allocations[-1] = (last_lot, last_qty + remaining)
+            else:
+                fallback = (
+                    BatchLot.objects.filter(company=invoice.company, product=item.product)
+                    .order_by("expiry_date", "id")
+                    .first()
+                )
+                if fallback is None:
+                    raise BusinessRuleError(
+                        f"No stock batch is available for '{item.product.name}'."
+                    )
+                allocations.append((fallback, remaining))
         if hasattr(item, "batch") and hasattr(item, "save"):
             item.batch = allocations[0][0]
             if hasattr(item, "batch_no"):
@@ -520,6 +564,11 @@ class SalesService:
             raise BusinessRuleError("Cancelled/returned invoice cannot be line-edited.")
         if invoice.status not in (SalesInvoice.Status.DRAFT, SalesInvoice.Status.COMPLETED):
             raise BusinessRuleError(f"Cannot edit invoice in status {invoice.status}.")
+        if invoice.status == SalesInvoice.Status.COMPLETED:
+            from .irn_guard import assert_no_live_eway, assert_no_live_irn
+
+            assert_no_live_irn(invoice, kind="invoice")
+            assert_no_live_eway(invoice, kind="invoice")
 
         old_qty = defaultdict(Decimal)
         adjust_stock = invoice.status == SalesInvoice.Status.COMPLETED
@@ -539,7 +588,44 @@ class SalesService:
         for line in items_data:
             new_qty_preview[line["product"].pk] += Decimal(line["quantity"])
 
+        # CR-123: invoice converted from SO — freeze quantities to SO line qtys.
+        from sales.models import SalesOrder
+
+        source_orders = list(
+            SalesOrder.objects.filter(converted_invoice=invoice).prefetch_related("items")
+        )
+        if source_orders:
+            so_qty = defaultdict(Decimal)
+            for order in source_orders:
+                for soi in order.items.all():
+                    so_qty[soi.product_id] += Decimal(str(soi.quantity or 0))
+            for product_id, new_q in new_qty_preview.items():
+                cap = so_qty.get(product_id, Decimal("0"))
+                if new_q > cap:
+                    raise BusinessRuleError(
+                        f"Quantity {new_q} exceeds sales-order quantity {cap} for this "
+                        "converted invoice. Amend the order before convert, or use a "
+                        "separate invoice for extra qty."
+                    )
+            for product_id, cap in so_qty.items():
+                if product_id not in new_qty_preview and cap > 0:
+                    # Dropping an SO line on the draft invoice is also a freeze breach.
+                    raise BusinessRuleError(
+                        "Cannot remove sales-order lines from a converted invoice. "
+                        "Quantities are frozen to the source order."
+                    )
+
         if adjust_stock:
+            # CR-024 / CR-128: completed invoices cannot change quantities
+            # via set_items (use credit note / return instead).
+            for product_id in set(old_qty) | set(new_qty_preview):
+                if new_qty_preview.get(product_id, Decimal("0")) != old_qty.get(
+                    product_id, Decimal("0")
+                ):
+                    raise BusinessRuleError(
+                        "Cannot amend quantity on a completed invoice. "
+                        "Use a credit note or sales return instead."
+                    )
             # Cannot reduce a line below quantities already returned.
             already = SalesService._returned_quantities(invoice)
             for product_id, returned_qty in already.items():
@@ -547,32 +633,6 @@ class SalesService:
                     raise BusinessRuleError(
                         f"Quantity cannot be below already-returned quantity {returned_qty}."
                     )
-            # BB-000721: H9 qty amend on batch/serial-tracked SKUs risks FIFO/serial
-            # desync — refuse rather than posting bare SALE/ADJUSTMENT.
-            for product_id in set(old_qty) | set(new_qty_preview):
-                delta = new_qty_preview.get(product_id, Decimal("0")) - old_qty.get(
-                    product_id, Decimal("0")
-                )
-                if delta == 0:
-                    continue
-                product = next(
-                    (line["product"] for line in items_data if line["product"].pk == product_id),
-                    None,
-                ) or Product.objects.get(pk=product_id)
-                if product.track_serial or product.track_batch:
-                    raise BusinessRuleError(
-                        f"Cannot amend quantity on completed invoices for batch/serial-tracked "
-                        f"product '{product.name}'. Use a credit note or sales return instead."
-                    )
-            # Extra stock sold on edit must pass negative-stock policy.
-            for product_id, new_q in new_qty_preview.items():
-                delta = new_q - old_qty.get(product_id, Decimal("0"))
-                if delta > 0:
-                    product = next(
-                        (line["product"] for line in items_data if line["product"].pk == product_id),
-                        None,
-                    ) or Product.objects.get(pk=product_id)
-                    InventoryService.check_negative_stock(invoice.company, product, delta, invoice.warehouse)
 
         if adjust_stock:
             # H9-A: update existing lines in place so CN/DN source_item FKs stay valid.
@@ -590,6 +650,7 @@ class SalesService:
                 invoice.customer.gstin or "",
                 seller_state=(getattr(invoice.company_gstin, "state", None) or ""),
                 seller_gstin=(getattr(invoice.company_gstin, "gstin", None) or ""),
+                supply_type=getattr(invoice, "supply_type", ""),
             ),
             additional_charges=invoice.additional_charges,
             invoice_discount=invoice.invoice_discount,
@@ -605,43 +666,7 @@ class SalesService:
             SalesItem.objects.bulk_create(items)
 
         if adjust_stock:
-            new_qty = defaultdict(Decimal)
-            product_by_id = {}
-            for item in items:
-                new_qty[item.product_id] += item.quantity
-                product_by_id[item.product_id] = item.product
-            for product_id in set(old_qty) | set(new_qty):
-                delta = new_qty[product_id] - old_qty[product_id]
-                if delta == 0:
-                    continue
-                product = product_by_id.get(product_id) or Product.objects.get(pk=product_id)
-                if delta > 0:
-                    InventoryService.post_movement(
-                        company=invoice.company,
-                        warehouse=invoice.warehouse,
-                        product=product,
-                        movement_type=MovementType.SALE,
-                        quantity=delta,
-                        reference_type="sales_invoice",
-                        reference_id=invoice.pk,
-                        user=user,
-                    )
-                else:
-                    restore_cost = InventoryValuationService.unit_cost(
-                        invoice.company, product, warehouse=invoice.warehouse
-                    )
-                    InventoryService.post_movement(
-                        company=invoice.company,
-                        warehouse=invoice.warehouse,
-                        product=product,
-                        movement_type=MovementType.ADJUSTMENT,
-                        quantity=-delta,
-                        unit_cost=restore_cost,
-                        reference_type="sales_invoice_edit",
-                        reference_id=invoice.pk,
-                        reason=f"Edit of {invoice.number or invoice.pk}",
-                        user=user,
-                    )
+            # CR-024 / CR-128: quantities on completed invoices are immutable; no stock delta to post.
             invoice.pdf_status = SalesInvoice.PdfStatus.QUEUED
             invoice.updated_by = user
             invoice.save()
@@ -735,6 +760,17 @@ class SalesService:
 
         from core.services.billing import place_of_supply_known
 
+        # BB: when the customer state is blank, the GST-settings flag
+        # 'assume_local_state_for_blank_party' is itself the standing confirmation
+        # that such sales are intra-state (POS falls back to the seller's state) --
+        # mirror assert_place_of_supply_for_gst's own blank-party bypass so the flag
+        # also satisfies this complete-time pre-check without a per-invoice
+        # confirm_blank_pos. (A non-blank GSTIN never reaches here: its state code
+        # makes place_of_supply_known() true and short-circuits this guard.)
+        assume_local_blank_party = not (invoice.customer.state or "").strip() and getattr(
+            invoice.company, "assume_local_state_for_blank_party", False
+        )
+
         if (
             tax_enabled
             and not is_tally_opening
@@ -743,6 +779,7 @@ class SalesService:
                 party_state=invoice.customer.state or "",
                 party_gstin=invoice.customer.gstin or "",
             )
+            and not assume_local_blank_party
             and not confirm_blank_pos
         ):
             raise BusinessRuleError(
@@ -905,7 +942,14 @@ class SalesService:
             if item.quantity <= 0:
                 raise BusinessRuleError("Quantity on each line must be greater than zero.")
         if not stock_from_challan:
+            from inventory.item_stock import tracks_inventory
+
             for item in items:
+                # Non-inventory lines (services / non-stock items) have no stock
+                # to check or deduct — skip them, same as CogsService.post_sale_
+                # stock_and_cogs and the purchase posting path do.
+                if not tracks_inventory(item.product):
+                    continue
                 if item.product.track_batch and not getattr(item, "batch_id", None):
                     remaining = item.quantity
                     warehouse = invoice.warehouse
@@ -946,6 +990,11 @@ class SalesService:
             ) or CompanyGstin.objects.filter(company=invoice.company, is_active=True).order_by("id").first()
             if stamp is not None:
                 invoice.company_gstin = stamp
+        # CR-023: period gate before number/status/stock (fail fast; no SALE under lock).
+        if not is_tally_opening:
+            from reporting.gst_periods import assert_period_allows_money_amend
+
+            assert_period_allows_money_amend(invoice.company, invoice.invoice_date)
         # R1-013: series scoping comes from the company policy, not from whether
         # a gstin happened to resolve here.
         from core.services.document_numbers import series_identity
@@ -1009,14 +1058,40 @@ class SalesService:
 
         cogs_total = Decimal("0")
         if not is_tally_opening:
+            # CR-020: release SO reservation held through draft invoice, then mark CONVERTED.
+            from .models import SalesOrder
+
+            for order in SalesOrder.objects.select_for_update().filter(converted_invoice=invoice):
+                inv_qty_by_product = defaultdict(Decimal)
+                for it in invoice.items.all():
+                    inv_qty_by_product[it.product_id] += Decimal(str(it.quantity or 0))
+
+                if order.status == SalesOrder.Status.CONFIRMED:
+                    warehouse = order.warehouse or InventoryService.default_warehouse(order.company)
+                    for item in order.items.select_related("product"):
+                        release_qty = min(
+                            Decimal(str(item.quantity or 0)),
+                            inv_qty_by_product.get(item.product_id, Decimal(str(item.quantity or 0))),
+                        )
+                        if release_qty > 0:
+                            InventoryService.release_reservation(
+                                order.company, warehouse, item.product, release_qty, user
+                            )
+
+                fully_converted = all(
+                    inv_qty_by_product.get(it.product_id, Decimal("0")) >= Decimal(str(it.quantity or 0))
+                    for it in order.items.all()
+                )
+                if fully_converted and order.status in (SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED):
+                    order.status = SalesOrder.Status.CONVERTED
+                    order.updated_by = user
+                    order.save(update_fields=["status", "updated_by", "updated_at"])
+
             cogs_total = CogsService.post_sale_stock_and_cogs(
                 invoice, items, user, stock_from_challan=stock_from_challan, warnings=warnings
             )
-        # BB-000699: period gate must abort atomic Complete (no except-pass swallow).
-        if not is_tally_opening:
-            from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
+            from reporting.gst_periods import mark_period_dirty_if_snapshotted
 
-            assert_period_allows_money_amend(invoice.company, invoice.invoice_date)
             mark_period_dirty_if_snapshotted(invoice.company, invoice.invoice_date)
 
         if not is_tally_opening:
@@ -1068,6 +1143,23 @@ class SalesService:
         ).exists():
             raise BusinessRuleError(
                 "Cancel or delete the draft sales return(s) against this invoice first."
+            )
+        # CR-034: completed CN/DN leave AR/GSTR history — cancel would orphan them.
+        if invoice.credit_notes.filter(status=SalesCreditNote.Status.COMPLETED).exists() or invoice.debit_notes.filter(
+            status=SalesDebitNote.Status.COMPLETED
+        ).exists():
+            raise BusinessRuleError(
+                "Cannot cancel an invoice with completed credit or debit notes. "
+                "Cancel the note(s) first."
+            )
+        # CR-097 twin: draft notes would also be orphaned against a cancelled invoice.
+        if invoice.credit_notes.exclude(
+            status__in=(SalesCreditNote.Status.COMPLETED, SalesCreditNote.Status.CANCELLED)
+        ).exists() or invoice.debit_notes.exclude(
+            status__in=(SalesDebitNote.Status.COMPLETED, SalesDebitNote.Status.CANCELLED)
+        ).exists():
+            raise BusinessRuleError(
+                "Cancel or delete the draft credit/debit note(s) against this invoice first."
             )
         if invoice.allocations.filter(reversed_at__isnull=True).exists():
             # BUG-722: cancelling a paid/partially-paid invoice would leave
@@ -1190,11 +1282,18 @@ class SalesService:
                                 user=user,
                             )
                     linked.stock_posted = False
-                    linked.save(update_fields=["stock_posted", "updated_at"])
+                    linked.converted_invoice = None
+                    linked.save(update_fields=["stock_posted", "converted_invoice", "updated_at"])
         invoice.status = SalesInvoice.Status.CANCELLED
         invoice.cancelled_at = timezone.now()
         invoice.updated_by = user
         invoice.save()
+        # CR-020: unlink SO so reservation stays and order can be re-converted / cancelled.
+        from .models import SalesOrder
+
+        SalesOrder.objects.filter(converted_invoice=invoice).exclude(
+            status=SalesOrder.Status.CONVERTED
+        ).update(converted_invoice=None, updated_by=user, updated_at=timezone.now())
         # GAP-005: cancel open payment links so public pay pages cannot collect
         # against a cancelled invoice.
         from payments.models import PaymentLink, PaymentLinkStatus
@@ -1245,7 +1344,13 @@ class SalesService:
                 quotation.customer.gstin or "",
                 seller_state=quotation.company.state or "",
                 seller_gstin=quotation.company.gstin or "",
+                supply_type=getattr(quotation, "supply_type", ""),
             ),
+            # CR-021: apply header discount / charges / round-off like SO/invoice.
+            additional_charges=getattr(quotation, "additional_charges", 0) or 0,
+            invoice_discount=getattr(quotation, "invoice_discount", 0) or 0,
+            auto_round_off=getattr(quotation, "auto_round_off", True),
+            invoice_discount_mode=getattr(quotation, "invoice_discount_mode", None),
         )
         QuotationItem.objects.bulk_create(items)
         quotation.updated_by = user

@@ -733,13 +733,25 @@ _ZERO_RATED_EXTRACT = {
 
 @patch("core.services.llm.extract_purchase_bill", return_value=_ZERO_RATED_EXTRACT)
 def test_b3_027_import_books_all_zero_rated_bill_as_non_gst(mock_llm, tenant_a):
-    """B3-027: a bill whose every line is 0-rated (a bill of supply, e.g. from a
-    composition supplier) is stamped NON_GST instead of forcing GST."""
+    """B3-027 / CR-041: all-zero lines stay GST unless confirm_non_gst on preview."""
     supplier = make_supplier(
         tenant_a.company, name="Compo Trader", taxpayer_type="COMPOSITION", gstin="29ZZZZZ1234F1Z5"
     )
     job = _upload_bill(tenant_a, supplier_id=supplier.id).data
-    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    # Default (no confirm): keep as GST nil/exempt.
+    resp_gst = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp_gst.status_code == 200, resp_gst.data
+    inv_gst = PurchaseInvoice.objects.get(pk=resp_gst.data["purchase_invoice_id"])
+    assert inv_gst.purchase_type == PurchaseInvoice.PurchaseType.GST
+
+    job2 = _upload_bill(tenant_a, supplier_id=supplier.id).data
+    patched = tenant_a.client.patch(
+        f"/api/v1/imports/{job2['id']}/preview/",
+        {"confirm_non_gst": True, "supplier_id": supplier.id},
+        format="json",
+    )
+    assert patched.status_code == 200, patched.data
+    resp = tenant_a.client.post(f"/api/v1/imports/{job2['id']}/commit/")
     assert resp.status_code == 200, resp.data
     invoice = PurchaseInvoice.objects.get(pk=resp.data["purchase_invoice_id"])
     assert invoice.purchase_type == PurchaseInvoice.PurchaseType.NON_GST

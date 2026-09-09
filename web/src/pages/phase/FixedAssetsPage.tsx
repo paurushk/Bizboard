@@ -101,27 +101,27 @@ export function FixedAssetsPage() {
       subtitle={t('phase.fixedAssetsSubtitle')}
       actions={
         <Button variant="contained" onClick={openCreate} disabled={writesBlocked}>
-          Add asset
+          {t('phase.addAsset')}
         </Button>
       }
     >
       <DataTable
         rows={asRows(query.data)}
-        empty="No fixed assets."
+        empty={t('phase.noFixedAssets')}
         columns={[
-          { key: 'name', label: 'Name' },
-          { key: 'acquisitionCost', label: 'Cost', money: true },
-          { key: 'acquisitionDate', label: 'Purchased' },
-          { key: 'usefulLifeMonths', label: 'Life (mo)' },
-          { key: 'status', label: 'Status', status: true },
+          { key: 'name', label: t('common.name') },
+          { key: 'acquisitionCost', label: t('phase.assetCost'), money: true },
+          { key: 'acquisitionDate', label: t('phase.assetPurchased') },
+          { key: 'usefulLifeMonths', label: t('phase.assetLife') },
+          { key: 'status', label: t('common.status'), status: true },
         ]}
         actions={(row) => (
           <Stack direction="row" spacing={1}>
             {row.status === 'ACTIVE' ? (
-              <Button size="small" disabled={writesBlocked} onClick={() => openEdit(row)}>Edit</Button>
+              <Button size="small" disabled={writesBlocked} onClick={() => openEdit(row)}>{t('common.edit')}</Button>
             ) : null}
             {row.status === 'ACTIVE' ? (
-              <Button size="small" color="error" disabled={writesBlocked} onClick={() => dispose.mutate(Number(row.id))}>Dispose</Button>
+              <Button size="small" color="error" disabled={writesBlocked} onClick={() => dispose.mutate(Number(row.id))}>{t('phase.assetDispose')}</Button>
             ) : null}
           </Stack>
         )}
@@ -135,21 +135,21 @@ export function FixedAssetsPage() {
         fullWidth
         maxWidth="xs"
       >
-        <DialogTitle>{editingId != null ? 'Edit fixed asset' : 'Fixed asset'}</DialogTitle>
+        <DialogTitle>{editingId != null ? t('phase.editFixedAsset') : t('phase.fixedAsset')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {error ? <HelpErrorAlert message={error} /> : null}
-            <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+            <TextField label={t('common.name')} value={name} onChange={(e) => setName(e.target.value)} />
             <TextField
-              label="Acquisition cost"
+              label={t('phase.acquisitionCost')}
               type="number"
               value={cost}
               onChange={(e) => setCost(e.target.value)}
               disabled={editingId != null}
-              helperText={editingId != null ? 'Cost is fixed once postings exist against this asset.' : undefined}
+              helperText={editingId != null ? t('phase.assetCostFixed') : undefined}
             />
             <TextField
-              label="Acquisition date"
+              label={t('phase.acquisitionDate')}
               type="date"
               value={acquisitionDate}
               onChange={(e) => setAcquisitionDate(e.target.value)}
@@ -157,14 +157,14 @@ export function FixedAssetsPage() {
               disabled={editingId != null && depreciatedAmount > 0}
             />
             <TextField
-              label="Useful life (months)"
+              label={t('phase.usefulLifeMonths')}
               type="number"
               value={usefulLifeMonths}
               onChange={(e) => setUsefulLifeMonths(e.target.value)}
               disabled={editingId != null && depreciatedAmount > 0}
               helperText={
                 editingId != null && depreciatedAmount > 0
-                  ? 'Depreciation has already posted against this schedule — only the name can be corrected now.'
+                  ? t('phase.assetScheduleFrozen')
                   : undefined
               }
             />
@@ -177,10 +177,10 @@ export function FixedAssetsPage() {
               resetForm();
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant="contained" disabled={writesBlocked || !name || !cost || create.isPending} onClick={() => create.mutate()}>
-            Save
+            {t('common.save')}
           </Button>
         </DialogActions>
       </Dialog>

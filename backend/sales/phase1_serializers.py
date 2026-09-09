@@ -60,6 +60,10 @@ class SalesCreditNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         self.check_company_ref(invoice, "sales_invoice")
         return invoice
 
+    def validate_company_gstin(self, company_gstin):
+        self.check_company_ref(company_gstin, "company_gstin")
+        return company_gstin
+
     def validate(self, attrs):
         customer = attrs.get("customer") or getattr(self.instance, "customer", None)
         invoice = attrs.get("sales_invoice") or getattr(self.instance, "sales_invoice", None)
@@ -144,6 +148,10 @@ class SalesDebitNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelSe
     def validate_sales_invoice(self, invoice):
         self.check_company_ref(invoice, "sales_invoice")
         return invoice
+
+    def validate_company_gstin(self, company_gstin):
+        self.check_company_ref(company_gstin, "company_gstin")
+        return company_gstin
 
     def validate(self, attrs):
         customer = attrs.get("customer") or getattr(self.instance, "customer", None)
@@ -237,6 +245,19 @@ class SalesOrderSerializer(CompanyScopedSerializerMixin, serializers.ModelSerial
 
         if instance.status != SalesOrder.Status.DRAFT:
             raise BusinessRuleError("Only draft orders can be edited.")
+        # CR-122: once converted to an invoice, SO lines/header must not diverge.
+        if getattr(instance, "converted_invoice_id", None):
+            raise BusinessRuleError(
+                "This sales order already has an invoice and cannot be edited."
+            )
+        from .models import DeliveryChallan
+
+        if DeliveryChallan.objects.filter(sales_order=instance).exclude(
+            status=DeliveryChallan.Status.CANCELLED
+        ).exists():
+            raise BusinessRuleError(
+                "This sales order already has a delivery challan and cannot be edited."
+            )
         items_data = validated_data.pop("items", None)
         instance = super().update(instance, validated_data)
         if items_data is not None:
@@ -293,6 +314,20 @@ class DeliveryChallanSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         if warehouse is not None:
             self.check_company_ref(warehouse, "warehouse")
         return warehouse
+
+    def validate_sales_order(self, sales_order):
+        # CR-094: PrimaryKeyRelatedField bypasses viewset company scoping.
+        if sales_order is not None:
+            self.check_company_ref(sales_order, "sales_order")
+            # CR-120: cannot attach SO that already has an invoice.
+            if getattr(sales_order, "converted_invoice_id", None):
+                from core.exceptions import BusinessRuleError
+
+                raise BusinessRuleError(
+                    "This sales order already has an invoice and cannot be linked "
+                    "to a delivery challan."
+                )
+        return sales_order
 
     def create(self, validated_data):
         items_data = validated_data.pop("items")

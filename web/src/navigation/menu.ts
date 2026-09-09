@@ -13,12 +13,14 @@ import {
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import type { User } from '@/types/domain';
 import {
+  canAccessPos,
   canAccessSettings,
   canAdjustInventory,
   canCreatePayments,
   canCreatePurchases,
   canCreateSales,
   canImport,
+  canManageCrm,
   canManageGst,
   canExport,
   canManageUsers,
@@ -42,7 +44,16 @@ export interface NavItem {
 }
 
 function posVisible(user: User | null): boolean {
-  return (isPosEnabled() || isRuntimeFlagEnabled('ENABLE_POS')) && canCreateSales(user);
+  return (isPosEnabled() || isRuntimeFlagEnabled('ENABLE_POS')) && canAccessPos(user);
+}
+
+/** R-063 / R-087: AA nav stays hidden until the flag and a future consent bit are both on. */
+function accountAggregatorNavVisible(user: User | null): boolean {
+  return (
+    canViewBankRecon(user) &&
+    isRuntimeFlagEnabled('ENABLE_ACCOUNT_AGGREGATOR') &&
+    isRuntimeFlagEnabled('ENABLE_AA_CONSENT')
+  );
 }
 
 export const navigation: NavItem[] = [
@@ -118,6 +129,7 @@ export const navigation: NavItem[] = [
       { id: 'purchase-credit-notes', labelKey: 'nav.purchaseCreditNotes', path: '/purchases/credit-notes', visible: canViewPurchaseSurfaces },
       { id: 'purchase-debit-notes', labelKey: 'nav.purchaseDebitNotes', path: '/purchases/debit-notes', visible: canViewPurchaseSurfaces },
       { id: 'purchase-orders', labelKey: 'nav.purchaseOrders', path: '/purchases/orders', visible: canViewPurchaseSurfaces },
+      { id: 'bills-of-entry', labelKey: 'nav.billsOfEntry', path: '/purchases/bills-of-entry', visible: canViewPurchaseSurfaces },
       { id: 'suppliers', labelKey: 'nav.suppliers', path: '/purchases/suppliers', visible: canViewPurchaseSurfaces },
     ],
   },
@@ -129,7 +141,12 @@ export const navigation: NavItem[] = [
       { id: 'payment-links', labelKey: 'nav.paymentLinks', path: '/payments/links', visible: canCreatePayments },
       { id: 'bank-statements', labelKey: 'nav.bankStatements', path: '/payments/statements', visible: canCreatePayments },
       { id: 'payment-recon', labelKey: 'nav.bankReconciliation', path: '/payments/reconciliation', visible: canViewBankRecon },
-      { id: 'account-aggregator', labelKey: 'nav.accountAggregator', path: '/payments/account-aggregator', visible: canViewBankRecon },
+      {
+        id: 'account-aggregator',
+        labelKey: 'nav.accountAggregator',
+        path: '/payments/account-aggregator',
+        visible: accountAggregatorNavVisible,
+      },
       { id: 'cash-book-payments', labelKey: 'nav.cashBook', path: '/reports/cash-book', visible: canViewFinancialReports },
     ],
   },
@@ -180,7 +197,7 @@ export const navigation: NavItem[] = [
   {
     id: 'crm',
     labelKey: 'nav.crm',
-    visible: (user) => canManageUsers(user) && isCrmEnabled(),
+    visible: (user) => canManageCrm(user) && isCrmEnabled(),
     children: [
       { id: 'leads', labelKey: 'nav.leads', path: '/crm/leads' },
       { id: 'opportunities', labelKey: 'nav.opportunities', path: '/crm/opportunities' },
@@ -221,6 +238,24 @@ export const navigation: NavItem[] = [
         id: 'report-cmp08',
         labelKey: 'nav.cmp08',
         path: '/reports/cmp08',
+        visible: () => isGstrReportsEnabled(),
+      },
+      {
+        id: 'report-gstr6',
+        labelKey: 'nav.gstr6',
+        path: '/reports/gstr6',
+        visible: () => isGstrReportsEnabled(),
+      },
+      {
+        id: 'report-gstr7',
+        labelKey: 'nav.gstr7',
+        path: '/reports/gstr7',
+        visible: () => isGstrReportsEnabled(),
+      },
+      {
+        id: 'report-gstr8',
+        labelKey: 'nav.gstr8',
+        path: '/reports/gstr8',
         visible: () => isGstrReportsEnabled(),
       },
       {
@@ -277,28 +312,28 @@ export const navigation: NavItem[] = [
         labelKey: 'nav.trialBalance',
         path: '/reports/trial-balance',
         visible: (user) =>
-          isAccountingFeatureEnabled() && Boolean(user?.company?.accountingEnabled),
+          Boolean(user?.company?.accountingEnabled) || isAccountingFeatureEnabled(user?.company?.accountingEnabled),
       },
       {
         id: 'profit-and-loss',
         labelKey: 'nav.profitAndLoss',
         path: '/reports/profit-and-loss',
         visible: (user) =>
-          isAccountingFeatureEnabled() && Boolean(user?.company?.accountingEnabled),
+          Boolean(user?.company?.accountingEnabled) || isAccountingFeatureEnabled(user?.company?.accountingEnabled),
       },
       {
         id: 'balance-sheet',
         labelKey: 'nav.balanceSheet',
         path: '/reports/balance-sheet',
         visible: (user) =>
-          isAccountingFeatureEnabled() && Boolean(user?.company?.accountingEnabled),
+          Boolean(user?.company?.accountingEnabled) || isAccountingFeatureEnabled(user?.company?.accountingEnabled),
       },
       {
         id: 'books-health',
         labelKey: 'nav.booksHealth',
         path: '/reports/books-health',
         visible: (user) =>
-          isAccountingFeatureEnabled() && Boolean(user?.company?.accountingEnabled),
+          Boolean(user?.company?.accountingEnabled) || isAccountingFeatureEnabled(user?.company?.accountingEnabled),
       },
     ],
   },
@@ -335,7 +370,9 @@ export const navigation: NavItem[] = [
         id: 'accounting-settings',
         labelKey: 'nav.accounting',
         path: '/settings/accounting',
-        visible: (user) => canManageUsers(user) && isAccountingFeatureEnabled(),
+        visible: (user) =>
+          canManageUsers(user) &&
+          (Boolean(user?.company?.accountingEnabled) || isAccountingFeatureEnabled(user?.company?.accountingEnabled)),
       },
       {
         id: 'company',
@@ -361,6 +398,12 @@ export const navigation: NavItem[] = [
         path: '/settings/help',
         visible: (user) =>
           Boolean(user && (isOwner(user.role) || user.isStaff) && isHelpV2Enabled()),
+      },
+      {
+        id: 'series',
+        labelKey: 'nav.seriesSettings',
+        path: '/settings/series',
+        visible: canManageUsers,
       },
       {
         id: 'units',
@@ -448,12 +491,18 @@ export function isReallyReachable(user: User | null, path: string): boolean {
   return false;
 }
 
+export function isNavPathActive(pathname: string, navPath?: string): boolean {
+  if (!navPath) return false;
+  return pathMatches(navPath, pathname);
+}
+
 function pathMatches(navPath: string, path: string): boolean {
-  const clean = path.split('?')[0];
+  const clean = (path.split('?')[0] || '/').replace(/\/+$/, '') || '/';
   // F1-015: nav paths may carry a query string (e.g. '/ca-needs?view=client').
   // Compare on the pathname only, or the CA-needs surface is never "reachable"
   // and a user landed there falls through to LimitedAccessLanding.
-  const navClean = navPath.split('?')[0];
+  // R-065: nested history (`/sales/history/123`) must highlight Sales History.
+  const navClean = (navPath.split('?')[0] || '/').replace(/\/+$/, '') || '/';
   if (navClean === clean) return true;
   if (navClean !== '/' && clean.startsWith(`${navClean}/`)) return true;
   return false;

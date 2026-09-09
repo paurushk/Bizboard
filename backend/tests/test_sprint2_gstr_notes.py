@@ -54,7 +54,14 @@ def test_bb_000652_intra_b2c_cn_nets_b2cs_not_cdnur(tenant_a):
         format="json",
     )
     assert cn.status_code == 201, cn.data
-    assert tenant_a.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/").status_code == 200
+    assert (
+        tenant_a.client.post(
+            f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/",
+            {"confirm_price_override": True},
+            format="json",
+        ).status_code
+        == 200
+    )
     payload = build_gstr1(tenant_a.company, PERIOD)
     assert payload["cdnur"] == []
     assert payload["cdnr"] == []
@@ -88,7 +95,14 @@ def test_bb_000652_b2cl_note_goes_cdnur(tenant_a):
         format="json",
     )
     assert cn.status_code == 201, cn.data
-    assert tenant_a.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/").status_code == 200
+    assert (
+        tenant_a.client.post(
+            f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/",
+            {"confirm_price_override": True},
+            format="json",
+        ).status_code
+        == 200
+    )
     payload = build_gstr1(tenant_a.company, PERIOD)
     assert payload["cdnur"]
     assert all(r["note_kind"] == "CREDIT" for r in payload["cdnur"])

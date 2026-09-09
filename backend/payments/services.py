@@ -335,7 +335,13 @@ class PaymentService:
         if bank_account and bank_account.company_id != company.id:
             raise BusinessRuleError("Invalid bank account.")
         _assert_utr_unique(company=company, utr=utr_n)
-        tds_amt = Decimal(str(tds_amount or 0))
+        from core.services.billing import fold_tds_from_rate
+
+        tds_amt = fold_tds_from_rate(
+            tds_rate=tds_rate,
+            tds_amount=tds_amount,
+            taxable_total=amount,
+        )
         tds_rt = Decimal(str(tds_rate or 0))
         if tds_amt < 0 or tds_rt < 0:
             raise BusinessRuleError("TDS rate/amount cannot be negative.")
@@ -403,8 +409,13 @@ class PaymentService:
                 code=HelpCode.ALLOCATION_PARTY_MISMATCH,
             )
 
-        receipt = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
+        # CR-019: Global lock acquisition order — Invoice before Receipt to prevent AB-BA deadlocks
         sales_invoice = SalesInvoice.objects.select_for_update().get(pk=sales_invoice.pk)
+        receipt = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
+
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(receipt.company, receipt.receipt_date)
 
         if sales_invoice.status not in ("COMPLETED", "RETURNED"):
             raise BusinessRuleError("Allocations are only allowed against completed invoices.")
@@ -450,8 +461,13 @@ class PaymentService:
         if payment.supplier_id != purchase_invoice.supplier_id:
             raise BusinessRuleError("Payment supplier must match the invoice supplier.")
 
-        payment = SupplierPayment.objects.select_for_update().get(pk=payment.pk)
+        # CR-019: Global lock acquisition order — Invoice before Payment to prevent AB-BA deadlocks
         purchase_invoice = PurchaseInvoice.objects.select_for_update().get(pk=purchase_invoice.pk)
+        payment = SupplierPayment.objects.select_for_update().get(pk=payment.pk)
+
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(payment.company, payment.payment_date)
 
         if purchase_invoice.status not in ("COMPLETED", "RETURNED"):
             raise BusinessRuleError("Allocations are only allowed against completed invoices.")
@@ -527,16 +543,17 @@ class PaymentService:
             raise BusinessRuleError("Gateway receipts must be refunded, not voided.")
         from reporting.gst_periods import assert_period_allows_money_amend
 
-        assert_period_allows_money_amend(rec.company, rec.receipt_date)
+        assert_period_allows_money_amend(rec.company, rec.receipt_date, allow_soft_closed=True)
         for alloc in list(rec.allocations.select_for_update().filter(reversed_at__isnull=True)):
             PaymentService.reverse_allocation(allocation=alloc, user=user)
-        # R2-004: a void is a fresh event — reverse on today's date, not the
+        # R2-004 / CR-061: a void is a fresh event — reverse on today's date, not the
         # original receipt date (which may sit in a soft-closed period).
         _reverse_money_document_journal(
             company=rec.company,
             source_type="CUSTOMER_RECEIPT",
             source_id=rec.id,
             user=user,
+            entry_date=timezone.localdate(),
         )
         note = (rec.notes or "").strip()
         void_note = f"VOIDED{(': ' + reason) if reason else ''}"
@@ -556,15 +573,16 @@ class PaymentService:
             return pay
         from reporting.gst_periods import assert_period_allows_money_amend
 
-        assert_period_allows_money_amend(pay.company, pay.payment_date)
+        assert_period_allows_money_amend(pay.company, pay.payment_date, allow_soft_closed=True)
         for alloc in list(pay.allocations.select_for_update().filter(reversed_at__isnull=True)):
             PaymentService.reverse_allocation(allocation=alloc, user=user)
-        # R2-004: void reverses on today's date, not the original payment date.
+        # R2-004 / CR-061: void reverses on today's date, not the original payment date.
         _reverse_money_document_journal(
             company=pay.company,
             source_type="SUPPLIER_PAYMENT",
             source_id=pay.id,
             user=user,
+            entry_date=timezone.localdate(),
         )
         note = (pay.notes or "").strip()
         void_note = f"VOIDED{(': ' + reason) if reason else ''}"
@@ -1393,7 +1411,16 @@ class PaymentService:
         emit("gateway_payment.refunded", document=gp, user=user, event="gateway_payment.refunded")
 
     @staticmethod
-    def refund_gateway_payment(*, gateway_payment, amount=None, user=None, reason="", skip_gateway=False):
+    def refund_gateway_payment(
+        *,
+        gateway_payment,
+        amount=None,
+        user=None,
+        reason="",
+        skip_gateway=False,
+        provider_refund_id="",
+        refund_key_override="",
+    ):
         """Refund (full or partial) of a captured gateway payment.
 
         B4-003: the provider HTTP call runs **outside** any DB transaction. The
@@ -1451,22 +1478,32 @@ class PaymentService:
 
             # B4-002: distinct provider key per logical refund; persisted now so a
             # crash+retry of *this* refund reuses the same key.
-            refund_seq = int(raw.get("refund_seq") or 0) + 1
-            idem_key = refund_idempotency_key(gp.id, refund_amount, seq=refund_seq)
-            gp.raw_payload = {**raw, "refund_seq": refund_seq}
-            gp.save(update_fields=["raw_payload", "updated_at"])
-
             if skip_gateway:
-                # Provider already refunded (webhook). No HTTP -> unwind here.
+                applied_keys = list(raw.get("applied_refund_keys") or [])
+                rid = (provider_refund_id or "").strip()
+                if rid:
+                    refund_key = f"prov:{rid}"
+                elif (refund_key_override or "").strip():
+                    refund_key = refund_key_override.strip()
+                else:
+                    amt_q = refund_amount.quantize(Decimal("0.01"))
+                    refund_key = f"{gp.provider_payment_id}:amt:{amt_q}:processed"
+                if refund_key in applied_keys:
+                    return gp
                 PaymentService._unwind_refund_books(
                     gp, user=user, refund_amount=refund_amount, reason=reason,
-                    full=is_full_unwind, refund_key=idem_key,
+                    full=is_full_unwind, refund_key=refund_key,
                 )
                 PaymentService._finalise_refund_state(
                     gp, refund_amount=refund_amount, reason=reason,
                     full=is_full_unwind, user=user,
                 )
                 return gp
+
+            refund_seq = int(raw.get("refund_seq") or 0) + 1
+            idem_key = refund_idempotency_key(gp.id, refund_amount, seq=refund_seq)
+            gp.raw_payload = {**raw, "refund_seq": refund_seq}
+            gp.save(update_fields=["raw_payload", "updated_at"])
 
             outbox, _created = GatewayRefundOutbox.objects.get_or_create(
                 company=company,

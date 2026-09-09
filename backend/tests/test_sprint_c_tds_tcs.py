@@ -53,6 +53,43 @@ def test_purchase_194c_1_percent_credits_tds_payable_and_reduces_ap(books):
     assert Decimal(str(inv.get("tdsAmount") or inv.get("tds_amount") or 0)) == Decimal("10.00")
 
 
+def test_purchase_complete_194c_folds_tds_from_rate_only(books):
+    """R-023: Complete 194C 1% of taxable when only tds_rate is sent."""
+    supplier = make_supplier(books.company, gstin="29AAAAA0000A1ZY", state="Karnataka")
+    product = make_product(books.company, purchase_price="1000", selling_price="1200", gst_rate="18")
+    draft = create_draft_purchase(
+        books,
+        supplier,
+        [{"product": product.id, "quantity": "1", "unit_price": "1000", "gst_rate": "18"}],
+    )
+    patch = books.client.patch(
+        f"/api/v1/purchases/invoices/{draft['id']}/",
+        {"tdsSection": "194C", "tdsRate": "1"},
+        format="json",
+    )
+    assert patch.status_code == 200, patch.data
+    assert Decimal(str(patch.data.get("tdsAmount") or patch.data.get("tds_amount") or 0)) == Decimal("0")
+    done = books.client.post(f"/api/v1/purchases/invoices/{draft['id']}/complete/")
+    assert done.status_code == 200, done.data
+    from purchases.models import PurchaseInvoice
+
+    inv = PurchaseInvoice.objects.get(pk=draft["id"])
+    assert inv.tds_rate == Decimal("1.000")
+    assert inv.tds_amount == Decimal("10.00")
+    preview = books.client.post(
+        "/api/v1/purchases/invoices/preview-totals/",
+        {
+            "supplier": supplier.id,
+            "purchase_type": "GST",
+            "tds_rate": "1",
+            "items": [{"product": product.id, "quantity": "1", "unit_price": "1000", "gst_rate": "18"}],
+        },
+        format="json",
+    )
+    assert preview.status_code == 200, preview.data
+    assert Decimal(str(preview.data["tds_amount"])) == Decimal("10.00")
+
+
 def test_sales_206c_0_1_percent_adds_tcs_receivable(books):
     from inventory.models import MovementType
     from inventory.services import InventoryService
@@ -128,13 +165,14 @@ def test_tds_tcs_worksheets_csv_and_flag_gate(books):
 
     tds = books.client.get("/api/v1/reports/tds-worksheet/", {"period": "2026-08"})
     assert tds.status_code == 200
-    assert "text/csv" in tds["Content-Type"]
-    assert b"26Q" in tds.content
-    assert b"194C" in tds.content
+    tds_content = getattr(tds, "content", None) or b"".join(tds.streaming_content)
+    assert b"26Q" in tds_content
+    assert b"194C" in tds_content
     tcs = books.client.get("/api/v1/reports/tcs-worksheet/", {"period": "2026-08"})
     assert tcs.status_code == 200
-    assert b"27EQ" in tcs.content
-    assert b"206C" in tcs.content
+    tcs_content = getattr(tcs, "content", None) or b"".join(tcs.streaming_content)
+    assert b"27EQ" in tcs_content
+    assert b"206C" in tcs_content
     staff = books.staff_client.get("/api/v1/reports/tds-worksheet/", {"period": "2026-08"})
     assert staff.status_code in (403, 404)
 

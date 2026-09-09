@@ -103,6 +103,13 @@ Record the **image tag** (or compose build digest) and **migration head** for ev
 - No dedicated monitoring stack ships with this repo yet. At minimum, poll `GET /api/v1/health/` from an external uptime checker and alert on failures/latency.
 - Watch Celery queue depth (`docker compose exec worker celery -A config inspect active`) during PDF-generation bursts — a growing backlog is the earliest signal of the "PDF worker down" scenario above before customers notice.
 
+## FIFO layer verify (CR-059)
+
+- Symptom: WAVG→FIFO cutover, seeded layers, or COGS looks wrong vs stock.
+- Check: `docker compose exec api python manage.py rebuild_running_cost --company <id>` — for FIFO companies this also runs `InventoryValuationService.verify_fifo_layers` and prints mismatches as warnings (does not rebuild layers).
+- Fix: investigate mismatch (orphan peels, seed gaps, bypassed movements). Do not ignore repeated warnings before period close.
+- Note: verification is ops/manual — not on a Celery schedule.
+
 ## On-call (placeholder)
 - **Primary:** _TBD (pilot owner)_ — phone/Slack: _TBD_
 - **Secondary:** _TBD_

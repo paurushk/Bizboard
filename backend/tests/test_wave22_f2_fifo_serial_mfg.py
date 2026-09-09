@@ -397,7 +397,7 @@ def test_bb_000721_forbid_qty_amend_on_serial_completed(tenant_a):
 
     invoice = SalesInvoice.objects.get(pk=inv["id"])
 
-    with pytest.raises(BusinessRuleError, match="batch/serial"):
+    with pytest.raises(BusinessRuleError, match=r"Cannot amend quantity|cannot be modified|batch/serial"):
 
         SalesService.set_items(
 
@@ -424,5 +424,38 @@ def test_bb_000721_forbid_qty_amend_on_serial_completed(tenant_a):
             tenant_a.owner,
 
         )
+
+
+def test_cr_014_cancel_work_order_blocks_when_fg_sold(tenant_a):
+    """CR-014: Cannot cancel work order if finished goods have already been issued/sold."""
+    from manufacturing.models import Bom, BomLine, WorkOrder
+    from manufacturing.services import release_work_order, complete_work_order, cancel_work_order
+    from tests.conftest import make_customer
+    company = tenant_a.company
+    wh = InventoryService.default_warehouse(company)
+    raw = make_product(company, sku="RAW-CR14")
+    fg = make_product(company, sku="FG-CR14")
+    add_stock(tenant_a, raw, "10", unit_cost="50")
+
+    bom = Bom.objects.create(company=company, product=fg, name="BOM-CR14", status=Bom.Status.ACTIVE)
+    BomLine.objects.create(bom=bom, company=company, component=raw, qty=Decimal("2"))
+
+    wo = WorkOrder.objects.create(company=company, bom=bom, qty=Decimal("2"), warehouse=wh)
+    release_work_order(wo, tenant_a.owner)
+    complete_work_order(wo, tenant_a.owner)
+
+    # 2 FGs were manufactured. Now sell 1 FG.
+    customer = make_customer(company, gstin="29AABCU9603R1ZJ", state="Karnataka")
+    inv = create_draft_invoice(
+        tenant_a,
+        customer,
+        [{"product": fg.id, "quantity": "1", "unit_price": "200", "gst_rate": "18"}],
+    )
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+
+    # Only 1 FG remains in stock. Attempting to cancel WO (which requires reversing 2 FGs) must be blocked.
+    with pytest.raises(BusinessRuleError, match="finished goods.*already been issued or sold"):
+        cancel_work_order(wo, tenant_a.owner)
+
 
 

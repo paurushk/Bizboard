@@ -92,6 +92,7 @@ def test_b2_026_schedule_carries_line_and_header_fields_previously_dropped(tenan
 def test_skips_locked_accounting_period(tenant_a, schedule):
     sched, _product, _customer = schedule
     on = sched.next_run_at.date()
+    original_next = sched.next_run_at
     AccountingPeriod.objects.create(
         company=tenant_a.company,
         name="Locked",
@@ -103,11 +104,16 @@ def test_skips_locked_accounting_period(tenant_a, schedule):
     assert result["created"] == 0
     assert result["skipped_locked"] == 1
     assert SalesInvoice.objects.filter(company=tenant_a.company).count() == 0
+    sched.refresh_from_db()
+    # CR-015: locked period must not advance next_run_at
+    assert sched.next_run_at == original_next
+    assert RecurringInvoiceRun.objects.filter(schedule=sched).count() == 0
 
 
 def test_skips_locked_gst_period(tenant_a, schedule):
     sched, _product, _customer = schedule
     on = sched.next_run_at.date()
+    original_next = sched.next_run_at
     GstReturnPeriod.objects.create(
         company=tenant_a.company,
         period=f"{on.year:04d}-{on.month:02d}",
@@ -116,6 +122,8 @@ def test_skips_locked_gst_period(tenant_a, schedule):
     result = process_due_schedules(now=timezone.now())
     assert result["skipped_locked"] == 1
     assert SalesInvoice.objects.filter(company=tenant_a.company).count() == 0
+    sched.refresh_from_db()
+    assert sched.next_run_at == original_next
 
 
 def test_skips_duplicate_period_key(tenant_a, schedule):

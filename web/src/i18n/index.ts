@@ -87,5 +87,4 @@ export function useLocale(): string {
 
 export { en };
 export { hi };
-// ta / gu catalogs exist but are not GA — `loadStoredLocale` falls them back to
-// 'en'. Re-export them from here only once they are wired into `catalogs`.
+// R-084: ta/gu catalogs removed — switcher is en/hi only.

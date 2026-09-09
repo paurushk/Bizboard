@@ -9,7 +9,7 @@ export function LocaleSwitcher() {
   useEffect(() => subscribeLocale(() => setLocaleState(getLocale())), []);
 
   useEffect(() => {
-    // Gujarati/Tamil catalogs are English fallbacks — do not offer them until signed.
+    // R-084: stale ta/gu localStorage from older builds → fall back to en.
     if (getLocale() === 'ta' || getLocale() === 'gu') {
       setLocale('en');
       setLocaleState('en');

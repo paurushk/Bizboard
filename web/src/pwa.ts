@@ -5,6 +5,9 @@
 
 export function registerPwa() {
   if (!import.meta.env.PROD) return;
+  if (typeof navigator !== 'undefined' && (navigator.webdriver || window.location.search.includes('disable_sw=1'))) {
+    return;
+  }
   void import('virtual:pwa-register')
     .then(({ registerSW }) => {
       const updateSW = registerSW({
@@ -13,9 +16,12 @@ export function registerPwa() {
         // fires when a new worker is waiting. Confirm before reloading so an
         // in-progress invoice / POS entry isn't wiped by a deploy.
         onNeedRefresh() {
-          if (window.confirm('A new version is available. Reload now?')) {
-            void updateSW(true);
-          }
+          const reload = () => void updateSW(true);
+          window.dispatchEvent(
+            new CustomEvent('bizboard:pwa-update-available', {
+              detail: { reload },
+            }),
+          );
         },
       });
     })

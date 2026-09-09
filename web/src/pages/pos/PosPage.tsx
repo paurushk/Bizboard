@@ -22,6 +22,7 @@ import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
+import TableContainer from '@mui/material/TableContainer';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
@@ -30,7 +31,24 @@ import RemoveIcon from '@mui/icons-material/Remove';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
-import { posChipState, unpaidRecoverFromAbort } from '@/pages/pos/posStatus';
+import { HonestyBanner } from '@/components/HonestyBanner';
+import {
+  clearCashPendingStorage,
+  clearUpiPendingStorage,
+  isSerialOrBatchRuleError,
+  persistCashPending,
+  persistUpiPending,
+  posCashSettlementPhase,
+  posChipState,
+  resolveSaleGestureKey,
+  restoreCashPending,
+  restoreUpiPending,
+  serialsMatchAddQty,
+  unpaidRecoverFromAbort,
+  type PosCashPendingSnapshot,
+  type PosUpiPendingSnapshot,
+} from '@/pages/pos/posStatus';
+import { printPosThermalOrWarn } from '@/pages/pos/printPosThermal';
 import {
   completeSalesInvoice,
   createAllocation,
@@ -38,7 +56,6 @@ import {
   createReceipt,
   createSalesInvoice,
   deleteSalesInvoice,
-  downloadInvoiceThermalPdf,
   getCompany,
   getCustomer,
   getSalesInvoice,
@@ -46,17 +63,23 @@ import {
   listCustomersPage,
   listPriceLists,
   listStock,
+  listWarehouses,
+  posCheckout,
   searchProducts,
   shareInvoice,
 } from '@/api/resources';
-import { getErrorMessage, newIdempotencyKey, userGestureIdempotencyKey } from '@/api/client';
+import {
+  getErrorMessage,
+  newIdempotencyKey,
+  userGestureIdempotencyKey,
+} from '@/api/client';
 import { trackShopFloor, trackInvoiceComplete } from '@/lib/telemetry';
 import { scanBarcode } from '@/lib/native';
 import { useAuth } from '@/auth/AuthContext';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
-import { isPosEnabled } from '@/config/features';
+import { isAtomicPosCheckoutEnabled, isPosEnabled } from '@/config/features';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
-import { NumericField, todayIso, useDebouncedValue } from '@/components/billing';
+import { NumericField, parseSerialNumbersText, todayIso, useDebouncedValue } from '@/components/billing';
 import { LoadingState } from '@/components/PageState';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
@@ -76,7 +99,6 @@ import { flushPosDraft } from '@/offline/flushPosCheckout';
 import type { Customer, PaymentMode, Product } from '@/types/domain';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
-import { printBlob } from '@/utils/blob';
 import { isAllowedPaymentUrl, openShareUrl } from '@/utils/safeUrl';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
 import { formatUnitLabel } from '@/constants/unitLabels';
@@ -94,6 +116,7 @@ interface CartLine {
   quantity: number;
   discountPercent: number;
   unitName: string;
+  serialNumbers?: string[];
   /** Outbox snapshot already stored the alt-unit price; do not convert again. */
   priceAlreadyConverted?: boolean;
 }
@@ -113,14 +136,9 @@ function posLineUnitPrice(
   return base;
 }
 
-interface UpiPending {
-  invoiceId: number;
-  invoiceNumber: string;
-  customer: number;
-  amount: number;
-  key?: string;
-  upiQr: Record<string, string> | null;
-}
+type UpiPending = PosUpiPendingSnapshot;
+
+type CashPending = PosCashPendingSnapshot;
 
 function posEnabled(): boolean {
   return isPosEnabled() || isRuntimeFlagEnabled('ENABLE_POS');
@@ -147,6 +165,7 @@ function draftLinesFromCart(
     cessRate: taxEnabled ? toNumber((line.product as { cessRate?: number }).cessRate) : 0,
     discountPercent: line.discountPercent || 0,
     unitName: line.unitName,
+    serials: line.serialNumbers,
   }));
 }
 
@@ -158,7 +177,35 @@ export function PosPage() {
   const userId = user?.id ?? 0;
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const [cart, setCart] = useState<CartLine[]>([]);
+  const POS_ACTIVE_CART_STORAGE_KEY = 'bizboard:pos-active-cart';
+  const [cart, setCart] = useState<CartLine[]>(() => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(`${POS_ACTIVE_CART_STORAGE_KEY}:${companyId}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) return parsed;
+        }
+      } catch {
+        // ignore parse error
+      }
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined' || !companyId) return;
+    try {
+      if (cart.length > 0) {
+        localStorage.setItem(`${POS_ACTIVE_CART_STORAGE_KEY}:${companyId}`, JSON.stringify(cart));
+      } else {
+        localStorage.removeItem(`${POS_ACTIVE_CART_STORAGE_KEY}:${companyId}`);
+      }
+    } catch {
+      // quota or private mode
+    }
+  }, [cart, companyId]);
+
   const [productQuery, setProductQuery] = useState('');
   const [cfFilters, setCfFilters] = useState<Record<string, string[]>>({});
   const customDefs = useVisibleCustomFieldDefs();
@@ -179,13 +226,27 @@ export function PosPage() {
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [cashTendered, setCashTendered] = useState<number | ''>('');
   const [upiPending, setUpiPending] = useState<UpiPending | null>(null);
+  const [cashPending, setCashPending] = useState<CashPending | null>(null);
   const [waOffer, setWaOffer] = useState<{ invoiceId: number; phone: string } | null>(null);
   const [blankPosMode, setBlankPosMode] = useState<PaymentMode | null>(null);
   const [unpaidRecover, setUnpaidRecover] = useState<{ id: number; number: string } | null>(null);
   const [walkInConfirmMode, setWalkInConfirmMode] = useState<PaymentMode | null>(null);
   const [walkInName, setWalkInName] = useState('');
   const [saleJustCompleted, setSaleJustCompleted] = useState(false);
+  const [serialInput, setSerialInput] = useState('');
+  const [warehouseId, setWarehouseId] = useState<number | ''>('');
+  const [serialBatchError, setSerialBatchError] = useState<{
+    mode: PaymentMode;
+    message: string;
+  } | null>(null);
   const flushGuard = useRef(false);
+  /** CR-112: sync double-submit guard (busy state alone is too late). */
+  const checkoutGuard = useRef(false);
+  /** CR-111: last successful server preview grand total for tender UI. */
+  const [serverTenderTotal, setServerTenderTotal] = useState<number | null>(null);
+  const [tenderPreviewFailed, setTenderPreviewFailed] = useState(false);
+  const [thermalWarn, setThermalWarn] = useState<{ invoiceId: number; number: string } | null>(null);
+  const [isFlushing, setIsFlushing] = useState(false);
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const taxEnabled = preferredInvoiceType(company.data?.registrationType) !== 'NON_GST';
@@ -224,6 +285,13 @@ export function PosPage() {
     queryFn: () => listStock(),
     staleTime: 60_000,
   });
+  const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
+
+  useEffect(() => {
+    if (warehouseId) return;
+    const fallback = (warehouses.data ?? []).find((row) => row.isDefault) ?? warehouses.data?.[0];
+    if (fallback) setWarehouseId(fallback.id);
+  }, [warehouseId, warehouses.data]);
   const availableByProduct = useMemo(() => {
     const map = new Map<number, number>();
     for (const s of stockBalances.data ?? []) {
@@ -263,6 +331,8 @@ export function PosPage() {
       if (draft.customerId) setCustomerId(draft.customerId);
       const pendingName = String(draft.pendingCustomerName || draft.payload?.pendingCustomerName || '').trim();
       if (!draft.customerId && pendingName) setWalkInName(pendingName);
+      const recoveredWh = Number(draft.payload?.warehouse || 0);
+      if (recoveredWh) setWarehouseId(recoveredWh);
       setCart(
         draft.lines.map((line) => ({
           key: `${line.productId}-${line.sku}`,
@@ -275,10 +345,12 @@ export function PosPage() {
             purchasePrice: 0,
             reorderLevel: 0,
             status: 'ACTIVE',
+            trackSerial: Boolean(line.serials?.length),
           } as Product,
           quantity: line.quantity,
           discountPercent: line.discountPercent ?? 0,
           unitName: line.unitName || 'PCS',
+          serialNumbers: line.serials,
           priceAlreadyConverted: true,
         })),
       );
@@ -352,18 +424,74 @@ export function PosPage() {
   );
 
   const tenderedAmount =
-    cashTendered === '' ? totals.grandTotal : toNumber(cashTendered);
-  const changeDue = Math.max(0, tenderedAmount - totals.grandTotal);
+    cashTendered === '' ? (serverTenderTotal ?? totals.grandTotal) : toNumber(cashTendered);
+  // CR-111: drive change/labels from server gate total when available.
+  const gateTotal = serverTenderTotal ?? totals.grandTotal;
+
+  // CR-091 / CR-106 / CR-108 / CR-109: restore mid-settlement after reload.
+  useEffect(() => {
+    if (!companyId || !userId) return;
+    const restoredCash = restoreCashPending(companyId, userId);
+    if (restoredCash) {
+      setCashPending(restoredCash);
+      if (restoredCash.key) setIdempotencyKey(restoredCash.key);
+      const recovered = unpaidRecoverFromAbort(restoredCash);
+      if (recovered) setUnpaidRecover(recovered);
+    }
+    const restoredUpi = restoreUpiPending(companyId, userId);
+    if (restoredUpi && !restoredCash) {
+      setUpiPending(restoredUpi);
+      if (restoredUpi.key) setIdempotencyKey(restoredUpi.key);
+      const recovered = unpaidRecoverFromAbort(restoredUpi);
+      if (recovered) setUnpaidRecover(recovered);
+    }
+  }, [companyId, userId]);
+
+  const changeDue = Math.max(0, tenderedAmount - gateTotal);
+
+  // CR-109: restore UPI mid-settlement for this company+user only.
+  useEffect(() => {
+    if (!companyId || !userId) return;
+    const restored = restoreUpiPending(companyId, userId);
+    if (!restored) return;
+    setUpiPending(restored);
+    if (restored.key) setIdempotencyKey(restored.key);
+  }, [companyId, userId]);
+
+  useEffect(() => {
+    setServerTenderTotal(null);
+    setTenderPreviewFailed(false);
+  }, [cart, customerId, totals.grandTotal]);
 
   const addProduct = (product: Product | null) => {
     if (!product || product.status !== 'ACTIVE') return;
+    if (cashPending || upiPending) {
+      setError(t('pos.finishPendingSettlement'));
+      return;
+    }
+    let incomingSerials: string[] | undefined;
+    if (product.trackSerial) {
+      incomingSerials = serialsMatchAddQty(serialInput, 1) ?? undefined;
+      if (!incomingSerials) {
+        setError(t('pos.serialRequired'));
+        return;
+      }
+    }
     trackShopFloor('pos_line_added');
     setSaleJustCompleted(false);
     setCart((prev) => {
       const existing = prev.find((l) => l.product.id === product.id);
       if (existing) {
         return prev.map((l) =>
-          l.key === existing.key ? { ...l, quantity: l.quantity + 1 } : l,
+          l.key === existing.key
+            ? {
+                ...l,
+                quantity: l.quantity + 1,
+                serialNumbers: incomingSerials
+                  ? [...(l.serialNumbers ?? []), ...incomingSerials]
+                  : l.serialNumbers,
+              }
+            : l,
         );
       }
       return [
@@ -374,9 +502,11 @@ export function PosPage() {
           quantity: 1,
           discountPercent: 0,
           unitName: product.unitName || 'PCS',
+          serialNumbers: incomingSerials,
         },
       ];
     });
+    setSerialInput('');
     setProductQuery('');
     setError(null);
     searchRef.current?.focus();
@@ -408,6 +538,34 @@ export function PosPage() {
       setCart((prev) => prev.filter((l) => l.key !== key));
       return;
     }
+    const line = cart.find((l) => l.key === key);
+    if (line?.product.trackSerial) {
+      const have = (line.serialNumbers ?? []).length;
+      if (quantity > have) {
+        const extra = serialsMatchAddQty(serialInput, quantity - have);
+        if (!extra) {
+          setError(t('pos.serialRequired'));
+          return;
+        }
+        setCart((prev) =>
+          prev.map((l) =>
+            l.key === key
+              ? { ...l, quantity, serialNumbers: [...(l.serialNumbers ?? []), ...extra] }
+              : l,
+          ),
+        );
+        setSerialInput('');
+        return;
+      }
+      setCart((prev) =>
+        prev.map((l) =>
+          l.key === key
+            ? { ...l, quantity, serialNumbers: (l.serialNumbers ?? []).slice(0, quantity) }
+            : l,
+        ),
+      );
+      return;
+    }
     setCart((prev) => prev.map((l) => (l.key === key ? { ...l, quantity } : l)));
   };
 
@@ -421,7 +579,12 @@ export function PosPage() {
     if (idempotencyKey) void removeDraft(companyId, userId, idempotencyKey);
     setIdempotencyKey(null);
     setCashTendered('');
+    setCashPending(null);
+    clearCashPendingStorage(companyId, userId);
     setUpiPending(null);
+    clearUpiPendingStorage(companyId, userId);
+    setServerTenderTotal(null);
+    setThermalWarn(null);
     setMessage(null);
     setError(null);
     setWaOffer(null);
@@ -430,17 +593,17 @@ export function PosPage() {
 
   const finishSale = useCallback(
     async (completed: { id: number; number?: string | null; whatsappOffer?: { phone?: string } }, key?: string) => {
-      try {
-        const blob = await downloadInvoiceThermalPdf(completed.id);
-        printBlob(blob);
-      } catch {
-        // Thermal print fallback
-      }
+      const warn = await printPosThermalOrWarn(completed);
+      setThermalWarn(warn);
       if (key) await removeDraft(companyId, userId, key);
       setCart([]);
       setIdempotencyKey(null);
       setCashTendered('');
+      setCashPending(null);
+      clearCashPendingStorage(companyId, userId);
       setUpiPending(null);
+      clearUpiPendingStorage(companyId, userId);
+      setServerTenderTotal(null);
       setMessage(t('pos.saleComplete', { number: completed.number ?? `#${completed.id}` }));
       setSaleJustCompleted(true);
       const phone = (
@@ -494,6 +657,7 @@ export function PosPage() {
           dueDate: invoiceDate,
           paymentTermsDays: 0,
           autoRoundOff: true,
+          warehouse: warehouseId ? Number(warehouseId) : undefined,
           items: lines.map((line) => ({
             product: line.productId,
             description: line.productName,
@@ -504,6 +668,7 @@ export function PosPage() {
             cessRate: taxEnabled ? toNumber((line as { cessRate?: number }).cessRate) : 0,
             discountPercent: line.discountPercent ?? 0,
             unitName: line.unitName || undefined,
+            ...(line.serials?.length ? { serialNumbers: line.serials } : {}),
           })),
         },
         { idempotencyKey: key },
@@ -545,6 +710,7 @@ export function PosPage() {
           } catch {
             /* leftover draft if delete is blocked */
           }
+          setIdempotencyKey(null);
           throw err;
         }
         // Status truly unknown (the probe itself failed too, e.g. still
@@ -562,7 +728,7 @@ export function PosPage() {
         throw err;
       }
     },
-    [company.data?.priceMode, posInvoiceType, taxEnabled],
+    [company.data?.priceMode, posInvoiceType, taxEnabled, warehouseId],
   );
 
   const performCashCheckout = useCallback(
@@ -570,18 +736,82 @@ export function PosPage() {
       setBusy(true);
       setError(null);
       setMessage(null);
+      let settlement: CashPending | null =
+        posCashSettlementPhase(cashPending) === 'receipt_alloc' ? cashPending : null;
       try {
-        const completed = await createCompletedInvoice(lines, customer, key, confirmBlankPos);
+        let completed: { id: number; number?: string | null; grandTotal?: string | number };
+        if (settlement) {
+          completed = {
+            id: settlement.invoiceId,
+            number: settlement.invoiceNumber,
+            grandTotal: settlement.amount,
+          };
+        } else if (isAtomicPosCheckoutEnabled()) {
+          const invoiceDate = todayIso();
+          const isInclusive = company.data?.priceMode === 'INCLUSIVE';
+          const tenderedVal = cashTendered ? Number(cashTendered) : undefined;
+          const atomicRes = await posCheckout(
+            {
+              invoice: {
+                customer,
+                invoice_type: posInvoiceType,
+                price_mode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
+                invoice_date: invoiceDate,
+                due_date: invoiceDate,
+                payment_terms_days: 0,
+                auto_round_off: true,
+                warehouse: warehouseId ? Number(warehouseId) : undefined,
+                items: lines.map((line) => ({
+                  product: line.productId,
+                  description: line.productName,
+                  quantity: line.quantity,
+                  unit_price: line.unitPrice,
+                  unit_price_inclusive: isInclusive ? line.unitPrice : undefined,
+                  gst_rate: taxEnabled ? line.gstRate : 0,
+                  cess_rate: taxEnabled ? toNumber((line as { cessRate?: number }).cessRate) : 0,
+                  discount_percent: line.discountPercent ?? 0,
+                  unit_name: line.unitName || undefined,
+                  ...(line.serials?.length ? { serial_numbers: line.serials } : {}),
+                })),
+              },
+              payment: {
+                mode: 'CASH',
+                tendered_amount: tenderedVal,
+              },
+            },
+            { idempotencyKey: key },
+          );
+          completed = atomicRes.invoice;
+          await finishSale(completed, key);
+          return;
+        } else {
+          completed = await createCompletedInvoice(lines, customer, key, confirmBlankPos);
+          settlement = {
+            invoiceId: completed.id,
+            invoiceNumber: String(completed.number ?? completed.id),
+            customer,
+            amount: toNumber(completed.grandTotal),
+            key,
+          };
+          setCashPending(settlement);
+          persistCashPending(companyId, userId, settlement);
+        }
         const invoiceDate = todayIso();
         const receiptKey = key ? `${key}-receipt` : undefined;
-        const invoiceTotal = toNumber(completed.grandTotal);
+        const invoiceTotal = toNumber(completed.grandTotal ?? settlement.amount);
+        const tenderedVal = cashTendered ? Number(cashTendered) : 0;
+        let receiptNotes = `POS — ${completed.number ?? completed.id}`;
+        if (tenderedVal > invoiceTotal) {
+          const changeVal = (tenderedVal - invoiceTotal).toFixed(2);
+          receiptNotes += ` · Tendered: ₹${tenderedVal.toFixed(2)}, Change: ₹${changeVal}`;
+        }
         const receipt = await createReceipt(
           {
             customer,
             amount: invoiceTotal,
             mode: 'CASH',
             receiptDate: invoiceDate,
-            notes: `POS — ${completed.number ?? completed.id}`,
+            notes: receiptNotes,
           },
           { idempotencyKey: receiptKey },
         );
@@ -595,13 +825,19 @@ export function PosPage() {
         );
         await finishSale(completed, key);
       } catch (err) {
+        if (settlement) {
+          setCashPending(settlement);
+          persistCashPending(companyId, userId, settlement);
+          const recovered = unpaidRecoverFromAbort(settlement);
+          if (recovered) setUnpaidRecover(recovered);
+        }
         setError(getErrorMessage(err));
         throw err;
       } finally {
         setBusy(false);
       }
     },
-    [createCompletedInvoice, finishSale],
+    [cashPending, companyId, createCompletedInvoice, finishSale, userId],
   );
 
   const startUpiCheckout = useCallback(
@@ -610,22 +846,23 @@ export function PosPage() {
       setError(null);
       setMessage(null);
       try {
-        const completed = await createCompletedInvoice(lines, customer, key, confirmBlankPos);
-        const invoiceTotal = toNumber(completed.grandTotal);
+        const invoiceTotal = gateTotal;
         let upiQr: Record<string, string> | null = null;
         try {
-          upiQr = await getUpiQr({ salesInvoice: completed.id });
+          upiQr = await getUpiQr({ amount: invoiceTotal, note: 'POS Sale' });
         } catch (err) {
           setError(t('pos.upiQrFailed', { error: getErrorMessage(err) }));
         }
-        setUpiPending({
-          invoiceId: completed.id,
-          invoiceNumber: String(completed.number ?? completed.id),
+        const pending: UpiPending = {
           customer,
           amount: invoiceTotal,
           key,
           upiQr,
-        });
+          lines,
+          confirmBlankPos,
+        };
+        setUpiPending(pending);
+        persistUpiPending(companyId, userId, pending);
       } catch (err) {
         setError(getErrorMessage(err));
         throw err;
@@ -633,7 +870,7 @@ export function PosPage() {
         setBusy(false);
       }
     },
-    [createCompletedInvoice],
+    [companyId, gateTotal, t, userId],
   );
 
   const confirmUpiPayment = useCallback(async () => {
@@ -641,45 +878,110 @@ export function PosPage() {
     setBusy(true);
     setError(null);
     try {
-      const receiptKey = upiPending.key ? `${upiPending.key}-receipt` : newIdempotencyKey();
-      const receipt = await createReceipt(
-        {
-          customer: upiPending.customer,
-          amount: upiPending.amount,
-          mode: 'UPI',
-          receiptDate: todayIso(),
-          notes: `POS UPI — ${upiPending.invoiceNumber}`,
-        },
-        { idempotencyKey: receiptKey },
-      );
-      await createAllocation(
-        {
-          receipt: receipt.id,
-          salesInvoice: upiPending.invoiceId,
-          amount: upiPending.amount,
-        },
-        { idempotencyKey: `${receiptKey}-alloc` },
-      );
-      await finishSale(
-        { id: upiPending.invoiceId, number: upiPending.invoiceNumber },
-        upiPending.key,
-      );
+      if (upiPending.invoiceId) {
+        const receiptKey = upiPending.key ? `${upiPending.key}-receipt` : newIdempotencyKey();
+        const receipt = await createReceipt(
+          {
+            customer: upiPending.customer,
+            amount: upiPending.amount,
+            mode: 'UPI',
+            receiptDate: todayIso(),
+            notes: `POS UPI — ${upiPending.invoiceNumber}`,
+          },
+          { idempotencyKey: receiptKey },
+        );
+        await createAllocation(
+          {
+            receipt: receipt.id,
+            salesInvoice: upiPending.invoiceId,
+            amount: upiPending.amount,
+          },
+          { idempotencyKey: `${receiptKey}-alloc` },
+        );
+        await finishSale(
+          { id: upiPending.invoiceId, number: upiPending.invoiceNumber },
+          upiPending.key,
+        );
+      } else {
+        const invoiceDate = todayIso();
+        const isInclusive = company.data?.priceMode === 'INCLUSIVE';
+        const checkoutLines =
+          (upiPending.lines as InvoiceDraftLine[] | undefined) ||
+          draftLinesFromCart(cart, taxEnabled, (id, qty) =>
+            unitPriceFor(id, qty, cart.find((l) => l.product.id === id)?.product.sellingPrice),
+          );
+        const atomicRes = await posCheckout(
+          {
+            invoice: {
+              customer: upiPending.customer,
+              invoice_type: posInvoiceType,
+              price_mode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
+              invoice_date: invoiceDate,
+              due_date: invoiceDate,
+              payment_terms_days: 0,
+              auto_round_off: true,
+              warehouse: warehouseId ? Number(warehouseId) : undefined,
+              items: checkoutLines.map((line) => ({
+                product: line.productId,
+                description: line.productName,
+                quantity: line.quantity,
+                unit_price: line.unitPrice,
+                unit_price_inclusive: isInclusive ? line.unitPrice : undefined,
+                gst_rate: taxEnabled ? line.gstRate : 0,
+                cess_rate: taxEnabled ? toNumber((line as { cessRate?: number }).cessRate) : 0,
+                discount_percent: line.discountPercent ?? 0,
+                unit_name: line.unitName || undefined,
+                ...(line.serials?.length ? { serial_numbers: line.serials } : {}),
+              })),
+            },
+            payment: {
+              mode: 'UPI',
+              amount: upiPending.amount,
+            },
+          },
+          { idempotencyKey: upiPending.key },
+        );
+        await finishSale(atomicRes.invoice, upiPending.key);
+      }
+      setUpiPending(null);
+      clearUpiPendingStorage(companyId, userId);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       setBusy(false);
     }
-  }, [finishSale, upiPending]);
+  }, [
+    cart,
+    company.data?.priceMode,
+    companyId,
+    finishSale,
+    posInvoiceType,
+    taxEnabled,
+    unitPriceFor,
+    upiPending,
+    userId,
+    warehouseId,
+  ]);
 
   const flushPendingDraft = useCallback(async () => {
-    if (flushGuard.current || !navigator.onLine || !companyId || !userId) return;
+    // CR-004: mutual exclusion with active checkout
+    if (flushGuard.current || checkoutGuard.current || !navigator.onLine || !companyId || !userId) return;
     flushGuard.current = true;
+    setIsFlushing(true);
+    const thermalWarns: Array<{ invoiceId: number; number: string }> = [];
     try {
       const result = await flushOutbox(
         companyId,
         userId,
         async (draft) => {
-          await flushPosDraft(draft);
+          const completed = await flushPosDraft(draft);
+          if (completed?.id) {
+            const warn = await printPosThermalOrWarn({
+              id: Number(completed.id),
+              number: completed.number ?? completed.invoiceNumber,
+            });
+            if (warn) thermalWarns.push(warn);
+          }
         },
         (draft) => draft.kind === 'pos',
       );
@@ -698,8 +1000,18 @@ export function PosPage() {
         setIdempotencyKey(null);
         setMessage(t('pos.syncedOfflineSales', { count: String(result.flushed) }));
       }
+      if (thermalWarns.length > 0) {
+        // CR-118: surface all thermal print failures across multi-flush
+        const labels = thermalWarns.map((w) => w.number).join(', ');
+        setError((prev) =>
+          prev
+            ? `${prev} · Thermal print failed: ${labels}`
+            : `Thermal print failed: ${labels}`,
+        );
+      }
     } finally {
       flushGuard.current = false;
+      setIsFlushing(false);
     }
   }, [companyId, userId]);
 
@@ -724,9 +1036,37 @@ export function PosPage() {
         setError(t('billing.writesBlocked'));
         return;
       }
-      if (busy) return;
+      // CR-004 / CR-112: ref guard against concurrent checkout or in-flight flush
+      if (checkoutGuard.current || flushGuard.current || busy || isFlushing) return;
+      // CR-119: block a new cart sale while mid-settlement is outstanding.
+      if (upiPending) {
+        setError(t('pos.finishPendingUpi'));
+        return;
+      }
+      if (cashPending && mode !== 'CASH') {
+        setError(t('pos.finishPendingCash'));
+        return;
+      }
+      checkoutGuard.current = true;
+      const key = resolveSaleGestureKey(idempotencyKey, userGestureIdempotencyKey);
+      setIdempotencyKey(key);
       setBusy(true);
       try {
+      // CR-106: cashPending resume — skip cart/tender/blank gates; reuse restored key.
+      if (cashPending && mode === 'CASH') {
+        if (!navigator.onLine) {
+          setError(t('pos.finishPaymentOnline'));
+          return;
+        }
+        const resumeKey = resolveSaleGestureKey(
+          cashPending.key || key,
+          userGestureIdempotencyKey,
+        );
+        setIdempotencyKey(resumeKey);
+        await performCashCheckout([], cashPending.customer, resumeKey, false);
+        return;
+      }
+
       let effectiveCustomerId = customerId;
       const typedName = walkInName.trim();
       const online = typeof navigator === 'undefined' || navigator.onLine;
@@ -772,7 +1112,43 @@ export function PosPage() {
         setError(t('pos.cartEmpty'));
         return;
       }
-      if (mode === 'CASH' && tenderedAmount + 1e-9 < totals.grandTotal) {
+      // CR-111: online cash uses server preview as till gate (and label source).
+      let tenderGateTotal = gateTotal;
+      if (mode === 'CASH' && navigator.onLine && effectiveCustomerId) {
+        try {
+          const { previewSalesTotals } = await import('@/api/legacy/sales');
+          const isInclusive = company.data?.priceMode === 'INCLUSIVE';
+          const previewLines = draftLinesFromCart(cart, taxEnabled, (id, qty) =>
+            unitPriceFor(id, qty, cart.find((l) => l.product.id === id)?.product.sellingPrice),
+          );
+          const preview = await previewSalesTotals({
+            customer: Number(effectiveCustomerId),
+            invoice_type: posInvoiceType,
+            price_mode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
+            items: previewLines.map((l) => ({
+              product: l.productId,
+              quantity: l.quantity,
+              unit_price: l.unitPrice,
+              ...(isInclusive ? { unit_price_inclusive: l.unitPrice } : {}),
+              gst_rate: l.gstRate,
+              cess_rate: l.cessRate,
+              discount_percent: l.discountPercent,
+              unit_name: l.unitName,
+            })),
+            auto_round_off: true,
+          });
+          if (typeof preview.grandTotal === 'number' && Number.isFinite(preview.grandTotal)) {
+            tenderGateTotal = preview.grandTotal;
+            setServerTenderTotal(preview.grandTotal);
+            setTenderPreviewFailed(false);
+          }
+        } catch {
+          setTenderPreviewFailed(true);
+          setError('Could not confirm till total from server. Retry pay.');
+          return;
+        }
+      }
+      if (mode === 'CASH' && tenderedAmount + 1e-9 < tenderGateTotal) {
         setError(t('pos.tenderTooLow'));
         return;
       }
@@ -797,8 +1173,6 @@ export function PosPage() {
       const lines = draftLinesFromCart(cart, taxEnabled, (id, qty) =>
         unitPriceFor(id, qty, cart.find((l) => l.product.id === id)?.product.sellingPrice),
       );
-      const key = userGestureIdempotencyKey();
-      setIdempotencyKey(key);
 
       if (!navigator.onLine) {
         const pendingName =
@@ -813,6 +1187,7 @@ export function PosPage() {
               items: lines,
               paymentMode: mode,
               pendingCustomerName: pendingName,
+              warehouse: warehouseId ? Number(warehouseId) : undefined,
             },
             idempotencyKey: key,
             customerId: Number(effectiveCustomerId) || undefined,
@@ -848,19 +1223,29 @@ export function PosPage() {
         return;
       }
       await performCashCheckout(lines, Number(effectiveCustomerId), key, Boolean(opts?.confirmBlankPos));
+      } catch (err) {
+        const msg = getErrorMessage(err);
+        setError(msg);
+        if (isSerialOrBatchRuleError(msg)) {
+          setSerialBatchError({ mode, message: msg });
+        }
       } finally {
         setBusy(false);
+        checkoutGuard.current = false;
       }
     },
     [
       cart,
+      company.data?.priceMode,
       companyId,
       customerId,
+      gateTotal,
+      idempotencyKey,
       performCashCheckout,
+      posInvoiceType,
       startUpiCheckout,
       taxEnabled,
       tenderedAmount,
-      totals.grandTotal,
       unitPriceFor,
       userId,
       walkInCustomer,
@@ -869,6 +1254,7 @@ export function PosPage() {
       busy,
       activeCustomers,
       selectedCustomer.data,
+      warehouseId,
     ],
   );
 
@@ -890,6 +1276,7 @@ export function PosPage() {
 
   return (
     <PageShell title={t('pos.title')} subtitle={t('pos.subtitle')}>
+      <HonestyBanner messageKey="honesty.posCounter" />
       {offline || hasOutboxItems ? (
         !hideOutboxWarn || offline ? (
           <Alert
@@ -939,6 +1326,32 @@ export function PosPage() {
       ) : null}
       {error ? (
         <HelpErrorAlert message={error} onClose={() => setError(null)} sx={{ mb: 1 }} />
+      ) : null}
+      {thermalWarn ? (
+        <Alert
+          severity="warning"
+          onClose={() => setThermalWarn(null)}
+          sx={{ mb: 1 }}
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              onClick={async () => {
+                const warn = await printPosThermalOrWarn({
+                  id: thermalWarn.invoiceId,
+                  number: thermalWarn.number,
+                });
+                if (!warn) {
+                  setThermalWarn(null);
+                }
+              }}
+            >
+              Retry Print
+            </Button>
+          }
+        >
+          Thermal receipt print failed for invoice {thermalWarn.number}.
+        </Alert>
       ) : null}
       {(() => {
         const chip = posChipState({
@@ -990,8 +1403,8 @@ export function PosPage() {
         </Alert>
       ) : null}
 
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-        <Paper variant="outlined" sx={{ flex: 1, p: 2 }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ maxWidth: '100%', minWidth: 0 }}>
+        <Paper variant="outlined" sx={{ flex: 1, p: { xs: 1.5, sm: 2 }, maxWidth: '100%', minWidth: 0, overflow: 'hidden' }}>
           <Stack spacing={2}>
             <TextField
               select
@@ -1030,7 +1443,31 @@ export function PosPage() {
               disabled={Boolean(customerId)}
               fullWidth
             />
+            <TextField
+              select
+              size="small"
+              label={t('pos.godown')}
+              value={warehouseId === '' ? '' : warehouseId}
+              onChange={(e) => setWarehouseId(e.target.value === '' ? '' : Number(e.target.value))}
+              fullWidth
+            >
+              {(warehouses.data ?? [])
+                .filter((row) => row.isActive !== false)
+                .map((row) => (
+                  <MenuItem key={row.id} value={row.id}>
+                    {row.name}{row.isDefault ? ' (default)' : ''}
+                  </MenuItem>
+                ))}
+            </TextField>
 
+            <TextField
+              size="small"
+              label={t('pos.serials')}
+              value={serialInput}
+              onChange={(e) => setSerialInput(e.target.value)}
+              placeholder={t('erp.serialNumbersHint')}
+              fullWidth
+            />
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
               <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
               <Autocomplete<Product>
@@ -1096,7 +1533,8 @@ export function PosPage() {
               </IconButton>
             </Box>
 
-            <Table size="small">
+            <TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
+              <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>{t('pos.item')}</TableCell>
@@ -1147,6 +1585,28 @@ export function PosPage() {
                           </Typography>
                           {listHit?.listName ? (
                             <Chip size="small" label={`List: ${listHit.listName}`} sx={{ ml: 0.5, height: 20 }} />
+                          ) : null}
+                          {line.product.trackSerial ? (
+                            <TextField
+                              size="small"
+                              value={(line.serialNumbers ?? []).join(', ')}
+                              onChange={(e) => {
+                                const serialNumbers = parseSerialNumbersText(e.target.value);
+                                setCart((prev) =>
+                                  prev.map((row) =>
+                                    row.key === line.key
+                                      ? {
+                                          ...row,
+                                          serialNumbers,
+                                          quantity: serialNumbers.length || row.quantity,
+                                        }
+                                      : row,
+                                  ),
+                                );
+                              }}
+                              placeholder={t('pos.serials')}
+                              sx={{ mt: 0.5 }}
+                            />
                           ) : null}
                         </TableCell>
                         <TableCell align="right">
@@ -1217,10 +1677,11 @@ export function PosPage() {
                 )}
               </TableBody>
             </Table>
+            </TableContainer>
           </Stack>
         </Paper>
 
-        <Paper variant="outlined" sx={{ width: { xs: '100%', md: 320 }, p: 2 }}>
+        <Paper variant="outlined" sx={{ width: { xs: '100%', md: 320 }, maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', p: { xs: 1.5, sm: 2 } }}>
           <Stack spacing={2}>
             <Typography variant="h6">{t('pos.tender')}</Typography>
             <Divider />
@@ -1259,7 +1720,7 @@ export function PosPage() {
             ) : null}
             <Stack direction="row" justifyContent="space-between">
               <Typography variant="h6">{t('pos.total')}</Typography>
-              <Typography variant="h6">{formatMoney(totals.grandTotal)}</Typography>
+              <Typography variant="h6">{formatMoney(gateTotal)}</Typography>
             </Stack>
             <NumericField
               label={t('pos.cashTendered')}
@@ -1310,23 +1771,38 @@ export function PosPage() {
             <Button
               variant="contained"
               size="large"
-              disabled={writesBlocked || busy || cart.length === 0 || Boolean(upiPending)}
+              disabled={
+                writesBlocked ||
+                busy ||
+                isFlushing ||
+                Boolean(upiPending) ||
+                (cart.length === 0 && !cashPending)
+              }
               onClick={() => void checkout('CASH')}
             >
-              {t('pos.cashPay', { amount: formatMoney(totals.grandTotal) })}
+              {cashPending
+                ? t('pos.finishPayment', { amount: formatMoney(cashPending.amount) })
+                : t('pos.cashPay', { amount: formatMoney(gateTotal) })}
             </Button>
             <Button
               variant="outlined"
               size="large"
-              disabled={writesBlocked || busy || cart.length === 0 || Boolean(upiPending)}
+              disabled={
+                writesBlocked ||
+                busy ||
+                isFlushing ||
+                tenderPreviewFailed ||
+                Boolean(cashPending) ||
+                (cart.length === 0 && !upiPending)
+              }
               onClick={() => void checkout('UPI')}
             >
-              {t('pos.upiPay', { amount: formatMoney(totals.grandTotal) })}
+              {t('pos.upiPay', { amount: formatMoney(gateTotal) })}
             </Button>
             <Button
               variant="text"
               color="inherit"
-              disabled={busy || (cart.length === 0 && !upiPending)}
+              disabled={busy || isFlushing || (cart.length === 0 && !upiPending && !cashPending)}
               onClick={clearCart}
             >
               {t('pos.clearCart')}
@@ -1335,6 +1811,33 @@ export function PosPage() {
         </Paper>
       </Stack>
 
+      <Dialog
+        open={Boolean(serialBatchError)}
+        onClose={() => setSerialBatchError(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>{t('pos.confirmSerialBatchTitle')}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            {serialBatchError?.message || t('pos.confirmSerialBatchBody')}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSerialBatchError(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              const mode = serialBatchError?.mode;
+              setSerialBatchError(null);
+              // CR-113: retry original failure only — do not auto-confirm blank POS / walk-in.
+              if (mode) void checkout(mode);
+            }}
+          >
+            {t('pos.confirmSerialBatchAction')}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog
         open={Boolean(blankPosMode)}
         onClose={() => setBlankPosMode(null)}
@@ -1397,6 +1900,7 @@ export function PosPage() {
         onClose={(_event, reason) => {
           if (reason === 'backdropClick' || reason === 'escapeKeyDown') return;
           setUpiPending(null);
+          clearUpiPendingStorage(companyId, userId);
         }}
         disableEscapeKeyDown
         TransitionProps={{ onExited: () => searchRef.current?.focus() }}
@@ -1405,10 +1909,12 @@ export function PosPage() {
         <DialogContent>
           <Stack spacing={1.5} sx={{ mt: 0.5 }}>
             <Typography variant="body2" color="text.secondary">
-              {t('pos.upiScanHint', {
-                number: upiPending?.invoiceNumber ?? '',
-                amount: formatMoney(upiPending?.amount ?? 0),
-              })}
+              {upiPending?.invoiceNumber
+                ? t('pos.upiScanHint', {
+                    number: upiPending.invoiceNumber,
+                    amount: formatMoney(upiPending.amount ?? 0),
+                  })
+                : t('pos.upiPay', { amount: formatMoney(upiPending?.amount ?? 0) })}
             </Typography>
             {upiIntent && upiPng ? (
               <Box
@@ -1431,15 +1937,18 @@ export function PosPage() {
           <Button
             disabled={busy}
             onClick={() => {
-              const recovered = unpaidRecoverFromAbort(upiPending);
-              if (recovered) setUnpaidRecover(recovered);
-              setMessage(t('pos.leftUnpaid', { number: upiPending?.invoiceNumber ?? '' }));
+              if (upiPending?.invoiceId) {
+                const recovered = unpaidRecoverFromAbort(upiPending);
+                if (recovered) setUnpaidRecover(recovered);
+                setMessage(t('pos.leftUnpaid', { number: upiPending.invoiceNumber ?? '' }));
+                setIdempotencyKey(null);
+                setCart([]);
+              }
               setUpiPending(null);
-              setIdempotencyKey(null);
-              setCart([]);
+              clearUpiPendingStorage(companyId, userId);
             }}
           >
-            {t('pos.collectLater')}
+            {upiPending?.invoiceId ? t('pos.collectLater') : t('common.cancel')}
           </Button>
           <Button variant="contained" disabled={busy} onClick={() => void confirmUpiPayment()}>
             {t('pos.paymentReceived')}

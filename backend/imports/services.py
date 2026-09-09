@@ -500,13 +500,11 @@ def _validate_row(
                                 if skus_with_opening is not None:
                                     already = product.pk in skus_with_opening
                                 else:
-                                    already = StockMovement.objects.filter(
-                                        company=company,
-                                        product=product,
-                                        movement_type=MovementType.OPENING_STOCK,
-                                    ).exclude(reference_type="import_voided").exists()
-                            if already:
-                                errors.append(f"opening stock already recorded for '{product.name}'")
+                                    from inventory.services import InventoryService as _Inv
+
+                                    already = product.pk in _Inv.active_opening_product_ids(company)
+                                if already:
+                                    errors.append(f"opening stock already recorded for '{product.name}'")
                     except InvalidOperation:
                         pass
             elif seen_skus is not None:
@@ -549,11 +547,9 @@ def _validate_row(
                 if skus_with_opening is not None:
                     already_has_opening = product.pk in skus_with_opening
                 else:
-                    already_has_opening = StockMovement.objects.filter(
-                        company=company,
-                        product=product,
-                        movement_type=MovementType.OPENING_STOCK,
-                    ).exclude(reference_type="import_voided").exists()
+                    from inventory.services import InventoryService as _Inv
+
+                    already_has_opening = product.pk in _Inv.active_opening_product_ids(company)
                 if already_has_opening:
                     errors.append(f"opening stock already recorded for '{product.name}'")
                 serials = _parse_serial_numbers(row.get("serial_no"))
@@ -1232,11 +1228,11 @@ class ImportService:
             raw = handle.read()
         job.file_sha256 = hashlib.sha256(raw).hexdigest()
         if (
-            job.kind == ImportJob.Kind.PRODUCTS
+            job.kind in (ImportJob.Kind.PRODUCTS, ImportJob.Kind.OPENING_STOCK)
             and job.file_sha256
             and ImportJob.objects.filter(
                 company=job.company,
-                kind=ImportJob.Kind.PRODUCTS,
+                kind=job.kind,
                 file_sha256=job.file_sha256,
                 status=ImportJob.Status.COMMITTED,
             ).exclude(pk=job.pk).exists()
@@ -1309,14 +1305,9 @@ class ImportService:
             (p.sku or "").casefold(): p
             for p in Product.objects.filter(company=job.company).exclude(sku="")
         }
-        skus_with_opening = set(
-            StockMovement.objects.filter(
-                company=job.company,
-                movement_type=MovementType.OPENING_STOCK,
-            )
-            .exclude(reference_type="import_voided")
-            .values_list("product_id", flat=True)
-        )
+        from inventory.services import InventoryService as _InvSvc
+
+        skus_with_opening = _InvSvc.active_opening_product_ids(job.company)
 
         extra_serial_counts = _extra_serial_counts(extra_sheets)
 
@@ -2029,9 +2020,9 @@ class ImportService:
 
     @staticmethod
     def _reverse_import_movement(job, movement, user):
+        """CR-053: compensating ADJUSTMENT only — never mutate StockMovement.reference_type."""
         qty = abs(Decimal(str(movement.quantity or 0)))
         if qty <= 0:
-            StockMovement.objects.filter(pk=movement.pk).update(reference_type="import_voided")
             return
         InventoryService.post_movement(
             company=job.company,
@@ -2059,7 +2050,6 @@ class ImportService:
             )
             for entry in entries:
                 PostingService.reverse(entry, user=user)
-        StockMovement.objects.filter(pk=movement.pk).update(reference_type="import_voided")
 
     @staticmethod
     def _cleanup_imported_product(job, product, user):
@@ -2594,6 +2584,10 @@ class BillImportService:
             preview["bill_date"] = str(data.get("bill_date") or "").strip()
         if "low_confidence_accepted" in data:
             preview["low_confidence_accepted"] = bool(data.get("low_confidence_accepted"))
+        if "confirm_non_gst" in data or "confirmNonGst" in data:
+            # CR-041 / CR-137: operator opts into NON_GST when all lines are 0-rated.
+            val = data.get("confirm_non_gst") if "confirm_non_gst" in data else data.get("confirmNonGst")
+            preview["confirm_non_gst"] = bool(val)
 
         if "lines" in data:
             lines_in = data.get("lines") or []
@@ -2822,6 +2816,10 @@ class BillImportService:
     @staticmethod
     @transaction.atomic
     def commit(job: ImportJob, user):
+        """CR-042: Bill commit is all-or-nothing in one atomic transaction.
+        Any error during product matching or line validation aborts the transaction,
+        leaving no partial drafts. Re-commit is guarded by PREVIEWED -> COMMITTED.
+        """
         if job.kind not in ImportJob.BILL_KINDS:
             raise BusinessRuleError("Not a bill import.")
         job = ImportJob.objects.select_for_update().get(pk=job.pk)
@@ -2904,15 +2902,16 @@ class BillImportService:
                 ),
             })
 
-        # B3-027: don't force purchase_type=GST on every imported bill -- a bill
-        # whose every line is 0-rated (a bill of supply, e.g. from a composition
-        # supplier) is a non-GST purchase. A misread rate keeps it GST; Complete's
-        # composition check is the backstop there.
+        # B3-027 / CR-041: all 0-rated lines default to GST (nil-rated / exempt /
+        # composition bills are still GST docs). Flip to NON_GST only when the
+        # operator confirms on preview/commit (confirm_non_gst).
         all_zero = bool(items_data) and all(
             Decimal(str(it["gst_rate"] or 0)) == 0 for it in items_data
         )
+        confirm_non_gst = bool(preview.get("confirm_non_gst"))
         purchase_type = (
-            PurchaseInvoice.PurchaseType.NON_GST if all_zero
+            PurchaseInvoice.PurchaseType.NON_GST
+            if all_zero and confirm_non_gst
             else PurchaseInvoice.PurchaseType.GST
         )
 
@@ -2920,7 +2919,12 @@ class BillImportService:
         if rate_warnings:
             notes += " — " + "; ".join(rate_warnings)
         if purchase_type == PurchaseInvoice.PurchaseType.NON_GST:
-            notes += " — all lines 0-rated: booked as non-GST (bill of supply)"
+            notes += " — all lines 0-rated: booked as non-GST (bill of supply, confirmed)"
+        elif all_zero:
+            notes += (
+                " — all lines 0-rated: kept as GST (nil/exempt). "
+                "Set confirm_non_gst on preview to book as NON_GST."
+            )
         if infer_rcm:
             notes += " — supplier unregistered / blank GSTIN: reverse charge set, review before Complete"
         invoice = PurchaseInvoice.objects.create(

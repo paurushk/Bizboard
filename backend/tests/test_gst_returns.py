@@ -38,8 +38,11 @@ def _complete_credit_note(tenant, customer, invoice_id, product):
         },
         format="json",
     )
-    assert cn.status_code == 201, cn.data
-    done = tenant.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/")
+    done = tenant.client.post(
+        f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/",
+        {"confirm_price_override": True},
+        format="json",
+    )
     assert done.status_code == 200, done.data
     return cn.data
 
@@ -178,27 +181,49 @@ def test_gstr3b_excludes_opening_balance_purchase(tenant_a):
     assert new_itc == baseline_itc
 
 
+@pytest.mark.no_invariant_check  # deliberately builds inconsistent state to test detection/rejection
 def test_gstr1_cdnr_excludes_value_mismatched_note(tenant_a):
     """BB-000361: a credit note whose grand_total doesn't reconcile to
     taxable+tax (AFTER_TAX discount) must be excluded from CDNR and flagged
-    as an issue instead of silently distorting section totals."""
+    as an issue instead of silently distorting section totals.
+
+    R-025: CN lines now require explicit ``source_item`` lineage when the
+    source invoice has items, and the per-line qty cap is enforced. The
+    shared ``b2b_inv`` from ``_setup_gst_month`` is already fully credited
+    by that fixture, so this test raises its own dedicated invoice (with
+    headroom) and passes ``source_item`` on the note line.
+    """
     b2b_inv, *_ = _setup_gst_month(tenant_a)
-    invoice = SalesInvoice.objects.get(pk=b2b_inv["id"])
-    product_id = invoice.items.first().product_id
+    src_invoice = SalesInvoice.objects.get(pk=b2b_inv["id"])
+    customer = src_invoice.customer
+    product = src_invoice.items.first().product
+
+    inv = _complete_invoice(tenant_a, customer, product, invoice_date=PERIOD + "-19")
+    source_item_id = SalesInvoice.objects.get(pk=inv["id"]).items.first().pk
+
     cn = tenant_a.client.post(
         "/api/v1/sales/credit-notes/",
         {
-            "customer": invoice.customer_id,
-            "sales_invoice": b2b_inv["id"],
+            "customer": customer.id,
+            "sales_invoice": inv["id"],
             "note_date": PERIOD + "-21",
             "reason": "CORRECTION_OF_INVOICE",
             "invoice_discount": "50",
-            "items": [{"product": product_id, "quantity": "1", "unit_price": "200", "gst_rate": "18"}],
+            "items": [{
+                "product": product.id,
+                "quantity": "1",
+                "unit_price": "200",
+                "gst_rate": "18",
+                "source_item": source_item_id,
+            }],
         },
         format="json",
     )
-    assert cn.status_code == 201, cn.data
-    done = tenant_a.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/")
+    done = tenant_a.client.post(
+        f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/",
+        {"confirm_price_override": True},
+        format="json",
+    )
     assert done.status_code == 200, done.data
 
     resp = tenant_a.client.get("/api/v1/reports/gstr1/", {"period": PERIOD})

@@ -21,7 +21,7 @@ from django.utils import timezone
 
 from core.services.billing import extract_state_code, is_intra_state, q2
 from core.services.uqc import normalize_uqc
-from purchases.models import PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice
+from purchases.models import BillOfEntry, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice
 from sales.models import SalesCreditNote, SalesDebitNote, SalesInvoice
 
 from .models import GstReturnPeriod, GstReturnSnapshot
@@ -72,6 +72,21 @@ def parse_period(period: str) -> tuple[date, date]:
         raise ValueError(f"Invalid period '{period}'. Expected YYYY-MM.") from exc
     last_day = monthrange(year, month)[1]
     return date(year, month, 1), date(year, month, last_day)
+
+
+def _boe_eligible_for_itc_period(company, period: str):
+    """CR-072: SQL-bound Bill of Entry ITC for a YYYY-MM period (avoid full scan)."""
+    from django.db.models import Q
+
+    date_from, date_to = parse_period(period)
+    return BillOfEntry.objects.filter(
+        company=company,
+        status=BillOfEntry.Status.COMPLETED,
+        itc_eligibility=BillOfEntry.ItcEligibility.ELIGIBLE,
+    ).filter(
+        Q(itc_period=period)
+        | (Q(itc_period="") & Q(boe_date__gte=date_from, boe_date__lte=date_to))
+    )
 
 
 def _money(value: Decimal | None) -> str:
@@ -244,6 +259,9 @@ def _rate_buckets(items, invoice=None) -> dict[Decimal, dict]:
         sgst = Decimal(str(item.sgst or 0))
         igst = Decimal(str(item.igst or 0))
         cess = Decimal(str(getattr(item, "cess", 0) or 0))
+        # CR-070 / CR-053: compute rate-wise RCM taxes directly from line item rates
+        # so multiple RCM items with differing rates do not get distorted by prorating.
+        stored_rcm = rcm_igst + rcm_cgst + rcm_sgst
         if restore_rcm and cgst + sgst + igst == 0 and rate > 0:
             from core.services.billing import q2
 
@@ -272,6 +290,38 @@ def _rate_buckets(items, invoice=None) -> dict[Decimal, dict]:
         buckets[rate]["sgst"] += sgst
         buckets[rate]["igst"] += igst
         buckets[rate]["cess"] += cess
+    # CR-070: when lines have zero tax but header RCM memos exist, allocate stored
+    # header RCM across rate buckets by taxable share (prefer stored, not rebuild).
+    if restore_rcm and (rcm_igst + rcm_cgst + rcm_sgst) > 0:
+        line_tax = sum(
+            (b["cgst"] + b["sgst"] + b["igst"] for b in buckets.values()),
+            Decimal("0"),
+        )
+        if line_tax == 0:
+            taxable_sum = sum((b["taxable_value"] for b in buckets.values()), Decimal("0"))
+            if taxable_sum > 0:
+                from core.services.billing import q2
+
+                rates = list(buckets.keys())
+                allocated_c = allocated_s = allocated_i = Decimal("0")
+                for idx, rate in enumerate(rates):
+                    share = buckets[rate]["taxable_value"] / taxable_sum
+                    if idx == len(rates) - 1:
+                        buckets[rate]["cgst"] += rcm_cgst - allocated_c
+                        buckets[rate]["sgst"] += rcm_sgst - allocated_s
+                        buckets[rate]["igst"] += rcm_igst - allocated_i
+                    else:
+                        c_part, s_part, i_part = (
+                            q2(rcm_cgst * share),
+                            q2(rcm_sgst * share),
+                            q2(rcm_igst * share),
+                        )
+                        buckets[rate]["cgst"] += c_part
+                        buckets[rate]["sgst"] += s_part
+                        buckets[rate]["igst"] += i_part
+                        allocated_c += c_part
+                        allocated_s += s_part
+                        allocated_i += i_part
     return buckets
 
 
@@ -1474,14 +1524,8 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
     outward = gstr1["totals"]
 
     # GST-08: import ITC from completed Bills of Entry (GSTR-3B 4(A)(5)).
-    from purchases.models import BillOfEntry
-
-    boe_qs = BillOfEntry.objects.filter(
-        company=company,
-        status=BillOfEntry.Status.COMPLETED,
-        itc_eligibility=BillOfEntry.ItcEligibility.ELIGIBLE,
-    )
-    boe_rows = [b for b in boe_qs if b.resolved_itc_period() == period]
+    # CR-072: period filter in SQL (itc_period or boe_date month).
+    boe_rows = list(_boe_eligible_for_itc_period(company, period))
     import_igst = sum((Decimal(str(b.igst_amount or 0)) for b in boe_rows), Decimal("0"))
     import_cess = sum((Decimal(str(b.cess_amount or 0)) for b in boe_rows), Decimal("0"))
     import_itc = {
@@ -1863,7 +1907,7 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
             "itc_available": itc_available["total_tax"],
             "itc_provisional": not has_2b,
             "itc_claimable": has_2b,
-            # Wave 16D: subtract matched 2B ITC when present; else do not subtract provisional.
+            # CR-069: net payable must use recommended_claimable (min books/2B), not full 2B.
             "net_payable_hint": _money(
                 Decimal(outward["outward_igst"])
                 + Decimal(outward["outward_cgst"])
@@ -1871,14 +1915,17 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
                 + Decimal(outward.get("outward_cess", "0") or 0)
                 + (rcm_cgst + rcm_sgst + rcm_igst + rcm_cess)
                 - (
-                    itc_2b["igst"] + itc_2b["cgst"] + itc_2b["sgst"] + Decimal(str(itc_2b.get("cess") or 0))
+                    Decimal(str(itc_block["recommended_claimable"]["igst"]))
+                    + Decimal(str(itc_block["recommended_claimable"]["cgst"]))
+                    + Decimal(str(itc_block["recommended_claimable"]["sgst"]))
+                    + Decimal(str(itc_block["recommended_claimable"].get("cess") or 0))
                     if has_2b
                     else Decimal("0")
                 )
             ),
             "note": (
-                "Net payable subtracts matched GSTR-2B ITC when present; "
-                "otherwise excludes provisional books ITC."
+                "Net payable subtracts recommended_claimable ITC (min of books and matched 2B) "
+                "when 2B is present; otherwise excludes provisional books ITC."
             ),
         },
         "issues": gstr1.get("issues", []),
@@ -2020,22 +2067,9 @@ def build_gstr9(company, fy_label: str, *, company_gstin=None) -> dict:
                 + Decimal(str(row.igst or 0))
                 + Decimal(str(getattr(row, "cess", 0) or 0))
             )
-        # B5-019: drive import-ITC off the same BillOfEntry linkage the 3B
-        # import_itc figure above (GST-08) already uses, instead of a fragile
-        # "blank supplier GSTIN + IGST>0, or 'IMPORT' anywhere in free-text
-        # notes" heuristic — that swept in ordinary domestic IGST purchases
-        # from unregistered suppliers and any invoice whose notes happened to
-        # mention the word "import".
-        from purchases.models import BillOfEntry as _BillOfEntry
-
-        boe_period_qs = _BillOfEntry.objects.filter(
-            company=company,
-            status=_BillOfEntry.Status.COMPLETED,
-            itc_eligibility=_BillOfEntry.ItcEligibility.ELIGIBLE,
-        )
-        for boe in boe_period_qs:
-            if boe.resolved_itc_period() == period:
-                itc8_import += Decimal(str(boe.igst_amount or 0)) + Decimal(str(boe.cess_amount or 0))
+        # B5-019 / CR-072: BillOfEntry ITC for this period via SQL-bound filter.
+        for boe in _boe_eligible_for_itc_period(company, period):
+            itc8_import += Decimal(str(boe.igst_amount or 0)) + Decimal(str(boe.cess_amount or 0))
         period_inward_taxable = sum((inv.taxable_total for inv in non_rcm), Decimal("0"))
         period_inward_tax = sum(
             (
@@ -2147,9 +2181,10 @@ def build_gstr9(company, fy_label: str, *, company_gstin=None) -> dict:
                 ),
                 "imports_igst": _money(itc8_import),
                 "tax": _money(itc8a_tax + itc8_import),
+                # CR-073: Table 8 note explicitly references Bill of Entry
                 "note": (
                     "Table 8 worksheet: MATCHED+CLAIMABLE 2B ingest vs claimable books ITC for the FY, plus "
-                    "IGST on purchases without supplier GSTIN (import-like). Not GSTR-2A live."
+                    "import IGST/cess from completed Bills of Entry (ITC period). Not GSTR-2A live."
                 ),
             },
             "17": {

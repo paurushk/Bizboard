@@ -5,3 +5,11 @@
 ruff>=0.6
 pytest>=9.1.1
 pytest-django>=4.8
+
+# Phase 1 (Freeze Gate) test infrastructure.
+pytest-cov>=5.0          # diff coverage + absolute coverage reporting
+pytest-randomly>=3.15    # randomised test order — surfaces inter-test state leakage
+pytest-socket>=0.7       # opt-in network ban (TESTS_NO_SOCKET=1)
+freezegun>=1.5           # opt-in frozen clock (TESTS_FREEZE_CLOCK=1)
+hypothesis>=6.100        # property-based tests (Phase 2 pure-function cores)
+diff-cover>=9.0          # "changed lines are not less covered than before" gate

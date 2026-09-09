@@ -2,9 +2,10 @@ from rest_framework import serializers
 
 from core.permissions import get_company_user
 from core.serializers import CompanyPrimaryKeyRelatedField
+from inventory.models import BatchLot
 from masters.models import Product
 
-from .models import PurchaseInvoice, PurchaseItem, PurchaseReturn, PurchaseReturnItem
+from .models import BillOfEntry, PurchaseInvoice, PurchaseItem, PurchaseReturn, PurchaseReturnItem
 from .services import PurchaseService
 
 LINE_READONLY = ["taxable_amount", "cgst", "sgst", "igst", "cess", "line_total"]
@@ -27,6 +28,18 @@ class CompanyScopedSerializerMixin:
 class PurchaseItemSerializer(serializers.ModelSerializer):
     product = CompanyPrimaryKeyRelatedField(queryset=Product.objects.all())
     product_name = serializers.CharField(source="product.name", read_only=True)
+    # CR-135: nested batch PK company-scoped.
+    batch = CompanyPrimaryKeyRelatedField(
+        queryset=__import__("inventory.models", fromlist=["BatchLot"]).BatchLot.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    # CR-135: batch PK must be company-scoped (not raw PrimaryKeyRelatedField).
+    batch = CompanyPrimaryKeyRelatedField(
+        queryset=BatchLot.objects.all(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = PurchaseItem
@@ -52,6 +65,9 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
     supplier_name = serializers.CharField(source="supplier.name", read_only=True)
     paid = serializers.SerializerMethodField()
     balance = serializers.SerializerMethodField()
+    bill_of_entry = CompanyPrimaryKeyRelatedField(
+        queryset=BillOfEntry.objects.all(), required=False, allow_null=True
+    )
 
     class Meta:
         model = PurchaseInvoice
@@ -63,14 +79,16 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             "include_bank_details", "include_payment_qr", "include_terms",
             "signature", "attachment", "items",
             "is_reverse_charge", "itc_eligibility", "rcm_taxable", "rcm_cgst", "rcm_sgst", "rcm_igst",
+            "rcm_cess",
             "company_gstin", "price_mode",
             "tds_section", "tds_rate", "tds_amount",
+            "bill_of_entry",
             "paid", "balance",
             "completed_at", "cancelled_at", "created_at", "updated_at",
         ] + TOTAL_READONLY
         read_only_fields = [
             "number", "status", "paid", "balance",
-            "rcm_taxable", "rcm_cgst", "rcm_sgst", "rcm_igst",
+            "rcm_taxable", "rcm_cgst", "rcm_sgst", "rcm_igst", "rcm_cess",
             "completed_at", "cancelled_at",
         ] + TOTAL_READONLY
 
@@ -88,11 +106,12 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         payable = self._payable(obj)
         if obj.status == PurchaseInvoice.Status.DRAFT:
             return payable
-        allocated = getattr(obj, "_allocated", None)
-        if allocated is not None and self.context.get("view") and getattr(
+        # CR-016 twin: list uses CN/DN-aware outstanding, not payable − allocations.
+        list_outstanding = getattr(obj, "_list_outstanding", None)
+        if list_outstanding is not None and self.context.get("view") and getattr(
             self.context["view"], "action", None
         ) == "list":
-            return max(payable - Decimal(str(allocated or 0)), Decimal("0"))
+            return Decimal(str(list_outstanding))
         from ledgers.services import LedgerService
 
         return LedgerService.purchase_invoice_outstanding(obj)
@@ -136,6 +155,24 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         if attachment is not None:
             self.check_company_ref(attachment, "attachment")
         return attachment
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        supplier = attrs.get("supplier", getattr(self.instance, "supplier", None))
+        if "bill_of_entry" in attrs:
+            boe = attrs.get("bill_of_entry")
+        else:
+            boe = getattr(self.instance, "bill_of_entry", None) if self.instance is not None else None
+        if (
+            boe is not None
+            and supplier is not None
+            and boe.supplier_id
+            and boe.supplier_id != supplier.id
+        ):
+            raise serializers.ValidationError({
+                "bill_of_entry": "Bill of Entry must be for the same supplier as this purchase.",
+            })
+        return attrs
 
     def _prepare_items(self, items_data):
         prepared = []
@@ -283,7 +320,7 @@ class PurchaseReturnItemSerializer(serializers.ModelSerializer):
         fields = [
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate",
-            "batch", "serial_numbers", "condition",
+            "batch", "serial_numbers", "condition", "unit_name",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY
         extra_kwargs = {
@@ -292,6 +329,7 @@ class PurchaseReturnItemSerializer(serializers.ModelSerializer):
             "batch": {"required": False, "allow_null": True},
             "serial_numbers": {"required": False},
             "condition": {"required": False},
+            "unit_name": {"required": False},
         }
 
 

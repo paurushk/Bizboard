@@ -126,6 +126,9 @@ export function SupplierPaymentsPage() {
       setPurchase(null);
       setAllocAmount('');
       void qc.invalidateQueries({ queryKey: ['supplier-payments'] });
+      void qc.invalidateQueries({ queryKey: ['purchases'] });
+      void qc.invalidateQueries({ queryKey: ['suppliers'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -136,6 +139,8 @@ export function SupplierPaymentsPage() {
       setMessage('Payment voided');
       void qc.invalidateQueries({ queryKey: ['supplier-payments'] });
       void qc.invalidateQueries({ queryKey: ['purchases'] });
+      void qc.invalidateQueries({ queryKey: ['suppliers'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
   });

@@ -139,7 +139,14 @@ def test_convert_confirmed_order_releases_reservation(tenant_a):
 
     invoice = SalesNotesService.convert_sales_order(order, tenant_a.owner)
     balance.refresh_from_db()
+    # CR-020: reservation is held while converted draft invoice is pending completion
+    assert balance.reserved == Decimal("2")
+    order.refresh_from_db()
+    assert order.converted_invoice_id == invoice.id
+
+    from sales.services import SalesService
+    SalesService.complete(invoice, tenant_a.owner)
+    balance.refresh_from_db()
     assert balance.reserved == Decimal("0")
     order.refresh_from_db()
     assert order.status == SalesOrder.Status.CONVERTED
-    assert order.converted_invoice_id == invoice.id

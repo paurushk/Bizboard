@@ -26,6 +26,7 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
 import {
   canAccessSettings,
   canAdjustInventory,
+  canAccessPos,
   canCreatePayments,
   canCreatePurchases,
   canCreateSales,
@@ -77,6 +78,7 @@ const PurchaseOrdersPage = lazy(() => import('@/pages/purchases/PurchaseOrdersPa
 const NewPurchaseOrderPage = lazy(() => import('@/pages/purchases/NewPurchaseOrderPage').then((m) => ({ default: m.NewPurchaseOrderPage })));
 const PurchaseBillUploadPage = lazy(() => import('@/pages/purchases/PurchaseBillUploadPage').then((m) => ({ default: m.PurchaseBillUploadPage })));
 const PurchaseDetailPage = lazy(() => import('@/pages/purchases/PurchaseDetailPage').then((m) => ({ default: m.PurchaseDetailPage })));
+const BillsOfEntryPage = lazy(() => import('@/pages/purchases/BillsOfEntryPage').then((m) => ({ default: m.BillsOfEntryPage })));
 const ProductsPage = lazy(() => import('@/pages/inventory/ProductsPage').then((m) => ({ default: m.ProductsPage })));
 const CurrentStockPage = lazy(() => import('@/pages/inventory/CurrentStockPage').then((m) => ({ default: m.CurrentStockPage })));
 const StockAdjustmentPage = lazy(() => import('@/pages/inventory/StockAdjustmentPage').then((m) => ({ default: m.StockAdjustmentPage })));
@@ -111,6 +113,7 @@ const TallyMigrationPage = lazy(() => import('@/pages/settings/TallyMigrationPag
 const AiSettingsPage = lazy(() => import('@/pages/settings/AiSettingsPage').then((m) => ({ default: m.AiSettingsPage })));
 const CompanySettingsPage = lazy(() => import('@/pages/settings/CompanySettingsPage').then((m) => ({ default: m.CompanySettingsPage })));
 const GstSettingsPage = lazy(() => import('@/pages/settings/GstSettingsPage').then((m) => ({ default: m.GstSettingsPage })));
+const SeriesSettingsPage = lazy(() => import('@/pages/settings/SeriesSettingsPage').then((m) => ({ default: m.SeriesSettingsPage })));
 const UnitsSettingsPage = lazy(() => import('@/pages/settings/UnitsSettingsPage').then((m) => ({ default: m.UnitsSettingsPage })));
 const InvoiceTemplatesPage = lazy(() => import('@/pages/settings/InvoiceTemplatesPage').then((m) => ({ default: m.InvoiceTemplatesPage })));
 const UsersSettingsPage = lazy(() => import('@/pages/settings/UsersSettingsPage').then((m) => ({ default: m.UsersSettingsPage })));
@@ -261,7 +264,7 @@ function allowTally(user: User | null): boolean {
 }
 
 function allowPos(user: User | null): boolean {
-  return (isPosEnabled() || isRuntimeFlagEnabled('ENABLE_POS')) && canCreateSales(user);
+  return (isPosEnabled() || isRuntimeFlagEnabled('ENABLE_POS')) && canAccessPos(user);
 }
 
 /** Force remount when switching create ↔ edit or between invoice ids. */
@@ -330,7 +333,14 @@ export function App() {
             <Route path="accounting/bank-recon" element={<Navigate to="/accounting/bank-reconciliation" replace />} />
             <Route path="sales/quotations/new" element={<Navigate to="/sales/quotations?create=1" replace />} />
             <Route path="sales/returns/new" element={<Navigate to="/sales/returns?create=1" replace />} />
+            <Route path="sales/challans" element={<Navigate to="/sales/delivery-challans" replace />} />
+            <Route path="sales/challans/new" element={<Navigate to="/sales/delivery-challans/new" replace />} />
             <Route path="purchases/returns/new" element={<Navigate to="/purchases/returns?create=1" replace />} />
+            <Route path="reports/gstr-1" element={<Navigate to="/reports/gstr1" replace />} />
+            <Route path="reports/gstr-3b" element={<Navigate to="/reports/gstr3b" replace />} />
+            <Route path="reports/gstr-2b" element={<Navigate to="/reports/gstr2b" replace />} />
+            <Route path="reports/gstr-9" element={<Navigate to="/reports/gstr9" replace />} />
+            <Route path="reports/cmp-08" element={<Navigate to="/reports/cmp08" replace />} />
             <Route index element={<HomePage />} />
             <Route path="offline-outbox" element={<OfflineOutboxPage />} />
             <Route path="help" element={<HelpPage />} />
@@ -415,6 +425,7 @@ export function App() {
               <Route path="purchases/debit-notes" element={<PurchaseDebitNotesPage />} />
               <Route path="purchases/orders" element={<PurchaseOrdersPage />} />
               <Route path="purchases/suppliers" element={<SuppliersPage />} />
+              <Route path="purchases/bills-of-entry" element={<BillsOfEntryPage />} />
             </Route>
             <Route element={<RoleRoute allow={canImport} />}>
               <Route path="purchases/bill-upload" element={<PurchaseBillUploadPage />} />
@@ -473,6 +484,7 @@ export function App() {
             <Route element={<RoleRoute allow={canAccessSettings} />}>
               <Route element={<RoleRoute allow={canManageUsers} />}>
                 <Route path="settings/company" element={<CompanySettingsPage />} />
+                <Route path="settings/series" element={<SeriesSettingsPage />} />
                 <Route path="settings/units" element={<UnitsSettingsPage />} />
                 <Route path="settings/items" element={<ItemSettingsPage />} />
                 <Route path="settings/templates" element={<InvoiceTemplatesPage />} />

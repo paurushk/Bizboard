@@ -10,7 +10,6 @@ from django.utils import timezone
 from accounting.reports import balance_sheet
 from core.services.billing import extract_exclusive_from_inclusive_line
 from core.services.uqc import normalize_uqc
-from ledgers.services import LedgerService
 from masters.models import Unit
 from reporting.gst_returns import B2CL_THRESHOLD, build_gstr1
 from reporting.services import ReportService
@@ -127,11 +126,16 @@ def test_dashboard_receivables_match_ledger_service(tenant_a):
         [{"product": product.id, "quantity": "2", "unit_price": "100", "gst_rate": "18"}],
     )
     assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
-    expected = LedgerService.company_receivables(tenant_a.company)
+    # CR-060: dashboard AR foots to aging (document outstanding), not GL party AR.
+    aging = ReportService.receivables_aging(tenant_a.company)
+    expected = sum((aging[k] for k in aging), Decimal("0"))
     assert ReportService._company_receivables(tenant_a.company) == expected
     dash = tenant_a.client.get("/api/v1/dashboard/")
     assert dash.status_code == 200
     assert Decimal(str(dash.data["receivables"])) == expected
+    assert Decimal(str(dash.data["receivables"])) == sum(
+        (Decimal(str(dash.data["receivables_aging"][k])) for k in aging), Decimal("0")
+    )
 
 
 def test_b2cl_threshold_is_one_lakh_from_aug_2024():

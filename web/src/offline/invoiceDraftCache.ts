@@ -320,6 +320,43 @@ export async function enqueueDraft(
   return draft;
 }
 
+/** Patch an existing outbox draft in place (same idempotency key). */
+export async function updateDraft(
+  companyId: number,
+  userId: number,
+  idempotencyKey: string,
+  patch: Partial<{
+    customerId: number;
+    pendingCustomerName: string;
+    invoiceId: number | null;
+    payload: Record<string, unknown>;
+    paymentMode: PaymentMode;
+    lines: InvoiceDraftLine[];
+    completeIntent: boolean;
+  }>,
+): Promise<OutboxDraft> {
+  const drafts = await listDrafts(companyId, userId);
+  const existing = drafts.find((d) => d.idempotencyKey === idempotencyKey);
+  if (!existing) {
+    throw new Error('Draft not found');
+  }
+  return enqueueDraft(companyId, userId, {
+    kind: existing.kind,
+    payload: patch.payload ?? existing.payload,
+    idempotencyKey,
+    invoiceId: patch.invoiceId !== undefined ? patch.invoiceId : existing.invoiceId,
+    customerId: patch.customerId !== undefined ? patch.customerId : existing.customerId,
+    paymentMode: patch.paymentMode ?? existing.paymentMode,
+    lines: patch.lines ?? existing.lines,
+    pendingCustomerName:
+      patch.pendingCustomerName !== undefined
+        ? patch.pendingCustomerName
+        : existing.pendingCustomerName,
+    completeIntent:
+      patch.completeIntent !== undefined ? patch.completeIntent : existing.completeIntent,
+  });
+}
+
 export async function removeDraft(
   companyId: number,
   userId: number,

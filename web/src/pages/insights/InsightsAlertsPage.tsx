@@ -24,6 +24,7 @@ export function InsightsAlertsPage() {
   return (
     <Stack spacing={2}>
       <PageHeader title={t('nav.insightsAlerts')} />
+      <DisclaimerBanner>{t('honesty.insightsNotBooks')}</DisclaimerBanner>
       <DisclaimerBanner>{t('insights.disclaimer')}</DisclaimerBanner>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (

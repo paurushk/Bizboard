@@ -25,6 +25,12 @@ class HelpCode:
     PDF_OR_SHARE_UNAVAILABLE = "pdf_or_share_unavailable"
     PERMISSION_DENIED = "permission_denied"
     GSTIN_TOTAL_CHANGED = "GSTIN_TOTAL_CHANGED"
+    CONFIRM_NO_RCM = "confirm_no_rcm"
+    CONFIRM_DUPLICATE_BILL = "confirm_duplicate_bill"
+    CONFIRM_ADDITIONAL_DEBIT = "confirm_additional_debit"
+    CONFIRM_CN_ON_PAID_INVOICE = "confirm_cn_on_paid_invoice"
+    CONFIRM_CN_PRICE_OVERRIDE = "confirm_cn_price_override"
+    CONFIRM_NON_GST_BILL = "confirm_non_gst_bill"
 
 
 ALL_HELP_CODES: tuple[str, ...] = (
@@ -45,6 +51,12 @@ ALL_HELP_CODES: tuple[str, ...] = (
     HelpCode.PDF_OR_SHARE_UNAVAILABLE,
     HelpCode.PERMISSION_DENIED,
     HelpCode.GSTIN_TOTAL_CHANGED,
+    HelpCode.CONFIRM_NO_RCM,
+    HelpCode.CONFIRM_DUPLICATE_BILL,
+    HelpCode.CONFIRM_ADDITIONAL_DEBIT,
+    HelpCode.CONFIRM_CN_ON_PAID_INVOICE,
+    HelpCode.CONFIRM_CN_PRICE_OVERRIDE,
+    HelpCode.CONFIRM_NON_GST_BILL,
 )
 
 # intentId keyed for the FE map / CI check. permission_denied is HTTP 403.
@@ -66,6 +78,12 @@ ERROR_CODE_TO_INTENT: dict[str, str] = {
     HelpCode.PDF_OR_SHARE_UNAVAILABLE: "pdf-or-share-unavailable",
     HelpCode.PERMISSION_DENIED: "login-cant-do-this",
     HelpCode.GSTIN_TOTAL_CHANGED: "cannot-complete-invoice",
+    HelpCode.CONFIRM_NO_RCM: "cannot-complete-invoice",
+    HelpCode.CONFIRM_DUPLICATE_BILL: "cannot-complete-invoice",
+    HelpCode.CONFIRM_ADDITIONAL_DEBIT: "cannot-complete-invoice",
+    HelpCode.CONFIRM_CN_ON_PAID_INVOICE: "cannot-complete-invoice",
+    HelpCode.CONFIRM_CN_PRICE_OVERRIDE: "cannot-complete-invoice",
+    HelpCode.CONFIRM_NON_GST_BILL: "cannot-complete-invoice",
 }
 
 # Skip the diagnosis picker when the error already names the leaf (HR-3.3).

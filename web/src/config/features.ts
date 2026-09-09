@@ -26,8 +26,13 @@ export const features = {
   manufacturing: import.meta.env.VITE_ENABLE_MANUFACTURING === 'true',
   payroll: import.meta.env.VITE_ENABLE_PAYROLL === 'true',
   crm: import.meta.env.VITE_ENABLE_CRM === 'true',
-  /** Wave 18D — counter POS MVP (not full retail suite). */
+  /**
+   * Wave 18D — counter POS MVP (not full retail suite).
+   * CR-115 / CR-008: ENABLE_POS / VITE_ENABLE_POS is UI/nav sugar for pilot —
+   * sales complete + receipt money APIs stay callable when this flag is false.
+   */
   pos: import.meta.env.VITE_ENABLE_POS === 'true',
+  atomicPosCheckout: import.meta.env.VITE_ENABLE_ATOMIC_POS_CHECKOUT === 'true',
   tds: import.meta.env.VITE_ENABLE_TDS === 'true',
   setupWizard: import.meta.env.VITE_ENABLE_SETUP_WIZARD === 'true',
   advancedPilot: pilotAdvanced,
@@ -69,7 +74,9 @@ export function isTallyEnabled(): boolean {
   return resolveModuleFlag(features.tally, 'ENABLE_TALLY');
 }
 
-export function isAccountingFeatureEnabled(): boolean {
+export function isAccountingFeatureEnabled(companyAccountingEnabled?: boolean): boolean {
+  // CR-162: allow company-level accountingEnabled to dynamically activate navigation
+  if (companyAccountingEnabled === true) return true;
   return resolveModuleFlag(features.accounting, 'ENABLE_ACCOUNTING');
 }
 
@@ -99,7 +106,12 @@ export function isCrmEnabled(): boolean {
 }
 
 export function isPosEnabled(): boolean {
+  // CR-115 / CR-008: UI/nav gate only for pilot — sales money APIs are not blocked when false.
   return resolveModuleFlag(features.pos, 'ENABLE_POS');
+}
+
+export function isAtomicPosCheckoutEnabled(): boolean {
+  return resolveModuleFlag(features.atomicPosCheckout, 'ENABLE_ATOMIC_POS_CHECKOUT');
 }
 
 export function isTdsEnabled(): boolean {

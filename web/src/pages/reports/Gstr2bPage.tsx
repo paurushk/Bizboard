@@ -35,6 +35,7 @@ import {
   type ItcEligibility,
 } from '@/api/gstr2b';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { GstHonestyHeader } from '@/components/GstHonestyHeader';
 import { DisclaimerBanner, KpiStat, PageHeader } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
@@ -170,6 +171,7 @@ export function Gstr2bPage() {
   return (
     <Stack spacing={2}>
       <PageHeader title={t('nav.gstr2b')} subtitle={t('ims.subtitle')} />
+      <GstHonestyHeader />
       <DisclaimerBanner>{t('ims.disclaimer')}</DisclaimerBanner>
       {error ? <HelpErrorAlert message={error} /> : null}
 

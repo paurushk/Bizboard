@@ -142,6 +142,24 @@ def test_plan_modules_missing_dark_keys_fail_closed(tenant_a):
     assert flags["ENABLE_PAYROLL"] is False
 
 
+@override_settings(ENABLE_MANUFACTURING=True, ENABLE_PAYROLL=True, ENABLE_CRM=True)
+def test_r015_trial_empty_plan_modules_fail_closed(tenant_a):
+    """R-015: trial modules={} is a subscribed plan — unnamed dark keys off."""
+    tenant_a.company.feature_flags = {}
+    tenant_a.company.save(update_fields=["feature_flags"])
+    plan = _plan(slug="trial-empty", modules={})
+    Subscription.objects.create(
+        company=tenant_a.company,
+        plan=plan,
+        status=Subscription.Status.TRIAL,
+        trial_ends_at=timezone.now() + timedelta(days=7),
+    )
+    flags = build_feature_flags(company=tenant_a.company)
+    assert flags["ENABLE_CRM"] is False
+    assert flags["ENABLE_MANUFACTURING"] is False
+    assert flags["ENABLE_PAYROLL"] is False
+
+
 def test_bb_000671_owner_plans_checkout_portal(tenant_a):
     plan = _plan(slug="pro", price_paise=99900)
     listed = tenant_a.client.get("/api/v1/billing/plans/")

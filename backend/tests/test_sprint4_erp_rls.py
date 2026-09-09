@@ -233,7 +233,5 @@ def test_bb_000551_rls_uses_session_not_local():
 
 
 def test_bb_000552_rls_enabled_by_default():
-    # SYS-01: RLS is now ON by default (migration core.0020 covers every tenant
-    # table). It is a no-op on SQLite and can be turned off with
-    # POSTGRES_RLS_ENABLED=0 for the staged Postgres cut-over.
-    assert getattr(settings, "POSTGRES_RLS_ENABLED", False) is True
+    # R-053: default OFF to match compose + README. CI postgres-rls sets 1.
+    assert getattr(settings, "POSTGRES_RLS_ENABLED", True) is False

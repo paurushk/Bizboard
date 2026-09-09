@@ -56,6 +56,17 @@ class NotificationService:
                 notification.status = Notification.Status.SENT
                 notification.share_link = result.message_id
                 notification.error = ""
+            elif result.mode == "failed":
+                notification.status = Notification.Status.FAILED
+                notification.share_link = result.share_link or ""
+                raw = result.raw or {}
+                detail = str(raw.get("error") or "")[:500]
+                code = raw.get("status_code")
+                notification.error = (
+                    f"WhatsApp Cloud delivery failed"
+                    + (f" (HTTP {code})" if code else "")
+                    + (f": {detail}" if detail else "")
+                )[:2000]
             else:
                 # BB-000282: wa.me fallback — never claim SENT delivery.
                 notification.share_link = result.share_link or (

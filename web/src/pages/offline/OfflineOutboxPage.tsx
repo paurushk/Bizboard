@@ -11,6 +11,7 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { useAuth } from '@/auth/AuthContext';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { HonestyBanner } from '@/components/HonestyBanner';
 import { EmptyState } from '@/components/PageState';
 import { t } from '@/i18n';
 import {
@@ -25,6 +26,7 @@ import { flushPosDraft } from '@/offline/flushPosCheckout';
 import { flushInvoiceDraft } from '@/pages/sales/invoice/useInvoiceOffline';
 import { flushPurchaseDraft } from '@/pages/purchases/usePurchaseOffline';
 import { flushStockDraft } from '@/pages/inventory/useStockOffline';
+import { printPosThermalOrWarn, type ThermalWarn } from '@/pages/pos/printPosThermal';
 import { getErrorMessage } from '@/api/client';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
@@ -78,6 +80,7 @@ export function OfflineOutboxPage() {
     setBusy(true);
     setError(null);
     setMessage(null);
+    const thermalWarns: ThermalWarn[] = [];
     try {
       const result = await flushOutbox(companyId, userId, async (draft) => {
         if (draft.kind === 'purchase') {
@@ -85,7 +88,15 @@ export function OfflineOutboxPage() {
           return;
         }
         if (draft.kind === 'pos') {
-          await flushPosDraft(draft);
+          // CR-114: outbox POS flush must print thermal (or warn) like PosPage.
+          const completed = await flushPosDraft(draft);
+          if (completed?.id) {
+            const warn = await printPosThermalOrWarn({
+              id: Number(completed.id),
+              number: completed.number ?? completed.invoiceNumber,
+            });
+            if (warn) thermalWarns.push(warn);
+          }
           return;
         }
         if (draft.kind === 'invoice') {
@@ -107,6 +118,14 @@ export function OfflineOutboxPage() {
         );
       } else if (result.flushed > 0) {
         setMessage(t('offlineOutbox.synced', { count: String(result.flushed) }));
+      }
+      if (thermalWarns.length > 0) {
+        const labels = thermalWarns.map((w) => w.number).join(', ');
+        setError((prev) =>
+          prev
+            ? `${prev} · ${t('offlineOutbox.thermalWarn', { invoices: labels })}`
+            : t('offlineOutbox.thermalWarn', { invoices: labels }),
+        );
       }
       await reload();
     } catch (err) {
@@ -139,6 +158,7 @@ export function OfflineOutboxPage() {
           {t('offlineOutbox.syncNow')}
         </Button>
       </Stack>
+      <HonestyBanner messageKey="honesty.outboxPlaintext" />
       <Alert severity="warning">{t('offlineOutbox.subtitle')}</Alert>
       {error ? <HelpErrorAlert message={error} /> : null}
       {message ? <Alert severity="success">{message}</Alert> : null}

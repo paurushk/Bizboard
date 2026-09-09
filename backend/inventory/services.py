@@ -21,6 +21,7 @@ from .models import (
 class InventoryService:
     @staticmethod
     def default_warehouse(company):
+        # CR-058: default warehouse unique constraint and IntegrityError fallback
         warehouse = Warehouse.objects.filter(company=company, is_default=True).first()
         if warehouse:
             return warehouse
@@ -39,22 +40,98 @@ class InventoryService:
             warehouse = Warehouse.objects.get(company=company, code="DEFAULT")
         if warehouse.is_default:
             return warehouse
-        other = (
-            Warehouse.objects.filter(company=company, is_default=True)
-            .exclude(pk=warehouse.pk)
-            .first()
-        )
-        if other is not None:
-            return other
-        warehouse.is_default = True
-        try:
-            warehouse.save(update_fields=["is_default"])
-        except IntegrityError:
-            other = Warehouse.objects.filter(company=company, is_default=True).first()
-            if other:
+        # R-054: clear any other default in the same transaction before
+        # promoting, so two concurrent callers cannot both write DEFAULT.
+        with transaction.atomic():
+            other = (
+                Warehouse.objects.select_for_update()
+                .filter(company=company, is_default=True)
+                .exclude(pk=warehouse.pk)
+                .first()
+            )
+            if other is not None:
                 return other
-            raise
+            Warehouse.objects.filter(company=company, is_default=True).exclude(
+                pk=warehouse.pk
+            ).update(is_default=False)
+            warehouse.is_default = True
+            try:
+                with transaction.atomic():
+                    warehouse.save(update_fields=["is_default"])
+            except IntegrityError:
+                other = Warehouse.objects.filter(company=company, is_default=True).first()
+                if other:
+                    return other
+                raise
         return warehouse
+
+    @staticmethod
+    def opening_is_voided(movement) -> bool:
+        """True when an OPENING_STOCK row is superseded (CR-053).
+
+        Prefer compensating ``import_void`` ADJUSTMENT over mutating
+        ``reference_type``. Legacy rows still marked ``import_voided`` count
+        as voided for uniqueness / re-import checks.
+        """
+        ref_type = movement.reference_type or ""
+        if ref_type == "import_voided":
+            return True
+        if ref_type != "import" or not movement.reference_id:
+            return False
+        return StockMovement.objects.filter(
+            company_id=movement.company_id,
+            warehouse_id=movement.warehouse_id,
+            product_id=movement.product_id,
+            batch_id=movement.batch_id,
+            movement_type=MovementType.ADJUSTMENT,
+            reference_type="import_void",
+            reference_id=str(movement.reference_id),
+        ).exists()
+
+    @staticmethod
+    def active_opening_exists(*, company, warehouse, product=None, product_id=None, batch=None) -> bool:
+        """Whether a non-voided OPENING_STOCK already exists for this key."""
+        pid = product_id if product_id is not None else getattr(product, "pk", product)
+        qs = StockMovement.objects.filter(
+            company=company,
+            warehouse=warehouse,
+            product_id=pid,
+            batch=batch,
+            movement_type=MovementType.OPENING_STOCK,
+        )
+        for move in qs.iterator():
+            if not InventoryService.opening_is_voided(move):
+                return True
+        return False
+
+    @staticmethod
+    def active_opening_product_ids(company):
+        """Product PKs that still have a non-voided OPENING_STOCK (any warehouse)."""
+        void_keys = {
+            (pid, wid, bid, str(rid))
+            for pid, wid, bid, rid in StockMovement.objects.filter(
+                company=company,
+                movement_type=MovementType.ADJUSTMENT,
+                reference_type="import_void",
+            ).values_list("product_id", "warehouse_id", "batch_id", "reference_id")
+        }
+        active = set()
+        for pid, wid, bid, ref_type, ref_id in StockMovement.objects.filter(
+            company=company,
+            movement_type=MovementType.OPENING_STOCK,
+        ).values_list(
+            "product_id", "warehouse_id", "batch_id", "reference_type", "reference_id"
+        ):
+            if ref_type == "import_voided":
+                continue
+            if (
+                ref_type == "import"
+                and ref_id
+                and (pid, wid, bid, str(ref_id)) in void_keys
+            ):
+                continue
+            active.add(pid)
+        return active
 
     @staticmethod
     def post_movement(*, company, product, movement_type, quantity, unit_cost=None,
@@ -116,14 +193,11 @@ class InventoryService:
 
             if movement_type == MovementType.OPENING_STOCK:
                 # Unique per warehouse+product+batch; re-check after the balance lock.
-                already_has_opening = StockMovement.objects.filter(
-                    company=company,
-                    warehouse=warehouse,
-                    product=product,
-                    batch=batch,
-                    movement_type=MovementType.OPENING_STOCK,
-                ).exclude(reference_type="import_voided").exists()
-                if already_has_opening:
+                # CR-053: treat import_void compensating ADJUSTMENTs as voided
+                # openings (do not require mutating reference_type).
+                if InventoryService.active_opening_exists(
+                    company=company, warehouse=warehouse, product=product, batch=batch
+                ):
                     raise BusinessRuleError(
                         f"Opening stock has already been recorded for '{product.name}'"
                         + (f" batch '{batch.batch_no}'." if batch is not None else ".")
@@ -304,15 +378,11 @@ class InventoryService:
                 )
             }
             already = set(
-                StockMovement.objects.filter(
-                    company=company,
-                    warehouse=warehouse,
-                    product_id__in=product_ids,
-                    batch__isnull=True,
-                    movement_type=MovementType.OPENING_STOCK,
+                pid
+                for pid in product_ids
+                if InventoryService.active_opening_exists(
+                    company=company, warehouse=warehouse, product_id=pid, batch=None
                 )
-                .exclude(reference_type="import_voided")
-                .values_list("product_id", flat=True)
             )
             if already:
                 names = {
@@ -448,16 +518,13 @@ class InventoryService:
             avg = (value / qty) if qty else Decimal("0")
             value -= issue * avg
             qty -= issue
-            if qty <= 0:
-                qty = Decimal("0")
+            # CR-051: under WARN oversell, StockBalance.on_hand goes negative —
+            # keep InventoryRunningCost.qty/value on the same signed path so
+            # live WAVG valuation matches the stock screen. Do not floor at 0.
+            if qty == 0:
                 value = Decimal("0")
-            elif value < 0:
-                # B8-020: this used to hard-clamp to 0, silently reporting a
-                # live WAVG cost of ₹0 for real remaining stock until someone
-                # ran rebuild_running_cost by hand. A negative `value` here
-                # can now only come from Decimal division residue (the `avg`
-                # computed above is otherwise exact for issue <= qty), so
-                # re-deriving from that same `avg` is the correct value, not 0.
+            elif qty > 0 and value < 0:
+                # Decimal residue only when issue <= pre-issue qty; re-derive.
                 import logging as _logging
 
                 _logging.getLogger(__name__).warning(
@@ -475,21 +542,27 @@ class InventoryService:
     @staticmethod
     def rebuild_running_cost(company):
         """Replay insert-order movements into InventoryRunningCost; fail on qty drift vs StockBalance."""
-        InventoryRunningCost.objects.filter(company=company).delete()
-        movements = (
-            StockMovement.objects.filter(company=company)
-            .select_related("warehouse", "product", "batch")
-            .order_by("created_at", "id")
-        )
-        for move in movements.iterator():
-            InventoryService._apply_running_cost(
-                company=company,
-                warehouse=move.warehouse,
-                product=move.product,
-                batch=move.batch,
-                delta=move.quantity,
-                unit_cost=move.unit_cost,
+        from django.db import transaction
+        from masters.models import Product as _Product
+
+        with transaction.atomic():
+            # CR-007: acquire lock on company's products to serialize against concurrent movements
+            list(_Product.objects.select_for_update().filter(company=company).values_list("pk", flat=True))
+            InventoryRunningCost.objects.filter(company=company).delete()
+            movements = (
+                StockMovement.objects.filter(company=company)
+                .select_related("warehouse", "product", "batch")
+                .order_by("created_at", "id")
             )
+            for move in movements.iterator():
+                InventoryService._apply_running_cost(
+                    company=company,
+                    warehouse=move.warehouse,
+                    product=move.product,
+                    batch=move.batch,
+                    delta=move.quantity,
+                    unit_cost=move.unit_cost,
+                )
         drifted = []
         # B8-021: iterate the union of StockBalance and InventoryRunningCost
         # keys, not just StockBalance's — a running-cost row whose balance
@@ -524,11 +597,9 @@ class InventoryService:
         # surfaced for WAVG COGS/GL) for years with this rebuild reporting a
         # clean bill of health. Compare against an independent full replay
         # (which now uses the same "always consume at pool average" costing,
-        # see _apply_running_cost above) within a ₹1 tolerance — a company
-        # with historical oversell can legitimately diverge here (the live
-        # engine floors qty/value at 0 once stock goes negative; a replay
-        # does not), which is a separate, pre-existing quirk this check
-        # deliberately does not chase.
+        # see _apply_running_cost above) within a ₹1 tolerance.
+        # CR-051: live running cost now tracks negative qty/value under WARN
+        # oversell the same way replay does — no special floor divergence.
         replay_movements = (
             StockMovement.objects.filter(company=company)
             .select_related("warehouse", "product", "batch")
@@ -546,10 +617,8 @@ class InventoryService:
         for key in set(replay_by_key) | set(running_by_key):
             rc = running_by_key.get(key)
             rc_value = Decimal(str(rc.value or 0)) if rc is not None else Decimal("0")
-            rc_qty = Decimal(str(rc.qty or 0)) if rc is not None else Decimal("0")
             replay_value = replay_by_key.get(key, Decimal("0"))
-            # Only compare non-negative-qty keys — see the oversell note above.
-            if rc_qty >= 0 and abs(rc_value - replay_value) > _TOLERANCE:
+            if abs(rc_value - replay_value) > _TOLERANCE:
                 warehouse_id, product_id, batch_id = key
                 value_drifted.append(
                     f"warehouse={warehouse_id} product={product_id} batch={batch_id} "
@@ -958,8 +1027,24 @@ class InventoryService:
                     )
                     remaining -= take
             if remaining > 0:
-                raise BusinessRuleError(
-                    f"Insufficient batched stock for '{product.name}': available short {remaining}."
+                # CR-050: WARN matches unbatched reserve (allow past available).
+                if company.negative_stock_policy == "BLOCK":
+                    raise BusinessRuleError(
+                        f"Insufficient batched stock for '{product.name}': "
+                        f"available short {remaining}."
+                    )
+                target = lots[-1] if lots else (
+                    BatchLot.objects.filter(company=company, product=product)
+                    .order_by("expiry_date", "id")
+                    .first()
+                )
+                if target is None:
+                    raise BusinessRuleError(
+                        f"Insufficient batched stock for '{product.name}': "
+                        f"available short {remaining}."
+                    )
+                InventoryService.reserve_stock(
+                    company, warehouse, product, remaining, user=user, batch=target
                 )
             return None
 
@@ -1046,42 +1131,34 @@ class InventoryService:
     def rebuild_balance(company, product, warehouse=None, batch=None):
         """Balances are a cache — always rebuildable from movements.
 
-        B8-023: writes ONLY the (warehouse, product, batch) row it was
-        called for. For a batch-tracked product the SO-reservation FEFO
-        split across its lots used to run as a side effect embedded in
-        *this* method — writing every lot's balance row regardless of which
-        key was being rebuilt (order-dependent: revisiting one of those
-        other keys later in the same run recomputed the same split again,
-        and a lot excluded from that pass kept a stale `reserved`). That
-        reconciliation is now a separate pass — see
-        reconcile_batch_reservations below — call it once per (company,
-        product, warehouse) after rebuilding on_hand for every batch key,
-        not per key.
+        CR-039 / CR-054: lock StockBalance under transaction.atomic to prevent
+        concurrent movement postings from being overwritten during rebuild.
         """
         warehouse = warehouse or InventoryService.default_warehouse(company)
-        total = (
-            StockMovement.objects.filter(
-                company=company, product=product, warehouse=warehouse, batch=batch,
+        with transaction.atomic():
+            balance, _ = StockBalance.objects.select_for_update().get_or_create(
+                company=company, warehouse=warehouse, product=product, batch=batch,
             )
-            .aggregate(total=Sum("quantity"))["total"]
-            or Decimal("0")
-        )
-        balance, _ = StockBalance.objects.get_or_create(
-            company=company, warehouse=warehouse, product=product, batch=batch,
-        )
-        balance.on_hand = total
-        if batch is not None or product.track_batch:
-            # BB-000403: batch-tracked — reservation lives on individual lot
-            # rows (or is deliberately 0 on the unbatched summary row),
-            # reconciled by reconcile_batch_reservations, not here. Leave
-            # whatever's already on this row; only re-floor it against the
-            # freshly rebuilt on_hand below.
-            reserved = balance.reserved if batch is not None else Decimal("0")
-        else:
-            reserved = InventoryService._confirmed_so_qty(company, product, warehouse)
-        balance.reserved = min(max(reserved, Decimal("0")), max(balance.on_hand, Decimal("0")))
-        balance.save(update_fields=["on_hand", "reserved"])
-        return balance
+            total = (
+                StockMovement.objects.filter(
+                    company=company, product=product, warehouse=warehouse, batch=batch,
+                )
+                .aggregate(total=Sum("quantity"))["total"]
+                or Decimal("0")
+            )
+            balance.on_hand = total
+            if batch is not None or product.track_batch:
+                # BB-000403: batch-tracked — reservation lives on individual lot
+                # rows (or is deliberately 0 on the unbatched summary row),
+                # reconciled by reconcile_batch_reservations, not here. Leave
+                # whatever's already on this row; only re-floor it against the
+                # freshly rebuilt on_hand below.
+                reserved = balance.reserved if batch is not None else Decimal("0")
+            else:
+                reserved = InventoryService._confirmed_so_qty(company, product, warehouse)
+            balance.reserved = min(max(reserved, Decimal("0")), max(balance.on_hand, Decimal("0")))
+            balance.save(update_fields=["on_hand", "reserved"])
+            return balance
 
     @staticmethod
     def reconcile_batch_reservations(company, product, warehouse=None):
@@ -1238,9 +1315,10 @@ class StockTransferService:
     @staticmethod
     @transaction.atomic
     def complete(transfer: StockTransfer, user=None):
+        # CR-055: DRAFT is non-binding (no reservation). Stock moves only here.
         transfer = StockTransfer.objects.select_for_update().get(pk=transfer.pk)
         if transfer.status == StockTransfer.Status.COMPLETED:
-            return transfer
+            return transfer, []
         if transfer.status != StockTransfer.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete transfer in status {transfer.status}.")
         lines = list(transfer.lines.select_related("product", "batch"))
@@ -1248,12 +1326,42 @@ class StockTransferService:
             raise BusinessRuleError("Cannot complete a transfer without line items.")
         if transfer.from_warehouse_id == transfer.to_warehouse_id:
             raise BusinessRuleError("Transfer source and destination must differ.")
+        # CR-052: closed-period gate (same as adjustments / stock count).
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(transfer.company, timezone.localdate())
+        # CR-040: acquire stock balance locks in consistent warehouse ID order to prevent AB-BA deadlocks
+        wh_ids = sorted([transfer.from_warehouse_id, transfer.to_warehouse_id])
+        for wh_id in wh_ids:
+            for line in lines:
+                StockBalance.objects.select_for_update().get_or_create(
+                    company=transfer.company, warehouse_id=wh_id, product=line.product, batch=line.batch
+                )
+
+        warnings = []
         for line in lines:
             if line.quantity <= 0:
                 raise BusinessRuleError("Transfer quantities must be greater than zero.")
-            InventoryService.check_negative_stock(
+            # CR-050 / CR-041: forbid negative stock at source warehouse under WARN unless admin
+            warning = InventoryService.check_negative_stock(
                 transfer.company, line.product, line.quantity, transfer.from_warehouse, batch=line.batch
             )
+            if warning:
+                is_admin = (
+                    getattr(user, "is_staff", False)
+                    or getattr(user, "is_superuser", False)
+                    or getattr(user, "role", "") in ("OWNER", "ADMIN")
+                    or (
+                        user is not None
+                        and hasattr(transfer.company, "memberships")
+                        and transfer.company.memberships.filter(
+                            user=user, role__in=["OWNER", "ADMIN"]
+                        ).exists()
+                    )
+                )
+                if not is_admin:
+                    raise BusinessRuleError(f"Cannot transfer unavailable stock: {warning}")
+                warnings.append(warning)
             if line.product.track_serial:
                 SerialNumberService.transition(
                     company=transfer.company, product=line.product, warehouse=transfer.from_warehouse,
@@ -1300,7 +1408,7 @@ class StockTransferService:
         transfer.completed_at = timezone.now()
         transfer.updated_by = user
         transfer.save(update_fields=["number", "status", "completed_at", "updated_by"])
-        return transfer
+        return transfer, warnings
 
     @staticmethod
     @transaction.atomic
@@ -1309,6 +1417,12 @@ class StockTransferService:
         if transfer.status == StockTransfer.Status.CANCELLED:
             raise BusinessRuleError("Transfer is already cancelled.")
         if transfer.status == StockTransfer.Status.COMPLETED:
+            # CR-052: cancel reverses stock — respect period locks (cancel unwind).
+            from reporting.gst_periods import assert_period_allows_money_amend
+
+            assert_period_allows_money_amend(
+                transfer.company, timezone.localdate(), allow_soft_closed=True
+            )
             used_out_ids: set[int] = set()
             used_in_ids: set[int] = set()
             for line in transfer.lines.select_related("product", "batch"):
@@ -1531,10 +1645,21 @@ class InventoryValuationService:
                 running = running.filter(warehouse=warehouse)
             if product:
                 running = running.filter(product=product)
+            # CR-046: verify live stock quantities against Sum(StockMovement.quantity) and trigger replay on drift
+            movement_totals = {
+                (m["warehouse_id"], m["product_id"], m["batch_id"]): Decimal(str(m["total_qty"] or 0))
+                for m in base.values("warehouse_id", "product_id", "batch_id").annotate(total_qty=Sum("quantity"))
+            }
+            has_drift = False
             rows = []
             for row in running:
                 qty = Decimal(str(row.qty or 0))
                 value = Decimal(str(row.value or 0))
+                key = (row.warehouse_id, row.product_id, row.batch_id)
+                actual_qty = movement_totals.get(key, Decimal("0"))
+                if qty != actual_qty:
+                    has_drift = True
+                    break
                 rows.append(
                     {
                         "warehouse": row.warehouse_id,
@@ -1548,7 +1673,7 @@ class InventoryValuationService:
                         "unit_cost": (value / qty if qty else Decimal("0")),
                     }
                 )
-            if rows:
+            if rows and not has_drift:
                 InventoryValuationService._heal_running_zero_cost(
                     company, rows, warehouse, product,
                 )
@@ -1566,10 +1691,12 @@ class InventoryValuationService:
             # These layers were peeled by _apply_cost_layers in the order
             # movements were actually posted (insertion order), not
             # movement_date — a back-dated movement still affects the live
-            # cost basis in posting order regardless of this flag. Only the
-            # as_of branch below (historical valuation) honours it. See
-            # Company.valuation_business_date_order's help text.
-            layers = InventoryCostLayer.objects.filter(company=company, qty_remaining__gt=0)
+            # balance from its commit time forward, so reading the live
+            # layers as they sit right now is mathematically correct for
+            # "as_of=None" (current state).
+            layers = InventoryCostLayer.objects.filter(
+                company=company, qty_remaining__gt=0
+            ).select_related("product", "warehouse")
             if warehouse:
                 layers = layers.filter(warehouse=warehouse)
             if product:
@@ -1586,10 +1713,21 @@ class InventoryValuationService:
                     ),
                 )
             )
+            # CR-046: Cross-check FIFO live layers with movements
+            movement_totals = {
+                (m["warehouse_id"], m["product_id"], m["batch_id"]): Decimal(str(m["total_qty"] or 0))
+                for m in base.values("warehouse_id", "product_id", "batch_id").annotate(total_qty=Sum("quantity"))
+            }
+            has_drift = False
             rows = []
             for row in grouped:
                 qty = Decimal(str(row["qty"] or 0))
                 value = Decimal(str(row["value"] or 0))
+                key = (row["warehouse_id"], row["product_id"], row["batch_id"])
+                actual_qty = movement_totals.get(key, Decimal("0"))
+                if qty != actual_qty and actual_qty >= 0:
+                    has_drift = True
+                    break
                 rows.append(
                     {
                         "warehouse": row["warehouse_id"],
@@ -1603,7 +1741,7 @@ class InventoryValuationService:
                         "unit_cost": (value / qty if qty else Decimal("0")),
                     }
                 )
-            if rows:
+            if rows and not has_drift:
                 return rows
         movements = base.select_related("product", "batch", "warehouse")
         if as_of:
@@ -1622,15 +1760,22 @@ class InventoryValuationService:
                     state = {}
                     for snap in snap_rows:
                         key = (snap.warehouse_id, snap.product_id, snap.batch_id)
+                        snap_qty = Decimal(str(snap.qty or 0))
+                        snap_val = Decimal(str(snap.value or 0))
+                        # CR-038: Seed baseline FIFO layer from snapshot so FIFO replay does not collapse into WAVG
+                        initial_layers = []
+                        if snap_qty > 0:
+                            initial_cost = (snap_val / snap_qty).quantize(Decimal("0.0001")) if snap_val else Decimal("0")
+                            initial_layers = [[snap_qty, initial_cost]]
                         state[key] = {
                             "warehouse": snap.warehouse_id,
                             "warehouse_name": getattr(snap.warehouse, "name", None),
                             "product": snap.product_id,
                             "product_name": snap.product.name if snap.product_id else None,
                             "batch": snap.batch_id,
-                            "qty": Decimal(str(snap.qty or 0)),
-                            "value": Decimal(str(snap.value or 0)),
-                            "layers": [],
+                            "qty": snap_qty,
+                            "value": snap_val,
+                            "layers": initial_layers,
                         }
                     if use_business_date:
                         after = movements.filter(
@@ -1854,6 +1999,14 @@ class InventoryValuationService:
         for them). Returns a list of mismatch descriptions (empty means
         consistent) rather than raising, so callers can decide whether a
         mismatch is fatal (e.g. the management command) or just a warning.
+
+        CR-059 ops runbook: not scheduled. After WAVG→FIFO cutover, layer
+        seed, or suspected COGS drift, run::
+
+            python manage.py rebuild_running_cost --company <id>
+
+        (reports FIFO layer/replay mismatches as warnings). Investigate any
+        mismatch before period close; do not "blind rebuild" layers.
         """
         method = getattr(company, "inventory_valuation_method", "WAVG") or "WAVG"
         if method != "FIFO":

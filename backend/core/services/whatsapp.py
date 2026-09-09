@@ -21,10 +21,19 @@ APPROVED_WHATSAPP_TEMPLATES = frozenset({
 
 @dataclass
 class WhatsAppSendResult:
-    mode: str  # "cloud" | "link"
+    mode: str  # "cloud" | "link" | "failed"
     share_link: str = ""
     message_id: str = ""
     raw: dict | None = None
+
+
+def _whatsapp_language_code(explicit: str | None = None) -> str:
+    """WhatsApp Cloud `language.code` from an explicit locale or Django locale."""
+    from django.utils import translation
+
+    raw = (explicit or translation.get_language() or "en").strip()
+    primary = raw.replace("_", "-").split("-", 1)[0].lower()
+    return primary or "en"
 
 
 def _normalize_phone(to_phone: str) -> str:
@@ -89,6 +98,7 @@ def send_whatsapp_template(
     *,
     company=None,
     allow_cloud: bool = True,
+    language_code: str | None = None,
 ) -> WhatsAppSendResult:
     """Send an approved WhatsApp template via Cloud API, else explicit wa.me link."""
     phone = _normalize_phone(to_phone)
@@ -129,7 +139,7 @@ def send_whatsapp_template(
         "type": "template",
         "template": {
             "name": template_name,
-            "language": {"code": "en"},
+            "language": {"code": _whatsapp_language_code(language_code)},
             **({"components": components} if components else {}),
         },
     }
@@ -141,9 +151,11 @@ def send_whatsapp_template(
         timeout=30,
     )
     if resp.status_code >= 400:
+        logger.warning(
+            "WhatsApp Cloud HTTP %s for template %s", resp.status_code, template_name
+        )
         return WhatsAppSendResult(
-            mode="link",
-            share_link=_wa_me_link(phone=phone, text=body_text),
+            mode="failed",
             raw={"error": resp.text, "status_code": resp.status_code},
         )
     data = resp.json()

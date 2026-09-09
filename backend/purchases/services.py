@@ -8,17 +8,31 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from core.events import emit
-from core.exceptions import BusinessRuleError
-from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals, recompute_totals_for_stamped_gstin
+from core.exceptions import BusinessRuleError, raise_confirm_required
+from core.help_codes import HelpCode
+from core.services.billing import (
+    apply_rcm_memo_after_tax,
+    compute_document_totals,
+    fold_tds_from_rate,
+    recompute_totals_for_stamped_gstin,
+)
 from core.services.place_of_supply import assert_place_of_supply_for_gst, party_intra_state
 from core.services.document_numbers import DocumentNumberService
 from core.services.uqc import snapshot_unit_fields
-from inventory.item_stock import base_quantity, base_unit_cost, get_or_create_batch
+from inventory.item_stock import base_quantity, base_unit_cost, get_or_create_batch, tracks_inventory
 from inventory.models import MovementType
-from inventory.services import InventoryService, SerialNumberService
+from inventory.services import InventoryService, InventoryValuationService, SerialNumberService
 from masters.models import Product
 
-from .models import PurchaseInvoice, PurchaseItem, PurchaseReturn, PurchaseReturnItem
+from .models import (
+    BillOfEntry,
+    PurchaseCreditNote,
+    PurchaseDebitNote,
+    PurchaseInvoice,
+    PurchaseItem,
+    PurchaseReturn,
+    PurchaseReturnItem,
+)
 
 
 def assert_invoice_tds_exclusive(invoice):
@@ -26,7 +40,8 @@ def assert_invoice_tds_exclusive(invoice):
     from payments.models import SupplierPayment, SupplierPaymentStatus
 
     tds = Decimal(str(getattr(invoice, "tds_amount", 0) or 0))
-    if tds <= 0:
+    tds_rate = Decimal(str(getattr(invoice, "tds_rate", 0) or 0))
+    if tds <= 0 and tds_rate <= 0:
         return
     if SupplierPayment.objects.filter(
         company=invoice.company,
@@ -116,6 +131,13 @@ def _validate_lines(items_data, company):
                 raise BusinessRuleError("Invalid batch reference.")
             if getattr(batch, "product_id", None) not in (None, line["product"].pk):
                 raise BusinessRuleError("Batch does not belong to this product.")
+        # CR-021: validate string field bounds before bulk_create
+        desc = str(line.get("description") or "")
+        if len(desc) > 255:
+            raise BusinessRuleError("Line description exceeds maximum length of 255 characters.")
+        batch_no = str(line.get("batch_no") or line.get("batch_number") or getattr(batch, "batch_number", "") or "")
+        if len(batch_no) > 64:
+            raise BusinessRuleError("Batch number exceeds maximum length of 64 characters.")
 
 
 def _build_purchase_items(invoice, items_data):
@@ -242,16 +264,21 @@ class PurchaseService:
 
     @staticmethod
     def _returned_quantities(invoice, exclude_return=None):
+        """Returned qty in *base* units (CR-131 / CR-045)."""
+        from collections import defaultdict
+
         qs = PurchaseReturnItem.objects.filter(
             purchase_return__purchase_invoice=invoice,
             purchase_return__status=PurchaseReturn.Status.COMPLETED,
-        )
+        ).select_related("product", "product__alternate_unit")
         if exclude_return is not None:
             qs = qs.exclude(purchase_return=exclude_return)
-        return {
-            row["product"]: row["total"]
-            for row in qs.values("product").annotate(total=Sum("quantity"))
-        }
+        out = defaultdict(Decimal)
+        for item in qs:
+            out[item.product_id] += _line_stock_qty(
+                item.product, item.quantity, getattr(item, "unit_name", None)
+            )
+        return dict(out)
 
     @staticmethod
     @transaction.atomic
@@ -299,27 +326,25 @@ class PurchaseService:
         if adjust_stock:
             already = PurchaseService._returned_quantities(invoice)
             for product_id, returned_qty in already.items():
-                if new_qty_doc.get(product_id, Decimal("0")) < returned_qty:
+                if new_qty_preview.get(product_id, Decimal("0")) < returned_qty:
                     raise BusinessRuleError(
                         f"Quantity cannot be below already-returned quantity {returned_qty}."
                     )
+            # CR-001 / H9-A: completed purchase quantities are immutable via
+            # set_items — twin of SalesService.set_items (CR-024 / CR-128). A qty
+            # correction goes through a debit/credit note or a purchase return so
+            # the stock + AP + GL effect is a first-class reversible document.
+            # The former in-place qty-delta path posted a `purchase_invoice_edit`
+            # ADJUSTMENT that `PurchaseService.cancel` never reversed, leaving a
+            # completed+amended bill un-cancellable and stock/FIFO drifted.
             for product_id in set(old_qty) | set(new_qty_preview):
-                delta = new_qty_preview.get(product_id, Decimal("0")) - old_qty.get(
+                if new_qty_preview.get(product_id, Decimal("0")) != old_qty.get(
                     product_id, Decimal("0")
-                )
-                if delta == 0:
-                    continue
-                product = next(
-                    (line["product"] for line in items_data if line["product"].pk == product_id),
-                    None,
-                ) or Product.objects.get(pk=product_id)
-                if getattr(product, "track_serial", False) or getattr(product, "track_batch", False):
+                ):
                     raise BusinessRuleError(
-                        "Completed purchase quantity cannot be amended for serial- or batch-tracked "
-                        "items. Issue a debit/credit note or a purchase return instead."
+                        "Cannot amend quantity on a completed purchase. "
+                        "Issue a debit/credit note or a purchase return instead."
                     )
-                if delta < 0:
-                    InventoryService.check_negative_stock(invoice.company, product, -delta)
 
         if adjust_stock:
             items = _update_purchase_items_in_place(invoice, items_data)
@@ -336,6 +361,7 @@ class PurchaseService:
                 invoice.supplier.gstin or "",
                 seller_state=(getattr(invoice.company_gstin, "state", None) or ""),
                 seller_gstin=(getattr(invoice.company_gstin, "gstin", None) or ""),
+                supply_type=getattr(invoice, "supply_type", ""),
             ),
             additional_charges=invoice.additional_charges,
             invoice_discount=invoice.invoice_discount,
@@ -358,62 +384,11 @@ class PurchaseService:
             PurchaseItem.objects.bulk_create(items)
 
         if adjust_stock:
-            new_qty = defaultdict(Decimal)
-            product_by_id = {}
-            cost_by_id = {}
-            for item in items:
-                new_qty[item.product_id] += _line_stock_qty(
-                    item.product, item.quantity, getattr(item, "unit_name", None)
-                )
-                product_by_id[item.product_id] = item.product
-                cost_by_id.setdefault(
-                    item.product_id,
-                    _line_stock_cost(item.product, item.unit_price, getattr(item, "unit_name", None)),
-                )
-            for product_id in set(old_qty) | set(new_qty):
-                delta = new_qty[product_id] - old_qty[product_id]
-                if delta == 0:
-                    continue
-                product = product_by_id.get(product_id) or Product.objects.get(pk=product_id)
-                if delta > 0:
-                    InventoryService.post_movement(
-                        company=invoice.company,
-                        warehouse=invoice.warehouse,
-                        product=product,
-                        movement_type=MovementType.PURCHASE,
-                        quantity=delta,
-                        unit_cost=cost_by_id.get(product_id, product.purchase_price),
-                        reference_type="purchase_invoice",
-                        reference_id=invoice.pk,
-                        user=user,
-                    )
-                else:
-                    InventoryService.post_movement(
-                        company=invoice.company,
-                        warehouse=invoice.warehouse,
-                        product=product,
-                        movement_type=MovementType.ADJUSTMENT,
-                        quantity=delta,
-                        reference_type="purchase_invoice_edit",
-                        reference_id=invoice.pk,
-                        reason=f"Edit of {invoice.number or invoice.pk}",
-                        user=user,
-                    )
-                    need = -delta
-                    from inventory.models import StockMovement as SrcMove
-
-                    for move in SrcMove.objects.filter(
-                        company=invoice.company,
-                        movement_type=MovementType.PURCHASE,
-                        reference_type="purchase_invoice",
-                        reference_id=str(invoice.pk),
-                        product=product,
-                    ).order_by("id"):
-                        if need <= 0:
-                            break
-                        take = min(need, abs(Decimal(str(move.quantity))))
-                        InventoryService.retire_source_layers(move, take)
-                        need -= take
+            # CR-001: quantities are immutable on a completed purchase (rejected
+            # above), so there is no stock delta to post here — only price /
+            # discount / charge amends reach this point. Refresh the GL for those
+            # and re-price the remaining FIFO layers via the caller
+            # (restamp_fifo_layers_for_price_amend).
             emit("purchase_invoice.edited", invoice=invoice, user=user, old_totals=old_totals)
             if invoice.company.accounting_enabled:
                 from accounting.services import PostingService
@@ -430,7 +405,19 @@ class PurchaseService:
 
         if getattr(invoice.company, "inventory_valuation_method", "WAVG") != "FIFO":
             return
-        price_by_product = {item.product_id: Decimal(str(item.unit_price or 0)) for item in invoice.items.all()}
+        # CR-027: Map cost per base unit accounting for line discounts and alternate units
+        cost_by_product_batch = {}
+        for item in invoice.items.all():
+            base_qty = _line_stock_qty(item.product, item.quantity, getattr(item, "unit_name", None))
+            if base_qty and Decimal(str(base_qty)) > 0:
+                cost = (Decimal(str(item.taxable_amount)) / Decimal(str(base_qty))).quantize(
+                    Decimal("0.0001")
+                )
+            else:
+                cost = _line_stock_cost(item.product, item.unit_price, getattr(item, "unit_name", None))
+            key = (item.product_id, getattr(item, "batch_id", None))
+            cost_by_product_batch[key] = cost
+
         moves = StockMovement.objects.filter(
             company=invoice.company,
             movement_type=MovementType.PURCHASE,
@@ -438,7 +425,13 @@ class PurchaseService:
             reference_id=str(invoice.pk),
         )
         for move in moves:
-            new_cost = price_by_product.get(move.product_id)
+            key = (move.product_id, move.batch_id)
+            new_cost = cost_by_product_batch.get(key)
+            if new_cost is None:
+                for (p_id, _b_id), c in cost_by_product_batch.items():
+                    if p_id == move.product_id:
+                        new_cost = c
+                        break
             if new_cost is None:
                 continue
             original_qty = abs(Decimal(str(move.quantity or 0)))
@@ -454,7 +447,45 @@ class PurchaseService:
                     )
                 layer.unit_cost = new_cost
                 layer.save(update_fields=["unit_cost", "updated_at"])
-            StockMovement.objects.filter(pk=move.pk).update(unit_cost=new_cost)
+            # CR-144: append-only — use stamp_cost, never bare QuerySet.update.
+            StockMovement.stamp_cost(move.pk, unit_cost=new_cost)
+
+    @staticmethod
+    def _is_foreign_import_supplier(supplier) -> bool:
+        from core.services.billing import extract_state_code
+
+        state = (supplier.state or "").strip()
+        gstin = (supplier.gstin or "").strip()
+        tt = (getattr(supplier, "taxpayer_type", None) or "").strip().upper()
+        foreign_tt = tt in ("EXPWP", "EXPWOP", "DEXP", "SEZWP", "SEZWOP")
+        has_india_state = bool(extract_state_code(gstin) or extract_state_code(state))
+        return bool(foreign_tt or (state and not has_india_state and not gstin))
+
+    @staticmethod
+    def _assert_import_bill_of_entry(invoice: PurchaseInvoice) -> None:
+        """R-024: import Complete requires THIS invoice's completed BoE.
+
+        A stale completed BoE for the same supplier must not unlock later imports.
+        """
+        if not PurchaseService._is_foreign_import_supplier(invoice.supplier):
+            return
+        if invoice.purchase_type == PurchaseInvoice.PurchaseType.GST:
+            raise BusinessRuleError(
+                "Customs IGST belongs on a Bill of Entry, not a GST purchase invoice. "
+                "Create and complete a Bill of Entry at /purchases/bills-of-entry, "
+                "then complete this import as NON_GST linked to that Bill of Entry."
+            )
+        boe = invoice.bill_of_entry
+        if (
+            boe is None
+            or boe.status != BillOfEntry.Status.COMPLETED
+            or boe.supplier_id != invoice.supplier_id
+        ):
+            raise BusinessRuleError(
+                "This import purchase needs its own completed Bill of Entry "
+                "(same supplier) before Complete. One completed BoE does not "
+                "unlock later imports. Open /purchases/bills-of-entry."
+            )
 
     @staticmethod
     def _assert_composition_supplier_gst(invoice, items):
@@ -485,10 +516,12 @@ class PurchaseService:
         if invoice.pk:
             qs = qs.exclude(pk=invoice.pk)
         if qs.exists() and not confirm_duplicate_bill:
-            raise BusinessRuleError(
+            return (
+                HelpCode.CONFIRM_DUPLICATE_BILL,
                 f"A purchase with supplier bill number '{bill_no}' already exists for this "
-                "supplier. Pass confirm_duplicate_bill=true to proceed."
+                "supplier. Pass confirm_duplicate_bill=true to proceed.",
             )
+        return None
 
     @staticmethod
     def _unregistered_rcm_gate(invoice, items, *, confirm_no_rcm=False, warnings=None):
@@ -500,9 +533,9 @@ class PurchaseService:
         taxpayer = getattr(supplier, "taxpayer_type", "") or ""
         gstin = (supplier.gstin or "").strip()
         if invoice.is_reverse_charge:
-            return warnings
+            return None, warnings
         if invoice.purchase_type != PurchaseInvoice.PurchaseType.GST:
-            return warnings
+            return None, warnings
 
         is_unregistered = taxpayer == Customer.TaxpayerType.UNREGISTERED
         blank_gstin = not gstin
@@ -514,10 +547,12 @@ class PurchaseService:
         # taxpayer_type — that is an unregistered dealer for RCM purposes and
         # must hit the same hard confirm gate, not a soft warning.
         needs_rcm_confirm = is_unregistered or (blank_gstin and not _registered_type)
+        pending = None
         if needs_rcm_confirm and not confirm_no_rcm:
-            raise BusinessRuleError(
+            pending = (
+                HelpCode.CONFIRM_NO_RCM,
                 "Supplier is unregistered (no GSTIN) and reverse charge is off. "
-                "Enable is_reverse_charge, or pass confirm_no_rcm=true to proceed."
+                "Enable is_reverse_charge, or pass confirm_no_rcm=true to proceed.",
             )
         # GTA-ish lines (SAC 9965/9967 or name/category containing GTA).
         if is_unregistered or blank_gstin:
@@ -537,7 +572,7 @@ class PurchaseService:
                         "confirm whether reverse charge (Sec 9(3)) applies."
                     )
                     break
-        return warnings
+        return pending, warnings
 
     @staticmethod
     @transaction.atomic
@@ -554,12 +589,14 @@ class PurchaseService:
             raise BusinessRuleError("Cannot complete a purchase without line items.")
 
         tax_enabled = invoice.purchase_type == PurchaseInvoice.PurchaseType.GST
+        PurchaseService._assert_import_bill_of_entry(invoice)
         from core.services.registration_gates import assert_may_issue_gst_tax_invoice
 
         assert_may_issue_gst_tax_invoice(invoice.company, tax_enabled=tax_enabled)
 
         from core.services.billing import place_of_supply_known
 
+        pending_confirms = []
         if (
             tax_enabled
             and not place_of_supply_known(
@@ -568,39 +605,24 @@ class PurchaseService:
             )
             and not confirm_blank_pos
         ):
-            raise BusinessRuleError(
-                "Place of supply is blank. Confirm this purchase is intra-state, or set the supplier state/GSTIN."
+            pending_confirms.append((
+                HelpCode.PLACE_OF_SUPPLY_UNRESOLVED,
+                "Place of supply is blank. Confirm this purchase is intra-state, or set the supplier state/GSTIN.",
+            ))
+        else:
+            assert_place_of_supply_for_gst(
+                company=invoice.company,
+                party_state=invoice.supplier.state or "",
+                party_gstin=invoice.supplier.gstin or "",
+                tax_enabled=tax_enabled,
             )
 
-        assert_place_of_supply_for_gst(
-            company=invoice.company,
-            party_state=invoice.supplier.state or "",
-            party_gstin=invoice.supplier.gstin or "",
-            tax_enabled=tax_enabled,
-        )
-
-        # PUR-04: foreign / non-India supplier — do not silently treat as local GST.
-        if tax_enabled:
-            from core.services.billing import extract_state_code
-
-            supplier = invoice.supplier
-            state = (supplier.state or "").strip()
-            gstin = (supplier.gstin or "").strip()
-            tt = (getattr(supplier, "taxpayer_type", None) or "").strip().upper()
-            foreign_tt = tt in ("EXPWP", "EXPWOP", "DEXP", "SEZWP", "SEZWOP")
-            has_india_state = bool(extract_state_code(gstin) or extract_state_code(state))
-            # Explicit non-Indian state text (unmappable) with no Indian GSTIN → import path.
-            if foreign_tt or (state and not has_india_state and not gstin):
-                raise BusinessRuleError(
-                    "Foreign supplier / import-of-goods (Bill of Entry / customs IGST) "
-                    "is not supported yet. Set a valid Indian state or GSTIN on the supplier, "
-                    "or wait for import purchase support."
-                )
-
         PurchaseService._assert_composition_supplier_gst(invoice, items)
-        PurchaseService._assert_duplicate_supplier_bill(
+        dup = PurchaseService._assert_duplicate_supplier_bill(
             invoice, confirm_duplicate_bill=confirm_duplicate_bill
         )
+        if dup:
+            pending_confirms.append(dup)
 
         # RCM: ensure memo/payable even if draft was saved before RCM flag.
         if invoice.is_reverse_charge and invoice.purchase_type == PurchaseInvoice.PurchaseType.GST:
@@ -609,14 +631,21 @@ class PurchaseService:
             ) > 0:
                 apply_rcm_memo_after_tax(invoice, items)
             else:
-                # Re-zero line taxes if header already memoized but lines still carry tax.
+                # Header already memoized. Restore charged tax from the memo (and
+                # leftover line cess the prior path failed to clear) so
+                # apply_rcm_memo_after_tax can rewrite the memo and zero lines.
+                leftover_cess = sum(
+                    (Decimal(str(getattr(it, "cess", 0) or 0)) for it in items),
+                    Decimal("0"),
+                )
+                invoice.cgst_total = Decimal(str(invoice.rcm_cgst or 0))
+                invoice.sgst_total = Decimal(str(invoice.rcm_sgst or 0))
+                invoice.igst_total = Decimal(str(invoice.rcm_igst or 0))
+                invoice.cess_total = max(Decimal(str(invoice.rcm_cess or 0)), leftover_cess)
+                apply_rcm_memo_after_tax(invoice, items)
                 for item in items:
-                    if (item.cgst or 0) or (item.sgst or 0) or (item.igst or 0):
-                        item.cgst = Decimal("0.00")
-                        item.sgst = Decimal("0.00")
-                        item.igst = Decimal("0.00")
-                        item.line_total = Decimal(str(item.taxable_amount or 0))
-                        item.save(update_fields=["cgst", "sgst", "igst", "line_total"])
+                    if item.pk:
+                        item.save(update_fields=["cgst", "sgst", "igst", "cess", "line_total"])
         elif (invoice.rcm_taxable or 0) or (invoice.rcm_cgst or 0) or (invoice.rcm_sgst or 0) or (
             invoice.rcm_igst or 0
         ) or (invoice.rcm_cess or 0):
@@ -641,27 +670,19 @@ class PurchaseService:
                     f"{len(missing_hsn)} line(s) missing HSN — add it before filing GSTR / "
                     "for a complete purchase register."
                 )
-        warnings = PurchaseService._unregistered_rcm_gate(
+        rcm_pending, warnings = PurchaseService._unregistered_rcm_gate(
             invoice, items, confirm_no_rcm=confirm_no_rcm, warnings=warnings
         )
+        if rcm_pending:
+            pending_confirms.append(rcm_pending)
+        if pending_confirms:
+            raise_confirm_required(
+                [code for code, _msg in pending_confirms],
+                " ".join(msg for _code, msg in pending_confirms),
+            )
         assert_invoice_tds_exclusive(invoice)
         assert_claimable_itc_allowed(invoice)
 
-        # R1-013: company-level series-scope policy (not "did a gstin resolve").
-        from core.services.document_numbers import series_identity
-
-        _gk, _fy, _on = series_identity(
-            invoice.company, invoice.company_gstin, invoice.invoice_date
-        )
-        invoice.number = invoice.number or DocumentNumberService.next_number(
-            invoice.company,
-            "PURCHASE_INVOICE",
-            gstin=_gk or None,
-            on_date=_on,
-        )
-        invoice.status = PurchaseInvoice.Status.COMPLETED
-        invoice.completed_at = timezone.now()
-        invoice.updated_by = user
         if (invoice.notes or "").strip() == "TALLY_OPENING" and not getattr(
             invoice, "is_opening_balance", False
         ):
@@ -669,6 +690,14 @@ class PurchaseService:
                 "TALLY_OPENING notes are not accepted. Opening invoices must be imported via Tally adapter."
             )
         is_tally_opening = bool(getattr(invoice, "is_opening_balance", False))
+        # CR-023: period gate before number/status/stock (purchase twin of sales).
+        if not is_tally_opening:
+            from reporting.gst_periods import assert_period_allows_money_amend
+
+            assert_period_allows_money_amend(invoice.company, invoice.invoice_date)
+
+        # CR-025: Resolve company_gstin, validate multi-GSTIN, and recompute totals
+        # BEFORE allocating document sequence numbers.
         if invoice.company_gstin_id is None:
             from accounts.models import CompanyGstin
 
@@ -695,19 +724,47 @@ class PurchaseService:
             confirm_gstin_total_change=confirm_gstin_total_change,
             is_opening=is_tally_opening,
         )
+
+        # R1-013: company-level series-scope policy (not "did a gstin resolve").
+        from core.services.document_numbers import series_identity
+
+        _gk, _fy, _on = series_identity(
+            invoice.company, invoice.company_gstin, invoice.invoice_date
+        )
+        invoice.number = invoice.number or DocumentNumberService.next_number(
+            invoice.company,
+            "PURCHASE_INVOICE",
+            gstin=_gk or None,
+            on_date=_on,
+        )
+        invoice.status = PurchaseInvoice.Status.COMPLETED
+        invoice.completed_at = timezone.now()
+        invoice.updated_by = user
+        # R-023: rate-only TDS (194C etc.) folds amount from taxable on Complete.
+        invoice.tds_amount = fold_tds_from_rate(
+            tds_rate=getattr(invoice, "tds_rate", 0),
+            tds_amount=getattr(invoice, "tds_amount", 0),
+            taxable_total=invoice.taxable_total,
+            document=invoice,
+        )
+        # CR-035: re-verify TDS exclusivity after rate fold in case tds_rate was provided without explicit tds_amount
+        assert_invoice_tds_exclusive(invoice)
         invoice.save()
 
-        # BB-000337 / BB-000699: money Complete hard-blocks closed periods; no except-pass.
         if not is_tally_opening:
-            from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
+            from reporting.gst_periods import mark_period_dirty_if_snapshotted
 
-            assert_period_allows_money_amend(invoice.company, invoice.invoice_date)
             mark_period_dirty_if_snapshotted(invoice.company, invoice.invoice_date)
 
         for item in items:
+            # CR-023: non-inventory / service lines do not move stock or require batch/serial tracking
+            if not tracks_inventory(item.product):
+                continue
             if item.product.track_batch and not item.batch_id:
                 if not item.batch_no:
                     raise BusinessRuleError(f"A batch is required for tracked product '{item.product.name}'.")
+                # R-055: same hard-error as item_stock.get_or_create_batch —
+                # an expiry clash must 400, not keep the existing lot's date.
                 item.batch = get_or_create_batch(
                     company=invoice.company,
                     product=item.product,
@@ -724,17 +781,19 @@ class PurchaseService:
                 )
             if not is_tally_opening:
                 qty = _line_stock_qty(item.product, item.quantity, getattr(item, "unit_name", None))
-                base_cost = _line_stock_cost(
-                    item.product, item.unit_price, getattr(item, "unit_name", None)
-                )
-                add_charges = Decimal(str(getattr(invoice, "additional_charges", 0) or 0))
-                taxable_total = Decimal(str(invoice.taxable_total or 0))
-                if add_charges > 0 and taxable_total > 0 and qty > 0:
-                    line_taxable = Decimal(str(getattr(item, "taxable_amount", 0) or 0))
-                    charge_alloc = (add_charges * line_taxable / taxable_total).quantize(Decimal("0.01"))
-                    effective_unit_cost = (base_cost + (charge_alloc / qty)).quantize(Decimal("0.01"))
+                # CR-032 / CR-033: layers stay at taxable/commercial line cost only.
+                # additional_charges and BoE BCD (and ineligible customs) are
+                # expensed to GL 5110 by PostingService — never capitalized into
+                # unit_cost / FIFO layers. Do not read invoice.bill_of_entry.* here.
+                # CR-024: FIFO layer unit cost must be net of line discount (taxable_amount / base qty)
+                if qty and Decimal(str(qty)) > 0:
+                    unit_cost = (Decimal(str(item.taxable_amount)) / Decimal(str(qty))).quantize(
+                        Decimal("0.0001")
+                    )
                 else:
-                    effective_unit_cost = base_cost
+                    unit_cost = _line_stock_cost(
+                        item.product, item.unit_price, getattr(item, "unit_name", None)
+                    )
                 InventoryService.post_movement(
                     company=invoice.company,
                     warehouse=invoice.warehouse,
@@ -742,7 +801,7 @@ class PurchaseService:
                     batch=item.batch,
                     movement_type=MovementType.PURCHASE,
                     quantity=qty,
-                    unit_cost=effective_unit_cost,
+                    unit_cost=unit_cost,
                     reference_type="purchase_invoice",
                     reference_id=invoice.pk,
                     user=user,
@@ -760,7 +819,15 @@ class PurchaseService:
                 entity_type="purchase_invoice",
                 entity_id=invoice.pk,
                 event_type=StatutoryDocumentEvent.EventType.COMPLETE,
-                payload={"number": invoice.number, "grand_total": str(invoice.grand_total)},
+                payload={
+                    "number": invoice.number,
+                    "grand_total": str(invoice.grand_total),
+                    **(
+                        {"tds_override": invoice._tds_override}
+                        if getattr(invoice, "_tds_override", None)
+                        else {}
+                    ),
+                },
                 user=user,
             )
         else:
@@ -774,7 +841,9 @@ class PurchaseService:
     @staticmethod
     @transaction.atomic
     def cancel(invoice: PurchaseInvoice, user):
-        invoice = PurchaseInvoice.objects.select_for_update().get(pk=invoice.pk)
+        invoice = PurchaseInvoice.objects.select_for_update().get(
+            pk=invoice.pk, company_id=invoice.company_id
+        )
         from reporting.gst_periods import assert_period_allows_money_amend
 
         assert_period_allows_money_amend(invoice.company, invoice.invoice_date, allow_soft_closed=True)
@@ -782,6 +851,30 @@ class PurchaseService:
             raise BusinessRuleError("Purchase is already cancelled.")
         if invoice.returns.filter(status=PurchaseReturn.Status.COMPLETED).exists():
             raise BusinessRuleError("Cannot cancel a purchase with completed returns.")
+        # CR-035 / R2-005: draft / in-progress returns would be orphaned.
+        if invoice.returns.exclude(
+            status__in=(PurchaseReturn.Status.COMPLETED, PurchaseReturn.Status.CANCELLED)
+        ).exists():
+            raise BusinessRuleError(
+                "Cancel or delete the draft purchase return(s) against this bill first."
+            )
+        # CR-034: completed CN/DN leave AP/GSTR history — cancel would orphan them.
+        if invoice.credit_notes.filter(status=PurchaseCreditNote.Status.COMPLETED).exists() or invoice.debit_notes.filter(
+            status=PurchaseDebitNote.Status.COMPLETED
+        ).exists():
+            raise BusinessRuleError(
+                "Cannot cancel a purchase with completed credit or debit notes. "
+                "Cancel the note(s) first."
+            )
+        # CR-097: draft notes would also be orphaned against a cancelled bill.
+        if invoice.credit_notes.exclude(
+            status__in=(PurchaseCreditNote.Status.COMPLETED, PurchaseCreditNote.Status.CANCELLED)
+        ).exists() or invoice.debit_notes.exclude(
+            status__in=(PurchaseDebitNote.Status.COMPLETED, PurchaseDebitNote.Status.CANCELLED)
+        ).exists():
+            raise BusinessRuleError(
+                "Cancel or delete the draft credit/debit note(s) against this bill first."
+            )
         if invoice.allocations.filter(reversed_at__isnull=True).exists():
             # BUG-722 (purchase side) — same reasoning as sales invoices.
             raise BusinessRuleError(
@@ -803,7 +896,51 @@ class PurchaseService:
                     PostingService.reverse(entry, user)
             # Reverse stock via ADJUSTMENT — movements stay append-only (§5.3).
             # BB-000718: retire the original PURCHASE layers (do not peel FIFO-oldest).
-            from inventory.models import SerialNumber, StockMovement
+            from inventory.models import SerialNumber, StockBalance, StockMovement
+
+            # CR-006: verify that tracked serial numbers have not already been sold or issued
+            for item in invoice.items.select_related("product"):
+                if item.product.track_serial and item.serial_numbers:
+                    non_avail = SerialNumber.objects.filter(
+                        company=invoice.company,
+                        product=item.product,
+                        serial_number__in=list(item.serial_numbers),
+                    ).exclude(status=SerialNumber.Status.AVAILABLE)
+                    if non_avail.exists():
+                        bad_serials = list(non_avail.values_list("serial_number", flat=True)[:5])
+                        raise BusinessRuleError(
+                            f"Cannot cancel purchase invoice {invoice.number}: one or more serialized "
+                            f"items ({', '.join(bad_serials)}) have already been sold or issued. "
+                            f"Create a Purchase Return instead."
+                        )
+
+            # CR-006: verify remaining stock on hand before negative adjustment
+            for move in StockMovement.objects.filter(
+                company=invoice.company,
+                movement_type=MovementType.PURCHASE,
+                reference_type="purchase_invoice",
+                reference_id=str(invoice.pk),
+            ):
+                req_qty = abs(Decimal(str(move.quantity)))
+                bal = StockBalance.objects.filter(
+                    company=invoice.company,
+                    warehouse=move.warehouse or invoice.warehouse,
+                    product=move.product,
+                    batch=move.batch,
+                ).first()
+                # CR-002: gate on the real company policy field. `allow_negative_stock`
+                # was never defined on Company (only `negative_stock_policy`), so the
+                # old getattr() default made this guard unconditional and blind to a
+                # WARN-policy company that is otherwise allowed to drive stock negative.
+                if (
+                    bal
+                    and bal.on_hand < req_qty
+                    and (getattr(invoice.company, "negative_stock_policy", "BLOCK") or "BLOCK") == "BLOCK"
+                ):
+                    raise BusinessRuleError(
+                        f"Cannot cancel purchase invoice {invoice.number}: on-hand stock for "
+                        f"{move.product.name} ({bal.on_hand}) is less than the purchase quantity ({req_qty})."
+                    )
 
             for move in StockMovement.objects.filter(
                 company=invoice.company,
@@ -869,7 +1006,8 @@ class PurchaseService:
                 if len(numbers) != int(Decimal(str(line["quantity"]))):
                     raise BusinessRuleError(
                         f"Exactly {line['quantity']} serial number(s) are required for "
-                        f"tracked product '{product.name}'."
+                        f"tracked product '{product.name}'.",
+                        code="serial_required",
                     )
             items.append(PurchaseReturnItem(
                 purchase_return=purchase_return,
@@ -885,6 +1023,13 @@ class PurchaseService:
                 batch=line.get("batch"),
                 serial_numbers=serial_numbers,
                 condition=line.get("condition") or PurchaseReturnItem.Condition.SELLABLE,
+                # CR-045: snapshot unit from line / source invoice for stock conversion.
+                unit_name=(
+                    line.get("unit_name")
+                    or getattr(line.get("source_item"), "unit_name", None)
+                    or getattr(product.unit, "short_name", None)
+                    or "PCS"
+                ),
             ))
         source = purchase_return.purchase_invoice
         tax_enabled = source.purchase_type == PurchaseInvoice.PurchaseType.GST if source else True
@@ -912,7 +1057,13 @@ class PurchaseService:
         items = list(purchase_return.items.select_related("product", "product__alternate_unit"))
         if not items:
             raise BusinessRuleError("Cannot complete a return without line items.")
-        invoice = purchase_return.purchase_invoice
+        # CR-036: lock source invoice before remaining-qty headroom check.
+        invoice = None
+        if purchase_return.purchase_invoice_id:
+            invoice = PurchaseInvoice.objects.select_for_update().get(
+                pk=purchase_return.purchase_invoice_id,
+                company_id=purchase_return.company_id,
+            )
         # BB-000020: GST-registered companies cannot orphan returns (AP/GSTR distortion).
         if purchase_return.company.is_gst_registered and invoice is None:
             raise BusinessRuleError(
@@ -927,16 +1078,31 @@ class PurchaseService:
             PurchaseInvoice.Status.RETURNED,
         ):
             raise BusinessRuleError("Purchase return must reference a completed purchase invoice.")
+        if (
+            invoice
+            and purchase_return.return_date
+            and invoice.invoice_date
+            and purchase_return.return_date < invoice.invoice_date
+        ):
+            raise BusinessRuleError(
+                "Return date cannot be before the original invoice date."
+            )
 
         if invoice:
-            purchased = {
-                row["product"]: row["total"]
-                for row in invoice.items.values("product").annotate(total=Sum("quantity"))
-            }
+            # CR-131: headroom in base units so BOX vs PCS cannot over-return stock.
+            unit_names = _invoice_unit_name_by_product(invoice)
+            purchased = defaultdict(Decimal)
+            for row in invoice.items.select_related("product", "product__alternate_unit"):
+                purchased[row.product_id] += _line_stock_qty(
+                    row.product, row.quantity, getattr(row, "unit_name", None)
+                )
             already = PurchaseService._returned_quantities(invoice)
             requested = defaultdict(Decimal)
             for item in items:
-                requested[item.product_id] += item.quantity
+                unit_name = getattr(item, "unit_name", None) or unit_names.get(item.product_id)
+                requested[item.product_id] += _line_stock_qty(
+                    item.product, item.quantity, unit_name
+                )
             for product_id, qty in requested.items():
                 remaining = purchased.get(product_id, Decimal("0")) - already.get(
                     product_id, Decimal("0")
@@ -994,10 +1160,14 @@ class PurchaseService:
             return fallback_price
 
         for item in items:
+            # CR-026: non-inventory / service lines do not move stock or require serial/batch transition
+            if not tracks_inventory(item.product):
+                continue
             if item.product.track_serial:
                 if not item.serial_numbers:
                     raise BusinessRuleError(
-                        f"Serial numbers are required to complete return of '{item.product.name}'."
+                        f"Serial numbers are required to complete return of '{item.product.name}'.",
+                        code="serial_required",
                     )
                 SerialNumberService.transition(
                     company=purchase_return.company,
@@ -1047,28 +1217,38 @@ class PurchaseService:
 
             batch = getattr(item, "batch", None)
             stock_qty = _item_stock_qty(item)
-            # BB-000383: if track_batch and no batch on line, take from purchase PURCHASE movements FEFO/LIFO replay.
+            # R-039 / BB-000383: unspecified lot — retire FEFO (earliest expiry),
+            # not LIFO by movement id. Locks stay inside this atomic Complete.
             if item.product.track_batch and batch is None and invoice is not None:
-                from inventory.models import StockMovement
+                from inventory.models import BatchLot
 
-                purchase_moves = list(
-                    StockMovement.objects.filter(
-                        company=purchase_return.company,
-                        movement_type=MovementType.PURCHASE,
-                        reference_type="purchase_invoice",
-                        reference_id=str(invoice.pk),
-                        product=item.product,
-                    ).order_by("-id")
-                )
+                warehouse = invoice.warehouse
                 remaining = stock_qty
-                for move in purchase_moves:
+                lot_ids = list(
+                    InventoryValuationService.fefo_batches(
+                        purchase_return.company, item.product, warehouse
+                    ).values_list("pk", flat=True)
+                )
+                locked = {
+                    lot.pk: lot
+                    for lot in BatchLot.objects.filter(pk__in=lot_ids).select_for_update()
+                }
+                for lot_id in lot_ids:
                     if remaining <= 0:
                         break
-                    take = min(remaining, abs(Decimal(str(move.quantity))))
+                    lot = locked.get(lot_id)
+                    if lot is None:
+                        continue
+                    available = InventoryService.available_quantity(
+                        purchase_return.company, item.product, warehouse, lot
+                    )
+                    take = min(remaining, available)
+                    if take <= 0:
+                        continue
                     _post_return_qty(
-                        batch=move.batch,
+                        batch=lot,
                         quantity=take,
-                        unit_cost=move.unit_cost if move.unit_cost is not None else _return_unit_cost(item.product, item.unit_price),
+                        unit_cost=_return_unit_cost(item.product, item.unit_price),
                     )
                     remaining -= take
                 if remaining > 0:
@@ -1201,7 +1381,9 @@ class PurchaseService:
                         "returnable quantity on matching invoice lines."
                     )
             PurchaseNotesService.set_credit_note_items(note, items_data, user)
-            PurchaseNotesService.complete_credit_note(note, user)
+            PurchaseNotesService.complete_credit_note(
+                note, user, confirm_paid_invoice=True, confirm_price_override=True
+            )
 
         emit("document.completed", document=purchase_return, user=user, event="purchase_return.completed")
         return purchase_return
@@ -1334,14 +1516,20 @@ class PurchaseService:
                     "Restore stock with a manual adjustment instead of inventing unbatched quantity."
                 )
             if invoice and invoice.status == PurchaseInvoice.Status.RETURNED:
+                from .models import PurchaseInvoice as PI
                 from .models import PurchaseReturn as PR
 
+                # CR-095 twin: lock bill before other_open check + status flip.
+                invoice = PI.objects.select_for_update().get(
+                    pk=invoice.pk,
+                    company_id=purchase_return.company_id,
+                )
                 other_open = PR.objects.filter(
                     purchase_invoice=invoice,
                     status=PR.Status.COMPLETED,
                 ).exclude(pk=purchase_return.pk).exists()
-                if not other_open:
-                    invoice.status = PurchaseInvoice.Status.COMPLETED
+                if not other_open and invoice.status == PI.Status.RETURNED:
+                    invoice.status = PI.Status.COMPLETED
                     invoice.save(update_fields=["status"])
             # BB-000263: cancel linked auto purchase CNs. Mark the return
             # CANCELLED *first* so `cancel_credit_note`'s "cancel the return

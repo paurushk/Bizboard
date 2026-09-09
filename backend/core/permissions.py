@@ -49,8 +49,9 @@ def get_company_user(request):
                 # re-pick explicitly — never silently switch them into another
                 # company.
                 try:
+                    user.active_company = None
                     user.active_company_id = None
-                    user.save(update_fields=["active_company"])
+                    user.save(update_fields=["active_company_id"])
                 except Exception:  # noqa: BLE001
                     pass
                 raise CompanyRequired(list(qs.order_by("id")))
@@ -60,8 +61,9 @@ def get_company_user(request):
                 company_user = memberships[0]
                 if active_company_id is None:
                     try:
+                        user.active_company = company_user.company
                         user.active_company_id = company_user.company_id
-                        user.save(update_fields=["active_company"])
+                        user.save(update_fields=["active_company_id"])
                     except Exception:  # noqa: BLE001 — never break the request over this
                         pass
             elif len(memberships) > 1:
@@ -71,8 +73,9 @@ def get_company_user(request):
                     company_user = memberships[0]
                     if company_user is not None and active_company_id is None:
                         try:
+                            user.active_company = company_user.company
                             user.active_company_id = company_user.company_id
-                            user.save(update_fields=["active_company"])
+                            user.save(update_fields=["active_company_id"])
                         except Exception:  # noqa: BLE001
                             pass
                 else:

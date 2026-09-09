@@ -1,11 +1,18 @@
+"""Post missing accounting journals for completed operational documents.
+
+CR-087: safer UX aligned with ``backfill_missing_postings`` —
+require ``--company`` to post, or pass ``--dry-run`` to scan only.
+"""
+
 from decimal import Decimal
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from accounts.models import Company
 from accounting.models import JournalEntry, JournalLine
 from accounting.services import PostingService, seed_chart_of_accounts
 from core.exceptions import BusinessRuleError
+from core.rls import rls_bypass
 from inventory.models import MovementType, StockMovement
 from payments.models import (
     CustomerReceipt,
@@ -19,13 +26,15 @@ from sales.models import SalesCreditNote, SalesDebitNote, SalesInvoice, SalesRet
 
 
 def _has_je(company, source_type, source_id, purpose) -> bool:
+    # CR-103: empty POSTED headers are not "done" — PostingService would repair them.
     return JournalEntry.objects.filter(
         company=company,
         source_type=source_type,
         source_id=source_id,
         purpose=purpose,
         status=JournalEntry.Status.POSTED,
-    ).exists()
+        lines__isnull=False,
+    ).distinct().exists()
 
 
 def _is_opening_invoice(invoice) -> bool:
@@ -52,162 +61,208 @@ def _movement_cogs(company, movement_type, reference_type, reference_id) -> Deci
 class Command(BaseCommand):
     help = (
         "Post missing accounting journals for completed operational documents. "
-        "Skips openings/COGS/returns that would double-post or use the wrong poster."
+        "Skips openings/COGS/returns that would double-post or use the wrong poster. "
+        "Use --dry-run first, then --company=N to post (period gates apply via PostingService)."
     )
 
+    def add_arguments(self, parser):
+        parser.add_argument("--dry-run", action="store_true")
+        parser.add_argument("--company", type=int, help="Company id (required unless --dry-run).")
+
     def handle(self, *args, **options):
-        posted = 0
-        skipped = 0
-        for company in Company.objects.filter(accounting_enabled=True):
-            seed_chart_of_accounts(company)
-            si_statuses = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
-            for invoice in SalesInvoice.objects.filter(company=company, status__in=si_statuses):
-                try:
-                    if _is_opening_invoice(invoice):
-                        if not _has_je(company, "SALES_INVOICE", invoice.id, "OPENING"):
-                            if PostingService.post_opening_sales_invoice(invoice):
-                                posted += 1
-                        continue
-                    if not _has_je(company, "SALES_INVOICE", invoice.id, "COMPLETE"):
-                        if PostingService.post_sales_invoice(invoice):
+        dry_run = bool(options["dry_run"])
+        company_id = options.get("company")
+        if not dry_run and not company_id:
+            raise CommandError("Pass --company=N to post, or --dry-run to scan.")
+
+        with rls_bypass():
+            companies = Company.objects.filter(accounting_enabled=True)
+            if company_id:
+                companies = companies.filter(pk=company_id)
+            posted = 0
+            skipped = 0
+            would = 0
+            for company in companies.iterator():
+                seed_chart_of_accounts(company)
+                p, s, w = self._backfill_company(company, dry_run=dry_run)
+                posted += p
+                skipped += s
+                would += w
+                tagged = 0 if dry_run else self._retag_party_lines(company)
+                self.stdout.write(
+                    f"Company {company.id}: posted={p} skipped={s} would_post={w} "
+                    f"party_tags={tagged}"
+                )
+        if dry_run:
+            self.stdout.write(
+                self.style.WARNING(f"Dry-run: would post {would} ({skipped} skipped).")
+            )
+            return
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Backfill completed; posted {posted} ({skipped} skipped)."
+            )
+        )
+
+    def _backfill_company(self, company, *, dry_run: bool) -> tuple[int, int, int]:
+        posted = skipped = would = 0
+
+        si_statuses = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
+        for invoice in SalesInvoice.objects.filter(company=company, status__in=si_statuses):
+            try:
+                if _is_opening_invoice(invoice):
+                    if not _has_je(company, "SALES_INVOICE", invoice.id, "OPENING"):
+                        would += 1
+                        if not dry_run and PostingService.post_opening_sales_invoice(invoice):
                             posted += 1
-                    if not _has_je(company, "SALES_INVOICE", invoice.id, "COGS"):
+                    continue
+                if not _has_je(company, "SALES_INVOICE", invoice.id, "COMPLETE"):
+                    would += 1
+                    if not dry_run and PostingService.post_sales_invoice(invoice):
+                        posted += 1
+                if not _has_je(company, "SALES_INVOICE", invoice.id, "COGS"):
+                    cogs = _movement_cogs(
+                        company, MovementType.SALE, "sales_invoice", invoice.id
+                    )
+                    if cogs:
+                        would += 1
+                        if not dry_run and PostingService.post_sales_cogs(invoice, cogs):
+                            posted += 1
+            except BusinessRuleError as exc:
+                skipped += 1
+                self.stderr.write(f"SI {invoice.id}: {exc}")
+
+        pi_statuses = (PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED)
+        for invoice in PurchaseInvoice.objects.filter(company=company, status__in=pi_statuses):
+            try:
+                if _is_opening_invoice(invoice):
+                    if not _has_je(company, "PURCHASE_INVOICE", invoice.id, "OPENING"):
+                        would += 1
+                        if not dry_run and PostingService.post_opening_purchase_invoice(invoice):
+                            posted += 1
+                    continue
+                if not _has_je(company, "PURCHASE_INVOICE", invoice.id, "COMPLETE"):
+                    would += 1
+                    if not dry_run and PostingService.post_purchase(invoice):
+                        posted += 1
+            except BusinessRuleError as exc:
+                skipped += 1
+                self.stderr.write(f"PI {invoice.id}: {exc}")
+
+        for receipt in CustomerReceipt.objects.filter(company=company).exclude(
+            status__in=(ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED)
+        ):
+            try:
+                if not _has_je(company, "CUSTOMER_RECEIPT", receipt.id, "CREATE"):
+                    would += 1
+                    if not dry_run and PostingService.post_receipt(receipt):
+                        posted += 1
+            except BusinessRuleError as exc:
+                skipped += 1
+                self.stderr.write(f"Receipt {receipt.id}: {exc}")
+
+        for payment in SupplierPayment.objects.filter(company=company).exclude(
+            status=SupplierPaymentStatus.VOIDED
+        ):
+            try:
+                if not _has_je(company, "SUPPLIER_PAYMENT", payment.id, "CREATE"):
+                    would += 1
+                    if not dry_run and PostingService.post_supplier_payment(payment):
+                        posted += 1
+            except BusinessRuleError as exc:
+                skipped += 1
+                self.stderr.write(f"Payment {payment.id}: {exc}")
+
+        for alloc in PaymentAllocation.objects.filter(
+            company=company, reversed_at__isnull=True
+        ).select_related("receipt", "supplier_payment"):
+            try:
+                if alloc.receipt_id and not _has_je(
+                    company, "PAYMENT_ALLOCATION", alloc.id, "ALLOCATE_RECEIPT"
+                ):
+                    would += 1
+                    if not dry_run and PostingService.post_receipt_allocation(alloc):
+                        posted += 1
+                elif alloc.supplier_payment_id and not _has_je(
+                    company, "PAYMENT_ALLOCATION", alloc.id, "ALLOCATE_PAYMENT"
+                ):
+                    would += 1
+                    if not dry_run and PostingService.post_supplier_payment_allocation(alloc):
+                        posted += 1
+            except BusinessRuleError as exc:
+                skipped += 1
+                self.stderr.write(f"Allocation {alloc.id}: {exc}")
+
+        note_specs = (
+            (SalesCreditNote, "SALES_CREDIT_NOTE", "SALES_CREDIT"),
+            (SalesDebitNote, "SALES_DEBIT_NOTE", "SALES_DEBIT"),
+            (PurchaseCreditNote, "PURCHASE_CREDIT_NOTE", "PURCHASE_CREDIT"),
+            (PurchaseDebitNote, "PURCHASE_DEBIT_NOTE", "PURCHASE_DEBIT"),
+        )
+        for model, source_type, direction in note_specs:
+            for note in model.objects.filter(company=company, status=model.Status.COMPLETED):
+                try:
+                    if not _has_je(company, source_type, note.id, "COMPLETE"):
+                        would += 1
+                        if not dry_run and PostingService.post_note(
+                            note, source_type=source_type, direction=direction
+                        ):
+                            posted += 1
+                except BusinessRuleError as exc:
+                    skipped += 1
+                    self.stderr.write(f"{source_type} {note.id}: {exc}")
+
+        for sales_return in SalesReturn.objects.filter(
+            company=company, status=SalesReturn.Status.COMPLETED
+        ):
+            try:
+                if _has_je(company, "SALES_RETURN", sales_return.id, "COGS_REVERSE"):
+                    continue
+                cogs = _movement_cogs(
+                    company, MovementType.SALES_RETURN, "sales_return", sales_return.id
+                )
+                if not cogs:
+                    invoice = sales_return.sales_invoice
+                    if invoice is not None:
                         cogs = _movement_cogs(
                             company, MovementType.SALE, "sales_invoice", invoice.id
                         )
-                        if cogs and PostingService.post_sales_cogs(invoice, cogs):
-                            posted += 1
-                except BusinessRuleError as exc:
-                    skipped += 1
-                    self.stderr.write(f"SI {invoice.id}: {exc}")
-
-            pi_statuses = (PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED)
-            for invoice in PurchaseInvoice.objects.filter(company=company, status__in=pi_statuses):
-                try:
-                    if _is_opening_invoice(invoice):
-                        if not _has_je(company, "PURCHASE_INVOICE", invoice.id, "OPENING"):
-                            if PostingService.post_opening_purchase_invoice(invoice):
-                                posted += 1
-                        continue
-                    if not _has_je(company, "PURCHASE_INVOICE", invoice.id, "COMPLETE"):
-                        if PostingService.post_purchase(invoice):
-                            posted += 1
-                except BusinessRuleError as exc:
-                    skipped += 1
-                    self.stderr.write(f"PI {invoice.id}: {exc}")
-
-            for receipt in CustomerReceipt.objects.filter(company=company).exclude(
-                status__in=(ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED)
-            ):
-                try:
-                    if not _has_je(company, "CUSTOMER_RECEIPT", receipt.id, "CREATE"):
-                        if PostingService.post_receipt(receipt):
-                            posted += 1
-                except BusinessRuleError as exc:
-                    skipped += 1
-                    self.stderr.write(f"Receipt {receipt.id}: {exc}")
-
-            for payment in SupplierPayment.objects.filter(company=company).exclude(
-                status=SupplierPaymentStatus.VOIDED
-            ):
-                try:
-                    if not _has_je(company, "SUPPLIER_PAYMENT", payment.id, "CREATE"):
-                        if PostingService.post_supplier_payment(payment):
-                            posted += 1
-                except BusinessRuleError as exc:
-                    skipped += 1
-                    self.stderr.write(f"Payment {payment.id}: {exc}")
-
-            for alloc in PaymentAllocation.objects.filter(
-                company=company, reversed_at__isnull=True
-            ).select_related("receipt", "supplier_payment"):
-                try:
-                    if alloc.receipt_id and not _has_je(
-                        company, "PAYMENT_ALLOCATION", alloc.id, "ALLOCATE_RECEIPT"
-                    ):
-                        if PostingService.post_receipt_allocation(alloc):
-                            posted += 1
-                    elif alloc.supplier_payment_id and not _has_je(
-                        company, "PAYMENT_ALLOCATION", alloc.id, "ALLOCATE_PAYMENT"
-                    ):
-                        if PostingService.post_supplier_payment_allocation(alloc):
-                            posted += 1
-                except BusinessRuleError as exc:
-                    skipped += 1
-                    self.stderr.write(f"Allocation {alloc.id}: {exc}")
-
-            note_specs = (
-                (SalesCreditNote, "SALES_CREDIT_NOTE", "SALES_CREDIT"),
-                (SalesDebitNote, "SALES_DEBIT_NOTE", "SALES_DEBIT"),
-                (PurchaseCreditNote, "PURCHASE_CREDIT_NOTE", "PURCHASE_CREDIT"),
-                (PurchaseDebitNote, "PURCHASE_DEBIT_NOTE", "PURCHASE_DEBIT"),
-            )
-            for model, source_type, direction in note_specs:
-                for note in model.objects.filter(company=company, status=model.Status.COMPLETED):
-                    try:
-                        if not _has_je(company, source_type, note.id, "COMPLETE"):
-                            if PostingService.post_note(
-                                note, source_type=source_type, direction=direction
-                            ):
-                                posted += 1
-                    except BusinessRuleError as exc:
-                        skipped += 1
-                        self.stderr.write(f"{source_type} {note.id}: {exc}")
-
-            for sales_return in SalesReturn.objects.filter(
-                company=company, status=SalesReturn.Status.COMPLETED
-            ):
-                try:
-                    if _has_je(company, "SALES_RETURN", sales_return.id, "COGS_REVERSE"):
-                        continue
-                    cogs = _movement_cogs(
-                        company, MovementType.SALES_RETURN, "sales_return", sales_return.id
-                    )
-                    if not cogs:
-                        invoice = sales_return.sales_invoice
-                        if invoice is not None:
-                            cogs = _movement_cogs(
-                                company, MovementType.SALE, "sales_invoice", invoice.id
+                        if invoice.items.exists() and sales_return.items.exists():
+                            inv_qty = sum(
+                                (Decimal(str(i.quantity or 0)) for i in invoice.items.all()),
+                                Decimal("0"),
                             )
-                            if invoice.items.exists() and sales_return.items.exists():
-                                inv_qty = sum(
-                                    (Decimal(str(i.quantity or 0)) for i in invoice.items.all()),
-                                    Decimal("0"),
-                                )
-                                ret_qty = sum(
-                                    (
-                                        Decimal(str(i.quantity or 0))
-                                        for i in sales_return.items.all()
-                                    ),
-                                    Decimal("0"),
-                                )
-                                if inv_qty:
-                                    cogs = (cogs * ret_qty / inv_qty).quantize(Decimal("0.01"))
-                    if cogs:
+                            ret_qty = sum(
+                                (
+                                    Decimal(str(i.quantity or 0))
+                                    for i in sales_return.items.all()
+                                ),
+                                Decimal("0"),
+                            )
+                            if inv_qty:
+                                cogs = (cogs * ret_qty / inv_qty).quantize(Decimal("0.01"))
+                if cogs:
+                    would += 1
+                    if not dry_run:
                         PostingService.post_sales_return_cogs(sales_return, cogs)
                         posted += 1
-                except BusinessRuleError as exc:
-                    skipped += 1
-                    self.stderr.write(f"SalesReturn {sales_return.id}: {exc}")
+            except BusinessRuleError as exc:
+                skipped += 1
+                self.stderr.write(f"SalesReturn {sales_return.id}: {exc}")
 
-            for movement in StockMovement.objects.filter(
-                company=company, movement_type=MovementType.OPENING_STOCK
-            ):
-                try:
-                    if not _has_je(company, "STOCK_MOVEMENT", movement.id, "OPENING_STOCK"):
-                        if PostingService.post_opening_stock(movement):
-                            posted += 1
-                except BusinessRuleError as exc:
-                    skipped += 1
-                    self.stderr.write(f"Opening stock {movement.id}: {exc}")
+        for movement in StockMovement.objects.filter(
+            company=company, movement_type=MovementType.OPENING_STOCK
+        ):
+            try:
+                if not _has_je(company, "STOCK_MOVEMENT", movement.id, "OPENING_STOCK"):
+                    would += 1
+                    if not dry_run and PostingService.post_opening_stock(movement):
+                        posted += 1
+            except BusinessRuleError as exc:
+                skipped += 1
+                self.stderr.write(f"Opening stock {movement.id}: {exc}")
 
-            tagged = self._retag_party_lines(company)
-            self.stdout.write(f"Company {company.id}: party tags updated on {tagged} lines.")
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Backfill completed; evaluated {posted} documents ({skipped} skipped)."
-            )
-        )
+        return posted, skipped, would
 
     @staticmethod
     def _retag_party_lines(company) -> int:

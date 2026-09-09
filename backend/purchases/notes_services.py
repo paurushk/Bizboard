@@ -7,9 +7,10 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from core.events import emit
-from core.exceptions import BusinessRuleError
+from core.exceptions import BusinessRuleError, raise_confirm_required
+from core.help_codes import HelpCode
 from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals
-from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
+from core.services.document_numbers import DocumentNumberService, resolve_series_gstin, series_identity
 from core.services.place_of_supply import party_intra_state
 from masters.models import Product
 
@@ -19,6 +20,7 @@ from .models import (
     PurchaseDebitNote,
     PurchaseDebitNoteItem,
     PurchaseInvoice,
+    PurchaseNoteReason,
     PurchaseOrder,
     PurchaseOrderItem,
 )
@@ -104,6 +106,8 @@ def _resolve_purchase_source_item(line, company_id, invoice_id=None):
 
 
 def _normalize_items(items_data, company, invoice_id=None):
+    from .models import PurchaseItem
+
     out = []
     for line in items_data:
         d = dict(line)
@@ -112,6 +116,10 @@ def _normalize_items(items_data, company, invoice_id=None):
             d["product"] = Product.objects.get(pk=product, company=company)
         if "source_item" in d or "source_item_id" in d:
             d["source_item"] = _resolve_purchase_source_item(d, company.id, invoice_id=invoice_id)
+        elif invoice_id is not None:
+            matches = list(PurchaseItem.objects.filter(invoice_id=invoice_id, product=d["product"]))
+            if len(matches) == 1:
+                d["source_item"] = matches[0]
         out.append(d)
     return out
 
@@ -190,8 +198,17 @@ class PurchaseNotesService:
 
     @staticmethod
     @transaction.atomic
-    def complete_credit_note(note: PurchaseCreditNote, user):
-        note = PurchaseCreditNote.objects.select_for_update().get(pk=note.pk)
+    def complete_credit_note(
+        note: PurchaseCreditNote,
+        user,
+        *,
+        confirm_paid_invoice: bool = False,
+        confirm_price_override: bool = False,
+    ):
+        # CR-133: lock note + source bill with company_id (sales CN twin).
+        note = PurchaseCreditNote.objects.select_for_update().get(
+            pk=note.pk, company_id=note.company_id
+        )
         if note.status != PurchaseCreditNote.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete credit note in status {note.status}.")
         if not note.items.exists():
@@ -200,16 +217,110 @@ class PurchaseNotesService:
             raise BusinessRuleError(
                 "GST-registered companies must link purchase credit notes to a purchase invoice."
             )
-        # BB-000339: cap to the linked invoice's remaining outstanding, mirroring
-        # SalesNotesService.complete_credit_note — a CN cannot relieve more AP
-        # than is actually still owed on the invoice.
+        # CR-129: PURCHASE_RETURN (and legacy SALES_RETURN) CNs must link a return FK.
+        if note.reason in (
+            PurchaseNoteReason.PURCHASE_RETURN,
+            PurchaseNoteReason.SALES_RETURN,
+        ) and note.purchase_return_id is None:
+            raise BusinessRuleError(
+                "Credit notes with reason PURCHASE_RETURN must be linked to a completed "
+                "purchase return. Stock is restored on the return, not on a standalone credit note."
+            )
+        # BB-000736 / BB-000699: period before number; no except-pass.
+        from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
+
+        assert_period_allows_money_amend(note.company, note.note_date)
+
+        # BB-000339 + CR-129: Sales twin gates when linked to a bill.
         if note.purchase_invoice_id:
-            inv = PurchaseInvoice.objects.select_for_update().get(pk=note.purchase_invoice_id)
+            inv = PurchaseInvoice.objects.select_for_update().get(
+                pk=note.purchase_invoice_id,
+                company_id=note.company_id,
+            )
+            if inv.status not in (
+                PurchaseInvoice.Status.COMPLETED,
+                PurchaseInvoice.Status.RETURNED,
+            ):
+                raise BusinessRuleError("Credit notes require a completed source purchase invoice.")
+            # CR-130: supplier must match the linked bill (service-layer guard —
+            # the serializer check does not cover non-API creation paths).
+            if note.supplier_id and inv.supplier_id and note.supplier_id != inv.supplier_id:
+                raise BusinessRuleError(
+                    "Credit note supplier does not match the linked purchase bill supplier."
+                )
+            if note.note_date and inv.invoice_date and note.note_date < inv.invoice_date:
+                raise BusinessRuleError(
+                    "Credit note date cannot be before the original invoice date."
+                )
             max_cn = _purchase_note_headroom(inv, exclude_cn_id=note.pk)
             if note.grand_total > max_cn:
                 raise BusinessRuleError(
                     f"Credit note {note.grand_total} exceeds invoice remaining outstanding {max_cn}."
                 )
+            # CR-129 / Sales CR-017: paid bill needs confirm (allocations stay until unallocate).
+            allocated = (
+                inv.allocations.filter(
+                    reversed_at__isnull=True,
+                    supplier_payment__isnull=False,
+                    receipt__isnull=True,
+                ).aggregate(s=Sum("amount"))["s"]
+                or Decimal("0")
+            )
+            if allocated > 0 and not confirm_paid_invoice:
+                from ledgers.services import LedgerService
+
+                outstanding = LedgerService.purchase_invoice_outstanding(inv)
+                if outstanding <= note.grand_total or allocated >= Decimal(str(inv.grand_total or 0)):
+                    raise_confirm_required(
+                        [HelpCode.CONFIRM_CN_ON_PAID_INVOICE],
+                        "This invoice has payment allocations. Completing the credit note leaves "
+                        "over-allocation until you unallocate or refund. Pass confirm_paid_invoice=true "
+                        "to proceed.",
+                    )
+            # CR-129 / Sales CR-026: unit_price override vs source line needs confirm.
+            if not confirm_price_override:
+                for item in note.items.select_related("source_item"):
+                    src = item.source_item
+                    if src is None:
+                        continue
+                    if Decimal(str(item.unit_price or 0)) != Decimal(str(src.unit_price or 0)):
+                        raise_confirm_required(
+                            [HelpCode.CONFIRM_CN_PRICE_OVERRIDE],
+                            "Credit note unit_price differs from the source invoice line. "
+                            "Pass confirm_price_override=true to recalculate tax at the overridden price.",
+                        )
+            # CR-129: per-line qty cap vs source invoice lines.
+            invoice_has_items = inv.items.exists()
+            for item in note.items.select_related("source_item"):
+                src = item.source_item
+                if src is None and invoice_has_items:
+                    matches = list(inv.items.filter(product=item.product))
+                    if len(matches) == 1:
+                        src = matches[0]
+                        item.source_item = src
+                        item.save(update_fields=["source_item"])
+                if src is None:
+                    if invoice_has_items:
+                        raise BusinessRuleError(
+                            "Credit note lines must reference a source invoice item (source_item)."
+                        )
+                    continue
+                prior = (
+                    PurchaseCreditNoteItem.objects.filter(
+                        credit_note__purchase_invoice=inv,
+                        credit_note__status=PurchaseCreditNote.Status.COMPLETED,
+                        source_item=src,
+                    )
+                    .exclude(credit_note_id=note.pk)
+                    .aggregate(s=Sum("quantity"))["s"]
+                    or Decimal("0")
+                )
+                if item.quantity + prior > src.quantity:
+                    raise BusinessRuleError(
+                        f"Credit quantity {item.quantity} exceeds remaining qty "
+                        f"{src.quantity - prior} on source line {src.pk}."
+                    )
+
         warnings = []
         tax_enabled = True
         if note.purchase_invoice_id:
@@ -226,16 +337,13 @@ class PurchaseNotesService:
                 warnings.append(
                     f"{missing_hsn} line(s) missing HSN — add HSN before filing GSTR."
                 )
-        # BB-000736 / BB-000699: period before number; no except-pass.
-        from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
-
-        assert_period_allows_money_amend(note.company, note.note_date)
         stamp = getattr(note.purchase_invoice, "company_gstin", None) if note.purchase_invoice_id else None
+        _gk, _fy, _on = series_identity(note.company, stamp, note.note_date)
         note.number = note.number or DocumentNumberService.next_number(
             note.company,
             "PURCHASE_CREDIT_NOTE",
-            gstin=resolve_series_gstin(note.company, stamp),
-            on_date=note.note_date,
+            gstin=_gk or None,
+            on_date=_on,
         )
         note.status = PurchaseCreditNote.Status.COMPLETED
         note.completed_at = timezone.now()
@@ -254,7 +362,9 @@ class PurchaseNotesService:
     @staticmethod
     @transaction.atomic
     def cancel_credit_note(note: PurchaseCreditNote, user):
-        note = PurchaseCreditNote.objects.select_for_update().get(pk=note.pk)
+        note = PurchaseCreditNote.objects.select_for_update().get(
+            pk=note.pk, company_id=note.company_id
+        )
         if note.status != PurchaseCreditNote.Status.COMPLETED:
             raise BusinessRuleError("Only completed credit notes can be cancelled.")
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
@@ -269,7 +379,7 @@ class PurchaseNotesService:
                     "Cancel the purchase return instead — that will cancel this note."
                 )
 
-        assert_period_allows_money_amend(note.company, note.note_date)
+        assert_period_allows_money_amend(note.company, note.note_date, allow_soft_closed=True)
         if note.company.accounting_enabled:
             from accounting.models import JournalEntry
             from accounting.services import PostingService
@@ -318,8 +428,17 @@ class PurchaseNotesService:
 
     @staticmethod
     @transaction.atomic
-    def complete_debit_note(note: PurchaseDebitNote, user):
-        note = PurchaseDebitNote.objects.select_for_update().get(pk=note.pk)
+    def complete_debit_note(note: PurchaseDebitNote, user, *, confirm_additional_debit: bool = False):
+        """Complete a purchase DN — AP/GL only (CR-043).
+
+        Price-uplift debit notes post through PostingService.post_note and do
+        **not** restamp FIFO / WAVG stock layers. Layer cost amends use H9
+        purchase invoice amend (`PurchaseService.restamp_fifo_layers_for_price_amend`).
+        """
+        # CR-133 twin: lock note with company_id (mirror CN path).
+        note = PurchaseDebitNote.objects.select_for_update().get(
+            pk=note.pk, company_id=note.company_id
+        )
         if note.status != PurchaseDebitNote.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete debit note in status {note.status}.")
         if not note.items.exists():
@@ -329,15 +448,85 @@ class PurchaseNotesService:
                 "GST-registered companies must link purchase debit notes to a purchase invoice."
             )
         if note.purchase_invoice_id:
-            headroom = _purchase_note_headroom(
-                note.purchase_invoice, exclude_dn_id=note.pk, for_dn=True
+            # CR-093 twin: lock source bill before headroom (same as sales DN / purchase return).
+            inv = PurchaseInvoice.objects.select_for_update().get(
+                pk=note.purchase_invoice_id,
+                company_id=note.company_id,
             )
-            if note.grand_total > headroom:
-                inv = note.purchase_invoice
+            if inv.status not in (
+                PurchaseInvoice.Status.COMPLETED,
+                PurchaseInvoice.Status.RETURNED,
+            ):
+                raise BusinessRuleError("Debit notes require a completed source invoice.")
+            # CR-130: supplier must match the linked bill (service-layer guard).
+            if note.supplier_id and inv.supplier_id and note.supplier_id != inv.supplier_id:
                 raise BusinessRuleError(
-                    f"Debit note {note.grand_total} exceeds remaining headroom {headroom} "
-                    f"(invoice {inv.grand_total})."
+                    "Debit note supplier does not match the linked purchase bill supplier."
                 )
+            if note.note_date and inv.invoice_date and note.note_date < inv.invoice_date:
+                raise BusinessRuleError(
+                    "Debit note date cannot be before the original invoice date."
+                )
+            # CR-129: sales-style DN headroom + confirm_additional_debit for uplift.
+            prior_dns = (
+                PurchaseDebitNote.objects.filter(
+                    purchase_invoice=inv, status=PurchaseDebitNote.Status.COMPLETED
+                )
+                .exclude(pk=note.pk)
+                .aggregate(total=Sum("grand_total"))["total"]
+                or Decimal("0")
+            )
+            prior_cns = (
+                PurchaseCreditNote.objects.filter(
+                    purchase_invoice=inv, status=PurchaseCreditNote.Status.COMPLETED
+                ).aggregate(total=Sum("grand_total"))["total"]
+                or Decimal("0")
+            )
+            cn_headroom = Decimal(str(prior_cns)) - Decimal(str(prior_dns))
+            prior_extra = max(Decimal("0"), Decimal(str(prior_dns)) - Decimal(str(prior_cns)))
+            cumulative_extra = prior_extra + note.grand_total
+            if cumulative_extra > Decimal(str(inv.grand_total or 0)):
+                raise BusinessRuleError(
+                    f"Additional debit {cumulative_extra} exceeds original invoice value {inv.grand_total}."
+                )
+            extra = note.grand_total - max(cn_headroom, Decimal("0"))
+            if extra > 0 and not confirm_additional_debit:
+                raise_confirm_required(
+                    [HelpCode.CONFIRM_ADDITIONAL_DEBIT],
+                    f"Debit note {note.grand_total} exceeds credit-note headroom "
+                    f"{max(cn_headroom, Decimal('0'))}. "
+                    "Pass confirm_additional_debit=true to bill an additional amount on the original invoice.",
+                )
+            invoice_has_items = inv.items.exists()
+            for item in note.items.select_related("source_item"):
+                src = item.source_item
+                if src is None and invoice_has_items:
+                    matches = list(inv.items.filter(product=item.product))
+                    if len(matches) == 1:
+                        src = matches[0]
+                        item.source_item = src
+                        item.save(update_fields=["source_item"])
+                if src is None:
+                    if invoice_has_items:
+                        raise BusinessRuleError(
+                            "Debit note lines must reference a source invoice item (source_item)."
+                        )
+                    continue
+                prior = (
+                    PurchaseDebitNoteItem.objects.filter(
+                        debit_note__purchase_invoice=inv,
+                        debit_note__status=PurchaseDebitNote.Status.COMPLETED,
+                        source_item=src,
+                    )
+                    .exclude(debit_note_id=note.pk)
+                    .aggregate(s=Sum("quantity"))["s"]
+                    or Decimal("0")
+                )
+                if item.quantity + prior > src.quantity:
+                    raise BusinessRuleError(
+                        f"Debit quantity {item.quantity} exceeds remaining qty "
+                        f"{src.quantity - prior} on source line {src.pk}."
+                    )
         warnings = []
         tax_enabled = True
         if note.purchase_invoice_id:
@@ -359,11 +548,12 @@ class PurchaseNotesService:
 
         assert_period_allows_money_amend(note.company, note.note_date)
         stamp = getattr(note.purchase_invoice, "company_gstin", None) if note.purchase_invoice_id else None
+        _gk, _fy, _on = series_identity(note.company, stamp, note.note_date)
         note.number = note.number or DocumentNumberService.next_number(
             note.company,
             "PURCHASE_DEBIT_NOTE",
-            gstin=resolve_series_gstin(note.company, stamp),
-            on_date=note.note_date,
+            gstin=_gk or None,
+            on_date=_on,
         )
         note.status = PurchaseDebitNote.Status.COMPLETED
         note.completed_at = timezone.now()
@@ -382,12 +572,14 @@ class PurchaseNotesService:
     @staticmethod
     @transaction.atomic
     def cancel_debit_note(note: PurchaseDebitNote, user):
-        note = PurchaseDebitNote.objects.select_for_update().get(pk=note.pk)
+        note = PurchaseDebitNote.objects.select_for_update().get(
+            pk=note.pk, company_id=note.company_id
+        )
         if note.status != PurchaseDebitNote.Status.COMPLETED:
             raise BusinessRuleError("Only completed debit notes can be cancelled.")
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
-        assert_period_allows_money_amend(note.company, note.note_date)
+        assert_period_allows_money_amend(note.company, note.note_date, allow_soft_closed=True)
         if note.company.accounting_enabled:
             from accounting.models import JournalEntry
             from accounting.services import PostingService
@@ -431,7 +623,9 @@ class PurchaseNotesService:
     @staticmethod
     @transaction.atomic
     def convert_purchase_order(order: PurchaseOrder, user):
-        order = PurchaseOrder.objects.select_for_update().get(pk=order.pk)
+        order = PurchaseOrder.objects.select_for_update().get(
+            pk=order.pk, company_id=order.company_id
+        )
         if order.status != PurchaseOrder.Status.DRAFT:
             raise BusinessRuleError(f"Cannot convert an order in status {order.status}.")
         if not order.supplier.is_active:

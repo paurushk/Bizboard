@@ -1,4 +1,46 @@
 # BizBoard — MASTER ISSUE REGISTER
+
+> **How to read open work:** This register has **three parallel ID schemes**. They are **not** summed into one “758” total.
+>
+> | Scheme | Doc | Open (as of last header update) | Notes |
+> |--------|-----|--------------------------------:|-------|
+> | **CR-001…089** | [`FUNCTIONAL_CODE_REVIEW_FINDINGS.md`](./FUNCTIONAL_CODE_REVIEW_FINDINGS.md) · plan [`FIX_PLAN_FUNCTIONAL_2026-09-06.md`](./FIX_PLAN_FUNCTIONAL_2026-09-06.md) | **89** (7C · 31H · 39M · 12L) | 6 Sep functional / money-path review. Pilot-go ≠ all 89 (see plan §15). |
+> | **R-001…088** | [`FINDINGS_2026-09-05.md`](./FINDINGS_2026-09-05.md) · plan [`FIX_PLAN_2026-09-05.md`](./FIX_PLAN_2026-09-05.md) | **88** (5 P0 · 27 P1 · 24 P2 · 18 UX · 14 PARTIAL) | 5 Sep quality review. Partial cross-closes with CR (R-012, R-016, …). |
+> | **BB-000001…758** | This file (body below) | **~64 Open** (see Totals) | Historical launch audits Waves 8–22. Totals / By Module tables below count **BB only**. |
+>
+> **Rough union for “everything still open”:** treat CR + R + BB Open as separate backlogs (~89 + ~88 + ~64). Do **not** add severities across schemes (different scales). Deduplicate only where a CR/R explicitly cross-closes a BB/R twin.
+>
+> **By Module caveats (BB table):** case-duplicate buckets (`Web`/`web`, `Sales`/`sales`, …) and junk compound keys are historical tagging noise — **do not use module counts for planning**. Prefer CR/R module matrices in their own docs.
+
+## Functional Code Review: 63 Release-Blocking Issues (2026-09-07)
+
+Comprehensive release-blocking money/stock/tax/reporting/accounting remediation. **All 63 issues (CR-001 … CR-063) remediated and verified in tree**.
+- **Historical note (2026-09-06 pass)**: In the preliminary 89-issue draft, CR-002 (atomic POS checkout) was deferred, CR-011 was deferred, and CR-008/022 were docs-only.
+- **Authoritative status (2026-09-07 remediation)**: All 63 issues from [`FUNCTIONAL_CODE_REVIEW_FINDINGS1.md`](./FUNCTIONAL_CODE_REVIEW_FINDINGS1.md) have been implemented with concrete code changes across 16 PR packages:
+  - `CR-002`: Implemented outbox oversell conflict detection in `web/src/offline/flushPosCheckout.ts`.
+  - `CR-003`: Implemented atomic `pos_checkout` endpoint in `backend/sales/views.py` and registered in `core/idempotency.py`.
+  - `CR-008`: Scoped POS payment methods to company via `CompanyPrimaryKeyRelatedField`.
+  - `CR-011`: Fixed sales return remainder credit preservation (`keep = alloc_amt - need`) in `backend/sales/return_service.py`.
+  - `CR-022`: Added TanStack Query invalidation on invoice complete in `web/src/pages/sales/InvoiceDetailPage.tsx`.
+  - `CR-025`: Fixed purchase bill number allocation order before multi-GSTIN check and tax recomputation in `backend/purchases/services.py`.
+
+- Authoritative Findings: [`FUNCTIONAL_CODE_REVIEW_FINDINGS1.md`](./FUNCTIONAL_CODE_REVIEW_FINDINGS1.md) (63 issues)
+- Remediation Report: [`REMEDIATION_REPORT_63_ISSUES.md`](./REMEDIATION_REPORT_63_ISSUES.md)
+- Implementation Plan: [`IMPLEMENTATION_FIX_PLAN_63_ISSUES.md`](./IMPLEMENTATION_FIX_PLAN_63_ISSUES.md)
+
+---
+
+## Quality review 2026-09-05 (R-001 … R-088)
+
+Live-code re-verification (not Wave BB-IDs). **Open: 88** (5 P0 · 27 P1 · 24 P2 · 18 UX · 14 PARTIAL).
+
+- Register (self-contained): [`FINDINGS_2026-09-05.md`](./FINDINGS_2026-09-05.md)
+- Implementation plan: [`FIX_PLAN_2026-09-05.md`](./FIX_PLAN_2026-09-05.md)
+
+Do not mint BB- numbers for these; R-IDs are the 5 Sep scheme. F-01…F-15 in the findings file are already fixed in tree.
+
+---
+
 ## Wave 22 Full Remediation (2026-08-06)
 
 Closed **64** issues BB-000695 … BB-000758 via sprints F0–F5. Evidence: test_wave22_f0_*.py … test_wave22_f5_*.py. Open in 695–758: **0**.
@@ -111,13 +153,25 @@ Closed **75** Open issues via Waves A–F remediation. **Open count: 0.** Deferr
 
 ## Totals (this register)
 
+> **BB-series only** (`BB-000001`…`BB-000758`). Does **not** include CR-001…089 or R-001…088. See the open-work rollup at the top of this file.
+
 | Metric | Count |
 |--------|------:|
-| **Total issues** | 758 |
+| **Total issues (BB)** | 758 |
 | Critical | 88 |
 | High | 270 |
 | Medium | 329 |
 | Low | 71 |
+
+### Status (BB-series)
+
+| Status | Count | Notes |
+|--------|------:|-------|
+| Resolved | ~627 | Historical wave closures |
+| Deferred-roadmap | ~51 | |
+| Deferred-ops | ~12 | |
+| Accepted | ~4 | |
+| **Open** | **~64** | Mostly Wave 22 re-audit residuals; **not** enumerated in one checklist here — search `**Status**` / `Open` in this file or use tooling. Do not confuse with CR/R open counts. |
 
 ### By Priority
 
@@ -163,6 +217,8 @@ Closed **75** Open issues via Waves A–F remediation. **Open count: 0.** Deferr
 | Correctness | 1 |
 
 ### By Module
+
+> **Unreliable for planning.** Case duplicates (`Web` 55 / `web` 14, `Sales`/`sales`, `Inventory`/`inventory`, …) and compound junk keys are tagging artifacts from multi-wave appends. Use CR/R module tables instead when scoping work.
 
 | Module | Count |
 |--------|------:|

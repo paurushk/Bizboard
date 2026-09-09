@@ -84,11 +84,17 @@ def party_intra_state(
     *,
     seller_state: str = "",
     seller_gstin: str = "",
+    supply_type: str = "",
 ) -> bool:
     """Intra/inter via normalized state codes (BB-000063), not raw free-text alone.
 
     Unresolvable free-text (or truly blank) is treated as blank for assume_local.
+    CR-010 / IGST Sec 7(5)(b): Export and SEZ supplies (SEZWP, SEZWOP, EXPWP, EXPWOP)
+    are strictly inter-state supplies (IGST) regardless of whether the supplier and
+    recipient share the same state.
     """
+    if is_export_or_sez_supply(supply_type):
+        return False
     if not place_of_supply_known(party_state=party_state, party_gstin=party_gstin):
         return bool(getattr(company, "assume_local_state_for_blank_party", False))
     return is_intra_state(

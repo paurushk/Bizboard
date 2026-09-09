@@ -116,6 +116,7 @@ def test_grand_total_change_requires_confirm(tenant_a):
     assert row.grand_total != Decimal("9999.00")
 
 
+@pytest.mark.no_invariant_check  # deliberately builds inconsistent state to test detection/rejection
 def test_flag_off_does_not_409_on_stale_header_total(tenant_a):
     company = _gst_ready(tenant_a.company, recompute=False)
     CompanyGstin.objects.create(
@@ -162,3 +163,40 @@ def test_purchase_complete_confirm_path(tenant_a):
         format="json",
     )
     assert ok.status_code == 200, ok.data
+
+
+def test_purchase_complete_multi_gstin_fails_before_number_generation(tenant_a):
+    """CR-025: On a tenant with multiple active GSTINs, completing a purchase invoice
+    without passing company_gstin must fail before allocating a document number,
+    avoiding burned/skipped sequence numbers.
+    """
+    from accounts.models import CompanyGstin
+    from purchases.models import PurchaseInvoice
+    from core.models import DocumentSeries
+
+    company = _gst_ready(tenant_a.company)
+    ho = CompanyGstin.objects.create(
+        company=company, gstin="29ABCDE1234F1ZW", state="Karnataka", is_primary=True, is_active=True,
+    )
+    branch = CompanyGstin.objects.create(
+        company=company, gstin="27AAAAA0000A1Z2", state="Maharashtra", is_primary=False, is_active=True,
+    )
+    product = make_product(company)
+    supplier = make_supplier(company, state="Karnataka", gstin="29AABCU9603R1ZJ")
+    draft = create_draft_purchase(tenant_a, supplier, [{"product": product.id, "quantity": "1", "unit_price": "50"}])
+    pk = _id(draft)
+
+    seq_before = list(DocumentSeries.objects.filter(company=company).values("id", "next_number"))
+
+    resp = tenant_a.client.post(f"/api/v1/purchases/invoices/{pk}/complete/")
+    assert resp.status_code == 400
+    assert "company_gstin is required" in str(resp.data)
+
+    # Document number must remain empty / unburned
+    inv = PurchaseInvoice.objects.get(pk=pk)
+    assert not inv.number
+    assert inv.status == PurchaseInvoice.Status.DRAFT
+
+    # Document sequences must not have advanced
+    seq_after = list(DocumentSeries.objects.filter(company=company).values("id", "next_number"))
+    assert seq_before == seq_after

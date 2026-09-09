@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -11,10 +11,15 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, isNetworkError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { enqueueDraft } from '@/offline/invoiceDraftCache';
-import { useStockOffline } from '@/pages/inventory/useStockOffline';
+import {
+  resolveOfflineStockCountConflict,
+  STOCK_COUNT_CONFLICT_EVENT,
+  useStockOffline,
+  type StockCountConflictDetail,
+} from '@/pages/inventory/useStockOffline';
 import { parseStockCountConflicts, type QtyConflict } from '@/pages/inventory/godownConflict';
 import { StockConflictModal } from '@/pages/inventory/StockConflictModal';
 import * as api from '@/api/resources';
@@ -50,8 +55,21 @@ export function StockCountPage() {
   const productSearch = useProductSearch({ activeOnly: true, selected: selectedProduct, cf: cfFilters });
   const [error, setError] = useState('');
   const [conflicts, setConflicts] = useState<QtyConflict[]>([]);
+  const [offlineConflict, setOfflineConflict] = useState<StockCountConflictDetail | null>(null);
   const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
+
+  // CR-143: offline flush 409 → open the same conflict modal as online post.
+  useEffect(() => {
+    const onConflict = (event: Event) => {
+      const detail = (event as CustomEvent<StockCountConflictDetail>).detail;
+      if (!detail?.conflicts?.length) return;
+      setOfflineConflict(detail);
+      setConflicts(detail.conflicts);
+    };
+    window.addEventListener(STOCK_COUNT_CONFLICT_EVENT, onConflict);
+    return () => window.removeEventListener(STOCK_COUNT_CONFLICT_EVENT, onConflict);
+  }, []);
 
   const create = useMutation({
     mutationFn: () => api.createStockCount({ warehouse: Number(warehouseId), notes }),
@@ -85,7 +103,7 @@ export function StockCountPage() {
     mutationFn: async (resolve?: 'KEEP_SERVER' | 'KEEP_LOCAL') => {
       const id = Number(active?.id);
       const key = `stock-count-${id}`;
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const queue = async () => {
         const companyId = user?.companyId;
         const userId = user?.id;
         if (!companyId || !userId) throw new Error(t('inventory.offlineNeedLogin'));
@@ -94,13 +112,22 @@ export function StockCountPage() {
           payload: { sessionId: id, lines: counted, resolveConflicts: resolve ?? '' },
           idempotencyKey: key,
         });
-        return { offline: true };
+        return { offline: true as const };
+      };
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return queue();
       }
-      return api.postStockCount(
-        id,
-        resolve ? { resolveConflicts: resolve } : {},
-        { idempotencyKey: key },
-      );
+      try {
+        return await api.postStockCount(
+          id,
+          resolve ? { resolveConflicts: resolve } : {},
+          { idempotencyKey: key },
+        );
+      } catch (err) {
+        // R-046: CSRF/network reject must queue, not drop the count.
+        if (isNetworkError(err)) return queue();
+        throw err;
+      }
     },
     onSuccess: (result) => {
       setConflicts([]);
@@ -187,9 +214,52 @@ export function StockCountPage() {
       <StockConflictModal
         open={conflicts.length > 0}
         conflicts={conflicts}
-        onCancel={() => setConflicts([])}
-        onKeepServer={() => post.mutate('KEEP_SERVER')}
-        onKeepLocal={() => post.mutate('KEEP_LOCAL')}
+        onCancel={() => {
+          setConflicts([]);
+          setOfflineConflict(null);
+        }}
+        onKeepServer={() => {
+          if (offlineConflict) {
+            void resolveOfflineStockCountConflict({
+              sessionId: offlineConflict.sessionId,
+              resolve: 'KEEP_SERVER',
+              idempotencyKey: offlineConflict.idempotencyKey,
+              companyId: offlineConflict.companyId,
+              userId: offlineConflict.userId,
+            })
+              .then(() => {
+                setConflicts([]);
+                setOfflineConflict(null);
+                setPendingCount((n) => Math.max(0, n - 1));
+                void qc.invalidateQueries({ queryKey: ['stock-counts'] });
+                void qc.invalidateQueries({ queryKey: ['stock'] });
+              })
+              .catch((err) => setError(getErrorMessage(err)));
+            return;
+          }
+          post.mutate('KEEP_SERVER');
+        }}
+        onKeepLocal={() => {
+          if (offlineConflict) {
+            void resolveOfflineStockCountConflict({
+              sessionId: offlineConflict.sessionId,
+              resolve: 'KEEP_LOCAL',
+              idempotencyKey: offlineConflict.idempotencyKey,
+              companyId: offlineConflict.companyId,
+              userId: offlineConflict.userId,
+            })
+              .then(() => {
+                setConflicts([]);
+                setOfflineConflict(null);
+                setPendingCount((n) => Math.max(0, n - 1));
+                void qc.invalidateQueries({ queryKey: ['stock-counts'] });
+                void qc.invalidateQueries({ queryKey: ['stock'] });
+              })
+              .catch((err) => setError(getErrorMessage(err)));
+            return;
+          }
+          post.mutate('KEEP_LOCAL');
+        }}
       />
       <DataTable
         rows={rows}

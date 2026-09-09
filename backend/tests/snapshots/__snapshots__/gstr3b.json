@@ -1,0 +1,191 @@
+{
+  "section_keys": [
+    "builder_version",
+    "company",
+    "date_from",
+    "date_to",
+    "disclaimer",
+    "inward_supplies",
+    "issues",
+    "itc",
+    "outward_supplies",
+    "period",
+    "return_type",
+    "table_3_2_inter_state_unregistered",
+    "tax_on_advances",
+    "tax_payable_summary"
+  ],
+  "shape": {
+    "builder_version": "<scalar>",
+    "company": {
+      "gstin": "<scalar>",
+      "name": "<scalar>",
+      "state": "<scalar>"
+    },
+    "date_from": "<scalar>",
+    "date_to": "<scalar>",
+    "disclaimer": "<scalar>",
+    "inward_supplies": {
+      "from_purchases": {
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "count": "<scalar>",
+        "igst": "<scalar>",
+        "sgst": "<scalar>",
+        "taxable_value": "<scalar>"
+      },
+      "reverse_charge": {
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "count": "<scalar>",
+        "igst": "<scalar>",
+        "sgst": "<scalar>",
+        "taxable_value": "<scalar>"
+      }
+    },
+    "issues": {
+      "_count": 1
+    },
+    "itc": {
+      "available_from_purchases": {
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "domestic_igst": "<scalar>",
+        "igst": "<scalar>",
+        "import_igst": "<scalar>",
+        "sgst": "<scalar>",
+        "total_tax": "<scalar>"
+      },
+      "books_itc": {
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "igst": "<scalar>",
+        "sgst": "<scalar>"
+      },
+      "claimable": "<scalar>",
+      "disclaimer": "<scalar>",
+      "from_gstr2b_matched": {
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "claimable": "<scalar>",
+        "igst": "<scalar>",
+        "sgst": "<scalar>",
+        "source": "<scalar>",
+        "total_tax": "<scalar>"
+      },
+      "import_itc": {
+        "cess": "<scalar>",
+        "count": "<scalar>",
+        "igst": "<scalar>",
+        "note": "<scalar>",
+        "section": "<scalar>",
+        "source": "<scalar>",
+        "total_tax": "<scalar>"
+      },
+      "manual_review": {
+        "_count": 3
+      },
+      "note": "<scalar>",
+      "provisional": "<scalar>",
+      "rcm_provisional": {
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "claimable": "<scalar>",
+        "count": "<scalar>",
+        "igst": "<scalar>",
+        "label": "<scalar>",
+        "note": "<scalar>",
+        "provisional": "<scalar>",
+        "sgst": "<scalar>",
+        "total_tax": "<scalar>"
+      },
+      "recommended_claimable": {
+        "basis": "<scalar>",
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "igst": "<scalar>",
+        "sgst": "<scalar>"
+      },
+      "unreviewed_itc": {
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "count": "<scalar>",
+        "igst": "<scalar>",
+        "note": "<scalar>",
+        "sgst": "<scalar>"
+      }
+    },
+    "outward_supplies": {
+      "a_taxable_other_than_zero_rated": {
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "igst": "<scalar>",
+        "label": "<scalar>",
+        "sgst": "<scalar>",
+        "taxable_value": "<scalar>"
+      },
+      "b_zero_rated": {
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "igst": "<scalar>",
+        "label": "<scalar>",
+        "sgst": "<scalar>",
+        "taxable_value": "<scalar>"
+      },
+      "c_nil_rated_exempt": {
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "igst": "<scalar>",
+        "label": "<scalar>",
+        "note": "<scalar>",
+        "sgst": "<scalar>",
+        "taxable_value": "<scalar>"
+      },
+      "cess": "<scalar>",
+      "cgst": "<scalar>",
+      "d_non_gst": {
+        "cess": "<scalar>",
+        "cgst": "<scalar>",
+        "igst": "<scalar>",
+        "label": "<scalar>",
+        "note": "<scalar>",
+        "sgst": "<scalar>",
+        "taxable_value": "<scalar>"
+      },
+      "igst": "<scalar>",
+      "sgst": "<scalar>",
+      "taxable_value": "<scalar>"
+    },
+    "period": "<scalar>",
+    "return_type": "<scalar>",
+    "table_3_2_inter_state_unregistered": {
+      "igst": "<scalar>",
+      "label": "<scalar>",
+      "rows": {
+        "_count": 0
+      },
+      "taxable_value": "<scalar>"
+    },
+    "tax_on_advances": {
+      "at": {
+        "_count": 0
+      },
+      "atadj": {
+        "_count": 0
+      },
+      "fileable": "<scalar>",
+      "note": "<scalar>",
+      "txpd": {
+        "_count": 1
+      }
+    },
+    "tax_payable_summary": {
+      "itc_available": "<scalar>",
+      "itc_claimable": "<scalar>",
+      "itc_provisional": "<scalar>",
+      "net_payable_hint": "<scalar>",
+      "note": "<scalar>",
+      "outward_tax": "<scalar>"
+    }
+  }
+}

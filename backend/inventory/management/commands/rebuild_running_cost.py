@@ -13,7 +13,8 @@ class Command(BaseCommand):
     help = (
         "Replay StockMovement into InventoryRunningCost (insert order). "
         "Fails if qty drifts from StockBalance. Optional month-end snapshots "
-        "for historical as_of above 10,000 movements."
+        "for historical as_of above 10,000 movements. "
+        "CR-059: for FIFO companies also runs verify_fifo_layers (warn-only)."
     )
 
     def add_arguments(self, parser):

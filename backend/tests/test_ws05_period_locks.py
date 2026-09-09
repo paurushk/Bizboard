@@ -11,9 +11,12 @@ import pytest
 from django.utils import timezone
 
 from accounting.models import Account, AccountingPeriod
-from accounting.services import seed_chart_of_accounts
+from accounting.services import PostingService, seed_chart_of_accounts
+from core.exceptions import BusinessRuleError
+from payments.services import PaymentService
 from reporting.gst_periods import soft_close_period
-from tests.test_sprint_a_accounting_p1 import books  # noqa: F401
+from tests.conftest import make_customer, make_supplier
+from tests.test_sprint_a_accounting_p1 import _completed_invoice, books  # noqa: F401
 
 pytestmark = pytest.mark.django_db
 
@@ -88,6 +91,76 @@ def test_stock_adjustment_blocked_in_locked_period(books):  # noqa: F811 (books 
         format="json",
     )
     assert resp.status_code == 400, resp.data  # B8-013
+
+
+def test_allocate_receipt_blocked_in_soft_closed_period(books):  # noqa: F811
+    """R-018: allocate_receipt gates on receipt_date; SOFT_CLOSED is 400."""
+    customer = make_customer(books.company)
+    invoice = _completed_invoice(books.company, customer, invoice_date="2026-04-10")
+    PostingService.post_sales_invoice(invoice, books.owner)
+    receipt = PaymentService.create_receipt(
+        company=books.company,
+        customer=customer,
+        amount=Decimal("118.00"),
+        mode="CASH",
+        receipt_date="2026-04-10",
+        user=books.owner,
+    )
+    AccountingPeriod.objects.create(
+        company=books.company,
+        name="Apr 2026",
+        start_date="2026-04-01",
+        end_date="2026-04-30",
+        status=AccountingPeriod.Status.SOFT_CLOSED,
+        created_by=books.owner,
+        updated_by=books.owner,
+    )
+    with pytest.raises(BusinessRuleError, match="SOFT_CLOSED|closed"):
+        PaymentService.allocate_receipt(
+            receipt=receipt, sales_invoice=invoice, amount=Decimal("118.00"), user=books.owner,
+        )
+    resp = books.client.post(
+        "/api/v1/payments/allocations/",
+        {"receipt": receipt.id, "sales_invoice": invoice.id, "amount": "118.00"},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.data
+
+
+def test_allocate_supplier_payment_blocked_in_soft_closed_period(books):  # noqa: F811
+    """R-018: allocate_supplier_payment gates on payment_date."""
+    from purchases.models import PurchaseInvoice
+
+    supplier = make_supplier(books.company)
+    invoice = PurchaseInvoice.objects.create(
+        company=books.company,
+        supplier=supplier,
+        status=PurchaseInvoice.Status.COMPLETED,
+        invoice_date="2026-04-10",
+        grand_total=Decimal("100.00"),
+        taxable_total=Decimal("100.00"),
+    )
+    payment = PaymentService.create_supplier_payment(
+        company=books.company,
+        supplier=supplier,
+        amount=Decimal("100.00"),
+        mode="CASH",
+        payment_date="2026-04-10",
+        user=books.owner,
+    )
+    AccountingPeriod.objects.create(
+        company=books.company,
+        name="Apr 2026",
+        start_date="2026-04-01",
+        end_date="2026-04-30",
+        status=AccountingPeriod.Status.SOFT_CLOSED,
+        created_by=books.owner,
+        updated_by=books.owner,
+    )
+    with pytest.raises(BusinessRuleError, match="SOFT_CLOSED|closed"):
+        PaymentService.allocate_supplier_payment(
+            payment=payment, purchase_invoice=invoice, amount=Decimal("100.00"), user=books.owner,
+        )
 
 
 # --------------------------------------------------------------------------- #

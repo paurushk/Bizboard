@@ -88,54 +88,54 @@ export function JournalsPage() {
       subtitle={t('phase.journalsSubtitle')}
       actions={
         <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
-          New voucher
+          {t('phase.newVoucher')}
         </Button>
       }
     >
       {error && !open ? <HelpErrorAlert message={error} /> : null}
       <DataTable
         rows={asRows(query.data)}
-        empty="No journals yet."
+        empty={t('phase.noJournals')}
         // F3-016: every journal ever posted comes back in one unbounded
         // fetch (BB-... listJournals) — window the DOM rows so a large
         // ledger doesn't render thousands of <TableRow>s at once.
         virtualized
         columns={[
-          { key: 'number', label: 'Number' },
-          { key: 'entryDate', label: 'Date' },
-          { key: 'status', label: 'Status', status: true },
-          { key: 'narration', label: 'Narration' },
+          { key: 'number', label: t('common.number') },
+          { key: 'entryDate', label: t('common.date') },
+          { key: 'status', label: t('common.status'), status: true },
+          { key: 'narration', label: t('phase.journalNarration') },
         ]}
         actions={(r) =>
           r.status === 'DRAFT' ? (
             <Button size="small" variant="contained" disabled={writesBlocked} onClick={() => setConfirm({ mode: 'post', id: Number(r.id) })}>
-              Post
+              {t('phase.journalPost')}
             </Button>
           ) : r.status === 'POSTED' ? (
             <Button size="small" color="warning" disabled={writesBlocked} onClick={() => setConfirm({ mode: 'reverse', id: Number(r.id) })}>
-              Reverse
+              {t('phase.journalReverse')}
             </Button>
           ) : null
         }
       />
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle>Journal voucher</DialogTitle>
+        <DialogTitle>{t('phase.journalVoucher')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               type="date"
-              label="Entry date"
+              label={t('phase.journalEntryDate')}
               value={entryDate}
               onChange={(e) => setEntryDate(e.target.value)}
               InputLabelProps={{ shrink: true }}
               sx={{ maxWidth: 220 }}
             />
-            <TextField label="Narration" value={narration} onChange={(e) => setNarration(e.target.value)} fullWidth />
+            <TextField label={t('phase.journalNarration')} value={narration} onChange={(e) => setNarration(e.target.value)} fullWidth />
             {lines.map((line, idx) => (
               <Stack key={idx} direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                 <TextField
                   select
-                  label="Account"
+                  label={t('phase.journalAccount')}
                   value={line.account}
                   onChange={(e) => {
                     const next = [...lines];
@@ -151,7 +151,7 @@ export function JournalsPage() {
                   ))}
                 </TextField>
                 <TextField
-                  label="Debit"
+                  label={t('phase.journalDebit')}
                   type="number"
                   inputProps={{ min: 0, step: 0.01 }}
                   value={line.debit}
@@ -164,7 +164,7 @@ export function JournalsPage() {
                   }}
                 />
                 <TextField
-                  label="Credit"
+                  label={t('phase.journalCredit')}
                   type="number"
                   inputProps={{ min: 0, step: 0.01 }}
                   value={line.credit}
@@ -179,31 +179,31 @@ export function JournalsPage() {
               </Stack>
             ))}
             <Button size="small" onClick={() => setLines([...lines, { account: '', debit: '', credit: '' }])} disabled={writesBlocked}>
-              Add line
+              {t('phase.journalAddLine')}
             </Button>
             <Alert severity={totals.balanced ? 'success' : 'warning'}>
-              Debit {formatMoney(totals.debit)} · Credit {formatMoney(totals.credit)}
-              {totals.balanced ? ' · Balanced' : ' · Not balanced'}
+              {t('phase.journalDebit')} {formatMoney(totals.debit)} · {t('phase.journalCredit')} {formatMoney(totals.credit)}
+              {totals.balanced ? ` · ${t('phase.journalBalanced')}` : ` · ${t('phase.journalNotBalanced')}`}
             </Alert>
             {error ? <HelpErrorAlert message={error} /> : null}
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button variant="contained" disabled={writesBlocked || !totals.balanced || create.isPending} onClick={() => create.mutate()}>
-            Save draft
+            {t('phase.journalSaveDraft')}
           </Button>
         </DialogActions>
       </Dialog>
       <ConfirmDialog
         open={confirm !== null}
-        title={confirm?.mode === 'reverse' ? 'Reverse this posted journal?' : 'Post this journal?'}
+        title={confirm?.mode === 'reverse' ? t('phase.journalReverseConfirm') : t('phase.journalPostConfirm')}
         body={
           confirm?.mode === 'reverse'
-            ? 'This writes a counter-entry to the general ledger. It cannot be undone.'
-            : 'This posts the voucher to the general ledger.'
+            ? t('phase.journalReverseBody')
+            : t('phase.journalPostBody')
         }
-        confirmLabel={confirm?.mode === 'reverse' ? 'Reverse' : 'Post'}
+        confirmLabel={confirm?.mode === 'reverse' ? t('phase.journalReverse') : t('phase.journalPost')}
         confirmColor={confirm?.mode === 'reverse' ? 'error' : 'primary'}
         confirming={confirm?.mode === 'reverse' ? reverse.isPending : post.isPending}
         onClose={() => setConfirm(null)}

@@ -143,17 +143,30 @@ export function AttentionQueuePreview({ limit = 5 }: { limit?: number }) {
   return (
     <Stack spacing={1}>
       {rows.map((row) => (
-        <Stack key={row.dedupeKey} direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-          <SeverityChip severity={row.severity} />
-          <Typography variant="body2" sx={{ flex: 1, minWidth: 160 }}>
-            {row.title}
-          </Typography>
-          {row.moneyImpactPaise ? (
-            <Typography variant="caption">{formatMoney(rupeesFromPaise(row.moneyImpactPaise))}</Typography>
-          ) : null}
-          <Button component={RouterLink} to={safeAppPath(row.actionHref, "/attention")} size="small">
-            {row.actionLabel || t('attention.fix')}
-          </Button>
+        <Stack
+          key={row.dedupeKey}
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          alignItems={{ xs: 'flex-start', sm: 'center' }}
+          justifyContent="space-between"
+          sx={{ py: 0.5, borderBottom: '1px solid', borderColor: 'divider' }}
+        >
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
+            <SeverityChip severity={row.severity} />
+            <Typography variant="body2">
+              {row.title}
+            </Typography>
+          </Stack>
+          <Stack direction="row" spacing={1} alignItems="center" alignSelf={{ xs: 'flex-end', sm: 'auto' }}>
+            {row.moneyImpactPaise ? (
+              <Typography variant="caption" color="text.secondary">
+                {formatMoney(rupeesFromPaise(row.moneyImpactPaise))}
+              </Typography>
+            ) : null}
+            <Button component={RouterLink} to={safeAppPath(row.actionHref, "/attention")} size="small">
+              {row.actionLabel || t('attention.fix')}
+            </Button>
+          </Stack>
         </Stack>
       ))}
       <Button component={RouterLink} to="/attention" size="small">

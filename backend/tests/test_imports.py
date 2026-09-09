@@ -366,7 +366,8 @@ def test_export_inventory_summary_sanitizes_formula_names(tenant_a):
     )
     resp = tenant_a.client.get("/api/v1/exports/inventory-summary/")
     assert resp.status_code == 200
-    body = resp.content.decode("utf-8")
+    content = getattr(resp, "content", None) or b"".join(resp.streaming_content)
+    body = content.decode("utf-8")
     assert "'=CMD|calc" in body
 
 
@@ -460,3 +461,21 @@ def test_tally_export_and_tenant_backup_sanitize_formula_names(tenant_a):
     assert "'=HYPERLINK" in csv_out
     backup = _csv_bytes([{"name": evil, "sku": "X"}]).decode("utf-8")
     assert "'=HYPERLINK" in backup
+
+
+def test_cr_016_duplicate_opening_stock_file_rejected(tenant_a):
+    """CR-016: Re-uploading an identical opening stock file that was committed must be rejected during validation."""
+    make_product(tenant_a.company, sku="CR16-SKU")
+    csv_content = b"sku,quantity,unit_cost\nCR16-SKU,10,50\n"
+
+    # Upload and commit once
+    job = _upload(tenant_a, "opening_stock", csv_content).data
+    assert job["status"] == "PREVIEWED"
+    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp.status_code == 200
+
+    # Re-uploading identical file must be rejected during validation
+    resp2 = _upload(tenant_a, "opening_stock", csv_content)
+    assert resp2.status_code == 400
+    assert "already committed" in str(resp2.data)
+

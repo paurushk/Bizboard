@@ -174,7 +174,7 @@ def test_bb_000736_cn_period_before_next_number(tenant_a):
     # Successful path (open period) must key series by GSTIN/FY when identity present.
     note.note_date = date(2026, 8, 1)
     note.save(update_fields=["note_date"])
-    SalesNotesService.complete_credit_note(note, tenant_a.owner)
+    SalesNotesService.complete_credit_note(note, tenant_a.owner, confirm_price_override=True)
     note.refresh_from_db()
     assert note.status == SalesCreditNote.Status.COMPLETED
     assert note.number

@@ -10,10 +10,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import secrets
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
+
+logger = logging.getLogger("bizboard.payments.gateway")
 
 from core.exceptions import BusinessRuleError
 from core.services.gsp_secrets import decrypt_gsp_credentials, encrypt_gsp_credentials
@@ -31,6 +34,13 @@ def _json_body(body: bytes) -> dict:
     except (ValueError, UnicodeDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _refund_event_map_v2() -> bool:
+    """R-002/R-003: classify refund.* by exact event name. Emergency off restores the old map."""
+    from django.conf import settings
+
+    return bool(getattr(settings, "PAYMENTS_REFUND_EVENT_MAP_V2", True))
 
 
 def _stable_refund_key(provider_payment_id: str, amount: Decimal) -> str:
@@ -59,6 +69,72 @@ def _payu_body(body: bytes) -> dict:
     if not pairs:
         return _json_body(body)
     return {k: v for k, v in pairs}
+
+
+def _as_money(raw) -> Decimal:
+    """R-020: rupee MDR / charge fields — never paise (unlike Razorpay `fee`)."""
+    if raw in (None, "", False):
+        return Decimal("0")
+    try:
+        return Decimal(str(raw).replace(",", "").strip()).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError, ArithmeticError):
+        return Decimal("0")
+
+
+def _parse_charges_blob(charges) -> Decimal:
+    """Cashfree `charges` may be a number, `{service_charge}`, or a nested dict."""
+    if charges in (None, "", False):
+        return Decimal("0")
+    if isinstance(charges, (int, float, str, Decimal)):
+        return _as_money(charges)
+    if isinstance(charges, dict):
+        for key in (
+            "payment_service_charge",
+            "service_charge",
+            "serviceCharge",
+            "fee",
+            "total",
+            "mdr",
+        ):
+            if charges.get(key) not in (None, ""):
+                val = _as_money(charges.get(key))
+                if val > 0:
+                    return val
+        for nested in charges.values():
+            if isinstance(nested, dict):
+                val = _parse_charges_blob(nested)
+                if val > 0:
+                    return val
+        return Decimal("0")
+    if isinstance(charges, list):
+        for item in charges:
+            val = _parse_charges_blob(item)
+            if val > 0:
+                return val
+        return Decimal("0")
+    return Decimal("0")
+
+
+def _cashfree_fee(payment: dict, link: dict, data: dict) -> Decimal:
+    """R-020: `payment_service_charge`, then `charges`."""
+    for obj in (payment, link, data):
+        if not isinstance(obj, dict):
+            continue
+        charge = _as_money(obj.get("payment_service_charge"))
+        if charge > 0:
+            return charge
+        charge = _parse_charges_blob(obj.get("charges"))
+        if charge > 0:
+            return charge
+    return Decimal("0")
+
+
+def _payu_fee(data: dict) -> Decimal:
+    """R-020: `additionalCharges`, then `disc`."""
+    extra = _as_money(data.get("additionalCharges"))
+    if extra > 0:
+        return extra
+    return _as_money(data.get("disc"))
 
 
 def get_disabled_providers() -> frozenset[str]:
@@ -112,9 +188,11 @@ class WebhookEvent:
     provider_payment_id: str
     amount: Decimal
     fee: Decimal
-    status: str  # CAPTURED | FAILED | REFUNDED
+    status: str  # CAPTURED | FAILED | REFUNDED | IGNORED
     payment_link_id: str
     raw: dict[str, Any]
+    provider_refund_id: str = ""
+    event_name: str = ""
 
 
 class PaymentGatewayAdapter(Protocol):
@@ -351,11 +429,35 @@ class RazorpayAdapter:
         # is the whole captured amount — reading it as the refund amount makes a
         # partial refund look like a full unwind. Only bare probe bodies (no
         # `event` key) fall back to entity-status inference.
+        provider_refund_id = str(refund.get("id") or "").strip()
         if event.startswith("refund."):
-            status = "REFUNDED"
             amount = _paise(refund.get("amount"))
             provider_payment_id = str(
                 refund.get("payment_id") or payment.get("id") or data.get("id") or ""
+            )
+            v2 = _refund_event_map_v2()
+            if v2:
+                if event == "refund.processed":
+                    status = "REFUNDED"
+                elif event == "refund.failed":
+                    status = "FAILED"
+                else:
+                    # refund.created (and any other refund.*) — no money mutation.
+                    status = "IGNORED"
+            else:
+                status = "REFUNDED"
+            if not provider_refund_id:
+                logger.error(
+                    "refund_id_missing payment_id=%s event=%s",
+                    provider_payment_id,
+                    event,
+                )
+            logger.info(
+                "refund_event_class=%s payment_id=%s refund_id=%s v2=%s",
+                event.split(".", 1)[-1] if event else "unknown",
+                provider_payment_id,
+                provider_refund_id or "-",
+                v2,
             )
         elif event == "payment.failed":
             status = "FAILED"
@@ -385,6 +487,8 @@ class RazorpayAdapter:
             status=status,
             payment_link_id=str(link.get("id") or data.get("payment_link_id") or ""),
             raw=data,
+            provider_refund_id=provider_refund_id if event.startswith("refund.") else "",
+            event_name=event,
         )
 
     def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]:
@@ -610,7 +714,7 @@ class CashfreeGateway:
         return WebhookEvent(
             provider_payment_id=order_id or payment_id,
             amount=amount,
-            fee=Decimal("0"),
+            fee=_cashfree_fee(payment, link, data),
             status=status_map.get(status_raw, status_raw),
             payment_link_id=str(link.get("link_id") or link.get("cf_link_id") or ""),
             raw=data,
@@ -794,7 +898,7 @@ class PayUGateway:
         return WebhookEvent(
             provider_payment_id=str(data.get("mihpayid") or data.get("payment_id") or ""),
             amount=amount,
-            fee=Decimal("0"),
+            fee=_payu_fee(data),
             status=status_map.get(status_raw, status_raw.upper()),
             payment_link_id=str(data.get("txnid") or data.get("productinfo") or ""),
             raw=data,

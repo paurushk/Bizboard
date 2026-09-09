@@ -24,4 +24,20 @@ describe('mapPreviewTotals (A-03)', () => {
     expect(totals.grandTotal).toBe(590);
     expect(totals.taxTotal).toBe(90);
   });
+
+  it('maps rcm_cess / rcmCgst from the preview JSON', () => {
+    const totals = mapPreviewTotals({
+      cgst_total: '0',
+      sgst_total: '0',
+      grand_total: '1000.00',
+      rcm_taxable: '1000.00',
+      rcm_cgst: '90.00',
+      rcm_sgst: '90.00',
+      rcmCess: '10.00',
+    });
+    expect(totals.rcmCgst).toBe(90);
+    expect(totals.rcmSgst).toBe(90);
+    expect(totals.rcmCess).toBe(10);
+    expect(totals.taxTotal).toBe(0);
+  });
 });

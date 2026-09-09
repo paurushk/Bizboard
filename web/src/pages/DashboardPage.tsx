@@ -110,6 +110,28 @@ export function DashboardPage() {
     : [];
 
   const topBiz = (bizAlerts.data ?? []).slice(0, 3);
+  const payablesAging = data.payablesAging ?? data.payables_aging;
+  const payablesAgingBuckets = payablesAging
+    ? [
+        { label: t('dashboard.agingCurrent'), value: agingBucket(payablesAging, ['current']) },
+        {
+          label: t('dashboard.aging1to30'),
+          value: agingBucket(payablesAging, ['days130', 'days1_30', 'days_1_30']),
+        },
+        {
+          label: t('dashboard.aging31to60'),
+          value: agingBucket(payablesAging, ['days3160', 'days31_60', 'days_31_60']),
+        },
+        {
+          label: t('dashboard.aging61to90'),
+          value: agingBucket(payablesAging, ['days6190', 'days61_90', 'days_61_90']),
+        },
+        {
+          label: t('dashboard.aging90plus'),
+          value: agingBucket(payablesAging, ['days90Plus', 'days_90_plus']),
+        },
+      ]
+    : [];
   const healthChip = health.data ? (
     <Chip
       component={RouterLink}
@@ -280,6 +302,23 @@ export function DashboardPage() {
             }}
           >
             {agingBuckets.map((bucket) => (
+              <KpiStat key={bucket.label} label={bucket.label} value={bucket.value} money dense />
+            ))}
+          </Box>
+        </Stack>
+      ) : null}
+
+      {payablesAgingBuckets.length > 0 ? (
+        <Stack spacing={1.5}>
+          <Typography variant="h6">{t('dashboard.payablesAging')}</Typography>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 1.5,
+              gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(5, 1fr)' },
+            }}
+          >
+            {payablesAgingBuckets.map((bucket) => (
               <KpiStat key={bucket.label} label={bucket.label} value={bucket.value} money dense />
             ))}
           </Box>

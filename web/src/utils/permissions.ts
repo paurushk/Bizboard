@@ -88,6 +88,11 @@ export function canCreatePayments(user: User | null): boolean {
   return isOwner(user.role) || user.canCreatePayments === true;
 }
 
+/** POS settles via receipts — needs sales create AND payments create (CR-003). */
+export function canAccessPos(user: User | null): boolean {
+  return canCreateSales(user) && canCreatePayments(user);
+}
+
 /** Receipts / recon: payers or financial-report viewers — not sales-view-only. */
 export function canViewPaymentSurfaces(user: User | null): boolean {
   if (!user || isViewer(user.role)) return false;

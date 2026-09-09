@@ -19,7 +19,7 @@ def _indian_fy_start_year(d) -> int:
 
 
 def _invoice_still_matches_2b(row, inv) -> bool:
-    """True when the linked PI still exists and tax/taxable/date still agree."""
+    """True when the linked PI still exists and tax/taxable/date/GSTIN still agree."""
     if inv is None:
         return False
     from purchases.models import PurchaseInvoice
@@ -42,6 +42,10 @@ def _invoice_still_matches_2b(row, inv) -> bool:
         return False
     if abs(Decimal(str(inv.taxable_total or 0)) - Decimal(str(row.taxable_value or 0))) > Decimal("1.00"):
         return False
+    inv_gstin = (getattr(getattr(inv, "supplier", None), "gstin", None) or "").strip().upper()
+    row_gstin = (getattr(row, "supplier_gstin", None) or "").strip().upper()
+    if row_gstin and inv_gstin != row_gstin:
+        return False
     if row.invoice_date and inv.invoice_date:
         if abs((inv.invoice_date - row.invoice_date).days) > 3:
             return False
@@ -61,7 +65,7 @@ def match_gstr2b_to_purchases(company, period: str, *, persist: bool = True) -> 
 
     rows = list(
         Gstr2bIngest.objects.filter(company=company, period=period).select_related(
-            "purchase_invoice"
+            "purchase_invoice", "purchase_invoice__supplier"
         )
     )
     matched = 0
@@ -165,6 +169,8 @@ def claimable_itc_from_2b(company, period: str, *, company_gstin_id=None) -> dic
     if company_gstin_id is not None:
         from accounts.models import CompanyGstin
 
+        gstin_obj = CompanyGstin.objects.filter(company=company, pk=company_gstin_id).first()
+        target_gstin = (gstin_obj.gstin if gstin_obj else "").strip().upper()
         primary = CompanyGstin.objects.filter(
             company=company, is_primary=True, is_active=True
         ).first()
@@ -172,9 +178,14 @@ def claimable_itc_from_2b(company, period: str, *, company_gstin_id=None) -> dic
             qs = qs.filter(
                 Q(purchase_invoice__company_gstin_id=company_gstin_id)
                 | Q(purchase_invoice__company_gstin_id__isnull=True)
+                | Q(raw__recipient_gstin=target_gstin)
             )
         else:
-            qs = qs.filter(purchase_invoice__company_gstin_id=company_gstin_id)
+            # CR-051: retain unlinked 2B rows whose recipient GSTIN matches the branch
+            qs = qs.filter(
+                Q(purchase_invoice__company_gstin_id=company_gstin_id)
+                | (Q(purchase_invoice__isnull=True) & Q(raw__recipient_gstin=target_gstin))
+            )
     agg = qs.aggregate(
         cgst=Sum("cgst"),
         sgst=Sum("sgst"),

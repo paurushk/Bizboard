@@ -1,0 +1,89 @@
+CR-001	POS-001	Critical	POS	Online cash retry remints idempotency key after partial success
+CR-002	POS-002	High	POS	Sale settlement is multi round-trip, not one server transaction
+CR-003	POS-003	High	POS	POS nav/route ignores `canCreatePayments` while receipt APIs require it
+CR-004	POS-004	High	POS	Offline walk-in customer create not bound to draft → duplicate parties on flush retry
+CR-005	POS-005	Medium	POS	Thermal PDF failure is silently swallowed
+CR-006	POS-006	Medium	POS	Offline flush success does not print thermal receipts
+CR-007	POS-007	Medium	POS	Tender gate uses client-computed totals; receipt books server `grandTotal`
+CR-008	POS-008	Medium	POS	`ENABLE_POS` is UI-only; sales money APIs ungated
+CR-009	POS-009	Medium	POS	Inclusive price mode: line table totals skip exclusive extraction
+CR-010	POS-010	Medium	POS	Unknown complete status clears cart without confirming completion
+CR-011	POS-011	Low	POS	Cash tendered / change never posted (display-only)
+CR-012	POS-012	Low	POS	POS qty control lacks 3dp money discipline / upper bound
+CR-013	POS-013	Low	POS	Stock chips use 60s cached balances (advisory only)
+CR-014	SALES-001	High	Sales	Concurrent sales returns can over-return stock
+CR-015	SALES-002	High	Sales	Recurring schedule permanently skips locked periods
+CR-016	SALES-003	High	Sales	Invoice list `balance` ignores credit/debit notes
+CR-017	SALES-004	Medium	Sales	Credit note (and auto-return CN) allowed on fully allocated invoices
+CR-018	SALES-005	Medium	Sales	Debit notes have no per-line quantity cap vs source invoice lines
+CR-019	SALES-006	Medium	Sales	Delivery challan complete does not gate closed periods
+CR-020	SALES-007	Medium	Sales	Confirmed SO → invoice drops reservation before invoice completion
+CR-021	SALES-008	Medium	Sales	Quotation totals ignore header discount / charges / round-off
+CR-022	SALES-009	Medium	Sales	Document chain is all-or-nothing (no partial convert)
+CR-023	SALES-010	Medium	Sales	`complete_invoice` atomic boundary: late period gate; PDF outside
+CR-024	SALES-011	Medium	Sales	Service still allows completed qty amend; API H9 forbids it
+CR-025	SALES-012	Low	Sales	IRN guard: cancel/amend mostly solid; FAILED+IRN asymmetry
+CR-026	SALES-013	Medium	Sales	CN `unit_price` override recalculates tax off source rate
+CR-027	SALES-014	Low	Sales	Recurring catch-up is one period per beat tick
+CR-028	SALES-015	Low	Sales	`_validate_lines` vs `bulk_create` / `full_clean`
+CR-029	SALES-016	Low	Sales	Receipt allocation concurrency / cancelled target (payments-owned, sales-adjacent)
+CR-030	PUR-001	High	Purchase	Purchase CN/DN `complete` has **no** `wrap_idempotent`. Scopes `purchase_credit_
+CR-031	PUR-002	High	Purchase	View calls `PostingService.post_note` **after** service already posts. Sales rem
+CR-032	PUR-003	High	Purchase	Complete **capitalizes `additional_charges` into stock `unit_cost` / FIFO layers
+CR-033	PUR-004	High	Purchase	Model says BCD is for “GL / landed-cost picture”; GL puts BCD (+ ineligible IGST
+CR-034	PUR-005	High	Purchase	Cancel blocks completed returns and open allocations, **not** completed credit/d
+CR-035	PUR-006	Medium	Purchase	Sales refuses cancel when draft/in-progress returns exist. Purchase does not.
+CR-036	PUR-007	High	Purchase	Locks return row, **not** source invoice. Qty headroom from unlocked aggregates 
+CR-037	PUR-008	High	Purchase	Overridden `get_permissions` **omit** `SubscriptionWritesAllowed`. Invoice/retur
+CR-038	PUR-009	Medium	Purchase	Purchase CN/DN serializers omit `additional_charges` (and related). Sales note s
+CR-039	PUR-010	Medium	Purchase	Note complete POSTs without Idempotency-Key. Invoice/return/payments use `userGe
+CR-040	PUR-011	Medium	Purchase	FAQ: foreign/import “not supported yet” / “hard block.” Code: NON_GST + complete
+CR-041	PUR-012	Medium	Purchase	All lines 0% GST → `purchase_type=NON_GST`. Exempt GST bills (still GST docs) an
+CR-042	PUR-013	Low	Purchase	Bill commit is **all-or-nothing** in one atomic (any line error aborts). Re-comm
+CR-043	PUR-014	Medium	Purchase	DN posts AP/inventory GL only. No stock qty/layer restamp for price uplift (unli
+CR-044	PUR-015	Medium	Purchase	Cancel reverses BoE JE even if completed purchases still link `bill_of_entry`. N
+CR-045	PUR-016	Medium	Purchase	Return lines lack unit snapshot; stock converts via invoice unit, headroom compa
+CR-046	PUR-017	Low	Purchase	Status/supplier query params passed raw; invoice list validates status enum and 
+CR-047	PUR-018	Low	Purchase	Allocation serializer scopes FKs by company; service requires `payment.supplier_
+CR-048	STK-001	Critical	Stock/Godown	Manual serial SOLD→RETURNED crashes (missing `StockMovement.serial_numbers`)
+CR-049	STK-002	High	Stock/Godown	Manual serial return design wrong even if STK-001 fixed (status + FIFO)
+CR-050	STK-003	High	Stock/Godown	Negative-stock policy inconsistent across invoice / batch / transfer / adjust / reserve
+CR-051	STK-004	High	Stock/Godown	WARN oversell: `InventoryRunningCost` floors at 0 while `StockBalance` goes negative
+CR-052	STK-005	High	Stock/Godown	Stock count (and transfer) skip closed-period gate that adjustments use
+CR-053	STK-006	Medium	Stock/Godown	Append-only hole: import void mutates `StockMovement.reference_type`
+CR-054	STK-007	Medium	Stock/Godown	Balance vs `sum(movements)`: rebuild exists, no runtime reconciliation
+CR-055	STK-008	Medium	Stock/Godown	Transfers: two-sided atomic OK; no in-transit; DRAFT does not reserve
+CR-056	STK-009	Medium	Stock/Godown	Stock-count conflict merge preserves movement history (by design)
+CR-057	STK-010	Medium	Stock/Godown	Serial scrap AVAILABLE always posts −1 even if available is 0
+CR-058	STK-011	Low	Stock/Godown	Default warehouse: unique constraint + IntegrityError fallbacks are mostly sound
+CR-059	STK-014	Medium	Stock/Godown	FIFO consume/replenish on document path; verification not automated
+CR-060	RPT-001	Critical	Reporting	Dashboard AR KPI vs AR aging use different ledgers when books are on
+CR-061	RPT-002	High	Reporting	AR aging allocation filter ≠ party AR document formula
+CR-062	RPT-003	Critical	Reporting	Inventory summary qty from StockBalance cache, not sum(StockMovement)
+CR-063	RPT-004	Critical	Reporting	Sales/purchase registers include CANCELLED documents by default
+CR-064	RPT-005	High	Reporting	Dashboard MTD purchases not net of purchase CNs/DNs
+CR-065	RPT-006	High	Reporting	Opening-balance exclusion inconsistent (notes vs is_opening_balance)
+CR-066	RPT-007	High	Reporting	product_sales / customer_sales ignore credit/debit notes
+CR-067	RPT-008	Medium	Reporting	Warehouse filter on registers not applied to note rows
+CR-068	RPT-009	Medium	Reporting	Inventory summary warehouse query param not int-normalized
+CR-069	RPT-010	Critical	Reporting	GSTR-3B net_payable_hint subtracts full 2B ITC, not recommended_claimable
+CR-070	RPT-011	High	Reporting	GSTR RCM line tax rebuilt in report path when line taxes are zero
+CR-071	RPT-012	High	Reporting	HSN section buckets use gst_rate, rate tables use applied_rate
+CR-072	RPT-013	High	Reporting	Bill of Entry ITC period filter is Python-side full scan
+CR-073	RPT-014	Medium	Reporting	GSTR-9 Table 8 note still describes obsolete import heuristic
+CR-074	RPT-015	High	Reporting	Exports and cash book materialize full payloads (no streaming)
+CR-075	RPT-016	Medium	Reporting	Cancelled-numbers register N+1 + loads all cancelled docs
+CR-076	RPT-017	Medium	Reporting	Cash book (receipts/payments) ≠ GL cash-flow aid
+CR-077	RPT-018	Medium	Reporting	Accounting cash_flow iterates every cash journal line in Python
+CR-078	ACC-001	Critical	Accounting	Journal lines created outside entry savepoint
+CR-079	ACC-002	High	Accounting	`PostingService.reverse` not atomic with status flip
+CR-080	ACC-003	High	Accounting	`PostingService.post` ignores GST period locks
+CR-081	ACC-004	High	Accounting	Period close vs concurrent post (TOCTOU)
+CR-082	ACC-005	High	Accounting	Dual ledger can diverge; health check does not compare documents↔GL
+CR-083	ACC-006	High	Accounting	Purchase credit/debit notes do not reverse TDS payable (2265)
+CR-084	ACC-007	Medium	Accounting	TDS amount-vs-rate override is silent (unlike TCS 206C)
+CR-085	ACC-008	Medium	Accounting	Cess GL present; purchase tax drift weaker than sales
+CR-086	ACC-009	Medium	Accounting	Manual vouchers: balance OK; `books_start_date` bypassed
+CR-087	ACC-010	High	Accounting	`backfill_missing_postings` / `backfill_accounting_postings` safety gaps
+CR-088	ACC-011	Medium	Accounting	Balance check does not quantize lines to 2 dp before commit
+CR-089	ACC-012	Low	Accounting	Feature-flag gating: UI dual-key; API is `accounting_enabled` only

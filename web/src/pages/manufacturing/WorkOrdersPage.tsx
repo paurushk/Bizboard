@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -208,6 +209,7 @@ function WorkOrdersPageInner() {
   return (
     <Stack spacing={2}>
       <MvpModuleBanner module="manufacturing" />
+      <Alert severity="warning">{t('erp.serialsRequiredBeforeRelease')}</Alert>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h4">{t('nav.workOrders')}</Typography>
         <Button variant="contained" onClick={openCreate}>
@@ -416,6 +418,9 @@ function WorkOrdersPageInner() {
             <Typography variant="body2">
               {confirm?.action === 'release' ? t('erp.confirmReleaseWo') : t('erp.confirmCompleteWo')}
             </Typography>
+            {confirm?.action === 'release' ? (
+              <Alert severity="warning">{t('erp.serialsRequiredBeforeRelease')}</Alert>
+            ) : null}
             {confirm?.action === 'release' ? (
               <TextField
                 label={t('erp.componentSerials')}

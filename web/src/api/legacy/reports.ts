@@ -98,6 +98,37 @@ export async function getInventorySummary(): Promise<ReportResponse> {
   }, { rows: [] });
 }
 
+export async function getCmp08(params: { period: string }): Promise<Record<string, unknown>> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/reports/cmp08/', { params: { period: params.period } });
+    return unwrapData<Record<string, unknown>>(data);
+  }, {
+    period: params.period,
+    aid_kind: 'composition_cmp08',
+    table_1_outward_taxable: '0',
+    table_2_inward_rcm_taxable: '0',
+    table_2_inward_rcm_tax: '0',
+    table_3_tax_payable: '0',
+    composition_rate: '0.01',
+    disclaimer: 'CMP-08 aid (mock).',
+  });
+}
+
+export async function getGstr4(params: { fy: string }): Promise<Record<string, unknown>> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/reports/gstr4/', { params: { fy: params.fy } });
+    return unwrapData<Record<string, unknown>>(data);
+  }, {
+    fy: params.fy,
+    aid_kind: 'composition_gstr4',
+    supported: false,
+    disclaimer: 'GSTR-4 worksheet aid — not a portal-complete annual return.',
+    tables: {
+      note: 'GSTR-4 tables are not implemented — this is a composition worksheet stub, not a portal file.',
+    },
+  });
+}
+
 export async function getGstReturn(
   kind: 'gstr1' | 'gstr3b' | 'gstr6' | 'gstr7' | 'gstr8',
   params: { period: string; persist?: boolean; companyGstin?: string | number },

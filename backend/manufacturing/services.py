@@ -235,7 +235,8 @@ def release_work_order(wo, user, *, component_serials=None):
                 updates.append("batch")
             line.save(update_fields=updates)
     wo.status = WorkOrder.Status.RELEASED
-    wo.released_at = wo.released_at or gate_date
+    if wo.released_at is None:
+        wo.released_at = timezone.now().date()
     wo.updated_by = user
     wo.save(update_fields=["status", "warehouse", "released_at", "updated_at", "updated_by"])
     if wo.company.accounting_enabled:
@@ -368,13 +369,29 @@ def cancel_work_order(wo, user):
         raise BusinessRuleError("Only released or completed work orders can be cancelled.")
     warehouse = wo.warehouse or InventoryService.default_warehouse(wo.company)
     if wo.status == WorkOrder.Status.COMPLETED:
+        # CR-014: Ensure finished goods have not already been consumed or sold before reversing
+        fg_moves = list(
+            StockMovement.objects.filter(
+                company=wo.company,
+                reference_type="work_order",
+                reference_id=str(wo.id),
+                movement_type=MovementType.MANUFACTURE_RECEIPT,
+            )
+        )
+        for move in fg_moves:
+            avail = InventoryService.available_quantity(
+                wo.company,
+                move.product,
+                warehouse=move.warehouse or warehouse,
+                batch=move.batch,
+            )
+            if avail < abs(move.quantity):
+                raise BusinessRuleError(
+                    f"Cannot cancel work order: finished goods for '{move.product.name}' "
+                    f"have already been issued or sold (available {avail}, required {abs(move.quantity)})."
+                )
         # BB-000724: retire the specific MANUFACTURE_RECEIPT layer (not FIFO-oldest).
-        for move in StockMovement.objects.filter(
-            company=wo.company,
-            reference_type="work_order",
-            reference_id=str(wo.id),
-            movement_type=MovementType.MANUFACTURE_RECEIPT,
-        ):
+        for move in fg_moves:
             InventoryService.post_movement(
                 company=wo.company,
                 product=move.product,

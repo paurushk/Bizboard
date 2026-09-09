@@ -25,6 +25,7 @@ local demos — see `web/.env.example`.
 (sandbox submit is preview only), GSTR-2B ITC match, WhatsApp beyond share-link,
 native mobile, Postgres RLS, full perpetual FIFO COGS, Manufacturing,
 Payroll, CRM, multi-company / multi-branch GSTIN, or live bidirectional Tally sync.
+(BB-000591: Not Zoho / full enterprise ERP replacement; tailored for fast Indian retail billing).
 
 The approved scope and acceptance criteria are in
 [`MVP_IMPLEMENTATION_PLAN.md`](MVP_IMPLEMENTATION_PLAN.md).
@@ -36,6 +37,23 @@ implementation plan
 Wave 0 audit [`docs/pilot/WAVE0_AUDIT.md`](docs/pilot/WAVE0_AUDIT.md),
 go/no-go [`docs/pilot/GO_NO_GO.md`](docs/pilot/GO_NO_GO.md).
 Pilot fixtures: `python manage.py seed_pilot_fixtures`.
+
+
+## Freeze status
+
+BizBoard is entering a **freeze → real-user validation** phase. The authoritative,
+workflow-level scope — SUPPORTED / NOT SUPPORTED / KNOWN LIMITATIONS, the frozen
+feature-flag profile, and the open founder decisions — is
+[`docs/FREEZE_SCOPE.md`](docs/FREEZE_SCOPE.md). It supersedes the "Module status"
+table below and everything under `docs/reviews/` for scope purposes.
+
+- Frozen flag profile: [`backend/.env.pilot.example`](backend/.env.pilot.example) +
+  [`web/.env.pilot.example`](web/.env.pilot.example).
+- During the freeze, only bug fixes, Freeze-Gate-driven correctness fixes, and the
+  Freeze Gate machinery merge to `main`. No new features until real-user
+  validation completes.
+- `docs/reviews/` is history, not scope — see
+  [`docs/reviews/README.md`](docs/reviews/README.md).
 
 
 ## First-run onboarding

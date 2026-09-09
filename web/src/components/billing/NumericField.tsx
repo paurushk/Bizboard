@@ -9,7 +9,11 @@ export function CompactField(props: ComponentProps<typeof TextField>) {
 function formatNumericText(value: number, decimals?: number): string {
   if (!Number.isFinite(value)) return '';
   if (value === 0) return '';
-  if (decimals != null) return String(roundMoney(value));
+  if (decimals != null) {
+    if (decimals === 2) return String(roundMoney(value));
+    const factor = 10 ** decimals;
+    return String(Math.round((value + Number.EPSILON) * factor) / factor);
+  }
   return String(value);
 }
 
@@ -23,7 +27,12 @@ function parseNumericText(
   if (!Number.isFinite(n)) return opts.emptyAs;
   let clamped = Math.max(opts.min, n);
   if (opts.max != null) clamped = Math.min(opts.max, clamped);
-  return opts.decimals != null ? roundMoney(clamped) : clamped;
+  if (opts.decimals != null) {
+    if (opts.decimals === 2) return roundMoney(clamped);
+    const factor = 10 ** opts.decimals;
+    return Math.round((clamped + Number.EPSILON) * factor) / factor;
+  }
+  return clamped;
 }
 
 /** Text decimal field — avoids leading-zero glitch of controlled type="number". */

@@ -151,16 +151,14 @@ export function LoginPage() {
         <Stack spacing={2}>
           <Typography variant="h4">{t('app.name')}</Typography>
           <Typography color="text.secondary">{t('auth.loginTitle')}</Typography>
-          {searchParams.get('registered') === 'pending' ? (
-            <Alert severity="info">{t('auth.registerPending')}</Alert>
-          ) : searchParams.get('registered') === '1' ? (
-            <Alert severity="success">{t('auth.registerSuccess')}</Alert>
+          {searchParams.get('registered') === 'pending' || searchParams.get('registered') === '1' ? (
+            <Alert severity="success">{t('auth.registerThenLogin')}</Alert>
           ) : null}
           {searchParams.get('invited') === '1' ? (
             <Alert severity="success">{t('auth.inviteAccepted')}</Alert>
           ) : null}
           {otpEnabled ? (
-            <Tabs value={tab} onChange={(_, v) => setTab(v)}>
+            <Tabs value={tab} onChange={(_, v) => setTab(v)} aria-label={t('auth.loginTabs')}>
               <Tab label={t('auth.passwordLogin')} />
               <Tab label={t('auth.otpLogin')} />
             </Tabs>

@@ -31,6 +31,8 @@ from .serializers import (
 from .services import BooksHealthService, PostingService, seed_chart_of_accounts
 
 
+# CR-089: Enabling books seeds the CoA. Historical documents created while
+# books were disabled require running backfill_accounting_postings to generate GL entries.
 class AccountingEnabledMixin:
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -89,8 +91,12 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         serializer.save(company=self.company, updated_by=self.request.user)
 
     @action(detail=True, methods=["post"], url_path="soft-close")
+    @transaction.atomic
     def soft_close(self, request, pk=None):
-        period = self.get_object()
+        # CR-081: lock period row so concurrent PostingService.post waits.
+        from django.shortcuts import get_object_or_404
+
+        period = get_object_or_404(self.get_queryset().select_for_update(), pk=pk)
         if period.status != AccountingPeriod.Status.OPEN:
             raise BusinessRuleError("Only open periods can be soft closed.")
         BooksHealthService.assert_period_close_allowed(
@@ -99,11 +105,21 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         period.status = AccountingPeriod.Status.SOFT_CLOSED
         period.updated_by = request.user
         period.save(update_fields=["status", "updated_by", "updated_at"])
-        return Response(self.get_serializer(period).data)
+        from reporting.gst_periods import gst_period_open_warnings
+
+        data = self.get_serializer(period).data
+        data["warnings"] = gst_period_open_warnings(
+            self.company, period.start_date, period.end_date,
+        )
+        return Response(data)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def close(self, request, pk=None):
-        period = self.get_object()
+        # CR-081: lock period row so concurrent PostingService.post waits.
+        from django.shortcuts import get_object_or_404
+
+        period = get_object_or_404(self.get_queryset().select_for_update(), pk=pk)
         if period.status == AccountingPeriod.Status.CLOSED:
             raise BusinessRuleError("Period is already closed.")
         # B1-022: no non-contiguous close — an earlier OPEN period would let
@@ -123,7 +139,13 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         period.status = AccountingPeriod.Status.CLOSED
         period.updated_by = request.user
         period.save(update_fields=["status", "updated_by", "updated_at"])
-        return Response(self.get_serializer(period).data)
+        from reporting.gst_periods import gst_period_open_warnings
+
+        data = self.get_serializer(period).data
+        data["warnings"] = gst_period_open_warnings(
+            self.company, period.start_date, period.end_date,
+        )
+        return Response(data)
 
 
 class CostCenterViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
@@ -207,7 +229,9 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         return Response(self.get_serializer(entry).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def post(self, request, pk=None):
+        # CR-156: assert + status flip in one atomic so soft_close cannot race.
         entry = self.get_object()
         if entry.status != JournalEntry.Status.DRAFT:
             raise BusinessRuleError("Only draft journals can be posted.")
@@ -220,6 +244,13 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         from reporting.gst_periods import assert_period_allows_money_amend
 
         assert_period_allows_money_amend(self.company, entry.entry_date)
+        # CR-086: manual journals respect books_start_date (PostingService.post parity).
+        cutover = getattr(self.company, "books_start_date", None)
+        if cutover and entry.entry_date and entry.entry_date < cutover:
+            raise BusinessRuleError(
+                f"{entry.entry_date} is before the books start date ({cutover}). "
+                "Manual journals cannot post before cutover."
+            )
         entry.status = JournalEntry.Status.POSTED
         entry.source_type, entry.source_id, entry.purpose = "MANUAL_JOURNAL", entry.id, "POST"
         entry.posted_at, entry.posted_by = timezone.now(), request.user
@@ -227,7 +258,9 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         return Response(self.get_serializer(entry).data)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def reverse(self, request, pk=None):
+        # CR-079: reverse JE + status flip share one transaction with PostingService.reverse.
         return Response(self.get_serializer(PostingService.reverse(self.get_object(), request.user)).data)
 
     @action(detail=False, methods=["get"], url_path="unreconciled-lines")

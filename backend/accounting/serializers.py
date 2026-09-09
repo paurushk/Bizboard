@@ -2,11 +2,20 @@ from rest_framework import serializers
 
 from core.permissions import get_company_user
 from core.serializers import CompanyPrimaryKeyRelatedField
+from masters.models import Customer, Supplier
+from payments.models import BankAccount
 
 from .models import Account, AccountingPeriod, BankReconSession, CostCenter, FixedAsset, JournalEntry, JournalLine
 
 
 class AccountSerializer(serializers.ModelSerializer):
+    parent = CompanyPrimaryKeyRelatedField(
+        queryset=Account.objects.all(), required=False, allow_null=True
+    )
+    bank_account = CompanyPrimaryKeyRelatedField(
+        queryset=BankAccount.objects.all(), required=False, allow_null=True
+    )
+
     class Meta:
         model = Account
         fields = ["id", "code", "name", "type", "parent", "is_system", "is_control", "bank_account", "is_active"]
@@ -14,11 +23,26 @@ class AccountSerializer(serializers.ModelSerializer):
 
 
 class AccountingPeriodSerializer(serializers.ModelSerializer):
+    gst_period_status = serializers.SerializerMethodField()
+
     class Meta:
         model = AccountingPeriod
-        fields = ["id", "name", "start_date", "end_date", "status"]
+        fields = ["id", "name", "start_date", "end_date", "status", "gst_period_status"]
+        read_only_fields = ["status", "gst_period_status"]
+
+    def get_gst_period_status(self, obj):
+        from reporting.models import GstReturnPeriod
+
+        period = f"{obj.start_date.year:04d}-{obj.start_date.month:02d}"
+        gst = GstReturnPeriod.objects.filter(company_id=obj.company_id, period=period).first()
+        return gst.status if gst is not None else GstReturnPeriod.Status.OPEN
 
     def validate(self, attrs):
+        raw = getattr(self, "initial_data", None) or {}
+        if self.instance is not None and hasattr(raw, "__contains__") and "status" in raw:
+            raise serializers.ValidationError(
+                {"status": "Use POST /soft-close/ or /close/ to change period status."}
+            )
         # ACC-05: no overlapping periods per company — an overlapping OPEN+CLOSED
         # pair makes "is this date in a closed period?" and every period-scoped
         # report ambiguous.
@@ -57,6 +81,10 @@ class AccountingPeriodSerializer(serializers.ModelSerializer):
 
 
 class CostCenterSerializer(serializers.ModelSerializer):
+    parent = CompanyPrimaryKeyRelatedField(
+        queryset=CostCenter.objects.all(), required=False, allow_null=True
+    )
+
     class Meta:
         model = CostCenter
         fields = ["id", "code", "name", "parent", "is_active"]
@@ -67,12 +95,22 @@ class JournalLineSerializer(serializers.ModelSerializer):
     cost_center = CompanyPrimaryKeyRelatedField(
         queryset=CostCenter.objects.all(), required=False, allow_null=True,
     )
+    customer = CompanyPrimaryKeyRelatedField(
+        queryset=Customer.objects.all(), required=False, allow_null=True,
+    )
+    supplier = CompanyPrimaryKeyRelatedField(
+        queryset=Supplier.objects.all(), required=False, allow_null=True,
+    )
 
     class Meta:
         model = JournalLine
         # B1-003: bank_statement_line is set only by the `match` action, never
         # by the client — an un-scoped writable FK here was a cross-tenant IDOR.
-        fields = ["id", "account", "debit", "credit", "cost_center", "dimension", "bank_statement_line", "reconciled_at"]
+        # CR-161: customer and supplier exposed for party-tagged manual journals.
+        fields = [
+            "id", "account", "debit", "credit", "cost_center", "dimension",
+            "customer", "supplier", "bank_statement_line", "reconciled_at",
+        ]
         read_only_fields = ["reconciled_at", "bank_statement_line"]
 
     def _company(self):
@@ -82,12 +120,43 @@ class JournalLineSerializer(serializers.ModelSerializer):
         cu = get_company_user(request)
         return cu.company if cu else None
 
+    # CR-161: party sub-ledger control accounts — a manual line touching one of
+    # these must carry the matching party tag, otherwise the line silently
+    # inflates the GL control balance vs the tagged party ledger / docs↔GL recon.
+    # Other control accounts (Cash 1100, Inventory 1400, tax heads, 3100/3200
+    # equity, …) stay manually postable — contra, opening balances and
+    # adjustments legitimately hit them.
+    _PARTY_CONTROL_CODES = {"1200", "2100", "2300", "1250"}
+    _CUSTOMER_CONTROL_CODES = {"1200", "2300"}
+    _SUPPLIER_CONTROL_CODES = {"2100", "1250"}
+
     def validate_account(self, account):
         # BB-000276: account must belong to the active company.
         company = self._company()
         if company is not None and account.company_id != company.id:
             raise serializers.ValidationError("Account must belong to this company.")
         return account
+
+    def validate(self, attrs):
+        # CR-161: enforce party tagging on AR/AP/advance control lines.
+        account = attrs.get("account") or getattr(self.instance, "account", None)
+        code = getattr(account, "code", "") or ""
+        customer = attrs["customer"] if "customer" in attrs else getattr(self.instance, "customer", None)
+        supplier = attrs["supplier"] if "supplier" in attrs else getattr(self.instance, "supplier", None)
+        if code in self._PARTY_CONTROL_CODES and customer is None and supplier is None:
+            raise serializers.ValidationError(
+                f"Account '{code}' is a party control account — tag the line with a "
+                "customer or supplier so the sub-ledger stays reconciled."
+            )
+        if code in self._CUSTOMER_CONTROL_CODES and supplier is not None:
+            raise serializers.ValidationError(
+                f"Account '{code}' is a receivable/customer-advance account — tag a customer, not a supplier."
+            )
+        if code in self._SUPPLIER_CONTROL_CODES and customer is not None:
+            raise serializers.ValidationError(
+                f"Account '{code}' is a payable/supplier-advance account — tag a supplier, not a customer."
+            )
+        return attrs
 
     def validate_cost_center(self, cost_center):
         if cost_center is None:
@@ -96,6 +165,22 @@ class JournalLineSerializer(serializers.ModelSerializer):
         if company is not None and cost_center.company_id != company.id:
             raise serializers.ValidationError("Cost center must belong to this company.")
         return cost_center
+
+    def validate_customer(self, customer):
+        if customer is None:
+            return customer
+        company = self._company()
+        if company is not None and customer.company_id != company.id:
+            raise serializers.ValidationError("Customer must belong to this company.")
+        return customer
+
+    def validate_supplier(self, supplier):
+        if supplier is None:
+            return supplier
+        company = self._company()
+        if company is not None and supplier.company_id != company.id:
+            raise serializers.ValidationError("Supplier must belong to this company.")
+        return supplier
 
 
 class JournalEntrySerializer(serializers.ModelSerializer):
@@ -142,6 +227,16 @@ class JournalEntrySerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         {"lines": "Cost center must belong to this company."}
                     )
+                customer = line.get("customer")
+                if customer is not None and customer.company_id != company.id:
+                    raise serializers.ValidationError(
+                        {"lines": "Customer must belong to this company."}
+                    )
+                supplier = line.get("supplier")
+                if supplier is not None and supplier.company_id != company.id:
+                    raise serializers.ValidationError(
+                        {"lines": "Supplier must belong to this company."}
+                    )
         return attrs
 
 
@@ -171,6 +266,15 @@ class BankReconSessionSerializer(serializers.ModelSerializer):
 class FixedAssetSerializer(serializers.ModelSerializer):
     monthly_depreciation = serializers.DecimalField(max_digits=16, decimal_places=2, read_only=True)
     written_down_value = serializers.DecimalField(max_digits=16, decimal_places=2, read_only=True)
+    asset_account = CompanyPrimaryKeyRelatedField(
+        queryset=Account.objects.all(), required=False, allow_null=True
+    )
+    accumulated_depreciation_account = CompanyPrimaryKeyRelatedField(
+        queryset=Account.objects.all(), required=False, allow_null=True
+    )
+    depreciation_expense_account = CompanyPrimaryKeyRelatedField(
+        queryset=Account.objects.all(), required=False, allow_null=True
+    )
 
     class Meta:
         model = FixedAsset

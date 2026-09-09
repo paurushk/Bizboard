@@ -11,6 +11,7 @@ from core.services.h9_amend import (
     lines_prices_unchanged,
 )
 from core.serializers import CompanyPrimaryKeyRelatedField
+from inventory.models import BatchLot
 from masters.models import Customer, Product
 
 from .models import (
@@ -48,6 +49,9 @@ class _BaseLineSerializer(serializers.ModelSerializer):
 
 
 class SalesItemSerializer(_BaseLineSerializer):
+    batch = CompanyPrimaryKeyRelatedField(
+        queryset=BatchLot.objects.all(), required=False, allow_null=True
+    )
     # Override the model field so DRF does not emit a generic `invalid` before
     # `_validate_lines` — Why? needs HelpCode.INVALID_GST_RATE on create/edit.
     gst_rate = serializers.DecimalField(max_digits=5, decimal_places=2, required=False)
@@ -117,7 +121,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "supply_type", "company_gstin", "is_reverse_charge",
             "rcm_taxable", "rcm_cgst", "rcm_sgst", "rcm_igst", "rcm_cess",
             "ecommerce_operator_gstin",
-            "tcs_section", "tcs_rate", "tcs_amount",
+            "tcs_section", "tcs_rate", "tcs_amount", "tcs_amount_manual",
             "received", "balance", "is_opening_balance",
             "completed_at", "cancelled_at", "created_at", "updated_at",
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
@@ -132,6 +136,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
             "whatsapp_sent_at", "whatsapp_offer",
             "payment_state",
+            "tcs_amount_manual",
         ] + TOTAL_READONLY + RCM_READONLY
 
     def _receivable(self, obj):
@@ -148,11 +153,13 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         receivable = self._receivable(obj)
         if obj.status == SalesInvoice.Status.DRAFT:
             return receivable
-        allocated = getattr(obj, "_allocated", None)
-        if allocated is not None and self.context.get("view") and getattr(
+        # CR-016: list uses CN/DN-aware outstanding (bulk-attached on the view),
+        # not grand_total − allocations only.
+        list_outstanding = getattr(obj, "_list_outstanding", None)
+        if list_outstanding is not None and self.context.get("view") and getattr(
             self.context["view"], "action", None
         ) == "list":
-            return max(receivable - Decimal(str(allocated or 0)), Decimal("0"))
+            return Decimal(str(list_outstanding))
         from ledgers.services import LedgerService
 
         return LedgerService.sales_invoice_outstanding(obj)
@@ -296,25 +303,10 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             from reporting.gst_periods import assert_period_allows_money_amend
 
             assert_period_allows_money_amend(instance.company, instance.invoice_date)
-            # Live e-Invoice IRN: amend would desync portal — cancel IRN or use CN/DN.
-            einvoice_status = getattr(instance, "einvoice_status", None)
-            irn = (getattr(instance, "irn", None) or "").strip()
-            live_irn = einvoice_status in (
-                SalesInvoice.EInvoiceStatus.GENERATED,
-                SalesInvoice.EInvoiceStatus.MANUAL_IRN,
-            ) or (
-                irn
-                and einvoice_status
-                not in (
-                    SalesInvoice.EInvoiceStatus.CANCELLED,
-                    SalesInvoice.EInvoiceStatus.NONE,
-                )
-            )
-            if live_irn:
-                raise BusinessRuleError(
-                    "Cannot amend an invoice with an e-Invoice IRN. "
-                    "Cancel the IRN first, or issue a credit/debit note instead."
-                )
+            # CR-025: unify amend/cancel predicates via assert_no_live_irn (treat FAILED as non-live)
+            from sales.irn_guard import assert_no_live_irn
+
+            assert_no_live_irn(instance, kind="invoice")
             cu = get_company_user(request)
             is_owner = cu is not None and cu.role == "OWNER"
             if not confirm_amend or not is_owner:
@@ -573,9 +565,11 @@ class RecurringInvoiceScheduleSerializer(CompanyScopedSerializerMixin, serialize
         return value if isinstance(value, dict) else {"items": value}
 
     def validate(self, attrs):
-        # B2-009: capture the intended day-of-month so the monthly advance can
-        # clamp from the anchor, not from an already-clamped date.
+        # B2-009 / CR-015: capture intended day-of-month in local time (IST) so monthly advance
+        # clamps from the local day, not UTC day which shifts near midnight.
         nra = attrs.get("next_run_at")
         if nra is not None and not self.partial:
-            attrs["anchor_day"] = nra.day
+            from django.utils import timezone
+
+            attrs["anchor_day"] = timezone.localtime(nra).day
         return attrs

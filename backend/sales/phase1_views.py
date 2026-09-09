@@ -2,6 +2,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from billing.permissions import SubscriptionWritesAllowed
 from core.exceptions import BusinessRuleError
 from core.idempotency import wrap_idempotent
 from core.permissions import (
@@ -42,9 +43,9 @@ class SalesCreditNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, 
         if action == "number_series":
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         if action == "cancel":
-            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in ("create", "update", "partial_update", "destroy", "complete"):
-            return [IsAuthenticated(), HasCompany(), CanCreateSales()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in ("list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "adjustable_summary"):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         return super().get_permissions()
@@ -85,7 +86,14 @@ class SalesCreditNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, 
             # B2-010: SalesNotesService.complete_credit_note already posts the
             # note; the second post_note here was dead code kept alive only by
             # PostingService dedup — a future key change would double-post.
-            note, warnings = SalesNotesService.complete_credit_note(self.get_object(), request.user)
+            note, warnings = SalesNotesService.complete_credit_note(
+                self.get_object(),
+                request.user,
+                confirm_paid_invoice=request.data.get("confirm_paid_invoice")
+                in (True, "true", "True", 1, "1"),
+                confirm_price_override=request.data.get("confirm_price_override")
+                in (True, "true", "True", 1, "1"),
+            )
             data = self.get_serializer(note).data
             data["warnings"] = warnings
             return Response(data)
@@ -138,9 +146,9 @@ class SalesDebitNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, C
         if action == "number_series":
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         if action == "cancel":
-            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in ("create", "update", "partial_update", "destroy", "complete"):
-            return [IsAuthenticated(), HasCompany(), CanCreateSales()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in ("list", "retrieve", "pdf", "pdf_status", "regenerate_pdf"):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         return super().get_permissions()
@@ -225,6 +233,14 @@ class SalesOrderViewSet(CompanyScopedViewSet):
     def perform_destroy(self, instance):
         if instance.status != SalesOrder.Status.DRAFT:
             raise BusinessRuleError("Only draft orders can be deleted.")
+        if getattr(instance, "converted_invoice_id", None):
+            raise BusinessRuleError("Cannot delete a sales order that has already been converted to an invoice.")
+        from .models import DeliveryChallan
+
+        if DeliveryChallan.objects.filter(sales_order=instance).exclude(
+            status=DeliveryChallan.Status.CANCELLED
+        ).exists():
+            raise BusinessRuleError("Cannot delete a sales order that has an active delivery challan.")
         super().perform_destroy(instance)
 
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
@@ -315,8 +331,17 @@ class DeliveryChallanViewSet(ChallanEwayActionsMixin, PdfDocumentActionsMixin, C
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
-        challan = SalesNotesService.complete_challan(self.get_object(), request.user)
-        return Response(self.get_serializer(challan).data)
+        # CR-126: stock-posting complete needs money-scope idempotency wrap.
+        def _run():
+            challan = SalesNotesService.complete_challan(self.get_object(), request.user)
+            return Response(self.get_serializer(challan).data)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="delivery_challan_complete",
+            build=_run,
+        )
 
     @action(detail=True, methods=["post"])
     def convert(self, request, pk=None):

@@ -15,6 +15,8 @@ function takePurchaseMeta(raw: Record<string, unknown>, draft: OutboxDraft) {
   const completeIntent = Boolean(draft.completeIntent) || Boolean(raw._completeIntent);
   const confirmBlankPos = Boolean(raw._confirmBlankPos || raw.confirmBlankPos);
   const confirmGstinTotalChange = Boolean(raw._confirmGstinTotalChange || raw.confirmGstinTotalChange);
+  const confirmNoRcm = Boolean(raw._confirmNoRcm || raw.confirmNoRcm);
+  const confirmDuplicateBill = Boolean(raw._confirmDuplicateBill || raw.confirmDuplicateBill);
   const confirmAmend = Boolean(raw.confirmAmend);
   const amountPaid = toNumber(
     typeof raw._amountPaid === 'number' || typeof raw._amountPaid === 'string'
@@ -31,6 +33,8 @@ function takePurchaseMeta(raw: Record<string, unknown>, draft: OutboxDraft) {
   delete payload._completeIntent;
   delete payload._confirmBlankPos;
   delete payload._confirmGstinTotalChange;
+  delete payload._confirmNoRcm;
+  delete payload._confirmDuplicateBill;
   delete payload._amountPaid;
   delete payload.amountPaid;
   delete payload._paymentMode;
@@ -43,6 +47,8 @@ function takePurchaseMeta(raw: Record<string, unknown>, draft: OutboxDraft) {
     completeIntent,
     confirmBlankPos,
     confirmGstinTotalChange,
+    confirmNoRcm,
+    confirmDuplicateBill,
     confirmAmend,
     amountPaid,
     paymentMode,
@@ -110,6 +116,8 @@ export async function flushPurchaseDraft(draft: OutboxDraft): Promise<void> {
     invoice = await completePurchase(invoice.id, {
       confirmBlankPos: meta.confirmBlankPos,
       confirmGstinTotalChange: meta.confirmGstinTotalChange,
+      confirmNoRcm: meta.confirmNoRcm,
+      confirmDuplicateBill: meta.confirmDuplicateBill,
     });
   }
   await allocatePurchasePayment(invoice, { ...meta, idempotencyKey: draft.idempotencyKey });

@@ -317,3 +317,29 @@ def test_refund_across_two_receipts_posts_proportional_jes(books, monkeypatch): 
     assert receipt_b.status == ReceiptStatus.REFUNDED
     gp.refresh_from_db()
     assert gp.status == GatewayPaymentStatus.REFUNDED
+
+
+def test_skip_gateway_same_provider_refund_id_unwinds_once(books):  # noqa: F811
+    """R-003: webhook created+processed (or two processed) keyed on rfnd_*."""
+    _inv, gp, receipt = _captured_gp_with_alloc(books)
+    PaymentService.refund_gateway_payment(
+        gateway_payment=gp,
+        amount=Decimal("300.00"),
+        user=books.owner,
+        reason="webhook",
+        skip_gateway=True,
+        provider_refund_id="rfnd_same",
+    )
+    first_je = _refund_je_total(books.company, receipt)
+    PaymentService.refund_gateway_payment(
+        gateway_payment=gp,
+        amount=Decimal("300.00"),
+        user=books.owner,
+        reason="webhook",
+        skip_gateway=True,
+        provider_refund_id="rfnd_same",
+    )
+    assert _refund_je_total(books.company, receipt) == first_je
+    gp.refresh_from_db()
+    keys = gp.raw_payload.get("applied_refund_keys") or []
+    assert keys.count("prov:rfnd_same") == 1

@@ -115,7 +115,7 @@ def test_bb_000668_export_restore_sandbox_totals_match(tenant_a):
     sandbox_id = restore.data["company_id"]
     assert sandbox_id != tenant_a.company.id
     sandbox = Company.objects.get(pk=sandbox_id)
-    assert sandbox.name == f"{tenant_a.company.name} (sandbox restore)"
+    assert sandbox.name == f"[sandbox] {tenant_a.company.name}"
 
     after_gst = _gst_totals(sandbox)
     after_ar, after_ap = _ar_ap(sandbox)

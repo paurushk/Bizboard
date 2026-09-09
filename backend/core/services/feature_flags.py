@@ -130,7 +130,11 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
             plan_modules = plan_modules_for_company(company)
         except Exception:  # noqa: BLE001 — a billing outage must not silently grant paid modules
             plan_modules = None
-        plan_modules = plan_modules if isinstance(plan_modules, dict) else {}
+        # R-015: do not coerce billing except a non-dict payload → {} (empty
+        # plan = fail-closed). None (no subscription / outage) stays None so
+        # company JSON + env fallback still applies.
+        if plan_modules is not None and not isinstance(plan_modules, dict):
+            plan_modules = {}
 
         # Has the company explicitly engaged with *module* flags? If so, a dark
         # module it did not name is off (opt-in once you touch them). helpV2 /
@@ -146,27 +150,24 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
             val = env[key]
 
             if key in DARK_MODULE_KEYS:
-                # Preview modules — env is a hard ceiling.
-                if key in plan_modules:
-                    # The subscription plan is authoritative for a module it names.
-                    val = env[key] and bool(plan_modules[key])
-                elif plan_modules:
-                    # A non-empty plan that omits this module = not entitled.
+                # FR-010: Explicit tenant feature_flags or subscribed plan modules can activate module
+                if key in overrides:
+                    val = bool(overrides[key])
+                elif isinstance(plan_modules, dict) and key in plan_modules:
+                    val = bool(plan_modules[key])
+                elif isinstance(plan_modules, dict):
+                    # Subscribed plan that omits this module is not entitled
                     val = False
                 else:
-                    # No plan module info: grant it via the company JSON, else
-                    # fall back to env-only (unless the company has engaged with
-                    # module flags — then an un-named module is off).
-                    granted = bool(overrides.get(key))
                     legacy_env_only = not module_keys_touched
-                    val = env[key] and (granted or legacy_env_only)
+                    val = bool(overrides.get(key)) or (env[key] and legacy_env_only)
                 flags[key] = val
                 continue
 
             # 1. subscription plan modules — a listed key narrows (a *grantable*
             #    key listed truthy also lifts). A key the plan does not mention
             #    is NOT a denial.
-            if key in plan_modules:
+            if isinstance(plan_modules, dict) and key in plan_modules:
                 if key in ROLLOUT_GRANTABLE_KEYS:
                     val = bool(plan_modules[key])
                 else:
@@ -185,18 +186,22 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
         if "item_custom_fields_v2" in company_flags:
             flags["item_custom_fields_v2"] = bool(company_flags["item_custom_fields_v2"])
         else:
-            # Intentional product default ON; JSON false is the kill-switch.
-            # Documented in docs/requirements/ITEM_CUSTOM_FIELDS.md §8.6.
-            flags["item_custom_fields_v2"] = True
+            # R-056: absent key is off; JSON true is the opt-in.
+            flags["item_custom_fields_v2"] = False
         flags["helpV2"] = _help_v2_enabled(company=company, user=user, company_flags=company_flags)
     else:
-        flags["item_custom_fields_v2"] = True
+        flags["item_custom_fields_v2"] = False
         flags["helpV2"] = _help_v2_enabled(company=None, user=user, company_flags={})
     # Derived flags from existing company settings
     if company is not None:
         flags["ENABLE_ACCOUNTING"] = bool(getattr(company, "accounting_enabled", False))
         flags["ENABLE_AI"] = bool(getattr(company, "ai_features_enabled", False))
+        # R-063 / R-087: future AA consent UI — company JSON only; never env-on.
+        overrides = getattr(company, "feature_flags", None)
+        overrides = overrides if isinstance(overrides, dict) else {}
+        flags["ENABLE_AA_CONSENT"] = bool(overrides.get("ENABLE_AA_CONSENT"))
     else:
         flags["ENABLE_ACCOUNTING"] = False
         flags["ENABLE_AI"] = False
+        flags["ENABLE_AA_CONSENT"] = False
     return flags

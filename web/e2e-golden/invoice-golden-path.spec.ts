@@ -30,6 +30,10 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
   await page.getByLabel('Password').fill('GoldenPath123!');
   await page.getByLabel('State').fill('Karnataka');
   await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page).toHaveURL(/\/login\?registered=1/);
+  await expect(page.getByText(/Account created/i)).toBeVisible();
+  await page.getByLabel('Password').fill('GoldenPath123!');
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL('/');
 
   // 2. Create a product.

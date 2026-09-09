@@ -1,5 +1,6 @@
 import type { LineItem } from '@/types/domain';
 import { toNumber } from '@/utils/money';
+import { formatSerialNumbersText, parseSerialNumbersText } from './lineHelpers';
 
 /** Draft line sourced from an invoice with qty cap per original line. */
 export interface InvoiceSourceLine {
@@ -16,6 +17,32 @@ export interface InvoiceSourceLine {
   discountPercent: number;
   included: boolean;
   condition?: 'SELLABLE' | 'DAMAGED';
+  serialNumbersText?: string;
+  trackSerial?: boolean;
+  trackBatch?: boolean;
+  batchNo?: string;
+  batch?: number | null;
+}
+
+export type SourceLineProductMeta = {
+  trackSerial?: boolean;
+  trackBatch?: boolean;
+};
+
+export function sourceLineReturnPayload(
+  line: InvoiceSourceLine,
+  opts?: { includeBatch?: boolean },
+) {
+  const serialNumbers = parseSerialNumbersText(line.serialNumbersText ?? '');
+  return {
+    product: line.product,
+    quantity: line.quantity,
+    unitPrice: line.unitPrice,
+    gstRate: line.gstRate,
+    condition: line.condition || 'SELLABLE',
+    ...(serialNumbers.length ? { serialNumbers } : {}),
+    ...(opts?.includeBatch && line.batch ? { batch: line.batch } : {}),
+  };
 }
 
 export function invoiceItemsToSourceLines(
@@ -23,25 +50,35 @@ export function invoiceItemsToSourceLines(
   // F2-013: quantities already returned on earlier return documents, per
   // product — subtracted from maxQty so the same units can't be returned twice.
   alreadyReturnedByProduct?: Map<number, number>,
+  productsById?: Map<number, SourceLineProductMeta>,
 ): InvoiceSourceLine[] {
-  return items.map((item, idx) => ({
-    key: `src-${item.id ?? idx}-${item.product}`,
-    lineId: item.id,
-    sourceItemId: item.id,
-    product: item.product,
-    productName: item.productName ?? item.description ?? `Product #${item.product}`,
-    maxQty: Math.max(
-      0,
-      toNumber(item.quantity) - (alreadyReturnedByProduct?.get(item.product) ?? 0),
-    ),
-    quantity: 0,
-    unitPrice: toNumber(item.unitPrice),
-    gstRate: toNumber(item.gstRate),
-    cessRate: toNumber(item.cessRate),
-    discountPercent: toNumber(item.discountPercent),
-    included: false,
-    condition: 'SELLABLE',
-  }));
+  return items.map((item, idx) => {
+    const meta = productsById?.get(item.product);
+    const serials = item.serialNumbers ?? [];
+    return {
+      key: `src-${item.id ?? idx}-${item.product}`,
+      lineId: item.id,
+      sourceItemId: item.id,
+      product: item.product,
+      productName: item.productName ?? item.description ?? `Product #${item.product}`,
+      maxQty: Math.max(
+        0,
+        toNumber(item.quantity) - (alreadyReturnedByProduct?.get(item.product) ?? 0),
+      ),
+      quantity: 0,
+      unitPrice: toNumber(item.unitPrice),
+      gstRate: toNumber(item.gstRate),
+      cessRate: toNumber(item.cessRate),
+      discountPercent: toNumber(item.discountPercent),
+      included: false,
+      condition: 'SELLABLE',
+      serialNumbersText: formatSerialNumbersText(serials),
+      trackSerial: Boolean(meta?.trackSerial || serials.length),
+      trackBatch: Boolean(meta?.trackBatch || item.batch || item.batchNo),
+      batchNo: item.batchNo ?? '',
+      batch: item.batch ?? null,
+    };
+  });
 }
 
 export function noteItemsToSourceLines(

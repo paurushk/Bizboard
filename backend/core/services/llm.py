@@ -220,6 +220,8 @@ def _has_injection(*values: Any) -> bool:
 
 def _clean_header_str(value: Any, *, cap: int = 128) -> str:
     text = str(value or "").strip()
+    # Strip control and non-printable characters
+    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
     return text[:cap]
 
 
@@ -243,9 +245,14 @@ def _normalize_payload(raw: dict[str, Any]) -> dict[str, Any]:
         if _has_injection(item.get("name"), item.get("sku"), item.get("hsn_code")):
             injection_flagged = True
             continue  # drop the hostile line rather than stage its text
-        name = str(item.get("name") or "").strip()
+        name = _clean_header_str(item.get("name"), cap=255)
         if not name:
             continue
+        raw_sku = _clean_header_str(
+            item.get("sku") or item.get("pcode") or item.get("product_code"), cap=64
+        )
+        raw_hsn = str(item.get("hsn_code") or item.get("hsn") or "").strip()
+        hsn_code = re.sub(r"[^0-9]", "", raw_hsn)[:16]
         qty_raw = item.get("quantity")
         qty = "" if qty_raw in (None, "") else str(qty_raw).strip().replace(",", "")
         gst_rate = _coerce_gst_rate(
@@ -294,20 +301,20 @@ def _normalize_payload(raw: dict[str, Any]) -> dict[str, Any]:
         for key in ("cs", "upc", "boxes", "box", "ctn", "pack", "strips", "dozen", "doz"):
             _extra_put(key, item.get(key))
         lines.append({
-            "si": si,
+            "si": si[:16],
             "name": name,
-            "sku": str(item.get("sku") or item.get("pcode") or item.get("product_code") or "").strip(),
-            "hsn_code": str(item.get("hsn_code") or item.get("hsn") or "").strip(),
-            "quantity": qty,
-            "unit_price": unit_price,
+            "sku": raw_sku,
+            "hsn_code": hsn_code,
+            "quantity": qty[:16],
+            "unit_price": unit_price[:16],
             "gst_rate": gst_rate,
-            "mrp": mrp,
+            "mrp": mrp[:16],
             "include": not unread,
             "confidence": confidence,
             "cs": extras.get("cs") or _raw_num("cs", "Cs"),
             "upc": extras.get("upc") or _raw_num("upc", "UPC"),
-            "printed_gross_amt": _raw_num("printed_gross_amt", "gross_amt", "grossAmt", "amount"),
-            "printed_taxable_amt": _raw_num("printed_taxable_amt", "taxable_amt", "taxableAmt"),
+            "printed_gross_amt": _raw_num("printed_gross_amt", "gross_amt", "grossAmt", "amount")[:20],
+            "printed_taxable_amt": _raw_num("printed_taxable_amt", "taxable_amt", "taxableAmt")[:20],
             "extras": extras,
         })
     overall_conf = raw.get("confidence")

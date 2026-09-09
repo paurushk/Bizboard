@@ -201,6 +201,7 @@ export function NewInvoicePage() {
   const [tcsSection, setTcsSection] = useState('');
   const [tcsRate, setTcsRate] = useState(0);
   const [tcsAmount, setTcsAmount] = useState(0);
+  const [tcsAmountManual, setTcsAmountManual] = useState(false);
 
   const [additionalCharges, setAdditionalCharges] = useState(0);
   const [chargesHsn, setChargesHsn] = useState('');
@@ -387,6 +388,7 @@ export function NewInvoicePage() {
     setTcsSection(inv.tcsSection ?? '');
     setTcsRate(toNumber(inv.tcsRate));
     setTcsAmount(toNumber(inv.tcsAmount));
+    setTcsAmountManual(Boolean(inv.tcsAmountManual));
     setShowTcs(Boolean(inv.tcsSection || toNumber(inv.tcsAmount)));
     setAutoRoundOff(inv.autoRoundOff ?? true);
     setSignatureId(inv.signature ?? null);
@@ -702,7 +704,7 @@ export function NewInvoicePage() {
     signature: signatureId,
     tcsSection,
     tcsRate,
-    tcsAmount,
+    ...(tcsAmountManual ? { tcsAmount } : {}),
     items: lines.map((l) => ({
       ...(l.lineId != null ? { id: l.lineId } : {}),
       product: l.product,
@@ -736,7 +738,7 @@ export function NewInvoicePage() {
     additionalCharges, autoRoundOff, chargesGstRate, chargesHsn, companyGstinId, costCenterId,
     customerId, dueDate, ecommerceOperatorGstin, invoiceDate, invoiceDiscount, invoiceDiscountMode,
     invoiceType, isReverseCharge, lines, notes, paymentTermsDays, priceMode, showBank, showQr,
-    showTerms, signatureId, supplyType, tcsAmount, tcsRate, tcsSection, termsText, warehouseId,
+    showTerms, signatureId, supplyType, tcsAmountManual, tcsAmount, tcsRate, tcsSection, termsText, warehouseId,
   ]);
 
   const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
@@ -1066,12 +1068,35 @@ export function NewInvoicePage() {
         grandTotal: preview.totals.grandTotal,
         tcsAmount: preview.totals.tcsAmount ?? 0,
         amountDue: preview.totals.amountDue ?? preview.totals.grandTotal,
+        rcmTaxable: preview.totals.rcmTaxable,
+        rcmCgst: preview.totals.rcmCgst,
+        rcmSgst: preview.totals.rcmSgst,
+        rcmIgst: preview.totals.rcmIgst,
+        rcmCess: preview.totals.rcmCess,
       }
     : totals;
 
+  const rcmDisplay = useMemo(() => {
+    if (!isReverseCharge || invoiceType === 'NON_GST') return null;
+    const fromPreview = Boolean(preview.totals);
+    const rcmCgst = fromPreview ? (preview.totals?.rcmCgst ?? 0) : shownTotals.cgstTotal;
+    const rcmSgst = fromPreview ? (preview.totals?.rcmSgst ?? 0) : shownTotals.sgstTotal;
+    const rcmIgst = fromPreview ? (preview.totals?.rcmIgst ?? 0) : shownTotals.igstTotal;
+    const rcmCess = fromPreview ? (preview.totals?.rcmCess ?? 0) : (shownTotals.cessTotal ?? 0);
+    return {
+      rcmTaxTotal: roundMoney(rcmCgst + rcmSgst + rcmIgst + rcmCess),
+      rcmCgst,
+      rcmSgst,
+      rcmIgst,
+      payable: shownTotals.grandTotal,
+    };
+  }, [isReverseCharge, invoiceType, preview.totals, shownTotals]);
+
+  const shownAmountDue = 'amountDue' in shownTotals ? (shownTotals as { amountDue?: number }).amountDue : shownTotals.grandTotal;
+
   useEffect(() => {
-    if (markFullyPaid) setAmountReceived(shownTotals.grandTotal);
-  }, [markFullyPaid, shownTotals.grandTotal]);
+    if (markFullyPaid) setAmountReceived(shownAmountDue ?? shownTotals.grandTotal);
+  }, [markFullyPaid, shownAmountDue, shownTotals.grandTotal]);
   const primarySave = primarySaveAction({ isEdit, editingStatus });
   const canAmendMoney = isCompletedEdit && isOwner;
 
@@ -1763,7 +1788,7 @@ export function NewInvoicePage() {
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
                     <TextField size="small" label="Section" value={tcsSection} onChange={(e) => setTcsSection(e.target.value)} placeholder="206C" />
                     <TextField size="small" type="number" label="Rate %" inputProps={{ min: 0, max: 100, step: 0.01 }} value={tcsRate || ''} onChange={(e) => setTcsRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
-                    <TextField size="small" type="number" label="TCS amount" inputProps={{ min: 0 }} value={tcsAmount || ''} onChange={(e) => setTcsAmount(Math.max(0, Number(e.target.value) || 0))} />
+                    <TextField size="small" type="number" label={t('billing.tcsAmount')} inputProps={{ min: 0 }} value={tcsAmount || ''} onChange={(e) => { setTcsAmountManual(true); setTcsAmount(Math.max(0, Number(e.target.value) || 0)); }} />
                   </Stack>
                 </Paper>
               )}
@@ -1844,6 +1869,16 @@ export function NewInvoicePage() {
           posKnown={posKnown}
           isCompletedEdit={isCompletedEdit}
           canAmendMoney={canAmendMoney}
+          extraAlerts={
+            rcmDisplay ? (
+              <Alert severity="info">
+                Reverse charge: tax liability {formatMoney(rcmDisplay.rcmTaxTotal)} (CGST{' '}
+                {formatMoney(rcmDisplay.rcmCgst)}, SGST {formatMoney(rcmDisplay.rcmSgst)}, IGST{' '}
+                {formatMoney(rcmDisplay.rcmIgst)}). Receivable (excl. tax):{' '}
+                {formatMoney(rcmDisplay.payable)}.
+              </Alert>
+            ) : null
+          }
         >
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Typography>{t('billing.amountReceived')}</Typography>

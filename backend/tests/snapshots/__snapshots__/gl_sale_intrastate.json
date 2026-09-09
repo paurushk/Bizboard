@@ -1,0 +1,32 @@
+[
+  {
+    "account_code": "1200",
+    "credit": "0.00",
+    "debit": "236.00"
+  },
+  {
+    "account_code": "1400",
+    "credit": "120.00",
+    "debit": "0.00"
+  },
+  {
+    "account_code": "2210",
+    "credit": "18.00",
+    "debit": "0.00"
+  },
+  {
+    "account_code": "2220",
+    "credit": "18.00",
+    "debit": "0.00"
+  },
+  {
+    "account_code": "4100",
+    "credit": "200.00",
+    "debit": "0.00"
+  },
+  {
+    "account_code": "5400",
+    "credit": "0.00",
+    "debit": "120.00"
+  }
+]

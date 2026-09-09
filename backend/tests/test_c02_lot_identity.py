@@ -218,6 +218,7 @@ def test_manual_serial_blocks_stock_desync_transitions(tenant_a):
     assert scrap.status_code == 200, scrap.data
 
 
+@pytest.mark.no_invariant_check  # deliberately builds inconsistent state to test detection/rejection
 def test_sales_return_cancel_refuses_missing_movements(tenant_a):
     product = make_product(tenant_a.company, sku="C02-SR-MISS")
     add_stock(tenant_a, product, "5")

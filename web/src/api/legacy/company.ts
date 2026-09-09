@@ -1,4 +1,4 @@
-import { apiClient, unwrapData } from '../client';
+import { apiClient, idempotencyHeaders, LONG_TIMEOUT_MS, unwrapData } from '../client';
 import { mockCompany, mockDashboard, mockUsers } from '@/mocks/data';
 import type { Company, CompanyUser, DashboardKpis } from '@/types/domain';
 import { withMocks, fetchAllPagesMasters } from './common';
@@ -122,5 +122,47 @@ export async function updateCompanyGstin(
 ): Promise<CompanyGstinRow> {
   const { data } = await apiClient.patch(`/company/gstins/${id}/`, payload);
   return unwrapData<CompanyGstinRow>(data);
+}
+
+export async function exportTenantBackup(): Promise<{ url: string; filename: string }> {
+  const response = await apiClient.post(
+    '/company/export/',
+    {},
+    {
+      responseType: 'blob',
+      timeout: LONG_TIMEOUT_MS,
+      transformResponse: [(d) => d],
+    },
+  );
+  const blob =
+    response.data instanceof Blob
+      ? response.data
+      : new Blob([response.data as BlobPart], { type: 'application/octet-stream' });
+  const header = String(response.headers?.['content-disposition'] || '');
+  const match = header.match(/filename="([^"]+)"/i);
+  return {
+    url: URL.createObjectURL(blob),
+    filename: match?.[1] || 'bizboard-tenant-export.bin',
+  };
+}
+
+export async function restoreTenantSandbox(file: File): Promise<{
+  companyId: number;
+  mode: string;
+  name: string;
+}> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('restore', 'sandbox');
+  const { data } = await apiClient.post('/company/restore/', form, {
+    timeout: LONG_TIMEOUT_MS,
+    headers: idempotencyHeaders(),
+  });
+  const body = unwrapData<{ company_id?: number; companyId?: number; mode?: string; name?: string }>(data);
+  return {
+    companyId: Number(body.company_id ?? body.companyId),
+    mode: body.mode || 'sandbox',
+    name: body.name || '',
+  };
 }
 

@@ -464,6 +464,7 @@ class DunningReminder(CompanyScopedModel):
     channel = models.CharField(max_length=16, choices=Channel.choices)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.SENT)
     error = models.CharField(max_length=500, blank=True, default="")
+    last_attempt_on = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-sent_on", "-id"]

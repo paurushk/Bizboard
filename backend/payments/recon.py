@@ -121,7 +121,9 @@ def parse_bank_csv(content: str | bytes, preset: str = "generic") -> tuple[list[
     for line_no, raw in enumerate(reader, start=2):  # row 1 is the header
         date_raw = (raw.get(date_col) or "").strip()
         if not date_raw:
-            continue  # genuinely blank row — not an error
+            # R-049: blank date is the same class of skip as a bad date/amount.
+            skipped.append(f"Row {line_no}: blank date")
+            continue
         # Try ISO then DD/MM/YYYY / DD-MM-YYYY
         txn_date = None
         for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d-%b-%Y"):
@@ -172,6 +174,27 @@ def parse_bank_csv(content: str | bytes, preset: str = "generic") -> tuple[list[
     return rows, skipped
 
 
+def _receipt_fee(receipt: CustomerReceipt) -> Decimal:
+    gp = getattr(receipt, "gateway_payment", None)
+    if gp is None:
+        return Decimal("0")
+    return Decimal(str(gp.fee or 0))
+
+
+def _receipt_amount_delta(line: BankStatementLine, receipt: CustomerReceipt) -> Decimal:
+    """Closer of gross vs net (amount − MDR). Used to rank before the 50 cap."""
+    gross = Decimal(str(receipt.amount or 0))
+    fee = _receipt_fee(receipt)
+    net = gross - fee
+    return min(abs(line.amount - gross), abs(line.amount - net))
+
+
+def _date_abs_delta(line_date, target_date) -> int:
+    if not target_date:
+        return 10**6
+    return abs((line_date - target_date).days)
+
+
 def score_match(line: BankStatementLine, *, receipt: CustomerReceipt | None = None,
                 payment: SupplierPayment | None = None) -> Decimal:
     """Return 0–100 confidence."""
@@ -191,7 +214,13 @@ def score_match(line: BankStatementLine, *, receipt: CustomerReceipt | None = No
         # Credits match receipts
         if line.amount <= 0:
             return Decimal("0")
-        if abs(line.amount - target_amount) < Decimal("0.01"):
+        # R-020: exact NET (receipt − MDR) outranks exact GROSS. Never the same score.
+        fee = _receipt_fee(receipt)
+        net = Decimal(str(target_amount or 0)) - fee
+        if fee > 0 and abs(line.amount - net) < Decimal("0.01"):
+            score += Decimal("50")
+            amount_hit = True
+        elif abs(line.amount - target_amount) < Decimal("0.01"):
             score += Decimal("40")
             amount_hit = True
     elif payment:
@@ -264,13 +293,22 @@ def suggest_matches(
             receipt_date__gte=window_start,
             receipt_date__lte=window_end,
             status="POSTED",
-        ).select_related("customer")
+        ).select_related("customer", "gateway_payment")
         if exclude_receipt_ids is None:
             exclude_receipt_ids = ReconMatch.objects.filter(
                 company=company, receipt__isnull=False
             ).values_list("receipt_id", flat=True)
         qs = qs.exclude(id__in=exclude_receipt_ids)
-        for receipt in qs[:50]:
+        # R-043: rank by |amount-delta| then |date-delta|; cap 50 AFTER sort.
+        receipts = sorted(
+            qs,
+            key=lambda r: (
+                _receipt_amount_delta(line, r),
+                _date_abs_delta(line.txn_date, r.receipt_date),
+                r.id,
+            ),
+        )
+        for receipt in receipts[:50]:
             conf = score_match(line, receipt=receipt)
             if conf >= Decimal("40"):
                 suggestions.append(
@@ -279,6 +317,7 @@ def suggest_matches(
                         "id": receipt.id,
                         "number": receipt.number,
                         "amount": str(receipt.amount),
+                        "fee": str(_receipt_fee(receipt)),
                         "date": str(receipt.receipt_date),
                         "party": receipt.customer.name,
                         "confidence": float(conf),
@@ -296,7 +335,15 @@ def suggest_matches(
                 company=company, supplier_payment__isnull=False
             ).values_list("supplier_payment_id", flat=True)
         qs = qs.exclude(id__in=exclude_supplier_payment_ids)
-        for payment in qs[:50]:
+        payments = sorted(
+            qs,
+            key=lambda p: (
+                abs(abs(line.amount) - Decimal(str(p.amount or 0))),
+                _date_abs_delta(line.txn_date, p.payment_date),
+                p.id,
+            ),
+        )
+        for payment in payments[:50]:
             conf = score_match(line, payment=payment)
             if conf >= Decimal("40"):
                 suggestions.append(
@@ -380,8 +427,12 @@ def is_exact_unique_suggestion(
     if s["confidence"] < 90:
         return False
     amt = Decimal(s["amount"])
+    fee = Decimal(str(s.get("fee") or 0))
+    net = amt - fee
     if line.amount > 0:
-        amount_ok = abs(line.amount - amt) < Decimal("0.01")
+        amount_ok = abs(line.amount - amt) < Decimal("0.01") or (
+            fee > 0 and abs(line.amount - net) < Decimal("0.01")
+        )
     else:
         amount_ok = abs(abs(line.amount) - amt) < Decimal("0.01")
     if not amount_ok:

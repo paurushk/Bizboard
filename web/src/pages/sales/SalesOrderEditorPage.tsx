@@ -248,6 +248,10 @@ export function SalesOrderEditorPage() {
     onSuccess: (inv) => {
       setMessage(t('phase1.convertedToInvoice', { id: String(inv.id) }));
       void qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      void qc.invalidateQueries({ queryKey: ['sales-order', editId] });
+      void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
+      void qc.invalidateQueries({ queryKey: ['stock-balance'] });
+      void qc.invalidateQueries({ queryKey: ['products'] });
       skipLeaveGuard.current = true;
       void navigate('/sales/history');
     },
@@ -257,6 +261,10 @@ export function SalesOrderEditorPage() {
   const cancelMutation = useMutation({
     mutationFn: () => cancelSalesOrder(editId as number),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      void qc.invalidateQueries({ queryKey: ['sales-order', editId] });
+      void qc.invalidateQueries({ queryKey: ['stock-balance'] });
+      void qc.invalidateQueries({ queryKey: ['products'] });
       skipLeaveGuard.current = true;
       void navigate('/sales/orders');
     },

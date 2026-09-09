@@ -416,6 +416,7 @@ export interface SalesInvoice extends DocumentTotals {
   tcsSection?: string;
   tcsRate?: string | number;
   tcsAmount?: string | number;
+  tcsAmountManual?: boolean;
   filingPartyGstin?: string;
   filingPlaceOfSupply?: string;
   vehicleNumber?: string;
@@ -595,9 +596,34 @@ export interface PurchaseInvoice extends DocumentTotals {
   rcmCgst?: string | number;
   rcmSgst?: string | number;
   rcmIgst?: string | number;
+  rcmCess?: string | number;
   tdsSection?: string;
   tdsRate?: string | number;
   tdsAmount?: string | number;
+  billOfEntry?: number | null;
+}
+
+export interface BillOfEntry {
+  id: number;
+  supplier?: number | null;
+  supplierName?: string;
+  boeNumber: string;
+  boeDate: string;
+  portCode?: string;
+  reference?: string;
+  assessableValue?: string | number;
+  bcdAmount?: string | number;
+  igstAmount?: string | number;
+  cessAmount?: string | number;
+  itcEligibility?: 'ELIGIBLE' | 'INELIGIBLE';
+  itcPeriod?: string;
+  icegateVerified?: boolean;
+  status: 'DRAFT' | 'COMPLETED' | 'CANCELLED';
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+  notes?: string;
+  claimableItc?: string | number;
+  totalCustomsPaid?: string | number;
 }
 
 export interface PurchaseReturn extends DocumentTotals {
@@ -799,6 +825,34 @@ export interface DashboardKpis {
   invoiceCount?: number;
   invoice_count?: number;
   receivablesAging?: {
+    current: string | number;
+    days130?: string | number;
+    days1_30?: string | number;
+    days_1_30?: string | number;
+    days3160?: string | number;
+    days31_60?: string | number;
+    days_31_60?: string | number;
+    days6190?: string | number;
+    days61_90?: string | number;
+    days_61_90?: string | number;
+    days90Plus?: string | number;
+    days_90_plus?: string | number;
+  };
+  payablesAging?: {
+    current: string | number;
+    days130?: string | number;
+    days1_30?: string | number;
+    days_1_30?: string | number;
+    days3160?: string | number;
+    days31_60?: string | number;
+    days_31_60?: string | number;
+    days6190?: string | number;
+    days61_90?: string | number;
+    days_61_90?: string | number;
+    days90Plus?: string | number;
+    days_90_plus?: string | number;
+  };
+  payables_aging?: {
     current: string | number;
     days130?: string | number;
     days1_30?: string | number;

@@ -38,7 +38,9 @@ def plan_modules_for_company(company) -> dict | None:
     if sub is None or sub.plan_id is None:
         return None
     modules = getattr(sub.plan, "modules", None)
-    return modules if isinstance(modules, dict) else None
+    # R-015: subscribed plan with a non-dict payload → {} (fail-closed).
+    # Do not coerce a missing subscription (None) into {}.
+    return modules if isinstance(modules, dict) else {}
 
 
 def ensure_register_trial(company) -> Subscription | None:

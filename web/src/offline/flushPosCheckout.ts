@@ -11,10 +11,17 @@ import {
 import { todayIso } from '@/components/billing';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
 import { toNumber } from '@/utils/money';
-import type { OutboxDraft } from '@/offline/invoiceDraftCache';
+import {
+  enqueueDraft,
+  removeDraft,
+  updateDraft,
+  type OutboxDraft,
+} from '@/offline/invoiceDraftCache';
 
-/** Flush a POS outbox draft: create+complete invoice, cash receipt, allocate. */
-export async function flushPosDraft(draft: OutboxDraft): Promise<void> {
+/** Flush a POS outbox draft: create+complete invoice, cash receipt, allocate.
+ * CR-006: returns completed invoice so caller can trigger thermal receipt printing.
+ */
+export async function flushPosDraft(draft: OutboxDraft): Promise<any> {
   const payload = draft.payload || {};
   const mode = draft.paymentMode ?? payload.paymentMode ?? 'CASH';
   if (mode === 'UPI') {
@@ -27,6 +34,13 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<void> {
   if (!customerId && pendingName) {
     const created = await createCustomer({ name: pendingName, status: 'ACTIVE' });
     customerId = created.id;
+    // CR-004: bind the new party onto the draft before invoice create so a
+    // retry after customer-create / before durable invoice success does not
+    // mint a duplicate customer with the same pending name.
+    await updateDraft(draft.companyId, draft.userId, draft.idempotencyKey, {
+      customerId,
+      payload: { ...payload, customer: customerId },
+    });
   }
   if (!customerId) {
     throw new Error('POS draft is missing a customer');
@@ -40,6 +54,7 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<void> {
   const posInvoiceType = taxEnabled ? 'RETAIL' : 'NON_GST';
   const isInclusive = company.priceMode === 'INCLUSIVE';
   const invoiceDate = todayIso();
+  const warehouse = Number(payload.warehouse || 0) || undefined;
   const invoice = await createSalesInvoice(
     {
       customer: customerId,
@@ -49,6 +64,7 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<void> {
       dueDate: invoiceDate,
       paymentTermsDays: 0,
       autoRoundOff: true,
+      warehouse,
       items: lines.map((line) => ({
         product: line.productId,
         description: line.productName,
@@ -102,6 +118,26 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<void> {
       } catch {
         /* leftover draft if delete is blocked */
       }
+      // CR-001 / CR-004: Rotate the draft idempotencyKey and persist to storage so retry creates fresh doc
+      const oldKey = draft.idempotencyKey;
+      const newKey = `${oldKey}-${Date.now()}`;
+      draft.idempotencyKey = newKey;
+      try {
+        await removeDraft(draft.companyId, draft.userId, oldKey);
+        await enqueueDraft(draft.companyId, draft.userId, {
+          kind: draft.kind,
+          payload: draft.payload,
+          idempotencyKey: newKey,
+          invoiceId: null,
+          customerId: draft.customerId,
+          paymentMode: draft.paymentMode,
+          lines: draft.lines,
+          pendingCustomerName: draft.pendingCustomerName,
+          completeIntent: draft.completeIntent,
+        });
+      } catch {
+        /* ignore persistence error during failure handler */
+      }
       throw err;
     } else {
       // Status truly unknown (the probe itself failed, e.g. still
@@ -130,4 +166,5 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<void> {
     },
     { idempotencyKey: `${draft.idempotencyKey}-alloc` },
   );
+  return completed;
 }

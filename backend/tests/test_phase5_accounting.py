@@ -99,7 +99,7 @@ def test_closed_period_blocks_posting(books):
         company=books.company, name="April", start_date="2026-04-01", end_date="2026-04-30",
         status=AccountingPeriod.Status.CLOSED,
     )
-    with pytest.raises(BusinessRuleError, match="closed accounting period"):
+    with pytest.raises(BusinessRuleError, match=r"accounting period.*is CLOSED|closed accounting period"):
         PostingService.post(
             company=books.company, source_type="TEST", source_id=3, purpose="CLOSED",
             entry_date="2026-04-01",
@@ -131,7 +131,7 @@ def test_backfill_command_creates_journals(books):
     invoice = _si_with_tax_lines(books.company, customer)
     JournalEntry.objects.filter(source_type="SALES_INVOICE", source_id=invoice.id).delete()
     assert not JournalEntry.objects.filter(source_type="SALES_INVOICE", source_id=invoice.id).exists()
-    call_command("backfill_accounting_postings")
+    call_command("backfill_accounting_postings", company=books.company.id)
     assert JournalEntry.objects.filter(source_type="SALES_INVOICE", source_id=invoice.id).exists()
 
 
@@ -331,12 +331,13 @@ def test_purchase_credit_note_rcm_reverses_rcm_liability(books):
     assert resp.status_code == 201, resp.data
     assert books.client.post(f"/api/v1/purchases/invoices/{resp.data['id']}/complete/").status_code == 200
     invoice = PurchaseInvoice.objects.get(pk=resp.data["id"])
+    source_item = invoice.items.first()
 
     cn = books.client.post(
         "/api/v1/purchases/credit-notes/",
         {
             "supplier": supplier.id, "purchase_invoice": invoice.id, "reason": "CORRECTION_OF_INVOICE",
-            "items": [{"product": product.id, "quantity": "1", "unit_price": "1000", "gst_rate": "18"}],
+            "items": [{"product": product.id, "quantity": "1", "unit_price": "1000", "gst_rate": "18", "source_item": source_item.id}],
         },
         format="json",
     )
@@ -463,11 +464,11 @@ def test_b1_021_slm_prorates_acquisition_month_by_days_in_service(books):
     assert asset.depreciated_amount == expected_prorated
 
 
-def test_b1_034_large_unexplained_residual_books_as_charges_not_blocked(books):
-    """B1-034: a residual beyond the sane ACC-06 bound must not hard-block
-    Complete -- book it to Purchase Charges (5110) and leave an audit trail."""
-    from core.models import AuditEvent
+def test_b1_034_large_unexplained_residual_hard_stops(books):
+    """CR-160 / B11: residual beyond TAX_LINE_DRIFT_MAX (₹0.05) hard-blocks
+    purchase GL post — no silent absorb into 5110 (sales twin)."""
     from purchases.models import PurchaseInvoice
+    from core.exceptions import BusinessRuleError
 
     seed_chart_of_accounts(books.company, books.owner)
     supplier = make_supplier(books.company)
@@ -477,19 +478,14 @@ def test_b1_034_large_unexplained_residual_books_as_charges_not_blocked(books):
         purchase_type="NON_GST",
     )
     invoice = PurchaseInvoice.objects.get(pk=pur["id"])
-    # Simulate a data-integrity gap far beyond max(100, 10% of grand_total):
-    # taxable is 100, so a grand_total of 500 leaves a 400 residual.
+    # Simulate a data-integrity gap far beyond ₹0.05.
     invoice.grand_total = Decimal("500.00")
 
-    entry = PostingService.post_purchase(invoice, user=books.owner)
-
-    charges_account = PostingService._account(books.company, "5110")
-    charged = sum(line.debit for line in entry.lines.filter(account=charges_account))
-    assert charged == Decimal("400.00")
-    assert AuditEvent.objects.filter(
-        company=books.company, entity_type="purchaseinvoice", entity_id=str(invoice.pk),
-        description="acc06.large_unexplained_residual_booked_as_charges",
-    ).exists()
+    try:
+        PostingService.post_purchase(invoice, user=books.owner)
+        assert False, "expected BusinessRuleError for large residual"
+    except BusinessRuleError as exc:
+        assert "TAX_LINE_DRIFT_MAX" in str(exc) or "residual" in str(exc).lower()
 
 
 def test_fa_dispose_with_proceeds_gain(books):

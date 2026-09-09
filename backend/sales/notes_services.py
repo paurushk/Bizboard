@@ -8,8 +8,9 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from core.events import emit
-from core.exceptions import BusinessRuleError
-from core.services.billing import compute_document_totals
+from core.exceptions import BusinessRuleError, raise_confirm_required
+from core.help_codes import HelpCode
+from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 from core.services.place_of_supply import assert_place_of_supply_for_gst, party_intra_state
 from masters.models import Customer, Product
@@ -60,7 +61,20 @@ def _invoice_intra_state(inv) -> bool:
         return False
     if Decimal(str(inv.cgst_total or 0)) + Decimal(str(inv.sgst_total or 0)) > 0:
         return True
-    return party_intra_state(inv.company, inv.customer.state, inv.customer.gstin or "")
+    return party_intra_state(inv.company, inv.customer.state, inv.customer.gstin or "", supply_type=getattr(inv, "supply_type", ""))
+
+
+def _apply_rcm_memo_if_linked(note, items) -> None:
+    """R-006: if the linked sales invoice is reverse-charge, the note's value
+    legs must also be RCM (memo taxable/tax, zero GST on the note itself)
+    so grand_total excludes GST — same two-pass as purchases notes.
+    SalesCreditNote/SalesDebitNote have no is_reverse_charge column of
+    their own — set it transiently so apply_rcm_memo_after_tax applies.
+    """
+    invoice = getattr(note, "sales_invoice", None)
+    note.is_reverse_charge = bool(invoice and getattr(invoice, "is_reverse_charge", False))
+    if note.is_reverse_charge:
+        apply_rcm_memo_after_tax(note, items)
 
 
 def _sales_note_headroom(inv, *, exclude_cn_id=None) -> Decimal:
@@ -98,7 +112,12 @@ class SalesNotesService:
             src_item = src.get("source_item", src.get("source_item_id"))
             if src_item is not None:
                 item.source_item_id = src_item.pk if hasattr(src_item, "pk") else src_item
-        inv = note.sales_invoice
+        if note.sales_invoice_id:
+            inv = SalesInvoice.objects.select_for_update().get(
+                pk=note.sales_invoice_id, company_id=note.company_id
+            )
+        else:
+            inv = note.sales_invoice
         compute_document_totals(
             note,
             items,
@@ -109,6 +128,7 @@ class SalesNotesService:
             auto_round_off=note.auto_round_off,
             additional_charges=Decimal(str(getattr(note, "additional_charges", 0) or 0)),
         )
+        _apply_rcm_memo_if_linked(note, items)
         SalesCreditNoteItem.objects.bulk_create(items)
         note.updated_by = user
         note.save()
@@ -116,8 +136,11 @@ class SalesNotesService:
 
     @staticmethod
     @transaction.atomic
-    def complete_credit_note(note: SalesCreditNote, user):
-        note = SalesCreditNote.objects.select_for_update().get(pk=note.pk)
+    def complete_credit_note(note: SalesCreditNote, user, *, confirm_paid_invoice: bool = False, confirm_price_override: bool = False):
+        # CR-127: lock CN + source invoice with company_id (defense-in-depth).
+        note = SalesCreditNote.objects.select_for_update().get(
+            pk=note.pk, company_id=note.company_id
+        )
         if note.status != SalesCreditNote.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete credit note in status {note.status}.")
         if not note.items.exists():
@@ -125,7 +148,11 @@ class SalesNotesService:
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
         assert_period_allows_money_amend(note.company, note.note_date)
-        inv = SalesInvoice.objects.select_for_update().get(pk=note.sales_invoice_id)
+        # CR-127: lock source invoice with company_id (DN / purchase CN twin).
+        inv = SalesInvoice.objects.select_for_update().get(
+            pk=note.sales_invoice_id,
+            company_id=note.company_id,
+        )
         if inv.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
             raise BusinessRuleError("Credit notes require a completed source invoice.")
         if note.note_date and inv.invoice_date and note.note_date < inv.invoice_date:
@@ -149,9 +176,72 @@ class SalesNotesService:
             raise BusinessRuleError(
                 f"Credit note {note.grand_total} exceeds remaining invoiced value {max_cn}."
             )
+        # CR-017: fully allocated invoices need confirm (allocations stay until refund/unallocate).
+        allocated = (
+            inv.allocations.filter(reversed_at__isnull=True).aggregate(s=Sum("amount"))["s"]
+            or Decimal("0")
+        )
+        if allocated > 0 and not confirm_paid_invoice:
+            from ledgers.services import LedgerService
+
+            outstanding = LedgerService.sales_invoice_outstanding(inv)
+            # After this CN, outstanding would go further negative / stay floored while alloc remains.
+            if outstanding <= note.grand_total or allocated >= Decimal(str(inv.grand_total or 0)):
+                raise_confirm_required(
+                    [HelpCode.CONFIRM_CN_ON_PAID_INVOICE],
+                    "This invoice has payment allocations. Completing the credit note leaves "
+                    "over-allocation until you unallocate or refund. Pass confirm_paid_invoice=true "
+                    "to proceed.",
+                )
+        # CR-124: when confirm_paid_invoice, auto-unallocate up to the CN amount
+        # (no silent floor). Only touch genuine customer-receipt allocations — a
+        # mis-linked supplier_payment row on a sales invoice must be left alone —
+        # and always re-apply the kept remainder of a partially-consumed one.
+        if allocated > 0 and confirm_paid_invoice:
+            from payments.services import PaymentService
+
+            remaining = Decimal(str(note.grand_total or 0))
+            for alloc in list(
+                inv.allocations.select_for_update()
+                .filter(reversed_at__isnull=True, receipt__isnull=False)
+                .order_by("-id")
+            ):
+                if remaining <= 0:
+                    break
+                alloc_amt = Decimal(str(alloc.amount or 0))
+                if alloc_amt <= 0:
+                    continue
+                receipt = alloc.receipt
+                PaymentService.reverse_allocation(allocation=alloc, user=user)
+                if alloc_amt <= remaining:
+                    remaining -= alloc_amt
+                else:
+                    keep = alloc_amt - remaining
+                    remaining = Decimal("0")
+                    if keep > 0 and receipt is not None:
+                        PaymentService.allocate_receipt(
+                            receipt=receipt, sales_invoice=inv, amount=keep, user=user
+                        )
+        # CR-026: unit_price override vs source line needs confirm.
+        if not confirm_price_override:
+            for item in note.items.select_related("source_item"):
+                src = item.source_item
+                if src is None:
+                    continue
+                if Decimal(str(item.unit_price or 0)) != Decimal(str(src.unit_price or 0)):
+                    raise_confirm_required(
+                        [HelpCode.CONFIRM_CN_PRICE_OVERRIDE],
+                        "Credit note unit_price differs from the source invoice line. "
+                        "Pass confirm_price_override=true to recalculate tax at the overridden price.",
+                    )
+        invoice_has_items = inv.items.exists()
         for item in note.items.select_related("source_item"):
             src = item.source_item
             if src is None:
+                if invoice_has_items:
+                    raise BusinessRuleError(
+                        "Credit note lines must reference a source invoice item (source_item)."
+                    )
                 continue
             prior = (
                 SalesCreditNoteItem.objects.filter(
@@ -241,7 +331,7 @@ class SalesNotesService:
                 )
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
-        assert_period_allows_money_amend(note.company, note.note_date)
+        assert_period_allows_money_amend(note.company, note.note_date, allow_soft_closed=True)
         if note.company.accounting_enabled:
             from accounting.models import JournalEntry
             from accounting.services import PostingService
@@ -271,7 +361,12 @@ class SalesNotesService:
             src_item = src.get("source_item", src.get("source_item_id"))
             if src_item is not None:
                 item.source_item_id = src_item.pk if hasattr(src_item, "pk") else src_item
-        inv = note.sales_invoice
+        if note.sales_invoice_id:
+            inv = SalesInvoice.objects.select_for_update().get(
+                pk=note.sales_invoice_id, company_id=note.company_id
+            )
+        else:
+            inv = note.sales_invoice
         compute_document_totals(
             note,
             items,
@@ -282,6 +377,7 @@ class SalesNotesService:
             auto_round_off=note.auto_round_off,
             additional_charges=Decimal(str(getattr(note, "additional_charges", 0) or 0)),
         )
+        _apply_rcm_memo_if_linked(note, items)
         SalesDebitNoteItem.objects.bulk_create(items)
         note.updated_by = user
         note.save()
@@ -295,7 +391,11 @@ class SalesNotesService:
             raise BusinessRuleError(f"Cannot complete debit note in status {note.status}.")
         if not note.items.exists():
             raise BusinessRuleError("Cannot complete a debit note without line items.")
-        inv = note.sales_invoice
+        # CR-093: lock source invoice before qty/value headroom (same as CN / CR-014).
+        inv = SalesInvoice.objects.select_for_update().get(
+            pk=note.sales_invoice_id,
+            company_id=note.company_id,
+        )
         if inv.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
             raise BusinessRuleError("Debit notes require a completed source invoice.")
         if note.note_date and inv.invoice_date and note.note_date < inv.invoice_date:
@@ -326,15 +426,41 @@ class SalesNotesService:
         # DNs may reverse CNs. Extra debit (price increase) needs confirm_additional_debit.
         cn_headroom = prior_cns - prior_dns
         extra = note.grand_total - max(cn_headroom, Decimal("0"))
-        if extra > 0 and not confirm_additional_debit:
-            raise BusinessRuleError(
-                f"Debit note {note.grand_total} exceeds credit-note headroom {max(cn_headroom, Decimal('0'))}. "
-                "Pass confirm_additional_debit=true to bill an additional amount on the original invoice."
-            )
         if extra > Decimal(str(inv.grand_total or 0)):
             raise BusinessRuleError(
                 f"Additional debit {extra} exceeds original invoice value {inv.grand_total}."
             )
+        if extra > 0 and not confirm_additional_debit:
+            raise_confirm_required(
+                [HelpCode.CONFIRM_ADDITIONAL_DEBIT],
+                f"Debit note {note.grand_total} exceeds credit-note headroom {max(cn_headroom, Decimal('0'))}. "
+                "Pass confirm_additional_debit=true to bill an additional amount on the original invoice.",
+            )
+        # CR-018: per-line qty cap vs source invoice lines (same as CN).
+        invoice_has_items = inv.items.exists()
+        for item in note.items.select_related("source_item"):
+            src = item.source_item
+            if src is None:
+                if invoice_has_items:
+                    raise BusinessRuleError(
+                        "Debit note lines must reference a source invoice item (source_item)."
+                    )
+                continue
+            prior = (
+                SalesDebitNoteItem.objects.filter(
+                    debit_note__sales_invoice=inv,
+                    debit_note__status=SalesDebitNote.Status.COMPLETED,
+                    source_item=src,
+                )
+                .exclude(debit_note_id=note.pk)
+                .aggregate(s=Sum("quantity"))["s"]
+                or Decimal("0")
+            )
+            if item.quantity + prior > src.quantity:
+                raise BusinessRuleError(
+                    f"Debit quantity {item.quantity} exceeds remaining qty "
+                    f"{src.quantity - prior} on source line {src.pk}."
+                )
         warnings = []
         if _tax_enabled(inv.invoice_type):
             missing_hsn = note.items.filter(hsn_code="").count()
@@ -385,7 +511,7 @@ class SalesNotesService:
         assert_no_live_irn(note, kind="debit note")
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
-        assert_period_allows_money_amend(note.company, note.note_date)
+        assert_period_allows_money_amend(note.company, note.note_date, allow_soft_closed=True)
         if note.company.accounting_enabled:
             from accounting.models import JournalEntry
             from accounting.services import PostingService
@@ -407,6 +533,10 @@ class SalesNotesService:
     def set_order_items(order: SalesOrder, items_data, user):
         if order.status != SalesOrder.Status.DRAFT:
             raise BusinessRuleError("Converted, confirmed, or cancelled orders cannot be edited.")
+        if getattr(order, "converted_invoice_id", None):
+            raise BusinessRuleError("Orders converted to an invoice cannot be edited.")
+        if order.challans.exclude(status=DeliveryChallan.Status.CANCELLED).exists():
+            raise BusinessRuleError("Orders with active delivery challans cannot be edited.")
         items_data = _normalize_items(items_data, order.company)
         _validate_lines(items_data, order.company, check_active=True)
         order.items.all().delete()
@@ -416,7 +546,10 @@ class SalesNotesService:
             items,
             tax_enabled=_tax_enabled(order.invoice_type),
             intra_state=party_intra_state(
-                order.company, order.customer.state, order.customer.gstin or ""
+                order.company,
+                order.customer.state,
+                order.customer.gstin or "",
+                supply_type=getattr(order, "supply_type", ""),
             ),
             invoice_discount=order.invoice_discount,
             invoice_discount_mode=order.invoice_discount_mode,
@@ -463,9 +596,11 @@ class SalesNotesService:
     def convert_sales_order(order: SalesOrder, user):
         from inventory.services import InventoryService
 
-        order = SalesOrder.objects.select_for_update().get(pk=order.pk)
+        order = SalesOrder.objects.select_for_update().get(pk=order.pk, company_id=order.company_id)
         if order.status not in (SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED):
             raise BusinessRuleError(f"Cannot convert an order in status {order.status}.")
+        if order.converted_invoice_id:
+            raise BusinessRuleError("This sales order already has an invoice.")
         if DeliveryChallan.objects.filter(sales_order=order).exclude(
             status=DeliveryChallan.Status.CANCELLED
         ).exists():
@@ -479,13 +614,8 @@ class SalesNotesService:
                 gstin=resolve_series_gstin(order.company),
                 on_date=order.order_date,
             )
-        # Confirmed orders hold reservations; release before invoice SALE posts on_hand.
-        if order.status == SalesOrder.Status.CONFIRMED:
-            warehouse = order.warehouse or InventoryService.default_warehouse(order.company)
-            for item in order.items.select_related("product"):
-                InventoryService.release_reservation(
-                    order.company, warehouse, item.product, item.quantity, user
-                )
+        # CR-020: keep SO reservation until the invoice Completes (mirrors challan path).
+        # Do not release here — release in SalesService.complete when converting SALE.
         invoice = SalesInvoice.objects.create(
             company=order.company,
             customer=order.customer,
@@ -526,10 +656,10 @@ class SalesNotesService:
             for item in order.items.select_related("product")
         ]
         SalesService.set_items(invoice, items_data, user)
-        order.status = SalesOrder.Status.CONVERTED
+        # Keep SO CONFIRMED/DRAFT until invoice Completes so reservations stay valid.
         order.converted_invoice = invoice
         order.updated_by = user
-        order.save()
+        order.save(update_fields=["converted_invoice", "updated_by", "updated_at"])
         return invoice
 
     @staticmethod
@@ -538,7 +668,7 @@ class SalesNotesService:
         from .models import DeliveryChallan
         from inventory.services import InventoryService
 
-        order = SalesOrder.objects.select_for_update().get(pk=order.pk)
+        order = SalesOrder.objects.select_for_update().get(pk=order.pk, company_id=order.company_id)
         if order.status not in (SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED):
             raise BusinessRuleError(f"Cannot convert an order in status {order.status}.")
         if order.customer.status == Customer.Status.BLOCKED:
@@ -557,6 +687,13 @@ class SalesNotesService:
         )
         if live_challan:
             raise BusinessRuleError("This sales order already has a delivery challan.")
+        # CR-120: SO already converted to an invoice cannot also become a challan
+        # (would double-post stock/AR when both complete).
+        if order.converted_invoice_id:
+            raise BusinessRuleError(
+                "This sales order already has an invoice. Cancel or delete that invoice "
+                "before converting to a delivery challan."
+            )
         # Keep SO CONFIRMED/DRAFT until the challan Completes so reservations stay
         # valid and cancel_sales_order still works on a draft challan.
         challan = DeliveryChallan.objects.create(
@@ -597,9 +734,13 @@ class SalesNotesService:
     def cancel_sales_order(order: SalesOrder, user):
         from inventory.services import InventoryService
 
-        order = SalesOrder.objects.select_for_update().get(pk=order.pk)
+        order = SalesOrder.objects.select_for_update().get(pk=order.pk, company_id=order.company_id)
         if order.status not in (SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED):
             raise BusinessRuleError(f"Cannot cancel an order in status {order.status}.")
+        if order.converted_invoice_id:
+            raise BusinessRuleError(
+                "Cancel or delete the draft invoice converted from this order first."
+            )
         if DeliveryChallan.objects.filter(sales_order=order).exclude(
             status=DeliveryChallan.Status.CANCELLED
         ).exists():
@@ -673,6 +814,11 @@ class SalesNotesService:
         items = list(challan.items.select_related("product"))
         if not items:
             raise BusinessRuleError("Cannot complete a challan without line items.")
+        # CR-019: gate closed periods before stock/number when challan posts stock.
+        if challan.company.stock_on_delivery_challan:
+            from reporting.gst_periods import assert_period_allows_money_amend
+
+            assert_period_allows_money_amend(challan.company, challan.challan_date)
         # BB-000729: series keyed by GSTIN + FY (primary GSTIN when challan has no stamp).
         challan.number = challan.number or DocumentNumberService.next_number(
             challan.company,
@@ -684,9 +830,19 @@ class SalesNotesService:
         if challan.sales_order_id:
             from .models import SalesOrder
 
-            order = SalesOrder.objects.select_for_update().get(pk=challan.sales_order_id)
+            # CR-094: never mutate another tenant's SO / reservations.
+            order = SalesOrder.objects.select_for_update().get(
+                pk=challan.sales_order_id,
+                company_id=challan.company_id,
+            )
             if order.status == SalesOrder.Status.CANCELLED:
                 raise BusinessRuleError("Cannot complete a challan for a cancelled sales order.")
+            # CR-120: refuse challan complete when SO already linked to an invoice.
+            if order.converted_invoice_id:
+                raise BusinessRuleError(
+                    "Cannot complete a delivery challan for a sales order that already "
+                    "has an invoice."
+                )
             warehouse = order.warehouse or InventoryService.default_warehouse(challan.company)
             if order.status == SalesOrder.Status.CONFIRMED:
                 for item in order.items.select_related("product"):
@@ -762,6 +918,12 @@ class SalesNotesService:
             raise BusinessRuleError("Challan has already been converted to an invoice.")
         if challan.customer.status == Customer.Status.BLOCKED:
             raise BusinessRuleError("Cannot create an invoice for a blocked customer.")
+        order = challan.sales_order
+        # CR-120: refuse second invoice when SO already linked elsewhere.
+        if order is not None and order.converted_invoice_id:
+            raise BusinessRuleError(
+                "This sales order already has an invoice; cannot convert the challan again."
+            )
         # BB-000342 / BB-000399: composition/unregistered → NON_GST (Bill of Supply), not GST.
         from accounts.models import Company, CompanyGstin
         from inventory.services import InventoryService
@@ -835,6 +997,11 @@ class SalesNotesService:
         challan.updated_by = user
         challan.save(update_fields=["converted_invoice", "updated_by", "updated_at"])
         order = challan.sales_order
+        # CR-120: if SO already points at a different invoice, refuse linking a second one.
+        if order is not None and order.converted_invoice_id and order.converted_invoice_id != invoice.pk:
+            raise BusinessRuleError(
+                "This sales order already has a different invoice; cannot convert the challan again."
+            )
         if order is not None and order.converted_invoice_id is None:
             order.converted_invoice = invoice
             order.updated_by = user

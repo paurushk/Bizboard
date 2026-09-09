@@ -129,12 +129,21 @@ class ImportJobViewSet(
                         "Bill must be a PDF, image, CSV, or XLSX export from your supplier's system."
                     )
                 with transaction.atomic():
+                    # CR-034: Compute file_sha256 on bill uploads
+                    import hashlib
+
+                    uploaded.seek(0)
+                    file_bytes = uploaded.read()
+                    uploaded.seek(0)
+                    sha256_hash = hashlib.sha256(file_bytes).hexdigest()
+
                     asset = FileService.store_upload(
                         company=self.company, uploaded_file=uploaded,
                         kind=FileAsset.Kind.IMPORT, user=request.user,
                     )
                     job = ImportJob.objects.create(
-                        company=self.company, kind=kind, file=asset, supplier=supplier, customer=customer,
+                        company=self.company, kind=kind, file=asset, file_sha256=sha256_hash,
+                        supplier=supplier, customer=customer,
                         created_by=request.user, updated_by=request.user,
                     )
                     if is_structured:

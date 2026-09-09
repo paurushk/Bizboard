@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
-import Alert from '@mui/material/Alert';
 import Typography from '@mui/material/Typography';
 
+import { HonestyBanner } from '@/components/HonestyBanner';
 import { isCrmEnabled, isManufacturingEnabled, isPayrollEnabled } from '@/config/features';
 import { t } from '@/i18n';
 import { PageShell } from '@/pages/phase/phaseShared';
@@ -9,9 +9,9 @@ import { PageShell } from '@/pages/phase/phaseShared';
 export type ErpModule = 'manufacturing' | 'payroll' | 'crm';
 
 const MVP_BANNERS: Record<ErpModule, string> = {
-  manufacturing: 'preview.manufacturing',
-  payroll: 'preview.payroll',
-  crm: 'preview.crm',
+  manufacturing: 'honesty.manufacturingMvp',
+  payroll: 'honesty.payrollNot24q',
+  crm: 'honesty.crmNotebook',
 };
 
 const ENABLE_HINTS: Record<ErpModule, string> = {
@@ -32,11 +32,7 @@ export function isModuleEnabled(module: ErpModule): boolean {
 }
 
 export function MvpModuleBanner({ module }: { module: ErpModule }) {
-  return (
-    <Alert severity="info" sx={{ mb: 2 }}>
-      <Typography variant="body2">{t(MVP_BANNERS[module])}</Typography>
-    </Alert>
-  );
+  return <HonestyBanner messageKey={MVP_BANNERS[module]} />;
 }
 
 export function ModuleGate({

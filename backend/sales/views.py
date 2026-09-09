@@ -14,6 +14,7 @@ from core.models import Notification
 from billing.permissions import SubscriptionWritesAllowed
 from core.permissions import (
     CanCancelDocuments,
+    CanCreatePayments,
     CanCreateSales,
     CanViewFinancialReports,
     CanViewSalesSurfaces,
@@ -84,6 +85,14 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         action = getattr(self, "action", None)
         if action == "cancel":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
+        if action == "pos_checkout":
+            return [
+                IsAuthenticated(),
+                HasCompany(),
+                SubscriptionWritesAllowed(),
+                CanCreateSales(),
+                CanCreatePayments(),
+            ]
         if action in (
             "create", "complete", "update", "partial_update", "destroy", "share",
         ):
@@ -160,9 +169,36 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             qs = qs.filter(number__icontains=params["q"])
         return qs
 
+    def get_serializer(self, *args, **kwargs):
+        # CR-016: attach CN/DN-aware outstanding for list rows in one bulk query.
+        if self.action == "list" and args and kwargs.get("many", True):
+            from decimal import Decimal
+
+            from ledgers.services import LedgerService
+
+            instances = args[0]
+            try:
+                rows = list(instances) if not isinstance(instances, list) else instances
+            except TypeError:
+                rows = None
+            if rows is not None and rows and hasattr(rows[0], "pk"):
+                ids = [r.pk for r in rows if getattr(r, "pk", None)]
+                outstanding = LedgerService.bulk_sales_invoice_outstanding(self.company, ids)
+                for row in rows:
+                    row._list_outstanding = outstanding.get(row.pk, Decimal("0"))
+                args = (rows,) + args[1:]
+                kwargs["many"] = True
+        return super().get_serializer(*args, **kwargs)
+
     def perform_destroy(self, instance):
         if instance.status != SalesInvoice.Status.DRAFT:
             raise BusinessRuleError("Only draft invoices can be deleted; use Cancel instead.")
+        from core.models import IdempotencyRecord
+
+        IdempotencyRecord.objects.filter(
+            company=self.company,
+            resource_id=str(instance.pk),
+        ).delete()
         super().perform_destroy(instance)
 
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
@@ -188,6 +224,96 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         except ValueError as exc:
             raise BusinessRuleError(str(exc)) from exc
         return Response(data)
+
+    @action(detail=False, methods=["post"], url_path="pos-checkout")
+    def pos_checkout(self, request):
+        """CR-003: Atomic POS checkout in a single database transaction.
+        Creates draft invoice, completes invoice, creates receipt, and allocates.
+        """
+        def _execute():
+            from django.db import transaction
+
+            with transaction.atomic():
+                raw_invoice = request.data.get("invoice") or request.data
+                invoice_serializer = self.get_serializer(data=raw_invoice)
+                invoice_serializer.is_valid(raise_exception=True)
+                invoice = invoice_serializer.save(
+                    company=self.company,
+                    created_by=request.user,
+                    updated_by=request.user,
+                )
+
+                completed, _warnings = SalesService.complete(invoice, user=request.user)
+
+                payment_data = request.data.get("payment")
+                receipt_data = None
+                if payment_data:
+                    from decimal import Decimal
+                    from payments.models import BankAccount, PaymentMode
+                    from payments.serializers import CustomerReceiptSerializer
+                    from payments.services import PaymentService
+
+                    tendered = payment_data.get("tendered_amount")
+                    grand_total = Decimal(str(completed.grand_total or 0))
+                    requested = Decimal(str(payment_data.get("amount") or grand_total))
+                    # CR-003: at a retail counter the recorded receipt is what is
+                    # kept against the sale — never more than the invoice total.
+                    # Anything the customer hands over beyond that is change given
+                    # back in cash, not an unallocated advance parked on the
+                    # walk-in customer's ledger (GL 2300). A smaller `amount` is a
+                    # legitimate part-payment and is left as-is.
+                    amount = min(requested, grand_total)
+                    notes = payment_data.get("notes") or ""
+                    tendered_dec = Decimal(str(tendered)) if tendered else requested
+                    change = tendered_dec - grand_total
+                    if change > 0:
+                        notes = f"Tendered: ₹{tendered_dec}, Change: ₹{change}. {notes}".strip()
+                    elif tendered and tendered_dec != amount:
+                        notes = f"Tendered: ₹{tendered_dec}. {notes}".strip()
+
+                    bank_account = None
+                    bank_acc_id = payment_data.get("bank_account")
+                    if bank_acc_id:
+                        bank_account = BankAccount.objects.filter(
+                            company=self.company, pk=bank_acc_id
+                        ).first()
+
+                    mode_str = str(payment_data.get("mode") or "CASH").upper()
+                    try:
+                        mode = PaymentMode(mode_str)
+                    except ValueError:
+                        mode = PaymentMode.CASH
+
+                    receipt = PaymentService.create_receipt(
+                        company=self.company,
+                        customer=completed.customer,
+                        amount=amount,
+                        mode=mode,
+                        receipt_date=completed.invoice_date,
+                        reference=payment_data.get("reference", ""),
+                        notes=notes,
+                        user=request.user,
+                        bank_account=bank_account,
+                    )
+                    PaymentService.allocate_receipt(
+                        receipt=receipt,
+                        sales_invoice=completed,
+                        amount=min(amount, completed.grand_total),
+                        user=request.user,
+                    )
+                    receipt_data = CustomerReceiptSerializer(receipt).data
+
+                return Response({
+                    "invoice": self.get_serializer(completed).data,
+                    "receipt": receipt_data,
+                }, status=status.HTTP_201_CREATED)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="pos_checkout",
+            build=_execute,
+        )
 
     @action(detail=False, methods=["post"], url_path="preview-totals")
     def preview_totals(self, request):
@@ -519,7 +645,7 @@ class QuotationViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"], url_path="convert-to-order")
     def convert_to_order(self, request, pk=None):
-        from .notes_serializers import SalesOrderSerializer
+        from .phase1_serializers import SalesOrderSerializer
 
         confirm_expired = str(request.data.get("confirm_expired") or "").lower() in (
             "true", "1", "yes",
@@ -576,6 +702,17 @@ class SalesReturnViewSet(CompanyScopedViewSet):
             qs = qs.filter(customer_id=self.request.query_params["customer"])
         return qs
 
+    def create(self, request, *args, **kwargs):
+        def _run():
+            return super(SalesReturnViewSet, self).create(request, *args, **kwargs)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="sales_return_create",
+            build=_run,
+        )
+
     def perform_destroy(self, instance):
         if instance.status != SalesReturn.Status.DRAFT:
             raise BusinessRuleError("Only draft returns can be deleted; use Cancel instead.")
@@ -583,8 +720,16 @@ class SalesReturnViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
-        sales_return = SalesService.complete_return(self.get_object(), request.user)
-        return Response(self.get_serializer(sales_return).data)
+        def _run():
+            sales_return = SalesService.complete_return(self.get_object(), request.user)
+            return Response(self.get_serializer(sales_return).data)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="sales_return_complete",
+            build=_run,
+        )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):

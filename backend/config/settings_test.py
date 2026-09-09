@@ -35,8 +35,16 @@ if not os.environ.get("DATABASE_URL"):
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": ":memory:",
+            "OPTIONS": {"timeout": 30},
         }
     }
+    # Django uses :memory: for the SQLite *test* database unless TEST['NAME'] is
+    # set — which makes `pytest --reuse-db` a no-op (migrations, ~3 min, run
+    # every invocation). Point the test DB at a file so --reuse-db can skip them.
+    # First run builds it; after changing a migration, run `pytest --create-db`
+    # once. Opt out with PYTEST_INMEMORY_DB=1. CI uses Postgres via DATABASE_URL.
+    if os.environ.get("PYTEST_INMEMORY_DB") != "1":
+        DATABASES["default"]["TEST"] = {"NAME": str(BASE_DIR / ".pytest_local.db")}  # noqa: F405
 
 # Avoid requiring a live Redis for the test suite (login lockout uses cache).
 CACHES = {

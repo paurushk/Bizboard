@@ -1,8 +1,9 @@
-"""P0-201 / P0-202 — concurrent stock oversell and payment over-allocation.
+"""P0-201 / P0-202 / CR-014 / CR-036 — concurrent stock, payment, and return races.
 
-These exercise select_for_update paths in InventoryService / PaymentService.
-SQLite does not enforce row locks meaningfully, so tests are marked `postgres`
-and skip unless the DB vendor is PostgreSQL (CI with DATABASE_URL).
+These exercise select_for_update paths in InventoryService / PaymentService /
+ReturnService / PurchaseService. SQLite does not enforce row locks meaningfully,
+so tests are marked `postgres` and skip unless the DB vendor is PostgreSQL
+(CI with DATABASE_URL).
 """
 
 from __future__ import annotations
@@ -244,3 +245,201 @@ def test_concurrent_journal_post_one_posted(tenant_a):
         ).count()
         == 1
     )
+
+
+def test_concurrent_sales_return_over_return_blocked(tenant_a):
+    """CR-014 — two Completes each returning the last unit on one invoice → one wins."""
+    _require_postgres()
+    from sales.models import SalesReturn
+    from sales.return_service import ReturnService
+
+    product = make_product(tenant_a.company, sku="RACE-SR-RET")
+    add_stock(tenant_a, product, "1")
+    customer = make_customer(tenant_a.company, state="Karnataka")
+    inv = create_draft_invoice(
+        tenant_a,
+        customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+    )
+    assert tenant_a.client.post(
+        f"/api/v1/sales/invoices/{inv['id']}/complete/"
+    ).status_code == 200
+
+    returns = []
+    for _ in range(2):
+        ret = tenant_a.client.post(
+            "/api/v1/sales/returns/",
+            {
+                "customer": customer.id,
+                "sales_invoice": inv["id"],
+                "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+            },
+            format="json",
+        )
+        assert ret.status_code == 201, ret.data
+        returns.append(SalesReturn.objects.get(pk=ret.data["id"]))
+
+    successes: list[int] = []
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(2, timeout=10)
+
+    def complete_one(sales_return: SalesReturn):
+        connection.close()
+        try:
+            barrier.wait()
+            ReturnService.complete_return(sales_return, tenant_a.owner)
+            successes.append(1)
+        except BusinessRuleError as exc:
+            errors.append(exc)
+        except Exception as exc:  # pragma: no cover
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=complete_one, args=(r,)) for r in returns]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert len(successes) == 1, (successes, errors)
+    assert len(errors) == 1
+    assert (
+        SalesReturn.objects.filter(
+            sales_invoice_id=inv["id"],
+            status=SalesReturn.Status.COMPLETED,
+        ).count()
+        == 1
+    )
+
+
+def test_concurrent_purchase_return_over_return_blocked(tenant_a):
+    """CR-036 — two Completes each returning the last unit on one invoice → one wins."""
+    _require_postgres()
+    from purchases.models import PurchaseReturn
+    from purchases.services import PurchaseService
+    from tests.conftest import create_draft_purchase, make_supplier
+
+    product = make_product(tenant_a.company, sku="RACE-PR-RET")
+    supplier = make_supplier(tenant_a.company)
+    pur = create_draft_purchase(
+        tenant_a,
+        supplier,
+        [{"product": product.id, "quantity": "1", "unit_price": "80"}],
+    )
+    assert tenant_a.client.post(
+        f"/api/v1/purchases/invoices/{pur['id']}/complete/"
+    ).status_code == 200
+
+    returns = []
+    for _ in range(2):
+        ret = tenant_a.client.post(
+            "/api/v1/purchases/returns/",
+            {
+                "supplier": supplier.id,
+                "purchase_invoice": pur["id"],
+                "items": [{"product": product.id, "quantity": "1", "unit_price": "80"}],
+            },
+            format="json",
+        )
+        assert ret.status_code == 201, ret.data
+        returns.append(PurchaseReturn.objects.get(pk=ret.data["id"]))
+
+    successes: list[int] = []
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(2, timeout=10)
+
+    def complete_one(purchase_return: PurchaseReturn):
+        connection.close()
+        try:
+            barrier.wait()
+            PurchaseService.complete_return(purchase_return, tenant_a.owner)
+            successes.append(1)
+        except BusinessRuleError as exc:
+            errors.append(exc)
+        except Exception as exc:  # pragma: no cover
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=complete_one, args=(r,)) for r in returns]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert len(successes) == 1, (successes, errors)
+    assert len(errors) == 1
+    assert (
+        PurchaseReturn.objects.filter(
+            purchase_invoice_id=pur["id"],
+            status=PurchaseReturn.Status.COMPLETED,
+        ).count()
+        == 1
+    )
+
+
+def test_concurrent_gst_soft_close_and_complete_race(tenant_a):
+    """CR-156 / CR-104 residual: soft_close vs Complete TOCTOU race on missing period row."""
+    _require_postgres()
+    from datetime import date
+    from reporting.gst_periods import GstReturnPeriod, soft_close_period
+    from sales.services import SalesService
+
+    product = make_product(tenant_a.company, sku="RACE-GST-SC")
+    add_stock(tenant_a, product, "5")
+    customer = make_customer(tenant_a.company, state="Karnataka")
+
+    # Pick a future period with no pre-existing GstReturnPeriod row
+    target_date = date(2028, 5, 15)
+    period_str = "2028-05"
+    GstReturnPeriod.objects.filter(company=tenant_a.company, period=period_str).delete()
+
+    inv = create_draft_invoice(
+        tenant_a,
+        customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+        invoice_date=target_date,
+    )
+    from sales.models import SalesInvoice
+    inv_obj = SalesInvoice.objects.get(pk=inv["id"])
+
+    barrier = threading.Barrier(2, timeout=10)
+    outcome: dict = {"soft_closed": False, "completed": False, "complete_error": None}
+
+    def do_soft_close():
+        connection.close()
+        try:
+            barrier.wait()
+            soft_close_period(tenant_a.company, period_str, tenant_a.owner)
+            outcome["soft_closed"] = True
+        finally:
+            connection.close()
+
+    def do_complete():
+        connection.close()
+        try:
+            barrier.wait()
+            SalesService.complete(inv_obj, tenant_a.owner)
+            outcome["completed"] = True
+        except BusinessRuleError as exc:
+            outcome["complete_error"] = exc
+        finally:
+            connection.close()
+
+    t1 = threading.Thread(target=do_soft_close)
+    t2 = threading.Thread(target=do_complete)
+    t1.start()
+    t2.start()
+    t1.join(timeout=30)
+    t2.join(timeout=30)
+
+    assert outcome["soft_closed"] is True
+    # Either complete succeeded before soft_close, OR it was blocked because period was soft-closed.
+    if outcome["completed"]:
+        inv_obj.refresh_from_db()
+        assert inv_obj.status == SalesInvoice.Status.COMPLETED
+    else:
+        assert outcome["complete_error"] is not None
+        assert "closed" in str(outcome["complete_error"]).lower()
+

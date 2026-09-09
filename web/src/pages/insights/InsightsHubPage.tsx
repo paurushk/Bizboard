@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { generateDailySummary, getDailySummary, listBusinessAlerts, listGrowthHints } from '@/api/resources';
+import { HonestyBanner } from '@/components/HonestyBanner';
 import {
   DisclaimerBanner,
   KpiStat,
@@ -50,6 +51,7 @@ export function InsightsHubPage() {
           </Button>
         }
       />
+      <HonestyBanner messageKey="honesty.insightsNotBooks" />
       <DisclaimerBanner>{t('insights.disclaimer')}</DisclaimerBanner>
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} useFlexGap flexWrap="wrap">

@@ -6,9 +6,11 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { downloadGstr9, getGstr9 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { GstHonestyHeader } from '@/components/GstHonestyHeader';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
@@ -77,16 +79,27 @@ export function Gstr9ReportPage() {
           ) : null}
         </Stack>
       </Stack>
-      <Alert severity="info">{t('reports.gstOfflineDisclaimer')}</Alert>
+      <GstHonestyHeader />
       <Alert severity="info">{t('reports.gstr9Disclaimer')}</Alert>
       <Alert severity="warning">{t('reports.gstr9Tables67Worksheet')}</Alert>
       {exportMutation.isError ? (
         <Alert severity="error">{getErrorMessage(exportMutation.error)}</Alert>
       ) : null}
       {compositionBlocked ? (
-        <Alert severity="warning">
-          Composition dealers cannot use GSTR-9 annual return aids in BizBoard. Use CMP-08 and GSTR-4
-          worksheet aids, then file on the GST portal or with your CA.
+        <Alert
+          severity="warning"
+          action={
+            <Stack direction="row" spacing={1}>
+              <Button color="inherit" size="small" component={RouterLink} to="/reports/cmp08">
+                {t('gstHonesty.openCmp08')}
+              </Button>
+              <Button color="inherit" size="small" component={RouterLink} to="/reports/gstr4">
+                {t('gstHonesty.openGstr4')}
+              </Button>
+            </Stack>
+          }
+        >
+          {t('gstHonesty.compositionUseAids')}
         </Alert>
       ) : null}
       {query.isLoading ? <LoadingState /> : null}

@@ -60,9 +60,8 @@ export async function register(payload: RegisterPayload): Promise<RegisterResult
   if (shouldUseMocks()) {
     await delay(300);
     return {
-      kind: 'session',
-      user: { ...mockUser, email: payload.email, fullName: payload.fullName ?? mockUser.fullName },
-      tokens: { access: 'mock-access', refresh: 'mock-refresh' },
+      kind: 'pending',
+      detail: 'Account created. Sign in with your email and password to continue.',
     };
   }
 
@@ -75,17 +74,12 @@ export async function register(payload: RegisterPayload): Promise<RegisterResult
     detail?: string;
     user?: User;
   }>(data);
-  // BB-000251: duplicate email returns 200 without tokens or userId (non-enumerating).
-  if (!body.access && !body.userId && !body.user) {
-    return {
-      kind: 'pending',
-      detail: body.detail || 'If this email can be registered, an account has been prepared.',
-    };
-  }
-  const tokens = tokensFromBody(body);
-  setAccessToken(tokens.access);
-  const user = await fetchCurrentUser();
-  return { kind: 'session', user, tokens };
+  // R-068 / BB-000251: register never establishes a session (no JWT). Same
+  // pending shape for new and duplicate emails (non-enumerating).
+  return {
+    kind: 'pending',
+    detail: body.detail || 'If this email can be registered, an account has been prepared.',
+  };
 }
 
 export async function requestOtp(phone: string): Promise<{ detail: string; debugCode?: string }> {
