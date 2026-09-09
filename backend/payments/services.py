@@ -445,6 +445,11 @@ class PaymentService:
             from accounting.services import PostingService
 
             PostingService.post_receipt_allocation(alloc, user)
+        # SR-52 / H-01: PII-free pilot telemetry — one per allocation, flagged
+        # if the derived invoice outstanding left the sane band.
+        from insights.telemetry import record_allocation_reconciled
+
+        record_allocation_reconciled(sales_invoice, user=user)
         return alloc
 
     @staticmethod

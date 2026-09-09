@@ -130,13 +130,18 @@ def test_wf_arch03_complete_business_loop(tenant_a, assert_consistent):
 
     # ------------------------------------------------ 6. receipt (UTR) + allocation
     rec = client.post("/api/v1/payments/receipts/", {
-        "customer": customer.id,
-        "amount": str(grand),
-        "method": "BANK",
-        "reference": "UTR9090001",
-        "allocations": [{"invoice": invoice_id, "amount": str(grand)}],
+        "customer": customer.id, "amount": str(grand), "mode": "BANK", "utr": "UTR9090001",
     }, format="json")
     assert rec.status_code in (200, 201), rec.data
+    alloc = client.post("/api/v1/payments/allocations/", {
+        "receipt": rec.data["id"], "sales_invoice": invoice_id, "amount": str(grand),
+    }, format="json")
+    assert alloc.status_code in (200, 201), alloc.data
+    from payments.models import PaymentAllocation
+
+    assert PaymentAllocation.objects.filter(
+        company=company, receipt_id=rec.data["id"], sales_invoice_id=invoice_id,
+    ).exists()
 
     # ------------------------------------------------------ 7. statement reconciles
     assert LedgerService.customer_outstanding(company, customer) == Decimal("0.00")

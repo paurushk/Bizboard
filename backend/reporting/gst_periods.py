@@ -49,6 +49,10 @@ def soft_close_period(company, period: str, user) -> GstReturnPeriod:
         obj.closed_at = timezone.now()
         obj.closed_by = user
         obj.save(update_fields=["status", "closed_at", "closed_by", "updated_at"])
+    # SR-52: month-end cadence marker for the pilot scoreboard (PII-free).
+    from insights.telemetry import record_event
+
+    record_event(company, "period_closed", user=user)
     return obj
 
 

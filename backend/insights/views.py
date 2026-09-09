@@ -413,11 +413,24 @@ class ShopFloorTelemetryView(APIView):
             for r in qs.filter(event__in=("complete_duration_ms", "invoice_complete"))
             if r.duration_ms
         )
+        alloc_total = qs.filter(event="allocation_reconciled").count()
+        alloc_bad = qs.filter(event="allocation_reconciled", tap_count__gte=1).count()
+        enqueued = qs.filter(event="offline_enqueue").count()
+        flush_fail = qs.filter(event="offline_flush_fail").count()
         return Response({
             "days": days,
+            # H-02 — counter checkout speed
             "complete_p95_ms": _percentile(durations, 95),
             "complete_count": qs.filter(event="invoice_complete").count(),
-            "offline_flush_fail": qs.filter(event="offline_flush_fail").count(),
-            "offline_enqueue": qs.filter(event="offline_enqueue").count(),
             "pos_line_added": qs.filter(event="pos_line_added").count(),
+            # H-01 — B2B ledger reconciliation (pass: 0 discrepancies / 100 allocations)
+            "allocations": alloc_total,
+            "allocation_discrepancies": alloc_bad,
+            "allocation_ok": alloc_total == 0 or alloc_bad == 0,
+            # H-03 — offline outbox integrity (pass: 0 flush failures)
+            "offline_enqueue": enqueued,
+            "offline_flush_fail": flush_fail,
+            "offline_ok": flush_fail == 0,
+            # cadence
+            "periods_closed": qs.filter(event="period_closed").count(),
         })

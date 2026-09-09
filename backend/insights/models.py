@@ -153,6 +153,11 @@ class ShopFloorEvent(CompanyScopedModel):
         OFFLINE_FLUSH_FAIL = "offline_flush_fail"
         COMPLETE_DURATION_MS = "complete_duration_ms"
         TIME_TO_FIRST_INVOICE_MS = "time_to_first_invoice_ms"
+        # SR-52 / D-pilot: server-emitted pilot-hypothesis signals.
+        # tap_count is reused as a 0 (clean) / 1 (discrepancy) flag for
+        # allocation_reconciled — see insights.telemetry.
+        ALLOCATION_RECONCILED = "allocation_reconciled"
+        PERIOD_CLOSED = "period_closed"
 
     event = models.CharField(max_length=40, choices=Event.choices, db_index=True)
     duration_ms = models.PositiveIntegerField(null=True, blank=True)
