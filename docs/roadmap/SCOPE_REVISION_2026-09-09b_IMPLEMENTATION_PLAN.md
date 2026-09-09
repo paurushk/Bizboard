@@ -32,17 +32,17 @@ This plan does **not** re-open D6–D11. Re-opening any demoted item requires a 
 | SR-05 | Regenerate Phase 2 chain list (drop WF-53–58) | 1 | LLM | 0.5d | ☑ | — |
 | SR-10 | `CesNonAdvlAmt` in e-invoice payload (invoice + note) | 2 D9b | LLM | 1d | ☑ | — |
 | SR-11 | WF-02 specific-cess Freeze Gate chain test | 2 | LLM | 1.5d | ☑ | SR-10 |
-| SR-12 | Product-master `cess_amount` field exposure | 2 | LLM | 1d | ☑ | FE form input still TODO |
+| SR-12 | Product-master `cess_amount` field exposure | 2 | LLM | 1d | ☑ | + ItemFormDialog cess inputs |
 | SR-20 | LLM extraction provider-failure tests | 3 D14 | LLM | 2d | ☑ | — |
 | SR-21 | Prompt-injection guard + crafted-bill test | 3 | LLM | 2d | ☑ | — |
 | SR-22 | Extraction cost-ceiling assertion | 3 | LLM | 0.5d | ☑ | — |
 | SR-23 | Draft-with-warning surfaced in preview (API + FE) | 3 | LLM | 1.5d | ☑ | FE banner still TODO |
 | SR-30 | Push-notifications: keep or drop for pilot | 4 D12 | PO | 0.25d | ☑ | KEEP — registration already wired (M1-009); FCM delivery deferred |
-| SR-31 | CI Capacitor APK build + artifact | 4 | LLM+INF | 1.5d | ☐ | INF — needs CI Android SDK |
-| SR-32 | Mobile lane — session persistence across restart | 4 | LLM | 1.5d | ◐ | @capacitor/preferences wired (prefsGet/Set); test lane pending |
-| SR-33 | Mobile lane — deep links | 4 | LLM | 1d | ◐ | onDeepLink wired (M1-008); test lane pending |
-| SR-34 | Mobile lane — offline-on-mobile outbox flush | 4 | LLM | 2d | ☐ | SR-51 |
-| SR-35 | Emulator smoke in CI | 4 | INF+LLM | 2d | ☐ | SR-31 |
+| SR-31 | CI Capacitor APK build + artifact | 4 | LLM+INF | 1.5d | ☑ | mobile-apk job (needs first green run) |
+| SR-32 | Mobile lane — session persistence across restart | 4 | LLM | 1.5d | ☑ | prefs native-path test + emulator smoke step |
+| SR-33 | Mobile lane — deep links | 4 | LLM | 1d | ☑ | deepLinkToPath extracted + unit-tested |
+| SR-34 | Mobile lane — offline-on-mobile outbox flush | 4 | LLM | 2d | ☑ | onNetworkOnline → PosPage flush + smoke step |
+| SR-35 | Emulator smoke in CI | 4 | INF+LLM | 2d | ☑ | mobile-emulator-smoke job (advisory) |
 | SR-40 | Erasure retention carve-out policy | 5 D13 | FDR | 0.5d | ☑ | SIGNED: anon tombstone, 8-yr, then purge |
 | SR-41 | erasure model-coverage drift guard | 5 | LLM | 3d | ☑ | assert_erasure_model_coverage |
 | SR-42 | Owner-initiated erasure endpoint / command | 5 | LLM | 2d | ☑ | gated by ENABLE_TENANT_ERASURE |
@@ -360,6 +360,7 @@ None of these now **block** forward progress — each has a default applied and 
 | 2026-09-09 | SR-30 | ◐ Proceeding on default: DROP `@capacitor/push-notifications` for pilot 1. PO to confirm. |
 | 2026-09-09 | SR-40 | ◐ Proceeding on default: anonymised statutory tombstone, 8-yr retention then purge. Founder to confirm before SR-42 merges. |
 | 2026-09-09 | SR-02 | ◐ Started. Confirmed: D6/D8/D9/D10 are NOT flag-gated (always-on capabilities) → inert-ness handled via SR-03 route guards + onboarding screening. D11 uses `plan.seat_limit` / `plan_modules_for_company` + `UNSUBSCRIBED_SEAT_LIMIT`. Flag/profile edits + `FG-1` reconcile pending. |
+| 2026-09-10 | SR-12 FE / SR-31..35 | ☑ `commit c2e71a2` (SR-12 FE) — `ItemFormDialog` cess-rate + per-unit-cess inputs, wired to the create/update payload. ☑ `commit 2b51881` (D12 mobile lane): SR-33 `deepLinkToPath()` extracted to `lib/native.ts` + used in `AuthContext`, unit-tested; SR-34 `onNetworkOnline()` (`@capacitor/network`) wired into the PosPage outbox-flush effect; SR-32 native-path `prefs` round-trip test; SR-31 `mobile-apk` CI job (web build → `cap sync` → `gradlew assembleDebug` → APK artifact); SR-35 `mobile-emulator-smoke` job (advisory) running `mobile/e2e/smoke.yaml` (login, cold-restart persistence, counter sale, offline draft + reconnect). `native.test.ts` 14 green; web touched-area suites 70 green; `tsc` clean; `ci.yml` parses. SR-31/35 need their first CI run on a real Android runner to be confirmed green. |
 | 2026-09-10 | SR-30 | ☑ **Decision: KEEP** `@capacitor/push-notifications` (founder). Registration flow is already wired — `web/src/lib/native.ts::registerForPushNotifications` + `AuthContext` M1-009 (once per login, native only, best-effort) + `registerPushToken` → `PATCH /auth/me {pushToken}`; backend `User.push_token` + `MeView.patch`; `test_remaining_gates::test_a01_push_token_patch*` cover it; `AndroidManifest.xml` has `POST_NOTIFICATIONS`. Remaining for actual push *delivery*: an FCM sender + `google-services.json` — a future notification feature, no pilot use case, out of D12 scope. |
 | 2026-09-10 | SR-40 | ☑ **SIGNED** `commit 67fa171` — anonymised tombstone, 8-yr retention. `erase_company(mode="tombstone")` (endpoint default): deletes all operational rows, keeps statutory tax docs with party PII scrubbed + `Company` row as scrubbed placeholder (`erased_at`); `purge_tombstoned_companies` hard-deletes after 8y+2d. `mode="hard"` unchanged. `TOMBSTONE_RETAINED` covers the tax docs + the masters/warehouse/batch/cost-centre they PROTECT-reference. 8 erasure tests green, FG-1 OK. `ENABLE_TENANT_ERASURE` stays OFF by default (flip per deployment). |
 | 2026-09-10 | SR-54 | ☑ `commit 80fc3a2` — `PosPage` counts `window` `pointerdown` events per cart (reset on first line), sends as `tap_count` on `invoice_complete` (FE telemetry lib + ingest already carried the field). `/insights/telemetry/` H-02 block adds `checkouts_measured` / `keyboard_only_checkouts` / `keyboard_only_rate`. `tsc` clean; pos + telemetry tests green. |
