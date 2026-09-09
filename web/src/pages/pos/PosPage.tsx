@@ -74,7 +74,7 @@ import {
   userGestureIdempotencyKey,
 } from '@/api/client';
 import { trackShopFloor, trackInvoiceComplete } from '@/lib/telemetry';
-import { scanBarcode } from '@/lib/native';
+import { onNetworkOnline, scanBarcode } from '@/lib/native';
 import { useAuth } from '@/auth/AuthContext';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { isAtomicPosCheckoutEnabled, isPosEnabled } from '@/config/features';
@@ -1037,10 +1037,14 @@ export function PosPage() {
     const onOffline = () => setOffline(true);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+    // SR-34: the DOM online event is unreliable inside the Android WebView —
+    // also flush when @capacitor/network reports connectivity is back.
+    const unsubNative = onNetworkOnline(onOnline);
     if (navigator.onLine) void flushPendingDraft();
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
+      unsubNative();
     };
   }, [flushPendingDraft]);
 

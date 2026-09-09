@@ -227,3 +227,41 @@ export async function registerPushToken(token: string): Promise<void> {
   const { apiClient } = await import('@/api/client');
   await apiClient.patch('/auth/me/', { pushToken: token.trim() });
 }
+
+/**
+ * SR-33: turn a custom-scheme deep link into an in-app route. The WHATWG URL
+ * parser puts everything after `://` up to the first `/` in `host`, so
+ * `in.bizboard.app://invoices/123` -> host="invoices", pathname="/123"; we
+ * recombine both. Returns `null` for a malformed URL (caller should ignore).
+ */
+export function deepLinkToPath(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const path = `/${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`.replace(/\/+/g, '/');
+    return path || '/';
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * SR-34: on a Capacitor Android WebView the DOM `online` event is unreliable, so
+ * also listen to `@capacitor/network`. `cb` fires whenever connectivity is
+ * regained. No-ops on web / without the plugin. Returns an unsubscribe.
+ */
+export function onNetworkOnline(cb: () => void): () => void {
+  const plugin = capacitor()?.Plugins?.Network as
+    | { addListener?: (event: string, fn: (s: NetworkStatus) => void) => Promise<{ remove: () => void }> }
+    | undefined;
+  if (!isNative() || !plugin?.addListener) return () => {};
+  let handle: { remove: () => void } | null = null;
+  void plugin
+    .addListener('networkStatusChange', (status) => {
+      if (status?.connected) cb();
+    })
+    .then((h) => {
+      handle = h;
+    })
+    .catch(() => {});
+  return () => handle?.remove();
+}

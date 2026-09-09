@@ -1,0 +1,56 @@
+# SR-35 — Maestro smoke for the pilot APK. Advisory in CI until stable.
+# Assumes a pilot backend reachable at CAPACITOR_SERVER_URL with a seeded
+# owner account (SMOKE_EMAIL / SMOKE_PASSWORD env or the defaults below).
+appId: in.bizboard.app
+env:
+  EMAIL: ${SMOKE_EMAIL:-pilot-c1@bizboard.local}
+  PASSWORD: ${SMOKE_PASSWORD:-PilotPass123!}
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Sign in"
+- tapOn: "Email"
+- inputText: ${EMAIL}
+- tapOn: "Password"
+- inputText: ${PASSWORD}
+- tapOn: "Sign in"
+- assertVisible:
+    text: "Dashboard"
+    timeout: 20000
+
+# session persistence across a cold restart (SR-32)
+- stopApp
+- launchApp
+- assertVisible:
+    text: "Dashboard"
+    timeout: 15000
+
+# create + complete a counter sale (H-02 path)
+- tapOn: "POS"
+- tapOn:
+    id: "pos-search"
+- inputText: "WID"
+- tapOn:
+    text: ".*Widget.*"
+    index: 0
+- tapOn: "CASH"
+- assertVisible:
+    text: ".*COMPLETED.*|.*Sale complete.*"
+    timeout: 20000
+
+# offline draft then reconnect flush (SR-34)
+- setAirplaneMode: enabled
+- tapOn:
+    id: "pos-search"
+- inputText: "WID"
+- tapOn:
+    text: ".*Widget.*"
+    index: 0
+- tapOn: "CASH"
+- assertVisible:
+    text: ".*queued.*|.*offline.*"
+    timeout: 10000
+- setAirplaneMode: disabled
+- assertVisible:
+    text: ".*synced.*|.*COMPLETED.*"
+    timeout: 30000

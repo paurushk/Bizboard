@@ -23,7 +23,7 @@ import {
 } from '@/auth/session';
 import { clearAllDrafts } from '@/offline/invoiceDraftCache';
 import { clearPosPendingStorageForUser } from '@/pages/pos/posStatus';
-import { isNative, onDeepLink, registerForPushNotifications } from '@/lib/native';
+import { deepLinkToPath, isNative, onDeepLink, registerForPushNotifications } from '@/lib/native';
 import { clearBizboardPwaCaches } from '@/pwaCaches';
 import type { User } from '@/types/domain';
 
@@ -200,17 +200,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // within the existing app shell. Native shells only; no-ops on web.
   useEffect(() => {
     return onDeepLink((url) => {
-      try {
-        const parsed = new URL(url);
-        // For a custom (non-http) scheme, the WHATWG parser treats whatever
-        // follows "://" up to the next "/" as `host`, not `pathname` — so
-        // `in.bizboard.app://invoices/123` parses as host="invoices",
-        // pathname="/123". Recombine both to get the intended route.
-        const path = `/${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`.replace(/\/+/g, '/');
-        navigate(path || '/');
-      } catch {
-        /* malformed deep link — ignore rather than crash the shell */
-      }
+      const path = deepLinkToPath(url);
+      if (path) navigate(path);
+      // malformed deep link -> null -> ignore rather than crash the shell
     });
   }, [navigate]);
 

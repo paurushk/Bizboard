@@ -149,6 +149,71 @@ jobs:
           test -f mobile/capacitor.config.ts
           grep -q 'android:allowBackup="false"' mobile/android/app/src/main/AndroidManifest.xml
 
+  # SR-31: build the pilot APK and publish it as a workflow artifact.
+  # ubuntu-latest ships the Android SDK + a JDK at $ANDROID_HOME / $JAVA_HOME.
+  mobile-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Build the web bundle
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+      - name: Capacitor sync
+        working-directory: mobile
+        run: |
+          npm ci
+          # M1-010: an explicit https origin is required for a device build.
+          export CAPACITOR_SERVER_URL="${{ vars.CAPACITOR_SERVER_URL || 'https://pilot.bizboard.in' }}"
+          npx cap sync android
+      - name: Gradle assembleDebug
+        working-directory: mobile/android
+        run: ./gradlew --no-daemon assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bizboard-pilot-apk
+          path: mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  # SR-35: headless emulator smoke — advisory until it is stable.
+  mobile-emulator-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    needs: mobile-apk
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: bizboard-pilot-apk
+          path: artifacts
+      - name: Install Maestro
+        run: curl -fsSL "https://get.maestro.mobile.dev" | bash
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Emulator smoke (login → create invoice → offline draft → reconnect)
+        uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d # v2
+        with:
+          api-level: 31
+          arch: x86_64
+          script: |
+            adb install -r artifacts/*.apk
+            $HOME/.maestro/bin/maestro test mobile/e2e/smoke.yaml
+
   # Light e2e (no API). Merge gate remains e2e-golden below.
   # BB-000310: continue-on-error removed — light e2e failures must surface.
   e2e:
