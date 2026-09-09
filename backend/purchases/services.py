@@ -139,8 +139,9 @@ def _build_purchase_items(invoice, items_data):
             unit_price=line.get("unit_price", product.purchase_price),
             discount_percent=line.get("discount_percent", Decimal("0")),
             gst_rate=line.get("gst_rate", product.gst_rate),
-            cess_rate=line.get("cess_rate", Decimal("0")),
-            cess_amount=line.get("cess_amount", Decimal("0")),
+            # D9b: default compensation cess from the product master, like gst_rate.
+            cess_rate=line.get("cess_rate", getattr(product, "cess_rate", None) or Decimal("0")),
+            cess_amount=line.get("cess_amount", getattr(product, "cess_amount", None) or Decimal("0")),
             hsn_code=snap["hsn_code"],
             mrp=line.get("mrp", product.mrp or Decimal("0")),
             unit_name=snap["unit_name"],
