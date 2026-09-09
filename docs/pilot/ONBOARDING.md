@@ -33,3 +33,20 @@ e-invoice sandbox submit, and accounting UI are off unless
 **Do not claim:** live GST portal / NIC e-invoice filing (sandbox submit is
 preview only — not filed to GSTN), WhatsApp beyond share-link, full
 Manufacturing / Payroll / CRM, or multi-company.
+
+## Scope honesty — Scope revision 2026-09-09b (KNOWN LIMITATIONS)
+
+These are **out of the pilot**; each has a manual workaround (see
+[`../FREEZE_SCOPE.md` → Scope revision 2026-09-09b](../FREEZE_SCOPE.md#scope-revision-2026-09-09b-po-call)):
+
+| Area | Pilot workaround |
+|---|---|
+| Fixed assets + depreciation (D6) | Keep in existing books; post the monthly depreciation journal by hand. |
+| TDS/TCS returns + certificates (D7) | Bizboard gives the TDS/TCS worksheet; the CA files GSTR-7/8 and issues Form 16A/27D from it. |
+| Reverse charge / RCM (D8) | Screen out merchants with material RCM exposure, or record the RCM self-invoice + ITC manually. |
+| Composition dealer + CMP-08 (D9) | Composition dealers are out of the pilot; bill of supply + the CMP-08 worksheet exist but are not gate-tested. |
+| Import purchase / Bill of Entry + landed cost (D10) | Enter import purchases as a domestic purchase bill with duty / landed cost as a charge line. |
+| Plan-limit enforcement (D11) | Feature-gates and count quotas are not enforced in the pilot; handle limits out of band. |
+
+**Retained and shipping:** per-unit cess (D9b), Android app shell (D12), automated
+data-erasure on request (D13 — see `DPDP_POSTURE.md`), LLM bill-extraction hardening (D14).

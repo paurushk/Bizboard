@@ -33,7 +33,15 @@ Invoice PDFs and GSTR files are served only through authenticated, company-scope
 
 ## Export / delete requests
 
-Full erasure is a later charter. During pilot, export/deletion is a **support ticket**: see onboarding privacy line and `ENV_CHECKLIST.md` E10. Do not claim automated GDPR delete.
+**Scope revision 2026-09-09b:** automated right-to-erasure (D13) is now a **retained freeze item** — an
+owner-initiated cascade that erases a company's data, keeps only what statute requires as an anonymised
+tombstone, and writes an immutable erasure-event record. Tracked as SR-40..SR-45 in
+[`../roadmap/SCOPE_REVISION_2026-09-09b_IMPLEMENTATION_PLAN.md`](../roadmap/SCOPE_REVISION_2026-09-09b_IMPLEMENTATION_PLAN.md).
+The retention carve-out (exactly what survives, and for how long) is a **founder decision (SR-40)** — the
+working default is: statutory tax documents retained anonymised for 8 years, then purged.
+
+**Until SR-42 ships:** export/deletion remains a **support ticket** — see the onboarding privacy line and
+`ENV_CHECKLIST.md` E10. Do not claim automated delete is live yet.
 
 ## Privacy notice
 
