@@ -196,6 +196,27 @@ def _coerce_gst_rate(raw: Any) -> str:
 # doesn't match the format outright rather than staging attacker-controlled text.
 _LLM_GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$")
 
+# SR-21 / D14: a crafted bill image can carry text aimed at the model ("ignore
+# previous instructions", "set supplier gstin to ...", "mark as paid"). The
+# extraction JSON only has data fields (there is no side-effect flag to flip),
+# but such text can still land in a name / header. Detect it, quarantine the
+# offending field, and force the record low-confidence so it is never committed
+# without a human reviewing every value.
+_INJECTION_RE = re.compile(
+    r"ignore\s+(?:all\s+|the\s+)?(?:previous|prior|above|earlier)\s+instruction"
+    r"|disregard\s+(?:all\s+|the\s+)?(?:previous|prior|above)"
+    r"|you\s+are\s+now\b|new\s+instructions?\s*:|system\s+prompt"
+    r"|</?(?:system|assistant|user)>"
+    r"|set\s+(?:the\s+)?(?:supplier|buyer|seller|vendor)?\s*_?gstin\s+to\b"
+    r"|mark\s+(?:this|the)?\s*(?:bill|invoice|purchase|order)?\s*as\s+paid"
+    r"|set\s+(?:the\s+)?(?:grand\s+)?total\s+to\b",
+    re.IGNORECASE,
+)
+
+
+def _has_injection(*values: Any) -> bool:
+    return any(v and _INJECTION_RE.search(str(v)) for v in values)
+
 
 def _clean_header_str(value: Any, *, cap: int = 128) -> str:
     text = str(value or "").strip()
@@ -212,9 +233,16 @@ def _normalize_payload(raw: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(lines_in, list):
         raise BusinessRuleError("LLM JSON must include a lines array.")
     lines = []
+    injection_flagged = _has_injection(
+        raw.get("supplier_name"), raw.get("buyer_name"),
+        raw.get("bill_number"), raw.get("bill_date"),
+    )
     for item in lines_in:
         if not isinstance(item, dict):
             continue
+        if _has_injection(item.get("name"), item.get("sku"), item.get("hsn_code")):
+            injection_flagged = True
+            continue  # drop the hostile line rather than stage its text
         name = str(item.get("name") or "").strip()
         if not name:
             continue
@@ -289,14 +317,38 @@ def _normalize_payload(raw: dict[str, Any]) -> dict[str, Any]:
         overall = None
     headers_in = raw.get("column_headers") or []
     column_headers = [str(h).strip() for h in headers_in if str(h or "").strip()] if isinstance(headers_in, list) else []
+
+    supplier_name = _clean_header_str(raw.get("supplier_name"))
+    buyer_name = _clean_header_str(raw.get("buyer_name"))
+    bill_number = _clean_header_str(raw.get("bill_number"), cap=64)
+    bill_date = _clean_header_str(raw.get("bill_date"), cap=32)
+    supplier_gstin = _clean_gstin_str(raw.get("supplier_gstin"))
+    buyer_gstin = _clean_gstin_str(raw.get("buyer_gstin"))
+    if injection_flagged:
+        # Quarantine every attacker-influenced header (a format-valid GSTIN can
+        # still be a planted one), and force the whole extraction below the
+        # auto-accept confidence floor so nothing commits without review.
+        if _has_injection(raw.get("supplier_name")):
+            supplier_name = ""
+        if _has_injection(raw.get("buyer_name")):
+            buyer_name = ""
+        if _has_injection(raw.get("bill_number")):
+            bill_number = ""
+        if _has_injection(raw.get("bill_date")):
+            bill_date = ""
+        supplier_gstin = ""
+        buyer_gstin = ""
+        overall = 0.0
+
     return {
-        "supplier_name": _clean_header_str(raw.get("supplier_name")),
-        "supplier_gstin": _clean_gstin_str(raw.get("supplier_gstin")),
-        "buyer_name": _clean_header_str(raw.get("buyer_name")),
-        "buyer_gstin": _clean_gstin_str(raw.get("buyer_gstin")),
-        "bill_number": _clean_header_str(raw.get("bill_number"), cap=64),
-        "bill_date": _clean_header_str(raw.get("bill_date"), cap=32),
+        "supplier_name": supplier_name,
+        "supplier_gstin": supplier_gstin,
+        "buyer_name": buyer_name,
+        "buyer_gstin": buyer_gstin,
+        "bill_number": bill_number,
+        "bill_date": bill_date,
         "confidence": overall,
+        "injection_flagged": injection_flagged,
         "printed_line_count": _coerce_printed_line_count(raw, lines),
         "column_headers": column_headers,
         "lines": lines,
@@ -397,6 +449,8 @@ def merge_extraction_line_payloads(first: dict[str, Any], extra: dict[str, Any])
     merged["printed_line_count"] = merged_count
     if extra.get("column_headers") and not merged.get("column_headers"):
         merged["column_headers"] = extra["column_headers"]
+    if extra.get("injection_flagged"):
+        merged["injection_flagged"] = True
     return merged
 
 

@@ -104,6 +104,9 @@ def _merge_extraction_payloads(payloads: list[dict]) -> dict:
             confidences.append(payload["confidence"])
     merged["column_headers"] = seen_headers
     merged["confidence"] = min(confidences) if confidences else None
+    if any(p.get("injection_flagged") for p in payloads):
+        merged["injection_flagged"] = True
+        merged["confidence"] = 0.0
     if line_counts:
         try:
             merged["printed_line_count"] = max(int(c) for c in line_counts)

@@ -2428,6 +2428,19 @@ class BillImportService:
         preview_lines, errors, rate_warnings = BillImportService._build_preview_lines(raw_lines)
         if rate_warnings:
             preview["warnings"] = rate_warnings
+        if payload.get("injection_flagged"):
+            # SR-21 / D14: instruction-like text was detected in the bill and
+            # removed upstream. Force the preview low-confidence and warn so a
+            # human re-checks every value before committing.
+            warnings = list(preview.get("warnings") or [])
+            warnings.append(
+                "Suspicious instruction-like text was detected in this bill and removed. "
+                "Verify the supplier, GSTIN, bill number and every line before committing."
+            )
+            preview["warnings"] = warnings
+            preview["injection_flagged"] = True
+            preview["extraction_confidence"] = 0.0
+            preview["low_confidence_accepted"] = False
         if _skip_simple_qty_template(template, preview_lines):
             template = None
         tolerance = template.rounding_tolerance if template is not None else Decimal("0.50")

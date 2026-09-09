@@ -100,3 +100,32 @@ def test_failed_extraction_is_retryable(tenant_a):
         retry = tenant_a.client.post(f"/api/v1/imports/{job['id']}/retry-extract/")
     assert retry.status_code == 200, retry.data
     assert retry.data["status"] in ("PREVIEWED", "PREVIEW", "READY")
+
+
+def test_extraction_provider_calls_are_bounded_by_max_chunks():
+    """SR-22 / D14: a document the model keeps claiming is unfinished must not
+    loop the provider forever — MAX_EXTRACT_CHUNKS is a hard ceiling."""
+    from unittest.mock import Mock
+    from django.test import override_settings
+
+    from core.services import llm
+
+    # Every chunk returns a full window and signals "truncated", so the loop
+    # would continue indefinitely if it were unbounded.
+    def _fake_chunk(*args, **kwargs):
+        lines = [
+            {"si": str(i), "name": f"Item {i}", "quantity": "1",
+             "unit_price": "10", "gst_rate": "18"}
+            for i in range(1, llm.EXTRACT_CHUNK_SIZE + 1)
+        ]
+        return ({"lines": lines, "printed_line_count": 9999, "confidence": 0.9}, "length")
+
+    mock = Mock(side_effect=_fake_chunk)
+    with override_settings(LLM_PROVIDER="openai", OPENAI_API_KEY="test-key"):
+        with patch("core.services.llm._extract_openai_compatible", mock):
+            payload = llm.extract_purchase_bill([b"fake-image-bytes"])
+
+    assert mock.call_count <= llm.MAX_EXTRACT_CHUNKS, mock.call_count
+    # it still returns a (bounded) payload rather than raising
+    assert payload["lines"]
+    assert len(payload["lines"]) <= llm.EXTRACT_CHUNK_SIZE * llm.MAX_EXTRACT_CHUNKS
