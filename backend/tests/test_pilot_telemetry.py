@@ -68,6 +68,18 @@ def test_telemetry_scoreboard_reports_hypothesis_metrics(tenant_a):
     inv, customer = _completed_invoice(tenant_a)
     _receipt_and_allocate(tenant_a, inv, customer)
 
+    # SR-54: FE reports a keyboard-and-scanner-only checkout as tap_count 0
+    tenant_a.client.post(
+        "/api/v1/insights/telemetry/",
+        {"event": "invoice_complete", "duration_ms": 21000, "tap_count": 0},
+        format="json",
+    )
+    tenant_a.client.post(
+        "/api/v1/insights/telemetry/",
+        {"event": "invoice_complete", "duration_ms": 40000, "tap_count": 5},
+        format="json",
+    )
+
     board = tenant_a.client.get("/api/v1/insights/telemetry/")
     assert board.status_code == 200, board.data
     d = board.data
@@ -76,3 +88,6 @@ def test_telemetry_scoreboard_reports_hypothesis_metrics(tenant_a):
     assert d["allocation_ok"] is True
     assert d["offline_ok"] is True
     assert "complete_p95_ms" in d
+    assert d["checkouts_measured"] == 2
+    assert d["keyboard_only_checkouts"] == 1
+    assert d["keyboard_only_rate"] == 0.5

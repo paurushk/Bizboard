@@ -242,6 +242,9 @@ export function PosPage() {
   const flushGuard = useRef(false);
   /** CR-112: sync double-submit guard (busy state alone is too late). */
   const checkoutGuard = useRef(false);
+  /** SR-54 / H-02: pointer interactions since the current cart was started —
+   * a keyboard-and-scanner-only checkout ends with 0. Reset on first line. */
+  const pointerCount = useRef(0);
   /** CR-111: last successful server preview grand total for tender UI. */
   const [serverTenderTotal, setServerTenderTotal] = useState<number | null>(null);
   const [tenderPreviewFailed, setTenderPreviewFailed] = useState(false);
@@ -459,6 +462,15 @@ export function PosPage() {
   }, [companyId, userId]);
 
   useEffect(() => {
+    // SR-54 / H-02: count pointer (mouse / touch / pen) presses on the POS page.
+    const onPointer = () => {
+      pointerCount.current += 1;
+    };
+    window.addEventListener('pointerdown', onPointer, { passive: true });
+    return () => window.removeEventListener('pointerdown', onPointer);
+  }, []);
+
+  useEffect(() => {
     setServerTenderTotal(null);
     setTenderPreviewFailed(false);
   }, [cart, customerId, totals.grandTotal]);
@@ -477,6 +489,7 @@ export function PosPage() {
         return;
       }
     }
+    if (cart.length === 0) pointerCount.current = 0; // new cart → reset the H-02 counter
     trackShopFloor('pos_line_added');
     setSaleJustCompleted(false);
     setCart((prev) => {
@@ -683,7 +696,8 @@ export function PosPage() {
           confirmBlankPos,
           idempotencyKey: key ? `${key}-complete` : undefined,
         });
-        trackInvoiceComplete(Date.now() - started);
+        trackInvoiceComplete(Date.now() - started, pointerCount.current);
+        pointerCount.current = 0;
         return completedInv;
       } catch (err) {
         // F2-004: `completeSalesInvoice` may have actually succeeded

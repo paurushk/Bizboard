@@ -417,12 +417,22 @@ class ShopFloorTelemetryView(APIView):
         alloc_bad = qs.filter(event="allocation_reconciled", tap_count__gte=1).count()
         enqueued = qs.filter(event="offline_enqueue").count()
         flush_fail = qs.filter(event="offline_flush_fail").count()
+        # SR-54 / H-02: pointer presses during a checkout (0 == keyboard + scanner only)
+        checkout_taps = list(
+            qs.filter(event="invoice_complete", tap_count__isnull=False).values_list("tap_count", flat=True)
+        )
+        keyboard_only = sum(1 for tc in checkout_taps if tc == 0)
         return Response({
             "days": days,
-            # H-02 — counter checkout speed
+            # H-02 — counter checkout speed + keyboard-only rate
             "complete_p95_ms": _percentile(durations, 95),
             "complete_count": qs.filter(event="invoice_complete").count(),
             "pos_line_added": qs.filter(event="pos_line_added").count(),
+            "checkouts_measured": len(checkout_taps),
+            "keyboard_only_checkouts": keyboard_only,
+            "keyboard_only_rate": (
+                round(keyboard_only / len(checkout_taps), 3) if checkout_taps else None
+            ),
             # H-01 — B2B ledger reconciliation (pass: 0 discrepancies / 100 allocations)
             "allocations": alloc_total,
             "allocation_discrepancies": alloc_bad,
