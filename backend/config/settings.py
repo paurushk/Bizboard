@@ -854,6 +854,12 @@ HELP_V2_COMPANY_ALLOWLIST = os.environ.get("HELP_V2_COMPANY_ALLOWLIST", "")
 ENABLE_GSTR = _env_bool("ENABLE_GSTR")
 ENABLE_TALLY = _env_bool("ENABLE_TALLY")
 ENABLE_GSTN_JSON = _env_bool("ENABLE_GSTN_JSON")
+# Scope revision 2026-09-09b: D6 (fixed assets + depreciation) and D10 (Bill of
+# Entry / import purchase + landed cost) are KNOWN LIMITATIONS for the pilot.
+# Default ON so existing deployments/tests are unaffected; the pilot profile
+# (backend/.env.pilot.example) sets both to 0 and a route guard 404s them.
+ENABLE_FIXED_ASSETS = _env_bool("ENABLE_FIXED_ASSETS", "1")
+ENABLE_BOE = _env_bool("ENABLE_BOE", "1")
 # W0-03: park verified gateway captures when books cannot post. Off = fail webhook (emergency only).
 # Default ON; set GATEWAY_HOLDING_STATE=0/false/no/off to disable (emergency only).
 GATEWAY_HOLDING_STATE = _env_bool("GATEWAY_HOLDING_STATE", "1")

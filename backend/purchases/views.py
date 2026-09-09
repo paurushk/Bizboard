@@ -342,6 +342,17 @@ class BillOfEntryViewSet(CompanyScopedViewSet):
     queryset = BillOfEntry.objects.select_related("supplier")
     serializer_class = BillOfEntrySerializer
 
+    def initial(self, request, *args, **kwargs):
+        # Scope revision 2026-09-09b: D10 Bill of Entry / import purchase + landed
+        # cost is a KNOWN LIMITATION for the pilot — the surface is inaccessible
+        # when ENABLE_BOE is off (backend/.env.pilot.example sets it to 0).
+        from django.conf import settings
+        from django.http import Http404
+
+        if not getattr(settings, "ENABLE_BOE", True):
+            raise Http404()
+        super().initial(request, *args, **kwargs)
+
     def get_permissions(self):
         action = getattr(self, "action", None)
         if action == "cancel":

@@ -49,6 +49,8 @@ ENV_FLAG_KEYS = (
     "ENABLE_GSTR",
     "ENABLE_TALLY",
     "ENABLE_GSTN_JSON",
+    "ENABLE_FIXED_ASSETS",
+    "ENABLE_BOE",
 )
 
 

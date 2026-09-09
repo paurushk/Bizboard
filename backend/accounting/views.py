@@ -359,6 +359,17 @@ class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     queryset = FixedAsset.objects.all()
     serializer_class = FixedAssetSerializer
 
+    def initial(self, request, *args, **kwargs):
+        # Scope revision 2026-09-09b: D6 fixed assets is a KNOWN LIMITATION for
+        # the pilot — the whole surface is inaccessible when ENABLE_FIXED_ASSETS
+        # is off (backend/.env.pilot.example sets it to 0).
+        from django.conf import settings
+        from django.http import Http404
+
+        if not getattr(settings, "ENABLE_FIXED_ASSETS", True):
+            raise Http404()
+        super().initial(request, *args, **kwargs)
+
     def get_permissions(self):
         if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "dispose"):
             return [IsAuthenticated(), HasCompany(), CanPostJournals()]

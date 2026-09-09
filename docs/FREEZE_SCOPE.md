@@ -91,6 +91,8 @@ inaccessible with that profile.
 | Manufacturing | `ENABLE_MANUFACTURING=0` (dark module) | Dark in production |
 | Payroll | `ENABLE_PAYROLL=0` (dark module) | Dark in production |
 | CRM | `ENABLE_CRM=0` (dark module) | Dark in production |
+| Fixed assets + depreciation | `ENABLE_FIXED_ASSETS=0` | KNOWN LIMITATION (D6, revision 2026-09-09b) — route 404s in the pilot profile |
+| Bill of Entry / import purchase + landed cost | `ENABLE_BOE=0` | KNOWN LIMITATION (D10, revision 2026-09-09b) — route 404s in the pilot profile |
 | WhatsApp Cloud API | `ENABLE_WHATSAPP_CLOUD=0` | Share-link only in pilot |
 | Account Aggregator banking | `ENABLE_ACCOUNT_AGGREGATOR=0`, `ENABLE_AA_CONSENT=off` | No AA integration in pilot |
 | Postgres RLS | `POSTGRES_RLS_ENABLED=0` | App-layer `company_id` scoping is the pilot isolation guarantee; RLS unproven |
@@ -137,6 +139,8 @@ belongs to. Source: `backend/config/settings.py`,
 | `company.ai_features_enabled` / `VITE_ENABLE_AI` | both | OFF | B |
 | `ENABLE_GSTR` / `VITE_ENABLE_GSTR` | both | OFF | B (worksheets = C1) |
 | `ENABLE_GSTN_JSON` | backend | OFF | B |
+| `ENABLE_FIXED_ASSETS` | backend | **OFF** (`0`) — default ON in code | B (D6 → KNOWN LIMITATION, revision 2026-09-09b) |
+| `ENABLE_BOE` | backend | **OFF** (`0`) — default ON in code | B (D10 → KNOWN LIMITATION, revision 2026-09-09b) |
 | `ENABLE_TALLY` / `VITE_ENABLE_TALLY` | both | OFF | B |
 | `ENABLE_POS` / `VITE_ENABLE_POS` / `VITE_ENABLE_ATOMIC_POS_CHECKOUT` | both | **ON** (D1) | A23 SUPPORTED |
 | `ENABLE_MANUFACTURING` / `VITE_ENABLE_MANUFACTURING` | both | OFF (dark) | B |
