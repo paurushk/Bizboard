@@ -10,6 +10,8 @@
 backend
 frontend
 mobile
+mobile-apk        # SR-31 — builds the pilot APK artifact; a broken build blocks merge
+mobile-emulator-smoke # advisory  — SR-35 headless emulator smoke; flip to blocking when stable
 e2e               # advisory  — light e2e, no API; merge gate is e2e-golden
 e2e-golden
 docker
