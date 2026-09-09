@@ -940,6 +940,7 @@ export interface PurchaseBillPreview {
   resolvedFormula?: string;
   directionWarning?: string;
   warnings?: string[];
+  injectionFlagged?: boolean;
   lines: PurchaseBillLinePreview[];
 }
 

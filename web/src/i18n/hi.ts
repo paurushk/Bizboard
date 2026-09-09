@@ -1256,6 +1256,10 @@ export const hi = {
     clarificationsHint: 'इस विक्रेता का कॉलम लेआउट अस्पष्ट है — एक बार उत्तर दें और याद रहेगा।',
     clarificationsSubmit: 'उत्तर लागू करें',
     directionWarning: 'संभावित बेमेल',
+    extractionWarningsTitle: 'कमिट करने से पहले इन्हें जाँचें',
+    injectionWarningTitle: 'इस बिल में संदिग्ध टेक्स्ट',
+    injectionWarningBody:
+      'इस बिल में निर्देश जैसा टेक्स्ट था जिसे हटा दिया गया है। सप्लायर, GSTIN, बिल नंबर और हर लाइन को स्वयं जाँचें — पुष्टि किए बिना कमिट न करें।',
     flaggedSummary: '{total} में से {flagged} पंक्तियाँ समीक्षा के लिए चिह्नित',
     flaggedNone: 'सभी पंक्तियाँ मुद्रित कुल से मेल खाती हैं।',
     showFlaggedOnly: 'केवल चिह्नित पंक्तियाँ दिखाएँ',

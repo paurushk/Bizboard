@@ -729,6 +729,10 @@ export const en = {
       "This vendor's column layout is ambiguous — answer once and it's remembered for every future bill from them.",
     clarificationsSubmit: 'Apply answers',
     directionWarning: 'Possible mismatch',
+    extractionWarningsTitle: 'Check these before you commit',
+    injectionWarningTitle: 'Suspicious text in this bill',
+    injectionWarningBody:
+      'This bill contained instruction-like text that was removed. Verify the supplier, GSTIN, bill number and every line — do not commit until you have confirmed them by hand.',
     flaggedSummary: '{flagged} of {total} rows flagged for review',
     flaggedNone: 'All rows passed the printed-total cross-check.',
     showFlaggedOnly: 'Show flagged rows only',

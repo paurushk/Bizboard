@@ -527,6 +527,21 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                 <strong>{t('billUpload.directionWarning')}:</strong> {preview.directionWarning}
               </Alert>
             ) : null}
+            {preview?.injectionFlagged ? (
+              <Alert severity="error">
+                <strong>{t('billUpload.injectionWarningTitle')}:</strong>{' '}
+                {t('billUpload.injectionWarningBody')}
+              </Alert>
+            ) : preview?.warnings && preview.warnings.length > 0 ? (
+              <Alert severity="warning">
+                <strong>{t('billUpload.extractionWarningsTitle')}:</strong>
+                <ul style={{ margin: '4px 0 0', paddingLeft: '1.2em' }}>
+                  {preview.warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              </Alert>
+            ) : null}
             {typeof preview?.printedLineCount === 'number' &&
             preview.printedLineCount > lines.length ? (
               <Alert
