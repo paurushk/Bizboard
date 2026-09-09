@@ -36,7 +36,7 @@ This plan does **not** re-open D6–D11. Re-opening any demoted item requires a 
 | SR-20 | LLM extraction provider-failure tests | 3 D14 | LLM | 2d | ☑ | — |
 | SR-21 | Prompt-injection guard + crafted-bill test | 3 | LLM | 2d | ☑ | — |
 | SR-22 | Extraction cost-ceiling assertion | 3 | LLM | 0.5d | ☑ | — |
-| SR-23 | Draft-with-warning surfaced in preview (API + FE) | 3 | LLM | 1.5d | ☑ | FE banner still TODO |
+| SR-23 | Draft-with-warning surfaced in preview (API + FE) | 3 | LLM | 1.5d | ☑ | + BillUploadPage warnings/injection Alert (i18n) |
 | SR-30 | Push-notifications: keep or drop for pilot | 4 D12 | PO | 0.25d | ☑ | KEEP — registration already wired (M1-009); FCM delivery deferred |
 | SR-31 | CI Capacitor APK build + artifact | 4 | LLM+INF | 1.5d | ☑ | mobile-apk job (needs first green run) |
 | SR-32 | Mobile lane — session persistence across restart | 4 | LLM | 1.5d | ☑ | prefs native-path test + emulator smoke step |
@@ -56,14 +56,14 @@ This plan does **not** re-open D6–D11. Re-opening any demoted item requires a 
 | SR-54 | FE keyboard-only / mouse-touch counter (H-02) | 6 | LLM | 1.5d | ☑ | PosPage pointerdown counter + scoreboard rate |
 | SR-55 | Pilot onboarding runbook (ARCH03_PILOT_RUNBOOK.md) | 6 | LLM | 0.5d | ☑ | — |
 | SR-56 | Recruitment outreach + screening checklist | 6 | LLM | 0.5d | ☑ | — |
-| SR-57 | Pilot agreement outline | 6 | LLM+PO | 0.5d | ◐ | outline done; PO/legal to finalise |
+| SR-57 | Pilot agreement outline | 6 | LLM+PO | 0.5d | ◐ | clause-level draft done; PO/legal finalise §§9–11 |
 | SR-60 | Chain — purchase bill → stock/AP atomic | 7 ARCH-03 loop | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
 | SR-61 | Chain — quotation → SO → credit/overdue gate | 7 | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
 | SR-62 | Chain — DC → B2B invoice → derived AR | 7 | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
 | SR-63 | Chain — receipt (UTR) → allocation → statement | 7 | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
 | SR-64 | Chain — period close → GSTR-1/3B worksheet → TB=0 | 7 | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
 | SR-65 | End-to-end assembly + Postgres lane + golden snapshot | 7 | LLM | 2d | ☑ | in test_wf_arch03_complete_loop |
-| SR-90 | Full Freeze Gate re-run on the retained scope | 8 Gate | LLM | 1d | ☐ | all above |
+| SR-90 | Full Freeze Gate re-run on the retained scope | 8 Gate | LLM | 1d | ☑ | 1390 pass / 4 pre-existing WIP fails / 0 SR regressions |
 | SR-91 | Ratification checklist + PO/founder sign-off | 8 | PO+FDR | — | ☐ | SR-90 |
 
 **Rollup:** ~7–9 weeks of engineering (LLM) + 3 human decisions (SR-30, SR-40, SR-57) + infra for SR-31/SR-35.
@@ -360,6 +360,7 @@ None of these now **block** forward progress — each has a default applied and 
 | 2026-09-09 | SR-30 | ◐ Proceeding on default: DROP `@capacitor/push-notifications` for pilot 1. PO to confirm. |
 | 2026-09-09 | SR-40 | ◐ Proceeding on default: anonymised statutory tombstone, 8-yr retention then purge. Founder to confirm before SR-42 merges. |
 | 2026-09-09 | SR-02 | ◐ Started. Confirmed: D6/D8/D9/D10 are NOT flag-gated (always-on capabilities) → inert-ness handled via SR-03 route guards + onboarding screening. D11 uses `plan.seat_limit` / `plan_modules_for_company` + `UNSUBSCRIBED_SEAT_LIMIT`. Flag/profile edits + `FG-1` reconcile pending. |
+| 2026-09-10 | SR-23 FE / SR-57 / SR-90 | ☑ `97d1b2b` SR-23 FE (BillUploadPage renders `preview.warnings`; error Alert when `injectionFlagged`; en+hi i18n). ◐ `53dc8dc` SR-57 — outline expanded to clause-level working draft (term / data / DPDP-erasure aligned to SR-40 tombstone / statutory disclaimers / signature block; §§9–11 for counsel). ☑ `3e76b50` FG-1 `required_checks_match` fixed (registered `mobile-apk` blocking + `mobile-emulator-smoke` advisory). **SR-90 Freeze Gate re-run:** FG guards 4/4 OK; web suite **275 pass / 0 fail** (41 files); backend full suite **1390 pass / 26 skip / 4 fail** in 9m47s. All 4 failures (`test_auth::test_otp_login_flow`, `test_auth::test_otp_request_blocked_outside_debug`, `test_rls_coverage::test_every_tenant_table_is_in_the_rls_migration` — GRN tables added by cb238a5 not in `0020_rls_all_tenant_tables`, `test_sprint_d_saas_billing::test_bb_000671...`) reproduce on `cb238a5` (the WIP checkpoint) with SR code reverted — **zero regressions from SR-01..91**. Recommend a separate cleanup task for the 4 pre-existing fails. |
 | 2026-09-10 | SR-12 FE / SR-31..35 | ☑ `commit c2e71a2` (SR-12 FE) — `ItemFormDialog` cess-rate + per-unit-cess inputs, wired to the create/update payload. ☑ `commit 2b51881` (D12 mobile lane): SR-33 `deepLinkToPath()` extracted to `lib/native.ts` + used in `AuthContext`, unit-tested; SR-34 `onNetworkOnline()` (`@capacitor/network`) wired into the PosPage outbox-flush effect; SR-32 native-path `prefs` round-trip test; SR-31 `mobile-apk` CI job (web build → `cap sync` → `gradlew assembleDebug` → APK artifact); SR-35 `mobile-emulator-smoke` job (advisory) running `mobile/e2e/smoke.yaml` (login, cold-restart persistence, counter sale, offline draft + reconnect). `native.test.ts` 14 green; web touched-area suites 70 green; `tsc` clean; `ci.yml` parses. SR-31/35 need their first CI run on a real Android runner to be confirmed green. |
 | 2026-09-10 | SR-30 | ☑ **Decision: KEEP** `@capacitor/push-notifications` (founder). Registration flow is already wired — `web/src/lib/native.ts::registerForPushNotifications` + `AuthContext` M1-009 (once per login, native only, best-effort) + `registerPushToken` → `PATCH /auth/me {pushToken}`; backend `User.push_token` + `MeView.patch`; `test_remaining_gates::test_a01_push_token_patch*` cover it; `AndroidManifest.xml` has `POST_NOTIFICATIONS`. Remaining for actual push *delivery*: an FCM sender + `google-services.json` — a future notification feature, no pilot use case, out of D12 scope. |
 | 2026-09-10 | SR-40 | ☑ **SIGNED** `commit 67fa171` — anonymised tombstone, 8-yr retention. `erase_company(mode="tombstone")` (endpoint default): deletes all operational rows, keeps statutory tax docs with party PII scrubbed + `Company` row as scrubbed placeholder (`erased_at`); `purge_tombstoned_companies` hard-deletes after 8y+2d. `mode="hard"` unchanged. `TOMBSTONE_RETAINED` covers the tax docs + the masters/warehouse/batch/cost-centre they PROTECT-reference. 8 erasure tests green, FG-1 OK. `ENABLE_TENANT_ERASURE` stays OFF by default (flip per deployment). |
