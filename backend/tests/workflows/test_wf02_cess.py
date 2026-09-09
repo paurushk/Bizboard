@@ -91,3 +91,50 @@ def test_wf02_cess_advalorem_and_specific_full_chain(tenant_a, assert_consistent
     tb = trial_balance(company)
     assert tb["balanced"] is True, tb
     assert_consistent(company)
+
+
+def test_wf02_cess_defaults_from_product_master(tenant_a):
+    """SR-12 / D9b: cess_rate + cess_amount set on the product master flow onto a
+    new sales *and* purchase line with no line-level cess input."""
+    company = tenant_a.company
+    company.gstin = "29ABCDE1234F1ZW"
+    company.state = "Karnataka"
+    company.save()
+
+    # HSN 7318 is not in the starter catalog, so the master rates are not overridden.
+    product = make_product(
+        company, sku="PM-CESS", hsn_code="7318", gst_rate="18",
+        cess_rate="12", cess_amount="3",
+    )
+    product.refresh_from_db()
+    assert product.cess_rate == Decimal("12.00")
+    assert product.cess_amount == Decimal("3.00")
+    add_stock(tenant_a, product, "100", unit_cost="60")
+    customer = make_customer(company, state="Karnataka", gstin="29AAAAA0000A1ZY")
+
+    # sales line — no cess_rate / cess_amount in the line dict
+    inv = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "10", "unit_price": "100"},
+    ])
+    from sales.models import SalesInvoice
+
+    s_inv = SalesInvoice.objects.get(pk=inv["id"])
+    s_line = s_inv.items.first()
+    assert s_line.cess_rate == Decimal("12.00"), s_line.cess_rate
+    assert s_line.cess_amount == Decimal("3.00"), s_line.cess_amount
+    # 12% of 1000 taxable + 10 units x Rs 3 = 120 + 30
+    assert s_line.cess == Decimal("150.00"), s_line.cess
+
+    # purchase line — no cess in the line dict either
+    from tests.conftest import create_draft_purchase, make_supplier
+
+    supplier = make_supplier(company, state="Karnataka")
+    pur = create_draft_purchase(tenant_a, supplier, [
+        {"product": product.id, "quantity": "20", "unit_price": "60"},
+    ])
+    from purchases.models import PurchaseInvoice
+
+    p_inv = PurchaseInvoice.objects.get(pk=pur["id"])
+    p_line = p_inv.items.first()
+    assert p_line.cess_rate == Decimal("12.00"), p_line.cess_rate
+    assert p_line.cess_amount == Decimal("3.00"), p_line.cess_amount

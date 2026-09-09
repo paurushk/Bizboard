@@ -102,7 +102,8 @@ class ProductSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "sku", "barcode", "hsn_code", "description",
             "category", "category_name", "brand", "brand_name", "unit", "unit_name",
-            "gst_rate", "purchase_price", "selling_price", "mrp", "wholesale_price",
+            "gst_rate", "cess_rate", "cess_amount",
+            "purchase_price", "selling_price", "mrp", "wholesale_price",
             "reorder_level", "product_type", "track_inventory",
             "track_batch", "track_serial", "selling_tax_inclusive", "purchase_tax_inclusive",
             "custom_fields", "alternate_unit", "alternate_unit_name", "conversion_rate",

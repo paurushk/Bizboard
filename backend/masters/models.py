@@ -219,6 +219,12 @@ class Product(CompanyScopedModel):
     gst_rate = models.DecimalField(
         max_digits=5, decimal_places=2, default=Decimal("0"), validators=[validate_gst_rate]
     )
+    # D9b: compensation cess defaults for this product. cess_rate is ad-valorem
+    # (%), cess_amount is specific / per-unit (INR); they are ADDITIVE on a line
+    # (see core.models DocumentLineModel.cess_amount). Both default onto sales /
+    # purchase lines the way gst_rate does.
+    cess_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    cess_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     mrp = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
