@@ -1,4 +1,4 @@
-import { getErrorMessage, newIdempotencyKey } from '@/api/client';
+import { getErrorCode, getErrorMessage, newIdempotencyKey } from '@/api/client';
 import type { PaymentMode } from '@/types/domain';
 
 const IDB_NAME = 'bizboard-invoice-outbox';
@@ -42,6 +42,18 @@ export interface InvoiceDraft {
   savedAt: string;
 }
 
+/**
+ * SR-51: a draft whose flush was rejected by the server with a business error
+ * that will not fix itself on retry — a duplicate document number, a now-closed
+ * period, stock that has since gone. Such a draft stops auto-retrying and is
+ * surfaced for the operator to edit-and-resend or discard.
+ */
+export interface OutboxConflict {
+  code: string;
+  message: string;
+  at: string;
+}
+
 export interface OutboxDraft {
   version: 2;
   id: string;
@@ -57,6 +69,7 @@ export interface OutboxDraft {
   lines?: InvoiceDraftLine[];
   pendingCustomerName?: string;
   completeIntent?: boolean;
+  conflict?: OutboxConflict | null;
 }
 
 let forceLocalStorage = false;
@@ -274,6 +287,7 @@ export async function enqueueDraft(
     lines?: InvoiceDraftLine[];
     pendingCustomerName?: string;
     completeIntent?: boolean;
+    conflict?: OutboxConflict | null;
   },
 ): Promise<OutboxDraft> {
   const idempotencyKey = input.idempotencyKey || newIdempotencyKey();
@@ -292,6 +306,7 @@ export async function enqueueDraft(
     lines: input.lines,
     pendingCustomerName: input.pendingCustomerName,
     completeIntent: input.completeIntent,
+    conflict: input.conflict ?? null,
   };
 
   const existing = (await mergeDurable(companyId, userId)).filter(
@@ -333,6 +348,7 @@ export async function updateDraft(
     paymentMode: PaymentMode;
     lines: InvoiceDraftLine[];
     completeIntent: boolean;
+    conflict: OutboxConflict | null;
   }>,
 ): Promise<OutboxDraft> {
   const drafts = await listDrafts(companyId, userId);
@@ -354,7 +370,33 @@ export async function updateDraft(
         : existing.pendingCustomerName,
     completeIntent:
       patch.completeIntent !== undefined ? patch.completeIntent : existing.completeIntent,
+    // Editing a draft clears a prior conflict unless the caller keeps it.
+    conflict:
+      patch.conflict !== undefined
+        ? patch.conflict
+        : patch.payload || patch.lines
+          ? null
+          : existing.conflict,
   });
+}
+
+/** SR-51: mark a draft as blocked by a server-side conflict (stops auto-retry). */
+export async function markDraftConflict(
+  companyId: number,
+  userId: number,
+  idempotencyKey: string,
+  conflict: OutboxConflict,
+): Promise<OutboxDraft> {
+  return updateDraft(companyId, userId, idempotencyKey, { conflict });
+}
+
+/** SR-51: an error the server will keep rejecting — the draft needs the operator,
+ * not another retry. Transient (network / 401 / 408 / 429 / 5xx) errors are not
+ * conflicts and stay in the normal retry path. */
+export function isPermanentConflict(err: unknown): boolean {
+  const status = (err as { response?: { status?: number } } | undefined)?.response?.status;
+  if (typeof status !== 'number') return false;
+  return status === 400 || status === 403 || status === 404 || status === 409 || status === 410 || status === 422;
 }
 
 export async function removeDraft(
@@ -401,8 +443,8 @@ export async function flushOutbox(
   userId: number,
   sendFn: (draft: OutboxDraft) => Promise<void>,
   filter?: (draft: OutboxDraft) => boolean,
-): Promise<{ flushed: number; failed: number; errors: string[] }> {
-  const empty = { flushed: 0, failed: 0, errors: [] as string[] };
+): Promise<{ flushed: number; failed: number; conflicts: number; errors: string[] }> {
+  const empty = { flushed: 0, failed: 0, conflicts: 0, errors: [] as string[] };
   const lockName = `bb-outbox-flush:${companyId}:${userId}`;
   const run = async () => {
     const drafts = (await listDrafts(companyId, userId)).filter(
@@ -410,6 +452,7 @@ export async function flushOutbox(
     );
     let flushed = 0;
     let failed = 0;
+    let conflicts = 0;
     const errors: string[] = [];
     for (const draft of drafts) {
       try {
@@ -418,11 +461,27 @@ export async function flushOutbox(
         await removeDraft(companyId, userId, draft.idempotencyKey);
         flushed += 1;
       } catch (err) {
-        failed += 1;
-        errors.push(getErrorMessage(err));
+        const message = getErrorMessage(err);
+        errors.push(message);
+        if (isPermanentConflict(err)) {
+          // SR-51: park it — a retry will only fail the same way. The operator
+          // resolves it from the outbox page.
+          conflicts += 1;
+          try {
+            await markDraftConflict(companyId, userId, draft.idempotencyKey, {
+              code: getErrorCode(err) ?? 'conflict',
+              message,
+              at: new Date().toISOString(),
+            });
+          } catch {
+            /* if we cannot persist the flag it stays a normal failure */
+          }
+        } else {
+          failed += 1;
+        }
       }
     }
-    return { flushed, failed, errors };
+    return { flushed, failed, conflicts, errors };
   };
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
   if (locks?.request) {
@@ -524,7 +583,9 @@ export async function clearInvoiceDraft(companyId: number, userId: number): Prom
 export const PURCHASE_AUTOSAVE_KEY = 'purchase-editor-draft';
 
 export function isFlushableDraft(draft: OutboxDraft): boolean {
-  return draft.idempotencyKey !== PURCHASE_AUTOSAVE_KEY;
+  // SR-51: a draft parked on a server-side conflict does not auto-retry — it
+  // waits for the operator to edit-and-resend or discard it.
+  return draft.idempotencyKey !== PURCHASE_AUTOSAVE_KEY && !draft.conflict;
 }
 export async function savePurchaseDraft(
   companyId: number,

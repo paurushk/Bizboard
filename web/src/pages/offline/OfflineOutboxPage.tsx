@@ -119,6 +119,13 @@ export function OfflineOutboxPage() {
       } else if (result.flushed > 0) {
         setMessage(t('offlineOutbox.synced', { count: String(result.flushed) }));
       }
+      if (result.conflicts > 0) {
+        // SR-51: drafts the server rejected for good — the operator must edit or discard them.
+        setError((prev) => {
+          const note = `${result.conflicts} draft(s) were rejected by the server and need review below (edit and resend, or discard).`;
+          return prev ? `${prev} · ${note}` : note;
+        });
+      }
       if (thermalWarns.length > 0) {
         const labels = thermalWarns.map((w) => w.number).join(', ');
         setError((prev) =>
@@ -178,14 +185,24 @@ export function OfflineOutboxPage() {
             </TableHead>
             <TableBody>
               {drafts.map((row) => {
-                const localOnly = row.idempotencyKey === PURCHASE_AUTOSAVE_KEY || !isFlushableDraft(row);
+                const autosave = row.idempotencyKey === PURCHASE_AUTOSAVE_KEY;
+                const conflicted = !!row.conflict;
+                const localOnly = autosave || (!isFlushableDraft(row) && !conflicted);
                 return (
                   <TableRow key={row.id}>
                     <TableCell>{kindLabel(row.kind)}</TableCell>
                     <TableCell>{row.savedAt ? new Date(row.savedAt).toLocaleString() : '—'}</TableCell>
                     <TableCell>{row.id}</TableCell>
                     <TableCell>
-                      {localOnly ? t('offlineOutbox.localAutosave') : t('offlineOutbox.queued')}
+                      {conflicted ? (
+                        <span style={{ color: 'var(--mui-palette-error-main, #c62828)' }}>
+                          Rejected: {row.conflict?.message || row.conflict?.code}
+                        </span>
+                      ) : localOnly ? (
+                        t('offlineOutbox.localAutosave')
+                      ) : (
+                        t('offlineOutbox.queued')
+                      )}
                     </TableCell>
                     <TableCell align="right">
                       <Button

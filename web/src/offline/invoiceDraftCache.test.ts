@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   clearAllDrafts,
   enqueueDraft,
+  flushOutbox,
+  isPermanentConflict,
   listDrafts,
   removeDraft,
   setOutboxStorageMode,
@@ -137,5 +139,75 @@ describe('invoice outbox v2 (localStorage path)', () => {
     } finally {
       proto.setItem = orig;
     }
+  });
+});
+
+describe('SR-51 — outbox flush conflict handling', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setOutboxStorageMode('localStorage');
+  });
+
+  const httpErr = (status: number) => ({ response: { status } });
+
+  it('classifies permanent conflicts vs transient failures', () => {
+    expect(isPermanentConflict(httpErr(409))).toBe(true);
+    expect(isPermanentConflict(httpErr(400))).toBe(true);
+    expect(isPermanentConflict(httpErr(422))).toBe(true);
+    expect(isPermanentConflict(httpErr(500))).toBe(false);
+    expect(isPermanentConflict(httpErr(429))).toBe(false);
+    expect(isPermanentConflict(new Error('Network Error'))).toBe(false);
+  });
+
+  it('parks a conflicting draft — flagged, kept, and not retried', async () => {
+    await enqueueDraft(1, 7, { kind: 'invoice', payload: { customer: 3 }, idempotencyKey: 'conf-1' });
+
+    const first = await flushOutbox(1, 7, async () => {
+      throw httpErr(409);
+    });
+    expect(first).toMatchObject({ flushed: 0, failed: 0, conflicts: 1 });
+
+    const [parked] = await listDrafts(1, 7);
+    expect(parked?.conflict?.code).toBeTruthy();
+    expect(parked?.conflict?.at).toBeTruthy();
+
+    // a second flush must not re-send it (would only fail the same way)
+    let calls = 0;
+    const second = await flushOutbox(1, 7, async () => {
+      calls += 1;
+    });
+    expect(calls).toBe(0);
+    expect(second).toMatchObject({ flushed: 0, failed: 0, conflicts: 0 });
+    expect(await listDrafts(1, 7)).toHaveLength(1);
+  });
+
+  it('keeps retrying a transient failure', async () => {
+    await enqueueDraft(1, 7, { kind: 'invoice', payload: { customer: 3 }, idempotencyKey: 'tmp-1' });
+
+    const r = await flushOutbox(1, 7, async () => {
+      throw new Error('Network Error');
+    });
+    expect(r).toMatchObject({ flushed: 0, failed: 1, conflicts: 0 });
+    const [d] = await listDrafts(1, 7);
+    expect(d?.conflict ?? null).toBeNull();
+
+    // next flush retries and succeeds
+    const ok = await flushOutbox(1, 7, async () => {});
+    expect(ok).toMatchObject({ flushed: 1, failed: 0, conflicts: 0 });
+    expect(await listDrafts(1, 7)).toHaveLength(0);
+  });
+
+  it('editing a parked draft clears the conflict and lets it flush again', async () => {
+    await enqueueDraft(1, 7, { kind: 'invoice', payload: { customer: 3 }, idempotencyKey: 'fix-1' });
+    await flushOutbox(1, 7, async () => {
+      throw httpErr(409);
+    });
+
+    await updateDraft(1, 7, 'fix-1', { payload: { customer: 4 } });
+    const [edited] = await listDrafts(1, 7);
+    expect(edited?.conflict ?? null).toBeNull();
+
+    const ok = await flushOutbox(1, 7, async () => {});
+    expect(ok).toMatchObject({ flushed: 1, conflicts: 0 });
   });
 });
