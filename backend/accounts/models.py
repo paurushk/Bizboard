@@ -521,3 +521,25 @@ class OtpChallenge(TimeStampedModel):
     @property
     def is_expired(self):
         return timezone.now() >= self.expires_at
+
+
+class TenantErasureLog(models.Model):
+    """SR-42 / D13 — immutable record that a company was erased on request.
+
+    Deliberately carries **no** party PII and no FK to the (now deleted) company
+    — just the numeric id, the company's own name, who asked, and a checksum of
+    the export handed back. Append-only: no update/delete path in the product.
+    """
+
+    company_id = models.PositiveIntegerField(db_index=True)
+    company_name = models.CharField(max_length=255, blank=True)
+    requested_by_email = models.EmailField(blank=True)
+    reason = models.TextField(blank=True)
+    export_sha256 = models.CharField(max_length=64, blank=True)
+    erased_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-erased_at"]
+
+    def __str__(self):
+        return f"erasure:{self.company_id}:{self.erased_at:%Y-%m-%d}"

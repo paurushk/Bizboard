@@ -33,15 +33,18 @@ Invoice PDFs and GSTR files are served only through authenticated, company-scope
 
 ## Export / delete requests
 
-**Scope revision 2026-09-09b:** automated right-to-erasure (D13) is now a **retained freeze item** — an
-owner-initiated cascade that erases a company's data, keeps only what statute requires as an anonymised
-tombstone, and writes an immutable erasure-event record. Tracked as SR-40..SR-45 in
-[`../roadmap/SCOPE_REVISION_2026-09-09b_IMPLEMENTATION_PLAN.md`](../roadmap/SCOPE_REVISION_2026-09-09b_IMPLEMENTATION_PLAN.md).
-The retention carve-out (exactly what survives, and for how long) is a **founder decision (SR-40)** — the
-working default is: statutory tax documents retained anonymised for 8 years, then purged.
+**Scope revision 2026-09-09b (v1 shipped 2026-09-10):** automated right-to-erasure (D13) is built —
+`accounts.erasure.erase_company` runs an export first, then an owner-initiated cascade that removes the
+company and **every** row it owns (all 114 `company` FK relations; the three PROTECT audit tables are
+deleted, not orphaned), and writes an immutable `TenantErasureLog` (numeric id + name + requester +
+export checksum only — no party PII). A drift guard (`assert_erasure_model_coverage`) fails CI if a new
+model gains an un-erasable `company` FK. Surfaces: `POST /company/erase/` (owner, echo the exact company
+name) and `manage.py erase_company`.
 
-**Until SR-42 ships:** export/deletion remains a **support ticket** — see the onboarding privacy line and
-`ENV_CHECKLIST.md` E10. Do not claim automated delete is live yet.
+**v1 keeps nothing.** The statutory-retention *tombstone* carve-out (retain anonymised tax documents for
+N years, then purge) is **founder decision SR-40** and is NOT implemented. Until it is signed off the HTTP
+endpoint stays behind `ENABLE_TENANT_ERASURE` (default OFF / 404) — the CLI command and the service are
+available for a support-ticket-driven erasure in the meantime.
 
 ## Privacy notice
 

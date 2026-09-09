@@ -860,6 +860,11 @@ ENABLE_GSTN_JSON = _env_bool("ENABLE_GSTN_JSON")
 # (backend/.env.pilot.example) sets both to 0 and a route guard 404s them.
 ENABLE_FIXED_ASSETS = _env_bool("ENABLE_FIXED_ASSETS", "1")
 ENABLE_BOE = _env_bool("ENABLE_BOE", "1")
+# D13 automated right-to-erasure. Default OFF — the owner-initiated erasure
+# endpoint stays 404 until the founder signs off the statutory-retention
+# carve-out (plan item SR-40). The completeness invariant + `erase_company`
+# service ship regardless; only the HTTP surface is gated.
+ENABLE_TENANT_ERASURE = _env_bool("ENABLE_TENANT_ERASURE", "0")
 # W0-03: park verified gateway captures when books cannot post. Off = fail webhook (emergency only).
 # Default ON; set GATEWAY_HOLDING_STATE=0/false/no/off to disable (emergency only).
 GATEWAY_HOLDING_STATE = _env_bool("GATEWAY_HOLDING_STATE", "1")

@@ -11,7 +11,7 @@ from django.middleware.csrf import get_token
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.generics import RetrieveUpdateAPIView
-from rest_framework.exceptions import AuthenticationFailed, PermissionDenied, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -1452,3 +1452,54 @@ class ConfirmPasswordResetView(APIView):
                 BlacklistedToken.objects.get_or_create(token=tok)
         return Response({"detail": "Password has been reset. You can sign in with the new password."})
 
+
+
+class CompanyEraseView(APIView):
+    """SR-42 / D13 — owner-initiated right-to-erasure.
+
+    Gated behind ``ENABLE_TENANT_ERASURE`` (default OFF) until the founder signs
+    off the statutory-retention carve-out (plan item SR-40). Requires the owner
+    to echo the exact company name as ``confirm``. Returns the encrypted export
+    inline (base64) so the caller keeps a copy — export-before-erase (SR-44).
+    """
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def post(self, request):
+        from django.conf import settings
+
+        if not getattr(settings, "ENABLE_TENANT_ERASURE", False):
+            raise NotFound()
+
+        cu = get_company_user(request)
+        company = cu.company
+        confirm = str(request.data.get("confirm") or "").strip()
+        if confirm != (company.name or "").strip():
+            raise ValidationError(
+                {"confirm": "Type the exact company name to confirm erasure."}
+            )
+        reason = str(request.data.get("reason") or "").strip()
+
+        from accounts.erasure import erase_company
+
+        blob = None
+        if not request.data.get("skip_export"):
+            from accounts.tenant_backup import build_export_payload, encrypt_export_zip
+
+            blob = encrypt_export_zip(build_export_payload(company))
+
+        result = erase_company(
+            company, requested_by_email=request.user.email, reason=reason, skip_export=True,
+        )
+        body = {
+            "erased": True,
+            "company_id": result.company_id,
+            "company_name": result.company_name,
+            "erasure_log_id": result.log_id,
+        }
+        if blob is not None:
+            import base64
+
+            body["export_b64"] = base64.b64encode(blob).decode("ascii")
+            body["export_sha256"] = __import__("hashlib").sha256(blob).hexdigest()
+        return Response(body)

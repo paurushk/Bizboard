@@ -141,6 +141,7 @@ belongs to. Source: `backend/config/settings.py`,
 | `ENABLE_GSTN_JSON` | backend | OFF | B |
 | `ENABLE_FIXED_ASSETS` | backend | **OFF** (`0`) — default ON in code | B (D6 → KNOWN LIMITATION, revision 2026-09-09b) |
 | `ENABLE_BOE` | backend | **OFF** (`0`) — default ON in code | B (D10 → KNOWN LIMITATION, revision 2026-09-09b) |
+| `ENABLE_TENANT_ERASURE` | backend | **OFF** (`0`) | D13 owner-initiated erasure endpoint; gated until the founder signs the SR-40 retention carve-out. `erase_company` service + completeness invariant ship regardless. |
 | `ENABLE_TALLY` / `VITE_ENABLE_TALLY` | both | OFF | B |
 | `ENABLE_POS` / `VITE_ENABLE_POS` / `VITE_ENABLE_ATOMIC_POS_CHECKOUT` | both | **ON** (D1) | A23 SUPPORTED |
 | `ENABLE_MANUFACTURING` / `VITE_ENABLE_MANUFACTURING` | both | OFF (dark) | B |

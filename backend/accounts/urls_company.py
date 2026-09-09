@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .export_views import TenantExportView, TenantRestoreView
 from .views import (
     CompanyDetailView,
+    CompanyEraseView,
     CompanyGstinViewSet,
     CompanyUserViewSet,
     CompanyVerifyGstinView,
@@ -22,4 +23,5 @@ urlpatterns = [
     path("verify-udyam/", CompanyVerifyUdyamView.as_view(), name="company-verify-udyam"),
     path("export/", TenantExportView.as_view(), name="company-tenant-export"),
     path("restore/", TenantRestoreView.as_view(), name="company-tenant-restore"),
+    path("erase/", CompanyEraseView.as_view(), name="company-erase"),
 ] + router.urls
