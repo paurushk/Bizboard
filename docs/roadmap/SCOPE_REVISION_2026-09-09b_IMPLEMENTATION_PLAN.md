@@ -30,9 +30,9 @@ This plan does **not** re-open D6–D11. Re-opening any demoted item requires a 
 | SR-03 | "Route inert in pilot profile" assertion tests (D6–D11) | 1 | LLM | 2d | ☐ | SR-02 |
 | SR-04 | Pilot-user LIM notes (help / ONBOARDING / DPDP) | 1 | LLM | 0.5d | ☑ | — |
 | SR-05 | Regenerate Phase 2 chain list (drop WF-53–58) | 1 | LLM | 0.5d | ☑ | — |
-| SR-10 | `CesNonAdvlAmt` in e-invoice payload (invoice + note) | 2 D9b | LLM | 1d | ☐ | — |
-| SR-11 | WF-02 specific-cess Freeze Gate chain test | 2 | LLM | 1.5d | ☐ | SR-10 |
-| SR-12 | Product-master `cess_amount` field exposure | 2 | LLM | 1d | ☐ | — |
+| SR-10 | `CesNonAdvlAmt` in e-invoice payload (invoice + note) | 2 D9b | LLM | 1d | ☑ | — |
+| SR-11 | WF-02 specific-cess Freeze Gate chain test | 2 | LLM | 1.5d | ☑ | SR-10 |
+| SR-12 | Product-master `cess_amount` field exposure | 2 | LLM | 1d | ☑ | FE form input still TODO |
 | SR-20 | LLM extraction provider-failure tests | 3 D14 | LLM | 2d | ☐ | — |
 | SR-21 | Prompt-injection guard + crafted-bill test | 3 | LLM | 2d | ☐ | — |
 | SR-22 | Extraction cost-ceiling assertion | 3 | LLM | 0.5d | ☐ | — |
@@ -360,6 +360,9 @@ None of these now **block** forward progress — each has a default applied and 
 | 2026-09-09 | SR-30 | ◐ Proceeding on default: DROP `@capacitor/push-notifications` for pilot 1. PO to confirm. |
 | 2026-09-09 | SR-40 | ◐ Proceeding on default: anonymised statutory tombstone, 8-yr retention then purge. Founder to confirm before SR-42 merges. |
 | 2026-09-09 | SR-02 | ◐ Started. Confirmed: D6/D8/D9/D10 are NOT flag-gated (always-on capabilities) → inert-ness handled via SR-03 route guards + onboarding screening. D11 uses `plan.seat_limit` / `plan_modules_for_company` + `UNSUBSCRIBED_SEAT_LIMIT`. Flag/profile edits + `FG-1` reconcile pending. |
+| 2026-09-09 | SR-12 | ☑ `commit 420f032` (Product.cess_rate + cess_amount, migration 0017, serializer, `test_wf02_cess.py` master-default test) + `commit cedc517` (sales/purchase `set_items` default cess from product master). Regression batch (einvoice / cess / gst / hsn / price-slabs / workflows / bill-import) **162 passed, 22 skipped**. FE product-form inputs still to add. NOTE: a first commit attempt (`8d3d0ca`) accidentally swept ~820 lines of pre-existing uncommitted WIP in `sales/services.py` + `purchases/services.py` into the commit; reset and re-split so those two files carry only the 6-line D9b change. That pre-existing WIP is back in the working tree, untouched. |
+| 2026-09-09 | SR-11 | ☑ `commit 8c68b9e`. `tests/workflows/test_wf02_cess.py` — 2-line invoice (ad-valorem 12% + specific Rs 3/unit): line cess 120+30, GL 2270 Output Cess credited 150 & balanced, GSTR-1 b2b cess col = 150, e-invoice CesAmt 120 / CesNonAdvlAmt 30 / CesVal 150, TB balanced + `assert_all_invariants`. `tests/workflows/` 38 passed / 22 skipped. |
+| 2026-09-09 | SR-10 | ☑ `commit 33aaa90`. `sales/einvoice_payload.py` now emits `CesNonAdvlAmt` at both item loops via `_cess_split()` (ad-valorem `CesAmt` + specific `CesNonAdvlAmt` from the additive stored line `cess`); charge line gets `CesNonAdvlAmt: 0.00`. 2 new tests in `test_einvoice_eway.py` (specific → CesNonAdvlAmt = qty×rate, CesAmt 0, CesVal foots; ad-valorem-only unaffected). `test_einvoice_eway` 15/15, plus `test_sprint2_cn_einvoice` + `test_sprint2_cess_reverse` + `test_wave18` + `test_gap_closure` 36/36 — no regressions. |
 | 2026-09-09 | SR-50 | ☑ `seed_h05_demo` runs green: TB **Dr 2,549,786.70 = Cr**, `assert_all_invariants` OK. GSTR-1 = 11 rate-split B2B rows (5% sand + 18% cement/bolt/MCB), 2 inter-state IGST invoices (POS 27), footing OK; GSTR-3B 3.1(a) ties to GSTR-1 totals. Packet + SUMMARY.md in `build/h05_packet/` (gitignored). `--reset` teardown uses `wipe_logical_tenant_rows` + clears AuditEvent/MoneyFieldAudit/StatutoryDocumentEvent (Company FKs are PROTECT). Corrected rate mix: catalog resolves electrical HSNs to 18% at the doc date, so used non-catalog HSNs (2505/2523/7318) to carry authentic 5%/18% for a building-supplies trader. Cover doc `docs/ca/H05_CA_REVIEW_COVER.md`. Files: `backend/accounts/management/commands/seed_h05_demo.py`, `docs/ca/H05_CA_REVIEW_COVER.md`, `.gitignore`. **v2 backlog:** opening party balances + one sales credit note / purchase debit note (CDNR). |
 
 ---
