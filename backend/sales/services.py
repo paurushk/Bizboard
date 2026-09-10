@@ -904,7 +904,14 @@ class SalesService:
             if item.quantity <= 0:
                 raise BusinessRuleError("Quantity on each line must be greater than zero.")
         if not stock_from_challan:
+            from inventory.item_stock import tracks_inventory
+
             for item in items:
+                # Non-inventory lines (services / non-stock items) have no stock
+                # to check or deduct — skip them, same as CogsService.post_sale_
+                # stock_and_cogs and the purchase posting path do.
+                if not tracks_inventory(item.product):
+                    continue
                 if item.product.track_batch and not getattr(item, "batch_id", None):
                     remaining = item.quantity
                     warehouse = invoice.warehouse
