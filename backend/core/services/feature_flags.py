@@ -152,17 +152,23 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
             val = env[key]
 
             if key in DARK_MODULE_KEYS:
-                # FR-010: Explicit tenant feature_flags or subscribed plan modules can activate module
-                if key in overrides:
-                    val = bool(overrides[key])
-                elif isinstance(plan_modules, dict) and key in plan_modules:
+                # Dark preview modules. A subscribed plan is authoritative: a
+                # module it names wins both ways, and a module a subscribed plan
+                # omits is not entitled — a stale company feature_flags grant
+                # must not keep a paid module alive for free (BB-000671). Only
+                # with no plan info at all (None — no subscription / billing
+                # outage) does the company JSON grant apply, falling back to
+                # env-only for legacy tenants that never touched a module flag.
+                if isinstance(plan_modules, dict) and key in plan_modules:
                     val = bool(plan_modules[key])
                 elif isinstance(plan_modules, dict):
-                    # Subscribed plan that omits this module is not entitled
+                    # Subscribed plan that omits this module is not entitled.
                     val = False
+                elif key in overrides:
+                    val = bool(overrides[key])
                 else:
                     legacy_env_only = not module_keys_touched
-                    val = bool(overrides.get(key)) or (env[key] and legacy_env_only)
+                    val = env[key] and legacy_env_only
                 flags[key] = val
                 continue
 

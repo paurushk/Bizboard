@@ -107,6 +107,14 @@ RLS_TABLES = [
     "payroll_payrun",
     "payroll_payslip",
     "purchases_billofentry",
+    # GRN tables were added to the codebase after this migration first ran
+    # (purchases/migrations/0034), so their actual RLS policy comes from
+    # core/migrations/0023_rls_goods_receipt.py, which re-applies the identical
+    # policy SQL against a live DB — same pattern as payments_processedwebhookevent
+    # above. This list entry only makes tests/test_rls_coverage.py recognize the
+    # tables as covered and documents a from-scratch install's final state.
+    "purchases_goodsreceipt",
+    "purchases_goodsreceiptitem",
     "purchases_purchasecreditnote",
     "purchases_purchasecreditnoteitem",
     "purchases_purchasedebitnote",

@@ -122,9 +122,12 @@ def test_otp_login_flow(tenant_a, monkeypatch):
     from accounts.models import OtpChallenge
     from accounts.otp_utils import hash_otp
 
-    # Console SMS + OTP_ENABLED (not OTP_DEBUG_ECHO) — BB-000332.
+    # Console SMS + OTP_ENABLED, with OTP_DEBUG_ECHO OFF — the response must not
+    # carry the code back (BB-000332). settings_test turns the echo on, so this
+    # test explicitly disables it.
     monkeypatch.setattr("accounts.views.secrets.randbelow", lambda n: 123456)
     monkeypatch.setattr("django.conf.settings.OTP_ENABLED", True)
+    monkeypatch.setattr("django.conf.settings.OTP_DEBUG_ECHO", False)
     monkeypatch.setattr("django.conf.settings.SMS_PROVIDER", "console")
 
     client = APIClient()
@@ -276,9 +279,17 @@ def test_otp_request_response_identical_for_unknown_and_known_phone(tenant_a):
     assert "debug_code" not in unknown.data
 
 
-@override_settings(OTP_DEBUG_ECHO=False, OTP_ENABLED=False, SMS_PROVIDER="console")
+@override_settings(
+    OTP_DEBUG_ECHO=False,
+    OTP_ENABLED=False,
+    SMS_PROVIDER="console",
+    DJANGO_ENV="ci",
+)
 def test_otp_request_blocked_outside_debug(tenant_a):
-    """BUG-102 / BB-000332 — OTP off when not enabled and no real SMS provider."""
+    """BUG-102 / BB-000332 — OTP off when not enabled and no real SMS provider.
+
+    DJANGO_ENV is forced off the dev/test allowlist so the "outside debug" path
+    is actually exercised (settings_test runs as DJANGO_ENV=test)."""
     client = APIClient()
     resp = client.post("/api/v1/auth/otp/request/", {"phone": tenant_a.owner.phone}, format="json")
     assert resp.status_code == 400

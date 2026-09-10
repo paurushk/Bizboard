@@ -559,7 +559,11 @@ class RequestOtpView(APIView):
                 # Unknown phones stay recorded (anti-enum — same 200 either way).
                 _unrecord_otp_phone_request(phone)
             else:
-                if settings.OTP_DEBUG_ECHO or env in ("development", "test", "local", ""):
+                # OTP_DEBUG_ECHO is the single switch for returning the code in
+                # the API response — settings_test sets it on, dev .env can too.
+                # It must NOT be implied by DJANGO_ENV: an operator who sets
+                # OTP_DEBUG_ECHO=0 in a dev/test env is opting out of the leak.
+                if settings.OTP_DEBUG_ECHO:
                     payload["debug_code"] = code
         return Response(payload)
 
