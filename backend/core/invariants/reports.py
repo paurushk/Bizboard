@@ -74,6 +74,57 @@ def balance_sheet_equation_holds(company) -> list[str]:
     return []
 
 
+# NOT registered — the day-zero migration reconciliation. Only meaningful right
+# after an opening load where the opening trial balance, party-wise opening
+# balances, and opening stock have ALL been entered. PJ-MIGRATION calls it:
+#   from core.invariants.reports import opening_ties_out
+#   assert not opening_ties_out(company)
+def opening_ties_out(company) -> list[str]:
+    """After a migration opening load, the computed sub-ledgers must equal the
+    control-account balances in the opening trial balance, and the inventory
+    control must equal the opening-stock valuation."""
+    from django.db.models import Sum
+
+    from accounting.models import JournalEntry, JournalLine
+    from inventory.models import InventoryRunningCost
+
+    if not getattr(company, "accounting_enabled", False):
+        return []
+
+    def _net(code):
+        agg = JournalLine.objects.filter(
+            entry__company=company,
+            entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
+            account__code=code,
+        ).aggregate(d=Sum("debit"), c=Sum("credit"))
+        return (agg["d"] or _ZERO) - (agg["c"] or _ZERO)
+
+    def _party_net(code, field):
+        agg = JournalLine.objects.filter(
+            entry__company=company,
+            entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
+            account__code=code,
+            **{f"{field}__isnull": False},
+        ).aggregate(d=Sum("debit"), c=Sum("credit"))
+        return (agg["d"] or _ZERO) - (agg["c"] or _ZERO)
+
+    out = []
+    ar_control, ar_parties = _net("1200"), _party_net("1200", "customer")
+    if abs(ar_control - ar_parties) > _CENT:
+        out.append(f"AR control 1200 {ar_control} != Σ customer-tagged AR {ar_parties}")
+    ap_control, ap_parties = _net("2100"), _party_net("2100", "supplier")
+    if abs(ap_control - ap_parties) > _CENT:
+        out.append(f"AP control 2100 {ap_control} != Σ supplier-tagged AP {ap_parties}")
+
+    inv_gl = _net("1400")
+    valuation = (
+        InventoryRunningCost.objects.filter(company=company).aggregate(v=Sum("value"))["v"] or _ZERO
+    )
+    if inv_gl > _ZERO and abs(inv_gl - valuation) > _RUPEE:
+        out.append(f"inventory control 1400 {inv_gl} != opening-stock valuation {valuation}")
+    return out
+
+
 # NOT registered in the default sweep: it only holds when opening stock was
 # established through a GL-posting path. The `add_stock` test helper seeds
 # StockBalance / running cost directly with no journal, so a large fraction of

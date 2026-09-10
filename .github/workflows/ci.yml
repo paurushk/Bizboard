@@ -451,11 +451,11 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -c constraints.txt -r requirements-dev.txt
-      - name: Phase 2 gate — workflows/invariants/tenancy/gst/snapshots/edge/errors/matrices (blocking)
+      - name: Phase 2 gate — workflows/invariants/tenancy/gst/snapshots/edge/errors/matrices/personas (blocking)
         run: >-
           pytest tests/workflows/ tests/tenancy/ tests/gst/ tests/snapshots/
-          tests/edge/ tests/errors/ tests/matrices/ tests/test_invariants_smoke.py
-          tests/regression/ -q --tb=short
+          tests/edge/ tests/errors/ tests/matrices/ tests/personas/
+          tests/test_invariants_smoke.py tests/regression/ -q --tb=short
       - name: Full-suite strict invariant sweep (advisory)
         continue-on-error: true
         run: INVARIANTS_STRICT=1 pytest -m "not flaky_quarantine" -q --tb=line
