@@ -734,6 +734,17 @@ class SalesService:
 
         from core.services.billing import place_of_supply_known
 
+        # BB: when the customer state is blank, the GST-settings flag
+        # 'assume_local_state_for_blank_party' is itself the standing confirmation
+        # that such sales are intra-state (POS falls back to the seller's state) --
+        # mirror assert_place_of_supply_for_gst's own blank-party bypass so the flag
+        # also satisfies this complete-time pre-check without a per-invoice
+        # confirm_blank_pos. (A non-blank GSTIN never reaches here: its state code
+        # makes place_of_supply_known() true and short-circuits this guard.)
+        assume_local_blank_party = not (invoice.customer.state or "").strip() and getattr(
+            invoice.company, "assume_local_state_for_blank_party", False
+        )
+
         if (
             tax_enabled
             and not is_tally_opening
@@ -742,6 +753,7 @@ class SalesService:
                 party_state=invoice.customer.state or "",
                 party_gstin=invoice.customer.gstin or "",
             )
+            and not assume_local_blank_party
             and not confirm_blank_pos
         ):
             raise BusinessRuleError(

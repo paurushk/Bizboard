@@ -64,8 +64,11 @@ def test_void_product_import_keeps_preexisting(tenant_a):
     assert existing.sku == "KEEP-1"
 
 
-def test_blank_pos_complete_requires_confirm(tenant_a):
-    tenant_a.company.assume_local_state_for_blank_party = True
+def test_blank_pos_complete_blocked_when_assume_local_flag_off(tenant_a):
+    """Flag OFF: a customer with no state and no GSTIN blocks GST Complete; the
+    place of supply must be made resolvable (a real customer state) before it
+    can complete."""
+    tenant_a.company.assume_local_state_for_blank_party = False
     tenant_a.company.save(update_fields=["assume_local_state_for_blank_party"])
     product = make_product(tenant_a.company)
     add_stock(tenant_a, product, "5")
@@ -75,12 +78,30 @@ def test_blank_pos_complete_requires_confirm(tenant_a):
     )
     blocked = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
     assert blocked.status_code == 400
-    ok = tenant_a.client.post(
-        f"/api/v1/sales/invoices/{inv['id']}/complete/",
-        {"confirm_blank_pos": True},
-        format="json",
-    )
+    assert blocked.data["error"]["code"] == "place_of_supply_unresolved"
+
+    customer.state = "Karnataka"
+    customer.save(update_fields=["state"])
+    ok = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
     assert ok.status_code == 200, ok.data
+
+
+def test_blank_pos_complete_intra_state_when_assume_local_flag_on(tenant_a):
+    """Flag ON: the GST setting is itself the standing confirmation — a customer
+    with no state and no GSTIN completes directly (no confirm_blank_pos) as an
+    intra-state CGST+SGST sale."""
+    assert tenant_a.company.assume_local_state_for_blank_party is True  # model default
+    product = make_product(tenant_a.company)  # gst_rate 18%
+    add_stock(tenant_a, product, "5")
+    customer = make_customer(tenant_a.company, state="", gstin="")
+    inv = create_draft_invoice(
+        tenant_a, customer, [{"product": product.id, "quantity": "2", "unit_price": "100"}]
+    )
+    ok = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    assert ok.status_code == 200, ok.data
+    assert Decimal(str(ok.data["cgst_total"])) == Decimal("18")
+    assert Decimal(str(ok.data["sgst_total"])) == Decimal("18")
+    assert Decimal(str(ok.data["igst_total"])) == Decimal("0")
 
 
 def test_urd_purchase_without_rcm_confirm_blocked(tenant_a):
