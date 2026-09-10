@@ -111,6 +111,30 @@ def test_bb_000663_auto_return_cn_copies_discount(tenant_a):
     note = SalesCreditNote.objects.get(sales_return_id=ret.data["id"])
     assert note.invoice_discount == Decimal("20.00")
 
+    # BB-000663 / BILL-04: `taxable_total` is stored net of *line* discounts only;
+    # the header-level AFTER_TAX `invoice_discount` is a separate subtraction, not
+    # folded into `taxable_total`. The auto-return credit note copies the invoice
+    # discount and runs the same billing math, so its header totals must foot the
+    # *same* way the source invoice's do:
+    #   taxable + cgst + sgst + igst + cess + charges − invoice_discount ± round_off == grand_total
+    # (charges are non-taxable on this NON_GST path, so they sit outside taxable_total.)
+    invoice = SalesInvoice.objects.get(pk=created.data["id"])
+    for doc in (invoice, note):
+        footed = (
+            doc.taxable_total
+            + doc.cgst_total
+            + doc.sgst_total
+            + doc.igst_total
+            + doc.cess_total
+            + Decimal(str(getattr(doc, "additional_charges", 0) or 0))
+            - Decimal(str(doc.invoice_discount or 0))
+            + doc.round_off
+        )
+        assert footed == doc.grand_total, (
+            f"{doc.__class__.__name__} header totals do not foot: "
+            f"{footed} != {doc.grand_total}"
+        )
+
 
 def test_bb_000647_note_irn_builder_crn_precdoc(tenant_a):
     tenant_a.company.gstin = "29ABCDE1234F1ZW"
