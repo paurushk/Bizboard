@@ -68,6 +68,7 @@ services:
       POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-0}
     volumes:
       - media_data:/app/media
+      - static_data:/app/staticfiles
     depends_on:
       db:
         condition: service_healthy
@@ -259,6 +260,7 @@ services:
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - media_data:/var/www/media:ro
+      - static_data:/var/www/static:ro
     depends_on:
       api:
         condition: service_healthy
@@ -270,5 +272,8 @@ volumes:
   redis_data:
   # BB-000521: shared media has no built-in AV scan — optional clamav profile can mount here.
   media_data:
+  # Django admin's collectstatic output (backend/docker-entrypoint.sh) — nginx
+  # serves this directly under /static/ so gunicorn never has to.
+  static_data:
   # pip download cache for the `test` profile so dev-tooling installs are slow only once.
   pip_cache:
