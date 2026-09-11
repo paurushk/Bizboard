@@ -175,6 +175,7 @@ INSTALLED_APPS = [
     "crm",
     "banking",
     "billing",
+    "ops",
 ]
 
 MIDDLEWARE = [

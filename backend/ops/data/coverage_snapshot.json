@@ -1,0 +1,837 @@
+{
+  "routes": [
+    "/*",
+    "/accounting/accounts",
+    "/accounting/bank-reconciliation",
+    "/accounting/cost-centers",
+    "/accounting/fixed-assets",
+    "/accounting/journals",
+    "/accounting/periods",
+    "/attention",
+    "/ca-needs",
+    "/crm/leads",
+    "/crm/opportunities",
+    "/forgot-password",
+    "/help",
+    "/insights",
+    "/insights/alerts",
+    "/insights/assistant",
+    "/insights/cashflow",
+    "/insights/health",
+    "/inventory/adjustments",
+    "/inventory/expiry-alerts",
+    "/inventory/labels",
+    "/inventory/low-stock",
+    "/inventory/products",
+    "/inventory/serials",
+    "/inventory/stock",
+    "/inventory/stock-counts",
+    "/inventory/transfers",
+    "/inventory/warehouses",
+    "/invite",
+    "/login",
+    "/manufacturing/boms",
+    "/manufacturing/work-orders",
+    "/offline-outbox",
+    "/pay/:token",
+    "/payments/account-aggregator",
+    "/payments/links",
+    "/payments/reconciliation",
+    "/payments/statements",
+    "/payroll/employees",
+    "/payroll/pay-runs",
+    "/pos",
+    "/purchases/bill-upload",
+    "/purchases/bills-of-entry",
+    "/purchases/credit-notes",
+    "/purchases/credit-notes/:id",
+    "/purchases/credit-notes/new",
+    "/purchases/debit-notes",
+    "/purchases/debit-notes/:id",
+    "/purchases/debit-notes/new",
+    "/purchases/history",
+    "/purchases/history/:id",
+    "/purchases/history/:id/edit",
+    "/purchases/new",
+    "/purchases/orders",
+    "/purchases/orders/:id",
+    "/purchases/orders/new",
+    "/purchases/payments",
+    "/purchases/returns",
+    "/purchases/suppliers",
+    "/register",
+    "/reports/balance-sheet",
+    "/reports/books-health",
+    "/reports/cash-book",
+    "/reports/cmp08",
+    "/reports/customer-ledger",
+    "/reports/gst-health",
+    "/reports/gst-rate-exposure",
+    "/reports/gstr1",
+    "/reports/gstr2b",
+    "/reports/gstr3b",
+    "/reports/gstr4",
+    "/reports/gstr6",
+    "/reports/gstr7",
+    "/reports/gstr8",
+    "/reports/gstr9",
+    "/reports/inventory",
+    "/reports/missing-documents",
+    "/reports/profit-and-loss",
+    "/reports/purchases",
+    "/reports/sales",
+    "/reports/statutory-events",
+    "/reports/stock-valuation",
+    "/reports/supplier-ledger",
+    "/reports/tds-tcs",
+    "/reports/trial-balance",
+    "/reset-password",
+    "/sales/bill-upload",
+    "/sales/credit-notes",
+    "/sales/credit-notes/:id",
+    "/sales/credit-notes/new",
+    "/sales/customers",
+    "/sales/debit-notes",
+    "/sales/debit-notes/:id",
+    "/sales/debit-notes/new",
+    "/sales/delivery-challans",
+    "/sales/delivery-challans/:id",
+    "/sales/delivery-challans/new",
+    "/sales/history",
+    "/sales/history/:id",
+    "/sales/history/:id/edit",
+    "/sales/new",
+    "/sales/orders",
+    "/sales/orders/:id",
+    "/sales/orders/new",
+    "/sales/quick-entry",
+    "/sales/quotations",
+    "/sales/receipts",
+    "/sales/recurring",
+    "/sales/returns",
+    "/settings/accounting",
+    "/settings/ai",
+    "/settings/backup",
+    "/settings/bank-accounts",
+    "/settings/billing",
+    "/settings/company",
+    "/settings/gst",
+    "/settings/help",
+    "/settings/import",
+    "/settings/items",
+    "/settings/payment-gateway",
+    "/settings/price-lists",
+    "/settings/series",
+    "/settings/statutory-licences",
+    "/settings/tally",
+    "/settings/templates",
+    "/settings/units",
+    "/settings/users",
+    "/setup"
+  ],
+  "route_coverage": {
+    "/*": {
+      "class": "none",
+      "specs": []
+    },
+    "/accounting/accounts": {
+      "class": "none",
+      "specs": []
+    },
+    "/accounting/bank-reconciliation": {
+      "class": "none",
+      "specs": []
+    },
+    "/accounting/cost-centers": {
+      "class": "none",
+      "specs": []
+    },
+    "/accounting/fixed-assets": {
+      "class": "none",
+      "specs": []
+    },
+    "/accounting/journals": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts",
+        "web/e2e/personas/role-boundaries.spec.ts"
+      ]
+    },
+    "/accounting/periods": {
+      "class": "none",
+      "specs": []
+    },
+    "/attention": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/mobile-layout.spec.ts"
+      ]
+    },
+    "/ca-needs": {
+      "class": "none",
+      "specs": []
+    },
+    "/crm/leads": {
+      "class": "none",
+      "specs": []
+    },
+    "/crm/opportunities": {
+      "class": "none",
+      "specs": []
+    },
+    "/forgot-password": {
+      "class": "none",
+      "specs": []
+    },
+    "/help": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/help.spec.ts"
+      ]
+    },
+    "/insights": {
+      "class": "smoke",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts"
+      ]
+    },
+    "/insights/alerts": {
+      "class": "none",
+      "specs": []
+    },
+    "/insights/assistant": {
+      "class": "none",
+      "specs": []
+    },
+    "/insights/cashflow": {
+      "class": "none",
+      "specs": []
+    },
+    "/insights/health": {
+      "class": "none",
+      "specs": []
+    },
+    "/inventory/adjustments": {
+      "class": "flow",
+      "specs": [
+        "web/e2e-golden/invoice-golden-path.spec.ts",
+        "web/e2e-golden/phase1-documents.spec.ts"
+      ]
+    },
+    "/inventory/expiry-alerts": {
+      "class": "none",
+      "specs": []
+    },
+    "/inventory/labels": {
+      "class": "none",
+      "specs": []
+    },
+    "/inventory/low-stock": {
+      "class": "none",
+      "specs": []
+    },
+    "/inventory/products": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/item-custom-fields.spec.ts",
+        "web/e2e/route-smoke.spec.ts",
+        "web/e2e-golden/invoice-golden-path.spec.ts",
+        "web/e2e-golden/phase1-documents.spec.ts"
+      ]
+    },
+    "/inventory/serials": {
+      "class": "none",
+      "specs": []
+    },
+    "/inventory/stock": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/item-custom-fields.spec.ts",
+        "web/e2e/route-smoke.spec.ts",
+        "web/e2e-golden/invoice-golden-path.spec.ts"
+      ]
+    },
+    "/inventory/stock-counts": {
+      "class": "none",
+      "specs": []
+    },
+    "/inventory/transfers": {
+      "class": "none",
+      "specs": []
+    },
+    "/inventory/warehouses": {
+      "class": "none",
+      "specs": []
+    },
+    "/invite": {
+      "class": "none",
+      "specs": []
+    },
+    "/login": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/a11y.spec.ts",
+        "web/e2e/smoke.spec.ts"
+      ]
+    },
+    "/manufacturing/boms": {
+      "class": "none",
+      "specs": []
+    },
+    "/manufacturing/work-orders": {
+      "class": "none",
+      "specs": []
+    },
+    "/offline-outbox": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts",
+        "web/e2e/personas/offline-outbox-conflict.spec.ts",
+        "web/e2e/personas/validation-parity.spec.ts"
+      ]
+    },
+    "/pay/:token": {
+      "class": "none",
+      "specs": []
+    },
+    "/payments/account-aggregator": {
+      "class": "none",
+      "specs": []
+    },
+    "/payments/links": {
+      "class": "none",
+      "specs": []
+    },
+    "/payments/reconciliation": {
+      "class": "none",
+      "specs": []
+    },
+    "/payments/statements": {
+      "class": "none",
+      "specs": []
+    },
+    "/payroll/employees": {
+      "class": "none",
+      "specs": []
+    },
+    "/payroll/pay-runs": {
+      "class": "none",
+      "specs": []
+    },
+    "/pos": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/a11y.spec.ts",
+        "web/e2e/item-custom-fields.spec.ts",
+        "web/e2e/mobile-layout.spec.ts",
+        "web/e2e/pos-friction.spec.ts",
+        "web/e2e/route-smoke.spec.ts",
+        "web/e2e/personas/role-boundaries.spec.ts"
+      ]
+    },
+    "/purchases/bill-upload": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts",
+        "web/e2e/smoke.spec.ts"
+      ]
+    },
+    "/purchases/bills-of-entry": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/credit-notes": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/credit-notes/:id": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/credit-notes/new": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/debit-notes": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/debit-notes/:id": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/debit-notes/new": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/history": {
+      "class": "smoke",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts"
+      ]
+    },
+    "/purchases/history/:id": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/history/:id/edit": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/new": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/orders": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/orders/:id": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/orders/new": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/payments": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/returns": {
+      "class": "none",
+      "specs": []
+    },
+    "/purchases/suppliers": {
+      "class": "none",
+      "specs": []
+    },
+    "/register": {
+      "class": "flow",
+      "specs": [
+        "web/e2e-golden/invoice-golden-path.spec.ts",
+        "web/e2e-golden/phase1-documents.spec.ts"
+      ]
+    },
+    "/reports/balance-sheet": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/books-health": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/cash-book": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/cmp08": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/customer-ledger": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/gst-health": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/gst-rate-exposure": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/gstr1": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/gstr2b": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/gstr3b": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/gstr4": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/gstr6": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/gstr7": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/gstr8": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/gstr9": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/inventory": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/missing-documents": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/profit-and-loss": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/personas/role-boundaries.spec.ts"
+      ]
+    },
+    "/reports/purchases": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/sales": {
+      "class": "smoke",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts"
+      ]
+    },
+    "/reports/statutory-events": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/stock-valuation": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/supplier-ledger": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/tds-tcs": {
+      "class": "none",
+      "specs": []
+    },
+    "/reports/trial-balance": {
+      "class": "none",
+      "specs": []
+    },
+    "/reset-password": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/bill-upload": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/credit-notes": {
+      "class": "smoke",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts"
+      ]
+    },
+    "/sales/credit-notes/:id": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/credit-notes/new": {
+      "class": "flow",
+      "specs": [
+        "web/e2e-golden/phase1-documents.spec.ts"
+      ]
+    },
+    "/sales/customers": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts",
+        "web/e2e-golden/invoice-golden-path.spec.ts",
+        "web/e2e-golden/phase1-documents.spec.ts"
+      ]
+    },
+    "/sales/debit-notes": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/debit-notes/:id": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/debit-notes/new": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/delivery-challans": {
+      "class": "smoke",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts"
+      ]
+    },
+    "/sales/delivery-challans/:id": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/delivery-challans/new": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/history": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts",
+        "web/e2e-golden/invoice-golden-path.spec.ts"
+      ]
+    },
+    "/sales/history/:id": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/history/:id/edit": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/new": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/a11y.spec.ts",
+        "web/e2e/item-custom-fields.spec.ts",
+        "web/e2e/route-smoke.spec.ts",
+        "web/e2e/smoke.spec.ts",
+        "web/e2e/personas/role-boundaries.spec.ts",
+        "web/e2e/personas/validation-parity.spec.ts",
+        "web/e2e-golden/invoice-golden-path.spec.ts",
+        "web/e2e-golden/phase1-documents.spec.ts"
+      ]
+    },
+    "/sales/orders": {
+      "class": "smoke",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts"
+      ]
+    },
+    "/sales/orders/:id": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/orders/new": {
+      "class": "flow",
+      "specs": [
+        "web/e2e-golden/phase1-documents.spec.ts"
+      ]
+    },
+    "/sales/quick-entry": {
+      "class": "none",
+      "specs": []
+    },
+    "/sales/quotations": {
+      "class": "smoke",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts"
+      ]
+    },
+    "/sales/receipts": {
+      "class": "flow",
+      "specs": [
+        "web/e2e-golden/invoice-golden-path.spec.ts"
+      ]
+    },
+    "/sales/recurring": {
+      "class": "smoke",
+      "specs": [
+        "web/e2e/route-smoke.spec.ts"
+      ]
+    },
+    "/sales/returns": {
+      "class": "flow",
+      "specs": [
+        "web/e2e-golden/phase1-documents.spec.ts"
+      ]
+    },
+    "/settings/accounting": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/ai": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/backup": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/bank-accounts": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/billing": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/company": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/a11y.spec.ts",
+        "web/e2e/route-smoke.spec.ts"
+      ]
+    },
+    "/settings/gst": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/help": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/help.spec.ts"
+      ]
+    },
+    "/settings/import": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/items": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/item-custom-fields.spec.ts"
+      ]
+    },
+    "/settings/payment-gateway": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/price-lists": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/series": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/statutory-licences": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/tally": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/templates": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/smoke.spec.ts"
+      ]
+    },
+    "/settings/units": {
+      "class": "none",
+      "specs": []
+    },
+    "/settings/users": {
+      "class": "flow",
+      "specs": [
+        "web/e2e/personas/role-boundaries.spec.ts"
+      ]
+    },
+    "/setup": {
+      "class": "none",
+      "specs": []
+    }
+  },
+  "open_qos_items": [
+    {
+      "id": "QOS-0003",
+      "title": "Pilot scale is unvalidated - no executed load, soak, or large-tenant test",
+      "priority": "P1",
+      "effort": "L"
+    },
+    {
+      "id": "QOS-0004",
+      "title": "No practising CA has filed GST returns from Bizboard worksheets (H-05)",
+      "priority": "P1-investigate",
+      "effort": "L"
+    },
+    {
+      "id": "QOS-0014",
+      "title": "No schema-migration rehearsal against a production-shaped dataset",
+      "priority": "P3",
+      "effort": "M"
+    },
+    {
+      "id": "QOS-0015",
+      "title": "No accuracy benchmark for LLM bill extraction",
+      "priority": "P3",
+      "effort": "M"
+    },
+    {
+      "id": "QOS-0016",
+      "title": "Dashboard render budget is unmeasured with realistic data volume",
+      "priority": "P1-investigate",
+      "effort": "M"
+    },
+    {
+      "id": "QOS-0020",
+      "title": "No TLS termination at the application edge",
+      "priority": "P1",
+      "effort": "M"
+    },
+    {
+      "id": "QOS-0021",
+      "title": "Pilot Go/No-Go gates are unsigned",
+      "priority": "P1",
+      "effort": "S"
+    },
+    {
+      "id": "QOS-0028",
+      "title": "ARCH-07 milestone billing, job-work, and technician dispatch are unbuilt",
+      "priority": "P2",
+      "effort": "XL"
+    },
+    {
+      "id": "QOS-0029",
+      "title": "UX readiness is untested with real non-technical staff (readiness dim 4)",
+      "priority": "P1-investigate",
+      "effort": "L"
+    },
+    {
+      "id": "QOS-0030",
+      "title": "Operational readiness is untested - can a business run a full day unaided? (dim 8)",
+      "priority": "P1-investigate",
+      "effort": "L"
+    },
+    {
+      "id": "QOS-0031",
+      "title": "Commercial readiness is untested - will pilots pay and renew? (dim 9)",
+      "priority": "P1-investigate",
+      "effort": "L"
+    },
+    {
+      "id": "QOS-0042",
+      "title": "One-click GSTR-1/3B filing via a live GSP integration",
+      "priority": "P3",
+      "effort": "XL"
+    },
+    {
+      "id": "QOS-0043",
+      "title": "ML-assisted bank statement line matching",
+      "priority": "P3",
+      "effort": "L"
+    },
+    {
+      "id": "QOS-0046",
+      "title": "Native WhatsApp invoice + payment-link delivery",
+      "priority": "P3",
+      "effort": "L"
+    },
+    {
+      "id": "QOS-0049",
+      "title": "DPDP controls checklist is unsigned",
+      "priority": "P2",
+      "effort": "S"
+    },
+    {
+      "id": "QOS-0052",
+      "title": "Q-OS scoring rubric, ADR-0001, and locked decisions are not formally ratified",
+      "priority": "P2",
+      "effort": "S"
+    }
+  ],
+  "g_register": "| **G-14** | No CA has filed from the worksheets (H-05) | Critical \u2014 the core value prop | Unknown | Blocked on pilot | Stage 3 fieldwork, live filing window, 3\u20135 CAs | **P0** | founder / pilot |\n| **G-4** | FE role-hiding for SALES / ACCT is `test.fixme` | High \u2014 a dead 403 button erodes trust daily (P2/P5 veto) | Medium | \ud83d\udfe1 | Add `loginAsSales`/`loginAsAccountant` mock seeds; un-`fixme` `role-boundaries.spec.ts` | **P1** | web |\n| **G-7** | Load/soak/large-tenant/degraded-network all absent | High \u2014 pilot \"sized for small traders\" is an untested assumption (C7) | Medium | \u26d4 (presence-only) | Executed k6 smoke (50 rps/2 min) vs golden stack: p95 budget + zero 5xx; a 50k-invoice fixture for report/list/export timing | **P1** | backend / ops |\n| **G-8** | Per-inbound-webhook signature verification not enumerated | High \u2014 one unverified webhook = forged financial events | Low\u2013Med | \ud83d\udeab (mis-blocked on D3) | Enumerate every inbound webhook; apply WF-17 forgery pattern to each \u2014 **does not need live creds** | **P1** | backend |\n| **G-3** | Recovery paths partial: bank rec proper (WF-33), payment-gateway refund/MDR (WF-37/38) | High \u2014 Munshi & proprietor veto triggers | Med | \ud83d\udfe1 / \ud83d\udeab | Un-skip WF-33 (no external dep); WF-37/38 need D3 sandbox creds \u2014 chase the creds | **P1** | backend |\n| **G-11a** | Concurrency races never run locally (Postgres-only) | High \u2014 oversell / double-allocation corrupt money | Low (CI covers) | \ud83d\udfe1 | Document \"run `pytest -m postgres` against a local PG container before touching allocation/stock code\"; add to `CONTRIBUTING` + a pre-merge reminder | **P1** | backend |\n| **G-6b** | No keyboard-only POS a11y journey | High for ARCH-01 (H-02 assumes it) | Med | \u26d4 | Playwright: complete POS with `keyboard.press` only, assert focus never leaves scan field, assert completion | **P1** | web |\n| **G-1** | No persona journey for Godown-Keeper at a departmental firm (Model D); ARCH-04 count-variance not a journey | Med | Med | \u26d4 | `PJ-WHOLE-GODOWN` \u2014 inward, transfer, count session with variance, deny-set (no pricing, no journals) | **P2** | backend |\n| **G-2** | ARCH-05 near-expiry guard-band & policy on/off not a matrix dim; ARCH-06 bulk serial partial-failure & warranty-fraud untested | Med (Stage 4 archetypes) | Med | \u26d4 | Add expiry-policy axis to `test_company_settings_matrix.py`; `test_serial_bulk_ingest_partial_failure`; `test_warranty_fraud_duplicate_return` | **P2** | backend |\n| **G-5** | Broad page-level UX (~90 pages) has ~1 smoke each at best | Med \u2014 friction compounds | High | \ud83d\udfe1 | One render+no-console-error+axe smoke per top-20 route; keep the rest LIM | **P2** | web |\n| **G-9** | CSP not in-app; no external pen-test | Med | Low | Stated, not gated | Pen-test = Phase 5 (`PENTEST_SOW.md`); add a CSP header presence test once edge config is decided | **P2** | ops |\n| **G-10** | Real-broker task ordering hidden by eager mode | Med | Low | \ud83d\udfe1 | Phase 5: run WF-17 / period-close / e-invoice submit against a real broker | **P3** | backend |\n| **G-12** | Chromium-only e2e; 2 mobile-viewport fails carried | Med | Med | \ud83d\udfe1 | Add a WebKit project to `playwright.config.ts` for the golden + a11y specs; fix or formally accept the 2 mobile fails | **P3** | web |\n| **G-11b** | No schema-migration rehearsal on a prod-shaped dump | Med | Low | \u26d4 | P3: CI step \u2014 restore an anonymised dump, `migrate`, run the strict sweep | **P3** | backend / ops |\n| **G-13** | No LLM extraction accuracy benchmark | Low (draft-with-review) | Med | \u26d4 | Corpus of ~30 real bills \u2192 expected fields \u2192 accuracy floor; advisory lane | **P3** | backend / AI |"
+}

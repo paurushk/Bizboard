@@ -1,0 +1,39 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<h1>Help-desk health (30-day rollup)</h1>
+<p><a href="{% url 'admin:ops_coverageauditrun_changelist' %}">&larr; Coverage Copilot</a></p>
+
+<form method="get" style="margin-bottom: 1em;">
+  <label><input type="checkbox" name="all" value="1" {% if staff_all %}checked{% endif %} onchange="this.form.submit()"> All companies (staff only)</label>
+</form>
+
+<table style="border-collapse: collapse;">
+  <tbody>
+    {% for label, value in rows %}
+    <tr>
+      <th style="text-align:left; padding:4px 12px 4px 0; border-bottom:1px solid #ddd;">{{ label }}</th>
+      <td style="padding:4px; border-bottom:1px solid #ddd;">{{ value }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Top zero-result searches</h2>
+<ul>
+  {% for row in health.top_zero_queries %}
+  <li>{{ row.query }} ({{ row.n }})</li>
+  {% empty %}
+  <li>&mdash;</li>
+  {% endfor %}
+</ul>
+
+<h2>Repeat queries (asked 3+ times)</h2>
+<ul>
+  {% for row in health.repeat_queries %}
+  <li>{{ row.query }} ({{ row.n }})</li>
+  {% empty %}
+  <li>&mdash;</li>
+  {% endfor %}
+</ul>
+{% endblock %}
