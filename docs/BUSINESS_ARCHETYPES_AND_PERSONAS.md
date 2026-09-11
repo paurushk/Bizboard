@@ -339,7 +339,7 @@ Isolated workflows (e.g., booking an order or scanning an item) are insufficient
 +-------------------------------------------------------------------------------------------------------------+
 | CONDITIONALLY SUPPORTED (Requires Validation of Specific Boundary Conditions)                               |
 |   ├── ARCH-04: Multi-Godown Stockist  ── Boundary: Single GSTIN only; inter-branch transfers are internal.   |
-|   ├── ARCH-05: Batch/Expiry Merchant  ── Boundary: General batch/FEFO works; specialized drug forms absent.  |
+|   ├── ARCH-05: Batch/Expiry Merchant  ── Boundary: General batch/FEFO works; drug/FSSAI forms built behind a flag (D15)|
 |   ├── ARCH-06: Serialized Dealer      ── Boundary: Serial flow verified; bulk barcode paste limits apply.    |
 |   └── ARCH-07: Commercial Services    ── Boundary: Service items work; no technician dispatch or timesheets. |
 +-------------------------------------------------------------------------------------------------------------+
@@ -545,7 +545,7 @@ pilots, so it cannot begin the day Stage 2 fieldwork ends — schedule it agains
 | **ARCH-03: Semi-Wholesaler** | High (Verified) | **Very Low** | **Near Zero:** Test complete loop with standard desktop. | **High** (Strong WTP, high data lock) | **LEAD PILOT HYPOTHESIS** |
 | **ARCH-01: Counter Retailer** | Moderate (POS built) | **High** (Counter speed) | **Low to Medium:** Validate scanner auto-submit & thermal slips. | Moderate (High volume, lower WTP) | **PARALLEL TEST (Stage 1)** |
 | **ARCH-04: Multi-Godown** | Moderate (Transfers work)| Moderate (Multi-site) | **Low to Medium:** Pilot hand-holding on transit stock. | High (Strong lock-in) | **STAGE 4 FOLLOW-ON** |
-| **ARCH-05: Batch & Expiry** | Moderate (FEFO works) | **High** (Regulatory) | **Medium:** Needs statutory drug forms (Form 20B/21B). | **Very High** (Critical pain) | **DEFER TO STAGE 4** |
+| **ARCH-05: Batch & Expiry** | Moderate (FEFO works) | **High** (Regulatory) | **Low:** Statutory drug forms (20B/21B) + FSSAI built behind `ENABLE_ARCH05_STATUTORY_FORMS` (D15, off by default) — flip per-company to pilot. | **Very High** (Critical pain) | **DEFER TO STAGE 4** |
 | **ARCH-06: Serial Dealer** | Moderate (Serials work) | Moderate (Data entry) | **Medium:** Needs bulk serial scanner paste workflows. | High (High ticket items) | **DEFER TO STAGE 4** |
 | **ARCH-07: Services** | Moderate (Service items) | Low (Desk-based) | **Medium:** Missing milestone billing & job-work. | Moderate (Smaller trade fit) | **SECONDARY EXPLORATION** |
 | **ARCH-02: Composition Shop**| Moderate (CMP-08 works) | Moderate (Low literacy)| **Low:** Bill of supply ready. | **Very Low** (High churn, low WTP) | **DISQUALIFIED FROM PILOT** |

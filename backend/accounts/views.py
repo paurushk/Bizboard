@@ -32,12 +32,16 @@ from core.permissions import HasCompany, IsOwner, get_company_user
 from core.services.audit import AuditService
 from core.services.sms import SmsProvider
 
-from .models import Company, CompanyGstin, CompanyUser, InviteJti, OtpChallenge, PasswordResetJti, User
+from .models import (
+    Company, CompanyGstin, CompanyStatutoryLicence, CompanyUser, InviteJti, OtpChallenge,
+    PasswordResetJti, User,
+)
 from .otp_utils import hash_otp, normalize_e164, phone_lookup_values, resolve_user_by_phone, verify_otp
 from .serializers import (
     CompanyGstinSerializer,
     CompanySerializer,
     CompanySerializerStaff,
+    CompanyStatutoryLicenceSerializer,
     CompanyUserSerializer,
     InviteUserSerializer,
     MeSerializer,
@@ -1288,6 +1292,49 @@ class CompanyGstinViewSet(viewsets.ModelViewSet):
         AuditService.log(
             company=company, user=self.request.user, action="DELETE",
             entity_type="CompanyGstin", entity_id=entity_id,
+        )
+
+
+class CompanyStatutoryLicenceViewSet(viewsets.ModelViewSet):
+    """D15 / QOS-0027: Owner CRUD for ARCH-05 drug-licence / FSSAI registrations."""
+
+    serializer_class = CompanyStatutoryLicenceSerializer
+    permission_classes = [IsAuthenticated, HasCompany]
+    queryset = CompanyStatutoryLicence.objects.all()
+    http_method_names = ["get", "post", "patch", "delete"]
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasCompany(), IsOwner()]
+
+    def get_queryset(self):
+        return self.queryset.filter(company=get_company_user(self.request).company)
+
+    def perform_create(self, serializer):
+        company = get_company_user(self.request).company
+        instance = serializer.save(
+            company=company, created_by=self.request.user, updated_by=self.request.user,
+        )
+        AuditService.log(
+            company=company, user=self.request.user, action="CREATE",
+            entity_type="CompanyStatutoryLicence", entity_id=instance.id,
+        )
+
+    def perform_update(self, serializer):
+        instance = serializer.save(
+            company=get_company_user(self.request).company, updated_by=self.request.user,
+        )
+        AuditService.log(
+            company=instance.company, user=self.request.user, action="UPDATE",
+            entity_type="CompanyStatutoryLicence", entity_id=instance.id,
+        )
+
+    def perform_destroy(self, instance):
+        entity_id = instance.pk
+        company = instance.company
+        instance.delete()
+        AuditService.log(
+            company=company, user=self.request.user, action="DELETE",
+            entity_type="CompanyStatutoryLicence", entity_id=entity_id,
         )
 
 

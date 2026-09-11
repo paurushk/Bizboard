@@ -105,7 +105,8 @@ class ProductSerializer(serializers.ModelSerializer):
             "gst_rate", "cess_rate", "cess_amount",
             "purchase_price", "selling_price", "mrp", "wholesale_price",
             "reorder_level", "product_type", "track_inventory",
-            "track_batch", "track_serial", "selling_tax_inclusive", "purchase_tax_inclusive",
+            "track_batch", "track_serial", "regulated_category",
+            "selling_tax_inclusive", "purchase_tax_inclusive",
             "custom_fields", "alternate_unit", "alternate_unit_name", "conversion_rate",
             "default_discount_percent", "has_movements", "status", "created_at", "updated_at",
         ]

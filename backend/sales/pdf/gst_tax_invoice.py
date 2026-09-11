@@ -153,6 +153,14 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     seller_bits.append(Paragraph(pdf_esc(seller_name), styles["company_name"]))
     if seller_gstin:
         seller_bits.append(Paragraph(f"GSTIN: {pdf_esc(seller_gstin)}", styles["meta"]))
+    # D15 / QOS-0027: ARCH-05 statutory licences — printed only when the
+    # company has active ones on file; every other archetype sees no change.
+    licence_labels = {"DRUG_20B": "Drug Lic. (20B)", "DRUG_21B": "Drug Lic. (21B)", "FSSAI": "FSSAI Lic. No."}
+    for licence in company.statutory_licences.filter(is_active=True).order_by("licence_type"):
+        label = licence_labels.get(licence.licence_type, licence.get_licence_type_display())
+        seller_bits.append(
+            Paragraph(f"{label}: {pdf_esc(licence.licence_number)}", styles["meta"])
+        )
     if company.phone:
         seller_bits.append(Paragraph(f"Mobile: {company.phone}", styles["meta"]))
     addr = ""
@@ -273,6 +281,16 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             # Subtle second line with product name if description differs
             if item.description and item.description != item.product.name:
                 item_cell.append(Paragraph(pdf_esc(item.product.name), styles["body_small"]))
+            # D15 / QOS-0027: batch-traceable invoice — print the batch/expiry
+            # snapshot already captured on the line (regulated ARCH-05 lines
+            # in particular need this), same subtle-sub-line treatment as SKU.
+            batch_bits = []
+            if item.batch_no:
+                batch_bits.append(f"Batch: {pdf_esc(item.batch_no)}")
+            if item.exp_date:
+                batch_bits.append(f"Exp: {item.exp_date.strftime('%m/%Y')}")
+            if batch_bits:
+                item_cell.append(Paragraph(" | ".join(batch_bits), styles["body_small"]))
             data.append([
                 Paragraph(str(idx), styles["td_center"]),
                 item_cell,
@@ -317,9 +335,17 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             item_name = item.description or item.product.name
             if sku:
                 item_name = f"{item_name} ({sku})"
+            item_cell = [Paragraph(pdf_esc(item_name), styles["td"])]
+            batch_bits = []
+            if item.batch_no:
+                batch_bits.append(f"Batch: {pdf_esc(item.batch_no)}")
+            if item.exp_date:
+                batch_bits.append(f"Exp: {item.exp_date.strftime('%m/%Y')}")
+            if batch_bits:
+                item_cell.append(Paragraph(" | ".join(batch_bits), styles["body_small"]))
             data.append([
                 Paragraph(str(idx), styles["td_center"]),
-                Paragraph(item_name, styles["td"]),
+                item_cell,
                 Paragraph(f"{format_qty(item.quantity)} {unit}", styles["td_center"]),
                 Paragraph(format_money(item.unit_price), styles["td_right"]),
                 Paragraph(format_money(item.discount_percent), styles["td_right"]),

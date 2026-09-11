@@ -124,6 +124,50 @@ export async function updateCompanyGstin(
   return unwrapData<CompanyGstinRow>(data);
 }
 
+export interface CompanyStatutoryLicenceRow {
+  id: number;
+  licenceType: 'DRUG_20B' | 'DRUG_21B' | 'FSSAI';
+  licence_type?: 'DRUG_20B' | 'DRUG_21B' | 'FSSAI';
+  licenceNumber?: string;
+  licence_number?: string;
+  premisesAddress?: string;
+  premises_address?: string;
+  premisesState?: string;
+  premises_state?: string;
+  premisesCity?: string;
+  premises_city?: string;
+  premisesPincode?: string;
+  premises_pincode?: string;
+  validFrom?: string | null;
+  valid_from?: string | null;
+  validUpto?: string | null;
+  valid_upto?: string | null;
+  isActive?: boolean;
+  is_active?: boolean;
+}
+
+export async function listCompanyStatutoryLicences(): Promise<CompanyStatutoryLicenceRow[]> {
+  const { data } = await apiClient.get('/company/statutory-licences/');
+  const body = unwrapData<CompanyStatutoryLicenceRow[] | { results?: CompanyStatutoryLicenceRow[] }>(data);
+  if (Array.isArray(body)) return body;
+  return body.results ?? [];
+}
+
+export async function createCompanyStatutoryLicence(
+  payload: Record<string, unknown>,
+): Promise<CompanyStatutoryLicenceRow> {
+  const { data } = await apiClient.post('/company/statutory-licences/', payload);
+  return unwrapData<CompanyStatutoryLicenceRow>(data);
+}
+
+export async function updateCompanyStatutoryLicence(
+  id: number,
+  payload: Record<string, unknown>,
+): Promise<CompanyStatutoryLicenceRow> {
+  const { data } = await apiClient.patch(`/company/statutory-licences/${id}/`, payload);
+  return unwrapData<CompanyStatutoryLicenceRow>(data);
+}
+
 export async function exportTenantBackup(): Promise<{ url: string; filename: string }> {
   const response = await apiClient.post(
     '/company/export/',

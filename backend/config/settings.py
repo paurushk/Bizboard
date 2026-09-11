@@ -190,7 +190,10 @@ MIDDLEWARE = [
     "core.middleware.RequestIdMiddleware",
     "core.middleware.PostgresRlsMiddleware",
     "billing.middleware.SubscriptionWriteGateMiddleware",
+    "core.middleware.ContentSecurityPolicyMiddleware",  # QOS-0011
 ]
+
+CONTENT_SECURITY_POLICY = os.environ.get("CONTENT_SECURITY_POLICY")  # None -> middleware default
 
 ROOT_URLCONF = "config.urls"
 
@@ -865,6 +868,10 @@ ENABLE_BOE = _env_bool("ENABLE_BOE", "1")
 # carve-out (plan item SR-40). The completeness invariant + `erase_company`
 # service ship regardless; only the HTTP surface is gated.
 ENABLE_TENANT_ERASURE = _env_bool("ENABLE_TENANT_ERASURE", "0")
+# D15 / QOS-0027: ARCH-05 statutory compliance (drug licence 20B/21B + FSSAI).
+# Default OFF everywhere — this ships per-company ahead of a pharma/food pilot
+# being provisioned; it has no effect on the ARCH-03 pilot's frozen scope.
+ENABLE_ARCH05_STATUTORY_FORMS = _env_bool("ENABLE_ARCH05_STATUTORY_FORMS", "0")
 # W0-03: park verified gateway captures when books cannot post. Off = fail webhook (emergency only).
 # Default ON; set GATEWAY_HOLDING_STATE=0/false/no/off to disable (emergency only).
 GATEWAY_HOLDING_STATE = _env_bool("GATEWAY_HOLDING_STATE", "1")

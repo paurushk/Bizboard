@@ -93,6 +93,7 @@ interface FormState {
   brandName: string;
   trackInventory: boolean;
   tracking: Tracking;
+  regulatedCategory: 'NONE' | 'DRUG' | 'FOOD';
   openingStock: string;
   warehouseId: string;
   reorderLevel: string;
@@ -153,6 +154,7 @@ function buildForm(
     brandName: product?.brandName ?? '',
     trackInventory: product?.trackInventory !== false,
     tracking,
+    regulatedCategory: product?.regulatedCategory ?? 'NONE',
     openingStock: '0',
     warehouseId: defaultWarehouseId,
     reorderLevel: String(product?.reorderLevel ?? '0'),
@@ -382,6 +384,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
         trackInventory: !isService && form.trackInventory,
         trackBatch: !isService && form.tracking === 'BATCH',
         trackSerial: !isService && form.tracking === 'SERIAL',
+        regulatedCategory: form.regulatedCategory,
         sellingTaxInclusive: form.sellingTaxInclusive,
         purchaseTaxInclusive: form.purchaseTaxInclusive,
         defaultDiscountPercent: Number(form.defaultDiscountPercent) || 0,
@@ -790,6 +793,22 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                 <FormControlLabel value="BATCH" control={<Radio disabled={locked} />} label="Batch / expiry" />
                 <FormControlLabel value="SERIAL" control={<Radio disabled={locked} />} label="Serial" />
               </RadioGroup>
+              <TextField
+                select
+                label="Regulated category"
+                helperText="D15 / ARCH-05: gates the drug-licence / FSSAI statutory guard at invoice complete."
+                value={form.regulatedCategory}
+                onChange={(e) =>
+                  setForm((current) => ({
+                    ...current,
+                    regulatedCategory: e.target.value as FormState['regulatedCategory'],
+                  }))
+                }
+              >
+                <MenuItem value="NONE">Not regulated</MenuItem>
+                <MenuItem value="DRUG">Drug / pharmaceutical</MenuItem>
+                <MenuItem value="FOOD">Food (FSSAI)</MenuItem>
+              </TextField>
               {form.tracking === 'BATCH' && !product ? (
                 <Stack spacing={1.5}>
                   <Typography variant="subtitle2">Opening lots</Typography>

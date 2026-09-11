@@ -1,0 +1,36 @@
+id: QOS-0027
+category: PERSONA_GAP
+title: ARCH-05 needs statutory drug/food forms (20B/21B, FSSAI) before a pharma pilot
+persona:
+- P4
+- P1
+archetype:
+- ARCH-05
+journey: Batch-traceable statutory compliance for pharma/food distribution
+problem: 'ARCH-05 is ''conditionally supported'': general batch/FEFO works, but the statutory drug licence
+  forms (20B/21B) and FSSAI declarations are absent. A pharma stockist cannot run compliant on the product
+  today.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 8
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 13
+  detail: Documented boundary condition; deferred to Stage 4.
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: Impact Low (12); Stage-4 archetype, deferred. P2.
+effort: L
+recommendation: Scope and build the drug-licence form set (20B/21B) and FSSAI declaration fields on batch-traceable
+  invoices before recruiting an ARCH-05 pilot.
+test_required: a WF chain covering a batch-traceable statutory invoice with the drug-licence fields
+guard_ref:
+  test: backend/tests/workflows/test_wf60_arch05_statutory_forms.py::test_wf60_arch05_drug_licence_soft_block_then_pdf
+lifecycle: fixed
+owner: backend
+opened: '2026-09-10'
+closed: '2026-09-11'

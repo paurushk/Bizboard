@@ -78,6 +78,9 @@ SUP). Cut the stub if the founder marks the flow OUT/LIM.
 - **Mobile lane** (D12) — session persistence, deep links, offline-on-mobile
 - **LLM hardening** (D14) — provider timeout/error → draft-with-warning; injected instructions in uploaded bill text are inert (`tests/errors/`)
 
+### D15 chain — ARCH-05 statutory compliance (2026-09-11)
+- **WF-60** drug-licence (20B/21B) + FSSAI — a `DRUG`/`FOOD`-regulated invoice line soft-blocks Complete (confirm-override) with no active company licence on file; adding one lifts the block; batch/expiry + licence number print on the GST invoice PDF (D15, `ENABLE_ARCH05_STATUTORY_FORMS`)
+
 ### Invariants (core/invariants/) — 21 registered
 Implemented since the §G/§H review:
 - [x] `reports.pnl_reconciles_to_trial_balance` — P&L net profit (all-time) matches the TB income/expense rows

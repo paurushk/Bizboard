@@ -305,6 +305,7 @@ export interface Product {
   trackInventory?: boolean;
   trackBatch?: boolean;
   trackSerial?: boolean;
+  regulatedCategory?: 'NONE' | 'DRUG' | 'FOOD';
   sellingTaxInclusive?: boolean;
   purchaseTaxInclusive?: boolean;
   customFields?: Record<string, string>;

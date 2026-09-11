@@ -35,6 +35,7 @@ from .models import (
     SalesReturn,
     SalesReturnItem,
 )
+from .statutory_forms_guard import assert_statutory_licence_present
 
 
 def _validate_lines(items_data, company, *, check_active=True):
@@ -713,7 +714,7 @@ class SalesService:
     @staticmethod
     @transaction.atomic
     def complete(invoice: SalesInvoice, user, *, confirm_sales_rcm=False, confirm_blank_pos=False,
-                 confirm_gstin_total_change=False):
+                 confirm_gstin_total_change=False, confirm_missing_licence=False):
         """Atomic Complete: rules + number + SALE movements + PDF event (E4.4)."""
         invoice = SalesInvoice.objects.select_for_update().get(pk=invoice.pk)
         if invoice.warehouse_id is None:
@@ -748,6 +749,9 @@ class SalesService:
 
         tax_enabled = _tax_enabled(invoice.invoice_type)
         assert_may_issue_gst_tax_invoice(invoice.company, tax_enabled=tax_enabled)
+        assert_statutory_licence_present(
+            invoice.company, items, confirm_missing_licence=confirm_missing_licence
+        )
 
         # BB-000264: opening bypass only via internal flag, never user-writable notes magic.
         if (invoice.notes or "").strip() == "TALLY_OPENING" and not getattr(
@@ -822,6 +826,21 @@ class SalesService:
                 raise BusinessRuleError(
                     f"Credit limit exceeded. Exposure {exposure} + invoice "
                     f"{invoice.grand_total} > limit {limit}.",
+                    code=HelpCode.CREDIT_LIMIT_EXCEEDED,
+                )
+        # QOS-0044: the check above only fires for a customer with an explicit
+        # credit_limit. Opt-in: also hold a customer whose collection-risk
+        # status is already stop_credit/overdue_severe, even with no limit set —
+        # the ladder's "hold new orders" rung driven by risk status, not just a
+        # static ceiling. Off by default so existing tenants see no change.
+        if invoice.company.auto_credit_hold_on_severe_overdue and not is_tally_opening:
+            from payments.dunning import customer_risk_snapshot
+
+            snap = customer_risk_snapshot(invoice.company, customer)
+            if snap["collection_status"] in ("stop_credit", "overdue_severe"):
+                raise BusinessRuleError(
+                    f"{customer.name} is on collection hold ({snap['collection_status'].replace('_', ' ')}); "
+                    f"clear the overdue balance or lift the hold before billing further.",
                     code=HelpCode.CREDIT_LIMIT_EXCEEDED,
                 )
 

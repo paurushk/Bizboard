@@ -82,6 +82,7 @@ export const navigation: NavItem[] = [
     labelKey: 'nav.sales',
     children: [
       { id: 'new-invoice', labelKey: 'nav.newInvoice', path: '/sales/new', visible: canCreateSales },
+      { id: 'quick-entry', labelKey: 'nav.quickEntry', path: '/sales/quick-entry', visible: canCreateSales },
       // UXW2B-015 follow-up: these five had no `visible` guard at all — the
       // route layer gates them on canViewSalesSurfaces (App.tsx), so a
       // zero/view-only-permission user saw them as normal sidebar links that
@@ -169,6 +170,7 @@ export const navigation: NavItem[] = [
         visible: canAdjustInventory,
       },
       { id: 'low-stock', labelKey: 'nav.lowStock', path: '/inventory/low-stock', visible: canViewInventorySurfaces },
+      { id: 'label-print', labelKey: 'nav.labelPrint', path: '/inventory/labels', visible: canAdjustInventory },
       { id: 'warehouses', labelKey: 'nav.warehouses', path: '/inventory/warehouses', visible: canAdjustInventory },
       { id: 'stock-counts', labelKey: 'nav.stockCounts', path: '/inventory/stock-counts', visible: canAdjustInventory },
       { id: 'stock-transfers', labelKey: 'nav.stockTransfers', path: '/inventory/transfers', visible: canAdjustInventory },
@@ -390,6 +392,12 @@ export const navigation: NavItem[] = [
         id: 'gst',
         labelKey: 'nav.gst',
         path: '/settings/gst',
+        visible: canManageGst,
+      },
+      {
+        id: 'statutory-licences',
+        labelKey: 'nav.statutoryLicences',
+        path: '/settings/statutory-licences',
         visible: canManageGst,
       },
       {

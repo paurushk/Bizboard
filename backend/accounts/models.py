@@ -264,6 +264,11 @@ class Company(TimeStampedModel):
     dunning_quiet_hours_end = models.PositiveSmallIntegerField(default=8)
     dunning_channel_whatsapp = models.BooleanField(default=True)
     dunning_channel_sms = models.BooleanField(default=True)
+    # QOS-0044 — opt-in: extend the invoice-complete credit hold beyond a static
+    # credit_limit to also block a customer whose collection-risk status is
+    # stop_credit/overdue_severe, even with no explicit limit set. Default off so
+    # existing tenants see no behaviour change until they turn it on.
+    auto_credit_hold_on_severe_overdue = models.BooleanField(default=False)
 
     class Meta:
         verbose_name_plural = "companies"
@@ -351,6 +356,68 @@ class CompanyGstin(TimeStampedModel):
             if primary.state:
                 fields["state"] = primary.state
             Company.objects.filter(pk=company_id).update(**fields)
+
+
+class CompanyStatutoryLicence(TimeStampedModel):
+    """D15 / QOS-0027: ARCH-05 statutory licences (drug 20B/21B, FSSAI),
+    issued per registered premises — not one per company, hence a child
+    table mirroring `CompanyGstin` rather than scalar `Company` fields."""
+
+    class LicenceType(models.TextChoices):
+        DRUG_20B = "DRUG_20B", "Drug Licence — Form 20B (wholesale, non-Schedule X)"
+        DRUG_21B = "DRUG_21B", "Drug Licence — Form 21B (wholesale, Schedule X)"
+        FSSAI = "FSSAI", "FSSAI Licence/Registration"
+
+    company = models.ForeignKey(
+        "accounts.Company", on_delete=models.CASCADE, related_name="statutory_licences"
+    )
+    licence_type = models.CharField(max_length=16, choices=LicenceType.choices)
+    licence_number = models.CharField(max_length=64)
+    premises_address = models.CharField(max_length=512, blank=True)
+    premises_state = models.CharField(max_length=64, blank=True)
+    premises_city = models.CharField(max_length=64, blank=True)
+    premises_pincode = models.CharField(max_length=10, blank=True)
+    valid_from = models.DateField(null=True, blank=True)
+    valid_upto = models.DateField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "licence_type", "licence_number"],
+                name="uniq_company_licence_type_number",
+            ),
+        ]
+        ordering = ["licence_type", "licence_number"]
+
+    def __str__(self):
+        return f"{self.get_licence_type_display()}: {self.licence_number}"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from core.validators import validate_drug_licence, validate_fssai
+
+        if self.licence_type == self.LicenceType.FSSAI:
+            validate_fssai(self.licence_number)
+        elif self.licence_type in (self.LicenceType.DRUG_20B, self.LicenceType.DRUG_21B):
+            validate_drug_licence(self.licence_number)
+        else:
+            raise DjangoValidationError({"licence_type": "Unknown licence type."})
+
+    def is_current(self, *, as_of=None):
+        as_of = as_of or timezone.localdate()
+        if not self.is_active:
+            return False
+        if self.valid_upto and self.valid_upto < as_of:
+            return False
+        return True
 
 
 class CompanyUser(TimeStampedModel):

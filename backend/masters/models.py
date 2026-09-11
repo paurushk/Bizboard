@@ -208,6 +208,11 @@ class Product(CompanyScopedModel):
         GOODS = "GOODS", "Goods"
         SERVICE = "SERVICE", "Service"
 
+    class RegulatedCategory(models.TextChoices):
+        NONE = "NONE", "Not regulated"
+        DRUG = "DRUG", "Drug / pharmaceutical"
+        FOOD = "FOOD", "Food (FSSAI)"
+
     name = models.CharField(max_length=255, db_index=True)
     sku = models.CharField(max_length=64, blank=True, db_index=True)
     barcode = models.CharField(max_length=64, blank=True, db_index=True)
@@ -236,6 +241,11 @@ class Product(CompanyScopedModel):
     track_inventory = models.BooleanField(default=True)
     track_batch = models.BooleanField(default=False)
     track_serial = models.BooleanField(default=False)
+    # D15 / QOS-0027: gates the ARCH-05 statutory-licence guard — a no-op for
+    # every product unless explicitly set to DRUG or FOOD.
+    regulated_category = models.CharField(
+        max_length=8, choices=RegulatedCategory.choices, default=RegulatedCategory.NONE
+    )
     selling_tax_inclusive = models.BooleanField(default=False)
     purchase_tax_inclusive = models.BooleanField(default=False)
     custom_fields = models.JSONField(default=dict, blank=True)

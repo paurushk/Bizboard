@@ -50,6 +50,7 @@ import {
 import type { User } from '@/types/domain';
 
 const NewInvoicePage = lazy(() => import('@/pages/sales/NewInvoicePage').then((m) => ({ default: m.NewInvoicePage })));
+const QuickEntryPage = lazy(() => import('@/pages/sales/QuickEntryPage').then((m) => ({ default: m.QuickEntryPage })));
 const SalesBillUploadPage = lazy(() => import('@/pages/sales/SalesBillUploadPage').then((m) => ({ default: m.SalesBillUploadPage })));
 const SalesHistoryPage = lazy(() => import('@/pages/sales/SalesHistoryPage').then((m) => ({ default: m.SalesHistoryPage })));
 const InvoiceDetailPage = lazy(() => import('@/pages/sales/InvoiceDetailPage').then((m) => ({ default: m.InvoiceDetailPage })));
@@ -83,6 +84,7 @@ const ProductsPage = lazy(() => import('@/pages/inventory/ProductsPage').then((m
 const CurrentStockPage = lazy(() => import('@/pages/inventory/CurrentStockPage').then((m) => ({ default: m.CurrentStockPage })));
 const StockAdjustmentPage = lazy(() => import('@/pages/inventory/StockAdjustmentPage').then((m) => ({ default: m.StockAdjustmentPage })));
 const LowStockPage = lazy(() => import('@/pages/inventory/LowStockPage').then((m) => ({ default: m.LowStockPage })));
+const LabelPrintPage = lazy(() => import('@/pages/inventory/LabelPrintPage').then((m) => ({ default: m.LabelPrintPage })));
 const SalesReportPage = lazy(() => import('@/pages/reports/SalesReportPage').then((m) => ({ default: m.SalesReportPage })));
 const PurchaseReportPage = lazy(() => import('@/pages/reports/PurchaseReportPage').then((m) => ({ default: m.PurchaseReportPage })));
 const InventoryReportPage = lazy(() => import('@/pages/reports/InventoryReportPage').then((m) => ({ default: m.InventoryReportPage })));
@@ -113,6 +115,7 @@ const TallyMigrationPage = lazy(() => import('@/pages/settings/TallyMigrationPag
 const AiSettingsPage = lazy(() => import('@/pages/settings/AiSettingsPage').then((m) => ({ default: m.AiSettingsPage })));
 const CompanySettingsPage = lazy(() => import('@/pages/settings/CompanySettingsPage').then((m) => ({ default: m.CompanySettingsPage })));
 const GstSettingsPage = lazy(() => import('@/pages/settings/GstSettingsPage').then((m) => ({ default: m.GstSettingsPage })));
+const StatutoryLicencesPage = lazy(() => import('@/pages/settings/StatutoryLicencesPage').then((m) => ({ default: m.StatutoryLicencesPage })));
 const SeriesSettingsPage = lazy(() => import('@/pages/settings/SeriesSettingsPage').then((m) => ({ default: m.SeriesSettingsPage })));
 const UnitsSettingsPage = lazy(() => import('@/pages/settings/UnitsSettingsPage').then((m) => ({ default: m.UnitsSettingsPage })));
 const InvoiceTemplatesPage = lazy(() => import('@/pages/settings/InvoiceTemplatesPage').then((m) => ({ default: m.InvoiceTemplatesPage })));
@@ -176,7 +179,7 @@ const HelpHealthPage = lazy(() => import('@/pages/help/HelpHealthPage').then((m)
 function RouteFallback() {
   return (
     <Box display="flex" justifyContent="center" alignItems="center" minHeight="40vh">
-      <CircularProgress />
+      <CircularProgress aria-label="Loading" />
     </Box>
   );
 }
@@ -359,6 +362,7 @@ export function App() {
             <Route element={<RoleRoute allow={canCreateSales} />}>
               <Route path="sales/new" element={<SalesInvoiceEditor />} />
               <Route path="sales/history/:id/edit" element={<SalesInvoiceEditor />} />
+              <Route path="sales/quick-entry" element={<QuickEntryPage />} />
             </Route>
             <Route element={<RoleRoute allow={canImport} />}>
               <Route path="sales/bill-upload" element={<SalesBillUploadPage />} />
@@ -445,6 +449,7 @@ export function App() {
               <Route path="inventory/count" element={<Navigate to="/inventory/stock-counts" replace />} />
               <Route path="inventory/transfers" element={<StockTransferPage />} />
               <Route path="inventory/serials" element={<SerialsPage />} />
+              <Route path="inventory/labels" element={<LabelPrintPage />} />
             </Route>
             <Route element={<RoleRoute allow={canViewFinancialReports} />}>
               <Route path="attention" element={<AttentionPage />} />
@@ -505,6 +510,7 @@ export function App() {
               </Route>
               <Route element={<RoleRoute allow={canManageGst} />}>
                 <Route path="settings/gst" element={<GstSettingsPage />} />
+                <Route path="settings/statutory-licences" element={<StatutoryLicencesPage />} />
               </Route>
               <Route element={<RoleRoute allow={canImport} />}>
                 <Route path="settings/import" element={<ImportPage />} />

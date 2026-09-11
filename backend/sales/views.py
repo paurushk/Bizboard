@@ -373,12 +373,16 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             confirm_gstin_total = str(request.data.get("confirm_gstin_total_change") or "").lower() in (
                 "1", "true", "yes",
             )
+            confirm_missing_licence = str(request.data.get("confirm_missing_licence") or "").lower() in (
+                "1", "true", "yes",
+            )
             invoice, warnings = SalesService.complete(
                 self.get_object(),
                 request.user,
                 confirm_sales_rcm=confirm_rcm,
                 confirm_blank_pos=confirm_blank_pos,
                 confirm_gstin_total_change=confirm_gstin_total,
+                confirm_missing_licence=confirm_missing_licence,
             )
             data = self.get_serializer(invoice).data
             data["warnings"] = warnings

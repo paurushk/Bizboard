@@ -31,6 +31,7 @@ class HelpCode:
     CONFIRM_CN_ON_PAID_INVOICE = "confirm_cn_on_paid_invoice"
     CONFIRM_CN_PRICE_OVERRIDE = "confirm_cn_price_override"
     CONFIRM_NON_GST_BILL = "confirm_non_gst_bill"
+    CONFIRM_MISSING_LICENCE = "confirm_missing_licence"
 
 
 ALL_HELP_CODES: tuple[str, ...] = (
@@ -57,6 +58,7 @@ ALL_HELP_CODES: tuple[str, ...] = (
     HelpCode.CONFIRM_CN_ON_PAID_INVOICE,
     HelpCode.CONFIRM_CN_PRICE_OVERRIDE,
     HelpCode.CONFIRM_NON_GST_BILL,
+    HelpCode.CONFIRM_MISSING_LICENCE,
 )
 
 # intentId keyed for the FE map / CI check. permission_denied is HTTP 403.
@@ -84,6 +86,7 @@ ERROR_CODE_TO_INTENT: dict[str, str] = {
     HelpCode.CONFIRM_CN_ON_PAID_INVOICE: "cannot-complete-invoice",
     HelpCode.CONFIRM_CN_PRICE_OVERRIDE: "cannot-complete-invoice",
     HelpCode.CONFIRM_NON_GST_BILL: "cannot-complete-invoice",
+    HelpCode.CONFIRM_MISSING_LICENCE: "cannot-complete-invoice",
 }
 
 # Skip the diagnosis picker when the error already names the leaf (HR-3.3).

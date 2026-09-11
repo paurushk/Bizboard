@@ -5,7 +5,7 @@ from rest_framework import serializers
 from core.permissions import get_company_user
 from core.validators import validate_upi_vpa
 
-from .models import Company, CompanyGstin, CompanyUser
+from .models import Company, CompanyGstin, CompanyStatutoryLicence, CompanyUser
 
 def _item_custom_field_defs(value):
     from masters.custom_fields import normalize_stored_defs
@@ -150,6 +150,7 @@ class CompanySerializer(serializers.ModelSerializer):
             "dunning_enabled", "dunning_days", "dunning_max_reminders",
             "dunning_quiet_hours_start", "dunning_quiet_hours_end",
             "dunning_channel_whatsapp", "dunning_channel_sms",
+            "auto_credit_hold_on_severe_overdue",
             # BB-000715: Owner-readable feature flags (platform/admin write optional elsewhere).
             "feature_flags",
             "onboarding_dismissed_at", "tax_profile_confirmed_at", "onboarding_started_at",
@@ -548,3 +549,32 @@ class CompanyGstinSerializer(serializers.ModelSerializer):
                         {"is_primary": "At least one GSTIN must remain primary."}
                     )
             return super().update(instance, validated_data)
+
+
+class CompanyStatutoryLicenceSerializer(serializers.ModelSerializer):
+    """D15 / QOS-0027: ARCH-05 drug-licence (20B/21B) + FSSAI registrations."""
+
+    class Meta:
+        model = CompanyStatutoryLicence
+        fields = [
+            "id", "licence_type", "licence_number", "premises_address", "premises_state",
+            "premises_city", "premises_pincode", "valid_from", "valid_upto", "is_active",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+    def validate(self, attrs):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from core.validators import validate_drug_licence, validate_fssai
+
+        licence_type = attrs.get("licence_type", getattr(self.instance, "licence_type", None))
+        licence_number = attrs.get("licence_number", getattr(self.instance, "licence_number", ""))
+        try:
+            if licence_type == CompanyStatutoryLicence.LicenceType.FSSAI:
+                validate_fssai(licence_number)
+            else:
+                validate_drug_licence(licence_number)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"licence_number": list(exc.messages)}) from exc
+        return attrs

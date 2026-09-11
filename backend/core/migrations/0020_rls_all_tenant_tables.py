@@ -22,6 +22,14 @@ from django.db import migrations
 
 # Every model with a `company` ForeignKey, minus the tenancy-resolution tables.
 RLS_TABLES = [
+    # D15 / QOS-0027: added to the codebase after this migration first ran,
+    # so its actual RLS policy comes from
+    # core/migrations/0025_rls_company_statutory_licence.py, which re-applies
+    # the identical policy SQL against a live DB — same late-addition pattern
+    # as payments_processedwebhookevent below. This list entry only makes
+    # tests/test_rls_coverage.py recognize the table as covered and documents
+    # a from-scratch install's final state.
+    "accounts_companystatutorylicence",
     "accounting_account",
     "accounting_accountingperiod",
     "accounting_bankreconsession",
@@ -101,6 +109,10 @@ RLS_TABLES = [
     # RLS_TABLES directly) recognize the table as covered, and documents
     # what a from-scratch install's full migration history produces.
     "payments_processedwebhookevent",
+    # QOS-0043: same late-addition pattern as payments_processedwebhookevent
+    # above — actual RLS policy comes from
+    # core/migrations/0024_rls_payee_memory.py.
+    "payments_payeememory",
     "payments_reconmatch",
     "payments_supplierpayment",
     "payroll_employee",

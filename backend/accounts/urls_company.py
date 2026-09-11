@@ -1,11 +1,12 @@
 from django.urls import path
-from rest_framework.routers import DefaultRouter
+from core.routers import DefaultRouter
 
 from .export_views import TenantExportView, TenantRestoreView
 from .views import (
     CompanyDetailView,
     CompanyEraseView,
     CompanyGstinViewSet,
+    CompanyStatutoryLicenceViewSet,
     CompanyUserViewSet,
     CompanyVerifyGstinView,
     CompanyVerifyPanView,
@@ -15,6 +16,7 @@ from .views import (
 router = DefaultRouter()
 router.register("users", CompanyUserViewSet, basename="company-users")
 router.register("gstins", CompanyGstinViewSet, basename="company-gstins")
+router.register("statutory-licences", CompanyStatutoryLicenceViewSet, basename="company-statutory-licences")
 
 urlpatterns = [
     path("", CompanyDetailView.as_view(), name="company-detail"),

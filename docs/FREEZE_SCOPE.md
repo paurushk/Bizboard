@@ -43,7 +43,9 @@ plan; they are the executable checks that protect each row.
 ## A. SUPPORTED — frozen pilot scope
 
 Every row must be green at freeze. "Protected by" names the Freeze Gate check(s)
-that guard it.
+that guard it — those are plan labels; the concrete test file/function for each
+row (and the remaining GAPs) is in
+[`FREEZE_SCOPE_COVERAGE.md`](FREEZE_SCOPE_COVERAGE.md).
 
 | # | Capability | Workflow granularity (what must work end to end) | Protected by |
 |---|---|---|---|
@@ -141,6 +143,7 @@ belongs to. Source: `backend/config/settings.py`,
 | `ENABLE_GSTN_JSON` | backend | OFF | B |
 | `ENABLE_FIXED_ASSETS` | backend | **OFF** (`0`) — default ON in code | B (D6 → KNOWN LIMITATION, revision 2026-09-09b) |
 | `ENABLE_BOE` | backend | **OFF** (`0`) — default ON in code | B (D10 → KNOWN LIMITATION, revision 2026-09-09b) |
+| `ENABLE_ARCH05_STATUTORY_FORMS` | backend | **OFF** (`0`) | D15 — ARCH-05 drug-licence (20B/21B) + FSSAI compliance; ships per-company when a pharma/food pilot is provisioned; no effect on the ARCH-03 pilot |
 | `ENABLE_TENANT_ERASURE` | backend | **OFF** (`0`) | D13 owner-initiated erasure endpoint. **SR-40 signed 2026-09-10:** default mode is `tombstone` — statutory tax docs kept with party PII scrubbed, `Company` row survives with `erased_at`, `purge_tombstoned_companies` hard-deletes after the 8-yr GST window. Flag still OFF by default; flip it per deployment when erasure requests are handled in-product. |
 | `ENABLE_TALLY` / `VITE_ENABLE_TALLY` | both | OFF | B |
 | `ENABLE_POS` / `VITE_ENABLE_POS` / `VITE_ENABLE_ATOMIC_POS_CHECKOUT` | both | **ON** (D1) | A23 SUPPORTED |
@@ -418,19 +421,29 @@ date / party / godown / cost-centre filters** (current snapshots are unfiltered)
 | Item | Owner / phase |
 |---|---|
 | Suite speed (~7 min small runs) — split the fast lane | **Phase 2 blocker — now** |
-| `INVARIANTS_STRICT=1` full-suite triage | **Phase 2** |
-| Run the mutation audit (`scripts/mutation_audit.sh`), act on survivors | **Phase 2h** |
-| Capture a coverage baseline; make diff-cover blocking | **finish Phase 1** |
-| Get `determinism-probe` (frozen clock / no socket) green | **finish Phase 1** |
-| Enforce "red-then-green evidence" for regression tests with a check | **finish Phase 1** |
+| `INVARIANTS_STRICT=1` full-suite triage | ✅ **DONE** — strict sweep is a blocking CI step (`invariant-sweep`), green fixed + random order |
+| Run the mutation audit (`scripts/mutation_audit.sh`), act on survivors | **Phase 2h** — blocked: mutmut has no native-Windows support (WSL/Linux only) |
+| Capture a coverage baseline; make diff-cover blocking | ✅ **diff-cover blocking** (`--fail-under=80` on changed lines); absolute `--cov-fail-under` floor still open |
+| Get `determinism-probe` (frozen clock / no socket) green | **in progress** — spawned task: `TESTS_FREEZE_CLOCK=1` makes `POST /sales/invoices/` 500 (`fake_time()` positional-arg TypeError) |
+| Enforce "red-then-green evidence" for regression tests with a check | ✅ **DONE** — `test_invariants_smoke.py::test_the_sweep_actually_catches_a_broken_journal` + `::test_sequences_intact_flags_a_gap` |
 | Wire CA sign-off to the blessed GST / accounting golden fixtures | **Phase 3** |
 | Check branch-protection required checks against GitHub (not just `ci.yml`) | **Phase 3** (needs `gh` API) |
-| Feature-flag kill-switch / rollback test; validate `docs/pilot/RUNBOOKS.md` | **Phase 3** |
+| Feature-flag kill-switch / rollback test; validate `docs/pilot/RUNBOOKS.md` | ✅ **kill-switch test done** (`tests/errors/test_ops_contracts.py`); RUNBOOKS validation still Phase 3 |
 | External security pen-test | **Phase 5** |
 
 ### Founder decisions — RESOLVED 2026-09-09
 
 > **Confirmed by Scope revision 2026-09-09b (PO call):** D12, D13, D14 all stay in the freeze as resolved here.
+
+> **D12 — founder ratification (2026-09-10, Paurush Kulshrestha):** The Capacitor
+> Android shell **ships to the pilot** as recorded (SUP). Mobile test lane
+> SR-30…SR-35 is engineering-complete. Pilot conditions, to be stated to pilot
+> users in writing (`docs/pilot/ONBOARDING.md`):
+> (1) Android only, sideloaded APK — no Play Store listing for the pilot;
+> (2) no push notifications yet — device registration is wired, FCM delivery is deferred;
+> (3) offline capture covers POS billing only — every other screen needs connectivity;
+> (4) it is a WebView shell, described as the "Android app shell", not marketed as a native "mobile app" (ADR-A10).
+> Reversal to LIM (responsive web only) is **not** taken — the lane is built and green; pulling it would forgo done work for little gain.
 
 | # | Decision | Resolution | New Freeze Gate work |
 |---|---|---|---|
@@ -467,6 +480,17 @@ manual workaround; where a UI/route surface exists, a Phase 2 test asserts it is
 | D10 | Bill of Entry / import purchase + landed cost | Enter import purchases as a domestic purchase bill with duty / landed cost as a charge line; no BoE document or automatic cost-layer capitalization in the pilot. |
 | D11 | Plan-limit enforcement | Plan feature-gates and count quotas are not enforced in the pilot; billing / limits handled out of band. |
 
+**Test reconciliation (SR — "point 1"):** D6 and D10 are flag-gated
+(`ENABLE_FIXED_ASSETS`, `ENABLE_BOE`; both `0` in the pilot profile).
+`backend/tests/workflows/test_wf_limitation_guards.py` and
+`backend/tests/personas/test_pj_limitation_guards.py` assert the routes
+(`/api/v1/accounting/fixed-assets/`, `/api/v1/purchases/bills-of-entry/`) return
+**404** when the flag is off — for the owner persona too, not merely a 403. The
+former SUPPORTED chains WF-53 / WF-55 / WF-56 / WF-57 / WF-58 are kept as
+regression coverage of the flag-on / computation path and their docstrings now
+label them KNOWN LIMITATION coverage, **not freeze blockers**. D7/D8/D9/D11 have
+no separate flag — they are screened out of the pilot or handled out of band.
+
 Consequences for [`BUSINESS_ARCHETYPES_AND_PERSONAS.md`](BUSINESS_ARCHETYPES_AND_PERSONAS.md): Invariant 3
 keeps landed cost / BoE **out of scope**; ARCH-07's RCM exposure is a **pilot limitation**; ARCH-02
 (composition) stays commercially deprioritized. D12 and D13 change no archetype disposition.
@@ -479,6 +503,33 @@ keeps landed cost / BoE **out of scope**; ARCH-07's RCM exposure is a **pilot li
 chains) are **struck** — not built for the pilot. **WF-59** (D13 erasure) is retained. D9b folds into
 **WF-02**; D14 lands in `backend/tests/errors/`; D12 becomes a mobile test lane. The demoted surfaces
 instead get inert-in-pilot-profile assertions (plan item SR-03).
+
+---
+
+### Founder decision — D15 (2026-09-11)
+
+> **D15 — founder ratification (2026-09-11, Paurush Kulshrestha):** ARCH-05
+> (batch/expiry-sensitive pharma & perishable-FMCG stockist) is **DEFER TO
+> STAGE 4** per `BUSINESS_ARCHETYPES_AND_PERSONAS.md` §13 — outside the
+> ARCH-03 pilot this freeze governs. This decision does **not** reopen the
+> freeze or add ARCH-05 to the ARCH-03 pilot scope; it ratifies building the
+> statutory-compliance gap (drug licence Form 20B/21B + FSSAI declarations,
+> flagged "specialized drug forms absent" in §8) entirely behind a new,
+> default-OFF flag ahead of a separate pharma/food pilot being provisioned.
+> No ARCH-03 pilot behaviour changes: the flag ships OFF, no existing company
+> has a `regulated_category` product, and the new guard is a no-op unless
+> both conditions are met.
+
+| # | Decision | Resolution | Freeze Gate artifact |
+|---|---|---|---|
+| **D15** | ARCH-05 statutory compliance (drug licence 20B/21B + FSSAI) | **Built behind `ENABLE_ARCH05_STATUTORY_FORMS` (OFF by default); ships when a pharma/food pilot company is provisioned** | **WF-60** — a regulated-product (`DRUG`/`FOOD`) invoice line requires a live company statutory licence at complete-time; soft-block + confirm-override when missing, mirroring the `confirm_blank_pos` pattern. Batch/expiry columns added to the GST invoice PDF (`SalesItem.batch_no`/`exp_date` were captured but never printed) |
+
+Consequences for `BUSINESS_ARCHETYPES_AND_PERSONAS.md`: ARCH-05's §8 boundary
+note ("specialized drug forms absent") is resolved once `ENABLE_ARCH05_STATUTORY_FORMS`
+is on for a company; §13's "DEFER TO STAGE 4" disposition is otherwise
+unchanged — this is capability being built ahead of the Stage-4 pilot
+decision, not an early pilot admission. D15 changes no other archetype's
+disposition and does not affect the ARCH-03 pilot's frozen surface.
 
 ---
 
@@ -498,6 +549,7 @@ instead get inert-in-pilot-profile assertions (plan item SR-03).
 - [ ] D4: `SMS_PROVIDER` (msg91 or twilio) account obtained for the pilot host
 - [x] D6–D11 resolved 2026-09-09; **revised 2026-09-09b (PO)** — only **D9b** retained; D6/D7/D8/D9/D10/D11 → KNOWN LIMITATIONS (see "Scope revision 2026-09-09b")
 - [x] D12–D14 resolved 2026-09-09; **confirmed 2026-09-09b (PO)** — D12 mobile shell **SUP (ships)**, D13 erasure **SUP (automated)**, D14 LLM **SUP (failure + injection guard)**
+- [x] D15 (2026-09-11): ARCH-05 statutory forms (20B/21B/FSSAI) ratified — built behind `ENABLE_ARCH05_STATUTORY_FORMS` (OFF by default); Freeze Gate artifact WF-60; no ARCH-03 pilot impact
 - [ ] Section G reviewed — remaining G1–G7 flows not covered by the retained D9b/D12/D13/D14 given a SUP / LIM / OUT disposition
 - [ ] Section H reviewed — FE / async / privacy / ops / edge-case dispositions confirmed
 - [x] Scope-size acknowledgement: resolved by Scope revision 2026-09-09b — retained set is **D9b** (fold into WF-02) + **D12** mobile lane + **D13** WF-59/erasure + **D14** `tests/errors/`; WF-53–58 and the count-quota work are deferred (LIM)

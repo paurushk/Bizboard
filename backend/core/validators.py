@@ -7,6 +7,8 @@ from django.core.exceptions import ValidationError
 GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 UDYAM_RE = re.compile(r"^UDYAM-[A-Z]{2}-\d{2}-\d{7}$")
+# FSSAI licence/registration number: fixed 14-digit numeric code.
+FSSAI_RE = re.compile(r"^\d{14}$")
 # CORE-15: 2 (chapter), 4 (heading), 6 or 8 digits. 2-digit is a legal HSN
 # for very small suppliers on product masters; invoice-line serializers can
 # still require >= 4 where the law demands it.
@@ -56,6 +58,24 @@ def validate_udyam(value):
     udyam = str(value).strip().upper()
     if not UDYAM_RE.match(udyam):
         raise ValidationError("Invalid UDYAM number — expected UDYAM-XX-00-0000000.")
+
+
+def validate_fssai(value):
+    if not value:
+        return
+    fssai = str(value).strip()
+    if not FSSAI_RE.match(fssai):
+        raise ValidationError("Invalid FSSAI number — expected 14 digits.")
+
+
+def validate_drug_licence(value):
+    """Drug licence numbers (Form 20B/21B) are state-issued with no single
+    national format — validate presence and a sane length only."""
+    if not value:
+        return
+    licence = str(value).strip()
+    if len(licence) > 64:
+        raise ValidationError("Drug licence number is too long (max 64 characters).")
 
 
 def validate_hsn(value):
