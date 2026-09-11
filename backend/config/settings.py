@@ -528,6 +528,16 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute="*/5"),
     },
 }
+# Coverage Copilot is a real, billed LLM call — off by default so it never
+# starts spending money on a schedule without an explicit opt-in (the
+# founder approved each manual run individually before this existed).
+ENABLE_SCHEDULED_COVERAGE_AUDIT = _env_bool("ENABLE_SCHEDULED_COVERAGE_AUDIT", "0")
+if ENABLE_SCHEDULED_COVERAGE_AUDIT:
+    CELERY_BEAT_SCHEDULE["ops-coverage-audit-weekly"] = {
+        "task": "ops.tasks.run_scheduled_coverage_audit",
+        # 07:00 IST every Monday.
+        "schedule": crontab(day_of_week=1, hour=7, minute=0),
+    }
 AI_MONTHLY_TOKEN_BUDGET_DEFAULT = _env_int("AI_MONTHLY_TOKEN_BUDGET_DEFAULT", 100000)
 
 # Email — console backend unless SMTP configured

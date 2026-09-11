@@ -47,11 +47,6 @@ _SOFT_TIME_LIMIT = 270
 
 @shared_task(time_limit=_TIME_LIMIT, soft_time_limit=_SOFT_TIME_LIMIT)
 def run_coverage_audit_task(run_id: int):
-    from celery.exceptions import SoftTimeLimitExceeded
-
-    from core.exceptions import BusinessRuleError
-    from core.services.llm import chat_with_tools
-    from ops.coverage_scan import scan
     from ops.models import CoverageAuditRun
 
     try:
@@ -60,7 +55,31 @@ def run_coverage_audit_task(run_id: int):
         return
     if run.status != CoverageAuditRun.Status.PENDING:
         return
+    _execute_coverage_audit(run)
 
+
+@shared_task(time_limit=_TIME_LIMIT, soft_time_limit=_SOFT_TIME_LIMIT)
+def run_scheduled_coverage_audit():
+    """Weekly, unattended counterpart to the admin-triggered run — only
+    registered in CELERY_BEAT_SCHEDULE when ENABLE_SCHEDULED_COVERAGE_AUDIT
+    is on (config/settings.py). `requested_by` stays null: no admin clicked
+    this one.
+    """
+    from ops.models import CoverageAuditRun
+
+    run = CoverageAuditRun.objects.create(status=CoverageAuditRun.Status.PENDING)
+    _execute_coverage_audit(run)
+
+
+def _execute_coverage_audit(run) -> None:
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from core.exceptions import BusinessRuleError
+    from core.services.llm import chat_with_tools
+    from ops.coverage_scan import scan
+    from ops.models import CoverageAuditRun
+
+    run_id = run.pk
     run.status = CoverageAuditRun.Status.RUNNING
     run.save(update_fields=["status", "updated_at"])
 
