@@ -207,3 +207,48 @@ class PostgresRlsMiddleware:
             except Exception:
                 logger.exception("Failed to clear RLS session GUCs")
                 raise
+
+
+class ContentSecurityPolicyMiddleware:
+    """QOS-0011: emit a Content-Security-Policy on every response.
+
+    The backend serves JSON to a separate SPA, so a locked-down policy
+    (``default-src 'none'``) is safe for the API surface; the SPA's own host
+    (nginx / CDN) can send a looser policy for the app bundle. Override the whole
+    string with the ``CONTENT_SECURITY_POLICY`` env var, or set it empty to skip.
+
+    ``/admin/`` (Django admin — the `ops` app's health/coverage-copilot pages
+    live here, see D-ops) is server-rendered HTML with native forms and its
+    own same-origin static assets, so the API-only DEFAULT policy above
+    breaks it outright (``form-action 'none'`` blocks every admin form
+    submit, ``default-src 'none'`` blocks its CSS/JS). ADMIN_POLICY is the
+    same lockdown philosophy adapted to what Django admin actually needs —
+    still same-origin-only, no inline script, no third-party anything.
+    Override with ``CONTENT_SECURITY_POLICY_ADMIN``.
+    """
+
+    DEFAULT = (
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; "
+        "form-action 'none'; img-src 'self' data:; connect-src 'self'"
+    )
+    ADMIN_DEFAULT = (
+        "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
+        "form-action 'self'; img-src 'self' data:; style-src 'self'; "
+        "script-src 'self'; connect-src 'self'"
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        raw = getattr(settings, "CONTENT_SECURITY_POLICY", None)
+        self.policy = self.DEFAULT if raw is None else raw.strip()
+        admin_raw = getattr(settings, "CONTENT_SECURITY_POLICY_ADMIN", None)
+        self.admin_policy = self.ADMIN_DEFAULT if admin_raw is None else admin_raw.strip()
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if "Content-Security-Policy" in response:
+            return response
+        policy = self.admin_policy if request.path.startswith("/admin/") else self.policy
+        if policy:
+            response["Content-Security-Policy"] = policy
+        return response
