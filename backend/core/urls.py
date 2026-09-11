@@ -1,8 +1,7 @@
-from rest_framework.routers import DefaultRouter
-
 from django.urls import path
 
 from .help_views import HelpEventsView, HelpFeedbackView, HelpHealthView
+from .routers import DefaultRouter
 from .views import AuditEventViewSet, FeatureFlagsView, FileAssetViewSet, NotificationViewSet, StatutoryDocumentEventViewSet
 
 router = DefaultRouter()

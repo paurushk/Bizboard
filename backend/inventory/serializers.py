@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from core.permissions import get_company_user
@@ -79,7 +81,7 @@ class AdjustmentSerializer(serializers.Serializer):
 
 class OpeningStockSerializer(serializers.Serializer):
     product = serializers.IntegerField()
-    quantity = serializers.DecimalField(max_digits=12, decimal_places=3, min_value=0, required=False)
+    quantity = serializers.DecimalField(max_digits=12, decimal_places=3, min_value=Decimal("0"), required=False)
     unit_cost = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
     warehouse = serializers.IntegerField(required=False)
     batch = serializers.IntegerField(required=False, allow_null=True)

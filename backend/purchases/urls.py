@@ -1,4 +1,4 @@
-from rest_framework.routers import DefaultRouter
+from core.routers import DefaultRouter
 
 from .phase1_views import (
     GoodsReceiptViewSet,
