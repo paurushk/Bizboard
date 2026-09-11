@@ -533,6 +533,33 @@ disposition and does not affect the ARCH-03 pilot's frozen surface.
 
 ---
 
+### Founder decision — D16 (2026-09-12)
+
+> **D16 — founder ratification (2026-09-12, Paurush Kulshrestha):** promote
+> the `postgres-rls` CI job from advisory to a required (merge-blocking)
+> check. This is a **test-strictness change only** — it does **not** reopen
+> or change Table B's Postgres RLS disposition above: `POSTGRES_RLS_ENABLED`
+> stays `0` in production, app-layer `company_id` scoping remains the
+> pilot's actual isolation guarantee, and RLS itself remains unproven/OFF in
+> the running app. What changes is CI's confidence in the RLS *code path*
+> that already exists (the migration-driven policies and their tests) so a
+> regression there is caught before merge instead of silently accumulating
+> until RLS is turned on for a real deployment. Audit finding that gated
+> this decision: the job's test selection was too narrow to justify calling
+> it a real check — it ran two `-k`-filtered files and never ran
+> `tests/test_rls_coverage.py` (the RLS_TABLES completeness test) or
+> `tests/tenancy/` (the actual cross-tenant isolation suite); notably
+> `test_rls_policy_present_and_forced_on_postgres` — the one test that
+> verifies the RLS policy is actually present and `FORCE`d on Postgres —
+> never ran in this job at all. Fixed as part of ratifying this decision,
+> not left for later.
+
+| # | Decision | Resolution | Freeze Gate artifact |
+|---|---|---|---|
+| **D16** | Promote `postgres-rls` CI job to a required check | **Blocking as of this ratification; test selection widened to `tests/test_rls_coverage.py` + `tests/tenancy/` alongside the existing tenant-isolation smoke** | No new workflow — strengthens confidence in the existing RLS migration/policy code path (`core/migrations/0020_rls_all_tenant_tables.py` and its follow-ups). Table B's Postgres RLS row (`POSTGRES_RLS_ENABLED=0`) is unchanged. |
+
+---
+
 ## Ratification checklist
 
 - [x] D1 (POS) — **ON**, written into the pilot flag profile (2026-09-08)
@@ -550,6 +577,7 @@ disposition and does not affect the ARCH-03 pilot's frozen surface.
 - [x] D6–D11 resolved 2026-09-09; **revised 2026-09-09b (PO)** — only **D9b** retained; D6/D7/D8/D9/D10/D11 → KNOWN LIMITATIONS (see "Scope revision 2026-09-09b")
 - [x] D12–D14 resolved 2026-09-09; **confirmed 2026-09-09b (PO)** — D12 mobile shell **SUP (ships)**, D13 erasure **SUP (automated)**, D14 LLM **SUP (failure + injection guard)**
 - [x] D15 (2026-09-11): ARCH-05 statutory forms (20B/21B/FSSAI) ratified — built behind `ENABLE_ARCH05_STATUTORY_FORMS` (OFF by default); Freeze Gate artifact WF-60; no ARCH-03 pilot impact
+- [x] D16 (2026-09-12): `postgres-rls` CI job promoted to a required check (test-strictness only — Table B's `POSTGRES_RLS_ENABLED=0` disposition unchanged); test selection widened to `tests/test_rls_coverage.py` + `tests/tenancy/`
 - [ ] Section G reviewed — remaining G1–G7 flows not covered by the retained D9b/D12/D13/D14 given a SUP / LIM / OUT disposition
 - [ ] Section H reviewed — FE / async / privacy / ops / edge-case dispositions confirmed
 - [x] Scope-size acknowledgement: resolved by Scope revision 2026-09-09b — retained set is **D9b** (fold into WF-02) + **D12** mobile lane + **D13** WF-59/erasure + **D14** `tests/errors/`; WF-53–58 and the count-quota work are deferred (LIM)
