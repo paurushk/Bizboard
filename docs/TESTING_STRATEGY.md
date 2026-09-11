@@ -113,7 +113,7 @@ assets and status. "Status" is a judgement of *confidence*, not of effort spent.
 | **Multi-user & permissions** | RBAC matrix + per-persona API deny-set + UI hides denied actions + tenant isolation on every endpoint | `tests/tenancy/test_rbac_matrix.py`, `test_endpoint_isolation.py`, `*_boundary` journeys, `web/e2e/personas/role-boundaries.spec.ts` | 🟡 — API side ✅; FE side OWNER/VIEWER live, **SALES/ACCT `test.fixme`** | G-4 |
 | **UX & usability** | Discoverability, low cognitive load, feedback on every action, no dead 403 buttons | `web/e2e/personas/`, `HelpErrorAlert.test.tsx`, `validation-parity.spec.ts` | 🟡 — parity + error rendering covered; broad page-level UX is pilot-only (Readiness dim 4 "UNTESTED IN PILOT") | G-5, G-16 |
 | **Accessibility** | axe clean on key screens; keyboard-only journeys; AT scenarios for POS + invoice | `web/e2e/a11y.spec.ts` (login, dashboard, invoice form, POS, a report, a settings screen — wcag2a/2aa, serious/critical = 0); two real WCAG fixes shipped (1.3.1 list nav, progressbar name) | 🟡 — 6 screens covered; **no full keyboard-only POS checkout journey (G-6b), no screen-reader-labels pass** | G-6, G-6b |
-| **Performance & scalability** | Query-count flat as rows grow; report/list latency budget; 100k-invoice company; degraded network | `test_ws08_report_performance.py` (N+1 guards), `load/k6_smoke.js` + `locust_smoke.py` (**presence-checked only**) | ⛔ — no executed load test, no soak, no large-tenant fixture; C7 "no load testing yet (Phase 5)" | G-7 |
+| **Performance & scalability** | Query-count flat as rows grow; report/list latency budget; 100k-invoice company; degraded network | `test_ws08_report_performance.py` (N+1 guards), `test_qos0003_large_tenant_reports.py` (50k-invoice tenant, hard-cap + flat-query proof, 3/3 local), `load-harness` CI job **executes** `load/k6_smoke.js` against a seeded Postgres tenant (thresholds: p95<2s, error rate<5%) | 🟡 — large-tenant query behavior proven locally; k6 smoke is written+advisory, **first real CI run unconfirmed** (QOS-0003); no staged 50k-tenant SLO run (`k6_slo.js`) or degraded-network journey; C7 defers the SLO soak to Phase 5 | G-7 |
 | **Security, privacy & trust** | Tenant isolation, IDOR, path traversal, webhook signature, PII masking, audit immutability, injection guard, headers, boot-time secret checks | `tests/tenancy/`, `tests/errors/test_freeze_gate_contracts.py`, `test_payment_webhook_adversarial.py`, `test_llm_injection_guard.py`, `test_erasure.py`, `test_sprint0_security.py` | 🟡 — strong in-app; **per-inbound-webhook enumeration 🚫 (D3 creds)**, CSP not in-app, external pen-test = Phase 5 | G-8, G-9 |
 | **Reliability & resilience** | Failure → visible state (never stuck/500), retry, idempotent replay, backup/restore round-trip, kill-switch | `tests/errors/test_async_task_state.py`, `test_backup_restore_drill.py`, `test_ops_contracts.py`, `test_wf51_idempotency_contract.py` | 🟡 — effects asserted in eager mode; **real-broker ordering = Phase 5**, beat retry→user-state partial | G-10 |
 | **Data & state integrity** | Balances derive correctly, transitions legal, persistence survives restart, migration/cutover clean, no corruption under concurrency | L1 invariants, `PJ-MIGRATION-*`, `reports.opening_ties_out`, `test_concurrency_races.py` (Postgres) | 🟡 — at-rest consistency ✅; **concurrency races Postgres-only, don't run locally**; schema-migration rehearsal = P3 | G-11 |
@@ -454,14 +454,32 @@ sales/purchase registers and files without recalculation. Automated proxy today 
 - **Covered:** `test_ws08_report_performance.py` — query count stays flat as rows
   grow for payables aging and the other N+1 hotspots from the 2026-09-03 review
   (proves the loop was removed, not that the fixture is small).
-- **Gap G-7 (P1):** `load/k6_smoke.js` and `load/locust_smoke.py` are
-  **presence-checked only** (`load-harness` job runs `test -f`). There is:
-  - no executed load or soak test;
-  - no large-tenant fixture (100k invoices → reports / exports / lists);
+  `test_qos0003_large_tenant_reports.py` (QOS-0003) builds a real 50k-invoice
+  tenant and proves `sales_register`'s `MAX_REGISTER_ROWS_HARD_CAP` correctly
+  refuses a full-year pull instead of silently materialising it, that a
+  realistic month-window query is flat and fast at this scale, and that CSV
+  export completes — 3/3 passing locally.
+- **Gap G-7 (P1):** the `load-harness` CI job seeds a real Postgres tenant
+  (`seed_demo`), boots the real Django backend, and **executes**
+  `load/k6_smoke.js` (5 VUs × 30s: health, login, invoice list, create-draft)
+  against real thresholds (`p95<2s`, error rate `<5%`) — this is more than a
+  presence check, and closes the "cheap smoke-level executed k6 run" this row
+  used to ask for; per QOS-0003 it's written and locally-reasoned-through but
+  has not yet had its first real green run on CI (no k6 binary / GitHub
+  Actions access from a local session to confirm). `load/k6_slo.js` (the X-01
+  SLO scenario matching the adopted p95 table in `load/README.md`) is written
+  and ready but has never been run — it needs a staging deploy, which doesn't
+  exist yet. What's actually still open:
+  - `load-harness`'s first real CI run hasn't been confirmed green (QOS-0003);
+  - it runs `continue-on-error: true` (advisory, per
+    `scripts/ci_gates/REQUIRED_CHECKS.txt`) — a threshold miss doesn't block
+    a merge yet, and should stay advisory until a few consecutive green runs
+    are observed;
+  - no staged 50k-tenant SLO run (`k6_slo.js`) — the query-flatness/hard-cap
+    behavior is proven (above), but real HTTP p95 under concurrency against
+    that data volume is not;
   - no degraded-network journey (field sales, counter).
-  C7 formally defers this to Phase 5, but a **smoke-level executed k6 run**
-  (50 rps for 2 min against `e2e-golden`'s stack, asserting p95 latency + zero
-  5xx) is cheap and closes the worst of the gap now.
+  C7 formally defers the staged SLO soak to Phase 5.
 
 ### 6.6 Accessibility
 
