@@ -1,5 +1,11 @@
 import { apiClient, idempotencyHeaders, unwrapData } from '../client';
-import { mockReceipts } from '@/mocks/data';
+import {
+  mockAccountingBankReconSessions,
+  mockBankStatements,
+  mockPaymentLinks,
+  mockReceipts,
+  mockReconLines,
+} from '@/mocks/data';
 import type { CustomerReceipt, PaymentAllocation } from '@/types/domain';
 import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
 
@@ -86,7 +92,10 @@ export async function listPaymentLinksPage(params?: PageParams): Promise<PageRes
 }
 
 export const listAllPaymentLinks = () =>
-  fetchAllPagesMasters<import('@/types/domain').PaymentLink>('/payments/links/');
+  withMocks(
+    () => fetchAllPagesMasters<import('@/types/domain').PaymentLink>('/payments/links/'),
+    mockPaymentLinks,
+  );
 export const createPaymentLink = (payload: Record<string, unknown>) =>
   apiClient.post('/payments/links/', payload).then(({ data }) => unwrapData<import('@/types/domain').PaymentLink>(data));
 export const cancelPaymentLink = (id: number) => apiClient.post(`/payments/links/${id}/cancel/`).then(({ data }) => unwrapData(data));
@@ -114,29 +123,71 @@ export const refundGatewayPayment = (id: number, payload?: { amount?: number; re
   apiClient.post(`/payments/gateway-payments/${id}/refund/`, payload ?? {}).then(({ data }) => unwrapData(data));
 export const retryGatewayPaymentBooks = (id: number) =>
   apiClient.post(`/payments/gateway-payments/${id}/retry-books/`).then(({ data }) => unwrapData(data));
+export interface CustomerRiskRow {
+  customerId: number;
+  customerName?: string;
+  outstanding: number | string;
+  overdueAmount: number | string;
+  status: string;
+  ageing?: Record<string, number | string>;
+}
+
+// QOS-0038: company-wide collection risk, for the dashboard "needs attention" card.
+export async function listCollectionRisk(): Promise<CustomerRiskRow[]> {
+  const { data } = await apiClient.get('/payments/collection-risk/');
+  const body = unwrapData<{ results?: Record<string, unknown>[] } | Record<string, unknown>[]>(data);
+  const rows = Array.isArray(body) ? body : body?.results ?? [];
+  return rows.map((r) => ({
+    customerId: Number(r.customer_id ?? r.customerId ?? 0),
+    customerName: (r.customer_name ?? r.customerName) as string | undefined,
+    outstanding: (r.outstanding as number | string) ?? 0,
+    overdueAmount: (r.overdue_amount ?? r.overdueAmount) as number | string ?? 0,
+    status: String(r.collection_status ?? r.status ?? ''),
+    ageing: (r.ageing as Record<string, number | string> | undefined) ?? undefined,
+  }));
+}
+
 export async function listBankStatements(params?: Record<string, string>): Promise<Record<string, unknown>[]> {
   return fetchAllPagesMasters<Record<string, unknown>>('/payments/statements/', params);
 }
 
 export async function listBankStatementsPage(params?: PageParams): Promise<PageResult<Record<string, unknown>>> {
-  return fetchPage<Record<string, unknown>>('/payments/statements/', params);
+  return withMocks(async () => fetchPage<Record<string, unknown>>('/payments/statements/', params), {
+    results: mockBankStatements,
+    count: mockBankStatements.length,
+    next: null,
+    previous: null,
+  });
 }
 export const getBankStatement = (id: number) =>
   apiClient.get(`/payments/statements/${id}/`).then(({ data }) => unwrapData<Record<string, unknown>>(data));
 export const uploadBankStatement = (form: FormData) => apiClient.post('/payments/statements/upload/', form).then(({ data }) => unwrapData(data));
 export const commitBankStatement = (id: number) => apiClient.post(`/payments/statements/${id}/commit/`).then(({ data }) => unwrapData(data));
 export const listRecon = () =>
-  apiClient.get('/payments/recon/').then(({ data }) => {
-    const body = unwrapData<{ results?: Record<string, unknown>[] } | Record<string, unknown>[]>(data);
-    if (Array.isArray(body)) return body;
-    return body?.results ?? [];
-  });
+  withMocks(
+    () =>
+      apiClient.get('/payments/recon/').then(({ data }) => {
+        const body = unwrapData<{ results?: Record<string, unknown>[] } | Record<string, unknown>[]>(data);
+        if (Array.isArray(body)) return body;
+        return body?.results ?? [];
+      }),
+    mockReconLines,
+  );
 export const confirmRecon = (payload: Record<string, unknown>) => apiClient.post('/payments/recon/confirm/', payload).then(({ data }) => unwrapData(data));
+// QOS-0039: confirm every EXACT-class suggestion on the unmatched queue in one call.
+export const bulkAcceptExactMatches = () =>
+  apiClient.post('/payments/recon/bulk-accept-exact/').then(({ data }) =>
+    unwrapData<{ accepted: { line: number; match: number }[]; accepted_count: number }>(data),
+  );
+export const unmatchRecon = (line: number) => apiClient.post('/payments/recon/unmatch/', { line }).then(({ data }) => unwrapData(data));
 export const createReceiptFromReconLine = (payload: Record<string, unknown>) => apiClient.post('/payments/recon/create-receipt-from-line/', payload).then(({ data }) => unwrapData(data));
 export const getGatewaySettings = () => apiClient.get('/payments/gateway-settings/').then(({ data }) => unwrapData<Record<string, unknown>>(data));
 export const updateGatewaySettings = (payload: Record<string, unknown>) => apiClient.patch('/payments/gateway-settings/', payload).then(({ data }) => unwrapData(data));
 export const getPublicPaymentLink = (token: string) => apiClient.get(`/public/pay/${token}/`).then(({ data }) => unwrapData<Record<string, unknown>>(data));
 export const listAccountingBankReconSessions = () =>
-  fetchAllPagesMasters<Record<string, unknown>>('/accounting/bank-recon-sessions/');
+  withMocks(
+    () => fetchAllPagesMasters<Record<string, unknown>>('/accounting/bank-recon-sessions/'),
+    mockAccountingBankReconSessions,
+  );
 export const createAccountingBankReconSession = (payload: Record<string, unknown>) => apiClient.post('/accounting/bank-recon-sessions/', payload).then(({ data }) => unwrapData(data));
 export const matchAccountingBankRecon = (id: number, payload: Record<string, unknown>) => apiClient.post(`/accounting/bank-recon-sessions/${id}/match/`, payload).then(({ data }) => unwrapData(data));

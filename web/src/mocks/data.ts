@@ -1,9 +1,12 @@
 import type {
+  AccountingAccount,
+  BankAccount,
   Company,
   CompanyUser,
   Customer,
   CustomerReceipt,
   DashboardKpis,
+  PaymentLink,
   Product,
   PurchaseInvoice,
   Quotation,
@@ -55,6 +58,19 @@ export const mockSalesUser: User = {
   canExport: false,
 };
 
+export const mockAccountantUser: User = {
+  id: 3,
+  email: 'accountant@bizboard.local',
+  fullName: 'Demo Accountant',
+  role: 'ACCOUNTANT',
+  companyId: 1,
+  canManageInventory: false,
+  canImport: false,
+  canCancelDocuments: false,
+  canViewFinancialReports: true,
+  canExport: true,
+};
+
 export const mockUsers: CompanyUser[] = [
   {
     id: 1,
@@ -72,6 +88,16 @@ export const mockUsers: CompanyUser[] = [
     email: mockSalesUser.email,
     fullName: mockSalesUser.fullName,
     role: 'SALES_STAFF',
+    canManageInventory: false,
+    canImport: false,
+    isActive: true,
+  },
+  {
+    id: 3,
+    user: 3,
+    email: mockAccountantUser.email,
+    fullName: mockAccountantUser.fullName,
+    role: 'ACCOUNTANT',
     canManageInventory: false,
     canImport: false,
     isActive: true,
@@ -126,6 +152,7 @@ export const mockCompany: Company = {
 mockUser.company = mockCompany;
 mockSalesUser.company = mockCompany;
 mockViewerUser.company = mockCompany;
+mockAccountantUser.company = mockCompany;
 
 export const mockCustomers: Customer[] = [
   {
@@ -352,5 +379,151 @@ export const mockSearchResults: SearchResult[] = [
     title: 'Premium Tea 500g',
     subtitle: 'TEA-500',
     path: '/inventory/products',
+  },
+];
+
+export const mockPaymentLinks: PaymentLink[] = [
+  {
+    id: 1,
+    token: 'plnk_demo001',
+    salesInvoice: 1,
+    invoiceNumber: 'INV-2026-0001',
+    customer: 1,
+    customerName: 'Rahul Stores',
+    amount: 2625,
+    allowPartial: false,
+    status: 'PAID',
+    expiresAt: '2026-08-15',
+    provider: 'RAZORPAY',
+    providerShortUrl: 'https://rzp.io/i/demo001',
+    publicPath: '/pay/plnk_demo001',
+  },
+  {
+    id: 2,
+    token: 'plnk_demo002',
+    salesInvoice: null,
+    invoiceNumber: undefined,
+    customer: 2,
+    customerName: 'Blocked Walk-in',
+    amount: 1500,
+    allowPartial: true,
+    status: 'SENT',
+    expiresAt: '2026-09-30',
+    provider: 'RAZORPAY',
+    providerShortUrl: 'https://rzp.io/i/demo002',
+    publicPath: '/pay/plnk_demo002',
+  },
+];
+
+export const mockBankAccounts: BankAccount[] = [
+  {
+    id: 1,
+    name: 'HDFC Current — 4521',
+    accountNumberMasked: 'XXXX4521',
+    ifsc: 'HDFC0001234',
+    accountType: 'CURRENT',
+    openingBalance: 50000,
+    openingAsOf: '2026-04-01',
+    isDefault: true,
+    isActive: true,
+  },
+];
+
+export const mockBankStatements = [
+  {
+    id: 1,
+    bankAccount: 1,
+    bankAccountName: 'HDFC Current — 4521',
+    periodStart: '2026-07-01',
+    periodEnd: '2026-07-31',
+    sourceFilename: 'hdfc-july-2026.csv',
+    status: 'COMMITTED',
+    unmatchedCount: 1,
+  },
+];
+
+export const mockPaymentHealth = {
+  unmatchedAging: { days_0_7: 1, days_8_30: 0, days_30_plus: 0 },
+  alerts: [],
+};
+
+export const mockReconLines = [
+  {
+    line: {
+      id: 1,
+      txnDate: '2026-07-18',
+      amount: 2000,
+      narration: 'UPI/RAHUL STORES/2000',
+      utr: 'UTR2026071800123',
+      matchStatus: 'UNMATCHED',
+    },
+    suggestions: [
+      {
+        type: 'Receipt',
+        id: 1,
+        number: 'RCT-0001',
+        party: 'Rahul Stores',
+        amount: 2000,
+        confidence: 96,
+      },
+    ],
+  },
+  {
+    line: {
+      id: 2,
+      txnDate: '2026-07-20',
+      amount: 750,
+      narration: 'NEFT/UNKNOWN SENDER',
+      utr: 'UTR2026072000456',
+      matchStatus: 'UNMATCHED',
+    },
+    suggestions: [],
+  },
+];
+
+export const mockAccountingAccounts: AccountingAccount[] = [
+  { id: 1, code: '1100', name: 'Cash', type: 'ASSET', isSystem: true, isControl: false, isActive: true },
+  { id: 2, code: '1210', name: 'HDFC Current — 4521', type: 'ASSET', isSystem: false, isControl: false, isActive: true, bankAccount: 1 },
+  { id: 3, code: '1300', name: 'Accounts Receivable', type: 'ASSET', isSystem: true, isControl: true, isActive: true },
+  { id: 4, code: '2100', name: 'Accounts Payable', type: 'LIABILITY', isSystem: true, isControl: true, isActive: true },
+  { id: 5, code: '4000', name: 'Sales Revenue', type: 'INCOME', isSystem: true, isControl: false, isActive: true },
+];
+
+export const mockCostCenters = [
+  { id: 1, code: 'RETAIL', name: 'Retail Store', isActive: true },
+  { id: 2, code: 'WHSL', name: 'Wholesale', isActive: true },
+];
+
+export const mockFixedAssets = [
+  {
+    id: 1,
+    name: 'Delivery Van',
+    acquisitionCost: 450000,
+    acquisitionDate: '2026-04-10',
+    usefulLifeMonths: 60,
+    depreciatedAmount: 15000,
+    status: 'ACTIVE',
+  },
+];
+
+export const mockAccountingPeriods = [
+  {
+    id: 1,
+    name: 'Jul 2026',
+    startDate: '2026-07-01',
+    endDate: '2026-07-31',
+    status: 'OPEN',
+    gstPeriodStatus: 'OPEN',
+  },
+];
+
+export const mockAccountingBankReconSessions = [
+  {
+    id: 1,
+    account: '1210 — HDFC Current — 4521',
+    statement: 'hdfc-july-2026.csv',
+    status: 'OPEN',
+    glBalance: 48250,
+    statementBalance: 50250,
   },
 ];

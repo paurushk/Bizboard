@@ -1,5 +1,5 @@
 import { apiClient, unwrapData } from '../client';
-import { mockCompany } from '@/mocks/data';
+import { mockCompany, mockPaymentHealth } from '@/mocks/data';
 import type { Company, LedgerStatement, ReportResponse, BusinessHealth, BusinessHealthSnapshot } from '@/types/domain';
 import { withMocks } from './common';
 
@@ -304,7 +304,10 @@ export async function verifyCompanyUdyam() {
 }
 
 export const getPaymentHealth = () =>
-  apiClient.get('/payments/health/').then(({ data }) => unwrapData<Record<string, unknown>>(data));
+  withMocks(
+    () => apiClient.get('/payments/health/').then(({ data }) => unwrapData<Record<string, unknown>>(data)),
+    mockPaymentHealth,
+  );
 export const getCashBook = (params?: Record<string, string>) => apiClient.get('/reports/cash-book/', { params }).then(({ data }) => unwrapData<Record<string, unknown>>(data));
 export const getAccountingReport = (report: 'trial-balance' | 'profit-and-loss' | 'balance-sheet' | 'books-health', params?: Record<string, string>) =>
   apiClient.get(`/accounting/${report}/`, { params }).then(({ data }) => unwrapData<Record<string, unknown>>(data));

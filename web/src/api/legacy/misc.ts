@@ -1,5 +1,12 @@
 import { apiClient, idempotencyHeaders, newIdempotencyKey, unwrapData } from '../client';
-import { mockSearchResults } from '@/mocks/data';
+import {
+  mockAccountingAccounts,
+  mockAccountingPeriods,
+  mockBankAccounts,
+  mockCostCenters,
+  mockFixedAssets,
+  mockSearchResults,
+} from '@/mocks/data';
 import type { ImportJob, ImportKind, PurchaseBillCommitResult, SearchResult, AssistantMessage, AssistantThread, AttentionRow, BusinessAlert, CashflowForecast, DailyBusinessSummary, GrowthHint } from '@/types/domain';
 import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
 
@@ -317,7 +324,10 @@ export async function downloadImportTemplate(kind = 'PRODUCTS', format: 'xlsx' |
 }
 
 export const listBankAccounts = () =>
-  fetchAllPagesMasters<import('@/types/domain').BankAccount>('/payments/bank-accounts/');
+  withMocks(
+    () => fetchAllPagesMasters<import('@/types/domain').BankAccount>('/payments/bank-accounts/'),
+    mockBankAccounts,
+  );
 export const createBankAccount = (payload: Record<string, unknown>) =>
   apiClient.post('/payments/bank-accounts/', payload).then(({ data }) => unwrapData<import('@/types/domain').BankAccount>(data));
 export const updateBankAccount = (id: number, payload: Record<string, unknown>) =>
@@ -343,7 +353,11 @@ export const getAccountingSettings = () => apiClient.get('/accounting/settings/'
 export const updateAccountingSettings = (payload: Record<string, unknown>) => apiClient.post('/accounting/settings/', payload).then(({ data }) => unwrapData(data));
 export const closeFinancialYear = (payload: { fyEnd: string; confirm: boolean }) =>
   apiClient.post('/accounting/fy-close/', payload).then(({ data }) => unwrapData(data));
-export const listAccounts = () => fetchAllPagesMasters<import('@/types/domain').AccountingAccount>('/accounting/accounts/');
+export const listAccounts = () =>
+  withMocks(
+    () => fetchAllPagesMasters<import('@/types/domain').AccountingAccount>('/accounting/accounts/'),
+    mockAccountingAccounts,
+  );
 export const createAccount = (payload: Record<string, unknown>) => apiClient.post('/accounting/accounts/', payload).then(({ data }) => unwrapData(data));
 
 export async function listJournals(params?: Record<string, string>): Promise<import('@/types/domain').JournalEntry[]> {
@@ -374,26 +388,39 @@ export async function listUnreconciledGlLines(accountId: number | string): Promi
 export const createJournal = (payload: Record<string, unknown>) => apiClient.post('/accounting/journals/', payload).then(({ data }) => unwrapData(data));
 export const postJournal = (id: number) => apiClient.post(`/accounting/journals/${id}/post/`).then(({ data }) => unwrapData(data));
 export const reverseJournal = (id: number) => apiClient.post(`/accounting/journals/${id}/reverse/`).then(({ data }) => unwrapData(data));
-export const listCostCenters = () => fetchAllPagesMasters<Record<string, unknown>>('/accounting/cost-centers/');
+export const listCostCenters = () =>
+  withMocks(() => fetchAllPagesMasters<Record<string, unknown>>('/accounting/cost-centers/'), mockCostCenters);
 export const createCostCenter = (payload: Record<string, unknown>) => apiClient.post('/accounting/cost-centers/', payload).then(({ data }) => unwrapData(data));
 
 export async function listFixedAssets(params?: Record<string, string>): Promise<Record<string, unknown>[]> {
-  return fetchAllPagesMasters<Record<string, unknown>>('/accounting/fixed-assets/', params);
+  return withMocks(
+    () => fetchAllPagesMasters<Record<string, unknown>>('/accounting/fixed-assets/', params),
+    mockFixedAssets,
+  );
 }
 
 export async function listFixedAssetsPage(params?: PageParams): Promise<PageResult<Record<string, unknown>>> {
-  return fetchPage<Record<string, unknown>>('/accounting/fixed-assets/', { pageSize: 200, ...params });
+  return withMocks(
+    () => fetchPage<Record<string, unknown>>('/accounting/fixed-assets/', { pageSize: 200, ...params }),
+    { results: mockFixedAssets, count: mockFixedAssets.length, next: null, previous: null },
+  );
 }
 export const createFixedAsset = (payload: Record<string, unknown>) => apiClient.post('/accounting/fixed-assets/', payload).then(({ data }) => unwrapData(data));
 // F3-024: correct a wrong useful-life/acquisition-date entered at create time.
 export const updateFixedAsset = (id: number, payload: Record<string, unknown>) => apiClient.patch(`/accounting/fixed-assets/${id}/`, payload).then(({ data }) => unwrapData(data));
 export const disposeFixedAsset = (id: number) => apiClient.post(`/accounting/fixed-assets/${id}/dispose/`).then(({ data }) => unwrapData(data));
 export async function listAccountingPeriods(params?: Record<string, string>): Promise<Record<string, unknown>[]> {
-  return fetchAllPagesMasters<Record<string, unknown>>('/accounting/periods/', params);
+  return withMocks(
+    () => fetchAllPagesMasters<Record<string, unknown>>('/accounting/periods/', params),
+    mockAccountingPeriods,
+  );
 }
 
 export async function listAccountingPeriodsPage(params?: PageParams): Promise<PageResult<Record<string, unknown>>> {
-  return fetchPage<Record<string, unknown>>('/accounting/periods/', { pageSize: 200, ...params });
+  return withMocks(
+    () => fetchPage<Record<string, unknown>>('/accounting/periods/', { pageSize: 200, ...params }),
+    { results: mockAccountingPeriods, count: mockAccountingPeriods.length, next: null, previous: null },
+  );
 }
 export const createAccountingPeriod = (payload: Record<string, unknown>) => apiClient.post('/accounting/periods/', payload).then(({ data }) => unwrapData(data));
 export const updateAccountingPeriod = (id: number, payload: Record<string, unknown>) => apiClient.patch(`/accounting/periods/${id}/`, payload).then(({ data }) => unwrapData(data));
