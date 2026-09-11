@@ -22,7 +22,7 @@ vi.mock('@/i18n', () => ({
 describe('useStockOffline (R-047)', () => {
   beforeEach(() => {
     vi.mocked(listDrafts).mockResolvedValue([]);
-    vi.mocked(flushOutbox).mockResolvedValue({ flushed: 0, failed: 0, errors: [] });
+    vi.mocked(flushOutbox).mockResolvedValue({ flushed: 0, failed: 0, conflicts: 0, errors: [] });
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
   });
 
