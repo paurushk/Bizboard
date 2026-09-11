@@ -58,8 +58,10 @@ jobs:
       # CVEs the moment they're published, not whenever someone happens to run it.
       - run: pip install pip-audit && pip-audit -r requirements.txt --desc
       - run: python manage.py makemigrations --check --dry-run
-      - run: python manage.py spectacular --file ../docs/openapi-snapshot.json
+      - run: python manage.py spectacular --format openapi-json --file ../docs/openapi-snapshot.json
       # BB-000750: fail if OpenAPI snapshot drifts after regenerate.
+      # JSON (not YAML) so web/src/types/domain.apiContract.test.ts can
+      # parse it directly with no new frontend dependency.
       - name: Assert OpenAPI snapshot clean
         working-directory: .
         run: git diff --exit-code docs/openapi-snapshot.json
