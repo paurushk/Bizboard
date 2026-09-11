@@ -16,6 +16,9 @@ e2e               # advisory  — light e2e, no API; merge gate is e2e-golden
 e2e-golden
 docker
 load-harness      # advisory  — presence check only, not a soak
-postgres-rls      # advisory  — optional RLS isolation job (NOT SUPPORTED in freeze scope)
+postgres-rls      # merge blocker — D16 (2026-09-12): promoted from advisory. Test
+                  # selection widened to tests/test_rls_coverage.py + tests/tenancy/
+                  # (was 2 -k-filtered files; the RLS-policy-forced check never ran).
+                  # Test-strictness only — Table B's POSTGRES_RLS_ENABLED=0 stands.
 determinism-probe # advisory  — suite with frozen clock + network ban; flip to blocking when green
 invariant-sweep   # Phase 2   — workflow contracts + invariant smoke blocking; full strict sweep advisory within the job

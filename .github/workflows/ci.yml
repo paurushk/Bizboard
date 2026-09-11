@@ -375,6 +375,13 @@ jobs:
       - run: python manage.py migrate --noinput
       - name: Tenant isolation smoke
         run: pytest tests/test_phase5_accounting.py -k tenant tests/test_help_resolution.py -k staff_all -q --tb=line
+      # D16 (docs/FREEZE_SCOPE.md): this job was too narrow to be a real
+      # gate — it never ran the RLS_TABLES completeness test or the tenancy
+      # isolation suite, and test_rls_policy_present_and_forced_on_postgres
+      # (the one test that checks the policy is actually FORCEd on Postgres)
+      # never ran here at all. Widened before promoting to required.
+      - name: RLS coverage + tenancy isolation suite
+        run: pytest tests/test_rls_coverage.py tests/tenancy/ -q --tb=short
 
   # Phase 1: advisory probe — runs the suite with the frozen clock and the
   # network ban on. When this is green, flip TESTS_FREEZE_CLOCK / TESTS_NO_SOCKET
