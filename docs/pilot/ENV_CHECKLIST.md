@@ -27,7 +27,7 @@ Sign before any host receives real pilot PII / GSTINs. Copy rows into the go-mee
 
 | # | Check | Expected | OK | Notes |
 |---|--------|----------|----|-------|
-| 11 | `EMAIL_HOST` / `EMAIL_PORT` / user / password | Working SMTP; `DEFAULT_FROM_EMAIL` set | ☐ | Spot-send invoice share before go. |
+| 11 | `EMAIL_HOST` / `EMAIL_PORT` / user / password | Working SMTP; `DEFAULT_FROM_EMAIL` set | ☐ | Run `python manage.py sendtestemail <you@company>` (Django built-in) with real SMTP env vars set and paste confirmation of receipt here — don't check this box on a claim alone. |
 | 12 | `EMAIL_USE_TLS` | True for submission port (587) | ☐ | |
 | 13 | `SMS_PROVIDER` + credentials | Configured **or** OTP login disabled in UI (`VITE_ENABLE_OTP` unset) | ☐ | Password login is the pilot default if SMS is not live. |
 
@@ -41,6 +41,7 @@ Sign before any host receives real pilot PII / GSTINs. Copy rows into the go-mee
 | 15 | Uptime URL | External checker on `GET /api/v1/health/` + alert | ☐ | |
 | 16 | Celery worker | Running; queue depth watched during PDF bursts | ☐ | Prefer inspect/active over flaky celery ping healthchecks. |
 | 17 | Image / deploy tags | Immutable tags recorded per release | ☐ | Needed for rollback (P0-508). |
+| 18 | `SENTRY_DSN` + on-call routing | Errors reach Sentry; a real alert fires to on-call | ☐ | Set `SENTRY_DSN`, run `python manage.py sentry_test_event`, confirm the event lands in the Sentry project and pages on-call — paste the event id here, don't check this box on a claim alone. |
 
 ---
 
@@ -48,11 +49,11 @@ Sign before any host receives real pilot PII / GSTINs. Copy rows into the go-mee
 
 | # | Check | Expected | OK | Notes |
 |---|--------|----------|----|-------|
-| 18 | Prod DB access list | Named people/roles with access; no shared “root” Slack password | ☐ | Attach list or link. |
-| 19 | PII in logs | No OTP codes, full phone dumps, or document payloads in app/access logs | ☐ | Scrub before raising log level. |
-| 20 | Backup encryption / location | Encrypted at rest (provider or `gpg`/KMS); location documented (region/bucket) | ☐ | |
-| 21 | Retention | Backup retention window written (e.g. 30 days); media retention noted | ☐ | |
-| 22 | Onboarding privacy line | Pilot onboarding / ToS mentions processing of GSTIN, contact, invoice data | ☐ | One sentence minimum. |
+| 19 | Prod DB access list | Named people/roles with access; no shared “root” Slack password | ☐ | Attach list or link. |
+| 20 | PII in logs | No OTP codes, full phone dumps, or document payloads in app/access logs | ☐ | Scrub before raising log level. |
+| 21 | Backup encryption / location | Encrypted at rest (provider or `gpg`/KMS); location documented (region/bucket) | ☐ | |
+| 22 | Retention | Backup retention window written (e.g. 30 days); media retention noted | ☐ | |
+| 23 | Onboarding privacy line | Pilot onboarding / ToS mentions processing of GSTIN, contact, invoice data | ☐ | One sentence minimum. |
 
 ---
 
