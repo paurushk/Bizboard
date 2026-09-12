@@ -569,16 +569,25 @@ disposition and does not affect the ARCH-03 pilot's frozen surface.
 - [x] D5 (per-company accounting books in pilot) — **Yes; `FG-2a/gl` is a hard gate**
 - [x] `backend/.env.pilot.example` and `web/.env.pilot.example` match the resolved decisions (2026-09-08)
 - [x] README "Freeze status" section points here
-- [ ] Section A reviewed — every SUPPORTED workflow (A1–A26) is one the founder will stand behind
-- [ ] Section B reviewed — nothing critical is hiding in NOT SUPPORTED
-- [ ] Section C limitations (C1–C8) are acceptable to state to a pilot user
+- [ ] Section A reviewed — every SUPPORTED workflow (A1–A26) is one the founder will stand behind —
+  *this is a founder judgment call, not a fact to assert on their behalf. Supporting evidence exists:
+  every A-item maps to a passing WF-chain or invariant in `docs/FREEZE_SCOPE_COVERAGE.md`.*
+- [ ] Section B reviewed — nothing critical is hiding in NOT SUPPORTED — *founder judgment call; see
+  Section B's own dispositions above for what to review.*
+- [ ] Section C limitations (C1–C8) are acceptable to state to a pilot user — *founder judgment call
+  on wording/acceptability, not something to check mechanically.*
 - [ ] D3: at least one of Cashfree / PayU sandbox credentials + `SANDBOX_WEBHOOK_SECRET` obtained for CI
-- [ ] D4: `SMS_PROVIDER` (msg91 or twilio) account obtained for the pilot host
+  — *blocked: needs a business signup with the payment gateway vendor, not code.*
+- [ ] D4: `SMS_PROVIDER` (msg91 or twilio) account obtained for the pilot host — *blocked: needs a
+  business signup with an SMS vendor plus DLT registration (a regulatory process), not code.*
 - [x] D6–D11 resolved 2026-09-09; **revised 2026-09-09b (PO)** — only **D9b** retained; D6/D7/D8/D9/D10/D11 → KNOWN LIMITATIONS (see "Scope revision 2026-09-09b")
 - [x] D12–D14 resolved 2026-09-09; **confirmed 2026-09-09b (PO)** — D12 mobile shell **SUP (ships)**, D13 erasure **SUP (automated)**, D14 LLM **SUP (failure + injection guard)**
 - [x] D15 (2026-09-11): ARCH-05 statutory forms (20B/21B/FSSAI) ratified — built behind `ENABLE_ARCH05_STATUTORY_FORMS` (OFF by default); Freeze Gate artifact WF-60; no ARCH-03 pilot impact
 - [x] D16 (2026-09-12): `postgres-rls` CI job promoted to a required check (test-strictness only — Table B's `POSTGRES_RLS_ENABLED=0` disposition unchanged); test selection widened to `tests/test_rls_coverage.py` + `tests/tenancy/`
-- [ ] Section G reviewed — remaining G1–G7 flows not covered by the retained D9b/D12/D13/D14 given a SUP / LIM / OUT disposition
-- [ ] Section H reviewed — FE / async / privacy / ops / edge-case dispositions confirmed
+- [ ] Section G reviewed — remaining G1–G7 flows not covered by the retained D9b/D12/D13/D14 given a SUP / LIM / OUT disposition — *founder judgment call on disposition; the underlying test coverage for what's already dispositioned is tracked in `docs/FREEZE_SCOPE_COVERAGE.md`.*
+- [ ] Section H reviewed — FE / async / privacy / ops / edge-case dispositions confirmed — *founder
+  judgment call; most H-items already have a passing contract test (`backend/tests/errors/`) per
+  `docs/FREEZE_SCOPE_COVERAGE.md` — this line is about the founder standing behind the dispositions,
+  not whether tests exist.*
 - [x] Scope-size acknowledgement: resolved by Scope revision 2026-09-09b — retained set is **D9b** (fold into WF-02) + **D12** mobile lane + **D13** WF-59/erasure + **D14** `tests/errors/`; WF-53–58 and the count-quota work are deferred (LIM)
 - [ ] Signed: ________________  Date: __________
