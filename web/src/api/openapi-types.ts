@@ -281,6 +281,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/accounting/fy-close/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description BB-000664: Owner-only FY close — POST {fyEnd, confirm: true}. */
+        post: operations["accounting_fy_close_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/journals/": {
         parameters: {
             query?: never;
@@ -344,6 +361,28 @@ export interface paths {
         put?: never;
         /** @description BB-000085: company-scoped journals (was bare ModelViewSet). */
         post: operations["accounting_journals_reverse_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/journals/unreconciled-lines/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description F2-028: still-unreconciled GL lines for one account, resolved
+         *     server-side. The bank-recon picker used to page the most recent 100
+         *     journals client-side, so a GL line older than that could never be
+         *     matched to a bank line.
+         */
+        get: operations["accounting_journals_unreconciled_lines_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -495,6 +534,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/csrf/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description BB-000602: GET /auth/csrf/ sets csrftoken for cookie-JWT mutating calls.
+         *
+         *     FE-06: also return the token value in the body. When the API and SPA are on
+         *     different hosts the csrftoken cookie is third-party and Safari ITP / Brave /
+         *     "block third-party cookies" can drop it from `document.cookie`, so the SPA
+         *     reads the token from here and sends it as the `X-CSRFToken` header
+         *     (double-submit). Same-site hosting is still the recommended deploy.
+         */
+        get: operations["auth_csrf_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/invite/accept/": {
         parameters: {
             query?: never;
@@ -575,6 +639,23 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        patch: operations["auth_me_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/auth/memberships/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /auth/memberships/ — active companies for switcher (Wave 17G). */
+        get: operations["auth_memberships_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -605,6 +686,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["auth_otp_verify_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/password/reset/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["auth_password_reset_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/password/reset/confirm/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["auth_password_reset_confirm_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -645,6 +758,144 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/switch-company/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description POST /auth/switch-company/ — set active company for multi-membership users. */
+        post: operations["auth_switch_company_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/banking/aa/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /api/v1/banking/aa/ — list consents and recent transactions. */
+        get: operations["banking_aa_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/banking/aa/ingest/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description POST /api/v1/banking/aa/ingest/ — ingest AA consent + transactions. */
+        post: operations["banking_aa_ingest_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/checkout/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["billing_checkout_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/plans/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["billing_plans_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/portal/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["billing_portal_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/razorpay/webhook/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/v1/billing/razorpay/webhook/
+         *
+         *     When ``RAZORPAY_WEBHOOK_SECRET`` is set, ``X-Razorpay-Signature`` is required.
+         *     When the secret is unset, the webhook is accepted only if ``DJANGO_ENV=test``
+         *     (or DEBUG) and header ``X-Bizboard-Test-Webhook: 1`` is present.
+         */
+        post: operations["billing_razorpay_webhook_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/subscription/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["billing_subscription_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/company/": {
         parameters: {
             query?: never;
@@ -662,6 +913,147 @@ export interface paths {
         head?: never;
         /** @description Company profile & GST settings. Owner-only for writes (§5.5). */
         patch: operations["company_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/company/erase/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description SR-42 / D13 — owner-initiated right-to-erasure.
+         *
+         *     Gated behind ``ENABLE_TENANT_ERASURE`` (default OFF) until the founder signs
+         *     off the statutory-retention carve-out (plan item SR-40). Requires the owner
+         *     to echo the exact company name as ``confirm``. Returns the encrypted export
+         *     inline (base64) so the caller keeps a copy — export-before-erase (SR-44).
+         */
+        post: operations["company_erase_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Owner-only encrypted tenant export.
+         *
+         *     Distinct from instance Postgres dumps (`scripts/backup.sh`, BB-000045 / BB-000469).
+         *     This endpoint ships a company-scoped logical backup (Fernet-wrapped zip of JSON/CSV).
+         */
+        post: operations["company_export_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/gstins/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description BB-000674: Owner CRUD for branch GSTIN registrations. */
+        get: operations["company_gstins_list"];
+        put?: never;
+        /** @description BB-000674: Owner CRUD for branch GSTIN registrations. */
+        post: operations["company_gstins_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/gstins/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description BB-000674: Owner CRUD for branch GSTIN registrations. */
+        get: operations["company_gstins_retrieve"];
+        put?: never;
+        post?: never;
+        /** @description BB-000674: Owner CRUD for branch GSTIN registrations. */
+        delete: operations["company_gstins_destroy"];
+        options?: never;
+        head?: never;
+        /** @description BB-000674: Owner CRUD for branch GSTIN registrations. */
+        patch: operations["company_gstins_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/company/restore/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Restore an encrypted tenant export into a sandbox (default) or destroy-in-place.
+         *
+         *     The SPA only posts restore=sandbox. Destroy-in-place remains API-only for ops.
+         */
+        post: operations["company_restore_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/statutory-licences/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description D15 / QOS-0027: Owner CRUD for ARCH-05 drug-licence / FSSAI registrations. */
+        get: operations["company_statutory_licences_list"];
+        put?: never;
+        /** @description D15 / QOS-0027: Owner CRUD for ARCH-05 drug-licence / FSSAI registrations. */
+        post: operations["company_statutory_licences_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/statutory-licences/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description D15 / QOS-0027: Owner CRUD for ARCH-05 drug-licence / FSSAI registrations. */
+        get: operations["company_statutory_licences_retrieve"];
+        put?: never;
+        post?: never;
+        /** @description D15 / QOS-0027: Owner CRUD for ARCH-05 drug-licence / FSSAI registrations. */
+        delete: operations["company_statutory_licences_destroy"];
+        options?: never;
+        head?: never;
+        /** @description D15 / QOS-0027: Owner CRUD for ARCH-05 drug-licence / FSSAI registrations. */
+        patch: operations["company_statutory_licences_partial_update"];
         trace?: never;
     };
     "/api/v1/company/users/": {
@@ -715,6 +1107,194 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/verify-pan/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["company_verify_pan_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/verify-udyam/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["company_verify_udyam_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/leads/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_leads_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_leads_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/leads/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_leads_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["crm_leads_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["crm_leads_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["crm_leads_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/crm/leads/{id}/activities/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_leads_activities_retrieve"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_leads_activities_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/leads/{id}/convert/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_leads_convert_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/opportunities/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_opportunities_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_opportunities_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/opportunities/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_opportunities_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["crm_opportunities_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["crm_opportunities_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["crm_opportunities_partial_update"];
         trace?: never;
     };
     "/api/v1/customers/": {
@@ -813,8 +1393,30 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description CSV export of registers via Report Service (E5.8). */
+        /** @description CSV and XLSX export of registers via Report Service (E5.8 / FR-019). */
         get: operations["exports_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/feature-flags/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description GET /api/v1/feature-flags/ — runtime flags for FE boot.
+         *
+         *     Anonymous callers receive a public subset. Authenticated callers receive
+         *     env flags plus company overrides.
+         */
+        get: operations["feature_flags_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -849,7 +1451,7 @@ export interface paths {
         get: operations["files_retrieve"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["files_destroy"];
         options?: never;
         head?: never;
         patch?: never;
@@ -887,6 +1489,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/help-events/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description POST /api/v1/help-events/ — batched first-party events. Raw query stays on-box. */
+        post: operations["help_events_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/help-feedback/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description POST capture-only 'still stuck'. GET lists backlog. PATCH sets resolved_at. */
+        get: operations["help_feedback_retrieve"];
+        put?: never;
+        /** @description POST capture-only 'still stuck'. GET lists backlog. PATCH sets resolved_at. */
+        post: operations["help_feedback_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Owner / staff marks a still-stuck row resolved (triage close). */
+        patch: operations["help_feedback_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/help-health/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /api/v1/help-health/ — Owner: own company. is_staff + ?all=1: aggregate. */
+        get: operations["help_health_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/": {
         parameters: {
             query?: never;
@@ -896,7 +1551,7 @@ export interface paths {
         };
         get: operations["imports_list"];
         put?: never;
-        /** @description Upload + validate (CSV) or start LLM extraction (purchase bill). */
+        /** @description Upload + validate (CSV masters) or start bill ingestion (purchase/sales bill). */
         post: operations["imports_create"];
         delete?: never;
         options?: never;
@@ -914,6 +1569,26 @@ export interface paths {
         get: operations["imports_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{id}/clarify/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Answer document-level clarification questions (§4.3) and move the
+         *     job from NEEDS_CLARIFICATION to PREVIEWED.
+         */
+        post: operations["imports_clarify_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -962,12 +1637,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Edit extracted purchase-bill preview lines / supplier before commit. */
+        /** @description Edit extracted bill preview lines / party before commit. */
         post: operations["imports_preview_create"];
         delete?: never;
         options?: never;
         head?: never;
-        /** @description Edit extracted purchase-bill preview lines / supplier before commit. */
+        /** @description Edit extracted bill preview lines / party before commit. */
         patch: operations["imports_preview_partial_update"];
         trace?: never;
     };
@@ -980,8 +1655,59 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Re-run LLM extraction for FAILED (or UPLOADED) purchase-bill jobs. */
+        /** @description Re-run LLM extraction for FAILED (or UPLOADED) bill jobs. */
         post: operations["imports_retry_extract_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{id}/void/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Owner recovery: reverse a committed PRODUCTS/OPENING_STOCK import. */
+        post: operations["imports_void_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{id}/void-rows/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Reverse opening-stock (and product cleanup) for specific SKUs only. */
+        post: operations["imports_void_rows_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/template/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Download the PRODUCTS template (xlsx with extra sheets, or CSV with the same item columns). */
+        get: operations["imports_template_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1116,6 +1842,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/attention/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description B-05: ranked AttentionRow feed. Not AI-gated — capability-filtered. */
+        get: operations["insights_attention_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insights/attention/snooze/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["insights_attention_snooze_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/insights/cashflow-forecast/": {
         parameters: {
             query?: never;
@@ -1197,6 +1956,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/telemetry/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A-08: POST events (no PII); GET 7-day owner summary. */
+        get: operations["insights_telemetry_retrieve"];
+        put?: never;
+        /** @description A-08: POST events (no PII); GET 7-day owner summary. */
+        post: operations["insights_telemetry_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/insights/usage/": {
         parameters: {
             query?: never;
@@ -1261,6 +2038,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations/tally/push-http/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description One-shot Tally XML export dump — not live or incremental sync (BB-000628). */
+        post: operations["integrations_tally_push_http_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/tally/runs/{id}/errors/": {
         parameters: {
             query?: never;
@@ -1288,6 +2082,25 @@ export interface paths {
         put?: never;
         post: operations["integrations_tally_upload_create"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/whatsapp/connection/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner-only WhatsApp Cloud connection upsert/delete (BB-000678). */
+        get: operations["integrations_whatsapp_connection_retrieve"];
+        /** @description Owner-only WhatsApp Cloud connection upsert/delete (BB-000678). */
+        put: operations["integrations_whatsapp_connection_update"];
+        post?: never;
+        /** @description Owner-only WhatsApp Cloud connection upsert/delete (BB-000678). */
+        delete: operations["integrations_whatsapp_connection_destroy"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1336,7 +2149,8 @@ export interface paths {
         };
         get: operations["inventory_alerts_expiry_retrieve"];
         put?: never;
-        post?: never;
+        /** @description Write off remaining qty of an expired/near-expiry lot as ADJUSTMENT / EXPIRED. */
+        post: operations["inventory_alerts_expiry_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1464,6 +2278,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/inventory/reorder-levels/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["inventory_reorder_levels_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["inventory_reorder_levels_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/reorder-levels/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["inventory_reorder_levels_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["inventory_reorder_levels_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["inventory_reorder_levels_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["inventory_reorder_levels_partial_update"];
+        trace?: never;
+    };
     "/api/v1/inventory/serials/": {
         parameters: {
             query?: never;
@@ -1534,6 +2404,102 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["inventory_serials_transition_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-counts/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["inventory_stock_counts_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["inventory_stock_counts_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-counts/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["inventory_stock_counts_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["inventory_stock_counts_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["inventory_stock_counts_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["inventory_stock_counts_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-counts/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["inventory_stock_counts_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-counts/{id}/post/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["inventory_stock_counts_post_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1774,6 +2740,178 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/manufacturing/boms/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["manufacturing_boms_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["manufacturing_boms_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/boms/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["manufacturing_boms_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["manufacturing_boms_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["manufacturing_boms_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["manufacturing_boms_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["manufacturing_work_orders_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["manufacturing_work_orders_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["manufacturing_work_orders_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["manufacturing_work_orders_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["manufacturing_work_orders_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["manufacturing_work_orders_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["manufacturing_work_orders_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/{id}/complete/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["manufacturing_work_orders_complete_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/{id}/release/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["manufacturing_work_orders_release_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/masters/brands/": {
         parameters: {
             query?: never;
@@ -1884,6 +3022,118 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         patch: operations["masters_categories_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/masters/expense-categories/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["masters_expense_categories_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["masters_expense_categories_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/masters/expense-categories/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["masters_expense_categories_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["masters_expense_categories_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["masters_expense_categories_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["masters_expense_categories_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/masters/payment-modes/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["masters_payment_modes_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["masters_payment_modes_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/masters/payment-modes/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["masters_payment_modes_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["masters_payment_modes_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["masters_payment_modes_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["masters_payment_modes_partial_update"];
         trace?: never;
     };
     "/api/v1/masters/price-lists/": {
@@ -2054,6 +3304,23 @@ export interface paths {
         patch: operations["masters_units_partial_update"];
         trace?: never;
     };
+    "/api/v1/metrics/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description BB-000753: minimal Prometheus-style text counters (request count). */
+        get: operations["metrics_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications/": {
         parameters: {
             query?: never;
@@ -2112,7 +3379,23 @@ export interface paths {
         get: operations["payments_allocations_retrieve"];
         put?: never;
         post?: never;
-        delete: operations["payments_allocations_destroy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/allocations/{id}/unallocate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["payments_allocations_unallocate_create"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2168,6 +3451,40 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         patch: operations["payments_bank_accounts_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/payments/collection-risk/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A-07 per-customer collection risk (ageing + recommended next step). */
+        get: operations["payments_collection_risk_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/collection-risk/{customer_id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A-07 per-customer collection risk (ageing + recommended next step). */
+        get: operations["payments_collection_risk_retrieve_2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/payments/gateway-payments/": {
@@ -2228,6 +3545,26 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["payments_gateway_payments_refund_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/gateway-payments/{id}/retry-books/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["payments_gateway_payments_retry_books_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2383,7 +3720,7 @@ export interface paths {
          */
         get: operations["payments_receipts_list"];
         put?: never;
-        /** @description BB-000189 / BB-000283: Idempotency-Key → cache lookup by company + key (24h). */
+        /** @description BB-000610 / BB-000654: durable idempotency + period gate. */
         post: operations["payments_receipts_create"];
         delete?: never;
         options?: never;
@@ -2405,11 +3742,27 @@ export interface paths {
         get: operations["payments_receipts_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/receipts/{id}/void/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
         /**
          * @description Base viewset enforcing tenant isolation: querysets filtered by the
          *     requesting user's company; created rows stamped with company + audit fields.
          */
-        delete: operations["payments_receipts_destroy"];
+        post: operations["payments_receipts_void_create"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2422,10 +3775,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Suggestion queue for unmatched committed lines. */
+        /** @description Suggestion queue for unmatched committed lines (compute-only; BB-000754). */
         get: operations["payments_recon_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/recon/bulk-accept-exact/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description QOS-0039: confirm every unmatched committed line whose sole
+         *     suggestion is EXACT-class (>=90 confidence, exact amount, a hard UTR/
+         *     reference anchor — same bar as the commit-time auto-match) in one
+         *     call. Fuzzy/ambiguous suggestions are left for manual review. Each
+         *     resulting ReconMatch is undoable individually via the existing
+         *     `recon/unmatch` action, so this needs no separate undo mechanism.
+         */
+        post: operations["payments_recon_bulk_accept_exact_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2458,6 +3835,44 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["payments_recon_create_receipt_from_line_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/recon/suggest/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description BB-000754: optionally persist SUGGESTED for unmatched lines with matches. */
+        post: operations["payments_recon_suggest_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/recon/unmatch/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description B4-016: undo a confirmed match -- an operator who confirmed the
+         *     wrong receipt/payment (or an auto-match that confirmed wrongly, see
+         *     B4-014) previously had no way to fix it short of direct DB access.
+         */
+        post: operations["payments_recon_unmatch_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2528,6 +3943,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/payments/statements/{id}/void/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description B4-016: a statement imported for the wrong account/period had no
+         *     way to be voided -- BankStatementStatus.VOID existed but nothing
+         *     transitioned to it. Refuse while any line is MATCHED so voiding
+         *     never silently orphans a live ReconMatch; the operator unmatches
+         *     those lines first (recon/unmatch) so the effect stays a simple,
+         *     auditable state change with no cascading side effects.
+         */
+        post: operations["payments_statements_void_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/payments/statements/upload/": {
         parameters: {
             query?: never;
@@ -2586,11 +4025,27 @@ export interface paths {
         get: operations["payments_supplier_payments_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/supplier-payments/{id}/void/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
         /**
          * @description Base viewset enforcing tenant isolation: querysets filtered by the
          *     requesting user's company; created rows stamped with company + audit fields.
          */
-        delete: operations["payments_supplier_payments_destroy"];
+        post: operations["payments_supplier_payments_void_create"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2606,6 +4061,198 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["payments_upi_qr_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payroll/employees/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["payroll_employees_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["payroll_employees_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payroll/employees/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["payroll_employees_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["payroll_employees_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["payroll_employees_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["payroll_employees_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/payroll/pay-runs/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["payroll_pay_runs_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["payroll_pay_runs_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payroll/pay-runs/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["payroll_pay_runs_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["payroll_pay_runs_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["payroll_pay_runs_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["payroll_pay_runs_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/payroll/pay-runs/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Reverse a completed pay run (GL reverse + reopen DRAFT). */
+        post: operations["payroll_pay_runs_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payroll/pay-runs/{id}/complete/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["payroll_pay_runs_complete_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payroll/pay-runs/{id}/lop/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description R4-008: set loss-of-pay / partial-month paid days on a DRAFT run.
+         *
+         *     Body: {"entries": [{"employee": <id>, "paid_days": <n>}, ...]}.
+         *     Creates/updates a placeholder PaySlip carrying `paid_days`; complete()
+         *     then prorates the gross and statutory dues for those employees.
+         */
+        post: operations["payroll_pay_runs_lop_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payroll/pay-runs/{id}/post-gl/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description B9-037: post the payroll journal for a run completed while accounting
+         *     was off (no GL entry exists yet).
+         */
+        post: operations["payroll_pay_runs_post_gl_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2665,6 +4312,86 @@ export interface paths {
         patch: operations["products_partial_update"];
         trace?: never;
     };
+    "/api/v1/products/barcode-image/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["products_barcode_image_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/custom-field-values/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["products_custom_field_values_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/generate-barcode/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["products_generate_barcode_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/hsn-search/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["products_hsn_search_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/pay/{token}/": {
         parameters: {
             query?: never;
@@ -2675,6 +4402,78 @@ export interface paths {
         get: operations["public_pay_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/bills-of-entry/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GST-08: customs Bill of Entry for imports of goods (ITC → GSTR-3B 4(A)(5)). */
+        get: operations["purchases_bills_of_entry_list"];
+        put?: never;
+        /** @description GST-08: customs Bill of Entry for imports of goods (ITC → GSTR-3B 4(A)(5)). */
+        post: operations["purchases_bills_of_entry_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/bills-of-entry/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GST-08: customs Bill of Entry for imports of goods (ITC → GSTR-3B 4(A)(5)). */
+        get: operations["purchases_bills_of_entry_retrieve"];
+        /** @description GST-08: customs Bill of Entry for imports of goods (ITC → GSTR-3B 4(A)(5)). */
+        put: operations["purchases_bills_of_entry_update"];
+        post?: never;
+        /** @description GST-08: customs Bill of Entry for imports of goods (ITC → GSTR-3B 4(A)(5)). */
+        delete: operations["purchases_bills_of_entry_destroy"];
+        options?: never;
+        head?: never;
+        /** @description GST-08: customs Bill of Entry for imports of goods (ITC → GSTR-3B 4(A)(5)). */
+        patch: operations["purchases_bills_of_entry_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/purchases/bills-of-entry/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description GST-08: customs Bill of Entry for imports of goods (ITC → GSTR-3B 4(A)(5)). */
+        post: operations["purchases_bills_of_entry_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/bills-of-entry/{id}/complete/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description GST-08: customs Bill of Entry for imports of goods (ITC → GSTR-3B 4(A)(5)). */
+        post: operations["purchases_bills_of_entry_complete_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2777,6 +4576,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/purchases/credit-notes/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["purchases_credit_notes_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["purchases_credit_notes_number_series_partial_update"];
+        trace?: never;
+    };
     "/api/v1/purchases/debit-notes/": {
         parameters: {
             query?: never;
@@ -2873,6 +4696,170 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/purchases/debit-notes/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["purchases_debit_notes_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["purchases_debit_notes_number_series_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/purchases/grns/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["purchases_grns_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["purchases_grns_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/grns/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["purchases_grns_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["purchases_grns_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["purchases_grns_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["purchases_grns_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/purchases/grns/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["purchases_grns_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/grns/{id}/complete/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["purchases_grns_complete_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/grns/{id}/convert/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["purchases_grns_convert_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/grns/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["purchases_grns_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["purchases_grns_number_series_partial_update"];
+        trace?: never;
+    };
     "/api/v1/purchases/invoices/": {
         parameters: {
             query?: never;
@@ -2886,7 +4873,7 @@ export interface paths {
          */
         get: operations["purchases_invoices_list"];
         put?: never;
-        /** @description BB-000189 / BB-000283: Idempotency-Key → cache lookup by company + key (24h). */
+        /** @description Durable Idempotency-Key with begin-of-request placeholder (same as sales). */
         post: operations["purchases_invoices_create"];
         delete?: never;
         options?: never;
@@ -2966,6 +4953,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/purchases/invoices/{id}/pdf/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Render GST Purchase Bill PDF (Rule 46 / Rule 54 CGST Rules). */
+        get: operations["purchases_invoices_pdf_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/purchases/invoices/number-series/": {
         parameters: {
             query?: never;
@@ -2988,6 +4992,23 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         patch: operations["purchases_invoices_number_series_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/purchases/invoices/preview-totals/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description A-03: authoritative purchase totals without persisting. */
+        post: operations["purchases_invoices_preview_totals_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/purchases/orders/": {
@@ -3086,6 +5107,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/purchases/orders/{id}/pdf/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Render GST Purchase Order PDF. */
+        get: operations["purchases_orders_pdf_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/orders/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["purchases_orders_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["purchases_orders_number_series_partial_update"];
+        trace?: never;
+    };
     "/api/v1/purchases/returns/": {
         parameters: {
             query?: never;
@@ -3182,6 +5244,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/purchases/returns/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["purchases_returns_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["purchases_returns_number_series_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/reports/cancelled-document-numbers/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description W0-04 / PD-03: FY cancelled-number register for the CA (CSV or JSON). */
+        get: operations["reports_cancelled_document_numbers_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/cash-book/": {
         parameters: {
             query?: never;
@@ -3191,6 +5294,22 @@ export interface paths {
         };
         /** @description Cash book actuals — JSON or XLSX. */
         get: operations["reports_cash_book_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/cmp08/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_cmp08_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3231,6 +5350,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/gst-filing-sandbox/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Wave 17B: sandbox HTTP upload_gstr1 / fetch_gstr2b when GSP_HTTP_SANDBOX=1.
+         *
+         *     BB-000742: production/staging without GSP_CERTIFIED must not expose a live-looking
+         *     GSTR filing upload surface — no certified Live filing adapter ships yet.
+         */
+        post: operations["reports_gst_filing_sandbox_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/gst-health/": {
         parameters: {
             query?: never;
@@ -3263,6 +5404,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/gst-rate-exposure/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_gst_rate_exposure_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/gstr1/": {
         parameters: {
             query?: never;
@@ -3280,6 +5437,263 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/gstr2b/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        get: operations["reports_gstr2b_list"];
+        put?: never;
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        post: operations["reports_gstr2b_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        get: operations["reports_gstr2b_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        patch: operations["reports_gstr2b_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/{id}/chase-photo/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        post: operations["reports_gstr2b_chase_photo_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/{id}/ims-act/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        post: operations["reports_gstr2b_ims_act_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/{id}/supplier-message/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        post: operations["reports_gstr2b_supplier_message_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/chase-whatsapp/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        post: operations["reports_gstr2b_chase_whatsapp_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/ims-bulk-accept/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        post: operations["reports_gstr2b_ims_bulk_accept_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/ims-gsp-pull/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Fail-closed: live GSP only when P0 credentials exist. */
+        post: operations["reports_gstr2b_ims_gsp_pull_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/ims-offline-export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        get: operations["reports_gstr2b_ims_offline_export_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/ims-offline-import/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        post: operations["reports_gstr2b_ims_offline_import_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/ims-scorecard/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        get: operations["reports_gstr2b_ims_scorecard_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/ims-summary/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        get: operations["reports_gstr2b_ims_summary_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/match/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        post: operations["reports_gstr2b_match_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/missing-documents/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        get: operations["reports_gstr2b_missing_documents_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/upload/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Bulk ingest rows: {period, rows: [{supplier_gstin, invoice_number, ...}]}. */
+        post: operations["reports_gstr2b_upload_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/gstr3b/": {
         parameters: {
             query?: never;
@@ -3289,6 +5703,70 @@ export interface paths {
         };
         /** @description Offline GSTR-1 / GSTR-3B JSON preview or XLSX download. */
         get: operations["reports_gstr3b_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr4/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_gstr4_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr6/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_gstr6_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr7/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_gstr7_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr8/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_gstr8_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3377,6 +5855,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/tcs-worksheet/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description BB-000670: 27EQ worksheet aid CSV. Not a live IT portal upload. */
+        get: operations["reports_tcs_worksheet_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/tds-worksheet/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description BB-000670: 26Q worksheet aid CSV. Not a live IT portal upload. */
+        get: operations["reports_tds_worksheet_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/credit-notes/": {
         parameters: {
             query?: never;
@@ -3384,10 +5896,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         get: operations["sales_credit_notes_list"];
         put?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         post: operations["sales_credit_notes_create"];
         delete?: never;
         options?: never;
@@ -3402,16 +5914,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         get: operations["sales_credit_notes_retrieve"];
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         put: operations["sales_credit_notes_update"];
         post?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         delete: operations["sales_credit_notes_destroy"];
         options?: never;
         head?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         patch: operations["sales_credit_notes_partial_update"];
         trace?: never;
     };
@@ -3424,8 +5936,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         post: operations["sales_credit_notes_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/credit-notes/{id}/cancel-einvoice/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        post: operations["sales_credit_notes_cancel_einvoice_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3441,7 +5970,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         post: operations["sales_credit_notes_complete_create"];
         delete?: never;
         options?: never;
@@ -3456,7 +5985,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         get: operations["sales_credit_notes_pdf_retrieve"];
         put?: never;
         post?: never;
@@ -3473,10 +6002,27 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         get: operations["sales_credit_notes_pdf_status_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/credit-notes/{id}/prepare-einvoice/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        post: operations["sales_credit_notes_prepare_einvoice_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3492,8 +6038,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         post: operations["sales_credit_notes_regenerate_pdf_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/credit-notes/{id}/submit-einvoice/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        post: operations["sales_credit_notes_submit_einvoice_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3507,7 +6070,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         get: operations["sales_credit_notes_adjustable_summary_retrieve"];
         put?: never;
         post?: never;
@@ -3517,6 +6080,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/credit-notes/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        get: operations["sales_credit_notes_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        patch: operations["sales_credit_notes_number_series_partial_update"];
+        trace?: never;
+    };
     "/api/v1/sales/debit-notes/": {
         parameters: {
             query?: never;
@@ -3524,10 +6105,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         get: operations["sales_debit_notes_list"];
         put?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         post: operations["sales_debit_notes_create"];
         delete?: never;
         options?: never;
@@ -3542,16 +6123,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         get: operations["sales_debit_notes_retrieve"];
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         put: operations["sales_debit_notes_update"];
         post?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         delete: operations["sales_debit_notes_destroy"];
         options?: never;
         head?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         patch: operations["sales_debit_notes_partial_update"];
         trace?: never;
     };
@@ -3564,8 +6145,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         post: operations["sales_debit_notes_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/debit-notes/{id}/cancel-einvoice/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        post: operations["sales_debit_notes_cancel_einvoice_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3581,7 +6179,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         post: operations["sales_debit_notes_complete_create"];
         delete?: never;
         options?: never;
@@ -3596,7 +6194,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         get: operations["sales_debit_notes_pdf_retrieve"];
         put?: never;
         post?: never;
@@ -3613,10 +6211,27 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         get: operations["sales_debit_notes_pdf_status_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/debit-notes/{id}/prepare-einvoice/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        post: operations["sales_debit_notes_prepare_einvoice_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3632,12 +6247,47 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Expects subclasses to set pdf_task and completed_statuses. */
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         post: operations["sales_debit_notes_regenerate_pdf_create"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/debit-notes/{id}/submit-einvoice/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        post: operations["sales_debit_notes_submit_einvoice_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/debit-notes/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        get: operations["sales_debit_notes_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        patch: operations["sales_debit_notes_number_series_partial_update"];
         trace?: never;
     };
     "/api/v1/sales/delivery-challans/": {
@@ -3848,6 +6498,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/delivery-challans/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Mixin for DeliveryChallanViewSet — prepare/mark/submit/cancel e-Way. */
+        get: operations["sales_delivery_challans_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Mixin for DeliveryChallanViewSet — prepare/mark/submit/cancel e-Way. */
+        patch: operations["sales_delivery_challans_number_series_partial_update"];
+        trace?: never;
+    };
     "/api/v1/sales/invoices/": {
         parameters: {
             query?: never;
@@ -3858,7 +6526,7 @@ export interface paths {
         /** @description Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way. */
         get: operations["sales_invoices_list"];
         put?: never;
-        /** @description BB-000189: Idempotency-Key → cache lookup by company + key (24h). */
+        /** @description BB-000610 / BB-000730: durable Idempotency-Key with begin-of-request placeholder. */
         post: operations["sales_invoices_create"];
         delete?: never;
         options?: never;
@@ -3897,6 +6565,23 @@ export interface paths {
         put?: never;
         /** @description D16: Owner-only amend of filing GSTIN / place of supply (no money changes). */
         post: operations["sales_invoices_amend_filing_identity_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/invoices/{id}/audit/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description D-03: company-scoped invoice audit timeline (Owner/CA). */
+        get: operations["sales_invoices_audit_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4124,6 +6809,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/invoices/{id}/submit-einvoice-async/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Wave 17A: enqueue IRP submit; returns 202 with task id. */
+        post: operations["sales_invoices_submit_einvoice_async_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/invoices/{id}/submit-eway/": {
         parameters: {
             query?: never;
@@ -4176,6 +6878,26 @@ export interface paths {
         patch: operations["sales_invoices_number_series_partial_update"];
         trace?: never;
     };
+    "/api/v1/sales/invoices/pos-checkout/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description CR-003: Atomic POS checkout in a single database transaction.
+         *     Creates draft invoice, completes invoice, creates receipt, and allocates.
+         */
+        post: operations["sales_invoices_pos_checkout_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/invoices/preview-totals/": {
         parameters: {
             query?: never;
@@ -4185,7 +6907,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Authoritative totals preview without persisting (Phase 1). */
+        /** @description Authoritative totals preview without persisting (Phase 1 / A-03). */
         post: operations["sales_invoices_preview_totals_create"];
         delete?: never;
         options?: never;
@@ -4309,6 +7031,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/orders/{id}/convert-to-challan/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_orders_convert_to_challan_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/orders/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_orders_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["sales_orders_number_series_partial_update"];
+        trace?: never;
+    };
     "/api/v1/sales/quotations/": {
         parameters: {
             query?: never;
@@ -4399,6 +7165,126 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["sales_quotations_convert_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/convert-to-order/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_quotations_convert_to_order_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_quotations_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["sales_quotations_number_series_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/sales/recurring-schedules/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_recurring_schedules_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_recurring_schedules_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/recurring-schedules/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_recurring_schedules_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["sales_recurring_schedules_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["sales_recurring_schedules_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["sales_recurring_schedules_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/sales/recurring-schedules/{id}/run-now/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_recurring_schedules_run_now_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4501,6 +7387,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/returns/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_returns_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["sales_returns_number_series_partial_update"];
+        trace?: never;
+    };
     "/api/v1/search/": {
         parameters: {
             query?: never;
@@ -4509,6 +7419,23 @@ export interface paths {
             cookie?: never;
         };
         get: operations["search_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/statutory-events/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /api/v1/statutory-events/?entity_type=&entity_id= */
+        get: operations["statutory_events_list"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4607,6 +7534,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/metrics/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description BB-000753: minimal Prometheus-style text counters (request count). */
+        get: operations["metrics_retrieve_2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4617,10 +7561,10 @@ export interface components {
             name: string;
             type: components["schemas"]["TypeEnum"];
             parent?: number | null;
-            readonly is_system: boolean;
-            readonly is_control: boolean;
-            bank_account?: number | null;
-            is_active?: boolean;
+            readonly isSystem: boolean;
+            readonly isControl: boolean;
+            bankAccount?: number | null;
+            isActive?: boolean;
         };
         /**
          * @description * `CURRENT` - Current
@@ -4633,10 +7577,11 @@ export interface components {
             readonly id: number;
             name: string;
             /** Format: date */
-            start_date: string;
+            startDate: string;
             /** Format: date */
-            end_date: string;
-            status?: components["schemas"]["AccountingPeriodStatusEnum"];
+            endDate: string;
+            readonly status: components["schemas"]["AccountingPeriodStatusEnum"];
+            readonly gstPeriodStatus: string;
         };
         /**
          * @description * `OPEN` - Open
@@ -4645,25 +7590,15 @@ export interface components {
          * @enum {string}
          */
         AccountingPeriodStatusEnum: "OPEN" | "SOFT_CLOSED" | "CLOSED";
-        /**
-         * @description * `CREATE` - Create
-         *     * `UPDATE` - Update
-         *     * `DELETE` - Delete
-         *     * `LOGIN` - Login
-         *     * `LOGOUT` - Logout
-         *     * `IMPORT` - Import
-         * @enum {string}
-         */
-        ActionEnum: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "IMPORT";
         AssistantMessage: {
             readonly id: number;
             role: components["schemas"]["AssistantMessageRoleEnum"];
             content?: string;
-            tool_name?: string;
+            toolName?: string;
             citations?: unknown;
-            proposed_action?: unknown;
+            proposedAction?: unknown;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
         /**
          * @description * `user` - User
@@ -4677,42 +7612,43 @@ export interface components {
             readonly id: number;
             title?: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             readonly messages: components["schemas"]["AssistantMessage"][];
         };
         AssistantThreadList: {
             readonly id: number;
             title?: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
         AuditEvent: {
             readonly id: number;
-            action: components["schemas"]["ActionEnum"];
-            entity_type?: string;
-            entity_id?: string;
+            action: string;
+            entityType?: string;
+            entityId?: string;
             description?: string;
             metadata?: unknown;
             user?: number | null;
             /** Format: email */
-            readonly user_email: string;
+            readonly userEmail: string;
+            readonly userName: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
         BankAccount: {
             readonly id: number;
             name: string;
-            account_number_masked?: string;
+            accountNumberMasked?: string;
             ifsc?: string;
-            account_type?: components["schemas"]["AccountTypeEnum"];
+            accountType?: components["schemas"]["AccountTypeEnum"];
             /** Format: decimal */
-            opening_balance?: string;
+            openingBalance?: string;
             /** Format: date */
-            opening_as_of?: string | null;
-            is_default?: boolean;
-            is_active?: boolean;
+            openingAsOf?: string | null;
+            isDefault?: boolean;
+            isActive?: boolean;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
         BankReconSession: {
             readonly id: number;
@@ -4720,9 +7656,9 @@ export interface components {
             statement: number;
             status?: components["schemas"]["BankReconSessionStatusEnum"];
             /** Format: decimal */
-            gl_balance?: string;
+            glBalance?: string;
             /** Format: decimal */
-            statement_balance?: string;
+            statementBalance?: string;
         };
         /**
          * @description * `OPEN` - Open
@@ -4732,37 +7668,45 @@ export interface components {
         BankReconSessionStatusEnum: "OPEN" | "CLOSED";
         BankStatement: {
             readonly id: number;
-            bank_account: number;
-            readonly bank_account_name: string;
+            bankAccount: number;
+            readonly bankAccountName: string;
             /** Format: date */
-            period_start?: string | null;
+            periodStart?: string | null;
             /** Format: date */
-            period_end?: string | null;
-            source_filename?: string;
+            periodEnd?: string | null;
+            sourceFilename?: string;
             status?: components["schemas"]["BankStatementStatusEnum"];
             preset?: string;
-            readonly line_count: string;
-            readonly unmatched_count: string;
+            readonly lineCount: string;
+            readonly unmatchedCount: string;
             readonly lines: components["schemas"]["BankStatementLine"][];
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
         BankStatementLine: {
             readonly id: number;
             statement: number;
             /** Format: date */
-            txn_date: string;
+            txnDate: string;
             /** Format: date */
-            value_date?: string | null;
+            valueDate?: string | null;
             /** Format: decimal */
             amount: string;
             narration?: string;
             utr?: string;
             /** Format: decimal */
-            balance_after?: string | null;
-            match_status?: components["schemas"]["MatchStatusEnum"];
-            line_hash?: string;
+            balanceAfter?: string | null;
+            matchStatus?: components["schemas"]["BankStatementLineMatchStatusEnum"];
+            lineHash?: string;
         };
+        /**
+         * @description * `UNMATCHED` - Unmatched
+         *     * `SUGGESTED` - Suggested
+         *     * `MATCHED` - Matched
+         *     * `IGNORED` - Ignored
+         * @enum {string}
+         */
+        BankStatementLineMatchStatusEnum: "UNMATCHED" | "SUGGESTED" | "MATCHED" | "IGNORED";
         /**
          * @description * `PREVIEW` - Preview
          *     * `COMMITTED` - Committed
@@ -4773,15 +7717,83 @@ export interface components {
         BatchLot: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
-            batch_no: string;
+            readonly productName: string;
+            batchNo: string;
             /** Format: date */
-            expiry_date?: string | null;
+            expiryDate?: string | null;
             /** Format: date */
-            manufacturing_date?: string | null;
+            manufacturingDate?: string | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
+        BillOfEntry: {
+            readonly id: number;
+            supplier?: number | null;
+            readonly supplierName: string;
+            boeNumber: string;
+            /** Format: date */
+            boeDate?: string;
+            portCode?: string;
+            reference?: string;
+            /** Format: decimal */
+            assessableValue?: string;
+            /** Format: decimal */
+            bcdAmount?: string;
+            /** Format: decimal */
+            igstAmount?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            itcEligibility?: components["schemas"]["BillOfEntryItcEligibilityEnum"];
+            /** @description YYYY-MM period in which the import ITC is availed (defaults to boe_date month). */
+            itcPeriod?: string;
+            icegateVerified?: boolean;
+            readonly status: components["schemas"]["StatusD0fEnum"];
+            /** Format: date-time */
+            readonly completedAt: string | null;
+            /** Format: date-time */
+            readonly cancelledAt: string | null;
+            notes?: string;
+            /** Format: decimal */
+            readonly claimableItc: string;
+            /** Format: decimal */
+            readonly totalCustomsPaid: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        /**
+         * @description * `ELIGIBLE` - Eligible
+         *     * `INELIGIBLE` - Ineligible
+         * @enum {string}
+         */
+        BillOfEntryItcEligibilityEnum: "ELIGIBLE" | "INELIGIBLE";
+        /** @enum {unknown} */
+        BlankEnum: "";
+        Bom: {
+            readonly id: number;
+            product: number;
+            name: string;
+            status?: components["schemas"]["BomStatusEnum"];
+            lines?: components["schemas"]["BomLine"][];
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        BomLine: {
+            readonly id: number;
+            component: number;
+            /** Format: decimal */
+            qty: string;
+        };
+        /**
+         * @description * `DRAFT` - Draft
+         *     * `ACTIVE` - Active
+         *     * `ARCHIVED` - Archived
+         * @enum {string}
+         */
+        BomStatusEnum: "DRAFT" | "ACTIVE" | "ARCHIVED";
         Brand: {
             readonly id: number;
             name: string;
@@ -4791,16 +7803,16 @@ export interface components {
             code: string;
             severity: components["schemas"]["SeverityEnum"];
             message: string;
-            subject_key?: string;
+            subjectKey?: string;
             payload?: unknown;
             status?: components["schemas"]["BusinessAlertEventStatusEnum"];
             /** Format: date-time */
-            snoozed_until?: string | null;
-            cta_path?: string;
+            snoozedUntil?: string | null;
+            ctaPath?: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
         };
         /**
          * @description * `OPEN` - Open
@@ -4809,6 +7821,12 @@ export interface components {
          * @enum {string}
          */
         BusinessAlertEventStatusEnum: "OPEN" | "SNOOZED" | "RESOLVED";
+        /**
+         * @description * `MONTHLY` - Monthly
+         *     * `WEEKLY` - Weekly
+         * @enum {string}
+         */
+        CadenceEnum: "MONTHLY" | "WEEKLY";
         Category: {
             readonly id: number;
             name: string;
@@ -4821,13 +7839,28 @@ export interface components {
          * @enum {string}
          */
         ChannelEnum: "EMAIL" | "WHATSAPP" | "SMS" | "PUSH";
+        CompanyGstin: {
+            readonly id: number;
+            gstin: string;
+            legalName?: string;
+            state?: string;
+            address?: string;
+            city?: string;
+            pincode?: string;
+            isPrimary?: boolean;
+            isActive?: boolean;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
         /** @description Non-owner read view of Company — omits bank/UPI details (BUG-111). */
         CompanySerializerStaff: {
             readonly id: number;
             name: string;
-            legal_name?: string;
+            legalName?: string;
             gstin?: string;
-            registration_type?: components["schemas"]["RegistrationTypeEnum"];
+            registrationType?: components["schemas"]["RegistrationTypeEnum"];
             state?: string;
             address?: string;
             city?: string;
@@ -4837,22 +7870,44 @@ export interface components {
             logo?: number | null;
             signature?: number | null;
             /** Format: int64 */
-            fy_start_month?: number;
-            negative_stock_policy?: components["schemas"]["NegativeStockPolicyEnum"];
-            invoice_terms?: string;
-            assume_local_state_for_blank_party?: boolean;
-            readonly is_gst_registered: boolean;
-            readonly einvoice_enabled: boolean;
-            readonly eway_enabled: boolean;
+            fyStartMonth?: number;
+            negativeStockPolicy?: components["schemas"]["NegativeStockPolicyEnum"];
+            invoiceTerms?: string;
+            /** @description When party state/GSTIN is blank, treat as local (intra-state) for GST tax. */
+            assumeLocalStateForBlankParty?: boolean;
+            readonly isGstRegistered: boolean;
+            readonly einvoiceEnabled: boolean;
+            readonly ewayEnabled: boolean;
             /** Format: decimal */
-            readonly eway_threshold_amount: string;
+            readonly ewayThresholdAmount: string;
             /** Format: decimal */
-            readonly aato_turnover: string | null;
-            readonly gstin_verification_status: string;
-            readonly gstin_legal_name: string;
+            readonly aatoTurnover: string | null;
+            readonly accountingEnabled: boolean;
+            readonly gstinVerificationStatus: string;
+            readonly gstinLegalName: string;
             /** Format: date-time */
-            readonly gstin_verified_at: string | null;
-            readonly ai_features_enabled: boolean;
+            readonly gstinVerifiedAt: string | null;
+            readonly aiFeaturesEnabled: boolean;
+            readonly itemCustomFieldDefs: unknown;
+        };
+        /** @description D15 / QOS-0027: ARCH-05 drug-licence (20B/21B) + FSSAI registrations. */
+        CompanyStatutoryLicence: {
+            readonly id: number;
+            licenceType: components["schemas"]["LicenceTypeEnum"];
+            licenceNumber: string;
+            premisesAddress?: string;
+            premisesState?: string;
+            premisesCity?: string;
+            premisesPincode?: string;
+            /** Format: date */
+            validFrom?: string | null;
+            /** Format: date */
+            validUpto?: string | null;
+            isActive?: boolean;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
         };
         CompanyUser: {
             readonly id: number;
@@ -4860,36 +7915,45 @@ export interface components {
             readonly user: number;
             /** Format: email */
             readonly email: string;
-            readonly full_name: string;
+            readonly fullName: string;
             readonly phone: string;
             role?: components["schemas"]["CompanyUserRoleEnum"];
-            can_manage_inventory?: boolean;
-            can_import?: boolean;
-            can_cancel_documents?: boolean;
-            can_view_financial_reports?: boolean;
-            can_export?: boolean;
-            can_view_ai_insights?: boolean;
-            can_use_ai_assistant?: boolean;
-            can_create_sales?: boolean;
-            can_create_purchases?: boolean;
-            can_create_payments?: boolean;
-            can_post_journals?: boolean;
-            is_active?: boolean;
+            canManageInventory?: boolean;
+            canImport?: boolean;
+            canCancelDocuments?: boolean;
+            canViewFinancialReports?: boolean;
+            canExport?: boolean;
+            canViewAiInsights?: boolean;
+            canUseAiAssistant?: boolean;
+            canCreateSales?: boolean;
+            canCreatePurchases?: boolean;
+            canCreatePayments?: boolean;
+            canPostJournals?: boolean;
+            isActive?: boolean;
         };
         /**
          * @description * `OWNER` - Owner/Admin
+         *     * `MANAGER` - Manager
          *     * `SALES_STAFF` - Sales Staff
+         *     * `INVENTORY_STAFF` - Inventory Staff
          *     * `ACCOUNTANT` - Accountant
+         *     * `AUDITOR` - Auditor
          *     * `VIEWER` - Viewer
          * @enum {string}
          */
-        CompanyUserRoleEnum: "OWNER" | "SALES_STAFF" | "ACCOUNTANT" | "VIEWER";
+        CompanyUserRoleEnum: "OWNER" | "MANAGER" | "SALES_STAFF" | "INVENTORY_STAFF" | "ACCOUNTANT" | "AUDITOR" | "VIEWER";
+        /**
+         * @description * `SELLABLE` - Sellable
+         *     * `DAMAGED` - Damaged
+         * @enum {string}
+         */
+        ConditionEnum: "SELLABLE" | "DAMAGED";
         CostCenter: {
             readonly id: number;
             code: string;
             name: string;
             parent?: number | null;
-            is_active?: boolean;
+            isActive?: boolean;
         };
         Customer: {
             readonly id: number;
@@ -4897,51 +7961,65 @@ export interface components {
             phone?: string;
             email?: string;
             gstin?: string;
-            billing_address?: string;
-            shipping_address?: string;
+            billingAddress?: string;
+            shippingAddress?: string;
             state?: string;
             status?: components["schemas"]["CustomerStatusEnum"];
             /** Format: decimal */
-            credit_limit?: string;
+            creditLimit?: string;
             /** Format: int64 */
-            credit_days?: number;
+            creditDays?: number;
             notes?: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
-            readonly gstin_verification_status: string;
-            readonly gstin_legal_name: string;
+            readonly updatedAt: string;
+            readonly gstinVerificationStatus: string;
+            readonly gstinLegalName: string;
             /** Format: date-time */
-            readonly gstin_verified_at: string | null;
-            price_list?: number | null;
+            readonly gstinVerifiedAt: string | null;
+            priceList?: number | null;
+            taxpayerType?: components["schemas"]["TaxpayerTypeEnum"] | components["schemas"]["BlankEnum"];
+            /** @description A-06: Cloud WhatsApp only when True. wa.me open-in-app is always allowed. */
+            whatsappOptIn?: boolean;
+            /** @description A-07: when True, skip automated AR reminders for this customer. */
+            dunningOptOut?: boolean;
+            readonly outstanding: string;
         };
         CustomerReceipt: {
             readonly id: number;
             readonly number: string;
             customer: number;
-            readonly customer_name: string;
+            readonly customerName: string;
             /** Format: decimal */
             amount: string;
             mode?: components["schemas"]["ModeEnum"];
             /** Format: date */
-            receipt_date?: string;
+            receiptDate?: string;
             reference?: string;
             utr?: string;
             notes?: string;
-            bank_account?: number | null;
+            bankAccount?: number | null;
             /** @default  */
-            readonly bank_account_name: string;
+            readonly bankAccountName: string;
             readonly source: components["schemas"]["SourceEnum"];
-            readonly gateway_payment: number | null;
+            readonly gatewayPayment: number | null;
+            readonly status: components["schemas"]["CustomerReceiptStatusEnum"];
             /** Format: double */
             readonly allocated: number;
             /** Format: double */
             readonly unallocated: number;
-            readonly utr_warning: string;
+            readonly utrWarning: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
+        /**
+         * @description * `POSTED` - Posted
+         *     * `REFUNDED` - Refunded
+         *     * `VOIDED` - Voided
+         * @enum {string}
+         */
+        CustomerReceiptStatusEnum: "POSTED" | "REFUNDED" | "VOIDED";
         /**
          * @description * `ACTIVE` - Active
          *     * `BLOCKED` - Blocked
@@ -4954,62 +8032,77 @@ export interface components {
             readonly number: string;
             readonly status: components["schemas"]["StatusD0fEnum"];
             customer: number;
-            readonly customer_name: string;
-            sales_order?: number | null;
+            readonly customerName: string;
+            warehouse?: number | null;
+            salesOrder?: number | null;
             /** Format: date */
-            challan_date?: string;
-            vehicle_number?: string;
-            transporter_name?: string;
+            challanDate?: string;
+            vehicleNumber?: string;
+            transporterName?: string;
+            transporterId?: string;
+            /** Format: int64 */
+            transportDistanceKm?: number | null;
+            subSupplyType?: string;
+            transMode?: string;
             notes?: string;
             items: components["schemas"]["DeliveryChallanItem"][];
-            readonly pdf_status: components["schemas"]["PdfStatusEnum"];
+            readonly pdfStatus: components["schemas"]["PdfStatusEnum"];
             /** Format: date-time */
-            readonly completed_at: string | null;
+            readonly completedAt: string | null;
             /** Format: date-time */
-            readonly cancelled_at: string | null;
-            readonly stock_posted: boolean;
-            readonly converted_invoice: number | null;
-            readonly eway_status: components["schemas"]["EwayStatusEnum"];
-            readonly eway_bill_no: string;
+            readonly cancelledAt: string | null;
+            readonly stockPosted: boolean;
+            readonly convertedInvoice: number | null;
+            readonly ewayStatus: components["schemas"]["EwayStatusEnum"];
+            readonly ewayBillNo: string;
             /** Format: date-time */
-            readonly eway_valid_upto: string | null;
-            readonly eway_error: string;
+            readonly ewayValidUpto: string | null;
+            readonly ewayError: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         DeliveryChallanItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
+            gstRate?: string;
             /** Format: decimal */
-            readonly taxable_amount: string;
+            cessRate?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            batch?: number | null;
+            batchNo?: string;
+            serialNumbers?: unknown;
+            /** Format: decimal */
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -5017,39 +8110,81 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         /**
          * @description * `NONE` - None
          *     * `READY` - Ready
+         *     * `QUEUED` - Queued
          *     * `GENERATED` - Generated
          *     * `MANUAL_IRN` - Manual Irn
          *     * `FAILED` - Failed
          *     * `CANCELLED` - Cancelled
          * @enum {string}
          */
-        EinvoiceStatusEnum: "NONE" | "READY" | "GENERATED" | "MANUAL_IRN" | "FAILED" | "CANCELLED";
+        EinvoiceStatusEnum: "NONE" | "READY" | "QUEUED" | "GENERATED" | "MANUAL_IRN" | "FAILED" | "CANCELLED";
+        Employee: {
+            readonly id: number;
+            name: string;
+            code: string;
+            /** Format: decimal */
+            salary: string;
+            /** Format: decimal */
+            basic?: string;
+            /** Format: decimal */
+            da?: string;
+            status?: components["schemas"]["Status372Enum"];
+            pfApplicable?: boolean;
+            /** Format: decimal */
+            pfWageCeiling?: string;
+            esiApplicable?: boolean;
+            ptState?: string;
+            /** Format: decimal */
+            tdsRate?: string;
+            taxRegime?: components["schemas"]["TaxRegimeEnum"];
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        /**
+         * @description * `COMPLETE` - Complete
+         *     * `AMEND` - Amend
+         *     * `CANCEL` - Cancel
+         *     * `IRN` - Irn
+         *     * `EWAY` - Eway
+         * @enum {string}
+         */
+        EventTypeEnum: "COMPLETE" | "AMEND" | "CANCEL" | "IRN" | "EWAY";
         /**
          * @description * `NONE` - None
          *     * `READY` - Ready
+         *     * `QUEUED` - Queued
          *     * `GENERATED` - Generated
          *     * `MANUAL_EWB` - Manual Ewb
          *     * `FAILED` - Failed
          *     * `CANCELLED` - Cancelled
          * @enum {string}
          */
-        EwayStatusEnum: "NONE" | "READY" | "GENERATED" | "MANUAL_EWB" | "FAILED" | "CANCELLED";
+        EwayStatusEnum: "NONE" | "READY" | "QUEUED" | "GENERATED" | "MANUAL_EWB" | "FAILED" | "CANCELLED";
+        ExpenseCategory: {
+            readonly id: number;
+            name: string;
+            code?: string;
+            description?: string;
+            isActive?: boolean;
+        };
         FileAsset: {
             readonly id: number;
             kind?: components["schemas"]["FileAssetKindEnum"];
-            /** Format: uri */
-            file: string;
             readonly url: string;
-            readonly original_name: string;
-            readonly content_type: string;
+            readonly originalName: string;
+            readonly contentType: string;
             readonly size: number;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
         /**
          * @description * `LOGO` - Logo
@@ -5066,30 +8201,38 @@ export interface components {
         FixedAsset: {
             readonly id: number;
             /** Format: decimal */
-            readonly monthly_depreciation: string;
+            readonly monthlyDepreciation: string;
+            /** Format: decimal */
+            readonly writtenDownValue: string;
+            assetAccount?: number | null;
+            accumulatedDepreciationAccount?: number | null;
+            depreciationExpenseAccount?: number | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
             name: string;
             /** Format: date */
-            acquisition_date: string;
+            acquisitionDate: string;
             /** Format: decimal */
-            acquisition_cost: string;
+            acquisitionCost: string;
             /** Format: int64 */
-            useful_life_months: number;
+            usefulLifeMonths: number;
             /** Format: decimal */
-            readonly depreciated_amount: string;
-            last_depreciation_error?: string;
+            readonly depreciatedAmount: string;
+            lastDepreciationError?: string;
             readonly status: components["schemas"]["FixedAssetStatusEnum"];
             /** Format: date */
-            readonly disposed_at: string | null;
-            created_by?: number | null;
-            updated_by?: number | null;
+            readonly disposedAt: string | null;
+            method?: components["schemas"]["MethodEnum"];
+            /** Format: decimal */
+            salvageValue?: string;
+            /** Format: decimal */
+            wdvAnnualRate?: string;
+            blockKey?: string;
+            createdBy?: number | null;
+            updatedBy?: number | null;
             readonly company: number;
-            asset_account?: number;
-            accumulated_depreciation_account?: number;
-            depreciation_expense_account?: number;
         };
         /**
          * @description * `ACTIVE` - Active
@@ -5100,41 +8243,136 @@ export interface components {
         GatewayPayment: {
             readonly id: number;
             provider: string;
-            provider_payment_id: string;
+            providerPaymentId: string;
             /** Format: decimal */
             amount: string;
             /** Format: decimal */
             fee?: string;
             status?: components["schemas"]["GatewayPaymentStatusEnum"];
-            payment_link?: number | null;
+            paymentLink?: number | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
+            holdingReason?: string;
+            holdingError?: string;
+            /** Format: date-time */
+            holdingSince?: string | null;
+            internalUtr?: string;
         };
         /**
          * @description * `CREATED` - Created
          *     * `CAPTURED` - Captured
+         *     * `CAPTURED_PENDING_BOOKS` - Captured Pending Books
          *     * `FAILED` - Failed
          *     * `REFUNDED` - Refunded
+         *     * `PARTIALLY_REFUNDED` - Partially Refunded
          * @enum {string}
          */
-        GatewayPaymentStatusEnum: "CREATED" | "CAPTURED" | "FAILED" | "REFUNDED";
+        GatewayPaymentStatusEnum: "CREATED" | "CAPTURED" | "CAPTURED_PENDING_BOOKS" | "FAILED" | "REFUNDED" | "PARTIALLY_REFUNDED";
+        GoodsReceipt: {
+            readonly id: number;
+            readonly number: string;
+            readonly status: components["schemas"]["StatusD0fEnum"];
+            supplier: number;
+            readonly supplierName: string;
+            purchaseOrder?: number | null;
+            warehouse?: number | null;
+            readonly warehouseName: string;
+            /** Format: date */
+            receiptDate?: string;
+            supplierChallanNumber?: string;
+            /** Format: date-time */
+            readonly completedAt: string | null;
+            /** Format: date-time */
+            readonly cancelledAt: string | null;
+            notes?: string;
+            readonly convertedPurchase: number | null;
+            items?: components["schemas"]["GoodsReceiptItem"][];
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        GoodsReceiptItem: {
+            readonly id: number;
+            product: number;
+            readonly productName: string;
+            readonly productSku: string;
+            /** Format: decimal */
+            quantityReceived?: string;
+            /** Format: decimal */
+            quantityAccepted?: string;
+            /** Format: decimal */
+            quantityRejected?: string;
+            /** Format: decimal */
+            unitPrice?: string;
+            rejectionReason?: string;
+        };
+        Gstr2bIngest: {
+            readonly id: number;
+            readonly period: string;
+            readonly supplierGstin: string;
+            readonly invoiceNumber: string;
+            /** Format: date */
+            readonly invoiceDate: string | null;
+            /** Format: decimal */
+            readonly taxableValue: string;
+            /** Format: decimal */
+            readonly igst: string;
+            /** Format: decimal */
+            readonly cgst: string;
+            /** Format: decimal */
+            readonly sgst: string;
+            /** Format: decimal */
+            readonly cess: string;
+            readonly matchStatus: components["schemas"]["Gstr2bIngestMatchStatusEnum"];
+            readonly matchClass: components["schemas"]["MatchClassEnum"];
+            itcEligibility?: components["schemas"]["ItcEligibility28fEnum"];
+            readonly imsAction: components["schemas"]["ImsActionEnum"];
+            readonly imsRemark: string;
+            /** Format: date-time */
+            readonly actedAt: string | null;
+            /** Format: date */
+            readonly section164Deadline: string | null;
+            readonly purchaseInvoice: number | null;
+            readonly raw: unknown;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        /**
+         * @description * `UNMATCHED` - Unmatched
+         *     * `MATCHED` - Matched
+         *     * `PARTIAL` - Partial
+         *     * `REJECTED` - Rejected
+         * @enum {string}
+         */
+        Gstr2bIngestMatchStatusEnum: "UNMATCHED" | "MATCHED" | "PARTIAL" | "REJECTED";
         ImportJob: {
             readonly id: number;
             kind: components["schemas"]["ImportJobKindEnum"];
             readonly file: number;
             readonly status: components["schemas"]["ImportJobStatusEnum"];
-            readonly total_rows: number;
-            readonly valid_rows: number;
-            readonly error_rows: number;
+            readonly totalRows: number;
+            readonly validRows: number;
+            readonly errorRows: number;
             readonly preview: unknown;
             readonly errors: unknown;
+            readonly previewTruncated: string;
+            readonly errorsTruncated: string;
+            readonly columnMappings: unknown;
+            readonly voidedRows: unknown;
+            readonly clarifications: unknown;
             /** Format: date-time */
-            readonly committed_at: string | null;
+            readonly committedAt: string | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             supplier?: number | null;
-            readonly purchase_invoice: number | null;
-            readonly failure_reason: string;
+            customer?: number | null;
+            readonly purchaseInvoice: number | null;
+            readonly salesInvoice: number | null;
+            readonly billTemplate: number | null;
+            readonly failureReason: string;
         };
         /**
          * @description * `CUSTOMERS` - Customers
@@ -5142,18 +8380,29 @@ export interface components {
          *     * `PRODUCTS` - Products
          *     * `OPENING_STOCK` - Opening Stock
          *     * `PURCHASE_BILL` - Purchase Bill
+         *     * `SALES_BILL` - Sales Bill
          * @enum {string}
          */
-        ImportJobKindEnum: "CUSTOMERS" | "SUPPLIERS" | "PRODUCTS" | "OPENING_STOCK" | "PURCHASE_BILL";
+        ImportJobKindEnum: "CUSTOMERS" | "SUPPLIERS" | "PRODUCTS" | "OPENING_STOCK" | "PURCHASE_BILL" | "SALES_BILL";
         /**
          * @description * `UPLOADED` - Uploaded
          *     * `EXTRACTING` - Extracting
+         *     * `NEEDS_CLARIFICATION` - Needs Clarification
          *     * `PREVIEWED` - Previewed
          *     * `COMMITTED` - Committed
          *     * `FAILED` - Failed
+         *     * `VOIDED` - Voided
          * @enum {string}
          */
-        ImportJobStatusEnum: "UPLOADED" | "EXTRACTING" | "PREVIEWED" | "COMMITTED" | "FAILED";
+        ImportJobStatusEnum: "UPLOADED" | "EXTRACTING" | "NEEDS_CLARIFICATION" | "PREVIEWED" | "COMMITTED" | "FAILED" | "VOIDED";
+        /**
+         * @description * `NO_ACTION` - No Action
+         *     * `ACCEPT` - Accept
+         *     * `REJECT` - Reject
+         *     * `PENDING` - Pending
+         * @enum {string}
+         */
+        ImsActionEnum: "NO_ACTION" | "ACCEPT" | "REJECT" | "PENDING";
         /**
          * @description * `AFTER_TAX` - Cash discount (after tax)
          *     * `BEFORE_TAX` - Discount (reduces GST)
@@ -5168,19 +8417,27 @@ export interface components {
          * @enum {string}
          */
         InvoiceTypeEnum: "GST" | "TAX" | "RETAIL" | "NON_GST";
+        /**
+         * @description * `UNREVIEWED` - Unreviewed
+         *     * `CLAIMABLE` - Claimable
+         *     * `INELIGIBLE` - Ineligible
+         *     * `REVERSED` - Reversed
+         * @enum {string}
+         */
+        ItcEligibility28fEnum: "UNREVIEWED" | "CLAIMABLE" | "INELIGIBLE" | "REVERSED";
         JournalEntry: {
             readonly id: number;
             number?: string;
             /** Format: date */
-            entry_date?: string;
+            entryDate?: string;
             readonly status: components["schemas"]["JournalEntryStatusEnum"];
-            readonly source_type: string;
-            readonly source_id: number | null;
+            readonly sourceType: string;
+            readonly sourceId: number | null;
             readonly purpose: string;
             narration?: string;
             /** Format: date-time */
-            readonly posted_at: string | null;
-            readonly reversed_entry: number | null;
+            readonly postedAt: string | null;
+            readonly reversedEntry: number | null;
             lines: components["schemas"]["JournalLine"][];
         };
         /**
@@ -5197,20 +8454,62 @@ export interface components {
             debit?: string;
             /** Format: decimal */
             credit?: string;
-            cost_center?: number | null;
+            costCenter?: number | null;
             dimension?: string;
-            bank_statement_line?: number | null;
+            customer?: number | null;
+            supplier?: number | null;
+            readonly bankStatementLine: number | null;
             /** Format: date-time */
-            readonly reconciled_at: string | null;
+            readonly reconciledAt: string | null;
+        };
+        Lead: {
+            readonly id: number;
+            name: string;
+            phone?: string;
+            email?: string;
+            state?: string;
+            gstin?: string;
+            address?: string;
+            status?: components["schemas"]["LeadStatusEnum"];
+            customer?: number | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
         };
         /**
-         * @description * `UNMATCHED` - Unmatched
-         *     * `SUGGESTED` - Suggested
-         *     * `MATCHED` - Matched
-         *     * `IGNORED` - Ignored
+         * @description * `NEW` - New
+         *     * `CONTACTED` - Contacted
+         *     * `QUALIFIED` - Qualified
+         *     * `LOST` - Lost
          * @enum {string}
          */
-        MatchStatusEnum: "UNMATCHED" | "SUGGESTED" | "MATCHED" | "IGNORED";
+        LeadStatusEnum: "NEW" | "CONTACTED" | "QUALIFIED" | "LOST";
+        /**
+         * @description * `DRUG_20B` - Drug Licence — Form 20B (wholesale, non-Schedule X)
+         *     * `DRUG_21B` - Drug Licence — Form 21B (wholesale, Schedule X)
+         *     * `FSSAI` - FSSAI Licence/Registration
+         * @enum {string}
+         */
+        LicenceTypeEnum: "DRUG_20B" | "DRUG_21B" | "FSSAI";
+        /**
+         * @description * `exact` - Exact
+         *     * `value_mismatch` - Value Mismatch
+         *     * `missing_in_books` - Missing In Books
+         *     * `missing_in_ims` - Missing In Ims
+         *     * `wrong_gstin` - Wrong Gstin
+         *     * `duplicate` - Duplicate
+         *     * `potentially_ineligible` - Potentially Ineligible
+         *     * `other` - Other
+         * @enum {string}
+         */
+        MatchClassEnum: "exact" | "value_mismatch" | "missing_in_books" | "missing_in_ims" | "wrong_gstin" | "duplicate" | "potentially_ineligible" | "other";
+        /**
+         * @description * `SLM` - Straight line
+         *     * `WDV` - Written down value
+         * @enum {string}
+         */
+        MethodEnum: "SLM" | "WDV";
         /**
          * @description * `CASH` - Cash
          *     * `UPI` - Upi
@@ -5229,9 +8528,11 @@ export interface components {
          *     * `ADJUSTMENT` - Adjustment
          *     * `TRANSFER_OUT` - Transfer Out
          *     * `TRANSFER_IN` - Transfer In
+         *     * `MANUFACTURE_ISSUE` - Manufacture Issue
+         *     * `MANUFACTURE_RECEIPT` - Manufacture Receipt
          * @enum {string}
          */
-        MovementTypeEnum: "OPENING_STOCK" | "PURCHASE" | "SALE" | "PURCHASE_RETURN" | "SALES_RETURN" | "ADJUSTMENT" | "TRANSFER_OUT" | "TRANSFER_IN";
+        MovementTypeEnum: "OPENING_STOCK" | "PURCHASE" | "SALE" | "PURCHASE_RETURN" | "SALES_RETURN" | "ADJUSTMENT" | "TRANSFER_OUT" | "TRANSFER_IN" | "MANUFACTURE_ISSUE" | "MANUFACTURE_RECEIPT";
         /**
          * @description * `BLOCK` - Block
          *     * `WARN` - Warn
@@ -5245,10 +8546,10 @@ export interface components {
             subject?: string;
             body?: string;
             status?: components["schemas"]["NotificationStatusEnum"];
-            share_link?: string;
+            shareLink?: string;
             error?: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
         /**
          * @description * `QUEUED` - Queued
@@ -5258,6 +8559,21 @@ export interface components {
          * @enum {string}
          */
         NotificationStatusEnum: "QUEUED" | "SENT" | "LINK_READY" | "FAILED";
+        Opportunity: {
+            readonly id: number;
+            lead?: number | null;
+            customer?: number | null;
+            title: string;
+            /** Format: decimal */
+            amount?: string;
+            stage?: components["schemas"]["StageEnum"];
+            /** Format: date-time */
+            readonly closedAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
         PaginatedAccountList: {
             /** @example 123 */
             count: number;
@@ -5378,6 +8694,36 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["BatchLot"][];
         };
+        PaginatedBillOfEntryList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["BillOfEntry"][];
+        };
+        PaginatedBomList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Bom"][];
+        };
         PaginatedBrandList: {
             /** @example 123 */
             count: number;
@@ -5422,6 +8768,36 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["Category"][];
+        };
+        PaginatedCompanyGstinList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["CompanyGstin"][];
+        };
+        PaginatedCompanyStatutoryLicenceList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["CompanyStatutoryLicence"][];
         };
         PaginatedCompanyUserList: {
             /** @example 123 */
@@ -5498,6 +8874,36 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["DeliveryChallan"][];
         };
+        PaginatedEmployeeList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Employee"][];
+        };
+        PaginatedExpenseCategoryList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["ExpenseCategory"][];
+        };
         PaginatedFileAssetList: {
             /** @example 123 */
             count: number;
@@ -5543,6 +8949,36 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["GatewayPayment"][];
         };
+        PaginatedGoodsReceiptList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["GoodsReceipt"][];
+        };
+        PaginatedGstr2bIngestList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Gstr2bIngest"][];
+        };
         PaginatedImportJobList: {
             /** @example 123 */
             count: number;
@@ -5573,6 +9009,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["JournalEntry"][];
         };
+        PaginatedLeadList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Lead"][];
+        };
         PaginatedNotificationList: {
             /** @example 123 */
             count: number;
@@ -5587,6 +9038,36 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["Notification"][];
+        };
+        PaginatedOpportunityList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Opportunity"][];
+        };
+        PaginatedPayRunList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["PayRun"][];
         };
         PaginatedPaymentAllocationList: {
             /** @example 123 */
@@ -5617,6 +9098,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["PaymentLink"][];
+        };
+        PaginatedPaymentModeList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["PaymentMode"][];
         };
         PaginatedPriceListList: {
             /** @example 123 */
@@ -5738,6 +9234,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["Quotation"][];
         };
+        PaginatedRecurringInvoiceScheduleList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["RecurringInvoiceSchedule"][];
+        };
         PaginatedSalesCreditNoteList: {
             /** @example 123 */
             count: number;
@@ -5828,6 +9339,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["SerialNumber"][];
         };
+        PaginatedStatutoryDocumentEventList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["StatutoryDocumentEvent"][];
+        };
         PaginatedStockBalanceList: {
             /** @example 123 */
             count: number;
@@ -5842,6 +9368,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["StockBalance"][];
+        };
+        PaginatedStockCountSessionList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["StockCountSession"][];
         };
         PaginatedStockMovementList: {
             /** @example 123 */
@@ -5948,40 +9489,71 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["Warehouse"][];
         };
+        PaginatedWarehouseReorderLevelList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["WarehouseReorderLevel"][];
+        };
+        PaginatedWorkOrderList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["WorkOrder"][];
+        };
         PatchedAccount: {
             readonly id?: number;
             code?: string;
             name?: string;
             type?: components["schemas"]["TypeEnum"];
             parent?: number | null;
-            readonly is_system?: boolean;
-            readonly is_control?: boolean;
-            bank_account?: number | null;
-            is_active?: boolean;
+            readonly isSystem?: boolean;
+            readonly isControl?: boolean;
+            bankAccount?: number | null;
+            isActive?: boolean;
         };
         PatchedAccountingPeriod: {
             readonly id?: number;
             name?: string;
             /** Format: date */
-            start_date?: string;
+            startDate?: string;
             /** Format: date */
-            end_date?: string;
-            status?: components["schemas"]["AccountingPeriodStatusEnum"];
+            endDate?: string;
+            readonly status?: components["schemas"]["AccountingPeriodStatusEnum"];
+            readonly gstPeriodStatus?: string;
         };
         PatchedBankAccount: {
             readonly id?: number;
             name?: string;
-            account_number_masked?: string;
+            accountNumberMasked?: string;
             ifsc?: string;
-            account_type?: components["schemas"]["AccountTypeEnum"];
+            accountType?: components["schemas"]["AccountTypeEnum"];
             /** Format: decimal */
-            opening_balance?: string;
+            openingBalance?: string;
             /** Format: date */
-            opening_as_of?: string | null;
-            is_default?: boolean;
-            is_active?: boolean;
+            openingAsOf?: string | null;
+            isDefault?: boolean;
+            isActive?: boolean;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
         };
         PatchedBankReconSession: {
             readonly id?: number;
@@ -5989,21 +9561,68 @@ export interface components {
             statement?: number;
             status?: components["schemas"]["BankReconSessionStatusEnum"];
             /** Format: decimal */
-            gl_balance?: string;
+            glBalance?: string;
             /** Format: decimal */
-            statement_balance?: string;
+            statementBalance?: string;
         };
         PatchedBatchLot: {
             readonly id?: number;
             product?: number;
-            readonly product_name?: string;
-            batch_no?: string;
+            readonly productName?: string;
+            batchNo?: string;
             /** Format: date */
-            expiry_date?: string | null;
+            expiryDate?: string | null;
             /** Format: date */
-            manufacturing_date?: string | null;
+            manufacturingDate?: string | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
+        };
+        PatchedBillOfEntry: {
+            readonly id?: number;
+            supplier?: number | null;
+            readonly supplierName?: string;
+            boeNumber?: string;
+            /** Format: date */
+            boeDate?: string;
+            portCode?: string;
+            reference?: string;
+            /** Format: decimal */
+            assessableValue?: string;
+            /** Format: decimal */
+            bcdAmount?: string;
+            /** Format: decimal */
+            igstAmount?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            itcEligibility?: components["schemas"]["BillOfEntryItcEligibilityEnum"];
+            /** @description YYYY-MM period in which the import ITC is availed (defaults to boe_date month). */
+            itcPeriod?: string;
+            icegateVerified?: boolean;
+            readonly status?: components["schemas"]["StatusD0fEnum"];
+            /** Format: date-time */
+            readonly completedAt?: string | null;
+            /** Format: date-time */
+            readonly cancelledAt?: string | null;
+            notes?: string;
+            /** Format: decimal */
+            readonly claimableItc?: string;
+            /** Format: decimal */
+            readonly totalCustomsPaid?: string;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
+        PatchedBom: {
+            readonly id?: number;
+            product?: number;
+            name?: string;
+            status?: components["schemas"]["BomStatusEnum"];
+            lines?: components["schemas"]["BomLine"][];
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         PatchedBrand: {
             readonly id?: number;
@@ -6013,13 +9632,28 @@ export interface components {
             readonly id?: number;
             name?: string;
         };
+        PatchedCompanyGstin: {
+            readonly id?: number;
+            gstin?: string;
+            legalName?: string;
+            state?: string;
+            address?: string;
+            city?: string;
+            pincode?: string;
+            isPrimary?: boolean;
+            isActive?: boolean;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
         /** @description Non-owner read view of Company — omits bank/UPI details (BUG-111). */
         PatchedCompanySerializerStaff: {
             readonly id?: number;
             name?: string;
-            legal_name?: string;
+            legalName?: string;
             gstin?: string;
-            registration_type?: components["schemas"]["RegistrationTypeEnum"];
+            registrationType?: components["schemas"]["RegistrationTypeEnum"];
             state?: string;
             address?: string;
             city?: string;
@@ -6029,22 +9663,44 @@ export interface components {
             logo?: number | null;
             signature?: number | null;
             /** Format: int64 */
-            fy_start_month?: number;
-            negative_stock_policy?: components["schemas"]["NegativeStockPolicyEnum"];
-            invoice_terms?: string;
-            assume_local_state_for_blank_party?: boolean;
-            readonly is_gst_registered?: boolean;
-            readonly einvoice_enabled?: boolean;
-            readonly eway_enabled?: boolean;
+            fyStartMonth?: number;
+            negativeStockPolicy?: components["schemas"]["NegativeStockPolicyEnum"];
+            invoiceTerms?: string;
+            /** @description When party state/GSTIN is blank, treat as local (intra-state) for GST tax. */
+            assumeLocalStateForBlankParty?: boolean;
+            readonly isGstRegistered?: boolean;
+            readonly einvoiceEnabled?: boolean;
+            readonly ewayEnabled?: boolean;
             /** Format: decimal */
-            readonly eway_threshold_amount?: string;
+            readonly ewayThresholdAmount?: string;
             /** Format: decimal */
-            readonly aato_turnover?: string | null;
-            readonly gstin_verification_status?: string;
-            readonly gstin_legal_name?: string;
+            readonly aatoTurnover?: string | null;
+            readonly accountingEnabled?: boolean;
+            readonly gstinVerificationStatus?: string;
+            readonly gstinLegalName?: string;
             /** Format: date-time */
-            readonly gstin_verified_at?: string | null;
-            readonly ai_features_enabled?: boolean;
+            readonly gstinVerifiedAt?: string | null;
+            readonly aiFeaturesEnabled?: boolean;
+            readonly itemCustomFieldDefs?: unknown;
+        };
+        /** @description D15 / QOS-0027: ARCH-05 drug-licence (20B/21B) + FSSAI registrations. */
+        PatchedCompanyStatutoryLicence: {
+            readonly id?: number;
+            licenceType?: components["schemas"]["LicenceTypeEnum"];
+            licenceNumber?: string;
+            premisesAddress?: string;
+            premisesState?: string;
+            premisesCity?: string;
+            premisesPincode?: string;
+            /** Format: date */
+            validFrom?: string | null;
+            /** Format: date */
+            validUpto?: string | null;
+            isActive?: boolean;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         PatchedCompanyUser: {
             readonly id?: number;
@@ -6052,28 +9708,28 @@ export interface components {
             readonly user?: number;
             /** Format: email */
             readonly email?: string;
-            readonly full_name?: string;
+            readonly fullName?: string;
             readonly phone?: string;
             role?: components["schemas"]["CompanyUserRoleEnum"];
-            can_manage_inventory?: boolean;
-            can_import?: boolean;
-            can_cancel_documents?: boolean;
-            can_view_financial_reports?: boolean;
-            can_export?: boolean;
-            can_view_ai_insights?: boolean;
-            can_use_ai_assistant?: boolean;
-            can_create_sales?: boolean;
-            can_create_purchases?: boolean;
-            can_create_payments?: boolean;
-            can_post_journals?: boolean;
-            is_active?: boolean;
+            canManageInventory?: boolean;
+            canImport?: boolean;
+            canCancelDocuments?: boolean;
+            canViewFinancialReports?: boolean;
+            canExport?: boolean;
+            canViewAiInsights?: boolean;
+            canUseAiAssistant?: boolean;
+            canCreateSales?: boolean;
+            canCreatePurchases?: boolean;
+            canCreatePayments?: boolean;
+            canPostJournals?: boolean;
+            isActive?: boolean;
         };
         PatchedCostCenter: {
             readonly id?: number;
             code?: string;
             name?: string;
             parent?: number | null;
-            is_active?: boolean;
+            isActive?: boolean;
         };
         PatchedCustomer: {
             readonly id?: number;
@@ -6081,699 +9737,1056 @@ export interface components {
             phone?: string;
             email?: string;
             gstin?: string;
-            billing_address?: string;
-            shipping_address?: string;
+            billingAddress?: string;
+            shippingAddress?: string;
             state?: string;
             status?: components["schemas"]["CustomerStatusEnum"];
             /** Format: decimal */
-            credit_limit?: string;
+            creditLimit?: string;
             /** Format: int64 */
-            credit_days?: number;
+            creditDays?: number;
             notes?: string;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
-            readonly gstin_verification_status?: string;
-            readonly gstin_legal_name?: string;
+            readonly updatedAt?: string;
+            readonly gstinVerificationStatus?: string;
+            readonly gstinLegalName?: string;
             /** Format: date-time */
-            readonly gstin_verified_at?: string | null;
-            price_list?: number | null;
+            readonly gstinVerifiedAt?: string | null;
+            priceList?: number | null;
+            taxpayerType?: components["schemas"]["TaxpayerTypeEnum"] | components["schemas"]["BlankEnum"];
+            /** @description A-06: Cloud WhatsApp only when True. wa.me open-in-app is always allowed. */
+            whatsappOptIn?: boolean;
+            /** @description A-07: when True, skip automated AR reminders for this customer. */
+            dunningOptOut?: boolean;
+            readonly outstanding?: string;
         };
         PatchedDeliveryChallan: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["StatusD0fEnum"];
             customer?: number;
-            readonly customer_name?: string;
-            sales_order?: number | null;
+            readonly customerName?: string;
+            warehouse?: number | null;
+            salesOrder?: number | null;
             /** Format: date */
-            challan_date?: string;
-            vehicle_number?: string;
-            transporter_name?: string;
+            challanDate?: string;
+            vehicleNumber?: string;
+            transporterName?: string;
+            transporterId?: string;
+            /** Format: int64 */
+            transportDistanceKm?: number | null;
+            subSupplyType?: string;
+            transMode?: string;
             notes?: string;
             items?: components["schemas"]["DeliveryChallanItem"][];
-            readonly pdf_status?: components["schemas"]["PdfStatusEnum"];
+            readonly pdfStatus?: components["schemas"]["PdfStatusEnum"];
             /** Format: date-time */
-            readonly completed_at?: string | null;
+            readonly completedAt?: string | null;
             /** Format: date-time */
-            readonly cancelled_at?: string | null;
-            readonly stock_posted?: boolean;
-            readonly converted_invoice?: number | null;
-            readonly eway_status?: components["schemas"]["EwayStatusEnum"];
-            readonly eway_bill_no?: string;
+            readonly cancelledAt?: string | null;
+            readonly stockPosted?: boolean;
+            readonly convertedInvoice?: number | null;
+            readonly ewayStatus?: components["schemas"]["EwayStatusEnum"];
+            readonly ewayBillNo?: string;
             /** Format: date-time */
-            readonly eway_valid_upto?: string | null;
-            readonly eway_error?: string;
+            readonly ewayValidUpto?: string | null;
+            readonly ewayError?: string;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
+        };
+        PatchedEmployee: {
+            readonly id?: number;
+            name?: string;
+            code?: string;
+            /** Format: decimal */
+            salary?: string;
+            /** Format: decimal */
+            basic?: string;
+            /** Format: decimal */
+            da?: string;
+            status?: components["schemas"]["Status372Enum"];
+            pfApplicable?: boolean;
+            /** Format: decimal */
+            pfWageCeiling?: string;
+            esiApplicable?: boolean;
+            ptState?: string;
+            /** Format: decimal */
+            tdsRate?: string;
+            taxRegime?: components["schemas"]["TaxRegimeEnum"];
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
+        PatchedExpenseCategory: {
+            readonly id?: number;
+            name?: string;
+            code?: string;
+            description?: string;
+            isActive?: boolean;
         };
         PatchedFixedAsset: {
             readonly id?: number;
             /** Format: decimal */
-            readonly monthly_depreciation?: string;
+            readonly monthlyDepreciation?: string;
+            /** Format: decimal */
+            readonly writtenDownValue?: string;
+            assetAccount?: number | null;
+            accumulatedDepreciationAccount?: number | null;
+            depreciationExpenseAccount?: number | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
             name?: string;
             /** Format: date */
-            acquisition_date?: string;
+            acquisitionDate?: string;
             /** Format: decimal */
-            acquisition_cost?: string;
+            acquisitionCost?: string;
             /** Format: int64 */
-            useful_life_months?: number;
+            usefulLifeMonths?: number;
             /** Format: decimal */
-            readonly depreciated_amount?: string;
-            last_depreciation_error?: string;
+            readonly depreciatedAmount?: string;
+            lastDepreciationError?: string;
             readonly status?: components["schemas"]["FixedAssetStatusEnum"];
             /** Format: date */
-            readonly disposed_at?: string | null;
-            created_by?: number | null;
-            updated_by?: number | null;
+            readonly disposedAt?: string | null;
+            method?: components["schemas"]["MethodEnum"];
+            /** Format: decimal */
+            salvageValue?: string;
+            /** Format: decimal */
+            wdvAnnualRate?: string;
+            blockKey?: string;
+            createdBy?: number | null;
+            updatedBy?: number | null;
             readonly company?: number;
-            asset_account?: number;
-            accumulated_depreciation_account?: number;
-            depreciation_expense_account?: number;
+        };
+        PatchedGoodsReceipt: {
+            readonly id?: number;
+            readonly number?: string;
+            readonly status?: components["schemas"]["StatusD0fEnum"];
+            supplier?: number;
+            readonly supplierName?: string;
+            purchaseOrder?: number | null;
+            warehouse?: number | null;
+            readonly warehouseName?: string;
+            /** Format: date */
+            receiptDate?: string;
+            supplierChallanNumber?: string;
+            /** Format: date-time */
+            readonly completedAt?: string | null;
+            /** Format: date-time */
+            readonly cancelledAt?: string | null;
+            notes?: string;
+            readonly convertedPurchase?: number | null;
+            items?: components["schemas"]["GoodsReceiptItem"][];
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
+        PatchedGstr2bIngest: {
+            readonly id?: number;
+            readonly period?: string;
+            readonly supplierGstin?: string;
+            readonly invoiceNumber?: string;
+            /** Format: date */
+            readonly invoiceDate?: string | null;
+            /** Format: decimal */
+            readonly taxableValue?: string;
+            /** Format: decimal */
+            readonly igst?: string;
+            /** Format: decimal */
+            readonly cgst?: string;
+            /** Format: decimal */
+            readonly sgst?: string;
+            /** Format: decimal */
+            readonly cess?: string;
+            readonly matchStatus?: components["schemas"]["Gstr2bIngestMatchStatusEnum"];
+            readonly matchClass?: components["schemas"]["MatchClassEnum"];
+            itcEligibility?: components["schemas"]["ItcEligibility28fEnum"];
+            readonly imsAction?: components["schemas"]["ImsActionEnum"];
+            readonly imsRemark?: string;
+            /** Format: date-time */
+            readonly actedAt?: string | null;
+            /** Format: date */
+            readonly section164Deadline?: string | null;
+            readonly purchaseInvoice?: number | null;
+            readonly raw?: unknown;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         PatchedImportJob: {
             readonly id?: number;
             kind?: components["schemas"]["ImportJobKindEnum"];
             readonly file?: number;
             readonly status?: components["schemas"]["ImportJobStatusEnum"];
-            readonly total_rows?: number;
-            readonly valid_rows?: number;
-            readonly error_rows?: number;
+            readonly totalRows?: number;
+            readonly validRows?: number;
+            readonly errorRows?: number;
             readonly preview?: unknown;
             readonly errors?: unknown;
+            readonly previewTruncated?: string;
+            readonly errorsTruncated?: string;
+            readonly columnMappings?: unknown;
+            readonly voidedRows?: unknown;
+            readonly clarifications?: unknown;
             /** Format: date-time */
-            readonly committed_at?: string | null;
+            readonly committedAt?: string | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             supplier?: number | null;
-            readonly purchase_invoice?: number | null;
-            readonly failure_reason?: string;
+            customer?: number | null;
+            readonly purchaseInvoice?: number | null;
+            readonly salesInvoice?: number | null;
+            readonly billTemplate?: number | null;
+            readonly failureReason?: string;
+        };
+        PatchedLead: {
+            readonly id?: number;
+            name?: string;
+            phone?: string;
+            email?: string;
+            state?: string;
+            gstin?: string;
+            address?: string;
+            status?: components["schemas"]["LeadStatusEnum"];
+            customer?: number | null;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
+        PatchedOpportunity: {
+            readonly id?: number;
+            lead?: number | null;
+            customer?: number | null;
+            title?: string;
+            /** Format: decimal */
+            amount?: string;
+            stage?: components["schemas"]["StageEnum"];
+            /** Format: date-time */
+            readonly closedAt?: string | null;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
+        PatchedPayRun: {
+            readonly id?: number;
+            /** @description YYYY-MM */
+            period?: string;
+            readonly status?: components["schemas"]["PayRunStatusEnum"];
+            readonly slips?: components["schemas"]["PaySlip"][];
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
+        PatchedPaymentMode: {
+            readonly id?: number;
+            name?: string;
+            code?: string;
+            isActive?: boolean;
         };
         PatchedPriceList: {
             readonly id?: number;
             name?: string;
-            is_active?: boolean;
+            isActive?: boolean;
             items?: components["schemas"]["PriceListItem"][];
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
         };
         PatchedProduct: {
             readonly id?: number;
             name?: string;
             sku?: string;
             barcode?: string;
-            hsn_code?: string;
+            hsnCode?: string;
             description?: string;
             category?: number | null;
-            readonly category_name?: string;
+            readonly categoryName?: string;
             brand?: number | null;
-            readonly brand_name?: string;
+            readonly brandName?: string;
             unit?: number | null;
-            readonly unit_name?: string;
+            readonly unitName?: string;
             /** Format: decimal */
-            gst_rate?: string;
+            gstRate?: string;
             /** Format: decimal */
-            purchase_price?: string;
+            cessRate?: string;
             /** Format: decimal */
-            selling_price?: string;
+            cessAmount?: string;
+            /** Format: decimal */
+            purchasePrice?: string;
+            /** Format: decimal */
+            sellingPrice?: string;
             /** Format: decimal */
             mrp?: string;
             /** Format: decimal */
-            reorder_level?: string;
-            track_batch?: boolean;
-            track_serial?: boolean;
-            status?: components["schemas"]["ProductStatusEnum"];
+            wholesalePrice?: string;
+            /** Format: decimal */
+            reorderLevel?: string;
+            productType?: components["schemas"]["ProductTypeEnum"];
+            trackInventory?: boolean;
+            trackBatch?: boolean;
+            trackSerial?: boolean;
+            regulatedCategory?: components["schemas"]["RegulatedCategoryEnum"];
+            sellingTaxInclusive?: boolean;
+            purchaseTaxInclusive?: boolean;
+            customFields?: unknown;
+            alternateUnit?: number | null;
+            readonly alternateUnitName?: string;
+            /** Format: decimal */
+            conversionRate?: string;
+            /** Format: decimal */
+            defaultDiscountPercent?: string;
+            readonly hasMovements?: boolean;
+            status?: components["schemas"]["Status372Enum"];
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
         };
         PatchedPurchaseCreditNote: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["StatusD0fEnum"];
             supplier?: number;
-            readonly supplier_name?: string;
-            purchase_invoice?: number | null;
-            supplier_note_number?: string;
+            readonly supplierName?: string;
+            purchaseInvoice?: number | null;
+            supplierNoteNumber?: string;
             /** Format: date */
-            note_date?: string;
+            noteDate?: string;
             reason?: components["schemas"]["Reason9b6Enum"];
-            reason_detail?: string;
+            reasonDetail?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            additionalCharges?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
             notes?: string;
             items?: components["schemas"]["PurchaseCreditNoteItem"][];
             /** Format: date-time */
-            readonly completed_at?: string | null;
+            readonly completedAt?: string | null;
             /** Format: date-time */
-            readonly cancelled_at?: string | null;
+            readonly cancelledAt?: string | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
         };
         PatchedPurchaseDebitNote: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["StatusD0fEnum"];
             supplier?: number;
-            readonly supplier_name?: string;
-            purchase_invoice?: number | null;
-            supplier_note_number?: string;
+            readonly supplierName?: string;
+            purchaseInvoice?: number | null;
+            supplierNoteNumber?: string;
             /** Format: date */
-            note_date?: string;
+            noteDate?: string;
             reason?: components["schemas"]["Reason9b6Enum"];
-            reason_detail?: string;
+            reasonDetail?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            additionalCharges?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
             notes?: string;
             items?: components["schemas"]["PurchaseDebitNoteItem"][];
             /** Format: date-time */
-            readonly completed_at?: string | null;
+            readonly completedAt?: string | null;
             /** Format: date-time */
-            readonly cancelled_at?: string | null;
+            readonly cancelledAt?: string | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
         };
         PatchedPurchaseInvoice: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["StatusA38Enum"];
-            purchase_type?: components["schemas"]["PurchaseTypeEnum"];
+            purchaseType?: components["schemas"]["PurchaseTypeEnum"];
             supplier?: number;
-            readonly supplier_name?: string;
+            readonly supplierName?: string;
             warehouse?: number | null;
-            cost_center?: number | null;
+            costCenter?: number | null;
             /** Format: date */
-            invoice_date?: string;
+            invoiceDate?: string;
             /** Format: date */
-            due_date?: string | null;
+            dueDate?: string | null;
             /** Format: int64 */
-            payment_terms_days?: number;
+            paymentTermsDays?: number;
             /** Format: decimal */
-            additional_charges?: string;
+            additionalCharges?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
-            supplier_bill_number?: string;
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
+            supplierBillNumber?: string;
             notes?: string;
-            terms_text?: string;
-            include_bank_details?: boolean;
-            include_payment_qr?: boolean;
-            include_terms?: boolean;
+            termsText?: string;
+            includeBankDetails?: boolean;
+            includePaymentQr?: boolean;
+            includeTerms?: boolean;
             signature?: number | null;
             attachment?: number | null;
             items?: components["schemas"]["PurchaseItem"][];
-            is_reverse_charge?: boolean;
+            isReverseCharge?: boolean;
+            /**
+             * @description BB-000614: never claim ITC until explicitly marked CLAIMABLE.
+             *
+             *     * `UNREVIEWED` - Unreviewed
+             *     * `CLAIMABLE` - Claimable
+             *     * `INELIGIBLE` - Ineligible
+             *     * `REVERSED` - Reversed
+             */
+            itcEligibility?: components["schemas"]["ItcEligibility28fEnum"];
             /** Format: decimal */
-            readonly rcm_taxable?: string;
+            readonly rcmTaxable?: string;
             /** Format: decimal */
-            readonly rcm_cgst?: string;
+            readonly rcmCgst?: string;
             /** Format: decimal */
-            readonly rcm_sgst?: string;
+            readonly rcmSgst?: string;
             /** Format: decimal */
-            readonly rcm_igst?: string;
-            price_mode?: components["schemas"]["PriceModeEnum"];
+            readonly rcmIgst?: string;
+            /** Format: decimal */
+            readonly rcmCess?: string;
+            companyGstin?: number | null;
+            priceMode?: components["schemas"]["PriceModeEnum"];
+            tdsSection?: string;
+            /** Format: decimal */
+            tdsRate?: string;
+            /** Format: decimal */
+            tdsAmount?: string;
+            billOfEntry?: number | null;
             readonly paid?: string;
             readonly balance?: string;
             /** Format: date-time */
-            readonly completed_at?: string | null;
+            readonly completedAt?: string | null;
             /** Format: date-time */
-            readonly cancelled_at?: string | null;
+            readonly cancelledAt?: string | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
         };
         PatchedPurchaseOrder: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["Status4a7Enum"];
             supplier?: number;
-            readonly supplier_name?: string;
-            purchase_type?: components["schemas"]["PurchaseTypeEnum"];
+            readonly supplierName?: string;
+            purchaseType?: components["schemas"]["PurchaseTypeEnum"];
             /** Format: date */
-            order_date?: string;
+            orderDate?: string;
             /** Format: date */
-            expected_delivery?: string | null;
+            expectedDelivery?: string | null;
             /** Format: int64 */
-            payment_terms_days?: number;
+            paymentTermsDays?: number;
             /** Format: decimal */
-            additional_charges?: string;
+            additionalCharges?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
             notes?: string;
-            terms_text?: string;
+            termsText?: string;
             items?: components["schemas"]["PurchaseOrderItem"][];
-            readonly converted_purchase?: number | null;
+            readonly convertedPurchase?: number | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
         };
         PatchedPurchaseReturn: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["StatusD0fEnum"];
             supplier?: number;
-            readonly supplier_name?: string;
-            purchase_invoice?: number | null;
+            readonly supplierName?: string;
+            purchaseInvoice?: number | null;
             /** Format: date */
-            return_date?: string;
+            returnDate?: string;
             reason?: string;
             items?: components["schemas"]["PurchaseReturnItem"][];
             /** Format: date-time */
-            readonly completed_at?: string | null;
+            readonly completedAt?: string | null;
             /** Format: date-time */
-            readonly cancelled_at?: string | null;
+            readonly cancelledAt?: string | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
         };
         PatchedQuotation: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["Status4a7Enum"];
-            invoice_type?: components["schemas"]["InvoiceTypeEnum"];
+            invoiceType?: components["schemas"]["InvoiceTypeEnum"];
             customer?: number;
-            readonly customer_name?: string;
+            readonly customerName?: string;
             /** Format: date */
-            quotation_date?: string;
+            quotationDate?: string;
             /** Format: date */
-            valid_until?: string | null;
+            validUntil?: string | null;
             notes?: string;
+            termsText?: string;
+            /** Format: int64 */
+            paymentTermsDays?: number;
+            /** Format: decimal */
+            additionalCharges?: string;
+            chargesHsn?: string;
+            /** Format: decimal */
+            chargesGstRate?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
+            supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
+            companyGstin?: number | null;
             items?: components["schemas"]["QuotationItem"][];
-            readonly converted_invoice?: number | null;
+            readonly convertedInvoice?: number | null;
+            readonly convertedOrder?: number | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
+        };
+        PatchedRecurringInvoiceSchedule: {
+            readonly id?: number;
+            customer?: number;
+            readonly customerName?: string;
+            companyGstin?: number | null;
+            cadence?: components["schemas"]["CadenceEnum"];
+            /** Format: date-time */
+            nextRunAt?: string;
+            isActive?: boolean;
+            lineTemplate?: unknown;
+            notes?: string;
+            /** Format: decimal */
+            additionalCharges?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            priceMode?: components["schemas"]["PriceModeEnum"];
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         PatchedSalesCreditNote: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["StatusD0fEnum"];
             customer?: number;
-            readonly customer_name?: string;
-            sales_invoice?: number;
-            readonly invoice_number?: string;
+            readonly customerName?: string;
+            salesInvoice?: number;
+            readonly invoiceNumber?: string;
             /** Format: date */
-            note_date?: string;
+            noteDate?: string;
             reason?: components["schemas"]["Reason260Enum"];
-            reason_detail?: string;
+            reasonDetail?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
+            /** Format: decimal */
+            additionalCharges?: string;
+            chargesHsn?: string;
+            /** Format: decimal */
+            chargesGstRate?: string;
+            /** Format: decimal */
+            readonly tcsAmount?: string;
+            filingPartyGstin?: string;
+            filingPlaceOfSupply?: string;
+            companyGstin?: number | null;
             notes?: string;
             items?: components["schemas"]["SalesCreditNoteItem"][];
-            readonly pdf_status?: components["schemas"]["PdfStatusEnum"];
+            readonly pdfStatus?: components["schemas"]["PdfStatusEnum"];
             /** Format: date-time */
-            readonly completed_at?: string | null;
+            readonly completedAt?: string | null;
             /** Format: date-time */
-            readonly cancelled_at?: string | null;
+            readonly cancelledAt?: string | null;
+            readonly irn?: string;
+            readonly ackNo?: string;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly ackDate?: string | null;
+            readonly einvoiceQr?: string;
+            readonly einvoiceStatus?: components["schemas"]["EinvoiceStatusEnum"];
+            readonly einvoiceError?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
         };
         PatchedSalesDebitNote: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["StatusD0fEnum"];
             customer?: number;
-            readonly customer_name?: string;
-            sales_invoice?: number;
-            readonly invoice_number?: string;
+            readonly customerName?: string;
+            salesInvoice?: number;
+            readonly invoiceNumber?: string;
             /** Format: date */
-            note_date?: string;
+            noteDate?: string;
             reason?: components["schemas"]["Reason260Enum"];
-            reason_detail?: string;
+            reasonDetail?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
+            /** Format: decimal */
+            additionalCharges?: string;
+            chargesHsn?: string;
+            /** Format: decimal */
+            chargesGstRate?: string;
+            /** Format: decimal */
+            readonly tcsAmount?: string;
+            filingPartyGstin?: string;
+            filingPlaceOfSupply?: string;
+            companyGstin?: number | null;
             notes?: string;
             items?: components["schemas"]["SalesDebitNoteItem"][];
-            readonly pdf_status?: components["schemas"]["PdfStatusEnum"];
+            readonly pdfStatus?: components["schemas"]["PdfStatusEnum"];
             /** Format: date-time */
-            readonly completed_at?: string | null;
+            readonly completedAt?: string | null;
             /** Format: date-time */
-            readonly cancelled_at?: string | null;
+            readonly cancelledAt?: string | null;
+            readonly irn?: string;
+            readonly ackNo?: string;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly ackDate?: string | null;
+            readonly einvoiceQr?: string;
+            readonly einvoiceStatus?: components["schemas"]["EinvoiceStatusEnum"];
+            readonly einvoiceError?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
         };
         PatchedSalesInvoice: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["StatusA38Enum"];
-            invoice_type?: components["schemas"]["InvoiceTypeEnum"];
+            invoiceType?: components["schemas"]["InvoiceTypeEnum"];
             customer?: number;
-            readonly customer_name?: string;
+            readonly customerName?: string;
             warehouse?: number | null;
-            cost_center?: number | null;
+            costCenter?: number | null;
             /** Format: date */
-            invoice_date?: string;
+            invoiceDate?: string;
             /** Format: date */
-            due_date?: string | null;
+            dueDate?: string | null;
             /** Format: int64 */
-            payment_terms_days?: number;
+            paymentTermsDays?: number;
             /** Format: decimal */
-            additional_charges?: string;
+            additionalCharges?: string;
+            chargesHsn?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            chargesGstRate?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
             notes?: string;
-            terms_text?: string;
-            include_bank_details?: boolean;
-            include_payment_qr?: boolean;
-            include_terms?: boolean;
+            termsText?: string;
+            includeBankDetails?: boolean;
+            includePaymentQr?: boolean;
+            includeTerms?: boolean;
             signature?: number | null;
             items?: components["schemas"]["SalesItem"][];
-            readonly pdf_status?: components["schemas"]["PdfStatusEnum"];
-            readonly pdf_file?: number | null;
-            readonly einvoice_status?: components["schemas"]["EinvoiceStatusEnum"];
+            readonly pdfStatus?: components["schemas"]["PdfStatusEnum"];
+            readonly pdfFile?: number | null;
+            readonly einvoiceStatus?: components["schemas"]["EinvoiceStatusEnum"];
             readonly irn?: string;
-            readonly ack_no?: string;
+            readonly ackNo?: string;
             /** Format: date-time */
-            readonly ack_date?: string | null;
-            readonly einvoice_qr?: string;
-            readonly einvoice_error?: string;
-            readonly eway_status?: components["schemas"]["EwayStatusEnum"];
-            readonly eway_bill_no?: string;
+            readonly ackDate?: string | null;
+            readonly einvoiceQr?: string;
+            readonly einvoiceError?: string;
+            readonly ewayStatus?: components["schemas"]["EwayStatusEnum"];
+            readonly ewayBillNo?: string;
             /** Format: date-time */
-            readonly eway_valid_upto?: string | null;
-            readonly eway_error?: string;
-            filing_party_gstin?: string;
-            filing_place_of_supply?: string;
-            price_mode?: components["schemas"]["PriceModeEnum"];
-            transporter_name?: string;
-            transporter_id?: string;
-            vehicle_number?: string;
+            readonly ewayValidUpto?: string | null;
+            readonly ewayError?: string;
+            filingPartyGstin?: string;
+            filingPlaceOfSupply?: string;
+            priceMode?: components["schemas"]["PriceModeEnum"];
+            transporterName?: string;
+            transporterId?: string;
+            vehicleNumber?: string;
             /** Format: int64 */
-            transport_distance_km?: number | null;
+            transportDistanceKm?: number | null;
+            subSupplyType?: string;
+            transMode?: string;
+            supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
+            companyGstin?: number | null;
+            isReverseCharge?: boolean;
+            /** Format: decimal */
+            readonly rcmTaxable?: string;
+            /** Format: decimal */
+            readonly rcmCgst?: string;
+            /** Format: decimal */
+            readonly rcmSgst?: string;
+            /** Format: decimal */
+            readonly rcmIgst?: string;
+            /** Format: decimal */
+            readonly rcmCess?: string;
+            ecommerceOperatorGstin?: string;
+            tcsSection?: string;
+            /** Format: decimal */
+            tcsRate?: string;
+            /** Format: decimal */
+            tcsAmount?: string;
+            readonly tcsAmountManual?: boolean;
             readonly received?: string;
             readonly balance?: string;
-            readonly is_opening_balance?: boolean;
+            readonly isOpeningBalance?: boolean;
             /** Format: date-time */
-            readonly completed_at?: string | null;
+            readonly completedAt?: string | null;
             /** Format: date-time */
-            readonly cancelled_at?: string | null;
+            readonly cancelledAt?: string | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
+            readonly whatsappSendStatus?: components["schemas"]["WhatsappSendStatusEnum"];
+            readonly whatsappMessageId?: string;
+            readonly whatsappShareLink?: string;
+            /** Format: date-time */
+            readonly whatsappSentAt?: string | null;
+            readonly whatsappOffer?: string;
+            readonly paymentState?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
         };
         PatchedSalesOrder: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["SalesOrderStatusEnum"];
             customer?: number;
-            readonly customer_name?: string;
-            invoice_type?: components["schemas"]["InvoiceTypeEnum"];
+            readonly customerName?: string;
+            warehouse?: number | null;
+            invoiceType?: components["schemas"]["InvoiceTypeEnum"];
             /** Format: date */
-            order_date?: string;
+            orderDate?: string;
             /** Format: date */
-            expected_delivery?: string | null;
+            expectedDelivery?: string | null;
             /** Format: int64 */
-            payment_terms_days?: number;
+            paymentTermsDays?: number;
             /** Format: decimal */
-            additional_charges?: string;
+            additionalCharges?: string;
+            chargesHsn?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            chargesGstRate?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
             notes?: string;
-            terms_text?: string;
+            termsText?: string;
             items?: components["schemas"]["SalesOrderItem"][];
-            readonly converted_invoice?: number | null;
+            supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
+            companyGstin?: number | null;
+            readonly convertedInvoice?: number | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
         };
         PatchedSalesReturn: {
             readonly id?: number;
             readonly number?: string;
             readonly status?: components["schemas"]["StatusD0fEnum"];
             customer?: number;
-            readonly customer_name?: string;
-            sales_invoice?: number;
+            readonly customerName?: string;
+            salesInvoice?: number;
             /** Format: date */
-            return_date?: string;
+            returnDate?: string;
             reason?: string;
             items?: components["schemas"]["SalesReturnItem"][];
             /** Format: date-time */
-            readonly completed_at?: string | null;
+            readonly completedAt?: string | null;
             /** Format: date-time */
-            readonly cancelled_at?: string | null;
+            readonly cancelledAt?: string | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
-            readonly discount_total?: string;
+            readonly discountTotal?: string;
             /** Format: decimal */
-            readonly taxable_total?: string;
+            readonly taxableTotal?: string;
             /** Format: decimal */
-            readonly cgst_total?: string;
+            readonly cgstTotal?: string;
             /** Format: decimal */
-            readonly sgst_total?: string;
+            readonly sgstTotal?: string;
             /** Format: decimal */
-            readonly igst_total?: string;
+            readonly igstTotal?: string;
             /** Format: decimal */
-            readonly round_off?: string;
+            readonly cessTotal?: string;
             /** Format: decimal */
-            readonly grand_total?: string;
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
         };
         PatchedSerialNumber: {
             readonly id?: number;
             product?: number;
+            readonly productName?: string;
             warehouse?: number | null;
-            serial_number?: string;
+            readonly warehouseName?: string;
+            serialNumber?: string;
             status?: components["schemas"]["SerialNumberStatusEnum"];
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
+        };
+        PatchedStockCountSession: {
+            readonly id?: number;
+            warehouse?: number;
+            readonly warehouseName?: string;
+            readonly status?: components["schemas"]["StockCountSessionStatusEnum"];
+            /** Format: date */
+            countedOn?: string | null;
+            notes?: string;
+            /** Format: date-time */
+            readonly postedAt?: string | null;
+            lines?: components["schemas"]["StockCountLine"][];
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         PatchedStockTransfer: {
             readonly id?: number;
             readonly number?: string;
-            from_warehouse?: number;
-            to_warehouse?: number;
+            fromWarehouse?: number;
+            readonly fromWarehouseName?: string;
+            toWarehouse?: number;
+            readonly toWarehouseName?: string;
             readonly status?: components["schemas"]["StatusD0fEnum"];
             notes?: string;
             lines?: components["schemas"]["StockTransferLine"][];
             /** Format: date-time */
-            readonly completed_at?: string | null;
+            readonly completedAt?: string | null;
             /** Format: date-time */
-            readonly cancelled_at?: string | null;
+            readonly cancelledAt?: string | null;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
         };
         PatchedSupplier: {
             readonly id?: number;
@@ -6783,16 +10796,18 @@ export interface components {
             gstin?: string;
             address?: string;
             state?: string;
-            is_active?: boolean;
+            isActive?: boolean;
             notes?: string;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
-            readonly gstin_verification_status?: string;
-            readonly gstin_legal_name?: string;
+            readonly updatedAt?: string;
+            readonly gstinVerificationStatus?: string;
+            readonly gstinLegalName?: string;
             /** Format: date-time */
-            readonly gstin_verified_at?: string | null;
+            readonly gstinVerifiedAt?: string | null;
+            taxpayerType?: components["schemas"]["TaxpayerTypeEnum"] | components["schemas"]["BlankEnum"];
+            readonly outstanding?: string;
         };
         PatchedTaxRate: {
             readonly id?: number;
@@ -6803,57 +10818,144 @@ export interface components {
         PatchedUnit: {
             readonly id?: number;
             name?: string;
-            short_name?: string;
-            uqc_code?: string;
+            shortName?: string;
+            uqcCode?: string;
         };
         PatchedWarehouse: {
             readonly id?: number;
             name?: string;
             code?: string;
             address?: string;
-            is_default?: boolean;
-            is_active?: boolean;
+            isDefault?: boolean;
+            isActive?: boolean;
             /** Format: date-time */
-            readonly created_at?: string;
+            readonly createdAt?: string;
             /** Format: date-time */
-            readonly updated_at?: string;
+            readonly updatedAt?: string;
+        };
+        PatchedWarehouseReorderLevel: {
+            readonly id?: number;
+            warehouse?: number;
+            readonly warehouseName?: string;
+            product?: number;
+            readonly productName?: string;
+            /** Format: decimal */
+            reorderLevel?: string;
+        };
+        PatchedWorkOrder: {
+            readonly id?: number;
+            bom?: number;
+            /** Format: decimal */
+            qty?: string;
+            readonly status?: components["schemas"]["WorkOrderStatusEnum"];
+            warehouse?: number | null;
+            serialNumbers?: unknown;
+            componentLines?: components["schemas"]["WorkOrderLine"][];
+            batchNo?: string;
+            /** Format: date */
+            expDate?: string | null;
+            /** Format: date */
+            mfgDate?: string | null;
+            batch?: number | null;
+            /** Format: date */
+            readonly releasedAt?: string | null;
+            /** Format: date */
+            readonly completedAt?: string | null;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
+        PayRun: {
+            readonly id: number;
+            /** @description YYYY-MM */
+            period: string;
+            readonly status: components["schemas"]["PayRunStatusEnum"];
+            readonly slips: components["schemas"]["PaySlip"][];
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        /**
+         * @description * `DRAFT` - Draft
+         *     * `COMPLETED` - Completed
+         * @enum {string}
+         */
+        PayRunStatusEnum: "DRAFT" | "COMPLETED";
+        PaySlip: {
+            readonly id: number;
+            employee: number;
+            readonly employeeName: string;
+            /** Format: decimal */
+            gross: string;
+            /** Format: int64 */
+            periodDays?: number | null;
+            /** Format: decimal */
+            paidDays?: string | null;
+            /** Format: decimal */
+            deductions?: string;
+            /** Format: decimal */
+            net: string;
+            /** Format: decimal */
+            pfEmployee?: string;
+            /** Format: decimal */
+            esiEmployee?: string;
+            /** Format: decimal */
+            ptAmount?: string;
+            /** Format: decimal */
+            pfEmployer?: string;
+            /** Format: decimal */
+            pfEmployerEps?: string;
+            /** Format: decimal */
+            pfEmployerEpf?: string;
+            /** Format: decimal */
+            pfAdminCharges?: string;
+            /** Format: decimal */
+            edliCharges?: string;
+            /** Format: decimal */
+            esiEmployer?: string;
+            /** Format: decimal */
+            tdsAmount?: string;
         };
         PaymentAllocation: {
             readonly id: number;
             receipt?: number | null;
-            supplier_payment?: number | null;
-            sales_invoice?: number | null;
-            purchase_invoice?: number | null;
+            supplierPayment?: number | null;
+            salesInvoice?: number | null;
+            purchaseInvoice?: number | null;
             /** Format: decimal */
             amount: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly reversedAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
         };
         PaymentLink: {
             readonly id: number;
             readonly token: string;
-            sales_invoice?: number | null;
+            salesInvoice?: number | null;
             /** @default  */
-            readonly invoice_number: string;
+            readonly invoiceNumber: string;
             customer?: number | null;
             /** @default  */
-            readonly customer_name: string;
+            readonly customerName: string;
             /** Format: decimal */
             amount: string;
-            allow_partial?: boolean;
+            allowPartial?: boolean;
             readonly status: components["schemas"]["PaymentLinkStatusEnum"];
             /** Format: date-time */
-            expires_at?: string | null;
+            expiresAt?: string | null;
             /** @default razorpay */
             provider: string;
-            readonly provider_link_id: string;
+            readonly providerLinkId: string;
             /** Format: uri */
-            readonly provider_short_url: string;
-            readonly paid_receipt: number | null;
+            readonly providerShortUrl: string;
+            readonly paidReceipt: number | null;
             notes?: string;
-            readonly public_path: string;
+            readonly publicPath: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
         /**
          * @description * `CREATED` - Created
@@ -6865,6 +10967,12 @@ export interface components {
          * @enum {string}
          */
         PaymentLinkStatusEnum: "CREATED" | "SENT" | "PARTIALLY_PAID" | "PAID" | "EXPIRED" | "CANCELLED";
+        PaymentMode: {
+            readonly id: number;
+            name: string;
+            code?: string;
+            isActive?: boolean;
+        };
         /**
          * @description * `NONE` - None
          *     * `QUEUED` - Queued
@@ -6876,18 +10984,24 @@ export interface components {
         PriceList: {
             readonly id: number;
             name: string;
-            is_active?: boolean;
+            isActive?: boolean;
             items?: components["schemas"]["PriceListItem"][];
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
         };
         PriceListItem: {
             readonly id: number;
             product: number;
             /** Format: decimal */
-            unit_price: string;
+            unitPrice: string;
+            /** Format: decimal */
+            minQty?: string;
+            /** Format: decimal */
+            maxQty?: string | null;
+            /** Format: decimal */
+            discountPct?: string;
         };
         /**
          * @description * `EXCLUSIVE` - Tax exclusive
@@ -6900,99 +11014,127 @@ export interface components {
             name: string;
             sku?: string;
             barcode?: string;
-            hsn_code?: string;
+            hsnCode?: string;
             description?: string;
             category?: number | null;
-            readonly category_name: string;
+            readonly categoryName: string;
             brand?: number | null;
-            readonly brand_name: string;
+            readonly brandName: string;
             unit?: number | null;
-            readonly unit_name: string;
+            readonly unitName: string;
             /** Format: decimal */
-            gst_rate?: string;
+            gstRate?: string;
             /** Format: decimal */
-            purchase_price?: string;
+            cessRate?: string;
             /** Format: decimal */
-            selling_price?: string;
+            cessAmount?: string;
+            /** Format: decimal */
+            purchasePrice?: string;
+            /** Format: decimal */
+            sellingPrice?: string;
             /** Format: decimal */
             mrp?: string;
             /** Format: decimal */
-            reorder_level?: string;
-            track_batch?: boolean;
-            track_serial?: boolean;
-            status?: components["schemas"]["ProductStatusEnum"];
+            wholesalePrice?: string;
+            /** Format: decimal */
+            reorderLevel?: string;
+            productType?: components["schemas"]["ProductTypeEnum"];
+            trackInventory?: boolean;
+            trackBatch?: boolean;
+            trackSerial?: boolean;
+            regulatedCategory?: components["schemas"]["RegulatedCategoryEnum"];
+            sellingTaxInclusive?: boolean;
+            purchaseTaxInclusive?: boolean;
+            customFields?: unknown;
+            alternateUnit?: number | null;
+            readonly alternateUnitName: string;
+            /** Format: decimal */
+            conversionRate?: string;
+            /** Format: decimal */
+            defaultDiscountPercent?: string;
+            readonly hasMovements: boolean;
+            status?: components["schemas"]["Status372Enum"];
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
         };
         /**
-         * @description * `ACTIVE` - Active
-         *     * `INACTIVE` - Inactive
+         * @description * `GOODS` - Goods
+         *     * `SERVICE` - Service
          * @enum {string}
          */
-        ProductStatusEnum: "ACTIVE" | "INACTIVE";
+        ProductTypeEnum: "GOODS" | "SERVICE";
         PurchaseCreditNote: {
             readonly id: number;
             readonly number: string;
             readonly status: components["schemas"]["StatusD0fEnum"];
             supplier: number;
-            readonly supplier_name: string;
-            purchase_invoice?: number | null;
-            supplier_note_number?: string;
+            readonly supplierName: string;
+            purchaseInvoice?: number | null;
+            supplierNoteNumber?: string;
             /** Format: date */
-            note_date?: string;
+            noteDate?: string;
             reason?: components["schemas"]["Reason9b6Enum"];
-            reason_detail?: string;
+            reasonDetail?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            additionalCharges?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
             notes?: string;
             items: components["schemas"]["PurchaseCreditNoteItem"][];
             /** Format: date-time */
-            readonly completed_at: string | null;
+            readonly completedAt: string | null;
             /** Format: date-time */
-            readonly cancelled_at: string | null;
+            readonly cancelledAt: string | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         PurchaseCreditNoteItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
-            readonly hsn_code: string;
-            readonly unit_name: string;
-            readonly uqc_code: string;
+            gstRate?: string;
             /** Format: decimal */
-            readonly taxable_amount: string;
+            cessRate?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            sourceItem?: number | null;
+            readonly hsnCode: string;
+            unitName?: string;
+            readonly uqcCode: string;
+            /** Format: decimal */
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -7000,69 +11142,80 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         PurchaseDebitNote: {
             readonly id: number;
             readonly number: string;
             readonly status: components["schemas"]["StatusD0fEnum"];
             supplier: number;
-            readonly supplier_name: string;
-            purchase_invoice?: number | null;
-            supplier_note_number?: string;
+            readonly supplierName: string;
+            purchaseInvoice?: number | null;
+            supplierNoteNumber?: string;
             /** Format: date */
-            note_date?: string;
+            noteDate?: string;
             reason?: components["schemas"]["Reason9b6Enum"];
-            reason_detail?: string;
+            reasonDetail?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            additionalCharges?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
             notes?: string;
             items: components["schemas"]["PurchaseDebitNoteItem"][];
             /** Format: date-time */
-            readonly completed_at: string | null;
+            readonly completedAt: string | null;
             /** Format: date-time */
-            readonly cancelled_at: string | null;
+            readonly cancelledAt: string | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         PurchaseDebitNoteItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
-            readonly hsn_code: string;
-            readonly unit_name: string;
-            readonly uqc_code: string;
+            gstRate?: string;
             /** Format: decimal */
-            readonly taxable_amount: string;
+            cessRate?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            sourceItem?: number | null;
+            readonly hsnCode: string;
+            unitName?: string;
+            readonly uqcCode: string;
+            /** Format: decimal */
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -7070,104 +11223,135 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         PurchaseInvoice: {
             readonly id: number;
             readonly number: string;
             readonly status: components["schemas"]["StatusA38Enum"];
-            purchase_type?: components["schemas"]["PurchaseTypeEnum"];
+            purchaseType?: components["schemas"]["PurchaseTypeEnum"];
             supplier: number;
-            readonly supplier_name: string;
+            readonly supplierName: string;
             warehouse?: number | null;
-            cost_center?: number | null;
+            costCenter?: number | null;
             /** Format: date */
-            invoice_date?: string;
+            invoiceDate?: string;
             /** Format: date */
-            due_date?: string | null;
+            dueDate?: string | null;
             /** Format: int64 */
-            payment_terms_days?: number;
+            paymentTermsDays?: number;
             /** Format: decimal */
-            additional_charges?: string;
+            additionalCharges?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
-            supplier_bill_number?: string;
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
+            supplierBillNumber?: string;
             notes?: string;
-            terms_text?: string;
-            include_bank_details?: boolean;
-            include_payment_qr?: boolean;
-            include_terms?: boolean;
+            termsText?: string;
+            includeBankDetails?: boolean;
+            includePaymentQr?: boolean;
+            includeTerms?: boolean;
             signature?: number | null;
             attachment?: number | null;
             items: components["schemas"]["PurchaseItem"][];
-            is_reverse_charge?: boolean;
+            isReverseCharge?: boolean;
+            /**
+             * @description BB-000614: never claim ITC until explicitly marked CLAIMABLE.
+             *
+             *     * `UNREVIEWED` - Unreviewed
+             *     * `CLAIMABLE` - Claimable
+             *     * `INELIGIBLE` - Ineligible
+             *     * `REVERSED` - Reversed
+             */
+            itcEligibility?: components["schemas"]["ItcEligibility28fEnum"];
             /** Format: decimal */
-            readonly rcm_taxable: string;
+            readonly rcmTaxable: string;
             /** Format: decimal */
-            readonly rcm_cgst: string;
+            readonly rcmCgst: string;
             /** Format: decimal */
-            readonly rcm_sgst: string;
+            readonly rcmSgst: string;
             /** Format: decimal */
-            readonly rcm_igst: string;
-            price_mode?: components["schemas"]["PriceModeEnum"];
+            readonly rcmIgst: string;
+            /** Format: decimal */
+            readonly rcmCess: string;
+            companyGstin?: number | null;
+            priceMode?: components["schemas"]["PriceModeEnum"];
+            tdsSection?: string;
+            /** Format: decimal */
+            tdsRate?: string;
+            /** Format: decimal */
+            tdsAmount?: string;
+            billOfEntry?: number | null;
             readonly paid: string;
             readonly balance: string;
             /** Format: date-time */
-            readonly completed_at: string | null;
+            readonly completedAt: string | null;
             /** Format: date-time */
-            readonly cancelled_at: string | null;
+            readonly cancelledAt: string | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         PurchaseItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
-            readonly hsn_code: string;
+            gstRate?: string;
+            /** Format: decimal */
+            cessRate?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            readonly hsnCode: string;
             /** Format: decimal */
             readonly mrp: string;
-            readonly unit_name: string;
-            readonly uqc_code: string;
+            unitName?: string;
+            readonly uqcCode: string;
             /** Format: decimal */
-            unit_price_inclusive?: string | null;
+            unitPriceInclusive?: string | null;
             batch?: number | null;
-            batch_no?: string;
+            batchNo?: string;
             /** Format: date */
-            exp_date?: string | null;
+            expDate?: string | null;
             /** Format: date */
-            mfg_date?: string | null;
-            serial_numbers?: unknown;
+            mfgDate?: string | null;
+            serialNumbers?: unknown;
             /** Format: decimal */
-            readonly taxable_amount: string;
+            readonly appliedRate: string;
+            readonly rateVersion: string;
+            rateOverride?: boolean;
+            rateOverrideReason?: string;
+            /** Format: decimal */
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -7175,67 +11359,75 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         PurchaseOrder: {
             readonly id: number;
             readonly number: string;
             readonly status: components["schemas"]["Status4a7Enum"];
             supplier: number;
-            readonly supplier_name: string;
-            purchase_type?: components["schemas"]["PurchaseTypeEnum"];
+            readonly supplierName: string;
+            purchaseType?: components["schemas"]["PurchaseTypeEnum"];
             /** Format: date */
-            order_date?: string;
+            orderDate?: string;
             /** Format: date */
-            expected_delivery?: string | null;
+            expectedDelivery?: string | null;
             /** Format: int64 */
-            payment_terms_days?: number;
+            paymentTermsDays?: number;
             /** Format: decimal */
-            additional_charges?: string;
+            additionalCharges?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
             notes?: string;
-            terms_text?: string;
+            termsText?: string;
             items: components["schemas"]["PurchaseOrderItem"][];
-            readonly converted_purchase: number | null;
+            readonly convertedPurchase: number | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         PurchaseOrderItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
+            gstRate?: string;
             /** Format: decimal */
-            readonly taxable_amount: string;
+            cessRate?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            /** Format: decimal */
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -7243,59 +11435,67 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         PurchaseReturn: {
             readonly id: number;
             readonly number: string;
             readonly status: components["schemas"]["StatusD0fEnum"];
             supplier: number;
-            readonly supplier_name: string;
-            purchase_invoice?: number | null;
+            readonly supplierName: string;
+            purchaseInvoice?: number | null;
             /** Format: date */
-            return_date?: string;
+            returnDate?: string;
             reason?: string;
             items: components["schemas"]["PurchaseReturnItem"][];
             /** Format: date-time */
-            readonly completed_at: string | null;
+            readonly completedAt: string | null;
             /** Format: date-time */
-            readonly cancelled_at: string | null;
+            readonly cancelledAt: string | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         PurchaseReturnItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
+            gstRate?: string;
+            batch?: number | null;
+            serialNumbers?: unknown;
+            condition?: components["schemas"]["ConditionEnum"];
+            unitName?: string;
             /** Format: decimal */
-            readonly taxable_amount: string;
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -7303,7 +11503,9 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         /**
          * @description * `GST` - Gst
@@ -7315,52 +11517,77 @@ export interface components {
             readonly id: number;
             readonly number: string;
             readonly status: components["schemas"]["Status4a7Enum"];
-            invoice_type?: components["schemas"]["InvoiceTypeEnum"];
+            invoiceType?: components["schemas"]["InvoiceTypeEnum"];
             customer: number;
-            readonly customer_name: string;
+            readonly customerName: string;
             /** Format: date */
-            quotation_date?: string;
+            quotationDate?: string;
             /** Format: date */
-            valid_until?: string | null;
+            validUntil?: string | null;
             notes?: string;
+            termsText?: string;
+            /** Format: int64 */
+            paymentTermsDays?: number;
+            /** Format: decimal */
+            additionalCharges?: string;
+            chargesHsn?: string;
+            /** Format: decimal */
+            chargesGstRate?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
+            supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
+            companyGstin?: number | null;
             items: components["schemas"]["QuotationItem"][];
-            readonly converted_invoice: number | null;
+            readonly convertedInvoice: number | null;
+            readonly convertedOrder: number | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         QuotationItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
+            gstRate?: string;
             /** Format: decimal */
-            readonly taxable_amount: string;
+            cessRate?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            hsnCode?: string;
+            supplyNature?: string;
+            /** Format: decimal */
+            unitPriceInclusive?: string | null;
+            /** Format: decimal */
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -7368,7 +11595,9 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         /**
          * @description * `SALES_RETURN` - Sales return
@@ -7389,6 +11618,28 @@ export interface components {
          * @enum {string}
          */
         Reason9b6Enum: "SALES_RETURN" | "PURCHASE_RETURN" | "POST_SALE_DISCOUNT" | "DEFICIENCY_IN_SERVICE" | "CORRECTION_OF_INVOICE" | "OTHERS";
+        RecurringInvoiceSchedule: {
+            readonly id: number;
+            customer: number;
+            readonly customerName: string;
+            companyGstin?: number | null;
+            cadence?: components["schemas"]["CadenceEnum"];
+            /** Format: date-time */
+            nextRunAt: string;
+            isActive?: boolean;
+            lineTemplate?: unknown;
+            notes?: string;
+            /** Format: decimal */
+            additionalCharges?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            priceMode?: components["schemas"]["PriceModeEnum"];
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
         /**
          * @description * `REGULAR` - Regular
          *     * `COMPOSITION` - Composition
@@ -7396,69 +11647,100 @@ export interface components {
          * @enum {string}
          */
         RegistrationTypeEnum: "REGULAR" | "COMPOSITION" | "UNREGISTERED";
+        /**
+         * @description * `NONE` - Not regulated
+         *     * `DRUG` - Drug / pharmaceutical
+         *     * `FOOD` - Food (FSSAI)
+         * @enum {string}
+         */
+        RegulatedCategoryEnum: "NONE" | "DRUG" | "FOOD";
         SalesCreditNote: {
             readonly id: number;
             readonly number: string;
             readonly status: components["schemas"]["StatusD0fEnum"];
             customer: number;
-            readonly customer_name: string;
-            sales_invoice: number;
-            readonly invoice_number: string;
+            readonly customerName: string;
+            salesInvoice: number;
+            readonly invoiceNumber: string;
             /** Format: date */
-            note_date?: string;
+            noteDate?: string;
             reason?: components["schemas"]["Reason260Enum"];
-            reason_detail?: string;
+            reasonDetail?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
+            /** Format: decimal */
+            additionalCharges?: string;
+            chargesHsn?: string;
+            /** Format: decimal */
+            chargesGstRate?: string;
+            /** Format: decimal */
+            readonly tcsAmount: string;
+            filingPartyGstin?: string;
+            filingPlaceOfSupply?: string;
+            companyGstin?: number | null;
             notes?: string;
             items: components["schemas"]["SalesCreditNoteItem"][];
-            readonly pdf_status: components["schemas"]["PdfStatusEnum"];
+            readonly pdfStatus: components["schemas"]["PdfStatusEnum"];
             /** Format: date-time */
-            readonly completed_at: string | null;
+            readonly completedAt: string | null;
             /** Format: date-time */
-            readonly cancelled_at: string | null;
+            readonly cancelledAt: string | null;
+            readonly irn: string;
+            readonly ackNo: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly ackDate: string | null;
+            readonly einvoiceQr: string;
+            readonly einvoiceStatus: components["schemas"]["EinvoiceStatusEnum"];
+            readonly einvoiceError: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         SalesCreditNoteItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
-            source_item?: number | null;
-            readonly hsn_code: string;
-            readonly unit_name: string;
-            readonly uqc_code: string;
+            gstRate?: string;
             /** Format: decimal */
-            readonly taxable_amount: string;
+            cessRate?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            sourceItem?: number | null;
+            readonly hsnCode: string;
+            unitName?: string;
+            readonly uqcCode: string;
+            supplyNature?: components["schemas"]["SupplyNatureEnum"];
+            /** Format: decimal */
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -7466,71 +11748,97 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         SalesDebitNote: {
             readonly id: number;
             readonly number: string;
             readonly status: components["schemas"]["StatusD0fEnum"];
             customer: number;
-            readonly customer_name: string;
-            sales_invoice: number;
-            readonly invoice_number: string;
+            readonly customerName: string;
+            salesInvoice: number;
+            readonly invoiceNumber: string;
             /** Format: date */
-            note_date?: string;
+            noteDate?: string;
             reason?: components["schemas"]["Reason260Enum"];
-            reason_detail?: string;
+            reasonDetail?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
+            /** Format: decimal */
+            additionalCharges?: string;
+            chargesHsn?: string;
+            /** Format: decimal */
+            chargesGstRate?: string;
+            /** Format: decimal */
+            readonly tcsAmount: string;
+            filingPartyGstin?: string;
+            filingPlaceOfSupply?: string;
+            companyGstin?: number | null;
             notes?: string;
             items: components["schemas"]["SalesDebitNoteItem"][];
-            readonly pdf_status: components["schemas"]["PdfStatusEnum"];
+            readonly pdfStatus: components["schemas"]["PdfStatusEnum"];
             /** Format: date-time */
-            readonly completed_at: string | null;
+            readonly completedAt: string | null;
             /** Format: date-time */
-            readonly cancelled_at: string | null;
+            readonly cancelledAt: string | null;
+            readonly irn: string;
+            readonly ackNo: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly ackDate: string | null;
+            readonly einvoiceQr: string;
+            readonly einvoiceStatus: components["schemas"]["EinvoiceStatusEnum"];
+            readonly einvoiceError: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         SalesDebitNoteItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
-            source_item?: number | null;
-            readonly hsn_code: string;
-            readonly unit_name: string;
-            readonly uqc_code: string;
+            gstRate?: string;
             /** Format: decimal */
-            readonly taxable_amount: string;
+            cessRate?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            sourceItem?: number | null;
+            readonly hsnCode: string;
+            unitName?: string;
+            readonly uqcCode: string;
+            supplyNature?: components["schemas"]["SupplyNatureEnum"];
+            /** Format: decimal */
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -7538,115 +11846,162 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         SalesInvoice: {
             readonly id: number;
             readonly number: string;
             readonly status: components["schemas"]["StatusA38Enum"];
-            invoice_type?: components["schemas"]["InvoiceTypeEnum"];
+            invoiceType?: components["schemas"]["InvoiceTypeEnum"];
             customer: number;
-            readonly customer_name: string;
+            readonly customerName: string;
             warehouse?: number | null;
-            cost_center?: number | null;
+            costCenter?: number | null;
             /** Format: date */
-            invoice_date?: string;
+            invoiceDate?: string;
             /** Format: date */
-            due_date?: string | null;
+            dueDate?: string | null;
             /** Format: int64 */
-            payment_terms_days?: number;
+            paymentTermsDays?: number;
             /** Format: decimal */
-            additional_charges?: string;
+            additionalCharges?: string;
+            chargesHsn?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            chargesGstRate?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
             notes?: string;
-            terms_text?: string;
-            include_bank_details?: boolean;
-            include_payment_qr?: boolean;
-            include_terms?: boolean;
+            termsText?: string;
+            includeBankDetails?: boolean;
+            includePaymentQr?: boolean;
+            includeTerms?: boolean;
             signature?: number | null;
             items: components["schemas"]["SalesItem"][];
-            readonly pdf_status: components["schemas"]["PdfStatusEnum"];
-            readonly pdf_file: number | null;
-            readonly einvoice_status: components["schemas"]["EinvoiceStatusEnum"];
+            readonly pdfStatus: components["schemas"]["PdfStatusEnum"];
+            readonly pdfFile: number | null;
+            readonly einvoiceStatus: components["schemas"]["EinvoiceStatusEnum"];
             readonly irn: string;
-            readonly ack_no: string;
+            readonly ackNo: string;
             /** Format: date-time */
-            readonly ack_date: string | null;
-            readonly einvoice_qr: string;
-            readonly einvoice_error: string;
-            readonly eway_status: components["schemas"]["EwayStatusEnum"];
-            readonly eway_bill_no: string;
+            readonly ackDate: string | null;
+            readonly einvoiceQr: string;
+            readonly einvoiceError: string;
+            readonly ewayStatus: components["schemas"]["EwayStatusEnum"];
+            readonly ewayBillNo: string;
             /** Format: date-time */
-            readonly eway_valid_upto: string | null;
-            readonly eway_error: string;
-            filing_party_gstin?: string;
-            filing_place_of_supply?: string;
-            price_mode?: components["schemas"]["PriceModeEnum"];
-            transporter_name?: string;
-            transporter_id?: string;
-            vehicle_number?: string;
+            readonly ewayValidUpto: string | null;
+            readonly ewayError: string;
+            filingPartyGstin?: string;
+            filingPlaceOfSupply?: string;
+            priceMode?: components["schemas"]["PriceModeEnum"];
+            transporterName?: string;
+            transporterId?: string;
+            vehicleNumber?: string;
             /** Format: int64 */
-            transport_distance_km?: number | null;
+            transportDistanceKm?: number | null;
+            subSupplyType?: string;
+            transMode?: string;
+            supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
+            companyGstin?: number | null;
+            isReverseCharge?: boolean;
+            /** Format: decimal */
+            readonly rcmTaxable: string;
+            /** Format: decimal */
+            readonly rcmCgst: string;
+            /** Format: decimal */
+            readonly rcmSgst: string;
+            /** Format: decimal */
+            readonly rcmIgst: string;
+            /** Format: decimal */
+            readonly rcmCess: string;
+            ecommerceOperatorGstin?: string;
+            tcsSection?: string;
+            /** Format: decimal */
+            tcsRate?: string;
+            /** Format: decimal */
+            tcsAmount?: string;
+            readonly tcsAmountManual: boolean;
             readonly received: string;
             readonly balance: string;
-            readonly is_opening_balance: boolean;
+            readonly isOpeningBalance: boolean;
             /** Format: date-time */
-            readonly completed_at: string | null;
+            readonly completedAt: string | null;
             /** Format: date-time */
-            readonly cancelled_at: string | null;
+            readonly cancelledAt: string | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
+            readonly whatsappSendStatus: components["schemas"]["WhatsappSendStatusEnum"];
+            readonly whatsappMessageId: string;
+            readonly whatsappShareLink: string;
+            /** Format: date-time */
+            readonly whatsappSentAt: string | null;
+            readonly whatsappOffer: string;
+            readonly paymentState: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         SalesItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
-            readonly hsn_code: string;
+            gstRate?: string;
+            /** Format: decimal */
+            cessRate?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            readonly hsnCode: string;
             /** Format: decimal */
             readonly mrp: string;
-            readonly unit_name: string;
-            readonly uqc_code: string;
+            unitName?: string;
+            readonly uqcCode: string;
             /** Format: decimal */
-            unit_price_inclusive?: string | null;
+            unitPriceInclusive?: string | null;
             batch?: number | null;
-            batch_no?: string;
+            batchNo?: string;
             /** Format: date */
-            exp_date?: string | null;
+            expDate?: string | null;
             /** Format: date */
-            mfg_date?: string | null;
-            serial_numbers?: unknown;
+            mfgDate?: string | null;
+            serialNumbers?: unknown;
+            supplyNature?: components["schemas"]["SupplyNatureEnum"];
             /** Format: decimal */
-            readonly taxable_amount: string;
+            readonly appliedRate: string;
+            readonly rateVersion: string;
+            rateOverride?: boolean;
+            rateOverrideReason?: string;
+            readonly appliedPriceListName: string;
+            /** Format: decimal */
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -7654,67 +12009,81 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         SalesOrder: {
             readonly id: number;
             readonly number: string;
             readonly status: components["schemas"]["SalesOrderStatusEnum"];
             customer: number;
-            readonly customer_name: string;
-            invoice_type?: components["schemas"]["InvoiceTypeEnum"];
+            readonly customerName: string;
+            warehouse?: number | null;
+            invoiceType?: components["schemas"]["InvoiceTypeEnum"];
             /** Format: date */
-            order_date?: string;
+            orderDate?: string;
             /** Format: date */
-            expected_delivery?: string | null;
+            expectedDelivery?: string | null;
             /** Format: int64 */
-            payment_terms_days?: number;
+            paymentTermsDays?: number;
             /** Format: decimal */
-            additional_charges?: string;
+            additionalCharges?: string;
+            chargesHsn?: string;
             /** Format: decimal */
-            invoice_discount?: string;
-            invoice_discount_mode?: components["schemas"]["InvoiceDiscountModeEnum"];
-            auto_round_off?: boolean;
+            chargesGstRate?: string;
+            /** Format: decimal */
+            invoiceDiscount?: string;
+            invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
+            autoRoundOff?: boolean;
             notes?: string;
-            terms_text?: string;
+            termsText?: string;
             items: components["schemas"]["SalesOrderItem"][];
-            readonly converted_invoice: number | null;
+            supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
+            companyGstin?: number | null;
+            readonly convertedInvoice: number | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         SalesOrderItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
+            gstRate?: string;
             /** Format: decimal */
-            readonly taxable_amount: string;
+            cessRate?: string;
+            /** Format: decimal */
+            cessAmount?: string;
+            /** Format: decimal */
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -7722,7 +12091,9 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         /**
          * @description * `DRAFT` - Draft
@@ -7737,52 +12108,56 @@ export interface components {
             readonly number: string;
             readonly status: components["schemas"]["StatusD0fEnum"];
             customer: number;
-            readonly customer_name: string;
-            sales_invoice: number;
+            readonly customerName: string;
+            salesInvoice: number;
             /** Format: date */
-            return_date?: string;
+            returnDate?: string;
             reason?: string;
             items: components["schemas"]["SalesReturnItem"][];
             /** Format: date-time */
-            readonly completed_at: string | null;
+            readonly completedAt: string | null;
             /** Format: date-time */
-            readonly cancelled_at: string | null;
+            readonly cancelledAt: string | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
-            readonly discount_total: string;
+            readonly discountTotal: string;
             /** Format: decimal */
-            readonly taxable_total: string;
+            readonly taxableTotal: string;
             /** Format: decimal */
-            readonly cgst_total: string;
+            readonly cgstTotal: string;
             /** Format: decimal */
-            readonly sgst_total: string;
+            readonly sgstTotal: string;
             /** Format: decimal */
-            readonly igst_total: string;
+            readonly igstTotal: string;
             /** Format: decimal */
-            readonly round_off: string;
+            readonly cessTotal: string;
             /** Format: decimal */
-            readonly grand_total: string;
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
         };
         SalesReturnItem: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
-            unit_price?: string;
+            unitPrice?: string;
             /** Format: decimal */
-            discount_percent?: string;
+            discountPercent?: string;
             /** Format: decimal */
-            gst_rate?: string;
+            gstRate?: string;
+            serialNumbers?: unknown;
+            condition?: components["schemas"]["ConditionEnum"];
             /** Format: decimal */
-            readonly taxable_amount: string;
+            readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
             /** Format: decimal */
@@ -7790,18 +12165,22 @@ export interface components {
             /** Format: decimal */
             readonly igst: string;
             /** Format: decimal */
-            readonly line_total: string;
+            readonly cess: string;
+            /** Format: decimal */
+            readonly lineTotal: string;
         };
         SerialNumber: {
             readonly id: number;
             product: number;
+            readonly productName: string;
             warehouse?: number | null;
-            serial_number: string;
+            readonly warehouseName: string;
+            serialNumber: string;
             status?: components["schemas"]["SerialNumberStatusEnum"];
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
         };
         /**
          * @description * `AVAILABLE` - Available
@@ -7827,6 +12206,19 @@ export interface components {
          */
         SourceEnum: "MANUAL" | "GATEWAY" | "BANK_IMPORT" | "PAYMENT_LINK";
         /**
+         * @description * `OPEN` - Open
+         *     * `WON` - Won
+         *     * `LOST` - Lost
+         * @enum {string}
+         */
+        StageEnum: "OPEN" | "WON" | "LOST";
+        /**
+         * @description * `ACTIVE` - Active
+         *     * `INACTIVE` - Inactive
+         * @enum {string}
+         */
+        Status372Enum: "ACTIVE" | "INACTIVE";
+        /**
          * @description * `DRAFT` - Draft
          *     * `CONVERTED` - Converted
          *     * `CANCELLED` - Cancelled
@@ -7848,56 +12240,112 @@ export interface components {
          * @enum {string}
          */
         StatusD0fEnum: "DRAFT" | "COMPLETED" | "CANCELLED";
+        StatutoryDocumentEvent: {
+            readonly id: number;
+            entityType: string;
+            /** Format: int64 */
+            entityId: number;
+            eventType: components["schemas"]["EventTypeEnum"];
+            payload?: unknown;
+            user?: number | null;
+            /** Format: email */
+            readonly userEmail: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
         StockBalance: {
             readonly id: number;
             warehouse: number;
+            readonly warehouseName: string;
             batch?: number | null;
+            readonly batchNo: string;
+            /** Format: date */
+            readonly nearestExpiry: string;
             product: number;
-            readonly product_name: string;
+            readonly productName: string;
             readonly sku: string;
+            readonly customFields: unknown;
             /** Format: decimal */
-            on_hand?: string;
+            onHand?: string;
             /** Format: decimal */
             reserved?: string;
             /** Format: decimal */
             readonly available: string;
-            /** Format: decimal */
-            readonly reorder_level: string;
+            readonly reorderLevel: string;
         };
+        StockCountLine: {
+            id?: number;
+            product?: number;
+            readonly productName: string;
+            batch?: number | null;
+            readonly batchNo: string;
+            /** Format: decimal */
+            readonly systemQty: string;
+            /** Format: decimal */
+            countedQty?: string | null;
+            /** Format: decimal */
+            readonly variance: string;
+        };
+        StockCountSession: {
+            readonly id: number;
+            warehouse: number;
+            readonly warehouseName: string;
+            readonly status: components["schemas"]["StockCountSessionStatusEnum"];
+            /** Format: date */
+            countedOn?: string | null;
+            notes?: string;
+            /** Format: date-time */
+            readonly postedAt: string | null;
+            lines?: components["schemas"]["StockCountLine"][];
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        /**
+         * @description * `DRAFT` - Draft
+         *     * `COUNTED` - Counted
+         *     * `POSTED` - Posted
+         *     * `CANCELLED` - Cancelled
+         * @enum {string}
+         */
+        StockCountSessionStatusEnum: "DRAFT" | "COUNTED" | "POSTED" | "CANCELLED";
         StockMovement: {
             readonly id: number;
             product: number;
-            readonly product_name: string;
-            movement_type: components["schemas"]["MovementTypeEnum"];
+            readonly productName: string;
+            movementType: components["schemas"]["MovementTypeEnum"];
             /** Format: decimal */
             quantity: string;
             warehouse: number;
             batch?: number | null;
             /** Format: decimal */
-            unit_cost?: string | null;
-            reference_type?: string;
-            reference_id?: string;
+            unitCost?: string | null;
+            referenceType?: string;
+            referenceId?: string;
             reason?: string;
-            created_by?: number | null;
+            createdBy?: number | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
         StockTransfer: {
             readonly id: number;
             readonly number: string;
-            from_warehouse: number;
-            to_warehouse: number;
+            fromWarehouse: number;
+            readonly fromWarehouseName: string;
+            toWarehouse: number;
+            readonly toWarehouseName: string;
             readonly status: components["schemas"]["StatusD0fEnum"];
             notes?: string;
             lines: components["schemas"]["StockTransferLine"][];
             /** Format: date-time */
-            readonly completed_at: string | null;
+            readonly completedAt: string | null;
             /** Format: date-time */
-            readonly cancelled_at: string | null;
+            readonly cancelledAt: string | null;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
         };
         StockTransferLine: {
             readonly id: number;
@@ -7905,7 +12353,7 @@ export interface components {
             batch?: number | null;
             /** Format: decimal */
             quantity: string;
-            serial_numbers?: unknown;
+            serialNumbers?: unknown;
         };
         Supplier: {
             readonly id: number;
@@ -7915,47 +12363,97 @@ export interface components {
             gstin?: string;
             address?: string;
             state?: string;
-            is_active?: boolean;
+            isActive?: boolean;
             notes?: string;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
-            readonly gstin_verification_status: string;
-            readonly gstin_legal_name: string;
+            readonly updatedAt: string;
+            readonly gstinVerificationStatus: string;
+            readonly gstinLegalName: string;
             /** Format: date-time */
-            readonly gstin_verified_at: string | null;
+            readonly gstinVerifiedAt: string | null;
+            taxpayerType?: components["schemas"]["TaxpayerTypeEnum"] | components["schemas"]["BlankEnum"];
+            readonly outstanding: string;
         };
         SupplierPayment: {
             readonly id: number;
             readonly number: string;
             supplier: number;
-            readonly supplier_name: string;
+            readonly supplierName: string;
             /** Format: decimal */
             amount: string;
             mode?: components["schemas"]["ModeEnum"];
             /** Format: date */
-            payment_date?: string;
+            paymentDate?: string;
             reference?: string;
             utr?: string;
             notes?: string;
-            bank_account?: number | null;
+            bankAccount?: number | null;
             /** @default  */
-            readonly bank_account_name: string;
+            readonly bankAccountName: string;
             readonly source: components["schemas"]["SourceEnum"];
+            readonly status: components["schemas"]["SupplierPaymentStatusEnum"];
+            tdsSection?: string;
+            /** Format: decimal */
+            tdsRate?: string;
+            /** Format: decimal */
+            tdsAmount?: string;
             /** Format: double */
             readonly allocated: number;
             /** Format: double */
             readonly unallocated: number;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
         };
+        /**
+         * @description * `POSTED` - Posted
+         *     * `VOIDED` - Voided
+         * @enum {string}
+         */
+        SupplierPaymentStatusEnum: "POSTED" | "VOIDED";
+        /**
+         * @description * `TAXABLE` - Taxable
+         *     * `NIL` - Nil rated
+         *     * `EXEMPT` - Exempt
+         *     * `NON_GST` - Non-GST
+         * @enum {string}
+         */
+        SupplyNatureEnum: "TAXABLE" | "NIL" | "EXEMPT" | "NON_GST";
+        /**
+         * @description * `B2B` - B2B
+         *     * `SEZWP` - SEZ with payment
+         *     * `SEZWOP` - SEZ without payment
+         *     * `EXPWP` - Export with payment
+         *     * `EXPWOP` - Export without payment
+         *     * `DEXP` - Deemed export
+         * @enum {string}
+         */
+        SupplyTypeEnum: "B2B" | "SEZWP" | "SEZWOP" | "EXPWP" | "EXPWOP" | "DEXP";
         TaxRate: {
             readonly id: number;
             name: string;
             /** Format: decimal */
             rate: string;
         };
+        /**
+         * @description * `NEW` - New regime (default)
+         *     * `OLD` - Old regime
+         * @enum {string}
+         */
+        TaxRegimeEnum: "NEW" | "OLD";
+        /**
+         * @description * `REGULAR` - Regular
+         *     * `SEZWP` - SEZ with payment
+         *     * `SEZWOP` - SEZ without payment
+         *     * `EXPWP` - Export with payment
+         *     * `EXPWOP` - Export without payment
+         *     * `DEXP` - Deemed export
+         *     * `COMPOSITION` - Composition
+         *     * `UNREGISTERED` - Unregistered
+         * @enum {string}
+         */
+        TaxpayerTypeEnum: "REGULAR" | "SEZWP" | "SEZWOP" | "EXPWP" | "EXPWOP" | "DEXP" | "COMPOSITION" | "UNREGISTERED";
         TokenObtainPair: {
             email: string;
             password: string;
@@ -7974,21 +12472,82 @@ export interface components {
         Unit: {
             readonly id: number;
             name: string;
-            short_name: string;
-            uqc_code?: string;
+            shortName: string;
+            uqcCode?: string;
         };
         Warehouse: {
             readonly id: number;
             name: string;
             code: string;
             address?: string;
-            is_default?: boolean;
-            is_active?: boolean;
+            isDefault?: boolean;
+            isActive?: boolean;
             /** Format: date-time */
-            readonly created_at: string;
+            readonly createdAt: string;
             /** Format: date-time */
-            readonly updated_at: string;
+            readonly updatedAt: string;
         };
+        WarehouseReorderLevel: {
+            readonly id: number;
+            warehouse: number;
+            readonly warehouseName: string;
+            product: number;
+            readonly productName: string;
+            /** Format: decimal */
+            reorderLevel?: string;
+        };
+        /**
+         * @description * `NONE` - None
+         *     * `QUEUED` - Queued
+         *     * `SENT` - Sent
+         *     * `FALLBACK_LINK` - Fallback Link
+         *     * `FAILED` - Failed
+         * @enum {string}
+         */
+        WhatsappSendStatusEnum: "NONE" | "QUEUED" | "SENT" | "FALLBACK_LINK" | "FAILED";
+        WorkOrder: {
+            readonly id: number;
+            bom: number;
+            /** Format: decimal */
+            qty: string;
+            readonly status: components["schemas"]["WorkOrderStatusEnum"];
+            warehouse?: number | null;
+            serialNumbers?: unknown;
+            componentLines?: components["schemas"]["WorkOrderLine"][];
+            batchNo?: string;
+            /** Format: date */
+            expDate?: string | null;
+            /** Format: date */
+            mfgDate?: string | null;
+            batch?: number | null;
+            /** Format: date */
+            readonly releasedAt: string | null;
+            /** Format: date */
+            readonly completedAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        WorkOrderLine: {
+            readonly id: number;
+            component?: number;
+            /** Format: decimal */
+            readonly qtyPerUnit: string;
+            /** Format: decimal */
+            readonly qty: string;
+            batch?: number | null;
+            lotAllocations?: unknown;
+            serialNumbers?: unknown;
+        };
+        /**
+         * @description * `DRAFT` - Draft
+         *     * `RELEASED` - Released
+         *     * `COMPLETED` - Completed
+         *     * `CANCELLED` - Cancelled
+         * @enum {string}
+         */
+        WorkOrderStatusEnum: "DRAFT" | "RELEASED" | "COMPLETED" | "CANCELLED";
     };
     responses: never;
     parameters: never;
@@ -8666,6 +13225,24 @@ export interface operations {
             };
         };
     };
+    accounting_fy_close_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     accounting_journals_list: {
         parameters: {
             query?: {
@@ -8782,6 +13359,25 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["JournalEntry"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalEntry"];
+                };
+            };
+        };
+    };
+    accounting_journals_unreconciled_lines_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -9057,6 +13653,24 @@ export interface operations {
             };
         };
     };
+    auth_csrf_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     auth_invite_accept_create: {
         parameters: {
             query?: never;
@@ -9154,6 +13768,42 @@ export interface operations {
             };
         };
     };
+    auth_me_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_memberships_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     auth_otp_request_create: {
         parameters: {
             query?: never;
@@ -9190,6 +13840,42 @@ export interface operations {
             };
         };
     };
+    auth_password_reset_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_password_reset_confirm_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     auth_refresh_create: {
         parameters: {
             query?: never;
@@ -9209,6 +13895,150 @@ export interface operations {
         };
     };
     auth_register_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_switch_company_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    banking_aa_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    banking_aa_ingest_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_checkout_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_plans_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_portal_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_razorpay_webhook_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_subscription_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -9291,6 +14121,300 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CompanySerializerStaff"];
+                };
+            };
+        };
+    };
+    company_erase_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_export_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_gstins_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedCompanyGstinList"];
+                };
+            };
+        };
+    };
+    company_gstins_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyGstin"];
+                "multipart/form-data": components["schemas"]["CompanyGstin"];
+                "application/x-www-form-urlencoded": components["schemas"]["CompanyGstin"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyGstin"];
+                };
+            };
+        };
+    };
+    company_gstins_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this company gstin. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyGstin"];
+                };
+            };
+        };
+    };
+    company_gstins_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this company gstin. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_gstins_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this company gstin. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedCompanyGstin"];
+                "multipart/form-data": components["schemas"]["PatchedCompanyGstin"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedCompanyGstin"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyGstin"];
+                };
+            };
+        };
+    };
+    company_restore_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_statutory_licences_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedCompanyStatutoryLicenceList"];
+                };
+            };
+        };
+    };
+    company_statutory_licences_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyStatutoryLicence"];
+                "multipart/form-data": components["schemas"]["CompanyStatutoryLicence"];
+                "application/x-www-form-urlencoded": components["schemas"]["CompanyStatutoryLicence"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyStatutoryLicence"];
+                };
+            };
+        };
+    };
+    company_statutory_licences_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this company statutory licence. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyStatutoryLicence"];
+                };
+            };
+        };
+    };
+    company_statutory_licences_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this company statutory licence. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_statutory_licences_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this company statutory licence. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedCompanyStatutoryLicence"];
+                "multipart/form-data": components["schemas"]["PatchedCompanyStatutoryLicence"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedCompanyStatutoryLicence"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyStatutoryLicence"];
                 };
             };
         };
@@ -9430,6 +14554,416 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    company_verify_pan_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_verify_udyam_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crm_leads_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedLeadList"];
+                };
+            };
+        };
+    };
+    crm_leads_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Lead"];
+                "multipart/form-data": components["schemas"]["Lead"];
+                "application/x-www-form-urlencoded": components["schemas"]["Lead"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lead"];
+                };
+            };
+        };
+    };
+    crm_leads_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this lead. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lead"];
+                };
+            };
+        };
+    };
+    crm_leads_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this lead. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Lead"];
+                "multipart/form-data": components["schemas"]["Lead"];
+                "application/x-www-form-urlencoded": components["schemas"]["Lead"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lead"];
+                };
+            };
+        };
+    };
+    crm_leads_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this lead. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crm_leads_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this lead. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedLead"];
+                "multipart/form-data": components["schemas"]["PatchedLead"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedLead"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lead"];
+                };
+            };
+        };
+    };
+    crm_leads_activities_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this lead. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lead"];
+                };
+            };
+        };
+    };
+    crm_leads_activities_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this lead. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Lead"];
+                "multipart/form-data": components["schemas"]["Lead"];
+                "application/x-www-form-urlencoded": components["schemas"]["Lead"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lead"];
+                };
+            };
+        };
+    };
+    crm_leads_convert_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this lead. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Lead"];
+                "multipart/form-data": components["schemas"]["Lead"];
+                "application/x-www-form-urlencoded": components["schemas"]["Lead"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lead"];
+                };
+            };
+        };
+    };
+    crm_opportunities_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedOpportunityList"];
+                };
+            };
+        };
+    };
+    crm_opportunities_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Opportunity"];
+                "multipart/form-data": components["schemas"]["Opportunity"];
+                "application/x-www-form-urlencoded": components["schemas"]["Opportunity"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Opportunity"];
+                };
+            };
+        };
+    };
+    crm_opportunities_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this opportunity. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Opportunity"];
+                };
+            };
+        };
+    };
+    crm_opportunities_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this opportunity. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Opportunity"];
+                "multipart/form-data": components["schemas"]["Opportunity"];
+                "application/x-www-form-urlencoded": components["schemas"]["Opportunity"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Opportunity"];
+                };
+            };
+        };
+    };
+    crm_opportunities_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this opportunity. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crm_opportunities_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this opportunity. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedOpportunity"];
+                "multipart/form-data": components["schemas"]["PatchedOpportunity"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedOpportunity"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Opportunity"];
+                };
             };
         };
     };
@@ -9647,6 +15181,24 @@ export interface operations {
             };
         };
     };
+    feature_flags_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     files_list: {
         parameters: {
             query?: {
@@ -9678,7 +15230,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["FileAsset"];
                 "multipart/form-data": components["schemas"]["FileAsset"];
@@ -9718,6 +15270,27 @@ export interface operations {
             };
         };
     };
+    files_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this file asset. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     files_download_retrieve: {
         parameters: {
             query?: never;
@@ -9741,6 +15314,96 @@ export interface operations {
         };
     };
     health_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    help_events_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    help_feedback_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    help_feedback_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    help_feedback_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    help_health_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -9818,6 +15481,34 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJob"];
+                };
+            };
+        };
+    };
+    imports_clarify_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this import job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportJob"];
+                "multipart/form-data": components["schemas"]["ImportJob"];
+                "application/x-www-form-urlencoded": components["schemas"]["ImportJob"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -9952,6 +15643,81 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["ImportJob"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJob"];
+                };
+            };
+        };
+    };
+    imports_void_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this import job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportJob"];
+                "multipart/form-data": components["schemas"]["ImportJob"];
+                "application/x-www-form-urlencoded": components["schemas"]["ImportJob"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJob"];
+                };
+            };
+        };
+    };
+    imports_void_rows_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this import job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportJob"];
+                "multipart/form-data": components["schemas"]["ImportJob"];
+                "application/x-www-form-urlencoded": components["schemas"]["ImportJob"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJob"];
+                };
+            };
+        };
+    };
+    imports_template_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -10165,6 +15931,42 @@ export interface operations {
             };
         };
     };
+    insights_attention_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insights_attention_snooze_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     insights_cashflow_forecast_retrieve: {
         parameters: {
             query?: never;
@@ -10273,6 +16075,42 @@ export interface operations {
             };
         };
     };
+    insights_telemetry_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insights_telemetry_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     insights_usage_retrieve: {
         parameters: {
             query?: never;
@@ -10345,6 +16183,24 @@ export interface operations {
             };
         };
     };
+    integrations_tally_push_http_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     integrations_tally_runs_errors_retrieve: {
         parameters: {
             query?: never;
@@ -10376,6 +16232,60 @@ export interface operations {
         responses: {
             /** @description No response body */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    integrations_whatsapp_connection_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    integrations_whatsapp_connection_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    integrations_whatsapp_connection_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10420,6 +16330,24 @@ export interface operations {
         };
     };
     inventory_alerts_expiry_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    inventory_alerts_expiry_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -10673,6 +16601,154 @@ export interface operations {
             };
         };
     };
+    inventory_reorder_levels_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedWarehouseReorderLevelList"];
+                };
+            };
+        };
+    };
+    inventory_reorder_levels_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WarehouseReorderLevel"];
+                "multipart/form-data": components["schemas"]["WarehouseReorderLevel"];
+                "application/x-www-form-urlencoded": components["schemas"]["WarehouseReorderLevel"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarehouseReorderLevel"];
+                };
+            };
+        };
+    };
+    inventory_reorder_levels_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this warehouse reorder level. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarehouseReorderLevel"];
+                };
+            };
+        };
+    };
+    inventory_reorder_levels_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this warehouse reorder level. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WarehouseReorderLevel"];
+                "multipart/form-data": components["schemas"]["WarehouseReorderLevel"];
+                "application/x-www-form-urlencoded": components["schemas"]["WarehouseReorderLevel"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarehouseReorderLevel"];
+                };
+            };
+        };
+    };
+    inventory_reorder_levels_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this warehouse reorder level. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    inventory_reorder_levels_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this warehouse reorder level. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedWarehouseReorderLevel"];
+                "multipart/form-data": components["schemas"]["PatchedWarehouseReorderLevel"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedWarehouseReorderLevel"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarehouseReorderLevel"];
+                };
+            };
+        };
+    };
     inventory_serials_list: {
         parameters: {
             query?: {
@@ -10845,6 +16921,210 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SerialNumber"];
+                };
+            };
+        };
+    };
+    inventory_stock_counts_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedStockCountSessionList"];
+                };
+            };
+        };
+    };
+    inventory_stock_counts_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockCountSession"];
+                "multipart/form-data": components["schemas"]["StockCountSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["StockCountSession"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockCountSession"];
+                };
+            };
+        };
+    };
+    inventory_stock_counts_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this stock count session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockCountSession"];
+                };
+            };
+        };
+    };
+    inventory_stock_counts_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this stock count session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockCountSession"];
+                "multipart/form-data": components["schemas"]["StockCountSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["StockCountSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockCountSession"];
+                };
+            };
+        };
+    };
+    inventory_stock_counts_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this stock count session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    inventory_stock_counts_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this stock count session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedStockCountSession"];
+                "multipart/form-data": components["schemas"]["PatchedStockCountSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedStockCountSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockCountSession"];
+                };
+            };
+        };
+    };
+    inventory_stock_counts_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this stock count session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockCountSession"];
+                "multipart/form-data": components["schemas"]["StockCountSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["StockCountSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockCountSession"];
+                };
+            };
+        };
+    };
+    inventory_stock_counts_post_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this stock count session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockCountSession"];
+                "multipart/form-data": components["schemas"]["StockCountSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["StockCountSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockCountSession"];
                 };
             };
         };
@@ -11295,6 +17575,386 @@ export interface operations {
             };
         };
     };
+    manufacturing_boms_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedBomList"];
+                };
+            };
+        };
+    };
+    manufacturing_boms_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Bom"];
+                "multipart/form-data": components["schemas"]["Bom"];
+                "application/x-www-form-urlencoded": components["schemas"]["Bom"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bom"];
+                };
+            };
+        };
+    };
+    manufacturing_boms_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this BOM. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bom"];
+                };
+            };
+        };
+    };
+    manufacturing_boms_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this BOM. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Bom"];
+                "multipart/form-data": components["schemas"]["Bom"];
+                "application/x-www-form-urlencoded": components["schemas"]["Bom"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bom"];
+                };
+            };
+        };
+    };
+    manufacturing_boms_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this BOM. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_boms_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this BOM. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedBom"];
+                "multipart/form-data": components["schemas"]["PatchedBom"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedBom"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bom"];
+                };
+            };
+        };
+    };
+    manufacturing_work_orders_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedWorkOrderList"];
+                };
+            };
+        };
+    };
+    manufacturing_work_orders_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkOrder"];
+                "multipart/form-data": components["schemas"]["WorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["WorkOrder"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+        };
+    };
+    manufacturing_work_orders_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+        };
+    };
+    manufacturing_work_orders_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkOrder"];
+                "multipart/form-data": components["schemas"]["WorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["WorkOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+        };
+    };
+    manufacturing_work_orders_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_work_orders_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedWorkOrder"];
+                "multipart/form-data": components["schemas"]["PatchedWorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedWorkOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+        };
+    };
+    manufacturing_work_orders_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkOrder"];
+                "multipart/form-data": components["schemas"]["WorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["WorkOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+        };
+    };
+    manufacturing_work_orders_complete_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkOrder"];
+                "multipart/form-data": components["schemas"]["WorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["WorkOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+        };
+    };
+    manufacturing_work_orders_release_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkOrder"];
+                "multipart/form-data": components["schemas"]["WorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["WorkOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+        };
+    };
     masters_brands_list: {
         parameters: {
             query?: {
@@ -11587,6 +18247,302 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Category"];
+                };
+            };
+        };
+    };
+    masters_expense_categories_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedExpenseCategoryList"];
+                };
+            };
+        };
+    };
+    masters_expense_categories_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseCategory"];
+                "multipart/form-data": components["schemas"]["ExpenseCategory"];
+                "application/x-www-form-urlencoded": components["schemas"]["ExpenseCategory"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseCategory"];
+                };
+            };
+        };
+    };
+    masters_expense_categories_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this expense category. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseCategory"];
+                };
+            };
+        };
+    };
+    masters_expense_categories_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this expense category. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseCategory"];
+                "multipart/form-data": components["schemas"]["ExpenseCategory"];
+                "application/x-www-form-urlencoded": components["schemas"]["ExpenseCategory"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseCategory"];
+                };
+            };
+        };
+    };
+    masters_expense_categories_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this expense category. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    masters_expense_categories_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this expense category. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedExpenseCategory"];
+                "multipart/form-data": components["schemas"]["PatchedExpenseCategory"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedExpenseCategory"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseCategory"];
+                };
+            };
+        };
+    };
+    masters_payment_modes_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedPaymentModeList"];
+                };
+            };
+        };
+    };
+    masters_payment_modes_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaymentMode"];
+                "multipart/form-data": components["schemas"]["PaymentMode"];
+                "application/x-www-form-urlencoded": components["schemas"]["PaymentMode"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentMode"];
+                };
+            };
+        };
+    };
+    masters_payment_modes_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this payment mode. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentMode"];
+                };
+            };
+        };
+    };
+    masters_payment_modes_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this payment mode. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaymentMode"];
+                "multipart/form-data": components["schemas"]["PaymentMode"];
+                "application/x-www-form-urlencoded": components["schemas"]["PaymentMode"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentMode"];
+                };
+            };
+        };
+    };
+    masters_payment_modes_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this payment mode. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    masters_payment_modes_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this payment mode. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedPaymentMode"];
+                "multipart/form-data": components["schemas"]["PatchedPaymentMode"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedPaymentMode"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentMode"];
                 };
             };
         };
@@ -12035,6 +18991,24 @@ export interface operations {
             };
         };
     };
+    metrics_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     notifications_list: {
         parameters: {
             query?: {
@@ -12152,7 +19126,7 @@ export interface operations {
             };
         };
     };
-    payments_allocations_destroy: {
+    payments_allocations_unallocate_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -12162,14 +19136,21 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaymentAllocation"];
+                "multipart/form-data": components["schemas"]["PaymentAllocation"];
+                "application/x-www-form-urlencoded": components["schemas"]["PaymentAllocation"];
+            };
+        };
         responses: {
-            /** @description No response body */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["PaymentAllocation"];
+                };
             };
         };
     };
@@ -12293,6 +19274,44 @@ export interface operations {
             };
         };
     };
+    payments_collection_risk_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    payments_collection_risk_retrieve_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     payments_gateway_payments_list: {
         parameters: {
             query?: {
@@ -12365,6 +19384,34 @@ export interface operations {
         };
     };
     payments_gateway_payments_refund_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this gateway payment. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GatewayPayment"];
+                "multipart/form-data": components["schemas"]["GatewayPayment"];
+                "application/x-www-form-urlencoded": components["schemas"]["GatewayPayment"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GatewayPayment"];
+                };
+            };
+        };
+    };
+    payments_gateway_payments_retry_books_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -12672,7 +19719,7 @@ export interface operations {
             };
         };
     };
-    payments_receipts_destroy: {
+    payments_receipts_void_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -12682,10 +19729,35 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerReceipt"];
+                "multipart/form-data": components["schemas"]["CustomerReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["CustomerReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerReceipt"];
+                };
+            };
+        };
+    };
+    payments_recon_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
         requestBody?: never;
         responses: {
             /** @description No response body */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12693,7 +19765,7 @@ export interface operations {
             };
         };
     };
-    payments_recon_retrieve: {
+    payments_recon_bulk_accept_exact_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -12730,6 +19802,42 @@ export interface operations {
         };
     };
     payments_recon_create_receipt_from_line_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    payments_recon_suggest_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    payments_recon_unmatch_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -12819,6 +19927,34 @@ export interface operations {
         };
     };
     payments_statements_commit_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank statement. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BankStatement"];
+                "multipart/form-data": components["schemas"]["BankStatement"];
+                "application/x-www-form-urlencoded": components["schemas"]["BankStatement"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankStatement"];
+                };
+            };
+        };
+    };
+    payments_statements_void_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -12942,7 +20078,7 @@ export interface operations {
             };
         };
     };
-    payments_supplier_payments_destroy: {
+    payments_supplier_payments_void_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -12952,14 +20088,21 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierPayment"];
+                "multipart/form-data": components["schemas"]["SupplierPayment"];
+                "application/x-www-form-urlencoded": components["schemas"]["SupplierPayment"];
+            };
+        };
         responses: {
-            /** @description No response body */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["SupplierPayment"];
+                };
             };
         };
     };
@@ -12978,6 +20121,414 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    payroll_employees_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedEmployeeList"];
+                };
+            };
+        };
+    };
+    payroll_employees_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Employee"];
+                "multipart/form-data": components["schemas"]["Employee"];
+                "application/x-www-form-urlencoded": components["schemas"]["Employee"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Employee"];
+                };
+            };
+        };
+    };
+    payroll_employees_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this employee. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Employee"];
+                };
+            };
+        };
+    };
+    payroll_employees_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this employee. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Employee"];
+                "multipart/form-data": components["schemas"]["Employee"];
+                "application/x-www-form-urlencoded": components["schemas"]["Employee"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Employee"];
+                };
+            };
+        };
+    };
+    payroll_employees_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this employee. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    payroll_employees_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this employee. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedEmployee"];
+                "multipart/form-data": components["schemas"]["PatchedEmployee"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedEmployee"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Employee"];
+                };
+            };
+        };
+    };
+    payroll_pay_runs_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedPayRunList"];
+                };
+            };
+        };
+    };
+    payroll_pay_runs_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayRun"];
+                "multipart/form-data": components["schemas"]["PayRun"];
+                "application/x-www-form-urlencoded": components["schemas"]["PayRun"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayRun"];
+                };
+            };
+        };
+    };
+    payroll_pay_runs_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this pay run. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayRun"];
+                };
+            };
+        };
+    };
+    payroll_pay_runs_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this pay run. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayRun"];
+                "multipart/form-data": components["schemas"]["PayRun"];
+                "application/x-www-form-urlencoded": components["schemas"]["PayRun"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayRun"];
+                };
+            };
+        };
+    };
+    payroll_pay_runs_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this pay run. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    payroll_pay_runs_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this pay run. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedPayRun"];
+                "multipart/form-data": components["schemas"]["PatchedPayRun"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedPayRun"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayRun"];
+                };
+            };
+        };
+    };
+    payroll_pay_runs_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this pay run. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayRun"];
+                "multipart/form-data": components["schemas"]["PayRun"];
+                "application/x-www-form-urlencoded": components["schemas"]["PayRun"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayRun"];
+                };
+            };
+        };
+    };
+    payroll_pay_runs_complete_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this pay run. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayRun"];
+                "multipart/form-data": components["schemas"]["PayRun"];
+                "application/x-www-form-urlencoded": components["schemas"]["PayRun"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayRun"];
+                };
+            };
+        };
+    };
+    payroll_pay_runs_lop_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this pay run. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayRun"];
+                "multipart/form-data": components["schemas"]["PayRun"];
+                "application/x-www-form-urlencoded": components["schemas"]["PayRun"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayRun"];
+                };
+            };
+        };
+    };
+    payroll_pay_runs_post_gl_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this pay run. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayRun"];
+                "multipart/form-data": components["schemas"]["PayRun"];
+                "application/x-www-form-urlencoded": components["schemas"]["PayRun"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayRun"];
+                };
             };
         };
     };
@@ -13129,6 +20680,88 @@ export interface operations {
             };
         };
     };
+    products_barcode_image_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+        };
+    };
+    products_custom_field_values_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+        };
+    };
+    products_generate_barcode_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Product"];
+                "multipart/form-data": components["schemas"]["Product"];
+                "application/x-www-form-urlencoded": components["schemas"]["Product"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+        };
+    };
+    products_hsn_search_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+        };
+    };
     public_pay_retrieve: {
         parameters: {
             query?: never;
@@ -13146,6 +20779,210 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    purchases_bills_of_entry_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedBillOfEntryList"];
+                };
+            };
+        };
+    };
+    purchases_bills_of_entry_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillOfEntry"];
+                "multipart/form-data": components["schemas"]["BillOfEntry"];
+                "application/x-www-form-urlencoded": components["schemas"]["BillOfEntry"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillOfEntry"];
+                };
+            };
+        };
+    };
+    purchases_bills_of_entry_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bill of entry. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillOfEntry"];
+                };
+            };
+        };
+    };
+    purchases_bills_of_entry_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bill of entry. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillOfEntry"];
+                "multipart/form-data": components["schemas"]["BillOfEntry"];
+                "application/x-www-form-urlencoded": components["schemas"]["BillOfEntry"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillOfEntry"];
+                };
+            };
+        };
+    };
+    purchases_bills_of_entry_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bill of entry. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchases_bills_of_entry_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bill of entry. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedBillOfEntry"];
+                "multipart/form-data": components["schemas"]["PatchedBillOfEntry"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedBillOfEntry"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillOfEntry"];
+                };
+            };
+        };
+    };
+    purchases_bills_of_entry_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bill of entry. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillOfEntry"];
+                "multipart/form-data": components["schemas"]["BillOfEntry"];
+                "application/x-www-form-urlencoded": components["schemas"]["BillOfEntry"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillOfEntry"];
+                };
+            };
+        };
+    };
+    purchases_bills_of_entry_complete_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bill of entry. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillOfEntry"];
+                "multipart/form-data": components["schemas"]["BillOfEntry"];
+                "application/x-www-form-urlencoded": components["schemas"]["BillOfEntry"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillOfEntry"];
+                };
             };
         };
     };
@@ -13340,6 +21177,50 @@ export interface operations {
                 "application/json": components["schemas"]["PurchaseCreditNote"];
                 "multipart/form-data": components["schemas"]["PurchaseCreditNote"];
                 "application/x-www-form-urlencoded": components["schemas"]["PurchaseCreditNote"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseCreditNote"];
+                };
+            };
+        };
+    };
+    purchases_credit_notes_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseCreditNote"];
+                };
+            };
+        };
+    };
+    purchases_credit_notes_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedPurchaseCreditNote"];
+                "multipart/form-data": components["schemas"]["PatchedPurchaseCreditNote"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedPurchaseCreditNote"];
             };
         };
         responses: {
@@ -13557,6 +21438,326 @@ export interface operations {
             };
         };
     };
+    purchases_debit_notes_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseDebitNote"];
+                };
+            };
+        };
+    };
+    purchases_debit_notes_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedPurchaseDebitNote"];
+                "multipart/form-data": components["schemas"]["PatchedPurchaseDebitNote"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedPurchaseDebitNote"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseDebitNote"];
+                };
+            };
+        };
+    };
+    purchases_grns_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedGoodsReceiptList"];
+                };
+            };
+        };
+    };
+    purchases_grns_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoodsReceipt"];
+                "multipart/form-data": components["schemas"]["GoodsReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["GoodsReceipt"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodsReceipt"];
+                };
+            };
+        };
+    };
+    purchases_grns_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this goods receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodsReceipt"];
+                };
+            };
+        };
+    };
+    purchases_grns_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this goods receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoodsReceipt"];
+                "multipart/form-data": components["schemas"]["GoodsReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["GoodsReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodsReceipt"];
+                };
+            };
+        };
+    };
+    purchases_grns_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this goods receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchases_grns_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this goods receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedGoodsReceipt"];
+                "multipart/form-data": components["schemas"]["PatchedGoodsReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedGoodsReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodsReceipt"];
+                };
+            };
+        };
+    };
+    purchases_grns_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this goods receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoodsReceipt"];
+                "multipart/form-data": components["schemas"]["GoodsReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["GoodsReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodsReceipt"];
+                };
+            };
+        };
+    };
+    purchases_grns_complete_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this goods receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoodsReceipt"];
+                "multipart/form-data": components["schemas"]["GoodsReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["GoodsReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodsReceipt"];
+                };
+            };
+        };
+    };
+    purchases_grns_convert_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this goods receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoodsReceipt"];
+                "multipart/form-data": components["schemas"]["GoodsReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["GoodsReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodsReceipt"];
+                };
+            };
+        };
+    };
+    purchases_grns_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodsReceipt"];
+                };
+            };
+        };
+    };
+    purchases_grns_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedGoodsReceipt"];
+                "multipart/form-data": components["schemas"]["PatchedGoodsReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedGoodsReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodsReceipt"];
+                };
+            };
+        };
+    };
     purchases_invoices_list: {
         parameters: {
             query?: {
@@ -13761,6 +21962,28 @@ export interface operations {
             };
         };
     };
+    purchases_invoices_pdf_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this purchase invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseInvoice"];
+                };
+            };
+        };
+    };
     purchases_invoices_number_series_retrieve: {
         parameters: {
             query?: never;
@@ -13792,6 +22015,31 @@ export interface operations {
                 "application/json": components["schemas"]["PatchedPurchaseInvoice"];
                 "multipart/form-data": components["schemas"]["PatchedPurchaseInvoice"];
                 "application/x-www-form-urlencoded": components["schemas"]["PatchedPurchaseInvoice"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseInvoice"];
+                };
+            };
+        };
+    };
+    purchases_invoices_preview_totals_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurchaseInvoice"];
+                "multipart/form-data": components["schemas"]["PurchaseInvoice"];
+                "application/x-www-form-urlencoded": components["schemas"]["PurchaseInvoice"];
             };
         };
         responses: {
@@ -14009,6 +22257,72 @@ export interface operations {
             };
         };
     };
+    purchases_orders_pdf_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this purchase order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseOrder"];
+                };
+            };
+        };
+    };
+    purchases_orders_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseOrder"];
+                };
+            };
+        };
+    };
+    purchases_orders_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedPurchaseOrder"];
+                "multipart/form-data": components["schemas"]["PatchedPurchaseOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedPurchaseOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseOrder"];
+                };
+            };
+        };
+    };
     purchases_returns_list: {
         parameters: {
             query?: {
@@ -14213,7 +22527,87 @@ export interface operations {
             };
         };
     };
+    purchases_returns_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseReturn"];
+                };
+            };
+        };
+    };
+    purchases_returns_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedPurchaseReturn"];
+                "multipart/form-data": components["schemas"]["PatchedPurchaseReturn"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedPurchaseReturn"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseReturn"];
+                };
+            };
+        };
+    };
+    reports_cancelled_document_numbers_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     reports_cash_book_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_cmp08_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -14267,6 +22661,24 @@ export interface operations {
             };
         };
     };
+    reports_gst_filing_sandbox_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     reports_gst_health_retrieve: {
         parameters: {
             query?: never;
@@ -14303,6 +22715,24 @@ export interface operations {
             };
         };
     };
+    reports_gst_rate_exposure_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     reports_gstr1_retrieve: {
         parameters: {
             query?: never;
@@ -14321,7 +22751,483 @@ export interface operations {
             };
         };
     };
+    reports_gstr2b_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedGstr2bIngestList"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Gstr2bIngest"];
+                "multipart/form-data": components["schemas"]["Gstr2bIngest"];
+                "application/x-www-form-urlencoded": components["schemas"]["Gstr2bIngest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedGstr2bIngest"];
+                "multipart/form-data": components["schemas"]["PatchedGstr2bIngest"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedGstr2bIngest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_chase_photo_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Gstr2bIngest"];
+                "multipart/form-data": components["schemas"]["Gstr2bIngest"];
+                "application/x-www-form-urlencoded": components["schemas"]["Gstr2bIngest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_ims_act_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Gstr2bIngest"];
+                "multipart/form-data": components["schemas"]["Gstr2bIngest"];
+                "application/x-www-form-urlencoded": components["schemas"]["Gstr2bIngest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_supplier_message_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Gstr2bIngest"];
+                "multipart/form-data": components["schemas"]["Gstr2bIngest"];
+                "application/x-www-form-urlencoded": components["schemas"]["Gstr2bIngest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_chase_whatsapp_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Gstr2bIngest"];
+                "multipart/form-data": components["schemas"]["Gstr2bIngest"];
+                "application/x-www-form-urlencoded": components["schemas"]["Gstr2bIngest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_ims_bulk_accept_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Gstr2bIngest"];
+                "multipart/form-data": components["schemas"]["Gstr2bIngest"];
+                "application/x-www-form-urlencoded": components["schemas"]["Gstr2bIngest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_ims_gsp_pull_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Gstr2bIngest"];
+                "multipart/form-data": components["schemas"]["Gstr2bIngest"];
+                "application/x-www-form-urlencoded": components["schemas"]["Gstr2bIngest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_ims_offline_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_ims_offline_import_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Gstr2bIngest"];
+                "multipart/form-data": components["schemas"]["Gstr2bIngest"];
+                "application/x-www-form-urlencoded": components["schemas"]["Gstr2bIngest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_ims_scorecard_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_ims_summary_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_match_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Gstr2bIngest"];
+                "multipart/form-data": components["schemas"]["Gstr2bIngest"];
+                "application/x-www-form-urlencoded": components["schemas"]["Gstr2bIngest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_missing_documents_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_upload_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Gstr2bIngest"];
+                "multipart/form-data": components["schemas"]["Gstr2bIngest"];
+                "application/x-www-form-urlencoded": components["schemas"]["Gstr2bIngest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
     reports_gstr3b_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_gstr4_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_gstr6_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_gstr7_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_gstr8_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -14412,6 +23318,42 @@ export interface operations {
         };
     };
     reports_sales_register_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_tcs_worksheet_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_tds_worksheet_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -14605,6 +23547,34 @@ export interface operations {
             };
         };
     };
+    sales_credit_notes_cancel_einvoice_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales credit note. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesCreditNote"];
+                "multipart/form-data": components["schemas"]["SalesCreditNote"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesCreditNote"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesCreditNote"];
+                };
+            };
+        };
+    };
     sales_credit_notes_complete_create: {
         parameters: {
             query?: never;
@@ -14677,7 +23647,63 @@ export interface operations {
             };
         };
     };
+    sales_credit_notes_prepare_einvoice_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales credit note. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesCreditNote"];
+                "multipart/form-data": components["schemas"]["SalesCreditNote"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesCreditNote"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesCreditNote"];
+                };
+            };
+        };
+    };
     sales_credit_notes_regenerate_pdf_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales credit note. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesCreditNote"];
+                "multipart/form-data": components["schemas"]["SalesCreditNote"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesCreditNote"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesCreditNote"];
+                };
+            };
+        };
+    };
+    sales_credit_notes_submit_einvoice_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -14713,6 +23739,50 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesCreditNote"];
+                };
+            };
+        };
+    };
+    sales_credit_notes_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesCreditNote"];
+                };
+            };
+        };
+    };
+    sales_credit_notes_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedSalesCreditNote"];
+                "multipart/form-data": components["schemas"]["PatchedSalesCreditNote"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedSalesCreditNote"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -14900,6 +23970,34 @@ export interface operations {
             };
         };
     };
+    sales_debit_notes_cancel_einvoice_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales debit note. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesDebitNote"];
+                "multipart/form-data": components["schemas"]["SalesDebitNote"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesDebitNote"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDebitNote"];
+                };
+            };
+        };
+    };
     sales_debit_notes_complete_create: {
         parameters: {
             query?: never;
@@ -14972,6 +24070,34 @@ export interface operations {
             };
         };
     };
+    sales_debit_notes_prepare_einvoice_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales debit note. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesDebitNote"];
+                "multipart/form-data": components["schemas"]["SalesDebitNote"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesDebitNote"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDebitNote"];
+                };
+            };
+        };
+    };
     sales_debit_notes_regenerate_pdf_create: {
         parameters: {
             query?: never;
@@ -14987,6 +24113,78 @@ export interface operations {
                 "application/json": components["schemas"]["SalesDebitNote"];
                 "multipart/form-data": components["schemas"]["SalesDebitNote"];
                 "application/x-www-form-urlencoded": components["schemas"]["SalesDebitNote"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDebitNote"];
+                };
+            };
+        };
+    };
+    sales_debit_notes_submit_einvoice_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales debit note. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesDebitNote"];
+                "multipart/form-data": components["schemas"]["SalesDebitNote"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesDebitNote"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDebitNote"];
+                };
+            };
+        };
+    };
+    sales_debit_notes_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDebitNote"];
+                };
+            };
+        };
+    };
+    sales_debit_notes_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedSalesDebitNote"];
+                "multipart/form-data": components["schemas"]["PatchedSalesDebitNote"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedSalesDebitNote"];
             };
         };
         responses: {
@@ -15416,6 +24614,50 @@ export interface operations {
             };
         };
     };
+    sales_delivery_challans_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryChallan"];
+                };
+            };
+        };
+    };
+    sales_delivery_challans_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedDeliveryChallan"];
+                "multipart/form-data": components["schemas"]["PatchedDeliveryChallan"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedDeliveryChallan"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryChallan"];
+                };
+            };
+        };
+    };
     sales_invoices_list: {
         parameters: {
             query?: {
@@ -15581,6 +24823,28 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["SalesInvoice"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
+    sales_invoices_audit_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -15944,6 +25208,34 @@ export interface operations {
             };
         };
     };
+    sales_invoices_submit_einvoice_async_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesInvoice"];
+                "multipart/form-data": components["schemas"]["SalesInvoice"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesInvoice"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
     sales_invoices_submit_eway_create: {
         parameters: {
             query?: never;
@@ -16025,6 +25317,31 @@ export interface operations {
                 "application/json": components["schemas"]["PatchedSalesInvoice"];
                 "multipart/form-data": components["schemas"]["PatchedSalesInvoice"];
                 "application/x-www-form-urlencoded": components["schemas"]["PatchedSalesInvoice"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
+    sales_invoices_pos_checkout_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesInvoice"];
+                "multipart/form-data": components["schemas"]["SalesInvoice"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesInvoice"];
             };
         };
         responses: {
@@ -16295,6 +25612,78 @@ export interface operations {
             };
         };
     };
+    sales_orders_convert_to_challan_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesOrder"];
+                "multipart/form-data": components["schemas"]["SalesOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesOrder"];
+                };
+            };
+        };
+    };
+    sales_orders_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesOrder"];
+                };
+            };
+        };
+    };
+    sales_orders_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedSalesOrder"];
+                "multipart/form-data": components["schemas"]["PatchedSalesOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedSalesOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesOrder"];
+                };
+            };
+        };
+    };
     sales_quotations_list: {
         parameters: {
             query?: {
@@ -16495,6 +25884,254 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_convert_to_order_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedQuotation"];
+                "multipart/form-data": components["schemas"]["PatchedQuotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedQuotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_recurring_schedules_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedRecurringInvoiceScheduleList"];
+                };
+            };
+        };
+    };
+    sales_recurring_schedules_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurringInvoiceSchedule"];
+                "multipart/form-data": components["schemas"]["RecurringInvoiceSchedule"];
+                "application/x-www-form-urlencoded": components["schemas"]["RecurringInvoiceSchedule"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringInvoiceSchedule"];
+                };
+            };
+        };
+    };
+    sales_recurring_schedules_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this recurring invoice schedule. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringInvoiceSchedule"];
+                };
+            };
+        };
+    };
+    sales_recurring_schedules_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this recurring invoice schedule. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurringInvoiceSchedule"];
+                "multipart/form-data": components["schemas"]["RecurringInvoiceSchedule"];
+                "application/x-www-form-urlencoded": components["schemas"]["RecurringInvoiceSchedule"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringInvoiceSchedule"];
+                };
+            };
+        };
+    };
+    sales_recurring_schedules_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this recurring invoice schedule. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sales_recurring_schedules_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this recurring invoice schedule. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedRecurringInvoiceSchedule"];
+                "multipart/form-data": components["schemas"]["PatchedRecurringInvoiceSchedule"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedRecurringInvoiceSchedule"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringInvoiceSchedule"];
+                };
+            };
+        };
+    };
+    sales_recurring_schedules_run_now_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this recurring invoice schedule. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurringInvoiceSchedule"];
+                "multipart/form-data": components["schemas"]["RecurringInvoiceSchedule"];
+                "application/x-www-form-urlencoded": components["schemas"]["RecurringInvoiceSchedule"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringInvoiceSchedule"];
                 };
             };
         };
@@ -16703,6 +26340,50 @@ export interface operations {
             };
         };
     };
+    sales_returns_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesReturn"];
+                };
+            };
+        };
+    };
+    sales_returns_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedSalesReturn"];
+                "multipart/form-data": components["schemas"]["PatchedSalesReturn"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedSalesReturn"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesReturn"];
+                };
+            };
+        };
+    };
     search_retrieve: {
         parameters: {
             query?: never;
@@ -16718,6 +26399,30 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    statutory_events_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedStatutoryDocumentEventList"];
+                };
             };
         };
     };
@@ -16904,6 +26609,24 @@ export interface operations {
             path: {
                 provider: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    metrics_retrieve_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;

@@ -34,6 +34,7 @@ import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const PAGE_SIZE = 50;
 const EMP_STATUSES = ['ACTIVE', 'INACTIVE'] as const;
+type EmpStatus = (typeof EMP_STATUSES)[number];
 
 const emptyForm = {
   name: '',
@@ -42,7 +43,7 @@ const emptyForm = {
   basic: '',
   da: '',
   tdsRate: '',
-  status: 'ACTIVE',
+  status: 'ACTIVE' as EmpStatus,
   pfApplicable: false,
   pfWageCeiling: '15000.00',
   esiApplicable: false,
@@ -121,7 +122,7 @@ function EmployeesPageInner() {
       basic: emp.basic ?? '',
       da: emp.da ?? '',
       tdsRate: emp.tdsRate ?? '',
-      status: emp.status,
+      status: emp.status ?? 'ACTIVE',
       pfApplicable: Boolean(emp.pfApplicable),
       pfWageCeiling: emp.pfWageCeiling || '15000.00',
       esiApplicable: Boolean(emp.esiApplicable),
@@ -167,8 +168,8 @@ function EmployeesPageInner() {
                   <TableCell align="right">{formatMoney(emp.salary)}</TableCell>
                   <TableCell>
                     <StatusChip
-                      tone={customerStatusTone(emp.status)}
-                      labelKey={statusLabelKey(emp.status)}
+                      tone={customerStatusTone(emp.status ?? 'ACTIVE')}
+                      labelKey={statusLabelKey(emp.status ?? 'ACTIVE')}
                     />
                   </TableCell>
                   <TableCell align="right">
@@ -258,7 +259,7 @@ function EmployeesPageInner() {
               select
               label={t('common.status')}
               value={form.status}
-              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as EmpStatus }))}
             >
               {EMP_STATUSES.map((s) => (
                 <MenuItem key={s} value={s}>

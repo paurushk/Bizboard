@@ -106,8 +106,14 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - name: OpenAPI types stub check
-        run: node -e "const fs=require('fs'); const t=fs.readFileSync('src/api/openapi-types.ts','utf8'); if(!t.includes('export interface paths')) { console.error('openapi-types.ts missing export interface paths'); process.exit(1); }"
+      # Regenerates src/api/openapi-types.ts from docs/openapi-snapshot.json and
+      # fails if that drifts from the committed file — mirrors the backend
+      # job's "Assert OpenAPI snapshot clean" check above, instead of only
+      # checking the file merely contains `export interface paths`.
+      - name: Assert OpenAPI types are up to date
+        run: |
+          npm run gen:api-types
+          git diff --exit-code src/api/openapi-types.ts
       - run: npm run lint
       - run: npm run test:run
       - run: npm run build

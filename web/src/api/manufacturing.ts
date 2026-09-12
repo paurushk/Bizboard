@@ -39,7 +39,18 @@ export type WorkOrder = SchemaOr<
     createdAt: string;
     updatedAt: string;
   }
->;
+> & {
+  // docs/openapi-snapshot.json predates batch tracking on WorkOrder
+  // (backend/manufacturing/serializers.py's WorkOrderSerializer.Meta.fields
+  // already lists batch_no/exp_date/mfg_date/batch) — the schema snapshot
+  // needs a `python manage.py spectacular` regen to catch up. Until then,
+  // SchemaOr resolves the real (but stale) "WorkOrder" component and drops
+  // these from the fallback, so they're patched back in here.
+  batchNo?: string;
+  expDate?: string | null;
+  mfgDate?: string | null;
+  batch?: number | null;
+};
 
 const BASE = apiPath('/manufacturing');
 
@@ -52,14 +63,21 @@ export async function getBom(id: number): Promise<Bom> {
   return unwrapData<Bom>(data);
 }
 
-export async function createBom(payload: Partial<Bom>): Promise<Bom> {
+// BomSerializer.update() always deletes and recreates lines (see
+// backend/manufacturing/serializers.py), and `id` on BomLine is read-only —
+// a write only ever needs component + qty per line, never a line id.
+type BomWritePayload = Partial<Omit<Bom, 'lines'>> & {
+  lines?: Array<Pick<BomLine, 'component' | 'qty'>>;
+};
+
+export async function createBom(payload: BomWritePayload): Promise<Bom> {
   const { data } = await apiClient.post(`${BASE}/boms/`, payload, {
     headers: idempotencyHeaders(),
   });
   return unwrapData<Bom>(data);
 }
 
-export async function updateBom(id: number, payload: Partial<Bom>): Promise<Bom> {
+export async function updateBom(id: number, payload: BomWritePayload): Promise<Bom> {
   const { data } = await apiClient.patch(`${BASE}/boms/${id}/`, payload);
   return unwrapData<Bom>(data);
 }

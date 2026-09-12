@@ -39,12 +39,13 @@ import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 const PAGE_SIZE = 50;
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'LOST'] as const;
 const ACTIVITY_KINDS = ['NOTE', 'CALL', 'EMAIL'] as const;
+type LeadStatus = (typeof LEAD_STATUSES)[number];
 
 const emptyForm = {
   name: '',
   phone: '',
   email: '',
-  status: 'NEW',
+  status: 'NEW' as LeadStatus,
   customer: '' as number | '',
 };
 
@@ -156,7 +157,7 @@ function LeadsPageInner() {
       name: lead.name,
       phone: lead.phone ?? '',
       email: lead.email ?? '',
-      status: lead.status,
+      status: lead.status ?? 'NEW',
       customer: lead.customer ?? '',
     });
     setOpen(true);
@@ -203,8 +204,8 @@ function LeadsPageInner() {
                   </TableCell>
                   <TableCell>
                     <StatusChip
-                      tone={documentStatusTone(lead.status)}
-                      labelKey={statusLabelKey(lead.status)}
+                      tone={documentStatusTone(lead.status ?? 'NEW')}
+                      labelKey={statusLabelKey(lead.status ?? 'NEW')}
                     />
                   </TableCell>
                   <TableCell align="right">
@@ -276,7 +277,7 @@ function LeadsPageInner() {
               select
               label={t('common.status')}
               value={form.status}
-              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as LeadStatus }))}
             >
               {LEAD_STATUSES.map((s) => (
                 <MenuItem key={s} value={s}>

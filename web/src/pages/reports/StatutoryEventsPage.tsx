@@ -19,13 +19,14 @@ import { t } from '@/i18n';
 
 const PAGE_SIZE = 50;
 
-function payloadSummary(payload: Record<string, unknown> | undefined): string {
+function payloadSummary(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return '—';
-  const keys = Object.keys(payload).slice(0, 4);
+  const obj = payload as Record<string, unknown>;
+  const keys = Object.keys(obj).slice(0, 4);
   if (!keys.length) return '—';
   return keys
     .map((key) => {
-      const value = payload[key];
+      const value = obj[key];
       if (value == null) return `${key}=`;
       if (typeof value === 'object') return `${key}={…}`;
       return `${key}=${String(value)}`;

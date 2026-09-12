@@ -34,11 +34,12 @@ import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const PAGE_SIZE = 50;
 const STAGES = ['OPEN', 'WON', 'LOST'] as const;
+type Stage = (typeof STAGES)[number];
 
 const emptyForm = {
   title: '',
   amount: '',
-  stage: 'OPEN',
+  stage: 'OPEN' as Stage,
   lead: '' as number | '',
   customer: '' as number | '',
 };
@@ -117,8 +118,8 @@ function OpportunitiesPageInner() {
     setEditing(opp);
     setForm({
       title: opp.title,
-      amount: opp.amount,
-      stage: opp.stage,
+      amount: opp.amount ?? '',
+      stage: opp.stage ?? 'OPEN',
       lead: opp.lead ?? '',
       customer: opp.customer ?? '',
     });
@@ -166,8 +167,8 @@ function OpportunitiesPageInner() {
                   <TableCell align="right">{formatMoney(opp.amount)}</TableCell>
                   <TableCell>
                     <StatusChip
-                      tone={documentStatusTone(opp.stage)}
-                      labelKey={statusLabelKey(opp.stage)}
+                      tone={documentStatusTone(opp.stage ?? 'OPEN')}
+                      labelKey={statusLabelKey(opp.stage ?? 'OPEN')}
                     />
                   </TableCell>
                   <TableCell align="right">
@@ -220,7 +221,7 @@ function OpportunitiesPageInner() {
               select
               label={t('erp.stage')}
               value={form.stage}
-              onChange={(e) => setForm((f) => ({ ...f, stage: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, stage: e.target.value as Stage }))}
             >
               {STAGES.map((s) => (
                 <MenuItem key={s} value={s}>

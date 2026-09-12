@@ -39,18 +39,25 @@ import type { Product } from '@/types/domain';
 
 const PAGE_SIZE = 50;
 const BOM_STATUSES = ['DRAFT', 'ACTIVE', 'ARCHIVED'] as const;
+type BomStatus = (typeof BOM_STATUSES)[number];
 
 // F2-025: the local form keeps a resolved Product alongside each line's raw
 // id so the component Autocomplete can show a name without loading the
 // entire product catalog (was listProducts() pulling every product).
-type BomLineForm = BomLine & { componentProduct?: Product | null };
+// Not typed off BomLine directly: BomSerializer.update() always deletes and
+// recreates lines, so a saved line's real (required) id is never sent back —
+// only unsaved-line shape (no id yet) matters for this form.
+type BomLineForm = Pick<BomLine, 'component' | 'qty'> & {
+  id?: BomLine['id'];
+  componentProduct?: Product | null;
+};
 
 const emptyLine = (): BomLineForm => ({ component: 0, qty: '1', componentProduct: null });
 
 type BomForm = {
   product: number | '';
   name: string;
-  status: string;
+  status: BomStatus;
   lines: BomLineForm[];
 };
 
@@ -139,11 +146,12 @@ function BomsPageInner() {
 
   const openEdit = (bom: Bom) => {
     setEditing(bom);
-    const lines: BomLineForm[] = bom.lines.length ? bom.lines.map((l) => ({ ...l, componentProduct: null })) : [emptyLine()];
+    const bomLines = bom.lines ?? [];
+    const lines: BomLineForm[] = bomLines.length ? bomLines.map((l) => ({ ...l, componentProduct: null })) : [emptyLine()];
     setForm({
       product: bom.product,
       name: bom.name,
-      status: bom.status,
+      status: bom.status ?? 'DRAFT',
       lines,
     });
     setSelectedProduct(null);
@@ -198,8 +206,8 @@ function BomsPageInner() {
                   <TableCell>{bom.lines?.length ?? 0}</TableCell>
                   <TableCell>
                     <StatusChip
-                      tone={documentStatusTone(bom.status)}
-                      labelKey={statusLabelKey(bom.status)}
+                      tone={documentStatusTone(bom.status ?? 'DRAFT')}
+                      labelKey={statusLabelKey(bom.status ?? 'DRAFT')}
                     />
                   </TableCell>
                   <TableCell align="right">
@@ -263,7 +271,7 @@ function BomsPageInner() {
               select
               label={t('common.status')}
               value={form.status}
-              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as BomStatus }))}
             >
               {BOM_STATUSES.map((s) => (
                 <MenuItem key={s} value={s}>
