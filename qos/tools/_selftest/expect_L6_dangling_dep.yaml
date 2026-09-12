@@ -1,0 +1,22 @@
+# Trips L6: depends_on points at an id that does not exist.
+id: QOS-9006
+category: BUSINESS_GAP
+title: "Selftest fixture — dangling depends_on reference"
+persona: [P1]
+journey: "selftest"
+problem: "Synthetic fixture: depends_on lists QOS-9999 which is not a real backlog item, so L6 must flag it."
+evidence:
+  strength: heuristic
+  source: ["qos/tools/_selftest"]
+  detail: "synthetic selftest fixture"
+scoring: { reach: 3, severity: 3, frequency: 3, impact_band: Medium }
+priority: P2
+priority_rationale: "synthetic selftest fixture, not a real backlog item"
+effort: S
+recommendation: "n/a — selftest fixture; the linter should reject this on L6"
+test_required: "qos/tools/lint.py --selftest stays green"
+lifecycle: open
+owner: qa
+opened: "2026-09-10"
+closed: null
+depends_on: ["QOS-9999"]

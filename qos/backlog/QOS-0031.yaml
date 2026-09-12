@@ -1,0 +1,33 @@
+id: QOS-0031
+category: BUSINESS_GAP
+title: Commercial readiness is untested - will pilots pay and renew? (dim 9)
+persona:
+- P1
+archetype:
+- ARCH-03
+journey: Post-trial conversion and renewal
+problem: Readiness dimension 9 ('Will the business renew and pay after the trial?') is 'UNTESTED IN PILOT'.
+  Willingness to pay and retention for the lead archetype are unvalidated.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 9
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 11 H-01/H-05
+  detail: Explicitly untested; depends on a completed pilot with a conversion offer.
+scoring:
+  reach: 5
+  severity: 4
+  frequency: 1
+  impact_band: Medium
+business_metric: renewal
+priority: P1-investigate
+priority_rationale: Impact Medium (20); hypothesis -> investigation. The pilot's commercial outcome.
+effort: L
+recommendation: At pilot end, make a paid conversion offer to each pilot merchant; record conversion rate
+  and stated reasons for non-conversion.
+test_required: a conversion outcome recorded for every pilot merchant with reasons
+guard_ref: null
+lifecycle: open
+owner: founder
+opened: '2026-09-10'
+closed: null

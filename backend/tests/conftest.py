@@ -99,10 +99,29 @@ def _freeze_clock_opt_in():
     if os.environ.get("TESTS_FREEZE_CLOCK") != "1":
         yield
         return
-    from freezegun import freeze_time
+    import time as _time
 
-    with freeze_time("2026-06-15 09:30:00"):
-        yield
+    from freezegun import freeze_time
+    from rest_framework.throttling import SimpleRateThrottle
+
+    # DRF's `SimpleRateThrottle.timer` is the bare `time.time` builtin captured
+    # as a class attribute at import. Builtins aren't descriptors, so `self.timer()`
+    # normally just calls `time.time()`. But freezegun's module sweep rewrites
+    # every reference that `is time.time` to `fake_time` — a plain Python function,
+    # which *does* bind as a method on instance access — so `self.timer()` becomes
+    # `fake_time(self)` and every throttled endpoint 500s with "fake_time() takes
+    # 0 positional arguments but 1 was given". Wrapping the real function in a
+    # `staticmethod` breaks the `is time.time` identity check, so freezegun leaves
+    # it alone and the throttle timer keeps ticking on the real clock (no test
+    # asserts throttle timing under a frozen clock). Model/serializer timestamps
+    # still freeze — they route through `django.utils.timezone.now`.
+    _real_timer = SimpleRateThrottle.__dict__.get("timer", _time.time)
+    SimpleRateThrottle.timer = staticmethod(_time.time)
+    try:
+        with freeze_time("2026-06-15 09:30:00"):
+            yield
+    finally:
+        SimpleRateThrottle.timer = _real_timer
 
 
 @pytest.fixture(autouse=True)

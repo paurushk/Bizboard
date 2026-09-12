@@ -1,0 +1,44 @@
+id: QOS-0003
+category: PERFORMANCE
+title: Pilot scale is unvalidated - no executed load, soak, or large-tenant test
+persona:
+- P1
+archetype:
+- ARCH-03
+journey: Reports / lists / exports over a full year of data
+problem: 'In progress 2026-09-11, two halves: (1) DONE + verified — a real 50k-invoice fixture (tests/test_qos0003_large_tenant_reports.py)
+  proved sales_register''s existing MAX_REGISTER_ROWS_HARD_CAP (10,000) correctly refuses a full-year
+  pull on a 50k tenant rather than silently materialising it, and that a realistic month-window query
+  stays flat (query count independent of tenant size) and fast; run locally end-to-end, 3/3 pass. (2)
+  WRITTEN, not yet proven green — the load-harness CI job now boots a real backend + Postgres and runs
+  the k6 smoke for real (was `test -f load/k6_smoke.js` with nothing ever executing it), but this session
+  has no k6 binary or a live GitHub Actions run to confirm it passes; it needs its first real CI run before
+  this half can be called verified.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-7
+  - .github/workflows/ci.yml load-harness job
+  - docs/FREEZE_SCOPE.md C7
+  - backend/tests/test_qos0003_large_tenant_reports.py
+  detail: Large-tenant fixture run locally end-to-end (3/3 pass); the k6-in-CI wiring is unverified pending
+    a real CI run.
+scoring:
+  reach: 4
+  severity: 3
+  frequency: 3
+  impact_band: Medium
+business_metric: renewal
+priority: P1
+priority_rationale: Impact Medium (36); a cheap executed smoke closes most of the risk now.
+effort: L
+recommendation: 'Large-tenant fixture: done. k6-in-CI: written (boots backend + Postgres, installs k6,
+  asserts the script''s own p95/error-rate thresholds), advisory until it has run green on main a few
+  times — confirm on the first real CI run, don''t assume.'
+test_required: k6 smoke lane (advisory then blocking) + a large-tenant report/export timing test
+guard_ref:
+  test: backend/tests/test_qos0003_large_tenant_reports.py::test_realistic_month_window_stays_flat_and_fast_on_a_50k_tenant
+lifecycle: in_progress
+owner: backend
+opened: '2026-09-10'
+closed: null

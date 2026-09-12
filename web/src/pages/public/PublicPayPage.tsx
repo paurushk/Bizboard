@@ -24,7 +24,7 @@ export function PublicPayPage() {
   if (query.isLoading) {
     return (
       <Stack minHeight="100vh" alignItems="center" justifyContent="center" sx={{ bgcolor: 'grey.50' }}>
-        <CircularProgress />
+        <CircularProgress aria-label="Loading" />
       </Stack>
     );
   }

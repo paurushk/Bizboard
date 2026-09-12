@@ -1,0 +1,36 @@
+id: QOS-0041
+category: DELIGHT
+title: The GSTR worksheet has no contextual 'how to file this on the portal' help
+persona:
+- P6
+- P5
+archetype:
+- ARCH-03
+journey: Taking a Bizboard worksheet to the GST portal
+problem: C1 says the worksheets are calculation aids the user files themselves. The worksheet screens
+  do not explain which portal fields each column maps to, so a less-experienced filer has to work it out.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/FREEZE_SCOPE.md C1
+  - docs/TESTING_STRATEGY.md#4 P6
+  detail: Inferred from the 'file it yourself' limitation; not observed with a filer.
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: nps
+priority: P3
+priority_rationale: Impact Low (12); reduces filing anxiety. P3.
+effort: S
+recommendation: Add inline help on the GSTR-1 / 3B worksheet mapping each section to its portal counterpart,
+  with a short 'how to file' checklist.
+test_required: a help-content check that each worksheet section has a portal-mapping help entry
+guard_ref:
+  test: web/src/pages/help/faqContent.portalMapping.test.tsx::has a GSTR-1 and a GSTR-3B "how to file
+    on the portal" entry
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null

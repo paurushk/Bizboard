@@ -618,11 +618,29 @@ export function BankReconPage() {
   // F2-025: search-as-you-type instead of loading every customer up front.
   const createCustomerSearch = useCustomerSearch({ selected: createCustomer });
   const [reconErr, setReconErr] = useState('');
+  const [bulkAcceptMsg, setBulkAcceptMsg] = useState('');
   const confirm = useMutation({
     mutationFn: (payload: Record<string, unknown>) => api.confirmRecon(payload),
     onSuccess: () => {
       setReconErr('');
       void qc.invalidateQueries({ queryKey: ['payment-recon'] });
+    },
+    onError: (e) => setReconErr(getErrorMessage(e)),
+  });
+  // QOS-0039: accept every EXACT-class suggestion in one click instead of
+  // confirming high-confidence matches one by one; fuzzy ones stay for
+  // manual review. Undoable per-line via the existing unmatch action.
+  const bulkAcceptExact = useMutation({
+    mutationFn: () => api.bulkAcceptExactMatches(),
+    onSuccess: (result) => {
+      setReconErr('');
+      setBulkAcceptMsg(
+        result.accepted_count > 0
+          ? t('phase.bulkAcceptExactAccepted', { count: result.accepted_count })
+          : t('phase.bulkAcceptExactNone'),
+      );
+      void qc.invalidateQueries({ queryKey: ['payment-recon'] });
+      void qc.invalidateQueries({ queryKey: ['payment-health'] });
     },
     onError: (e) => setReconErr(getErrorMessage(e)),
   });
@@ -646,10 +664,33 @@ export function BankReconPage() {
   const rows = query.data ?? [];
   const aging = (health.data?.unmatchedAging as Record<string, number>) || {};
   return (
-    <PageShell title={t('phase.bankRecon')} subtitle={t('phase.bankReconSubtitle')}>
+    <PageShell
+      title={t('phase.bankRecon')}
+      subtitle={t('phase.bankReconSubtitle')}
+      actions={
+        canWrite && rows.length > 0 ? (
+          <Button
+            variant="outlined"
+            size="small"
+            disabled={bulkAcceptExact.isPending}
+            onClick={() => {
+              setBulkAcceptMsg('');
+              bulkAcceptExact.mutate();
+            }}
+          >
+            {t('phase.bulkAcceptExact')}
+          </Button>
+        ) : null
+      }
+    >
       {reconErr ? (
         <Alert severity="error" sx={{ mb: 1 }} onClose={() => setReconErr('')}>
           {reconErr}
+        </Alert>
+      ) : null}
+      {bulkAcceptMsg ? (
+        <Alert severity="success" sx={{ mb: 1 }} onClose={() => setBulkAcceptMsg('')}>
+          {bulkAcceptMsg}
         </Alert>
       ) : null}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }}>

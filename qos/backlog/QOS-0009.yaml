@@ -1,0 +1,43 @@
+id: QOS-0009
+category: PERSONA_GAP
+title: 'ARCH-05/06 test coverage: near-expiry guard-band and bulk-serial partial failure'
+persona:
+- P4
+archetype:
+- ARCH-05
+- ARCH-06
+journey: Batch expiry policy and bulk serial ingest
+problem: 'Fixed 2026-09-11: added test_expiry_guard_band_matrix (6 cases: block_expired on/off x expired/near-expiry-today/not-near-expiry)
+  pinning that a lot expiring *today* is sellable regardless of policy (expiry_date < business date, not
+  <=); test_serial_bulk_ingest_partial_failure (a within-paste duplicate serial rolls back the whole opening-stock
+  post, no half-written serials or balance bump); and test_warranty_fraud_duplicate_return (the same sold
+  serial cannot be returned twice). Auto-pick FEFO was scoped out — QOS-0009''s own earlier investigation
+  found it lives at the invoice-complete layer, not post_movement, so a matrix axis for it there would
+  test the wrong layer.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-2
+  - backend/tests/matrices/test_company_settings_matrix.py::test_expiry_guard_band_matrix
+  - backend/tests/test_item_godown_expiry.py::test_serial_bulk_ingest_partial_failure
+  - backend/tests/test_item_godown_expiry.py::test_warranty_fraud_duplicate_return
+  detail: All 3 tests pass; full backend suite 1489 passed / 23 skipped with no regressions.
+scoring:
+  reach: 2
+  severity: 4
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: Impact Low (16); Stage-4 archetypes. Base P2 for Low.
+effort: M
+recommendation: 'Done: expiry-policy x guard-band matrix + the two serial tests. Manual-pick only (post_movement
+  always requires an explicit batch); auto-pick FEFO is a different layer, out of scope here per QOS-0009''s
+  own earlier finding.'
+test_required: expiry-policy matrix axis + the two serial tests, green in the Phase 2 gate
+guard_ref:
+  test: backend/tests/matrices/test_company_settings_matrix.py::test_expiry_guard_band_matrix
+lifecycle: fixed
+owner: backend
+opened: '2026-09-10'
+closed: null

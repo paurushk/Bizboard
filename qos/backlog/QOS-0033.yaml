@@ -1,0 +1,34 @@
+id: QOS-0033
+category: BUSINESS_GAP
+title: HSN summary correctness in GSTR-1 is not snapshot-pinned on its own
+persona:
+- P6
+archetype:
+- ARCH-03
+journey: GSTR-1 HSN summary section
+problem: HSN summary correctness is folded into test_wf27 but has no standalone blessed snapshot. A regression
+  in HSN aggregation could pass wf27's tie-out while producing a wrong HSN table the CA relies on.
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#6.9
+  - docs/FREEZE_SCOPE.md G5
+  detail: 'Read of the GSTR coverage: tie-out is pinned, the HSN table is not independently snapshotted.'
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 2
+  impact_band: Medium
+business_metric: none
+priority: P2
+priority_rationale: Impact Medium (18); CA-facing. P2.
+effort: S
+recommendation: Add a blessed snapshot of the GSTR-1 HSN summary for a mixed-rate, mixed-HSN period to
+  tests/snapshots/.
+test_required: a GSTR-1 HSN summary snapshot test in tests/snapshots/
+guard_ref:
+  test: backend/tests/snapshots/test_gstr1_json.py::test_gstr1_hsn_summary_snapshot_mixed_rate
+lifecycle: fixed
+owner: backend
+opened: '2026-09-10'
+closed: null

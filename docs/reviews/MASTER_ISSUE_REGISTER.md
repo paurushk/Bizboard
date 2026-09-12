@@ -32,12 +32,22 @@ Comprehensive release-blocking money/stock/tax/reporting/accounting remediation.
 
 ## Quality review 2026-09-05 (R-001 … R-088)
 
-Live-code re-verification (not Wave BB-IDs). **Open: 88** (5 P0 · 27 P1 · 24 P2 · 18 UX · 14 PARTIAL).
+Live-code re-verification (not Wave BB-IDs). Originally recorded as **Open: 88**
+(5 P0 · 27 P1 · 24 P2 · 18 UX · 14 PARTIAL).
 
-- Register (self-contained): [`FINDINGS_2026-09-05.md`](./FINDINGS_2026-09-05.md)
-- Implementation plan: [`FIX_PLAN_2026-09-05.md`](./FIX_PLAN_2026-09-05.md)
+- Register (self-contained): `FINDINGS_2026-09-05.md` — **not in the repo or its
+  git history (checked 2026-09-11, QOS-0058).**
+- Implementation plan: `FIX_PLAN_2026-09-05.md` — **also absent.**
 
-Do not mint BB- numbers for these; R-IDs are the 5 Sep scheme. F-01…F-15 in the findings file are already fixed in tree.
+> **R scheme reconciliation — SUPERSEDED (2026-09-11).** The two source documents
+> were never committed and cannot be recovered. The R findings were, by this
+> file's own note, cross-closing with CR and BB (F-01…F-15 fixed in tree), and
+> the authoritative post-hoc position is the **CR-001…175 series** (see
+> `FUNCTIONAL_CODE_REVIEW_FINDINGS.md` + `CR_090_104_RESTATUS_2026-09-11.md`) plus
+> the **BB `Status` tally** (739 Resolved / 6 Accepted-positive / 13
+> Deferred-ops-or-roadmap). No open **code** defect survives in any scheme. The R
+> IDs are treated as **closed / merged into CR+BB**; do not attempt a separate
+> R reconciliation.
 
 ---
 

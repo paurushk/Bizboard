@@ -1,0 +1,36 @@
+id: QOS-0058
+category: BUSINESS_GAP
+title: The R-001..R-088 findings register is not in the repo - can't be reconciled first-hand
+persona:
+- P5
+journey: Reconciling the 2026-09-05 quality review
+problem: 'MASTER_ISSUE_REGISTER.md cites FINDINGS_2026-09-05.md (R-001..088: 5 P0, 27 P1, 24 P2, 18 UX,
+  14 PARTIAL) and its fix plan, but neither file is present under docs/reviews/. The 88 R-findings can
+  only be taken on the register header''s word (''F-01..F-15 fixed in tree; rest cross-close with CR/BB'').'
+evidence:
+  strength: heuristic
+  source:
+  - docs/reviews/MASTER_ISSUE_REGISTER.md (R-001..088 scheme header)
+  - 'missing: docs/reviews/FINDINGS_2026-09-05.md, FIX_PLAN_2026-09-05.md'
+  detail: 'Direct check: the cited source docs do not exist in the tree; the register header is the only
+    record.'
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: Impact Low (6); a traceability gap, not a known defect. P2 - locate the file or formally
+  fold R into CR/BB.
+effort: S
+recommendation: Locate FINDINGS_2026-09-05.md (git history / branches / author) and commit it, or record
+  in MASTER_ISSUE_REGISTER that the R scheme is superseded by CR + the BB Status tally and needs no separate
+  reconciliation.
+test_required: the R findings doc is in the repo, or the register records R as formally superseded
+guard_ref:
+  test: docs/reviews/MASTER_ISSUE_REGISTER.md
+lifecycle: fixed
+owner: founder
+opened: '2026-09-10'
+closed: null

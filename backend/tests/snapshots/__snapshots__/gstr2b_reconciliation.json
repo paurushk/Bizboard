@@ -1,0 +1,26 @@
+{
+  "itc_figures": {
+    "cgst": "54",
+    "claimable": true,
+    "claimable_rows": 1,
+    "igst": "0",
+    "sgst": "54",
+    "source": "gstr2b_matched",
+    "taxable": "600"
+  },
+  "itc_shape": {
+    "cess": "<scalar>",
+    "cgst": "<scalar>",
+    "claimable": "<scalar>",
+    "claimable_rows": "<scalar>",
+    "igst": "<scalar>",
+    "sgst": "<scalar>",
+    "source": "<scalar>",
+    "taxable": "<scalar>"
+  },
+  "summary": {
+    "matched": 1,
+    "persisted": true,
+    "rows": 2
+  }
+}

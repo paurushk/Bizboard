@@ -1,0 +1,33 @@
+id: QOS-0016
+category: DELIGHT
+title: Dashboard render budget is unmeasured with realistic data volume
+persona:
+- P1
+journey: Dashboard first render with 12 months of data
+problem: Delight is asserted only as pilot hypotheses. There is no automated 'dashboard renders within
+  X ms with N months of data' check, so a slow dashboard would ship unnoticed - and 'visibility at a glance'
+  is P1's core motive.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-15
+  - docs/TESTING_STRATEGY.md#6.10
+  detail: No latency budget exists in any e2e spec; not observed with a realistic dataset.
+scoring:
+  reach: 5
+  severity: 2
+  frequency: 4
+  impact_band: Medium
+business_metric: activation
+priority: P1-investigate
+priority_rationale: Impact Medium (40); hypothesis -> investigation. Build the observation first (ADR
+  0001).
+effort: M
+recommendation: Once the observation layer lands, seed a 12-month fixture and assert dashboard first-contentful
+  render under a p95 budget in a Playwright timing spec.
+test_required: a dashboard render-budget assertion in the e2e suite
+guard_ref: null
+lifecycle: open
+owner: web
+opened: '2026-09-10'
+closed: null

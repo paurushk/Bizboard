@@ -1,0 +1,35 @@
+id: QOS-0036
+category: DELIGHT
+title: Recurring retainer / subscription invoices are re-typed every cycle
+persona:
+- P5
+archetype:
+- ARCH-07
+- ARCH-03
+journey: Monthly retainer or subscription billing
+problem: WF-11 (recurring invoice) is an explicitly skipped stub. Service contractors and any trader with
+  monthly retainers re-enter near-identical invoices by hand each cycle.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/FREEZE_SCOPE_COVERAGE.md 'Still genuinely skipped' (WF-11)
+  - docs/TESTING_STRATEGY.md#5 ARCH-07
+  detail: Feature is unbuilt; the pain is inferred from the retainer-heavy archetypes, not observed.
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 3
+  impact_band: Medium
+business_metric: nps
+priority: P2
+priority_rationale: Impact Medium (18); post-freeze feature. P2.
+effort: M
+recommendation: Detect near-identical invoices to the same customer on a monthly cadence and offer a one-click
+  'make recurring'; generate drafts on schedule for review.
+test_required: WF-11 recurring-invoice chain green once built
+guard_ref:
+  test: backend/tests/test_sprint_c_recurring.py::test_beat_creates_draft_invoice
+lifecycle: verified
+owner: backend
+opened: '2026-09-10'
+closed: null

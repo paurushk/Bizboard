@@ -120,7 +120,7 @@ export function SetupWizardPage() {
 
   if (!isSetupWizardEnabled() || user?.role !== 'OWNER') return <Navigate to="/" replace />;
   if (companyQuery.isLoading) {
-    return <Box minHeight="100vh" display="grid" sx={{ placeItems: 'center' }}><CircularProgress /></Box>;
+    return <Box minHeight="100vh" display="grid" sx={{ placeItems: 'center' }}><CircularProgress aria-label={t('common.loading')} /></Box>;
   }
   if (companyQuery.isError || !company) {
     return <Box p={3}><HelpErrorAlert error={companyQuery.error} /></Box>;

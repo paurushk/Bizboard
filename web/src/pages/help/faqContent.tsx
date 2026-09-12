@@ -1271,6 +1271,37 @@ const MORE_FAQ: FaqItem[] = [
       'Use them to review collections, then file where the government requires.',
     ],
   ),
+  faq(
+    'gstr1-portal-mapping',
+    'GSTR, e-Invoice & e-Way',
+    'How do I file the GSTR-1 worksheet on the GST portal?',
+    ['how to file gstr-1', 'portal mapping', 'b2b', 'b2cs', 'hsn', 'cdnr', 'gst.gov.in'],
+    [
+      'The worksheet columns line up with the portal tables — enter or upload each section as-is:',
+      '- **B2B** → portal table **4A/4B/4C/6B/6C** (invoice-wise, recipient GSTIN).',
+      '- **B2CS** → table **7** (rate-wise, place-of-supply-wise summary).',
+      '- **CDNR / CDNUR** → tables **9B** (credit/debit notes, registered / unregistered).',
+      '- **EXP** → table **6A** (exports).',
+      '- **HSN summary** → table **12** (HSN, UQC, quantity, taxable, tax).',
+      '- **Documents issued** → table **13**.',
+      'To file: log in at gst.gov.in → Returns Dashboard → the period → GSTR-1 → fill each table (or use the offline utility / JSON where the numbers match this worksheet) → Preview → Submit → file with DSC/EVC.',
+    ],
+  ),
+  faq(
+    'gstr3b-portal-mapping',
+    'GSTR, e-Invoice & e-Way',
+    'How do I file the GSTR-3B worksheet on the GST portal?',
+    ['how to file gstr-3b', 'portal mapping', 'table 3.1', 'table 4', 'itc', 'gst.gov.in'],
+    [
+      'The 3B worksheet rows map to the portal tables:',
+      '- **Outward taxable / zero-rated / nil-rated** → table **3.1 (a)-(e)**.',
+      '- **Inter-state supplies to unregistered / composition / UIN** → table **3.2**.',
+      '- **Eligible ITC — import, ISD, all other, reversal, ineligible** → table **4 (A)-(D)** (follows your 2B / IMS review, not auto-accept).',
+      '- **Exempt / nil / non-GST inward** → table **5**.',
+      '- **Interest & late fee** → table **5.1**.',
+      'To file: gst.gov.in → Returns Dashboard → the period → GSTR-3B → enter each table from this worksheet → Save → Proceed to Payment (offset with cash/credit ledger) → Submit → file with DSC/EVC.',
+    ],
+  ),
 
   faq(
     'books-journal-blocked',

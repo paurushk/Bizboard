@@ -1,0 +1,34 @@
+id: QOS-0072
+category: BUSINESS_GAP
+title: Full perpetual FIFO COGS is out of scope
+persona:
+- P5
+- P6
+journey: Inventory cost accounting method
+problem: The product uses a running weighted-average cost, not perpetual FIFO COGS layers. Cost is recomputable
+  from movements.
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE.md B (Full perpetual FIFO COGS)
+  - docs/FREEZE_SCOPE.md C3
+  detail: Recorded in FREEZE_SCOPE.md as out of pilot scope; stated to pilot users with a manual workaround.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Accepted / won't-fix - scoped out of the pilot by decision.
+effort: S
+recommendation: None - deliberately out of scope. Where a route surface exists, a test asserts it is inaccessible
+  under the pilot flag profile.
+test_required: inventory.running_cost_qty_matches_movements asserts cost is recomputable from movements
+guard_ref: null
+lifecycle: accepted_wontfix
+wontfix_rationale: Running weighted cost, not full perpetual FIFO COGS layers. Internal note; the accounting
+  difference from true FIFO is not quantified by a test. (C3)
+owner: founder
+opened: '2026-09-10'
+closed: '2026-09-10'

@@ -69,4 +69,7 @@ def test_wf01_sale_intrastate_full_chain(tenant_a, assert_consistent):
     assert pay.status_code in (200, 201), pay.data
 
     # --- whole-chain consistency ---
+    from core.invariants.reports import cross_reconcile
+
+    assert not cross_reconcile(company), cross_reconcile(company)
     assert_consistent(company)

@@ -1,0 +1,21 @@
+# Trips L3: hypothesis-grade evidence cannot carry P0.
+id: QOS-9003
+category: DISSATISFACTION
+title: "Selftest fixture — hypothesis evidence with a P0 priority"
+persona: [P1]
+journey: "selftest"
+problem: "Synthetic fixture: hypothesis evidence must be capped at P1-investigate, so P0 here must be rejected."
+evidence:
+  strength: hypothesis
+  source: ["qos/tools/_selftest"]
+  detail: "synthetic selftest fixture — not observed"
+scoring: { reach: 3, severity: 3, frequency: 3, impact_band: Medium }
+priority: P0
+priority_rationale: "synthetic — deliberately violates the evidence cap"
+effort: S
+recommendation: "n/a — selftest fixture; the linter should reject this on L3"
+test_required: "qos/tools/lint.py --selftest stays green"
+lifecycle: open
+owner: qa
+opened: "2026-09-10"
+closed: null

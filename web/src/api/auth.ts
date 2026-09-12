@@ -1,6 +1,6 @@
 import { apiClient, shouldUseMocks, unwrapData } from './client';
 import { setAccessToken } from '@/auth/session';
-import { mockSalesUser, mockUser, mockViewerUser } from '@/mocks/data';
+import { mockAccountantUser, mockSalesUser, mockUser, mockViewerUser } from '@/mocks/data';
 import type { AuthTokens, User } from '@/types/domain';
 
 export interface LoginPayload {
@@ -34,7 +34,9 @@ export async function login(payload: LoginPayload): Promise<{ user: User; tokens
       ? mockViewerUser
       : email.includes('sales')
         ? mockSalesUser
-        : mockUser;
+        : email.includes('accountant')
+          ? mockAccountantUser
+          : mockUser;
     return {
       user,
       tokens: { access: 'mock-access', refresh: 'mock-refresh' },

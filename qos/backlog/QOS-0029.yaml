@@ -1,0 +1,35 @@
+id: QOS-0029
+category: DISSATISFACTION
+title: UX readiness is untested with real non-technical staff (readiness dim 4)
+persona:
+- P2
+- P4
+- P5
+journey: A first-time non-technical operator running a daily task unaided
+problem: Readiness dimension 4 ('Can real non-technical staff operate without training?') is 'UNTESTED
+  IN PILOT'. Every usability claim for the counter clerk, godown custodian, and munshi is currently an
+  assumption.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 9
+  detail: Explicitly untested; needs a pilot or a synthetic-persona observation run.
+scoring:
+  reach: 5
+  severity: 3
+  frequency: 4
+  impact_band: High
+business_metric: activation
+priority: P1-investigate
+priority_rationale: Impact High (60); hypothesis -> investigation. Resolved by pilot Stage 1 or the observation
+  layer.
+effort: L
+recommendation: During pilot Stage 1, observe unaided first-task completion for P2/P4/P5 (task success
+  rate, time, help requests). Or build the synthetic persona agents (ADR 0001) for the onboarding and
+  POS journeys.
+test_required: unaided-task-completion metrics recorded for P2/P4/P5 against a documented bar
+guard_ref: null
+lifecycle: open
+owner: founder
+opened: '2026-09-10'
+closed: null

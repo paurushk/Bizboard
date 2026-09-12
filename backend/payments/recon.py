@@ -9,6 +9,7 @@ import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
+from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
 
@@ -195,8 +196,72 @@ def _date_abs_delta(line_date, target_date) -> int:
     return abs((line_date - target_date).days)
 
 
+_STOPWORDS = frozenset({
+    "THE", "AND", "FOR", "FROM", "WITH", "PVT", "LTD", "LIMITED", "PRIVATE",
+    "TRADERS", "ENTERPRISES", "TRADING", "COMPANY", "AND CO", "INDIA", "TRANSFER",
+    "PAYMENT", "UPI", "NEFT", "IMPS", "RTGS", "TO", "FRM",
+})
+
+
+def narration_tokens(narration: str) -> set[str]:
+    """Significant, deduped tokens from a bank narration — drops short
+    fragments and generic banking/company-suffix words that would otherwise
+    make every payee's memory entry collide with every other's."""
+    words = re.split(r"\W+", (narration or "").upper())
+    return {w for w in words if len(w) > 3 and w not in _STOPWORDS}
+
+
+def remember_payee(*, company, line: BankStatementLine, customer_id=None, supplier_id=None) -> None:
+    """QOS-0043: called once a match is confirmed — bootstraps future
+    suggestions from this tenant's own history, no external training data."""
+    from django.db import transaction
+
+    from .models import PayeeMemory
+
+    if bool(customer_id) == bool(supplier_id):
+        return  # exactly one of the two, same contract as _confirm_match
+    target_type = PayeeMemory.TargetType.CUSTOMER if customer_id else PayeeMemory.TargetType.SUPPLIER
+    target_id = customer_id or supplier_id
+    tokens = narration_tokens(line.narration)
+    if not tokens:
+        return
+    now = timezone.now()
+    with transaction.atomic():
+        for token in tokens:
+            obj, created = PayeeMemory.objects.select_for_update().get_or_create(
+                company=company, token=token, target_type=target_type, target_id=target_id,
+                defaults={"last_matched_at": now},
+            )
+            if not created:
+                obj.hit_count += 1
+                obj.last_matched_at = now
+                obj.save(update_fields=["hit_count", "last_matched_at"])
+
+
+def payee_memory_bonus(*, company, line: BankStatementLine, customer_id=None, supplier_id=None) -> Decimal:
+    """0-20 bonus when this line's narration tokens have previously been
+    confirmed against this exact customer/supplier. Capped well below the
+    amount-match score so memory alone can never manufacture a high-confidence
+    suggestion — see score_match's `if not amount_hit` cap, applied after this."""
+    from .models import PayeeMemory
+
+    target_type = PayeeMemory.TargetType.CUSTOMER if customer_id else PayeeMemory.TargetType.SUPPLIER
+    target_id = customer_id or supplier_id
+    if not target_id:
+        return Decimal("0")
+    tokens = narration_tokens(line.narration)
+    if not tokens:
+        return Decimal("0")
+    hits = PayeeMemory.objects.filter(
+        company=company, target_type=target_type, target_id=target_id, token__in=tokens,
+    ).count()
+    if not hits:
+        return Decimal("0")
+    return min(Decimal("20"), Decimal(hits) * Decimal("7"))
+
+
 def score_match(line: BankStatementLine, *, receipt: CustomerReceipt | None = None,
-                payment: SupplierPayment | None = None) -> Decimal:
+                payment: SupplierPayment | None = None, company=None) -> Decimal:
     """Return 0–100 confidence."""
     score = Decimal("0")
     amount_hit = False
@@ -261,7 +326,16 @@ def score_match(line: BankStatementLine, *, receipt: CustomerReceipt | None = No
         score += Decimal("10")
     elif target_date and abs((line.txn_date - target_date).days) <= 7:
         score += Decimal("5")
-    # UTR/name/date without an amount match must not look high-confidence.
+    # QOS-0043: a payee this tenant has confirmed against before, by
+    # narration-token overlap — bootstrapped from their own recon history.
+    if company is not None:
+        score += payee_memory_bonus(
+            company=company,
+            line=line,
+            customer_id=receipt.customer_id if receipt else None,
+            supplier_id=payment.supplier_id if payment else None,
+        )
+    # UTR/name/date/memory without an amount match must not look high-confidence.
     if not amount_hit:
         score = min(score, Decimal("35"))
     return min(score, Decimal("100"))
@@ -309,7 +383,7 @@ def suggest_matches(
             ),
         )
         for receipt in receipts[:50]:
-            conf = score_match(line, receipt=receipt)
+            conf = score_match(line, receipt=receipt, company=company)
             if conf >= Decimal("40"):
                 suggestions.append(
                     {
@@ -344,7 +418,7 @@ def suggest_matches(
             ),
         )
         for payment in payments[:50]:
-            conf = score_match(line, payment=payment)
+            conf = score_match(line, payment=payment, company=company)
             if conf >= Decimal("40"):
                 suggestions.append(
                     {

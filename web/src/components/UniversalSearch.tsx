@@ -106,7 +106,7 @@ export function UniversalSearch() {
             ...params.InputProps,
             endAdornment: (
               <>
-                {query.isFetching ? <CircularProgress color="inherit" size={16} /> : null}
+                {query.isFetching ? <CircularProgress color="inherit" size={16} aria-label={t('common.loading')} /> : null}
                 {params.InputProps.endAdornment}
               </>
             ),

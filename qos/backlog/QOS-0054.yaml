@@ -1,0 +1,36 @@
+id: QOS-0054
+category: RELIABILITY_TRUST
+title: GST period soft-close has no row lock - TOCTOU race with posting (CR-104)
+persona:
+- P5
+- P6
+archetype:
+- ARCH-03
+journey: Soft-closing a GST period while an invoice completes into that date
+problem: AccountingPeriod close was locked (CR-081); GST period soft_close_period was not. assert_period_allows_money_amend
+  reads the GST period unlocked, so a concurrent soft-close vs PostingService.post can post into (or reverse
+  out of) a just-closed GST period.
+evidence:
+  strength: heuristic
+  source:
+  - 'docs/reviews/FUNCTIONAL_CODE_REVIEW_FINDINGS.md CR-104 (High, Status: OPEN, residual of CR-081)'
+  detail: Direct read of the 2026-09-08 review; marked OPEN; not re-verified. Needs concurrency to trigger.
+scoring:
+  reach: 2
+  severity: 4
+  frequency: 2
+  impact_band: Low
+business_metric: renewal
+priority: P2
+priority_rationale: Impact Low (16) by product (needs a race); compliance-relevant. P2 - a known residual
+  with a clear fix.
+effort: S
+recommendation: Lock the GST period row (or take an advisory lock) in soft_close_period and in assert_period_allows_money_amend,
+  matching the AccountingPeriod pattern.
+test_required: 'a Postgres concurrency test: soft_close + complete into the same date, one must lose'
+guard_ref:
+  test: backend/tests/test_concurrency_races.py::test_concurrent_gst_soft_close_and_complete_race
+lifecycle: verified
+owner: backend
+opened: '2026-09-10'
+closed: null

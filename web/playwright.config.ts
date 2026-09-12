@@ -16,6 +16,14 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     { name: 'mobile', use: { ...devices['Pixel 5'] } },
+    // QOS-0013: a second engine, scoped to the specs where cross-browser drift
+    // actually matters (a11y semantics + the golden persona/tenant path). Keeps
+    // the full matrix cheap.
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+      testMatch: /(a11y|personas\/role-boundaries|mobile-layout)\.spec\.ts$/,
+    },
   ],
   webServer: process.env.E2E_SKIP_WEBSERVER
     ? undefined

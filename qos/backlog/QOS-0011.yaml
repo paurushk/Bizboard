@@ -1,0 +1,34 @@
+id: QOS-0011
+category: SECURITY_PRIVACY
+title: CSP is not implemented in-app; no external penetration test yet
+persona:
+- P1
+journey: Cross-cutting web security posture
+problem: Content-Security-Policy is not emitted by the app (treated as an edge/CDN concern, stated but
+  not gated). No external pen-test has been run; docs/pilot/PENTEST_SOW.md is a draft scheduled for Phase
+  5.
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-9
+  - docs/pilot/PENTEST_SOW.md
+  - backend/tests/errors/test_freeze_gate_contracts.py
+  detail: Django-emitted headers are gated; CSP is absent; pen-test is a planned external engagement.
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 1
+  impact_band: Low
+business_metric: renewal
+priority: P2
+priority_rationale: Impact Low (9); base P2. Pen-test is external and Phase 5.
+effort: M
+recommendation: Decide the CSP delivery point (edge vs app) and add a header-presence test once decided;
+  commission the Phase 5 pen-test per the SOW and triage findings into this backlog.
+test_required: a CSP header presence test + pen-test findings triaged as QOS items
+guard_ref:
+  test: backend/tests/errors/test_freeze_gate_contracts.py::test_api_response_carries_hardening_headers
+lifecycle: fixed
+owner: ops
+opened: '2026-09-10'
+closed: null

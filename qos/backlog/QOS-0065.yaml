@@ -1,0 +1,31 @@
+id: QOS-0065
+category: BUSINESS_GAP
+title: Payroll is a dark module
+persona:
+- P5
+journey: Running payroll
+problem: ENABLE_PAYROLL=0 in production; salary processing and statutory payroll filings are not part
+  of the pilot.
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE.md B (ENABLE_PAYROLL=0)
+  detail: Recorded in FREEZE_SCOPE.md as out of pilot scope; stated to pilot users with a manual workaround.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Accepted / won't-fix - scoped out of the pilot by decision.
+effort: S
+recommendation: None - deliberately out of scope. Where a route surface exists, a test asserts it is inaccessible
+  under the pilot flag profile.
+test_required: n/a - accepted limitation; no guard required
+guard_ref: null
+lifecycle: accepted_wontfix
+wontfix_rationale: Dark module in production; payroll is handled out of band. (FREEZE_SCOPE B)
+owner: founder
+opened: '2026-09-10'
+closed: '2026-09-10'

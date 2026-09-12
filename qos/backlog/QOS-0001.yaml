@@ -1,0 +1,39 @@
+id: QOS-0001
+category: DISSATISFACTION
+title: UI may render controls that 403 for SALES_STAFF and ACCOUNTANT
+persona:
+- P2
+- P5
+archetype:
+- ARCH-03
+- ARCH-01
+journey: Everyday navigation as a non-owner role
+problem: Backend RBAC is fully asserted, but the frontend test that proves the UI hides what a role cannot
+  do is test.fixme-skipped for SALES_STAFF and ACCOUNTANT. A control that renders then 403s on click is
+  exactly the P2/P5 trust-eroding friction.
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-4
+  - web/e2e/personas/role-boundaries.spec.ts
+  - docs/reviews/UX_AUDIT_FINDINGS.md UX-002
+  detail: Inferred from the skipped FE coverage and the prior UX-002 incident; not observed with users.
+scoring:
+  reach: 4
+  severity: 3
+  frequency: 4
+  impact_band: High
+business_metric: support_ticket_rate
+priority: P1
+priority_rationale: Impact High (48); heuristic evidence caps at P1.
+effort: M
+recommendation: Add loginAsSales / loginAsAccountant seeds to web/e2e/helpers/auth.ts and un-fixme the
+  SALES and ACCOUNTANT describe blocks; assert no create/mutate control renders for those roles on journals,
+  users, and sales routes.
+test_required: role-boundaries.spec.ts green for all four roles in the e2e CI job
+guard_ref:
+  test: web/e2e/personas/role-boundaries.spec.ts::sales staff cannot post a journal or invite a user
+lifecycle: verified
+owner: web
+opened: '2026-09-10'
+closed: null

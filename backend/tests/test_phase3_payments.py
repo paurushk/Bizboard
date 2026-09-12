@@ -432,6 +432,70 @@ def test_auto_match_bank_exact(tenant_a):
     assert line.recon_match.receipt_id == receipt.id
 
 
+def test_bulk_accept_exact_matches_only_exact_class_and_is_undoable(tenant_a):
+    """QOS-0039: one call confirms every EXACT-class suggestion on the
+    unmatched queue (no company opt-in required, unlike commit-time
+    auto-match) and leaves an ambiguous line for manual review; each result
+    is undoable via the existing recon/unmatch action."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from payments.models import BankLineMatchStatus, BankStatementLine
+
+    customer = make_customer(tenant_a.company)
+    ba = BankAccount.objects.create(company=tenant_a.company, name="HDFC", is_default=True)
+    receipt = PaymentService.create_receipt(
+        company=tenant_a.company,
+        customer=customer,
+        amount=Decimal("4444"),
+        mode="BANK",
+        utr="BULKEXACT001",
+        bank_account=ba,
+        receipt_date=timezone.localdate(),
+    )
+    # auto_match_bank_exact stays OFF — bulk-accept-exact must work without it.
+    csv_content = (
+        "Date,Credit,Debit,Narration,Ref No\n"
+        f"{timezone.localdate().strftime('%d/%m/%Y')},4444,,INWARD BULKEXACT001,BULKEXACT001\n"
+        f"{timezone.localdate().strftime('%d/%m/%Y')},999,,UNRECOGNISED CREDIT,\n"
+    )
+    upload = SimpleUploadedFile("bulk.csv", csv_content.encode(), content_type="text/csv")
+    up = tenant_a.client.post(
+        "/api/v1/payments/statements/upload/",
+        {"bank_account": ba.id, "preset": "generic", "file": upload},
+        format="multipart",
+    )
+    assert up.status_code == 201, up.data
+    commit = tenant_a.client.post(f"/api/v1/payments/statements/{up.data['id']}/commit/")
+    assert commit.status_code == 200, commit.data
+    exact_line = BankStatementLine.objects.get(statement_id=up.data["id"], amount=Decimal("4444"))
+    fuzzy_line = BankStatementLine.objects.get(statement_id=up.data["id"], amount=Decimal("999"))
+    assert exact_line.match_status == BankLineMatchStatus.UNMATCHED
+    assert fuzzy_line.match_status == BankLineMatchStatus.UNMATCHED
+
+    resp = tenant_a.client.post("/api/v1/payments/recon/bulk-accept-exact/")
+    assert resp.status_code == 200, resp.data
+    assert resp.data["accepted_count"] == 1
+    assert resp.data["accepted"][0]["line"] == exact_line.id
+
+    exact_line.refresh_from_db()
+    fuzzy_line.refresh_from_db()
+    assert exact_line.match_status == BankLineMatchStatus.MATCHED
+    assert exact_line.recon_match.receipt_id == receipt.id
+    # The unrecognised line is untouched — left for manual review, not guessed at.
+    assert fuzzy_line.match_status == BankLineMatchStatus.UNMATCHED
+
+    # Idempotent: the exact line is already matched, so a second call is a no-op.
+    again = tenant_a.client.post("/api/v1/payments/recon/bulk-accept-exact/")
+    assert again.status_code == 200, again.data
+    assert again.data["accepted_count"] == 0
+
+    # Undo: the existing per-line unmatch action reverses a bulk-accept row.
+    undo = tenant_a.client.post("/api/v1/payments/recon/unmatch/", {"line": exact_line.id}, format="json")
+    assert undo.status_code == 200, undo.data
+    exact_line.refresh_from_db()
+    assert exact_line.match_status == BankLineMatchStatus.UNMATCHED
+
+
 def test_payment_health_and_refund(tenant_a):
     from ledgers.services import LedgerService
     from payments.models import (

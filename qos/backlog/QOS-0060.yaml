@@ -1,0 +1,33 @@
+id: QOS-0060
+category: BUSINESS_GAP
+title: GSTR report screens and on-portal filing are out of scope
+persona:
+- P6
+journey: Filing GST returns from inside the product
+problem: GSTR screens and GSTN direct filing are flagged off; the product provides offline calculation
+  worksheets only.
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE.md B (ENABLE_GSTR=0)
+  - docs/FREEZE_SCOPE.md C1
+  detail: Recorded in FREEZE_SCOPE.md as out of pilot scope; stated to pilot users with a manual workaround.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Accepted / won't-fix - scoped out of the pilot by decision.
+effort: S
+recommendation: None - deliberately out of scope. Where a route surface exists, a test asserts it is inaccessible
+  under the pilot flag profile.
+test_required: a test asserts the GSTR screens are inaccessible under the pilot flag profile
+guard_ref: null
+lifecycle: accepted_wontfix
+wontfix_rationale: Offline worksheets only; not GSTN filing. The CA files on the portal from the worksheet.
+  (C1)
+owner: founder
+opened: '2026-09-10'
+closed: '2026-09-10'

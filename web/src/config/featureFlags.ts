@@ -44,8 +44,11 @@ const MOCK_FLAGS: RuntimeFeatureFlags = {
   ENABLE_GSTR: false,
   ENABLE_TALLY: false,
   ENABLE_SETUP_WIZARD: false,
-  item_custom_fields_v2: false,
-  itemCustomFieldsV2: false,
+  // The mock company (src/mocks/data.ts) ships itemCustomFieldDefs, and the
+  // whole item-custom-fields e2e lane exercises them — keep the flag on so the
+  // mock app renders the feature it has data for.
+  item_custom_fields_v2: true,
+  itemCustomFieldsV2: true,
   helpV2: false,
 };
 

@@ -1,0 +1,41 @@
+id: QOS-0053
+category: DISSATISFACTION
+title: AP aging and AR aging use different truth models when books are on (CR-100 / CR-101)
+persona:
+- P1
+- P5
+archetype:
+- ARCH-03
+journey: Reconciling the dashboard AP card to the payables aging list
+problem: 'CR-060/061 moved AR (receivables) to foot the aging list. The purchase twins were left: dashboard
+  payables (_company_payables) still uses GL company-payables when books are on, and per-invoice purchase
+  outstanding still sums all allocations. AR and AP cards then rest on different models and cannot be
+  reconciled by the operator.'
+evidence:
+  strength: heuristic
+  source:
+  - 'docs/reviews/FUNCTIONAL_CODE_REVIEW_FINDINGS.md CR-100 (High, Status: OPEN)'
+  - 'docs/reviews/FUNCTIONAL_CODE_REVIEW_FINDINGS.md CR-101 (High, Status: OPEN)'
+  - docs/TESTING_STRATEGY.md#6.9 (dashboard KPI == drill-down)
+  detail: Direct read of the 2026-09-08 functional review; both entries marked OPEN, both High; not re-verified
+    against the current tree.
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 3
+  impact_band: Medium
+business_metric: support_ticket_rate
+priority: P1
+priority_rationale: Impact Medium (27); High-severity register entries, operator-facing reconciliation
+  confusion. Base P1.
+effort: M
+recommendation: 'Mirror the sales-side aging filters on the purchase paths: _company_payables = sum(payables_aging)
+  like AR; purchase_invoice_outstanding excludes receipt-shaped allocations. Keep GL on the books / recon
+  surfaces only.'
+test_required: test_cr100_purchase_invoice_outstanding_ignores_receipt_allocations + test_cr101_dashboard_payables_equals_aging_sum
+guard_ref:
+  test: backend/tests/test_a15_cr090_plus.py::test_cr101_dashboard_payables_equals_aging_sum
+lifecycle: verified
+owner: backend
+opened: '2026-09-10'
+closed: null

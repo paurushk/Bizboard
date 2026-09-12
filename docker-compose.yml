@@ -166,7 +166,11 @@ services:
       db:
         condition: service_healthy
 
-  # Wave 16A: restore latest dump (ops must still record dated restore drill).
+  # Wave 16A: restore latest dump into the live db (an ops-run recovery, not a
+  # drill — it overwrites POSTGRES_DB in place). QOS-0022: the automated,
+  # scheduled *drill* exercises this same pipeline into a throwaway scratch DB
+  # instead — see scripts/restore_drill.sh and
+  # .github/workflows/backup-restore-drill.yml (weekly).
   restore:
     profiles: ["restore"]
     image: postgres:17-alpine

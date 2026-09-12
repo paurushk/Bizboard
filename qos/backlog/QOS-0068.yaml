@@ -1,0 +1,34 @@
+id: QOS-0068
+category: BUSINESS_GAP
+title: Bill of Entry / import purchase + landed cost is a known limitation (D10)
+persona:
+- P5
+journey: Recording an import purchase with customs duty and landed cost
+problem: ENABLE_BOE=0 in the pilot profile; the route 404s. Single-currency INR only; no landed-cost capitalisation
+  into cost layers.
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE.md B (ENABLE_BOE=0)
+  - docs/FREEZE_SCOPE.md 'Scope revision 2026-09-09b'
+  detail: Recorded in FREEZE_SCOPE.md as out of pilot scope; stated to pilot users with a manual workaround.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Accepted / won't-fix - scoped out of the pilot by decision.
+effort: S
+recommendation: None - deliberately out of scope. Where a route surface exists, a test asserts it is inaccessible
+  under the pilot flag profile.
+test_required: test_wf_limitation_guards + test_pj_limitation_guards assert /purchases/bills-of-entry/
+  returns 404 under the flag-off profile
+guard_ref: null
+lifecycle: accepted_wontfix
+wontfix_rationale: Enter import purchases as a domestic purchase bill with duty / landed cost as a charge
+  line; no BoE document or automatic cost-layer capitalisation. (D10, 2026-09-09b)
+owner: founder
+opened: '2026-09-10'
+closed: '2026-09-10'

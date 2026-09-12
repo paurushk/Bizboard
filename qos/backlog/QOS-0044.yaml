@@ -1,0 +1,49 @@
+id: QOS-0044
+category: INNOVATION
+title: Automated collection-risk scoring with escalating dunning
+persona:
+- P1
+archetype:
+- ARCH-03
+journey: Receivables management
+problem: 'collection-risk scoring exists as a LIM. Investigation found the "reminder" and "call task"
+  rungs of the proposed escalation ladder already exist: automated reminders (payments/dunning.py, QOS-0032)
+  and a critical-severity AR_COLLECTION_RISK row on the Attention Center (insights/attention.py::_overdue_customer_rows,
+  tested by test_b05_attention.py) that names the customer, the overdue amount, and the recommended next
+  step for stop_credit/overdue_severe accounts. The one real gap was "hold new orders": the invoice-complete
+  credit check only fired for a customer with an explicit credit_limit set. Fixed 2026-09-11: an opt-in
+  company setting extends the hold to collection_status (stop_credit/overdue_severe) independent of a
+  static limit.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE.md G3 (collection-risk = LIM)
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 10
+  - backend/insights/attention.py::_overdue_customer_rows (AR_COLLECTION_RISK, already built)
+  - backend/sales/services.py (credit hold, now also status-driven behind a flag)
+  detail: First-hand code + test read; only the "hold" rung had a real gap, not all three as originally
+    framed.
+scoring:
+  reach: 4
+  severity: 2
+  frequency: 3
+  impact_band: Medium
+business_metric: renewal
+priority: P3
+priority_rationale: 'Corrected 2026-09-11: two of the three rungs were already built and tested (reminders
+  via QOS-0032, the AR_COLLECTION_RISK attention row as the call-task rung); only the status-driven hold
+  was missing. Shipped as an opt-in company setting so existing tenants see no behaviour change.'
+effort: S
+recommendation: 'Done: Company.auto_credit_hold_on_severe_overdue (opt-in, default off) makes the invoice-complete
+  check also block a stop_credit/overdue_severe customer even with no credit_limit set. The reminder and
+  call-task rungs needed no new build — they already existed.'
+test_required: a test that flips the flag on and confirms a no-credit-limit, overdue_severe customer is
+  blocked at invoice-complete, and that it is not blocked with the flag off
+guard_ref:
+  test: backend/tests/test_a07_dunning.py::test_auto_credit_hold_blocks_severe_overdue_customer_with_no_credit_limit
+lifecycle: fixed
+depends_on:
+- QOS-0032
+owner: backend
+opened: '2026-09-10'
+closed: null

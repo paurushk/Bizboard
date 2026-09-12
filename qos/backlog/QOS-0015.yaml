@@ -1,0 +1,40 @@
+id: QOS-0015
+category: RELIABILITY_TRUST
+title: No accuracy benchmark for LLM bill extraction
+persona:
+- P5
+journey: LLM bill extraction quality over time
+problem: 'In progress 2026-09-11, per explicit user direction (harness shell only, zero fixtures — a synthetic/rendered
+  bill would be trivially easy for a vision model and would measure nothing real): tests/accuracy/test_llm_bill_extraction_accuracy.py
+  calls the real configured LLM provider against whatever cases exist in tests/fixtures/bill_accuracy_corpus/
+  (image + expected-fields JSON pairs), scores header + line-item fields, and asserts an ACCURACY_FLOOR.
+  Marked `llm_accuracy` (pytest.ini) so it costs nothing and never runs in the default lanes. The corpus
+  itself is still empty — assembling ~30 real bill images with verified expected fields remains a real,
+  human task; this only removes "build the harness" from what''s left to do once that corpus exists.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-13
+  - backend/tests/errors/test_llm_extraction_failures.py
+  - backend/tests/accuracy/test_llm_bill_extraction_accuracy.py
+  - backend/tests/fixtures/bill_accuracy_corpus/README.md
+  detail: The no-corpus skip path is proven (1 skipped, clean); the scoring logic itself is unexercised
+    against a real case, since none exist.
+scoring:
+  reach: 1
+  severity: 3
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Impact Low (6); draft-with-review lowers urgency. P3.
+effort: M
+recommendation: 'Done (harness shell, per user direction): the accuracy-scoring test lane, skip-when-empty
+  behaviour, and its README. Assembling ~30 real bill images with verified expected fields is the remaining,
+  genuinely human task.'
+test_required: an advisory LLM-extraction accuracy lane with a documented floor
+guard_ref: null
+lifecycle: in_progress
+owner: backend
+opened: '2026-09-10'
+closed: null

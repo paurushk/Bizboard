@@ -11,7 +11,7 @@ import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 export function LoadingState({ label }: { label?: string }) {
   return (
     <Stack alignItems="center" justifyContent="center" spacing={2} sx={{ py: 8 }}>
-      <CircularProgress size={36} />
+      <CircularProgress size={36} aria-label={label ?? t('common.loading')} />
       <Typography color="text.secondary">{label ?? t('common.loading')}</Typography>
     </Stack>
   );

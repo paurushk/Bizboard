@@ -21,11 +21,13 @@ import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { AttentionQueuePreview } from '@/pages/AttentionPage';
+import { CollectionAttentionCard } from '@/components/CollectionAttentionCard';
 import { useAuth } from '@/auth/AuthContext';
 import { t, useLocale } from '@/i18n';
 import type { DashboardKpis } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
 import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
+import { canViewPaymentSurfaces } from '@/utils/permissions';
 import { shouldForceSetup } from '@/onboarding/shouldForceSetup';
 import { useState } from 'react';
 
@@ -203,6 +205,8 @@ export function DashboardPage() {
         </Stack>
         <AttentionQueuePreview />
       </Paper>
+
+      {canViewPaymentSurfaces(user) ? <CollectionAttentionCard /> : null}
 
       {!inviteCtaDismissed &&
       user?.role === 'OWNER' &&

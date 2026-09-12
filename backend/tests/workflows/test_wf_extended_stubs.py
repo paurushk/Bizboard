@@ -69,7 +69,11 @@ def test_wf30_chart_of_accounts_management(tenant_a):
 def test_wf53_fixed_asset_acquire_depreciate_dispose(tenant_a, assert_consistent):
     """(D6) Fixed asset: acquire (Dr asset / Cr cash) -> run SLM depreciation
     (posts a monthly JV) -> dispose with proceeds. Every JV balances; the asset
-    account nets to zero after disposal; invariants hold."""
+    account nets to zero after disposal; invariants hold.
+
+    Scope revision 2026-09-09b: D6 is a KNOWN LIMITATION, not a freeze blocker.
+    This exercises the opt-in path (ENABLE_FIXED_ASSETS on); the pilot profile
+    turns the route off — see test_wf_limitation_guards.py."""
     company = tenant_a.company
     _books(company)
     from accounting.models import Account, JournalEntry
@@ -213,7 +217,11 @@ def test_wf32_opening_balance_entry(tenant_a, assert_consistent):
 def test_wf57_bill_of_entry_import(tenant_a, assert_consistent):
     """(D10) Bill of Entry for an import: assessable value + BCD + IGST-on-import
     + cess. total_customs_paid == BCD + IGST + cess; completing it posts a
-    balanced GL entry."""
+    balanced GL entry.
+
+    Scope revision 2026-09-09b: D10 is a KNOWN LIMITATION, not a freeze blocker.
+    This exercises the opt-in path (ENABLE_BOE on); the pilot profile turns the
+    route off — see test_wf_limitation_guards.py."""
     company = tenant_a.company
     _books(company)
     from tests.conftest import make_supplier
@@ -248,18 +256,99 @@ def test_wf57_bill_of_entry_import(tenant_a, assert_consistent):
     assert_consistent(company)
 
 
-@pytest.mark.skip(reason=_G)
-def test_wf33_bank_reconciliation():
-    """Import a statement, match lines to GL bank-account lines, mark reconciled.
-    Reconciled amount == matched GL amount; an unmatched line stays open;
-    re-running match is idempotent."""
+def test_wf33_bank_reconciliation(tenant_a, assert_consistent):
+    """A bank receipt posts a GL line on the per-instrument bank ledger. A
+    committed statement with one matching line is reconciled against it via a
+    BankReconSession: the GL line gets `reconciled_at` + the statement-line FK,
+    an unmatched line stays open, and a second match attempt is rejected."""
+    from datetime import date
+
+    from django.db.models import Sum
+
+    from accounting.models import Account, JournalEntry, JournalLine
+    from payments.models import BankAccount, BankStatement, BankStatementLine
+
+    company = tenant_a.company
+    _books(company)
+    customer = make_customer(company, state="Karnataka", gstin="29AAAAA0000A1ZY")
+    product = make_product(company, gst_rate="18", selling_price="100")
+    from tests.conftest import add_stock
+
+    add_stock(tenant_a, product, "20", unit_cost="60")
+
+    inv = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "3", "unit_price": "100.00", "gst_rate": "18"}],
+    )
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+
+    bank = BankAccount.objects.create(company=company, name="ICICI Current", is_default=True)
+    rcpt = tenant_a.client.post(
+        "/api/v1/payments/receipts/",
+        {"customer": customer.id, "amount": "354.00", "method": "BANK", "bank_account": bank.id},
+        format="json",
+    )
+    assert rcpt.status_code in (200, 201), rcpt.data
+
+    bank_ledger = Account.objects.get(company=company, bank_account=bank)
+    gl_line = JournalLine.objects.get(
+        account=bank_ledger, entry__company=company, entry__status="POSTED", debit=Decimal("354.00")
+    )
+
+    stmt = BankStatement.objects.create(
+        company=company, bank_account=bank, status="COMMITTED",
+        period_start=date(2026, 6, 1), period_end=date(2026, 6, 30),
+    )
+    matched_line = BankStatementLine.objects.create(
+        company=company, statement=stmt, txn_date=date(2026, 6, 10),
+        amount=Decimal("354.00"), narration="NEFT from customer",
+    )
+    open_line = BankStatementLine.objects.create(
+        company=company, statement=stmt, txn_date=date(2026, 6, 15),
+        amount=Decimal("999.00"), narration="unknown credit",
+    )
+
+    session = tenant_a.client.post(
+        "/api/v1/accounting/bank-recon-sessions/",
+        {"account": bank_ledger.id, "statement": stmt.id}, format="json",
+    )
+    assert session.status_code == 201, session.data
+    sid = session.data["id"]
+
+    ok = tenant_a.client.post(
+        f"/api/v1/accounting/bank-recon-sessions/{sid}/match/",
+        {"journal_line": gl_line.id, "bank_statement_line": matched_line.id}, format="json",
+    )
+    assert ok.status_code == 200, ok.data
+
+    gl_line.refresh_from_db()
+    assert gl_line.reconciled_at is not None
+    assert gl_line.bank_statement_line_id == matched_line.id
+
+    # the other statement line is still open
+    assert not JournalLine.objects.filter(bank_statement_line=open_line).exists()
+
+    # matching the same bank line again is rejected (no unreconciled GL line left)
+    again = tenant_a.client.post(
+        f"/api/v1/accounting/bank-recon-sessions/{sid}/match/",
+        {"journal_line": gl_line.id, "bank_statement_line": matched_line.id}, format="json",
+    )
+    assert again.status_code == 400, again.data
+
+    for e in JournalEntry.objects.filter(company=company, status=JournalEntry.Status.POSTED):
+        e.assert_balanced()
+    assert_consistent(company)
 
 
 # --- G2 TDS / TCS (D2 = ON) ---
 def test_wf55_reverse_charge_purchase(tenant_a, assert_consistent):
     """(D8) A reverse-charge GST purchase: on complete the RCM tax is computed
     (rcm_taxable / rcm_cgst / rcm_sgst), a RCM liability + matching ITC are
-    posted, and every journal balances."""
+    posted, and every journal balances.
+
+    Scope revision 2026-09-09b: D8 is a KNOWN LIMITATION, not a freeze blocker
+    (no separate flag — RCM lines are screened out of the pilot returns). Kept
+    as regression coverage of the computation path."""
     company = tenant_a.company
     _books(company)
     company.gstin = "29AAAAA0000A1ZY"
@@ -516,7 +605,11 @@ def test_wf42_dunning_schedule(tenant_a):
 
 def test_wf56_composition_bill_of_supply(tenant_a, assert_consistent):
     """(D9) A composition dealer issues a bill of supply (NON_GST invoice type):
-    zero CGST/SGST/IGST, grand_total == taxable; GL carries no output-tax lines."""
+    zero CGST/SGST/IGST, grand_total == taxable; GL carries no output-tax lines.
+
+    Scope revision 2026-09-09b: D9 is a KNOWN LIMITATION, not a freeze blocker
+    (no separate flag — CMP-08 / composition returns are out of band). Kept as
+    regression coverage of the zero-tax invoice path."""
     from tests.conftest import add_stock
 
     company = tenant_a.company
@@ -603,10 +696,75 @@ def test_wf40_bad_debt_writeoff(tenant_a, assert_consistent):
     assert_consistent(company)
 
 
-@pytest.mark.skip(reason=_G)
-def test_wf41_bank_statement_import_and_matching():
-    """Importing a statement twice does not duplicate lines; auto-match links
-    obvious lines; manual match links the rest; feeds WF-33."""
+@pytest.mark.django_db
+def test_wf41_bank_statement_import_and_matching(tenant_a, assert_consistent):
+    """Account-Aggregator statement ingest: a UTR in the narration auto-links its
+    receipt; a unique amount+date credit links its receipt; an unrecognised
+    credit is left for a human. Re-ingesting the exact same feed adds no rows and
+    re-links nothing (idempotent on txn_id + matched_payment__isnull)."""
+    from datetime import date
+
+    from django.test import override_settings
+
+    from banking.models import AaTransaction
+    from payments.models import CustomerReceipt, ReceiptStatus
+    from tests.conftest import make_customer
+
+    company = tenant_a.company
+    customer = make_customer(company)
+    day = date(2026, 6, 10)
+
+    r_utr = CustomerReceipt.objects.create(
+        company=company, customer=customer, number="RCPT-UTR",
+        amount=Decimal("5000.00"), receipt_date=day, status=ReceiptStatus.POSTED,
+        utr="AXIS123456789012",
+    )
+    r_amt = CustomerReceipt.objects.create(
+        company=company, customer=customer, number="RCPT-AMT",
+        amount=Decimal("7777.77"), receipt_date=day, status=ReceiptStatus.POSTED,
+    )
+
+    feed = {
+        "consent_id": "consent-wf41-001",
+        "fi_type": "DEPOSIT",
+        "transactions": [
+            {"txn_id": "AA-ROW-0001", "amount": "5000.00", "txn_date": "2026-06-10",
+             "raw": {"narration": "NEFT CR AXIS123456789012 ACME LLP"}},
+            {"txn_id": "AA-ROW-0002", "amount": "7777.77", "txn_date": "2026-06-11",
+             "raw": {"narration": "IMPS misc collection"}},
+            {"txn_id": "AA-ROW-0003", "amount": "1234.00", "txn_date": "2026-06-09",
+             "raw": {"narration": "ATM WDL SELF"}},
+        ],
+    }
+
+    with override_settings(ENABLE_ACCOUNT_AGGREGATOR=True):
+        first = tenant_a.client.post("/api/v1/banking/aa/ingest/", feed, format="json")
+        assert first.status_code == 201, first.data
+        assert first.data["matched_count"] == 2
+        assert AaTransaction.objects.filter(company=company).count() == 3
+
+        by_id = {t.txn_id: t for t in AaTransaction.objects.filter(company=company)}
+        assert by_id["AA-ROW-0001"].matched_payment_id == r_utr.pk
+        assert by_id["AA-ROW-0002"].matched_payment_id == r_amt.pk
+        assert by_id["AA-ROW-0003"].matched_payment_id is None
+
+        # replay the identical feed
+        again = tenant_a.client.post("/api/v1/banking/aa/ingest/", feed, format="json")
+        assert again.status_code == 201, again.data
+        assert again.data["matched_count"] == 0  # nothing left unmatched to link
+        assert AaTransaction.objects.filter(company=company).count() == 3  # no dup rows
+
+        # a genuinely new credit in a later feed still ingests + stays unmatched
+        feed2 = {**feed, "transactions": feed["transactions"] + [
+            {"txn_id": "AA-ROW-0004", "amount": "42.00", "txn_date": "2026-06-12",
+             "raw": {"narration": "UPI P2P"}},
+        ]}
+        third = tenant_a.client.post("/api/v1/banking/aa/ingest/", feed2, format="json")
+        assert third.status_code == 201, third.data
+        assert AaTransaction.objects.filter(company=company).count() == 4
+        assert AaTransaction.objects.get(txn_id="AA-ROW-0004").matched_payment_id is None
+
+    assert_consistent(company)
 
 
 # --- G4 sales / purchase ---
@@ -642,13 +800,107 @@ def test_wf43_invoice_cancellation(tenant_a, assert_consistent):
 
     for e in JournalEntry.objects.filter(company=company, status=JournalEntry.Status.POSTED):
         e.assert_balanced()
+
+    # lifecycle audit trail: COMPLETE + CANCEL statutory events both logged
+    from core.invariants.audit import statutory_events_present
+
+    assert not statutory_events_present(company), statutory_events_present(company)
+
     assert_consistent(company)
 
 
-@pytest.mark.skip(reason=_G)
-def test_wf44_invoice_amendment_h9():
-    """The H9 correction path amends a completed invoice via a reverse + re-post
-    pair that nets to zero and is allowed in a closed period."""
+def test_wf44_invoice_amendment_h9(tenant_a, assert_consistent):
+    """H9-A audited-edit path: PATCH a COMPLETED invoice with confirm_amend to
+    change a line price (same qty, same product). The GL is adjusted by exactly
+    the delta (Debtors + output tax + Sales all move), every posted journal still
+    balances, stock is untouched, and a statutory AMEND event is logged."""
+    from django.db.models import Sum
+
+    from tests.conftest import add_stock
+
+    company = tenant_a.company
+    _books(company)
+    product = make_product(company, gst_rate="18", selling_price="100")
+    add_stock(tenant_a, product, "20", unit_cost="60")
+    customer = make_customer(company, state="Karnataka", gstin="29AAAAA0000A1ZY")
+
+    inv = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "4", "unit_price": "100.00", "gst_rate": "18"}],
+    )
+    inv_id = inv["id"]
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv_id}/complete/").status_code == 200
+
+    from accounting.models import Account, JournalEntry, JournalLine
+    from inventory.services import InventoryService
+
+    debtors = Account.objects.get(company=company, code="1200")
+    sales = Account.objects.get(company=company, code="4100")
+
+    def _net(account, **extra):
+        # H9-A amend = reverse the original entry (-> REVERSED) + fresh re-post.
+        # Netting across POSTED + REVERSED + the JOURNAL_REVERSAL pair gives the
+        # true running balance.
+        agg = JournalLine.objects.filter(
+            account=account, entry__company=company,
+            entry__status__in=("POSTED", "REVERSED"), **extra
+        ).aggregate(d=Sum("debit"), c=Sum("credit"))
+        return (agg["d"] or Decimal("0")) - (agg["c"] or Decimal("0"))
+
+    # qty 4 @ 100, 18% intrastate -> taxable 400, tax 72, grand 472
+    assert _net(debtors, customer=customer) == Decimal("472.00")
+    assert -_net(sales) == Decimal("400.00")
+    stock_before = InventoryService.available_quantity(company=company, product=product)
+
+    amend = tenant_a.client.patch(
+        f"/api/v1/sales/invoices/{inv_id}/",
+        {
+            "confirm_amend": True,
+            "notes": "price correction per customer dispute",
+            "items": [{"product": product.id, "quantity": "4", "unit_price": "90.00", "gst_rate": "18"}],
+        },
+        format="json",
+    )
+    assert amend.status_code == 200, amend.data
+    assert Decimal(amend.data["items"][0]["unit_price"]) == Decimal("90.00")
+    # taxable 360, tax 64.80, +0.20 auto round-off -> grand 425.00
+    assert Decimal(amend.data["grand_total"]) == Decimal("425.00")
+
+    # GL moved by exactly the delta: Debtors follows grand, Sales follows taxable
+    assert _net(debtors, customer=customer) == Decimal("425.00")
+    assert -_net(sales) == Decimal("360.00")
+
+    # quantity is immutable on a completed invoice -> no stock delta
+    assert InventoryService.available_quantity(company=company, product=product) == stock_before
+
+    from core.models import StatutoryDocumentEvent
+
+    assert StatutoryDocumentEvent.objects.filter(
+        company=company, entity_type="sales_invoice", entity_id=inv_id,
+        event_type=StatutoryDocumentEvent.EventType.AMEND,
+    ).exists()
+
+    # and the COMPLETE event is still there beside the AMEND (trail is append-only)
+    from core.invariants.audit import money_mutations_logged, statutory_events_present
+
+    assert not statutory_events_present(company), statutory_events_present(company)
+
+    # §G7 money.changes_audited: the money change on the COMPLETED invoice left a
+    # before/after audit row (AuditEvent "Completed document edited").
+    from core.models import AuditEvent
+
+    edit_ev = AuditEvent.objects.filter(
+        company=company, entity_type="SalesInvoice", entity_id=str(inv_id),
+        description="Completed document edited",
+    ).latest("created_at")
+    assert Decimal(str(edit_ev.metadata["before"]["grand_total"])) == Decimal("472.00")
+    assert Decimal(str(edit_ev.metadata["after"]["grand_total"])) == Decimal("425.00")
+    assert edit_ev.metadata.get("amend") is True
+    assert money_mutations_logged(company) == []  # no no-op / blank-field rows
+
+    for e in JournalEntry.objects.filter(company=company, status=JournalEntry.Status.POSTED):
+        e.assert_balanced()
+    assert_consistent(company)
 
 
 # --- G6 auth / users / company ---
@@ -718,10 +970,22 @@ def test_wf46_password_reset(tenant_a):
     assert authenticate(username=email, password="BrandNewPass456!") is not None
 
 
-@pytest.mark.skip(reason=_G)
-def test_wf46_password_reset_ratelimit():
-    """TODO: assert the request endpoint 429s after N attempts (throttle scope
-    'password_reset') — needs throttling enabled in the test settings."""
+def test_wf46_password_reset_ratelimit(tenant_a):
+    """The password-reset request endpoint is throttled (scope `password_reset`,
+    5/min): the 6th call inside the window returns 429. The autouse cache-clear
+    fixture keeps each test's throttle bucket clean."""
+    from rest_framework.test import APIClient
+
+    client = APIClient()
+    statuses = [
+        client.post(
+            "/api/v1/auth/password/reset/", {"identifier": tenant_a.owner.email}, format="json"
+        ).status_code
+        for _ in range(7)
+    ]
+    assert statuses[:5] == [s for s in statuses[:5] if s in (200, 202)], statuses
+    assert 429 in statuses, f"expected a 429 within 7 calls, got {statuses}"
+    assert statuses.index(429) >= 5, f"throttled too early: {statuses}"
 
 
 def test_wf47_jwt_refresh_and_logout(db):
@@ -760,7 +1024,11 @@ def test_wf47_jwt_refresh_and_logout(db):
 def test_wf58_plan_limits(tenant_a, settings):
     """(D11) Entitlement fail-closed: a subscribed plan that omits a dark module
     leaves it OFF even with the env flag on. Seat quota: inviting past the seat
-    limit is rejected."""
+    limit is rejected.
+
+    Scope revision 2026-09-09b: D11 is a KNOWN LIMITATION, not a freeze blocker
+    (no separate flag — plan-tier enforcement is not pilot-gated). Kept as
+    regression coverage of fail-closed entitlement + seat quota."""
     company = tenant_a.company
 
     # (a) feature-flag entitlement fail-closed
@@ -939,4 +1207,10 @@ def test_wf52_document_numbering_integrity(tenant_a):
 
     assert all(n for n in numbers), f"blank invoice number: {numbers}"
     assert len(set(numbers)) == 3, f"duplicate invoice numbers: {numbers}"
+
+    # gap-free within the series (Rule 46(b) consecutive serials) — plain callable
+    from core.invariants.numbering import sequences_intact
+
+    assert not sequences_intact(company), sequences_intact(company)
+
     assert_all_invariants(company)  # includes numbering.no_duplicate_document_numbers

@@ -1,0 +1,36 @@
+id: QOS-0007
+category: USABILITY
+title: No keyboard-only accessibility journey for POS or the invoice form
+persona:
+- P2
+archetype:
+- ARCH-01
+journey: Keyboard-only operation of POS + invoice form
+problem: axe runs on login and dashboard only. There is no keyboard-only journey for POS (H-02 assumes
+  a mouse-free counter checkout), no axe on the invoice form / a report / a settings screen, and no screen-reader-label
+  assertion.
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-6
+  - web/e2e/a11y.spec.ts
+  detail: The a11y spec covers 2 of ~90 screens; the keyboard-only path is assumed by H-02 but unasserted.
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 4
+  impact_band: Medium
+business_metric: activation
+priority: P1
+priority_rationale: Impact Medium (36); acute for ARCH-01. Base P1 for Medium.
+effort: M
+recommendation: Add a Playwright journey that completes a 5-line POS checkout with keyboard only, asserting
+  focus never leaves the scan field and completion lands under the H-02 budget; extend a11y.spec.ts to
+  the invoice form, one report, one settings screen.
+test_required: keyboard-only POS spec + expanded a11y spec, both in the e2e CI job
+guard_ref:
+  test: web/e2e/a11y.spec.ts::POS scan field is keyboard-operable without a mouse
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null

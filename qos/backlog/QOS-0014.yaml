@@ -1,0 +1,42 @@
+id: QOS-0014
+category: RELIABILITY_TRUST
+title: No schema-migration rehearsal against a production-shaped dataset
+persona:
+- P1
+journey: Applying a migration to real data
+problem: 'In progress 2026-09-11, per explicit user direction (build a synthetic placeholder — "proves
+  the mechanism, not real-data safety"): scripts/ migration_rehearsal.sh spins up a throwaway Postgres,
+  applies the full migration series, seeds a large SYNTHETIC dataset (accounts/management/ commands/seed_synthetic_bulk.py
+  — explicitly NOT a real anonymised production dump, see its own docstring), then re-runs `migrate` and
+  times it against a budget. Run end-to-end locally: PASS in ~8s at 300 rows. Honest limitation: at HEAD
+  there is no pending migration for this to actually exercise against volume, so today it mainly proves
+  the orchestration mechanism (idempotent + fast even with rows present) — the real test happens automatically
+  the next time a schema migration lands on a branch with this job wired in. A real anonymised production
+  dump would still be the stronger version of this item if one becomes available.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-11b
+  - docs/FREEZE_SCOPE.md G7 'Backfill / reconcile ... P3'
+  - scripts/migration_rehearsal.sh
+  - .github/workflows/migration-rehearsal.yml
+  - backend/accounts/management/commands/seed_synthetic_bulk.py
+  detail: 'Local end-to-end run: PASS (migrate clean + within an 8s/60s budget at 300 synthetic rows).'
+scoring:
+  reach: 2
+  severity: 4
+  frequency: 1
+  impact_band: Low
+business_metric: renewal
+priority: P3
+priority_rationale: Impact Low (8); P3, Phase 3 infra work.
+effort: M
+recommendation: 'Done (synthetic placeholder, per user direction): the rehearsal mechanism — spin up db,
+  seed at volume, re-run migrate, time it, alert on regression. A real anonymised production dump would
+  still be the stronger version of this if one becomes available later.'
+test_required: a migration-rehearsal CI job green on an anonymised dump
+guard_ref: null
+lifecycle: in_progress
+owner: backend
+opened: '2026-09-10'
+closed: null

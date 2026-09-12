@@ -1,0 +1,35 @@
+id: QOS-0006
+category: RELIABILITY_TRUST
+title: Concurrency-race tests never execute on a local dev box
+persona:
+- P5
+- P1
+journey: Any money or stock mutation under concurrent requests
+problem: tests/test_concurrency_races.py is postgres-marked; local dev runs SQLite where SELECT ... FOR
+  UPDATE is a no-op. Oversell / double-allocation regressions are invisible until CI, so they land in
+  review already broken.
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-11a
+  - docs/FREEZE_SCOPE_COVERAGE.md Open GAPs 3
+  detail: 'Structural: the marker gates the tests off SQLite; nothing prompts a dev to run the Postgres
+    lane.'
+scoring:
+  reach: 2
+  severity: 5
+  frequency: 3
+  impact_band: High
+business_metric: renewal
+priority: P1
+priority_rationale: severity 5 -> High; effort is small (docs + a helper), so this ranks well.
+effort: S
+recommendation: Document and tool a pre-merge `pytest -m postgres` against a local Postgres container
+  for any change touching allocation or stock code; add it to CONTRIBUTING and a pre-push reminder.
+test_required: CONTRIBUTING documents the local Postgres lane; a make/script target runs it
+guard_ref:
+  test: scripts/test_concurrency_local.sh
+lifecycle: fixed
+owner: backend
+opened: '2026-09-10'
+closed: null

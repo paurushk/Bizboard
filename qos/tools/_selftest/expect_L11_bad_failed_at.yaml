@@ -1,0 +1,24 @@
+# Trips L11: lifecycle is guarded but guard_ref.failed_at is not a sha or a URL.
+id: QOS-9011
+category: SECURITY_PRIVACY
+title: "Selftest fixture — guarded item without a red-then-green ref"
+persona: [P1]
+journey: "selftest"
+problem: "Synthetic fixture: a guarded item must record the commit sha or CI run URL where the guard failed before the fix."
+evidence:
+  strength: heuristic
+  source: ["qos/tools/_selftest"]
+  detail: "synthetic selftest fixture"
+scoring: { reach: 3, severity: 3, frequency: 2, impact_band: Low }
+priority: P1
+priority_rationale: "synthetic selftest fixture, not a real backlog item"
+effort: S
+recommendation: "n/a — selftest fixture; the linter should reject this on L11"
+test_required: "qos/tools/lint.py --selftest stays green"
+guard_ref:
+  test: "qos/tools/lint.py::selftest"
+  failed_at: "notahex"
+lifecycle: guarded
+owner: qa
+opened: "2026-09-10"
+closed: "2026-09-10"

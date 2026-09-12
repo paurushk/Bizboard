@@ -1,0 +1,20 @@
+{
+  "all_expense": [
+    {
+      "balance": "1000",
+      "code": "5000"
+    }
+  ],
+  "marketing_only": [
+    {
+      "balance": "700",
+      "code": "5000"
+    }
+  ],
+  "ops_only": [
+    {
+      "balance": "300",
+      "code": "5000"
+    }
+  ]
+}

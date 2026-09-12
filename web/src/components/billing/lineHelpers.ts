@@ -10,11 +10,75 @@ export function todayIso(d: Date = new Date()): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-export function parseSerialNumbersText(text: string): string[] {
-  return text
+export interface ParsedSerialInput {
+  /** Unique, valid serials in the order they were first seen (ranges expanded). */
+  serials: string[];
+  /** Serials that appeared more than once in the pasted text (deduped). */
+  duplicates: string[];
+  /** Any `A-B` tokens that were expanded into a run of serials. */
+  rangesExpanded: number;
+}
+
+const TRAILING_DIGITS = /^(.*?)(\d+)$/;
+// QOS-0035: a bulk consignment scan/paste is usually printer-sequential IMEIs/
+// serials ("IMEI1000-IMEI1005"); expanding a hyphenated range saves re-typing
+// hundreds of them by hand. Capped at 5000 to keep a typo from hanging the UI.
+const MAX_RANGE_SPAN = 5000;
+
+function expandSerialToken(token: string): string[] {
+  // Only a single hyphen is treated as a range separator — a serial whose
+  // own prefix contains a hyphen (e.g. "SN-001") makes "A-B" ambiguous, so
+  // that's left untouched rather than guessed at.
+  const parts = token.split('-');
+  if (parts.length !== 2) return [token];
+  const [left, right] = parts.map((p) => p.trim());
+  const leftMatch = left.match(TRAILING_DIGITS);
+  const rightMatch = right.match(TRAILING_DIGITS);
+  if (!leftMatch || !rightMatch) return [token];
+  const [, leftPrefix, leftDigits] = leftMatch;
+  const [, rightPrefix, rightDigits] = rightMatch;
+  if (leftPrefix !== rightPrefix) return [token];
+  const start = Number.parseInt(leftDigits, 10);
+  const end = Number.parseInt(rightDigits, 10);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || end - start > MAX_RANGE_SPAN) {
+    return [token];
+  }
+  const width = leftDigits.length;
+  const out: string[] = [];
+  for (let n = start; n <= end; n += 1) {
+    out.push(`${leftPrefix}${String(n).padStart(width, '0')}`);
+  }
+  return out;
+}
+
+/** Full parse: range expansion + de-dup, with the counts a paste-review UI needs. */
+export function parseSerialInput(text: string): ParsedSerialInput {
+  const tokens = text
     .split(/[,\n]+/)
     .map((s) => s.trim())
     .filter(Boolean);
+  let rangesExpanded = 0;
+  const expanded = tokens.flatMap((token) => {
+    const out = expandSerialToken(token);
+    if (out.length > 1) rangesExpanded += 1;
+    return out;
+  });
+  const seen = new Set<string>();
+  const duplicateSet = new Set<string>();
+  const serials: string[] = [];
+  for (const serial of expanded) {
+    if (seen.has(serial)) {
+      duplicateSet.add(serial);
+      continue;
+    }
+    seen.add(serial);
+    serials.push(serial);
+  }
+  return { serials, duplicates: [...duplicateSet], rangesExpanded };
+}
+
+export function parseSerialNumbersText(text: string): string[] {
+  return parseSerialInput(text).serials;
 }
 
 export function formatSerialNumbersText(numbers: string[] | undefined): string {

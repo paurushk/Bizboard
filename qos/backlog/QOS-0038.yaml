@@ -1,0 +1,40 @@
+id: QOS-0038
+category: DELIGHT
+title: No proactive nudge when customers cross the credit-age threshold
+persona:
+- P1
+archetype:
+- ARCH-03
+journey: Daily cash-and-credit review
+problem: 'Fixed 2026-09-11 (dashboard half only): CollectionAttentionCard on the dashboard surfaces a
+  count + total for customers overdue past 30 days, linking each to their ledger (?customer=id deep-link
+  into CustomerLedgerPage). The optional daily-digest (email/WhatsApp) half of the original ask is NOT
+  built — that needs the notification-cadence decision QOS-0032''s dunning cadence already made once (frequency,
+  quiet hours, opt-out) applied to a *non-collections* digest, which is a separate scoping call, not a
+  card-rendering task.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 5 (P1 adoption motive)
+  - docs/TESTING_STRATEGY.md#4 P1
+  - web/src/components/CollectionAttentionCard.test.tsx
+  detail: Collection-risk data exists (collection-risk scoring); the dashboard card is now built and tested.
+scoring:
+  reach: 4
+  severity: 2
+  frequency: 3
+  impact_band: Medium
+business_metric: renewal
+priority: P2
+priority_rationale: Impact Medium (24); directly serves the P1 buying motive. P2.
+effort: M
+recommendation: 'Done: the dashboard attention card. The daily-digest half is a real, separate scoping
+  decision (cadence, channel, opt-out) — file as its own item if wanted rather than silently expanding
+  this one''s effort.'
+test_required: an e2e check that the attention card appears and links to the correct filtered list
+guard_ref:
+  test: web/src/components/CollectionAttentionCard.test.tsx
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null

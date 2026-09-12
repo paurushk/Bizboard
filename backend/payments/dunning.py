@@ -215,6 +215,26 @@ def _send_sms(invoice, body) -> bool:
     return n.status in (Notification.Status.SENT, Notification.Status.QUEUED)
 
 
+def _send_email(invoice, body) -> bool:
+    """QOS-0032: email fallback so dunning actually delivers in a pilot where
+    WhatsApp Cloud is off and no SMS provider is configured. Requires a customer
+    email and a real (non-console) SMTP backend."""
+    from core.models import Notification
+    from core.services.notifications import NotificationService
+
+    email = (getattr(invoice.customer, "email", "") or "").strip()
+    if not email:
+        return False
+    n = NotificationService.send(
+        company=invoice.company,
+        channel=Notification.Channel.EMAIL,
+        recipient=email,
+        subject=f"Payment reminder — invoice {invoice.number}",
+        body=body,
+    )
+    return n.status in (Notification.Status.SENT, Notification.Status.QUEUED)
+
+
 def remind_invoice(invoice, *, sent_on: date, days_overdue: int, now: datetime | None = None) -> str:
     company = invoice.company
     body = (
@@ -275,13 +295,26 @@ def remind_invoice(invoice, *, sent_on: date, days_overdue: int, now: datetime |
                 now=now,
             )
             return "failed"
+    # QOS-0032: email fallback — the pilot has SMTP but usually no WhatsApp Cloud
+    # / SMS provider, so without this dunning never actually delivers.
+    if getattr(company, "dunning_channel_email", True):
+        try:
+            if _send_email(invoice, body):
+                if _record(
+                    invoice, sent_on=sent_on, days_overdue=days_overdue,
+                    channel="EMAIL", status="SENT", now=now,
+                ) is None:
+                    return "duplicate"
+                return "email"
+        except Exception as exc:  # noqa: BLE001 — fall through to the FAILED record
+            last_wa = str(exc)[:400] or last_wa
     _record(
         invoice,
         sent_on=sent_on,
         days_overdue=days_overdue,
-        channel="SMS",
+        channel="EMAIL",
         status="FAILED",
-        error=(last_wa or "No Cloud WhatsApp or SMS channel available.")[:500],
+        error=(last_wa or "No email / Cloud WhatsApp / SMS channel available.")[:500],
         now=now,
     )
     return "failed"
@@ -301,7 +334,8 @@ def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
         if getattr(customer, "dunning_opt_out", False):
             skipped += 1
             continue
-        if not (customer.phone or "").strip():
+        # QOS-0032: a customer with neither phone nor email is unreachable.
+        if not (customer.phone or "").strip() and not (getattr(customer, "email", "") or "").strip():
             skipped += 1
             continue
         days_overdue = (as_of - invoice.due_date).days
@@ -335,7 +369,7 @@ def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
             skipped += 1
             continue
         result = remind_invoice(invoice, sent_on=as_of, days_overdue=bucket, now=attempted_at)
-        if result in ("whatsapp", "sms"):
+        if result in ("whatsapp", "sms", "email"):
             sent += 1
         else:
             # B4-034: "duplicate" (a lost DunningReminder insert race) and

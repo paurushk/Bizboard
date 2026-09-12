@@ -203,3 +203,25 @@ def test_cr062_inventory_summary_uses_movements_and_flags_drift(tenant_a):
     assert Decimal(str(row2["on_hand"])) == Decimal("4")
     assert row2.get("balance_drift") is True
     assert Decimal(str(row2["balance_on_hand"])) == Decimal("99")
+
+
+@pytest.mark.no_invariant_check
+def test_qos0059_reserved_drift_does_not_understate_available(tenant_a):
+    """CR-102 residual (QOS-0059): a corrupted `reserved` cache must not push
+    `available` negative or understate it. The raw `reserved` and the
+    `reserved_drift` flag are still surfaced for the operator."""
+    product = make_product(tenant_a.company, sku="A5-RESV", purchase_price="50")
+    add_stock(tenant_a, product, "10", unit_cost="80")
+
+    bal = StockBalance.objects.get(company=tenant_a.company, product=product)
+    bal.reserved = Decimal("999")  # impossible: reserved > on_hand
+    bal.save(update_fields=["reserved"])
+
+    row = next(
+        r for r in ReportService.inventory_summary(tenant_a.company)["rows"]
+        if r["product_id"] == product.id
+    )
+    assert row.get("reserved_drift") is True
+    assert Decimal(str(row["reserved"])) == Decimal("999")          # raw value still shown
+    assert Decimal(str(row["available"])) >= Decimal("0")           # never negative from drift
+    assert Decimal(str(row["available"])) == Decimal("0")           # clamped to [0, on_hand]

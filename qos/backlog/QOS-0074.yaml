@@ -1,0 +1,36 @@
+id: QOS-0074
+category: SECURITY_PRIVACY
+title: Right-to-erasure default is tombstone, not hard delete
+persona:
+- P1
+journey: A pilot merchant requests account erasure
+problem: ENABLE_TENANT_ERASURE is off by default; the default mode is 'tombstone' - statutory tax docs
+  are kept with party PII scrubbed, the Company row survives with erased_at, and a purge job hard-deletes
+  after the 8-year GST window.
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE.md E (ENABLE_TENANT_ERASURE)
+  - backend/tests/test_erasure.py
+  detail: Recorded in FREEZE_SCOPE.md as out of pilot scope; stated to pilot users with a manual workaround.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Accepted / won't-fix - scoped out of the pilot by decision.
+effort: S
+recommendation: None - deliberately out of scope. Where a route surface exists, a test asserts it is inaccessible
+  under the pilot flag profile.
+test_required: test_erasure + tenancy.no_orphans_after_erasure assert the tombstone cascade scrubs PII
+  and leaves no orphans
+guard_ref: null
+lifecycle: accepted_wontfix
+wontfix_rationale: Statutory retention (8-year GST window) legally requires keeping tax documents; PII
+  is scrubbed and the row is tombstoned, then hard-deleted by purge_tombstoned_companies. This is the
+  correct behaviour, not a gap. (SR-40)
+owner: founder
+opened: '2026-09-10'
+closed: '2026-09-10'

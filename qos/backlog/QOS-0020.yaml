@@ -1,0 +1,41 @@
+id: QOS-0020
+category: SECURITY_PRIVACY
+title: No TLS termination at the application edge
+persona:
+- P1
+journey: All traffic to the deployed app
+problem: 'In progress 2026-09-11: the pilot deployment still has no reverse proxy / load balancer terminating
+  TLS at the application edge — that half is genuinely ops-owned (docker-compose.yml''s own `nginx` service
+  comment: it is deliberately plain HTTP, "must sit behind a TLS edge", and this repo intentionally does
+  not pick a terminator since the real pilot host''s topology — cloud LB, Cloudflare, a VPS''s own nginx
+  — is an ops decision this session cannot see or make safely). What IS done: the "verify HSTS and redirect
+  behaviour" half — scripts/edge_tls_smoke.sh, proven against a real HTTPS host (pass) and a plain-HTTP
+  host (correctly fails), wired into docs/pilot/ENV_CHECKLIST.md item 1 so the sign-off requires running
+  it, not just checking a box.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE_COVERAGE.md 'P0/P1 issue-register sweep'
+  - scripts/edge_tls_smoke.sh
+  - docker-compose.yml (nginx service comment)
+  detail: Smoke script run against a real HTTPS host (pass) and a plain-HTTP host (correct fail); the
+    edge itself is still unbuilt, ops-owned.
+scoring:
+  reach: 5
+  severity: 5
+  frequency: 1
+  impact_band: High
+business_metric: renewal
+priority: P1
+priority_rationale: severity 5 -> High and cap-exempt; infra-owned, so P1 with an ops owner rather than
+  a code P0.
+effort: M
+recommendation: 'Verification tooling: done (edge_tls_smoke.sh). Standing up the actual reverse proxy
+  / load balancer in front of the real pilot host is still an ops action — this session doesn''t know
+  the deployment topology and won''t guess at one.'
+test_required: an edge TLS smoke (https enforced, HSTS present) in the deploy checklist
+guard_ref: null
+lifecycle: in_progress
+owner: ops
+opened: '2026-09-10'
+closed: null

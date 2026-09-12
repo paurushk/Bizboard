@@ -1,0 +1,35 @@
+id: QOS-0017
+category: DELIGHT
+title: POS friction (modal count, focus loss) has no automated budget
+persona:
+- P2
+archetype:
+- ARCH-01
+journey: POS checkout friction
+problem: The archetype matrix names modal popups, slow print render, and keyboard focus loss as ARCH-01
+  friction points. None has a regression guard, so a change that reintroduces a blocking modal in the
+  scan loop would not be caught.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-16
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 6
+  detail: No spec counts modals or asserts focus retention during POS; not observed.
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 4
+  impact_band: Medium
+business_metric: nps
+priority: P1-investigate
+priority_rationale: Impact Medium (36); hypothesis -> investigation, pending the observation layer.
+effort: M
+recommendation: Add a Playwright assertion during POS that counts opened [role=dialog] elements (target
+  0 blocking) and that focus stays in the scan field across a 5-line checkout.
+test_required: a POS friction spec (modal count + focus retention) in the e2e suite
+guard_ref:
+  test: web/e2e/pos-friction.spec.ts::opens with the scan field focused and no blocking dialog
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null

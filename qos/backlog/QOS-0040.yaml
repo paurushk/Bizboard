@@ -1,0 +1,35 @@
+id: QOS-0040
+category: DELIGHT
+title: POS does not remember the last payment method or customer per till
+persona:
+- P2
+archetype:
+- ARCH-01
+journey: Repeated counter checkouts at the same till
+problem: Each POS checkout starts from a blank payment method and (for named-customer sales) a blank customer.
+  A till that is 90% UPI re-selects UPI every time.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 6 (ARCH-01 friction)
+  - docs/TESTING_STRATEGY.md#4 P2
+  detail: Inferred from the counter workflow; keystroke count not measured.
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 4
+  impact_band: Medium
+business_metric: nps
+priority: P3
+priority_rationale: Impact Medium (24); small friction, high frequency. P3 pending the observation layer.
+effort: S
+recommendation: Default the payment method to the till's last-used value (per device); keep it a one-key
+  change.
+test_required: an e2e check that POS pre-selects the last payment method for the session
+guard_ref:
+  test: web/e2e/pos-friction.spec.ts::exactly one tender button is emphasised as the remembered default
+    (QOS-0040)
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null

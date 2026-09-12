@@ -1,0 +1,36 @@
+name: Migration rehearsal
+
+# QOS-0014: applies the full migration series against a large SYNTHETIC
+# dataset (accounts/management/commands/seed_synthetic_bulk.py) to catch a
+# migration that's fine on an empty table and slow/lock-heavy on a real-sized
+# one. NOT a substitute for rehearsing against a real anonymised production
+# dump — see scripts/migration_rehearsal.sh's own header for why. Advisory:
+# alert on failure via the workflow's own red-X, don't block merges — a
+# rehearsal failure is worth investigating, not a code-review gate on its own.
+on:
+  schedule:
+    - cron: "0 5 * * 0" # weekly, Sunday 05:00 UTC
+  workflow_dispatch:
+    inputs:
+      invoice_count:
+        description: "Synthetic invoice rows to seed before re-running migrate"
+        default: "5000"
+
+permissions:
+  contents: read
+
+jobs:
+  migration-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -c backend/constraints.txt -r backend/requirements-dev.txt
+      - name: Run the migration rehearsal
+        run: bash scripts/migration_rehearsal.sh "${{ github.event.inputs.invoice_count || '5000' }}"

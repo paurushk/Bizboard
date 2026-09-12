@@ -1,0 +1,33 @@
+id: QOS-0061
+category: BUSINESS_GAP
+title: Live NIC e-invoice / e-way generation is out of scope
+persona:
+- P1
+- P6
+journey: Generating an IRN or e-way bill
+problem: No live GSP integration in the pilot; e-invoice is preview/sandbox only, never a filed IRN.
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE.md B (GSP_LIVE_ENABLED=0)
+  - docs/FREEZE_SCOPE.md C2
+  detail: Recorded in FREEZE_SCOPE.md as out of pilot scope; stated to pilot users with a manual workaround.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Accepted / won't-fix - scoped out of the pilot by decision.
+effort: S
+recommendation: None - deliberately out of scope. Where a route surface exists, a test asserts it is inaccessible
+  under the pilot flag profile.
+test_required: a test asserts the e-invoice submit UI is inaccessible under the pilot flag profile
+guard_ref: null
+lifecycle: accepted_wontfix
+wontfix_rationale: Merchants above threshold keep generating the IRN / EWB in their existing utility and
+  record the number in Bizboard. (C2)
+owner: founder
+opened: '2026-09-10'
+closed: '2026-09-10'

@@ -1,0 +1,32 @@
+id: QOS-0034
+category: BUSINESS_GAP
+title: Cost-centre filtered report snapshot is missing
+persona:
+- P5
+- P6
+journey: Reports filtered by cost centre
+problem: Date, party, and godown filtered-report snapshots exist; the cost-centre filter case is the one
+  remaining open GAP in the report-reconciliation set.
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE_COVERAGE.md 'Open GAPs' 1
+  - docs/TESTING_STRATEGY.md#6.9
+  detail: Named as the single remaining filtered-report snapshot gap.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Impact Low (8); a small, contained snapshot gap. P3.
+effort: S
+recommendation: Add a cost-centre-filtered P&L snapshot to tests/snapshots/test_exports_and_filtered_reports.py.
+test_required: a cost-centre-filtered report snapshot test
+guard_ref:
+  test: backend/tests/snapshots/test_exports_and_filtered_reports.py::test_cost_centre_filtered_pnl
+lifecycle: verified
+owner: backend
+opened: '2026-09-10'
+closed: null

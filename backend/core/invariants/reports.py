@@ -169,3 +169,55 @@ def inventory_gl_matches_running_cost(company) -> list[str]:
             f"Σ running-cost value {valuation} (diff {gl_balance - valuation})"
         ]
     return []
+
+
+# --- plain callable, NOT registered (§H7 cross_reconcile) ---------------------
+# Ties the derived reports to each other and to the ledger. Only holds once the
+# whole period's activity is in the books, so chains that post a full document
+# lifecycle call it directly:
+#     from core.invariants.reports import cross_reconcile
+#     assert not cross_reconcile(company)
+
+def cross_reconcile(company) -> list[str]:
+    """The pure-GL derived reports agree with each other and with the ledger:
+    the trial balance sums to zero, and the P&L net profit ties to the
+    trial-balance income/expense rows (all-time on both sides, FY-close excluded
+    on both sides — same horizon convention as the registered
+    ``pnl_reconciles_to_trial_balance``).
+
+    Deliberately NOT here:
+    - the balance-sheet equation — `current_earnings` is FY-scoped while assets
+      are as-of-now, so it only holds with controlled current-FY dates
+      (`balance_sheet_equation_holds`, called directly by WF-31);
+    - the stock-value ↔ inventory-GL tie — opening stock can be established with
+      no GL posting (`add_stock`, imports), so that only holds after a GL-backed
+      opening load (`opening_ties_out` / WF-32)."""
+    from accounting.models import Account
+    from accounting.reports import _balances, profit_and_loss, trial_balance
+
+    if not getattr(company, "accounting_enabled", False):
+        return []
+
+    out: list[str] = []
+
+    tb = trial_balance(company)
+    if not tb["balanced"]:
+        out.append(
+            f"trial balance unbalanced: debit {tb['total_debit']} != credit {tb['total_credit']}"
+        )
+
+    pnl = profit_and_loss(company, date_from=_ALL_TIME_FROM, date_to=_ALL_TIME_TO)
+    rows = _balances(company, date_from=_ALL_TIME_FROM, date_to=_ALL_TIME_TO, exclude_fy_close=True)
+    # TB balance = debit − credit; income sits credit (negative), expense debit
+    # (positive), so Σ(income+expense balances) == expense − income == −net_profit.
+    tb_ie = sum(
+        (r["balance"] for r in rows if r["account_type"] in (Account.Type.INCOME, Account.Type.EXPENSE)),
+        _ZERO,
+    )
+    if abs(tb_ie + Decimal(str(pnl["net_profit"]))) > _RUPEE:
+        out.append(
+            f"P&L net_profit {pnl['net_profit']} + Σ(TB income/expense) {tb_ie} "
+            f"= {tb_ie + Decimal(str(pnl['net_profit']))}, expected 0"
+        )
+
+    return out

@@ -1,0 +1,35 @@
+id: QOS-0024
+category: RELIABILITY_TRUST
+title: No regression guard for the UnsavedChangesGuard useBlocker crash (UX-001)
+persona:
+- P1
+- P5
+journey: Navigating away from an editor page
+problem: UX-001 (UnsavedChangesGuard threw a runtime useBlocker exception on standard routes) was fixed
+  and verified manually, but no automated test guards it. A router or guard refactor could reintroduce
+  the crash.
+evidence:
+  strength: heuristic
+  source:
+  - docs/reviews/UX_AUDIT_FINDINGS.md UX-001
+  detail: Marked 'Fixed & Verified' by screenshot regression; no unit or e2e test references the guard.
+scoring:
+  reach: 3
+  severity: 4
+  frequency: 2
+  impact_band: Medium
+business_metric: support_ticket_rate
+priority: P2
+priority_rationale: Impact Medium (24); a crash on a common navigation, but already fixed - this is guard
+  debt.
+effort: S
+recommendation: 'Add a component or e2e test: mount an editor route, navigate to a standard route with
+  and without unsaved changes, assert no error boundary and the correct prompt.'
+test_required: a test exercising UnsavedChangesGuard on standard routes, in the FE suite
+guard_ref:
+  test: web/src/components/UnsavedChangesGuard.test.tsx::does not throw when rendered outside a data router
+    (UX-001)
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null

@@ -10,6 +10,16 @@ const DEFAULT_VIEWER = {
   password: 'demo-password',
 };
 
+const DEFAULT_SALES = {
+  email: 'sales@bizboard.local',
+  password: 'demo-password',
+};
+
+const DEFAULT_ACCOUNTANT = {
+  email: 'accountant@bizboard.local',
+  password: 'demo-password',
+};
+
 /** POST /api/v1/auth/login/ and rely on Set-Cookie (real backend). */
 export async function loginViaApi(
   request: APIRequestContext,
@@ -42,4 +52,12 @@ export async function loginAsOwner(page: Page) {
 
 export async function loginAsViewer(page: Page) {
   await loginViaUi(page, DEFAULT_VIEWER);
+}
+
+export async function loginAsSales(page: Page) {
+  await loginViaUi(page, DEFAULT_SALES);
+}
+
+export async function loginAsAccountant(page: Page) {
+  await loginViaUi(page, DEFAULT_ACCOUNTANT);
 }

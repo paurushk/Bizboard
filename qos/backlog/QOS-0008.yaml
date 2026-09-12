@@ -1,0 +1,35 @@
+id: QOS-0008
+category: PERSONA_GAP
+title: No persona journey for the Godown Custodian at a departmental firm
+persona:
+- P4
+archetype:
+- ARCH-04
+journey: Inward, transfer, and count-variance as a role journey
+problem: Inter-godown transfer and physical count-variance are tested as isolated invariants and edge
+  cases, never as a P4 role journey with a deny-set. A capability regression for this persona (custodian
+  gains pricing or journal access) would not be caught.
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-1
+  - backend/tests/personas/README.md
+  detail: The PJ matrix has no Godown-Keeper row; ARCH-04 count-variance lives only in tests/edge/.
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 3
+  impact_band: Medium
+business_metric: none
+priority: P2
+priority_rationale: Impact Medium (18); Stage-4 archetype, so judgement lowers it to P2.
+effort: M
+recommendation: 'Add PJ-WHOLE-GODOWN: inward, inter-godown transfer, a count session with a variance adjustment,
+  and a deny-set (no pricing, no journals, no reports). Green in the strict invariant sweep.'
+test_required: PJ-WHOLE-GODOWN journey added to backend/tests/personas/
+guard_ref:
+  test: backend/tests/personas/test_pj_stubs.py::test_pj_wholesale_godown_custodian
+lifecycle: fixed
+owner: backend
+opened: '2026-09-10'
+closed: null

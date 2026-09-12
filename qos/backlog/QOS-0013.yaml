@@ -1,0 +1,34 @@
+id: QOS-0013
+category: RELIABILITY_TRUST
+title: End-to-end tests run on Chromium only; two mobile-viewport failures carried
+persona:
+- P1
+- P2
+journey: Cross-browser and mobile-viewport rendering
+problem: The e2e and golden suites run Chromium only. Two known mobile-viewport layout failures (help.spec.ts:55
+  universal-search combobox; item-custom-fields.spec.ts:46 heading behind the mobile nav drawer) are carried
+  as pre-existing.
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-12
+  - docs/FREEZE_SCOPE_COVERAGE.md 'Final verification'
+  detail: playwright.config.ts defines one project; the two mobile fails are baselined as pre-existing.
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: activation
+priority: P3
+priority_rationale: Impact Low (12); judgement P3.
+effort: M
+recommendation: Add a WebKit project for the golden + a11y specs; fix or formally accept (with a rationale)
+  the two mobile-viewport failures.
+test_required: a WebKit e2e project green; the two mobile fails fixed or accepted with a rationale
+guard_ref:
+  test: web/playwright.config.ts::webkit
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null

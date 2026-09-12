@@ -27,12 +27,13 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
   await page.getByLabel('Company name').fill(companyName);
   await page.getByLabel('Full name').fill('E2E Tester');
   await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill('GoldenPath123!');
-  await page.getByLabel('State').fill('Karnataka');
+  await page.getByLabel('Password', { exact: true }).fill('GoldenPath123!');
+  await page.getByLabel('State').click();
+  await page.getByRole('option', { name: 'Karnataka' }).click();
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/login\?registered=1/);
   await expect(page.getByText(/Account created/i)).toBeVisible();
-  await page.getByLabel('Password').fill('GoldenPath123!');
+  await page.getByLabel('Password', { exact: true }).fill('GoldenPath123!');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL('/');
 
@@ -62,7 +63,8 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
   await page.goto('/sales/customers');
   await page.getByRole('button', { name: 'Add' }).click();
   await page.getByLabel('Name').fill(customerName);
-  await page.getByLabel('State').fill('Karnataka');
+  await page.getByLabel('State').click();
+  await page.getByRole('option', { name: 'Karnataka' }).click();
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText(customerName)).toBeVisible();
 

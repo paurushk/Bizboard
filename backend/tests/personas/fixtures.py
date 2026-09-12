@@ -112,6 +112,16 @@ def seed_archetype(kind: str) -> SimpleNamespace:
         ns.acct, ns.acct_cu = acct, _member(company, acct, _ROLE.ACCOUNTANT)
         ns.acct_client = _client(acct)
 
+    if kind == "wholesale":
+        # P4 "Godown Custodian": SALES_STAFF with can_manage_inventory explicitly
+        # granted (no role has it by default). Does inward / transfer / counts;
+        # denied pricing visibility, financial reports, journals, cancel.
+        godown = _user(kind, "godown")
+        ns.godown, ns.godown_cu = godown, _member(
+            company, godown, _ROLE.SALES_STAFF, can_manage_inventory=True
+        )
+        ns.godown_client = _client(godown)
+
     if kind == "trader":
         viewer = _user(kind, "viewer")
         ns.viewer, ns.viewer_cu = viewer, _member(company, viewer, _ROLE.VIEWER)

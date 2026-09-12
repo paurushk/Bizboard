@@ -1,0 +1,44 @@
+{
+  "header": [
+    "id",
+    "number",
+    "date",
+    "customer",
+    "invoice_type",
+    "status",
+    "taxable",
+    "cgst",
+    "sgst",
+    "igst",
+    "grand_total"
+  ],
+  "row_count": 2,
+  "rows": [
+    [
+      "<id>",
+      "INV-2627-A1ZY-00001",
+      "<date>",
+      "Export Customer",
+      "GST",
+      "COMPLETED",
+      "200.00",
+      "18.00",
+      "18.00",
+      "0.00",
+      "236.00"
+    ],
+    [
+      "<id>",
+      "INV-2627-A1ZY-00002",
+      "<date>",
+      "Export Customer",
+      "GST",
+      "COMPLETED",
+      "300.00",
+      "27.00",
+      "27.00",
+      "0.00",
+      "354.00"
+    ]
+  ]
+}

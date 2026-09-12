@@ -1,0 +1,38 @@
+id: QOS-0057
+category: RELIABILITY_TRUST
+title: Re-status the CR-090..CR-104 findings that still carry a stale 'OPEN' label
+persona:
+- P5
+journey: Reconciling the functional code review against the current tree
+problem: 'FUNCTIONAL_CODE_REVIEW_FINDINGS.md (2026-09-08) has 15 entries CR-090..CR-104 marked ''Status:
+  OPEN''. The doc header (fresher) says 0 open Criticals and a green suite, and the 2026-09-10 C15 sweep
+  concluded no open P0/P1 code defect - but the CR High/Medium/Low tail was never re-statused line by
+  line. CR-100/101/104/091/103 are pulled out as QOS-0053..0056; the remaining ~10 (CR-090/092/093/094/095/096/097/098/099/102)
+  need a verdict each.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/reviews/FUNCTIONAL_CODE_REVIEW_FINDINGS.md CR-090..CR-104
+  - docs/FREEZE_SCOPE_COVERAGE.md 'P0/P1 issue-register sweep (C15)'
+  detail: 'Direct read: 15 OPEN labels, header says clean, C15 sweep says no P0/P1 code defect. The tail
+    is unreconciled.'
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 2
+  impact_band: Medium
+business_metric: none
+priority: P1-investigate
+priority_rationale: Impact Medium (18); the action is a re-status pass, not a fix - promote any still-real
+  entry to its own QOS item.
+effort: M
+recommendation: 'Walk CR-090/092/093/094/095/096/097/098/099/102 against the current tree: for each, mark
+  FIXED (name the test), STILL-OPEN (mint a QOS item), or NOT-A-DEFECT (record why). Update FUNCTIONAL_CODE_REVIEW_FINDINGS.md
+  statuses in the same pass.'
+test_required: every CR-090..CR-104 entry has a current verdict; still-open ones are QOS items with tests
+guard_ref:
+  test: docs/reviews/CR_090_104_RESTATUS_2026-09-11.md
+lifecycle: fixed
+owner: backend
+opened: '2026-09-10'
+closed: null

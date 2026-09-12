@@ -26,6 +26,7 @@
 - [ ] Sentry DSN + on-call routing live — **Final Gate**  
 - [ ] SMTP spot-send verified — **Final Gate**  
 - [ ] Live GSP credentials (if e-invoice/e-way in prod) — **Final Gate**  
+- [ ] Q-OS dashboard reviewed ([`docs/PRODUCT_QUALITY_BACKLOG.md`](../PRODUCT_QUALITY_BACKLOG.md)): **Critical bugs = 0**, open-item trend non-increasing, and the sequenced frontier's top items for this pilot stage are addressed or explicitly waived  
 
 ## Decision
 

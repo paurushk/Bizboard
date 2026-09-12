@@ -10,6 +10,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 
 from core.invariants import assert_all_invariants
 from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
@@ -77,4 +78,57 @@ def test_block_expired_stock(tenant_a, block_expired):
             _issue()
     else:
         _issue()  # allowed
+    assert_all_invariants(company)
+
+
+@pytest.mark.parametrize("block_expired", [True, False])
+@pytest.mark.parametrize(
+    "label, offset_days",
+    [
+        ("expired_yesterday", -1),
+        ("near_expiry_today", 0),  # guard-band: sellable on the expiry day itself (G-2/H-04b)
+        ("not_near_expiry", 30),
+    ],
+)
+def test_expiry_guard_band_matrix(tenant_a, block_expired, label, offset_days):
+    """G-2 / H-04b: the block_expired_stock policy axis crossed with the
+    near-expiry guard band — a lot expiring *today* is not yet expired
+    (`expiry_date < business date`, not `<=`) and must issue regardless of the
+    policy; only a lot that expired strictly before today is ever blocked, and
+    only when the policy is on. Manual batch pick only — post_movement always
+    requires an explicit batch for a batch-tracked product; FEFO auto-pick is
+    a higher (invoice-complete) layer, out of scope for this matrix (QOS-0009)."""
+    from datetime import timedelta
+
+    from inventory.models import BatchLot, MovementType
+    from inventory.services import InventoryService
+
+    company = tenant_a.company
+    company.block_expired_stock = block_expired
+    company.save(update_fields=["block_expired_stock"])
+
+    today = timezone.localdate()
+    product = make_product(company, gst_rate="18", track_batch=True, sku=f"EXP-{label}-{block_expired}")
+    batch = BatchLot.objects.create(
+        company=company, product=product, batch_no=label, expiry_date=today + timedelta(days=offset_days),
+    )
+    InventoryService.post_movement(
+        company=company, product=product, movement_type=MovementType.OPENING_STOCK,
+        quantity=Decimal("10"), unit_cost=Decimal("50"), user=tenant_a.owner, batch=batch,
+    )
+
+    def _issue():
+        return InventoryService.post_movement(
+            company=company, product=product, movement_type=MovementType.SALE,
+            quantity=Decimal("1"), user=tenant_a.owner, batch=batch,
+        )
+
+    is_expired = offset_days < 0
+    if block_expired and is_expired:
+        with pytest.raises(Exception):
+            _issue()
+    else:
+        # Not expired (today or future) is always sellable, even with the
+        # policy on — the guard-band case must never be blocked.
+        _issue()
     assert_all_invariants(company)

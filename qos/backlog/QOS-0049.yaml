@@ -1,0 +1,33 @@
+id: QOS-0049
+category: SECURITY_PRIVACY
+title: DPDP controls checklist is unsigned
+persona:
+- P1
+journey: Data-protection governance for the pilot
+problem: The DPDP (Digital Personal Data Protection) controls checklist (docs/pilot/DPDP_POSTURE.md) has
+  no recorded sign-off. The posture may be sound but there is no attestation that each control was reviewed
+  before onboarding real merchant data.
+evidence:
+  strength: heuristic
+  source:
+  - docs/reviews/MASTER_ISSUE_REGISTER.md BB-000128 (Deferred - ops owner)
+  - docs/pilot/DPDP_POSTURE.md
+  detail: Recorded P2 in the issue register as an unsigned governance checklist; ops-owned.
+scoring:
+  reach: 5
+  severity: 3
+  frequency: 1
+  impact_band: Low
+business_metric: renewal
+priority: P2
+priority_rationale: Impact Medium (15 -> Low by product, but a compliance gate); governance blocker for
+  onboarding real data.
+effort: S
+recommendation: Walk docs/pilot/DPDP_POSTURE.md control by control with the data-protection owner; record
+  a reviewed/date against each and a checklist signature.
+test_required: DPDP_POSTURE.md carries a per-control review record and a signature
+guard_ref: null
+lifecycle: investigating
+owner: ops
+opened: '2026-09-10'
+closed: null

@@ -1,0 +1,31 @@
+id: QOS-0023
+category: SECURITY_PRIVACY
+title: CD pushes mutable sha tags without a digest pin
+persona:
+- P1
+journey: Container image supply chain
+problem: The deploy pipeline pushes mutable sha tags without pinning image digests, so a re-tagged or
+  tampered image could be deployed under the same reference.
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE_COVERAGE.md 'P0/P1 issue-register sweep'
+  detail: Recorded P1 in the issue register; DevOps-owned.
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: Impact Low (6); contained supply-chain hardening. P2.
+effort: S
+recommendation: Pin deploy references to image digests (sha256) in the CD pipeline and the compose prod
+  overlay; fail the deploy if a digest is missing.
+test_required: the deploy pipeline references image digests, asserted by a CI check
+guard_ref:
+  test: .github/workflows/ci.yml
+lifecycle: fixed
+owner: devops
+opened: '2026-09-10'
+closed: null

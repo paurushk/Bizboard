@@ -56,7 +56,10 @@ def test_completed_pcn_without_je_blocks_after_cutoff(books):
         supplier=make_supplier(books.company),
         status=PurchaseCreditNote.Status.COMPLETED,
         note_date=date(2026, 9, 5),
-        completed_at=timezone.now(),
+        # QOS-0018: must land inside the opened Sep-2026 period (the missing-
+        # posting cutoff) regardless of the real/frozen wall clock — `now()`
+        # under a frozen clock predates the cutoff and reads as legacy.
+        completed_at=timezone.make_aware(datetime(2026, 9, 6, 12, 0, 0)),
         grand_total=Decimal("100.00"),
         taxable_total=Decimal("100.00"),
     )

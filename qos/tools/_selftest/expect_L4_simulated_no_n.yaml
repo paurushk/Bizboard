@@ -1,0 +1,21 @@
+# Trips L4: simulated evidence with no n>=5 and no observation-file source.
+id: QOS-9004
+category: DELIGHT
+title: "Selftest fixture — simulated evidence without a run count"
+persona: [P2]
+journey: "selftest"
+problem: "Synthetic fixture: simulated evidence must state n>=5 or link a qos/observations file; this one does neither."
+evidence:
+  strength: simulated
+  source: ["some note without an observations path"]
+  detail: "synthetic selftest fixture — no run count given"
+scoring: { reach: 3, severity: 3, frequency: 3, impact_band: Medium }
+priority: P1
+priority_rationale: "synthetic selftest fixture, not a real backlog item"
+effort: S
+recommendation: "n/a — selftest fixture; the linter should reject this on L4"
+test_required: "qos/tools/lint.py --selftest stays green"
+lifecycle: open
+owner: qa
+opened: "2026-09-10"
+closed: null

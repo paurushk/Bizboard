@@ -1,0 +1,36 @@
+id: QOS-0025
+category: DISSATISFACTION
+title: No regression guard for non-owner 403-spamming queries (UX-002)
+persona:
+- P2
+- P5
+journey: First page load as a non-owner role
+problem: UX-002 (SALES_STAFF and other non-owner roles were spammed with 403s on every route from an eager
+  subscription query) was fixed, but nothing guards it. A re-introduced eager query would flood non-owner
+  sessions with errors again.
+evidence:
+  strength: heuristic
+  source:
+  - docs/reviews/UX_AUDIT_FINDINGS.md UX-002
+  detail: Marked fixed; related to but distinct from QOS-0001 (that is about hidden controls, this is
+    about background queries).
+scoring:
+  reach: 4
+  severity: 3
+  frequency: 5
+  impact_band: High
+business_metric: support_ticket_rate
+priority: P2
+priority_rationale: Impact High (60), but already fixed - guard debt, so P2.
+effort: S
+recommendation: 'Add an e2e assertion: log in as SALES_STAFF, load the app, assert zero 403 responses
+  in the network log on the initial route.'
+test_required: an e2e check asserting zero 403s on a non-owner first load
+guard_ref:
+  test: web/e2e/personas/role-boundaries.spec.ts
+lifecycle: fixed
+duplicates:
+- QOS-0001
+owner: web
+opened: '2026-09-10'
+closed: null

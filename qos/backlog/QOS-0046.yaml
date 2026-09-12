@@ -1,0 +1,36 @@
+id: QOS-0046
+category: INNOVATION
+title: Native WhatsApp invoice + payment-link delivery
+persona:
+- P1
+- P3
+archetype:
+- ARCH-03
+journey: Sending an invoice to a customer
+problem: WhatsApp Cloud API is out of scope (share-link only). Native WhatsApp delivery of the invoice
+  PDF + a payment link matches how ARCH-03 merchants actually communicate with customers.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/FREEZE_SCOPE.md B (ENABLE_WHATSAPP_CLOUD=0)
+  - docs/reviews/18_COMPETITOR_ANALYSIS.md
+  detail: Flagged off; the archetype 'Operating Model' explicitly names WhatsApp. Speculative pending
+    demand.
+scoring:
+  reach: 4
+  severity: 2
+  frequency: 3
+  impact_band: Medium
+business_metric: referral
+priority: P3
+priority_rationale: 'Innovation, review-only: strong fit with ARCH-03 behaviour; needs a WhatsApp BSP
+  and template approval.'
+effort: L
+recommendation: Evaluate a WhatsApp BSP partnership post-pilot; template the invoice + payment-link message
+  and gate behind explicit merchant opt-in.
+test_required: n/a - review-only; BSP webhook + delivery-status tests if pursued
+guard_ref: null
+lifecycle: open
+owner: backend
+opened: '2026-09-10'
+closed: null

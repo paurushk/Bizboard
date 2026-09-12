@@ -474,7 +474,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
 
       {extracting ? (
         <Stack direction="row" spacing={1} alignItems="center">
-          <CircularProgress size={22} />
+          <CircularProgress size={22} aria-label={t('common.loading')} />
           <Typography>{t('billUpload.extracting')}</Typography>
           {job ? <StatusChip tone="info" labelKey={statusLabelKey(job.status)} /> : null}
         </Stack>

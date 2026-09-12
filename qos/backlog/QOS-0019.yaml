@@ -1,0 +1,33 @@
+id: QOS-0019
+category: RELIABILITY_TRUST
+title: Mutation testing is blocked - line coverage is not behaviour coverage
+persona:
+- P5
+journey: Test-suite strength on money / tax / stock code
+problem: 'The mutation audit (scripts/mutation_audit.sh) is blocked: mutmut has no native Windows support.
+  Coverage is ~84% line / 80% diff, which proves execution, not assertion - the real check for weak tests
+  is not running.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-mutation
+  - docs/FREEZE_SCOPE.md H11
+  detail: The audit script exists but cannot run on the dev platform; no survivor triage has happened.
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: Impact Low (6); P2 - a Linux CI lane is a modest lift and de-risks the money paths.
+effort: M
+recommendation: Run scripts/mutation_audit.sh in a Linux CI lane (advisory); triage survivors on the money,
+  tax, and stock modules first.
+test_required: an advisory mutation-audit lane with survivors triaged on the money/tax/stock modules
+guard_ref:
+  test: .github/workflows/ci.yml
+lifecycle: fixed
+owner: backend
+opened: '2026-09-10'
+closed: null

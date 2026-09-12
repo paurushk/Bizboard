@@ -1,0 +1,37 @@
+id: QOS-0005
+category: BUSINESS_GAP
+title: Bank reconciliation proper (statement-line to GL match) is not gated
+persona:
+- P5
+archetype:
+- ARCH-03
+- ARCH-04
+journey: Match bank statement lines to GL
+problem: WF-33 (reconcile a statement against GL) is skipped; only statement import + auto-match (WF-41)
+  is gated. 'Discrepancy with bank lines' is the Munshi's stated veto trigger and the daily trust check
+  has no end-to-end coverage. No external dependency blocks WF-33.
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-3
+  - docs/FREEZE_SCOPE_COVERAGE.md section G (WF-33)
+  detail: WF-33 is a documented skip; WF-37/38 (gateway refund/MDR) are separately blocked on D3 creds.
+scoring:
+  reach: 3
+  severity: 4
+  frequency: 3
+  impact_band: Medium
+business_metric: renewal
+priority: P1
+priority_rationale: Impact Medium (36); WF-33 is unblocked work.
+effort: M
+recommendation: 'Implement WF-33: open a reconciliation session, match statement lines to GL entries,
+  assert the session closes balanced and an idempotent replay is a no-op. Track WF-37/38 separately under
+  the D3-credentials blocker.'
+test_required: test_wf33_bank_reconciliation green (unblocked); WF-37/38 tracked as blocked
+guard_ref:
+  test: backend/tests/workflows/test_wf_extended_stubs.py::test_wf33_bank_reconciliation
+lifecycle: verified
+owner: backend
+opened: '2026-09-10'
+closed: null

@@ -1,0 +1,40 @@
+id: QOS-0039
+category: DELIGHT
+title: Bank statement import has no one-click 'accept all confident matches'
+persona:
+- P5
+archetype:
+- ARCH-03
+journey: Reconciling an imported bank statement
+problem: 'Fixed 2026-09-11: added POST /api/v1/payments/recon/bulk-accept-exact/ (ReconViewSet.bulk_accept_exact)
+  confirming every EXACT-class suggestion (>=90 confidence, exact amount, a hard UTR/reference anchor
+  — the same bar the commit-time auto-match already used) across the unmatched queue in one call, without
+  requiring the company''s auto_match_bank_exact opt-in. Fuzzy/ ambiguous lines are left untouched for
+  manual review. Each result is undoable via the existing recon/unmatch action — no new undo mechanism
+  needed. Wired to a button on BankReconPage (web).'
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE_COVERAGE.md section G (WF-41)
+  - docs/TESTING_STRATEGY.md#4 P5
+  - backend/payments/views.py::ReconViewSet.bulk_accept_exact
+  - backend/tests/test_phase3_payments.py::test_bulk_accept_exact_matches_only_exact_class_and_is_undoable
+  detail: First-hand code read + a passing test; reused the existing is_exact_unique_suggestion bar exactly.
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: nps
+priority: P3
+priority_rationale: Impact Low (12); a workflow nicety. P3.
+effort: S
+recommendation: 'Done: bulk-accept-exact endpoint + BankReconPage button. Fuzzy matches are correctly
+  left for manual review; undo reuses recon/unmatch.'
+test_required: a test that bulk-accept touches only EXACT-class rows and is undoable
+guard_ref:
+  test: backend/tests/test_phase3_payments.py::test_bulk_accept_exact_matches_only_exact_class_and_is_undoable
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null

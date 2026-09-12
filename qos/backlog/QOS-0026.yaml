@@ -1,0 +1,35 @@
+id: QOS-0026
+category: USABILITY
+title: No visual-regression guard for mobile-viewport clipping (UX-003/004/005)
+persona:
+- P1
+- P2
+archetype:
+- ARCH-01
+journey: Using the app on a phone-width viewport
+problem: UX-003/004/005 (header search wrap, attention-queue button clipping, POS cart horizontal overflow
+  at phone widths) were fixed responsively but only verified by one-time screenshots. No test locks the
+  mobile layout.
+evidence:
+  strength: heuristic
+  source:
+  - docs/reviews/UX_AUDIT_FINDINGS.md UX-003, UX-004, UX-005
+  detail: Three related mobile-responsive fixes, all 'Fixed & Verified' by screenshot, none guarded.
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 3
+  impact_band: Medium
+business_metric: activation
+priority: P2
+priority_rationale: Impact Medium (18); mobile shell ships to the pilot (D12). P2.
+effort: M
+recommendation: 'Add Playwright mobile-viewport assertions: no horizontal body scroll on dashboard, attention
+  queue, and POS; page title not occluded.'
+test_required: mobile-viewport no-overflow assertions for the three screens, in the e2e suite
+guard_ref:
+  test: web/e2e/mobile-layout.spec.ts
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null

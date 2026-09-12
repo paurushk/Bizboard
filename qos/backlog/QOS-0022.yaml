@@ -1,0 +1,38 @@
+id: QOS-0022
+category: RELIABILITY_TRUST
+title: No scheduled backup/restore drill in the compose stack
+persona:
+- P1
+journey: Disaster recovery
+problem: 'Fixed 2026-09-11: scripts/restore_drill.sh drives the real pg_dump/gzip -> psql restore pipeline
+  (the same commands as scripts/backup.sh / scripts/restore.sh) into two throwaway containers — never
+  the live db service — then runs the new standalone manage.py check_invariants sweep against the restored
+  data. Scheduled weekly via .github/workflows/backup-restore-drill.yml (cron + workflow_dispatch), advisory
+  (continue-on-error) so a drill failure alerts without blocking merges.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE_COVERAGE.md 'P0/P1 issue-register sweep'
+  - scripts/restore_drill.sh
+  - .github/workflows/backup-restore-drill.yml
+  - backend/tests/test_check_invariants_command.py
+  detail: First-hand code read + a local end-to-end run of the drill script; 3 unit tests for check_invariants
+    pass.
+scoring:
+  reach: 3
+  severity: 4
+  frequency: 1
+  impact_band: Low
+business_metric: renewal
+priority: P2
+priority_rationale: Impact Medium (12 -> Low by product, but severity 4 recovery risk); set P2.
+effort: M
+recommendation: 'Done: scripts/restore_drill.sh + manage.py check_invariants + a weekly scheduled CI job.
+  Exercises the actual dump/restore pipeline, not just the ORM-level logic.'
+test_required: a scheduled restore-drill job that runs the invariant sweep against the restored DB
+guard_ref:
+  test: backend/tests/test_check_invariants_command.py::test_check_invariants_clean_company_passes
+lifecycle: fixed
+owner: ops
+opened: '2026-09-10'
+closed: null

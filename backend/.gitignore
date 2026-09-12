@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .hypothesis/
 .coverage
+coverage.json
 htmlcov/
 db.sqlite3
 media/

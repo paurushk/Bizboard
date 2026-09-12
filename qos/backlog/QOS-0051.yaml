@@ -1,0 +1,40 @@
+id: QOS-0051
+category: BUSINESS_GAP
+title: No in-product tenant backup / restore or self-service recovery path
+persona:
+- P1
+journey: A merchant needs to recover their data after a mistake or loss
+problem: 'Stale: BB-000668 (the source this item was mined from) is already fixed. The product surface
+  exists: settings/backup (web/src/pages/settings/BackupExportPage.tsx) exposes an owner-initiated encrypted
+  export (`POST /company/export/`, rate-limited, audited) and two restore paths — a safe-by-default restore
+  into a NEW sandbox company (`POST /company/restore/`) for inspection without touching the live tenant,
+  and a support-gated in-place destroy+restore requiring the owner to type the exact company name (`confirm_destroy`
+  + `typed_name`) before it will overwrite the original. Correction (2026-09-11): the capability this
+  item asked for is built and tested, not missing.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/reviews/MASTER_ISSUE_REGISTER.md BB-000668 (Deferred - roadmap, now stale)
+  - web/src/pages/settings/BackupExportPage.tsx
+  - backend/tests/test_sprint_d_tenant_export.py::test_bb_000668_export_restore_sandbox_totals_match
+  - backend/tests/test_sprint_d_tenant_export.py::test_bb_000668_destroy_in_place_requires_typed_name
+  detail: First-hand code + test read superseding the roadmap-deferred BB-000668 note it was mined from.
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 1
+  impact_band: Low
+business_metric: renewal
+priority: P3
+priority_rationale: Impact Medium (9 -> Low); roadmap-deferred. P3 - real gap, not urgent for the pilot.
+effort: L
+recommendation: No build needed. If a real gap remains (e.g. a guided in-place-restore UI flow rather
+  than sandbox-only in the current page), file a new, narrowly-scoped item — this one's "no surface exists
+  at all" premise is false.
+test_required: 'a WF chain: owner export -> restore into a scratch tenant -> invariants clean'
+guard_ref:
+  test: backend/tests/test_sprint_d_tenant_export.py::test_bb_000668_export_restore_sandbox_totals_match
+lifecycle: verified
+owner: backend
+opened: '2026-09-10'
+closed: null

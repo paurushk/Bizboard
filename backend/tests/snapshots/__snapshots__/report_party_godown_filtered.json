@@ -1,0 +1,48 @@
+{
+  "inventory_summary_all": [
+    {
+      "available": "12",
+      "sku": "FLT-1"
+    },
+    {
+      "available": "23",
+      "sku": "FLT-1"
+    }
+  ],
+  "inventory_summary_branch_only": [
+    {
+      "available": "12",
+      "sku": "FLT-1"
+    }
+  ],
+  "sales_register_all": [
+    {
+      "customer": "Party A",
+      "grand_total": "118.00"
+    },
+    {
+      "customer": "Party A",
+      "grand_total": "236.00"
+    },
+    {
+      "customer": "Party B",
+      "grand_total": "472.00"
+    }
+  ],
+  "sales_register_party_a": [
+    {
+      "customer": "Party A",
+      "grand_total": "118.00"
+    },
+    {
+      "customer": "Party A",
+      "grand_total": "236.00"
+    }
+  ],
+  "sales_register_party_b": [
+    {
+      "customer": "Party B",
+      "grand_total": "472.00"
+    }
+  ]
+}

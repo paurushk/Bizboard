@@ -54,7 +54,10 @@ def probe_infra(*, use_cache: bool = True):
     control-plane round trip instead of one per request.
     """
     if use_cache:
-        cached = cache.get(_READY_PROBE_CACHE_KEY)
+        try:
+            cached = cache.get(_READY_PROBE_CACHE_KEY)
+        except Exception:  # noqa: BLE001 — QOS-0050: cache down must not 500 the health probe
+            cached = None
         if cached is not None:
             return cached
     celery_ok, depth, workers_ok = _probe_celery_and_queue()
@@ -138,6 +141,9 @@ def _probe_celery_beat_ok():
 
 class HealthView(APIView):
     permission_classes = [AllowAny]
+    # QOS-0050: a liveness / readiness probe must never be rate-limited, and must
+    # not 500 just because the throttle cache (Redis) is the thing that is down.
+    throttle_classes: list = []
 
     def get(self, request):
         want_ready = request.query_params.get("ready") in ("1", "true", "yes")

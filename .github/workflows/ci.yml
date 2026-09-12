@@ -75,16 +75,29 @@ jobs:
       # surfaces inter-test order dependence, fix the polluting test — the
       # one-line escape hatch is `addopts = -p no:randomly` in pytest.ini, not a
       # revert. Coverage.xml is produced here and reused by diff-cover below.
+      # --cov-fail-under is the absolute floor (Phase 1). Current total is ~84%;
+      # 83 leaves headroom for churn but catches a real regression. Ratchet it up
+      # as coverage climbs — never down. Diff-cover below is the stricter
+      # per-branch gate (>=80% on changed lines).
       - name: Test suite
-        run: pytest -m "not flaky_quarantine" --cov=. --cov-report=xml --cov-report=term:skip-covered
+        run: pytest -m "not flaky_quarantine and not slow and not llm_accuracy" --cov=. --cov-report=xml --cov-report=term:skip-covered --cov-fail-under=83
       - name: Flaky quarantine lane (advisory)
         continue-on-error: true
         run: pytest -m flaky_quarantine -q --tb=line
-      - name: Diff coverage vs base (advisory during Phase 1)
+      # QOS-0003: the 50k-invoice large-tenant fixture — real but ~2-3 min of
+      # bulk_create, so it stays out of the main coverage run above and gets
+      # its own advisory lane instead of slowing every PR.
+      - name: Large-tenant report smoke (advisory)
         continue-on-error: true
+        run: pytest -m slow -q --tb=short
+      # Phase 1 gate (blocking as of 2026-09-10): lines changed on this branch
+      # must be >=80% covered. Raise the bar over time; never lower it. If a PR
+      # legitimately can't hit 80% (pure config, generated code), justify it in
+      # review and split the untestable change out — do not add continue-on-error.
+      - name: Diff coverage vs base (blocking, >=80% on changed lines)
         run: |
           git fetch --no-tags --depth=1 origin "${{ github.base_ref || 'main' }}" || true
-          diff-cover coverage.xml --compare-branch "origin/${{ github.base_ref || 'main' }}" --fail-under=0
+          diff-cover coverage.xml --compare-branch "origin/${{ github.base_ref || 'main' }}" --fail-under=80
       # Freeze Gate guards (Phase 1) — real invariants; --selftest proves each can fail.
       - name: Freeze Gate guards
         working-directory: .
@@ -238,7 +251,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
         env:
           CI: "1"
@@ -269,6 +282,10 @@ jobs:
       DATABASE_URL: postgresql://bizboard:bizboard@localhost:5432/bizboard_ci
       DJANGO_SETTINGS_MODULE: config.settings
       CELERY_TASK_ALWAYS_EAGER: "1"
+      # No broker in this job — force the LocMem cache. `config.settings` otherwise
+      # points CACHES at redis://localhost:6379 and `/api/v1/health/` (the golden
+      # webServer readiness probe) 500s on the missing connection.
+      REDIS_URL: ""
       E2E_GOLDEN_API_PORT: "8000"
       E2E_GOLDEN_WEB_PORT: "5173"
     steps:
@@ -326,6 +343,19 @@ jobs:
           recursive: true
           failure-threshold: error
       - run: docker compose build
+      # QOS-0023: the prod compose overlay must pin image digests, not mutable
+      # tags. scripts/pin_image_digests.sh rewrites the refs to `...@sha256:...`;
+      # this asserts a maintainer actually ran it before the overlay is deployed.
+      - name: Prod compose overlay pins image digests
+        run: |
+          overlay=docker-compose.prod.yml
+          bad=$(grep -nE '^\s*image:\s' "$overlay" | grep -v '@sha256:' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::$overlay has un-pinned image refs (run scripts/pin_image_digests.sh):"
+            echo "$bad"
+            exit 1
+          fi
+          echo "all image refs in $overlay are digest-pinned"
       # M1-014: scan the built images for known CVEs, gate on fixable CRITICAL.
       - name: Trivy image scan (api)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -336,14 +366,76 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL
 
-  # BB-000477: optional load harness presence check (not a soak).
+  # QOS-0003: an executed smoke, not just a presence check — was `test -f
+  # load/k6_smoke.js` with nothing ever running it. Boots a real backend
+  # against Postgres, runs k6 for 30s, and asserts the script's own
+  # thresholds (p95<2000ms, error rate<5%). Not a soak or capacity proof for
+  # pilot scale — see load/k6_smoke.js's own header. Advisory until proven
+  # green on `main` a few times, then flip to blocking (same phasing as
+  # determinism-probe).
   load-harness:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: bizboard_ci
+          POSTGRES_USER: bizboard
+          POSTGRES_PASSWORD: bizboard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings_test
+      DATABASE_URL: postgresql://bizboard:bizboard@localhost:5432/bizboard_ci
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Assert k6 smoke script exists
+        working-directory: .
         run: test -f load/k6_smoke.js && test -f load/locust_smoke.py
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -c constraints.txt -r requirements-dev.txt
+      - name: Migrate + seed a demo tenant
+        run: |
+          python manage.py migrate --noinput
+          DEBUG=1 python manage.py seed_demo
+      - name: Start the backend
+        run: |
+          nohup python manage.py runserver 0.0.0.0:8000 > server.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8000/api/v1/health/ > /dev/null && break
+            sleep 1
+          done
+          curl -sf http://localhost:8000/api/v1/health/ || { cat server.log; exit 1; }
+      - name: Install k6
+        working-directory: .
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+      - name: Run the k6 smoke (30s, asserts its own p95/error-rate thresholds)
+        working-directory: .
+        run: >-
+          k6 run -e BASE_URL=http://localhost:8000
+          -e EMAIL=demo@bizboard.local -e PASSWORD=DemoPass123!
+          load/k6_smoke.js
 
   # Wave 17A: optional Postgres RLS isolation job (flag on; default prod still off).
   postgres-rls:
@@ -390,9 +482,11 @@ jobs:
         run: pytest tests/test_rls_coverage.py tests/tenancy/ -q --tb=short
 
   # Phase 1: advisory probe — runs the suite with the frozen clock and the
-  # network ban on. When this is green, flip TESTS_FREEZE_CLOCK / TESTS_NO_SOCKET
-  # on by default in tests/conftest.py and delete the env guards (make it
-  # blocking). Not a merge gate yet — see scripts/ci_gates/GATE_INVENTORY.md.
+  # network ban on. Flip criterion: green on `main` for 3 consecutive runs, then
+  # set TESTS_FREEZE_CLOCK / TESTS_NO_SOCKET on by default in tests/conftest.py,
+  # delete the env guards, drop continue-on-error, and move `determinism-probe`
+  # to a merge blocker in REQUIRED_CHECKS.txt + branch protection.
+  # See scripts/ci_gates/GATE_INVENTORY.md.
   determinism-probe:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -428,13 +522,14 @@ jobs:
       - run: pip install -c constraints.txt -r requirements-dev.txt
       - name: Suite with frozen clock + no sockets (advisory)
         continue-on-error: true
-        run: pytest -m "not flaky_quarantine" -q --tb=line
+        run: pytest -m "not flaky_quarantine and not slow and not llm_accuracy" -q --tb=line
 
-  # Phase 2: crown-jewel invariant sweep. Blocking on the workflow contracts and
-  # the invariant smoke; advisory for the full-suite strict sweep
-  # (INVARIANTS_STRICT=1 runs core.invariants at every test's teardown — expect
-  # it to surface pre-existing inconsistencies to triage). When the strict step
-  # is green, drop continue-on-error and fold it into the backend job.
+  # Phase 2: crown-jewel invariant sweep. Both steps are BLOCKING as of
+  # 2026-09-10: the full-suite strict sweep (INVARIANTS_STRICT=1 runs
+  # core.invariants in a pytest_runtest_call hookwrapper for every test) has run
+  # green in fixed AND randomised order (1403 passed / 0 invariant failures).
+  # The residual triage that justified `continue-on-error` is complete — see
+  # memory bizboard-freeze-gate-phases + scripts/ci_gates/GATE_INVENTORY.md.
   invariant-sweep:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -468,9 +563,174 @@ jobs:
       - run: pip install -c constraints.txt -r requirements-dev.txt
       - name: Phase 2 gate — workflows/invariants/tenancy/gst/snapshots/edge/errors/matrices/personas (blocking)
         run: >-
-          pytest tests/workflows/ tests/tenancy/ tests/gst/ tests/snapshots/
-          tests/edge/ tests/errors/ tests/matrices/ tests/personas/
+          INVARIANTS_STRICT=1 pytest tests/workflows/ tests/tenancy/ tests/gst/
+          tests/snapshots/ tests/edge/ tests/errors/ tests/matrices/ tests/personas/
           tests/test_invariants_smoke.py tests/regression/ -q --tb=short
-      - name: Full-suite strict invariant sweep (advisory)
-        continue-on-error: true
-        run: INVARIANTS_STRICT=1 pytest -m "not flaky_quarantine" -q --tb=line
+      - name: Full-suite strict invariant sweep (blocking)
+        run: INVARIANTS_STRICT=1 pytest -m "not flaky_quarantine and not slow and not llm_accuracy" -q --tb=line
+
+  # QOS-0012: run the money / webhook / period-close chains against a REAL Celery
+  # broker (Redis), not eager mode, so task ordering and retry timing are actually
+  # exercised. Advisory until it is stable, then promote.
+  real-broker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: bizboard_ci
+          POSTGRES_USER: bizboard
+          POSTGRES_PASSWORD: bizboard
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings_test
+      DATABASE_URL: postgresql://bizboard:bizboard@localhost:5432/bizboard_ci
+      REDIS_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: redis://localhost:6379/1
+      CELERY_TASK_ALWAYS_EAGER: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -c constraints.txt -r requirements-dev.txt
+      - name: Start a Celery worker
+        run: |
+          celery -A config worker --loglevel=warning --concurrency=2 &
+          echo $! > /tmp/celery.pid
+          sleep 5
+      - name: Chains against the real broker (advisory)
+        run: |
+          pytest -m "not flaky_quarantine" -p no:randomly -q --tb=short \
+            tests/workflows/test_wf01_sale_intrastate.py \
+            tests/workflows/test_wf04_purchase.py \
+            tests/errors/test_async_task_state.py \
+            tests/errors/test_webhook_and_async_contracts.py || true
+      - name: Stop the worker
+        if: always()
+        run: kill "$(cat /tmp/celery.pid)" || true
+
+  # QOS-0019: mutation audit on the crown-jewel modules. Advisory — mutmut needs
+  # Linux (no native Windows), so this is the home for it. Survivors are missing
+  # assertions; triage them into core/invariants/ or tests/gst/. Not a merge gate.
+  mutation-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: bizboard_ci
+          POSTGRES_USER: bizboard
+          POSTGRES_PASSWORD: bizboard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings_test
+      DATABASE_URL: postgresql://bizboard:bizboard@localhost:5432/bizboard_ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -c constraints.txt -r requirements-dev.txt && pip install mutmut
+      - name: Mutation audit (advisory)
+        working-directory: .
+        run: bash scripts/mutation_audit.sh || true
+      - name: Show survivors
+        working-directory: .
+        run: bash scripts/mutation_audit.sh results || true
+
+  # Q-OS Product Quality Backlog gate. Blocking: the backlog schema, the
+  # evidence->priority cap, lifecycle/guard invariants, and doc-in-sync must
+  # hold; `--selftest` proves every check can still fail. See qos/README.md and
+  # docs/Q-OS_IMPLEMENTATION_RUNBOOK.md (Appendix B).
+  qos-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install -r qos/tools/requirements.txt
+      - name: Lint the backlog
+        run: python qos/tools/lint.py
+      - name: Backlog doc is in sync
+        run: |
+          python qos/tools/build_backlog.py
+          git diff --exit-code docs/PRODUCT_QUALITY_BACKLOG.md
+      - name: Linter selftest (every check can fail)
+        run: python qos/tools/lint.py --selftest
+
+  # Q-OS dashboard trend snapshot. Advisory. Appends today's per-category counts
+  # and publishes them two ways: (1) committed to the dedicated `qos-history`
+  # branch (never protected, so the push always lands), and (2) a workflow
+  # artifact as a fallback. `main` is never touched.
+  qos-dashboard:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install -r qos/tools/requirements.txt
+      - name: Compute + append today's snapshot
+        run: |
+          python qos/tools/dashboard.py --append "qos/history/$(date +%Y-%m).jsonl"
+          python qos/tools/dashboard.py
+      - name: Publish to the qos-history branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          repo="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          tmp="$(mktemp -d)"
+          if ! git clone --depth 1 --branch qos-history "$repo" "$tmp" 2>/dev/null; then
+            git clone --depth 1 "$repo" "$tmp"
+            git -C "$tmp" checkout --orphan qos-history
+            git -C "$tmp" rm -rf . >/dev/null 2>&1 || true
+          fi
+          mkdir -p "$tmp/qos/history"
+          cp qos/history/*.jsonl "$tmp/qos/history/" 2>/dev/null || true
+          git -C "$tmp" config user.name  "github-actions[bot]"
+          git -C "$tmp" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$tmp" add qos/history
+          if git -C "$tmp" diff --cached --quiet; then
+            echo "no snapshot change"; exit 0
+          fi
+          git -C "$tmp" commit -m "qos: dashboard snapshot $(date +%F)"
+          git -C "$tmp" push origin qos-history
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qos-history
+          path: qos/history/

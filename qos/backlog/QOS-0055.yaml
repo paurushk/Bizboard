@@ -1,0 +1,31 @@
+id: QOS-0055
+category: RELIABILITY_TRUST
+title: GL backfill skips empty POSTED journal-entry headers forever (CR-103)
+persona:
+- P5
+journey: Running the accounting backfill after enabling books
+problem: backfill_* commands treat any POSTED JournalEntry as done via .exists() without checking lines.exists().
+  An orphan 0-line POSTED header (pre-CR-078 or a race) makes the backfill skip that document permanently,
+  even though PostingService.post would heal it.
+evidence:
+  strength: heuristic
+  source:
+  - 'docs/reviews/FUNCTIONAL_CODE_REVIEW_FINDINGS.md CR-103 (Medium, Status: OPEN)'
+  detail: Direct read of the 2026-09-08 review; marked OPEN; not re-verified.
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: Impact Low (12); silent - a document stays unposted with no error. P2.
+effort: S
+recommendation: Treat a 0-line POSTED entry as missing (delete + repost) in _has_je, matching PostingService.post.
+test_required: 'a test: empty POSTED header present -> backfill reposts its lines'
+guard_ref:
+  test: backend/tests/test_a15_cr090_plus.py::test_cr103_empty_posted_je_not_treated_as_done
+lifecycle: verified
+owner: backend
+opened: '2026-09-10'
+closed: null

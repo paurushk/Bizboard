@@ -50,3 +50,18 @@ These are **out of the pilot**; each has a manual workaround (see
 
 **Retained and shipping:** per-unit cess (D9b), Android app shell (D12), automated
 data-erasure on request (D13 — see `DPDP_POSTURE.md`), LLM bill-extraction hardening (D14).
+
+## Android app shell (D12) — what to expect
+
+The BizBoard Android app in the pilot is a **shell around the web app**, not a
+separate native app. Founder-ratified for the pilot on 2026-09-10 with these
+limits — tell testers up front:
+
+| Limit | What it means for the tester |
+|---|---|
+| **Sideloaded APK, Android only** | We send you an `.apk` file to install directly. It is not on the Play Store, and there is no iOS build in the pilot. Android will warn about installing outside the store — that is expected. |
+| **No push notifications yet** | The app registers your device, but it will not send push alerts during the pilot. Check the app for updates; do not rely on notifications. |
+| **Offline works for POS billing only** | You can keep taking counter sales with no signal, and they sync when you reconnect. Every other screen (purchases, reports, settings, masters) needs an internet connection. |
+| **It is the web app in an app frame** | Behaviour matches the browser. Report bugs the same way. Do not expect native-only features (widgets, share targets, biometric unlock). |
+
+You stay logged in across app restarts, and links we send you open in the app.

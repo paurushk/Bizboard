@@ -1,0 +1,32 @@
+id: QOS-0018
+category: RELIABILITY_TRUST
+title: determinism-probe stays advisory - 5 clock-brittle test fixtures
+persona:
+- P5
+journey: Suite determinism under a frozen clock
+problem: 'The determinism-probe CI job runs the suite with a frozen clock and network ban but is advisory:
+  5 fixtures have hard-coded Aug/Sep-2026 dates that read as ''future'' under the frozen 2026-06-15 clock.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-determinism
+  - scripts/ci_gates/GATE_INVENTORY.md
+  detail: Probe is 1472 pass / 5 fail; the 5 are named clock-brittle fixtures, not product bugs.
+scoring:
+  reach: 1
+  severity: 2
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: Impact Low (2); small, contained fix. P2 to keep it visible.
+effort: S
+recommendation: Make the 5 fixtures' dates relative to timezone.now(); once green on main x3, flip determinism-probe
+  to blocking and delete the env guards.
+test_required: determinism-probe green on main for 3 consecutive runs, then promoted to blocking
+guard_ref:
+  test: backend/tests/test_pr6_period_gl.py::test_completed_pcn_without_je_blocks_after_cutoff
+lifecycle: fixed
+owner: backend
+opened: '2026-09-10'
+closed: null

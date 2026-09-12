@@ -1,0 +1,21 @@
+# Trips L5: scoring 5/5/5 computes to High, but impact_band says Low.
+id: QOS-9005
+category: RELIABILITY_TRUST
+title: "Selftest fixture — impact_band does not match the scoring axes"
+persona: [P5]
+journey: "selftest"
+problem: "Synthetic fixture: reach*severity*frequency = 125 and severity is 5, so impact_band must be High, not Low."
+evidence:
+  strength: heuristic
+  source: ["qos/tools/_selftest"]
+  detail: "synthetic selftest fixture"
+scoring: { reach: 5, severity: 5, frequency: 5, impact_band: Low }
+priority: P2
+priority_rationale: "synthetic selftest fixture, not a real backlog item"
+effort: S
+recommendation: "n/a — selftest fixture; the linter should reject this on L5"
+test_required: "qos/tools/lint.py --selftest stays green"
+lifecycle: open
+owner: qa
+opened: "2026-09-10"
+closed: null

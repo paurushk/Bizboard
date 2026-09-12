@@ -9,6 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models import Sum
 from openpyxl import Workbook
 
+from core.invariants import assert_all_invariants
 from inventory.models import BatchLot, MovementType, StockBalance, StockMovement, Warehouse
 from inventory.services import InventoryService
 from masters.models import Product
@@ -45,6 +46,87 @@ def test_serial_opening_requires_serial_numbers(tenant_a):
 
     assert StockBalance.objects.get(product=product).on_hand == Decimal("2")
     assert SerialNumber.objects.filter(product=product).count() == 2
+
+
+def test_serial_bulk_ingest_partial_failure(tenant_a):
+    """QOS-0009: a 60-unit consignment paste (ARCH-06) where one serial was
+    scanned twice by mistake must fail closed, not half-write — none of the
+    59 genuinely distinct serials or the stock-balance bump may persist
+    either. Opening stock is one-shot per product, so the collision has to be
+    *within* a single paste, not against an already-posted opening — proves
+    OpeningStockView's transaction.atomic() wrapper protects that case too,
+    not just a clean success."""
+    from inventory.models import SerialNumber, StockBalance
+
+    product = make_product(tenant_a.company, sku="SN-BULK", track_serial=True)
+
+    # A scanning fumble: IMEI-105 was scanned twice in a 60-unit paste.
+    consignment = [f"IMEI-{100 + n}" for n in range(60)]
+    consignment[59] = consignment[5]  # duplicate, quantity still says 60
+    resp = _opening(tenant_a, product=product.id, quantity=str(len(consignment)), serial_numbers=consignment)
+    assert resp.status_code == 400, resp.data
+    assert "duplicate serial" in str(resp.data).lower()
+
+    # Fail-closed: no serial was created and the balance bump did not persist.
+    assert SerialNumber.objects.filter(product=product).count() == 0
+    assert not StockBalance.objects.filter(product=product).exists() or StockBalance.objects.get(
+        product=product
+    ).on_hand == Decimal("0")
+    assert_all_invariants(tenant_a.company)
+
+
+def test_warranty_fraud_duplicate_return(tenant_a):
+    """QOS-0009: the same sold serial cannot be returned twice — a warranty-
+    fraud attempt (return it, then try to return the identical unit again)
+    must be rejected, not silently accepted as a second refund/restock."""
+    from inventory.models import SerialNumber
+    from sales.models import SalesReturn
+
+    product = make_product(tenant_a.company, sku="SN-WFRAUD", track_serial=True, selling_price="500")
+    opened = _opening(tenant_a, product=product.id, quantity="1", serial_numbers=["SN-WARR-1"])
+    assert opened.status_code == 201, opened.data
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "500", "gst_rate": "0",
+          "serial_numbers": ["SN-WARR-1"]}],
+        invoice_type="NON_GST",
+    )
+    complete = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    assert complete.status_code == 200, complete.data
+    assert SerialNumber.objects.get(product=product, serial_number="SN-WARR-1").status == SerialNumber.Status.SOLD
+
+    def _return():
+        return tenant_a.client.post(
+            "/api/v1/sales/returns/",
+            {
+                "customer": customer.id,
+                "sales_invoice": inv["id"],
+                "items": [{"product": product.id, "quantity": "1", "unit_price": "500",
+                           "gst_rate": "0", "serial_numbers": ["SN-WARR-1"]}],
+            },
+            format="json",
+        )
+
+    first_return = _return()
+    assert first_return.status_code == 201, first_return.data
+    first_complete = tenant_a.client.post(f"/api/v1/sales/returns/{first_return.data['id']}/complete/")
+    assert first_complete.status_code == 200, first_complete.data
+    # A sellable return goes straight back to AVAILABLE (BB-000615) — there is
+    # no separate RETURNED resting state to check against.
+    assert SerialNumber.objects.get(product=product, serial_number="SN-WARR-1").status == SerialNumber.Status.AVAILABLE
+
+    # Warranty fraud: try to return the identical already-returned unit again.
+    second_return = _return()
+    if second_return.status_code == 201:
+        second_complete = tenant_a.client.post(f"/api/v1/sales/returns/{second_return.data['id']}/complete/")
+        assert second_complete.status_code != 200, second_complete.data
+    else:
+        assert second_return.status_code == 400, second_return.data
+    assert SalesReturn.objects.filter(
+        sales_invoice_id=inv["id"], status=SalesReturn.Status.COMPLETED
+    ).count() == 1
+    assert_all_invariants(tenant_a.company)
 
 
 def test_opening_two_godown_lots(tenant_a):
@@ -304,6 +386,12 @@ def test_opening_serials_sheet_posts_serial_opening(tenant_a):
 
 def test_xlsx_excel_dates_and_misfilled_serials_do_not_500(tenant_a):
     """Numeric SKUs + Excel dates must save; a serials sheet of product names is ignored."""
+    # QOS-0018: opening as_of must not be in the future relative to "today",
+    # so anchor these Excel dates to the real clock instead of a fixed
+    # 2026 literal that reads as "future" under a frozen test clock.
+    as_of = datetime.combine(date.today() - timedelta(days=30), datetime.min.time())
+    expiry = datetime.combine(date.today() + timedelta(days=365), datetime.min.time())
+    mfg = (date.today() - timedelta(days=90)).isoformat()
     wb = Workbook()
     items = wb.active
     items.title = "items"
@@ -315,11 +403,11 @@ def test_xlsx_excel_dates_and_misfilled_serials_do_not_500(tenant_a):
     )
     lots.append([
         80689219, None, 60,
-        datetime(2026, 8, 20), "Lot 1", datetime(2027, 9, 22), "2026-04-01", 23.29,
+        as_of, "Lot 1", expiry, mfg, 23.29,
     ])
     serials = wb.create_sheet("opening_serials")
     serials.append(["sku", "godown", "serial_no", "as_of", "unit_cost"])
-    serials.append(["H&S Basic Cool", None, 80689219, datetime(2026, 8, 20), 23.29])
+    serials.append(["H&S Basic Cool", None, 80689219, as_of, 23.29])
     buf = BytesIO()
     wb.save(buf)
     upload = tenant_a.client.post(

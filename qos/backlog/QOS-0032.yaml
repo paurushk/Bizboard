@@ -1,0 +1,36 @@
+id: QOS-0032
+category: BUSINESS_GAP
+title: Dunning reminders are scheduled but not actually sent (share-link only)
+persona:
+- P5
+- P1
+archetype:
+- ARCH-03
+journey: Automated payment-reminder delivery
+problem: The dunning cadence engine schedules reminders and is gated (test_wf42), but actual delivery
+  is share-link only in the pilot - the merchant still has to send each reminder by hand. ARCH-03's headline
+  pain (collections) is only half-addressed.
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE.md G3
+  - docs/FREEZE_SCOPE_COVERAGE.md section G (WF-42)
+  detail: 'Documented LIM: ''cadence engine; share-link delivery only''.'
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: renewal
+priority: P2
+priority_rationale: Impact Low (12); a stated limitation, but it blunts the core value prop. P2.
+effort: M
+recommendation: Decide a delivery channel for the pilot (email at minimum) and wire the dunning scheduler
+  to it with a delivery-status field; keep WhatsApp Cloud out of scope.
+test_required: 'a WF chain: dunning schedule -> email sent -> delivery status recorded'
+guard_ref:
+  test: backend/tests/test_a07_dunning.py::test_dunning_falls_back_to_email_when_no_phone
+lifecycle: fixed
+owner: backend
+opened: '2026-09-10'
+closed: null

@@ -1,0 +1,33 @@
+id: QOS-0030
+category: BUSINESS_GAP
+title: Operational readiness is untested - can a business run a full day unaided? (dim 8)
+persona:
+- P1
+- P5
+archetype:
+- ARCH-03
+journey: A full business day with no engineer on call
+problem: Readiness dimension 8 ('Can the business run on it daily without manual fixes?') is 'UNTESTED
+  IN PILOT'. Whether real daily operation needs backend intervention is unknown.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 9
+  detail: Explicitly untested; the pilot is the experiment.
+scoring:
+  reach: 5
+  severity: 4
+  frequency: 1
+  impact_band: Medium
+business_metric: renewal
+priority: P1-investigate
+priority_rationale: Impact Medium (20); hypothesis -> investigation. Pilot Stage 2 evidence.
+effort: L
+recommendation: Track, during pilot Stage 2, every instance of manual DB/backend intervention and its
+  root cause; a clean week is the bar.
+test_required: an intervention log across a pilot stage, with root causes triaged into this backlog
+guard_ref: null
+lifecycle: open
+owner: founder
+opened: '2026-09-10'
+closed: null

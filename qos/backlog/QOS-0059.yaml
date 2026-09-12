@@ -1,0 +1,38 @@
+id: QOS-0059
+category: RELIABILITY_TRUST
+title: Inventory summary 'reserved' is still read from the StockBalance cache (CR-102 residual)
+persona:
+- P4
+- P5
+journey: Reading available quantity on the inventory summary
+problem: 'CR-102''s re-status (2026-09-11) confirms only the mitigation shipped: reporting/services.py
+  adds a `reserved_drift` flag when the cached `reserved` looks wrong, but `available = on_hand - reserved`
+  still uses that cached value. on_hand is movement-summed and correct; available can be wrong when the
+  reserved cache drifts.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/reviews/CR_090_104_RESTATUS_2026-09-11.md (CR-102 = PARTIAL)
+  - backend/reporting/services.py (inventory_summary, ~line 558-594)
+  detail: 'Direct read of the tree during the QOS-0057 re-status: the drift flag is present, the root-cause
+    derivation is not.'
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: Impact Low (12); operators see a flag rather than silently-wrong available. P2 - finish
+  the CR-102 fix.
+effort: S
+recommendation: Derive `reserved` from open reservations / reservation movements (as on_hand is derived),
+  or make `available` fall back to on_hand when `reserved_drift` is set.
+test_required: 'a test: drift the reserved cache -> inventory_summary available is correct or the row
+  is flagged and available is not understated'
+guard_ref:
+  test: backend/tests/test_a4_a5_reporting.py::test_qos0059_reserved_drift_does_not_understate_available
+lifecycle: fixed
+owner: backend
+opened: '2026-09-10'
+closed: null

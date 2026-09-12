@@ -1,0 +1,35 @@
+id: QOS-0037
+category: DELIGHT
+title: Onboarding does not infer legal name / state / PIN from the GSTIN
+persona:
+- P1
+archetype:
+- ARCH-03
+journey: First-run company setup
+problem: 'A first-time owner re-enters information the system could derive: GSTIN encodes the state code
+  and maps to the legal name; PIN implies state. The shortest path to a first invoice is longer than it
+  needs to be.'
+evidence:
+  strength: hypothesis
+  source:
+  - docs/reviews/UX_AUDIT_FINDINGS.md Module 1
+  - docs/TESTING_STRATEGY.md#4 P1
+  detail: Inferred from the registration form fields; abandonment not measured.
+scoring:
+  reach: 5
+  severity: 2
+  frequency: 1
+  impact_band: Low
+business_metric: activation
+priority: P2
+priority_rationale: Impact Low (10); once-per-tenant, but it is the activation moment. P2.
+effort: M
+recommendation: On GSTIN entry, auto-fill state from the GSTIN state code and offer name/address lookup;
+  make every other setup field skippable to a 'finish setup' checklist.
+test_required: PJ-NEWUSER asserts first invoice reachable in <=3 screens
+guard_ref:
+  test: web/src/utils/indianStates.test.ts::decodes the leading state code of a full GSTIN
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null

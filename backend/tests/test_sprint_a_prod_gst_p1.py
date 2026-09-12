@@ -97,6 +97,12 @@ def test_sales_rcm_complete_requires_confirm(tenant_a):
         customer,
         [{"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "18"}],
     )
+    # QOS-0018: PERIOD is fixed at module import (before any per-test clock
+    # freeze); the server defaults invoice_date to "today" at creation time,
+    # which under a frozen clock can land in a different month than PERIOD
+    # and drop the invoice out of build_gstr1's window. Pin it explicitly,
+    # matching the pattern the rest of this file already uses.
+    SalesInvoice.objects.filter(pk=inv["id"]).update(invoice_date=f"{PERIOD}-07")
     tenant_a.client.patch(
         f"/api/v1/sales/invoices/{inv['id']}/",
         {"is_reverse_charge": True},

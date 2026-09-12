@@ -1,0 +1,41 @@
+id: QOS-0035
+category: PERSONA_GAP
+title: ARCH-06 bulk serial scanner-paste workflow is not built out
+persona:
+- P4
+archetype:
+- ARCH-06
+journey: Inward-ing a large consignment of serialised units
+problem: 'Fixed 2026-09-11: web/src/components/billing/lineHelpers.ts::parseSerialInput now expands a
+  hyphenated numeric range ("IMEI1000-IMEI1005") and de-dupes a barcode scanned twice, with the purchase-inward
+  line (NewPurchasePage.tsx) surfacing the parsed count, ranges-expanded count, duplicates-dropped count,
+  and a quantity-mismatch warning before the dealer submits. The partial-failure report itself is QOS-0009''s
+  fail-closed, all-or-nothing rollback (a bad serial anywhere in the consignment rolls back the whole
+  opening-stock post, no half-written serials).'
+evidence:
+  strength: heuristic
+  source:
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 8
+  - web/src/components/billing/lineHelpers.test.ts
+  - backend/tests/test_item_godown_expiry.py::test_serial_bulk_ingest_partial_failure
+  detail: First-hand code + test read; 7 FE unit tests + the backend partial-failure test all pass.
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 3
+  impact_band: Medium
+business_metric: none
+priority: P2
+priority_rationale: Impact Medium (18); Stage-4 archetype. P2. Related to QOS-0009's test coverage.
+effort: M
+recommendation: 'Done: de-dup + range detection in the shared serial-input parser, wired into the purchase-inward
+  line with live paste feedback; the partial-failure report is QOS-0009''s atomic rollback.'
+test_required: a bulk-serial-ingest flow with a partial-failure report, covered by QOS-0009's tests
+guard_ref:
+  test: backend/tests/test_item_godown_expiry.py::test_serial_bulk_ingest_partial_failure
+lifecycle: fixed
+depends_on:
+- QOS-0009
+owner: web
+opened: '2026-09-10'
+closed: null

@@ -1,0 +1,40 @@
+id: QOS-0045
+category: INNOVATION
+title: GSTR-2B vs purchase-register ITC auto-reconciliation
+persona:
+- P6
+- P5
+archetype:
+- ARCH-03
+journey: Claiming input tax credit
+problem: 'C1 (FREEZE_SCOPE.md) states GSTR-2B ITC match is not implemented, but this is stale: `reporting/ims.py::classify_and_match`
+  already matches the ingested 2B against the purchase register FY-wide and classifies every row into
+  exact / value_mismatch / wrong_gstin / missing_in_books / duplicate / potentially_ineligible, with `bulk_accept_exact`
+  for one-click acceptance and a `/api/v1/reports/gstr2b/ims-summary/` surface. QOS-2026-09-11 correction:
+  the capability this item asked for is built and tested, not speculative.'
+evidence:
+  strength: heuristic
+  source:
+  - backend/reporting/ims.py
+  - backend/tests/test_b03_ims.py::test_ims_summary_api
+  - backend/tests/test_b03_ims.py::test_exact_accept_reclasses_1390_reject_clears_1390
+  detail: First-hand code + test read superseding the FREEZE_SCOPE.md C1 note it was mined from.
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 2
+  impact_band: Medium
+business_metric: renewal
+priority: P3
+priority_rationale: 'Innovation, review-only: real compliance value, moderate build (2B parser + match
+  engine).'
+effort: L
+recommendation: Prototype a 2B JSON parser + a match engine against the purchase register; surface matched
+  / mismatched / missing buckets.
+test_required: n/a - review-only; a 2B match engine with snapshot tests if pursued
+guard_ref:
+  test: backend/tests/test_b03_ims.py::test_ims_summary_api
+lifecycle: verified
+owner: backend
+opened: '2026-09-10'
+closed: null

@@ -1,0 +1,45 @@
+id: QOS-0047
+category: INNOVATION
+title: Barcode/label printing + reorder automation for counter retail
+persona:
+- P1
+archetype:
+- ARCH-01
+journey: Keeping the counter stocked and labelled
+problem: 'Fixed 2026-09-11: the user directed building this out of review-only status. web/src/pages/inventory/LabelPrintPage.tsx
+  (/inventory/labels) lets a retailer search products, set a copy count per product, and print a shelf-label
+  sheet — CODE128 barcode (falls back to SKU when no barcode is set) + name + MRP/price — via the browser
+  print dialog, reusing the same no-print/@page pattern as the existing ledger/stock-count print screens.
+  The reorder worksheet half of this item was already covered by the existing Low Stock page (on-hand
+  vs reorder_level, per-warehouse override aware, a reorder action per row) — no separate build needed
+  there. Not validated with a real ARCH-01 pilot merchant yet (that''s still a real, human step, not a
+  code gap).'
+evidence:
+  strength: heuristic
+  source:
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md ARCH-01
+  - docs/reviews/18_COMPETITOR_ANALYSIS.md
+  - web/src/pages/inventory/LabelPrintPage.tsx
+  - web/src/pages/inventory/LabelPrintPage.test.tsx
+  - web/src/pages/inventory/LowStockPage.tsx (already the reorder worksheet)
+  detail: First-hand code read + 3 passing component tests; full FE suite 302/48 green, tsc+eslint clean.
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: referral
+priority: P3
+priority_rationale: Built per explicit user direction (2026-09-11), superseding the earlier review-only
+  Innovation framing for this specific item.
+effort: M
+recommendation: 'Done: label-print page (barcode + name + price, CODE128 via jsbarcode) plus the pre-existing
+  Low Stock page as the reorder worksheet. Pilot-merchant validation is a human step, not a further code
+  task.'
+test_required: label template + reorder worksheet snapshot if pursued
+guard_ref:
+  test: web/src/pages/inventory/LabelPrintPage.test.tsx
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null

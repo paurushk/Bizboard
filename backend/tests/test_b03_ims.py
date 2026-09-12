@@ -403,7 +403,12 @@ def test_supplier_scorecard_aggregates_purchase_value_and_mismatches(tenant_a):
     supplier = make_supplier(tenant_a.company, name="Scorecard Supplier", gstin="29aaaaa0000a1z5")
     other_supplier = make_supplier(tenant_a.company, name="Other Supplier", gstin="29bbbbb0000b1z6")
 
-    invoice_date = timezone.localdate()
+    # PERIOD is captured once at module import (before any per-test clock
+    # freeze); `timezone.localdate()` here is not, so under a frozen clock
+    # `PERIOD`'s month and `invoice_date`'s month can drift apart and
+    # `supplier_scorecard` (which filters by period) sees zero invoices
+    # (QOS-0018). Anchor the invoice date inside PERIOD's own month instead.
+    invoice_date = date.fromisoformat(f"{PERIOD}-15")
     PurchaseInvoice.objects.create(
         company=tenant_a.company, supplier=supplier,
         status=PurchaseInvoice.Status.COMPLETED,

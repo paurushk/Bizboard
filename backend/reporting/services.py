@@ -574,7 +574,16 @@ class ReportService:
                 )
                 value = on_hand * (unit or Decimal("0"))
             total_value += value
-            available = on_hand - reserved
+            # QOS-0059 (CR-102 residual): reserved is a cache, not a movement sum.
+            # When it has drifted, do not let a bad value understate available or
+            # push it negative — clamp it to [0, on_hand] for this figure. The raw
+            # `reserved` and the `reserved_drift` flag are still surfaced below.
+            effective_reserved = reserved
+            if reserved_drift:
+                effective_reserved = (
+                    max(Decimal("0"), min(reserved, on_hand)) if on_hand >= 0 else Decimal("0")
+                )
+            available = on_hand - effective_reserved
             row = {
                 "product_id": product_id,
                 "product": product.name,

@@ -1,0 +1,32 @@
+name: Backup restore drill
+
+# QOS-0022: the backup/restore *logic* is covered by
+# backend/tests/errors/test_backup_restore_drill.py at the Django-ORM layer;
+# this exercises the real pg_dump/gzip -> psql restore pipeline on a schedule,
+# into a throwaway scratch DB (never anything live), then runs the standalone
+# invariant sweep (manage.py check_invariants) against the restored data.
+# Advisory: alert on failure via the workflow's own red-X notification, don't
+# block merges on it — a drill failure is an ops signal, not a code-review gate.
+on:
+  schedule:
+    - cron: "30 4 * * 0" # weekly, Sunday 04:30 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  restore-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -c backend/constraints.txt -r backend/requirements-dev.txt
+      - name: Run the backup/restore drill
+        run: bash scripts/restore_drill.sh

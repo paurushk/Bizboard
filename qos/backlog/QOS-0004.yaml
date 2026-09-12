@@ -1,0 +1,38 @@
+id: QOS-0004
+category: BUSINESS_GAP
+title: No practising CA has filed GST returns from Bizboard worksheets (H-05)
+persona:
+- P6
+archetype:
+- ARCH-03
+journey: CA files GSTR-1/3B from Bizboard worksheets without recalculation
+problem: Every upstream check (guard_ca_tax_parity F1-F8, GSTR JSON snapshots, GSTR-1<->3B tie-out) is
+  a proxy. The core value proposition - a CA files directly from the worksheets - has not been demonstrated
+  with a real practitioner on a real filing.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-14
+  - docs/ca/CA_SIGN_OFF_CHECKLIST.md
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 11 H-05
+  detail: Not observed; the fix is not code. Confirmed only by Stage-3 pilot fieldwork in a live filing
+    window.
+scoring:
+  reach: 5
+  severity: 4
+  frequency: 3
+  impact_band: High
+business_metric: renewal
+priority: P1-investigate
+priority_rationale: Impact High (60); hypothesis evidence -> investigation priority. Next action is pilot
+  Stage 3, not a code change.
+effort: L
+recommendation: Run pilot Stage 3 with 3-5 practising CAs against a fully closed month produced by the
+  Stage 1-2 pilots; record whether each files without recalculation (PASS) or rejects for a split / balance
+  mismatch (FAIL). INCONCLUSIVE extends the experiment.
+test_required: H-05 recorded PASS for a majority of the Stage-3 CA cohort
+guard_ref: null
+lifecycle: open
+owner: founder
+opened: '2026-09-10'
+closed: null

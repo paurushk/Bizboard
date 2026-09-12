@@ -1,0 +1,22 @@
+# Trips L12: accepted_wontfix with placeholder text in the rationale.
+id: QOS-9012
+category: BUSINESS_GAP
+title: "Selftest fixture — wontfix with a placeholder rationale"
+persona: [P1]
+journey: "selftest"
+problem: "Synthetic fixture: an accepted_wontfix item must carry a real rationale, not TODO / TBD / placeholder text."
+evidence:
+  strength: heuristic
+  source: ["qos/tools/_selftest"]
+  detail: "synthetic selftest fixture"
+scoring: { reach: 2, severity: 2, frequency: 2, impact_band: Low }
+priority: P3
+priority_rationale: "synthetic selftest fixture, not a real backlog item"
+effort: S
+recommendation: "n/a — selftest fixture; the linter should reject this on L12"
+test_required: "qos/tools/lint.py --selftest stays green"
+lifecycle: accepted_wontfix
+wontfix_rationale: "TODO write the real reason this is out of scope"
+owner: qa
+opened: "2026-09-10"
+closed: "2026-09-10"

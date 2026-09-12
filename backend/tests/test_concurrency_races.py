@@ -443,3 +443,54 @@ def test_concurrent_gst_soft_close_and_complete_race(tenant_a):
         assert outcome["complete_error"] is not None
         assert "closed" in str(outcome["complete_error"]).lower()
 
+
+
+def test_concurrent_invoice_numbering_no_duplicate(tenant_a):
+    """§G7 — two invoices completing at the same instant must not share a
+    document number. `DocumentNumberService` row-locks the `DocumentSeries`."""
+    _require_postgres()
+    from accounting.models import JournalEntry  # noqa: F401 — app ready
+    from sales.models import SalesInvoice
+
+    product = make_product(tenant_a.company, sku="RACE-NUM", gst_rate="18", selling_price="100")
+    add_stock(tenant_a, product, "50")
+    customer = make_customer(tenant_a.company, state="Karnataka", gstin="29AAAAA0000A1ZY")
+
+    drafts = [
+        create_draft_invoice(
+            tenant_a, customer,
+            [{"product": product.id, "quantity": "1", "unit_price": "100.00", "gst_rate": "18"}],
+        )["id"]
+        for _ in range(2)
+    ]
+
+    numbers: list[str] = []
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(2, timeout=10)
+
+    def complete_one(draft_id):
+        connection.close()
+        try:
+            barrier.wait()
+            resp = tenant_a.client.post(f"/api/v1/sales/invoices/{draft_id}/complete/")
+            if resp.status_code == 200:
+                numbers.append(resp.data["number"])
+            else:
+                errors.append(RuntimeError(f"{resp.status_code}: {resp.data}"))
+        except Exception as exc:  # pragma: no cover
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=complete_one, args=(d,)) for d in drafts]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not errors, errors
+    assert len(numbers) == 2
+    assert len(set(numbers)) == 2, f"duplicate invoice number under race: {numbers}"
+    assert SalesInvoice.objects.filter(
+        company=tenant_a.company, status=SalesInvoice.Status.COMPLETED
+    ).count() == 2

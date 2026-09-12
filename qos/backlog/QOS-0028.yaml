@@ -1,0 +1,35 @@
+id: QOS-0028
+category: PERSONA_GAP
+title: ARCH-07 milestone billing, job-work, and technician dispatch are unbuilt
+persona:
+- P1
+- P5
+archetype:
+- ARCH-07
+journey: Service-contract milestone invoicing and job-work
+problem: ARCH-07 (light commercial service + spares) depends on milestone billing, recurring retainers,
+  and job-work / technician dispatch - none of which is in frozen scope. The service archetype has no
+  pilot path.
+evidence:
+  strength: heuristic
+  source:
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 8
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 12
+  detail: 'Documented: ARCH-07 is ''not in this sequence'', revisit as a possible Stage 5.'
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 3
+  impact_band: Medium
+business_metric: none
+priority: P2
+priority_rationale: Impact Medium (18); a Stage-5 candidate. P2, effort XL - must be split before scheduling.
+effort: XL
+recommendation: Break out milestone billing, recurring retainers, and job-work as separate scoped features;
+  do not schedule an ARCH-07 pilot until at least milestone billing ships.
+test_required: milestone-billing and recurring-retainer WF chains, each green, before an ARCH-07 pilot
+guard_ref: null
+lifecycle: open
+owner: backend
+opened: '2026-09-10'
+closed: null

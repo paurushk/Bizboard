@@ -1,0 +1,24 @@
+{
+  "pnl_apr_to_may": [
+    {
+      "balance": "-3000",
+      "code": "4100"
+    }
+  ],
+  "pnl_full_q1": [
+    {
+      "balance": "-6000",
+      "code": "4100"
+    }
+  ],
+  "trial_balance_as_of_2026_05_31": [
+    {
+      "balance": "3000",
+      "code": "1100"
+    },
+    {
+      "balance": "-3000",
+      "code": "4100"
+    }
+  ]
+}

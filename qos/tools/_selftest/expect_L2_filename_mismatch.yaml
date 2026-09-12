@@ -1,0 +1,21 @@
+# Trips L2: the file is not named QOS-9002.yaml
+id: QOS-9002
+category: USABILITY
+title: "Selftest fixture — filename does not match id"
+persona: [P1]
+journey: "selftest"
+problem: "This fixture exists only to prove the linter catches a filename that does not match the item id."
+evidence:
+  strength: heuristic
+  source: ["qos/tools/_selftest"]
+  detail: "synthetic selftest fixture"
+scoring: { reach: 3, severity: 3, frequency: 3, impact_band: Medium }
+priority: P1
+priority_rationale: "synthetic — not a real item"
+effort: S
+recommendation: "n/a — selftest fixture; the linter should reject this file on L2"
+test_required: "qos/tools/lint.py --selftest stays green"
+lifecycle: open
+owner: qa
+opened: "2026-09-10"
+closed: null

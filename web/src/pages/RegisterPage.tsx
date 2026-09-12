@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -15,6 +15,7 @@ import { getErrorMessage } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { PasswordField } from '@/components/PasswordField';
 import { StateSelect } from '@/components/StateSelect';
+import { getStateFromGstin } from '@/utils/indianStates';
 import { t } from '@/i18n';
 
 const registerSchema = z.object({
@@ -40,6 +41,8 @@ export function RegisterPage() {
     register,
     handleSubmit,
     control,
+    setValue,
+    watch,
     formState: { errors },
   } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
@@ -52,6 +55,18 @@ export function RegisterPage() {
       gstin: '',
     },
   });
+
+  // QOS-0037: the GSTIN's first two digits ARE the state code — derive the state
+  // instead of making the user pick it again. Only fills a blank field so a
+  // deliberate override is never clobbered.
+  const gstinValue = watch('gstin');
+  const stateValue = watch('state');
+  useEffect(() => {
+    const derived = getStateFromGstin((gstinValue ?? '').trim());
+    if (derived && !stateValue) {
+      setValue('state', derived, { shouldValidate: true, shouldDirty: true });
+    }
+  }, [gstinValue, stateValue, setValue]);
 
   if (isAuthenticated) return <Navigate to="/" replace />;
 

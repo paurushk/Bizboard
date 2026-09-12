@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
@@ -13,7 +13,8 @@ import Typography from '@mui/material/Typography';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import PrintIcon from '@mui/icons-material/Print';
 import { useQuery } from '@tanstack/react-query';
-import { getCustomerLedger } from '@/api/resources';
+import { useSearchParams } from 'react-router-dom';
+import { getCustomer, getCustomerLedger } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { t } from '@/i18n';
@@ -27,6 +28,23 @@ export function CustomerLedgerPage() {
   const customerSearch = useCustomerSearch({ selected: customer });
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [searchParams] = useSearchParams();
+
+  // QOS-0038: land here pre-selected when arriving from the dashboard's
+  // collection-attention card (`?customer=<id>`), instead of forcing a
+  // second manual search for a customer already identified as at-risk.
+  useEffect(() => {
+    const id = searchParams.get('customer');
+    if (!id || customer) return;
+    let cancelled = false;
+    getCustomer(id).then((c) => {
+      if (!cancelled) setCustomer(c);
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const ledger = useQuery({
     queryKey: ['customer-ledger', customer?.id, dateFrom, dateTo],

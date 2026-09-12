@@ -1,0 +1,31 @@
+id: QOS-0021
+category: BUSINESS_GAP
+title: Pilot Go/No-Go gates are unsigned
+persona:
+- P1
+journey: Pilot readiness governance
+problem: docs/pilot/GO_NO_GO.md has unsigned PM / Eng / QA / CA / Ops rows, and the Wave 16 Final Gates
+  are not signed. A governance gap, not a code defect, but it blocks a clean pilot start.
+evidence:
+  strength: heuristic
+  source:
+  - docs/FREEZE_SCOPE_COVERAGE.md 'P0/P1 issue-register sweep'
+  - docs/pilot/GO_NO_GO.md
+  detail: The sign-off table is empty; UAT / CA / TLS / backup rows are open.
+scoring:
+  reach: 5
+  severity: 4
+  frequency: 1
+  impact_band: Medium
+business_metric: none
+priority: P1
+priority_rationale: Impact Medium (20); governance blocker for pilot start.
+effort: S
+recommendation: Walk the Go/No-Go checklist with each owner; capture signatures and dates, or record explicit
+  conditional-go items.
+test_required: GO_NO_GO.md signed by all five roles (or conditional-go items recorded)
+guard_ref: null
+lifecycle: open
+owner: founder
+opened: '2026-09-10'
+closed: null

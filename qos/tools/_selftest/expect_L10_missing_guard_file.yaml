@@ -1,0 +1,23 @@
+# Trips L10: lifecycle is fixed but guard_ref.test points at a file that does not exist.
+id: QOS-9010
+category: CRITICAL_BUG
+title: "Selftest fixture — fixed item whose guard test file is missing"
+persona: [P1]
+journey: "selftest"
+problem: "Synthetic fixture: a fixed/verified/guarded item must name a guard test file that resolves in the repo."
+evidence:
+  strength: heuristic
+  source: ["qos/tools/_selftest"]
+  detail: "synthetic selftest fixture"
+scoring: { reach: 3, severity: 4, frequency: 2, impact_band: Medium }
+priority: P1
+priority_rationale: "synthetic selftest fixture, not a real backlog item"
+effort: S
+recommendation: "n/a — selftest fixture; the linter should reject this on L10"
+test_required: "qos/tools/lint.py --selftest stays green"
+guard_ref:
+  test: "backend/tests/definitely_absent_qos_selftest.py::test_nothing"
+lifecycle: fixed
+owner: qa
+opened: "2026-09-10"
+closed: null

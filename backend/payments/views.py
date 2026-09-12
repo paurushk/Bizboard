@@ -877,6 +877,15 @@ class BankStatementViewSet(CompanyScopedViewSet):
             )
             line.match_status = BankLineMatchStatus.MATCHED
             line.save(update_fields=["match_status", "updated_at"])
+            # QOS-0043: learn this payee's narration pattern for future suggestions.
+            from .recon import remember_payee
+
+            remember_payee(
+                company=self.company,
+                line=line,
+                customer_id=receipt.customer_id if receipt else None,
+                supplier_id=payment.supplier_id if payment else None,
+            )
         return match
 
 
@@ -1025,6 +1034,90 @@ class ReconViewSet(viewsets.ViewSet):
             entity_id=match.id,
         )
         return Response(ReconMatchSerializer(match).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="bulk-accept-exact")
+    def bulk_accept_exact(self, request):
+        """QOS-0039: confirm every unmatched committed line whose sole
+        suggestion is EXACT-class (>=90 confidence, exact amount, a hard UTR/
+        reference anchor — same bar as the commit-time auto-match) in one
+        call. Fuzzy/ambiguous suggestions are left for manual review. Each
+        resulting ReconMatch is undoable individually via the existing
+        `recon/unmatch` action, so this needs no separate undo mechanism."""
+        lines = (
+            BankStatementLine.objects.filter(
+                company=self.company,
+                match_status__in=[BankLineMatchStatus.UNMATCHED, BankLineMatchStatus.SUGGESTED],
+                statement__status=BankStatementStatus.COMMITTED,
+            )
+            .select_related("statement", "statement__bank_account")
+            .order_by("txn_date")[:100]
+        )
+        matched_receipt_ids = set(
+            ReconMatch.objects.filter(company=self.company, receipt__isnull=False)
+            .values_list("receipt_id", flat=True)
+        )
+        matched_supplier_payment_ids = set(
+            ReconMatch.objects.filter(company=self.company, supplier_payment__isnull=False)
+            .values_list("supplier_payment_id", flat=True)
+        )
+        if not lines:
+            return Response({"accepted": [], "accepted_count": 0})
+        window_start = min(line.txn_date for line in lines) - timedelta(days=14)
+        window_end = max(line.txn_date for line in lines) + timedelta(days=14)
+        receipt_utr_map = {
+            rid: normalize_utr(utr)
+            for rid, utr in CustomerReceipt.objects.filter(
+                company=self.company, status="POSTED",
+                receipt_date__gte=window_start, receipt_date__lte=window_end,
+            ).values_list("id", "utr")
+        }
+        supplier_payment_utr_map = {
+            pid: normalize_utr(utr)
+            for pid, utr in SupplierPayment.objects.filter(
+                company=self.company, status=SupplierPaymentStatus.POSTED,
+                payment_date__gte=window_start, payment_date__lte=window_end,
+            ).values_list("id", "utr")
+        }
+        vs = BankStatementViewSet()
+        vs.request = request
+        vs.format_kwarg = None
+        accepted = []
+        for line in lines:
+            suggestions = suggest_matches(
+                company=self.company,
+                line=line,
+                exclude_receipt_ids=matched_receipt_ids,
+                exclude_supplier_payment_ids=matched_supplier_payment_ids,
+            )
+            if not is_exact_unique_suggestion(
+                suggestions, line,
+                receipt_utr_map=receipt_utr_map,
+                supplier_payment_utr_map=supplier_payment_utr_map,
+            ):
+                continue
+            s = suggestions[0]
+            match = vs._confirm_match(
+                line=line,
+                receipt_id=s["id"] if s["type"] == "receipt" else None,
+                payment_id=s["id"] if s["type"] == "supplier_payment" else None,
+                confidence=s["confidence"],
+                user=request.user,
+                notes="bulk_accept_exact",
+            )
+            if s["type"] == "receipt":
+                matched_receipt_ids.add(s["id"])
+            else:
+                matched_supplier_payment_ids.add(s["id"])
+            AuditService.log(
+                company=self.company,
+                user=request.user,
+                action="CREATE",
+                entity_type="ReconMatch",
+                entity_id=match.id,
+                description="bulk_accept_exact",
+            )
+            accepted.append({"line": line.id, "match": match.id})
+        return Response({"accepted": accepted, "accepted_count": len(accepted)})
 
     @action(detail=False, methods=["post"], url_path="unmatch")
     def unmatch(self, request):

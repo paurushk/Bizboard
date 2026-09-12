@@ -1,0 +1,34 @@
+id: QOS-0042
+category: INNOVATION
+title: One-click GSTR-1/3B filing via a live GSP integration
+persona:
+- P6
+archetype:
+- ARCH-03
+journey: Filing returns
+problem: GSTR portal filing is out of scope (offline worksheets only, C1). A live GSP integration would
+  turn the worksheet into a one-click file - the single biggest reason a CA would insist on the product.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/FREEZE_SCOPE.md B / C1
+  - docs/reviews/18_COMPETITOR_ANALYSIS.md
+  detail: Competitors (ClearTax, Zoho) file directly; Bizboard does not. Speculative until a CA cohort
+    asks for it.
+scoring:
+  reach: 4
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: renewal
+priority: P3
+priority_rationale: 'Innovation, review-only: high pull if H-05 shows CAs want it, large integration cost.'
+effort: XL
+recommendation: Evaluate a certified GSP partnership post-pilot; gate behind H-05 evidence that CAs want
+  in-product filing rather than worksheet export.
+test_required: n/a - review-only; would need its own WF chain + GSP contract tests if pursued
+guard_ref: null
+lifecycle: open
+owner: founder
+opened: '2026-09-10'
+closed: null

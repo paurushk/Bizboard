@@ -41,13 +41,20 @@ onboarding that type in Phase 4.
 | | P-OWNER | P-SALES | P-ACCT | P-VIEWER | P-IMPORT |
 |---|---|---|---|---|---|
 | retail | [x] PJ-RETAIL-OWNER | [x] PJ-RETAIL-SALES | — | — | — |
-| trader | [x] PJ-TRADER-OWNER | [ ] PJ-TRADER-SALES | [ ] PJ-TRADER-ACCT | [ ] PJ-TRADER-VIEWER | [ ] PJ-TRADER-IMPORT |
-| wholesale | [ ] PJ-WHOLE-OWNER | — | [ ] PJ-WHOLE-ACCT | — | — |
-| service | [ ] PJ-SERVICE-OWNER | — | — | — | — |
-| migration | [x] **PJ-MIGRATION-TRADER** | — | (owner+acct together) | — | [ ] PJ-MIGRATION-WHOLESALE |
-| cross | [ ] PJ-NEWUSER (register → setup → first invoice) | — | — | — | — |
+| trader | [x] PJ-TRADER-OWNER | [x] PJ-TRADER-SALES | [x] PJ-TRADER-ACCT | [x] PJ-TRADER-VIEWER | [x] PJ-TRADER-IMPORT |
+| wholesale | [x] PJ-WHOLE-OWNER | — | [x] PJ-WHOLE-ACCT | — | — |
+| service | [x] PJ-SERVICE-OWNER | — | — | — | — |
+| migration | [x] **PJ-MIGRATION-TRADER** | — | [x] PJ-MIGRATION-WHOLESALE | — | (owner+acct together) |
+| cross | [x] PJ-NEWUSER (register → first invoice) | — | — | — | — |
 
-`[x]` implemented · `[ ]` spec'd skip in `test_pj_stubs.py`.
+All 15 journeys implemented — none skipped. `test_pj_retail.py` /
+`test_pj_trader.py` / `test_pj_migration.py` hold the first five; the rest are
+in `test_pj_stubs.py` (kept the filename).
+
+**PJ-TRADER-VIEWER note:** in the current build VIEWER is a UI-only role —
+BB-000422 denies masters browsing, BUG-319 denies financial reports, and the
+transactional lists + every mutation are denied too. The journey pins that
+"deny-all API surface" so a capability regression is caught.
 
 ## PJ-MIGRATION — the highest-stakes journey
 

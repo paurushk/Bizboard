@@ -94,4 +94,8 @@ def test_wf29_manual_journal_post_and_reverse(tenant_a, assert_consistent):
         assert net == Decimal("0"), f"account {acc_id} net over the pair is {net}, not 0"
 
     assert trial_balance(company)["balanced"]
+
+    from core.invariants.reports import cross_reconcile
+
+    assert not cross_reconcile(company), cross_reconcile(company)
     assert_consistent(company)

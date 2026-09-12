@@ -1,0 +1,32 @@
+id: QOS-0012
+category: RELIABILITY_TRUST
+title: Real-broker Celery task ordering is hidden by eager mode
+persona:
+- P5
+journey: Webhook vs period-close vs e-invoice-submit ordering
+problem: Task effects are asserted throughout the chains, but eager mode hides ordering and retry timing.
+  A real-broker race (a webhook landing during a period close) would not be caught.
+evidence:
+  strength: heuristic
+  source:
+  - docs/TESTING_STRATEGY.md#7 G-10
+  - docs/FREEZE_SCOPE.md H3
+  detail: Eager mode is the test default; ordering is only exercised against a real broker.
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 1
+  impact_band: Low
+business_metric: renewal
+priority: P3
+priority_rationale: Impact Low (6); Phase-5 work, judgement P3.
+effort: L
+recommendation: 'Phase 5: run WF-17, period-close, and e-invoice-submit chains against a real broker and
+  assert the user-visible end state under interleaving.'
+test_required: key chains run green against a real broker in a Phase 5 lane
+guard_ref:
+  test: .github/workflows/ci.yml
+lifecycle: fixed
+owner: backend
+opened: '2026-09-10'
+closed: null

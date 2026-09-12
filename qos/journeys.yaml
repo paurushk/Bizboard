@@ -1,0 +1,347 @@
+# Risk-surface inventory: the persona x archetype journeys Q-OS tracks.
+#
+# evidence:
+#   none      - no automated test and no observation run touches this journey
+#   test      - covered by an L1-L6 test (backend chain / PJ journey / e2e)
+#   observed  - a Q-OS persona agent or pilot telemetry has measured it (Phase 3)
+#
+# Keep this in sync with docs/TESTING_STRATEGY.md sections 4-5 and
+# backend/tests/personas/README.md. The dashboard's "zero-evidence" indicator
+# counts rows with evidence: none.
+
+journeys:
+  # --- ARCH-01 Counter Retailer -------------------------------------------
+  - id: J-RETAIL-P2-POS
+    persona: P2
+    archetype: ARCH-01
+    journey: "5-line counter checkout, keyboard + scanner only"
+    evidence: test          # test_wf19_pos_checkout, PJ-RETAIL-SALES
+    ref: "backend/tests/workflows/test_wf19_pos_checkout.py; tests/personas/test_pj_retail.py"
+  - id: J-RETAIL-P2-POS-SPEED
+    persona: P2
+    archetype: ARCH-01
+    journey: "POS checkout within the H-02 35s no-mouse budget"
+    evidence: none          # H-02 is a pilot hypothesis; no automated timing
+    ref: "TESTING_STRATEGY.md#6.10; hypothesis H-02"
+  - id: J-RETAIL-P2-OFFLINE
+    persona: P2
+    archetype: ARCH-01
+    journey: "Offline draft outbox: queue during a drop, flush idempotently on reconnect"
+    evidence: test
+    ref: "web/e2e/personas/offline-outbox-conflict.spec.ts"
+  - id: J-RETAIL-P1-DAYCLOSE
+    persona: P1
+    archetype: ARCH-01
+    journey: "End-of-day till reconciliation and daily sales summary"
+    evidence: test
+    ref: "tests/personas/test_pj_retail.py::test_pj_retail_owner_normal_day"
+
+  # --- ARCH-03 Semi-Wholesaler -----------------------------------------------
+  - id: J-TRADE-P3-QUOTE
+    persona: P3
+    archetype: ARCH-03
+    journey: "Field: product+price lookup, quotation with slab price on the spot"
+    evidence: test
+    ref: "test_wf06_quotation_to_invoice; tests/personas/test_pj_trader.py"
+  - id: J-TRADE-P3-CREDITBLOCK
+    persona: P3
+    archetype: ARCH-03
+    journey: "Order booked against an over-limit customer is explained, not silently dropped"
+    evidence: test
+    ref: "test_wave15_credit_limit_refund.py"
+  - id: J-TRADE-P1-LOOP
+    persona: P1
+    archetype: ARCH-03
+    journey: "Complete B2B loop: purchase -> stock+AP -> order -> challan -> invoice -> AR -> receipt -> allocation"
+    evidence: test
+    ref: "tests/workflows/test_wf_arch03_complete_loop.py; PJ-TRADER-OWNER"
+  - id: J-TRADE-P5-ALLOC
+    persona: P5
+    archetype: ARCH-03
+    journey: "Partial multi-invoice receipt allocation with no orphan balance (H-01)"
+    evidence: test
+    ref: "test_payment_allocation.py; gl.party_subledger_complete"
+  - id: J-TRADE-P5-BANKREC
+    persona: P5
+    archetype: ARCH-03
+    journey: "Match bank statement lines to GL (proper reconciliation, not just import)"
+    evidence: none          # WF-33 skipped
+    ref: "FREEZE_SCOPE_COVERAGE.md WF-33; TESTING_STRATEGY.md G-3"
+  - id: J-TRADE-P5-MONTHEND
+    persona: P5
+    archetype: ARCH-03
+    journey: "Period close + GSTR-1/3B worksheet export + TB=0"
+    evidence: test
+    ref: "test_wf27_gstr1_3b_tie_out; PJ-WHOLE-ACCT"
+  - id: J-TRADE-P3-FLAKYNET
+    persona: P3
+    archetype: ARCH-03
+    journey: "Book an order over a degraded field connection"
+    evidence: none
+    ref: "TESTING_STRATEGY.md G-7"
+
+  # --- ARCH-04 Multi-Godown Stockist ---------------------------------------
+  - id: J-GODOWN-P4-TRANSFER
+    persona: P4
+    archetype: ARCH-04
+    journey: "Inter-godown transfer nets to zero; in-transit stock not double-counted"
+    evidence: test
+    ref: "test_wf21_stock_transfer_between_godowns; inventory.transfer_pairs_net_zero"
+  - id: J-GODOWN-P4-COUNT
+    persona: P4
+    archetype: ARCH-04
+    journey: "Physical count session -> variance adjustment reconciles to GL"
+    evidence: none          # covered as edge case, not a persona journey
+    ref: "TESTING_STRATEGY.md G-1"
+  - id: J-GODOWN-P1-MULTI
+    persona: P1
+    archetype: ARCH-04
+    journey: "3-godown day: balances == sum(movements) per (item, godown, lot)"
+    evidence: test
+    ref: "tests/personas/test_pj_stubs.py::test_pj_wholesale_owner_multi_godown_day"
+
+  # --- ARCH-05 Batch & Expiry --------------------------------------------------
+  - id: J-BATCH-P4-INWARD
+    persona: P4
+    archetype: ARCH-05
+    journey: "Inward by manufacturer lot: batch + mfg + expiry mandatory"
+    evidence: test
+    ref: "test_item_godown_expiry.py"
+  - id: J-BATCH-P4-FEFO
+    persona: P4
+    archetype: ARCH-05
+    journey: "Automated dispatch consumes earliest-expiry lot first (H-04a)"
+    evidence: test
+    ref: "test_wave15_fefo.py; inventory.no_expired_issue_when_blocked"
+  - id: J-BATCH-P4-EXPIREBLOCK
+    persona: P4
+    archetype: ARCH-05
+    journey: "Expired / near-expiry-guard-band stock cannot be invoiced under an active policy (H-04b)"
+    evidence: none          # guard-band case not parametrised
+    ref: "TESTING_STRATEGY.md G-2"
+
+  # --- ARCH-06 Serialized Dealer ---------------------------------------------
+  - id: J-SERIAL-P4-INWARD
+    persona: P4
+    archetype: ARCH-06
+    journey: "Bulk serial ingest with partial-failure semantics"
+    evidence: none
+    ref: "TESTING_STRATEGY.md G-2"
+  - id: J-SERIAL-P2-RETURN
+    persona: P2
+    archetype: ARCH-06
+    journey: "Return validates the serial was actually sold; duplicate return rejected"
+    evidence: test
+    ref: "test_pr5_returns_serials_fefo.py; inventory.serial_traceability"
+
+  # --- ARCH-07 Service Contractor ------------------------------------------
+  - id: J-SVC-P1-MIXED
+    persona: P1
+    archetype: ARCH-07
+    journey: "Mixed SAC (service) + HSN (goods) invoice, correct tax treatment"
+    evidence: test
+    ref: "tests/personas/test_pj_stubs.py::test_pj_service_owner_no_stock; edge cases"
+  - id: J-SVC-P5-TDS
+    persona: P5
+    archetype: ARCH-07
+    journey: "TDS 194C/194J withholding on collections, correct GL"
+    evidence: test
+    ref: "test_sprint_c_tds_tcs.py"
+  - id: J-SVC-P1-RECURRING
+    persona: P1
+    archetype: ARCH-07
+    journey: "Recurring retainer / subscription invoice without re-keying"
+    evidence: none          # WF-11 skipped stub
+    ref: "FREEZE_SCOPE_COVERAGE.md WF-11"
+
+  # --- Cross-cutting -------------------------------------------------------
+  - id: J-ONBOARD-P1
+    persona: P1
+    archetype: ARCH-03
+    journey: "First-run: register -> guided setup -> first invoice"
+    evidence: test
+    ref: "test_wf45_registration; PJ-NEWUSER; e2e-golden personas"
+  - id: J-ONBOARD-P1-STEPS
+    persona: P1
+    archetype: ARCH-03
+    journey: "First invoice reachable in <= 3 steps (deferred optional config)"
+    evidence: none
+    ref: "TESTING_STRATEGY.md G-16; UX_AUDIT_FINDINGS.md Module 1"
+  - id: J-MIGRATE-P5
+    persona: P5
+    archetype: ARCH-03
+    journey: "Day-zero cutover: import masters + opening balances, reconcile, numbering continuity"
+    evidence: test
+    ref: "tests/personas/test_pj_migration.py"
+  - id: J-CA-P6-AUDIT
+    persona: P6
+    archetype: ARCH-03
+    journey: "CA files GSTR-1/3B from Bizboard worksheets without recalculation (H-05)"
+    evidence: none          # proxy only; not filed with a real CA yet
+    ref: "TESTING_STRATEGY.md G-14; guard_ca_tax_parity"
+  - id: J-ROLE-P2-NAV
+    persona: P2
+    archetype: ARCH-03
+    journey: "SALES_STAFF navigation: UI hides every denied action (no dead 403 control)"
+    evidence: none          # FE SALES/ACCT role-hiding test.fixme
+    ref: "TESTING_STRATEGY.md G-4; web/e2e/personas/role-boundaries.spec.ts"
+  - id: J-ROLE-P5-NAV
+    persona: P5
+    archetype: ARCH-03
+    journey: "ACCOUNTANT navigation: UI hides sales-create + import"
+    evidence: none
+    ref: "TESTING_STRATEGY.md G-4"
+  - id: J-A11Y-P2-KEYBOARD
+    persona: P2
+    archetype: ARCH-01
+    journey: "Keyboard-only operation of POS + invoice form (screen-reader labels present)"
+    evidence: none
+    ref: "TESTING_STRATEGY.md G-6; web/e2e/a11y.spec.ts (only login+dashboard today)"
+  - id: J-SCALE-P1-REPORTS
+    persona: P1
+    archetype: ARCH-03
+    journey: "Reports / lists / exports over a full year of data within a latency budget"
+    evidence: none
+    ref: "TESTING_STRATEGY.md G-7; load-harness is presence-only"
+
+  # --- ARCH-01 Counter Retailer (extra touchpoints) ---------------------
+  - id: J-RETAIL-P2-THERMAL
+    persona: P2
+    archetype: ARCH-01
+    journey: "Thermal slip prints (or degrades cleanly when the printer is absent)"
+    evidence: none
+    ref: "TESTING_STRATEGY.md #5 ARCH-01; CR-092 (multi-flush print)"
+  - id: J-RETAIL-P1-REORDER
+    persona: P1
+    archetype: ARCH-01
+    journey: "Review reorder thresholds and restock the counter"
+    evidence: none
+    ref: "QOS-0047 (label + reorder automation innovation)"
+
+  # --- ARCH-02 Composition (deprioritised, computation kept) -------------
+  - id: J-COMP-P1-BOS
+    persona: P1
+    archetype: ARCH-02
+    journey: "Issue a bill of supply (no CGST/SGST/IGST) + assemble CMP-08"
+    evidence: test
+    ref: "test_wf56_composition_bill_of_supply (LIM coverage, not a freeze blocker)"
+
+  # --- ARCH-03 Semi-Wholesaler (extra touchpoints) ---------------------
+  - id: J-TRADE-P1-INWARD
+    persona: P1
+    archetype: ARCH-03
+    journey: "Enter the vendor's purchase bill on delivery -> stock + AP posted atomically"
+    evidence: test
+    ref: "tests/workflows/test_wf04_purchase.py; test_a2_posting_atomicity.py"
+  - id: J-TRADE-P3-CHALLAN
+    persona: P3
+    archetype: ARCH-03
+    journey: "Issue a delivery challan and dispatch before billing"
+    evidence: test
+    ref: "test_next_batch_so_challan.py; test_wf_arch03_complete_loop.py"
+  - id: J-TRADE-P5-TCS
+    persona: P5
+    archetype: ARCH-03
+    journey: "TCS 206C on a sale over threshold - collection, GL, worksheet"
+    evidence: test
+    ref: "test_wf34_tcs_on_sales_206c; test_wf36_tds_tcs_worksheets_reconcile"
+  - id: J-TRADE-P5-DUNNING
+    persona: P5
+    archetype: ARCH-03
+    journey: "Dunning cadence schedules reminders; merchant sends the share link"
+    evidence: test
+    ref: "test_wf42_dunning_schedule (send half is a stated LIM - QOS-0032)"
+
+  # --- ARCH-04 Multi-Godown (extra touchpoints) ------------------------
+  - id: J-GODOWN-P2-CENTRAL
+    persona: P2
+    archetype: ARCH-04
+    journey: "Central office bills; goods fulfilled from a peripheral godown"
+    evidence: test
+    ref: "test_pj_wholesale_owner_multi_godown_day"
+  - id: J-GODOWN-P4-REORDER
+    persona: P4
+    archetype: ARCH-04
+    journey: "Location-specific reorder levels flag a low godown"
+    evidence: none
+    ref: "TESTING_STRATEGY.md #5 ARCH-04 boundary"
+
+  # --- ARCH-05 Batch & Expiry (extra touchpoints) ---------------------
+  - id: J-BATCH-P5-RETURNCN
+    persona: P5
+    archetype: ARCH-05
+    journey: "Credit note tied to a physical return, tagged sellable vs damaged"
+    evidence: test
+    ref: "test_pr5_returns_serials_fefo.py; test_wf03_sales_return"
+  - id: J-BATCH-P1-ALERTS
+    persona: P1
+    archetype: ARCH-05
+    journey: "Review the expiry-alert band and act before stock expires"
+    evidence: test
+    ref: "test_item_godown_expiry.py; test_a07_dunning-style alerts"
+
+  # --- ARCH-06 Serialized (extra touchpoints) ------------------------
+  - id: J-SERIAL-P2-WARRANTY
+    persona: P2
+    archetype: ARCH-06
+    journey: "Warranty lookup by serial at the counter"
+    evidence: none
+    ref: "TESTING_STRATEGY.md #5 ARCH-06; inventory.serial_traceability (data only)"
+  - id: J-SERIAL-P5-VENDORDN
+    persona: P5
+    archetype: ARCH-06
+    journey: "Raise a vendor warranty debit note against a returned serial"
+    evidence: test
+    ref: "test_wf13-adjacent purchase debit note; test_b4_b5_notes_serial.py"
+
+  # --- ARCH-07 Service (extra touchpoints) --------------------------
+  - id: J-SVC-P1-AMC
+    persona: P1
+    archetype: ARCH-07
+    journey: "Set up an AMC / maintenance-contract billing schedule"
+    evidence: none
+    ref: "QOS-0028 (milestone billing / job-work unbuilt)"
+
+  # --- Cross-cutting (extra) --------------------------------------
+  - id: J-X-P1-SWITCHCO
+    persona: P1
+    archetype: ARCH-03
+    journey: "Switch company context; every list re-scopes, no cross-tenant leak"
+    evidence: test
+    ref: "test_wf49_switch_company; tests/tenancy/"
+  - id: J-X-P5-JOURNAL
+    persona: P5
+    archetype: ARCH-03
+    journey: "Create / post / reverse a manual journal voucher"
+    evidence: test
+    ref: "tests/workflows/test_wf29_manual_journal.py; gl.journals_balanced"
+  - id: J-X-P6-TALLY
+    persona: P6
+    archetype: ARCH-03
+    journey: "Export the books to a Tally-importable file"
+    evidence: test
+    ref: "tests/snapshots/test_exports_and_filtered_reports.py; test_phase7_tally.py"
+  - id: J-X-P1-PWRESET
+    persona: P1
+    archetype: ARCH-03
+    journey: "Password reset / change with rate limiting"
+    evidence: test
+    ref: "test_wf46_password_reset; core/throttles.py"
+  - id: J-X-P2-RECEIPT
+    persona: P2
+    archetype: ARCH-01
+    journey: "Record a customer receipt and allocate it at the counter"
+    evidence: test
+    ref: "test_wf39_advance_payment_on_account; test_payment_allocation.py"
+  - id: J-X-P1-KPIDRILL
+    persona: P1
+    archetype: ARCH-03
+    journey: "Every dashboard KPI reconciles to its drill-down list"
+    evidence: test
+    ref: "reports.cross_reconcile (KPI == drill-down, partial); QOS-0053 (AP vs AR model)"
+  - id: J-X-P1-OTP
+    persona: P1
+    archetype: ARCH-01
+    journey: "OTP login: request -> verify -> session; hashed at rest, rate-limited"
+    evidence: test
+    ref: "tests/test_auth.py::test_otp_* (rate-limit assertion still skipped - see A26)"

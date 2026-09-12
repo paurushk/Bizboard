@@ -92,6 +92,7 @@ import {
   formatSerialNumbersText,
   makeLine as makeLineBase,
   NumericField,
+  parseSerialInput,
   parseSerialNumbersText,
   primarySaveAction,
   recomputeLine,
@@ -1624,21 +1625,40 @@ export function NewPurchasePage() {
               </TableCell>
             </>
           )}
-          renderSerialSlot={(line) => (
-            <TableCell>
-              {line.trackSerial ? (
+          renderSerialSlot={(line) => {
+            if (!line.trackSerial) return <TableCell />;
+            // QOS-0035: a bulk consignment paste needs to tell the dealer
+            // what actually happened before they submit — duplicates
+            // dropped, ranges expanded, and a count mismatch against the
+            // line quantity — not just a raw count.
+            const parsed = parseSerialInput(line.serialNumbersText ?? '');
+            const parts = [`${parsed.serials.length} ${t('erp.serialCountSuffix')}`];
+            if (parsed.rangesExpanded > 0) {
+              parts.push(t('erp.serialRangesExpanded', { count: parsed.rangesExpanded }));
+            }
+            if (parsed.duplicates.length > 0) {
+              parts.push(t('erp.serialDuplicatesDropped', { count: parsed.duplicates.length }));
+            }
+            const mismatch = line.quantity > 0 && parsed.serials.length !== Math.trunc(line.quantity);
+            return (
+              <TableCell>
                 <CompactField
                   multiline
                   minRows={1}
                   maxRows={3}
-                  placeholder="SN-001, SN-002"
+                  placeholder="SN-001, SN-002 or SN-001-SN-050"
                   value={line.serialNumbersText ?? ''}
                   onChange={(e) => updateLine(line.key, { serialNumbersText: e.target.value })}
-                  helperText={`${parseSerialNumbersText(line.serialNumbersText ?? '').length} serial(s)`}
+                  error={mismatch}
+                  helperText={
+                    mismatch
+                      ? `${parts.join(' · ')} — ${t('erp.serialCountMismatch', { qty: line.quantity })}`
+                      : parts.join(' · ')
+                  }
                 />
-              ) : null}
-            </TableCell>
-          )}
+              </TableCell>
+            );
+          }}
         />
 
 

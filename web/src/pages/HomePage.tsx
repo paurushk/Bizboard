@@ -5,6 +5,7 @@ import { Navigate } from 'react-router-dom';
 import { getCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { isSetupWizardEnabled } from '@/config/features';
+import { t } from '@/i18n';
 import { findFirstNavPath } from '@/navigation/menu';
 import { shouldForceSetup } from '@/onboarding/shouldForceSetup';
 import { DashboardPage } from '@/pages/DashboardPage';
@@ -24,7 +25,7 @@ export function HomePage() {
   if (needsCompany && companyQuery.isLoading) {
     return (
       <Box minHeight="40vh" display="grid" sx={{ placeItems: 'center' }}>
-        <CircularProgress />
+        <CircularProgress aria-label={t('common.loading')} />
       </Box>
     );
   }

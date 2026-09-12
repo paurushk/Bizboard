@@ -53,6 +53,7 @@ The behaviours the wave scripts *gestured* at are covered — properly — by:
 | `guard_config_consistency` (FG-1) | A feature flag exists in code but is unclassified in `docs/FREEZE_SCOPE.md`; frozen surface undefined for it. |
 | `guard_regression_corpus_grows` | A regression test was deleted without lowering `backend/tests/regression/.corpus_count`; a fixed bug is unprotected again. |
 | `guard_required_checks_match` | `ci.yml` jobs and `REQUIRED_CHECKS.txt` drifted; a merge gate may not be enforced. |
+| `guard_ca_tax_parity` | A CA-signed GST scenario (F1–F8 in `docs/ca/CA_SIGN_OFF_CHECKLIST.md`) lost its automated parity case in `backend/tests/fixtures/tax_parity_cases.json`, or the checklist stopped referencing the fixture — the sign-off no longer maps to the computed tax. |
 
 ## Known findings for the founder
 
@@ -69,3 +70,40 @@ The behaviours the wave scripts *gestured* at are covered — properly — by:
 - **Opt-in determinism.** `TESTS_FREEZE_CLOCK=1` and `TESTS_NO_SOCKET=1` enable
   the frozen clock and network ban. Run the suite green with each, then wire them
   on by default and delete the env guards.
+  **Status 2026-09-10 (updated):** the `fake_time() takes 0 positional arguments`
+  crash — freezegun's sweep rebinding DRF's `SimpleRateThrottle.timer` (bare
+  `time.time` class attr) into a bound method — is **FIXED** in
+  `backend/tests/conftest.py` (`_freeze_clock_opt_in` wraps the real timer in
+  `staticmethod()` so the identity check skips it). Full probe was
+  **1472 passed / 5 failed / 23 skip**; the 5 were clock-brittle *test*
+  assertions — fixtures with hard-coded Aug/Sep-2026 dates that read as "in the
+  future" relative to the frozen `2026-06-15`, or a `PERIOD` module constant
+  captured at import time (before the freeze fixture applies) drifting from a
+  `timezone.localdate()` call made at test time.
+  **Status 2026-09-11 (QOS-0018 — fixed):** all 5 re-anchored to the real/frozen
+  clock instead of a hardcoded literal — `test_a07_dunning::test_collection_risk_api`,
+  `test_b03_ims::test_supplier_scorecard_aggregates_purchase_value_and_mismatches`,
+  `test_item_godown_expiry::test_xlsx_excel_dates_and_misfilled_serials_do_not_500`,
+  `test_pr6_period_gl::test_completed_pcn_without_je_blocks_after_cutoff`,
+  `test_sprint_a_prod_gst_p1::test_sales_rcm_complete_requires_confirm`. Full
+  `TESTS_FREEZE_CLOCK=1` probe is now **1488 passed / 0 failed / 23 skip**.
+  `determinism-probe` stays advisory in `ci.yml` until it has run green on
+  `main` for 3 consecutive runs (a CI-history fact, not something this fix
+  can itself produce) — then flip it to blocking and drop the env guards.
+
+## Phase 1 close-out status (2026-09-10)
+
+- **Strict invariant sweep — BLOCKING.** `.github/workflows/ci.yml` job
+  `invariant-sweep` runs the Phase 2 gate AND the full-suite strict sweep
+  (`INVARIANTS_STRICT=1 pytest`) with no `continue-on-error`; green in fixed and
+  randomised order (1455 passed / 0 invariant failures).
+- **Diff-coverage — BLOCKING.** The `backend` job's "Diff coverage vs base" step
+  is `--fail-under=80` (was `--fail-under=0` + `continue-on-error`). Changed
+  lines on a branch must be ≥80% covered. An absolute `--cov-fail-under` floor is
+  the last open item here.
+- **Red-then-green evidence.** `tests/test_invariants_smoke.py` carries
+  `test_the_sweep_actually_catches_a_broken_journal` (hand-crafts an unbalanced
+  POSTED entry, asserts `assert_all_invariants` raises) and
+  `test_sequences_intact_flags_a_gap` — the sweep provably can fail.
+- **Coverage map.** `docs/FREEZE_SCOPE_COVERAGE.md` maps every SUPPORTED /
+  SUP item to its concrete test or an explicit GAP line.

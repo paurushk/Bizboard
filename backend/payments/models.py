@@ -394,6 +394,41 @@ class ReconMatch(CompanyScopedModel):
         ]
 
 
+class PayeeMemory(CompanyScopedModel):
+    """QOS-0043 — a learned bank-recon signal, bootstrapped from the tenant's
+    own confirmed matches (not a trained ML model / no external corpus).
+
+    Every time a bank line is confirmed against a receipt/supplier payment
+    (payments.views._confirm_match), the line's narration is reduced to its
+    significant tokens (recon.narration_tokens) and each token's hit count
+    against that customer/supplier is incremented — one row per (company,
+    token, target). A later, differently-worded but similarly-tokened line for
+    the same payee then gets a confidence bonus in score_match (recon.
+    payee_memory_bonus), layered on top of the existing rule engine, never
+    replacing its amount-match requirement (see score_match's `if not
+    amount_hit` cap, which this bonus is applied after, same as any other
+    narration signal)."""
+
+    class TargetType(models.TextChoices):
+        CUSTOMER = "CUSTOMER"
+        SUPPLIER = "SUPPLIER"
+
+    token = models.CharField(max_length=64, db_index=True)
+    target_type = models.CharField(max_length=8, choices=TargetType.choices)
+    target_id = models.PositiveBigIntegerField()
+    hit_count = models.PositiveIntegerField(default=1)
+    last_matched_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "token", "target_type", "target_id"],
+                name="uniq_payee_memory_token_target",
+            ),
+        ]
+        indexes = [models.Index(fields=["company", "target_type", "target_id"])]
+
+
 class GatewayRefundOutboxStatus(models.TextChoices):
     PENDING = "PENDING"
     IN_PROGRESS = "IN_PROGRESS"

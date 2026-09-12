@@ -11,6 +11,7 @@ import Divider from '@mui/material/Divider';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemText from '@mui/material/ListItemText';
 import Snackbar from '@mui/material/Snackbar';
@@ -175,7 +176,11 @@ export function AppShell() {
       <Divider />
       <List sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
         {items.map((item) => (
-          <NavSection key={item.id} item={item} onNavigate={closeMobile} />
+          // WCAG 1.3.1: a <ul> may only directly contain <li>. NavSection emits
+          // a ListItemButton (or a header + Collapse); wrap each in an <li>.
+          <ListItem key={item.id} disablePadding sx={{ display: 'block' }}>
+            <NavSection item={item} onNavigate={closeMobile} />
+          </ListItem>
         ))}
       </List>
       <Divider />

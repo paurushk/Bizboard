@@ -1,0 +1,39 @@
+id: QOS-0056
+category: RELIABILITY_TRUST
+title: Online POS reload mid-settlement can mint a second COMPLETED invoice (CR-091)
+persona:
+- P2
+archetype:
+- ARCH-01
+journey: 'POS: complete succeeds, tab is reloaded before the receipt is recorded'
+problem: The online POS path keeps the in-flight gesture key / cashPending in React state only (no enqueueDraft).
+  A full reload after complete but before receipt loses the key; the next Cash action mints a new key
+  family and can produce a second COMPLETED invoice while the first stays unpaid - the same class as the
+  original CR-001, and the H-03 risk.
+evidence:
+  strength: heuristic
+  source:
+  - 'docs/reviews/FUNCTIONAL_CODE_REVIEW_FINDINGS.md CR-091 (Medium, Status: OPEN, residual of CR-001)'
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 11 H-03
+  detail: Direct read of the 2026-09-08 review; marked OPEN; the offline flush path is durable, the online
+    path is not.
+scoring:
+  reach: 3
+  severity: 4
+  frequency: 2
+  impact_band: Medium
+business_metric: renewal
+priority: P1
+priority_rationale: Impact Medium (24); double-invoice / unpaid orphan is a money-integrity class. Base
+  P1 (Medium x severity 4).
+effort: M
+recommendation: Persist the in-flight settlement to the outbox / sessionStorage keyed by company+user,
+  so a reload resumes the same invoice - mirror the offline flush durability.
+test_required: 'an e2e test: complete OK, reload before receipt, reopen POS, Cash -> resumes the same
+  invoice (no second COMPLETED)'
+guard_ref:
+  test: web/src/pages/pos/posStatus.test.ts::pos_upi_reload_mid_settlement_resumes_confirm
+lifecycle: verified
+owner: web
+opened: '2026-09-10'
+closed: null

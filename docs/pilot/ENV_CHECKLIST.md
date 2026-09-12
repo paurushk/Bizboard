@@ -10,7 +10,7 @@ Sign before any host receives real pilot PII / GSTINs. Copy rows into the go-mee
 
 | # | Check | Expected | OK | Notes |
 |---|--------|----------|----|-------|
-| 1 | **TLS (P0-501 / E1)** | HTTPS at the edge for every host with real PII/GSTINs. `USE_TLS=1` when Django sits behind TLS-terminating proxy so secure cookies / `SECURE_*` apply. Plain HTTP is a **hard no-go**. | ☐ | Terminating proxy (Caddy/nginx/cloud LB) counts if end-user traffic is HTTPS. |
+| 1 | **TLS (P0-501 / E1)** | HTTPS at the edge for every host with real PII/GSTINs. `USE_TLS=1` when Django sits behind TLS-terminating proxy so secure cookies / `SECURE_*` apply. Plain HTTP is a **hard no-go**. | ☐ | Terminating proxy (Caddy/nginx/cloud LB) counts if end-user traffic is HTTPS. QOS-0020: run `scripts/edge_tls_smoke.sh https://<pilot-host>` and paste its PASS line here — don't check this box on a claim alone. |
 | 2 | `DJANGO_ENV` | `production` | ☐ | |
 | 3 | `DJANGO_DEBUG` / `DEBUG` | `0` / false | ☐ | Must not run DEBUG under production env. |
 | 4 | `DJANGO_SECRET_KEY` | Unique, ≥40 chars, not a placeholder from examples | ☐ | App refuses weak keys when `DJANGO_ENV=production`. |

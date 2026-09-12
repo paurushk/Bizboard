@@ -352,7 +352,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   if (!authReady) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
-        <CircularProgress />
+        <CircularProgress aria-label="Loading" />
       </Box>
     );
   }

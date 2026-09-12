@@ -14,10 +14,12 @@ export {
   applyDiscountAmountPatch,
   formatSerialNumbersText,
   makeLine,
+  parseSerialInput,
   parseSerialNumbersText,
   recomputeLine,
   todayIso,
 } from './lineHelpers';
+export type { ParsedSerialInput } from './lineHelpers';
 export type { DraftLine, DraftLinePriceField } from './types';
 export { DocumentEditorShell } from './DocumentEditorShell';
 export type { DocumentEditorShellProps } from './DocumentEditorShell';

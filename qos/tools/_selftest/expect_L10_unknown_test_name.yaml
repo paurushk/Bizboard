@@ -1,0 +1,23 @@
+# Trips L10: guard_ref.test file exists but names a test that is not defined in it.
+id: QOS-9013
+category: CRITICAL_BUG
+title: "Selftest fixture — fixed item whose guard test name is not in the file"
+persona: [P1]
+journey: "selftest"
+problem: "Synthetic fixture: the guard_ref file resolves, but the named test does not exist in it, so L10 must flag it."
+evidence:
+  strength: heuristic
+  source: ["qos/tools/_selftest"]
+  detail: "synthetic selftest fixture"
+scoring: { reach: 3, severity: 4, frequency: 2, impact_band: Medium }
+priority: P1
+priority_rationale: "synthetic selftest fixture, not a real backlog item"
+effort: S
+recommendation: "n/a — selftest fixture; the linter should reject this on L10 (name not found)"
+test_required: "qos/tools/lint.py --selftest stays green"
+guard_ref:
+  test: "qos/tools/lint.py::this_function_does_not_exist_anywhere_9013"
+lifecycle: fixed
+owner: qa
+opened: "2026-09-10"
+closed: null

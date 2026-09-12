@@ -1,0 +1,43 @@
+id: QOS-0048
+category: INNOVATION
+title: Fast quick-entry / voice capture for field order booking
+persona:
+- P3
+archetype:
+- ARCH-03
+- ARCH-04
+journey: Booking an order on the road
+problem: 'Fixed 2026-09-11: the user directed building this out of review-only status. web/src/pages/sales/QuickEntryPage.tsx
+  (/sales/quick-entry) is a keyboard-light order-booking sheet: recent customers (from the last 10 invoices,
+  deduped) and recent SKUs (per-device localStorage, updated as items are added) as one-tap chips, a +/-
+  stepper for quantity instead of typing, one "Save order" action that posts a draft SalesInvoice via
+  the existing create-invoice endpoint. Voice capture and full offline booking are still deliberately
+  out of scope for this pass, per the item''s own original recommendation.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/BUSINESS_ARCHETYPES_AND_PERSONAS.md section 5 (P3)
+  - docs/TESTING_STRATEGY.md#4 P3
+  - web/src/pages/sales/QuickEntryPage.tsx
+  - web/src/pages/sales/QuickEntryPage.test.tsx
+  detail: First-hand code read + 3 passing component tests (customer-required gate, stepper + save payload,
+    recent-chip bumps qty not duplicates); full FE suite 305/49 green.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 3
+  impact_band: Low
+business_metric: referral
+priority: P3
+priority_rationale: Built per explicit user direction (2026-09-11), superseding the earlier review-only
+  Innovation framing for this specific item.
+effort: L
+recommendation: 'Done: the quick-entry sheet (recent customers + SKUs, stepper-based quantity, one-tap
+  save). Voice-to-line stays deferred, as the item always intended.'
+test_required: a mobile quick-entry e2e journey if pursued
+guard_ref:
+  test: web/src/pages/sales/QuickEntryPage.test.tsx
+lifecycle: fixed
+owner: web
+opened: '2026-09-10'
+closed: null
