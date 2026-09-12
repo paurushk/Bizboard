@@ -349,13 +349,32 @@ jobs:
       - name: Prod compose overlay pins image digests
         run: |
           overlay=docker-compose.prod.yml
-          bad=$(grep -nE '^\s*image:\s' "$overlay" | grep -v '@sha256:' || true)
+          # BUG (found 2026-09-12): this used to grep the raw $overlay file for
+          # `@sha256:`, but every image line in that file is the placeholder
+          # `${BIZBOARD_API_IMAGE:?set BIZBOARD_API_IMAGE to a ghcr.io/...@sha256:<digest> reference}`
+          # — the literal string "@sha256:" appears in the error-message text
+          # itself, so the grep matched and passed unconditionally regardless
+          # of the real resolved value. Fixed to inspect the *rendered* config
+          # (after variable substitution) for exactly the bizboard-owned
+          # services (api/worker/beat/migrate all resolve from
+          # BIZBOARD_API_IMAGE) so an actually-unpinned value is caught. Third-
+          # party base images (postgres/redis/nginx/clamav) are out of scope
+          # for this check — they're pinned by upstream tag, not our digest.
+          rendered_json="$(docker compose --profile migrate -f docker-compose.yml -f "$overlay" config --format json)"
+          bad=""
+          for s in api worker beat migrate; do
+            image="$(printf '%s' "$rendered_json" | jq -r --arg s "$s" '.services[$s].image // ""')"
+            case "$image" in
+              *@sha256:*) ;;
+              *) bad="${bad}${s}: ${image:-<no image resolved>}"$'\n' ;;
+            esac
+          done
           if [ -n "$bad" ]; then
-            echo "::error::$overlay has un-pinned image refs (run scripts/pin_image_digests.sh):"
-            echo "$bad"
+            echo "::error::$overlay has un-pinned image refs (run scripts/pin_image_digests.sh, or set BIZBOARD_API_IMAGE to a @sha256: reference):"
+            printf '%s' "$bad"
             exit 1
           fi
-          echo "all image refs in $overlay are digest-pinned"
+          echo "api/worker/beat/migrate all resolve to digest-pinned images in $overlay"
       # M1-014: scan the built images for known CVEs, gate on fixable CRITICAL.
       - name: Trivy image scan (api)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
