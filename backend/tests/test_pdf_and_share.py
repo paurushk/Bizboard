@@ -514,6 +514,100 @@ def test_pdf_totals_match_db_odd_paise_and_before_tax(tenant_a):
         )
 
 
+def test_pdf_totals_match_db_ca_signoff_f1_f2_f4_f5_f7_f8(tenant_a):
+    """docs/ca/CA_SIGN_OFF_CHECKLIST.md — same render -> extract TOTAL -> assert
+    vs DB pattern as test_pdf_totals_match_db_odd_paise_and_before_tax (F3/F6),
+    extended to the rest of the CA scenario set so every F1-F8 row has real
+    PDF evidence, not just a DB-level fixture match."""
+    from sales.pdf.helpers import format_money
+
+    cases = [
+        {
+            "id": "f1_even_200_18",
+            "customer_state": "Karnataka",
+            "invoice_type": "GST",
+            "lines": [{"gst_rate": "18", "unit_price": "100", "quantity": "2"}],
+            "extra": None,
+        },
+        {
+            "id": "f2_inter_100_12",
+            "customer_state": "Maharashtra",  # tenant_a company is Karnataka -> inter-state
+            "invoice_type": "GST",
+            "lines": [{"gst_rate": "12", "unit_price": "100", "quantity": "1"}],
+            "extra": None,
+        },
+        {
+            "id": "f4_non_gst",
+            "customer_state": "Karnataka",
+            "invoice_type": "NON_GST",
+            "lines": [{"gst_rate": "0", "unit_price": "100", "quantity": "1"}],
+            "extra": None,
+        },
+        {
+            "id": "f5_after_tax_discount",
+            "customer_state": "Karnataka",
+            "invoice_type": "GST",
+            "lines": [{"gst_rate": "18", "unit_price": "100", "quantity": "1"}],
+            "extra": {"invoice_discount": "10", "invoice_discount_mode": "AFTER_TAX"},
+        },
+        {
+            "id": "f7_round_off_on",
+            "customer_state": "Karnataka",
+            "invoice_type": "GST",
+            "lines": [{"gst_rate": "18", "unit_price": "90.10", "quantity": "1"}],
+            "extra": {"auto_round_off": True},
+        },
+        {
+            "id": "f7_round_off_off",
+            "customer_state": "Karnataka",
+            "invoice_type": "GST",
+            "lines": [{"gst_rate": "18", "unit_price": "90.10", "quantity": "1"}],
+            "extra": {"auto_round_off": False},
+        },
+        {
+            "id": "f8_multi_rate_5_28",
+            "customer_state": "Karnataka",
+            "invoice_type": "GST",
+            "lines": [
+                {"gst_rate": "5", "unit_price": "100", "quantity": "1"},
+                {"gst_rate": "28", "unit_price": "100", "quantity": "1"},
+            ],
+            "extra": None,
+        },
+    ]
+    for case in cases:
+        products = [
+            make_product(
+                tenant_a.company,
+                sku=f"CA-{case['id']}-{i}",
+                gst_rate=line["gst_rate"],
+            )
+            for i, line in enumerate(case["lines"])
+        ]
+        for product in products:
+            add_stock(tenant_a, product, "10")
+        customer = make_customer(
+            tenant_a.company, name=f"Cust {case['id']}", state=case["customer_state"],
+        )
+        items = [
+            {"product": product.id, "quantity": line["quantity"], "unit_price": line["unit_price"]}
+            for product, line in zip(products, case["lines"])
+        ]
+        inv = create_draft_invoice(tenant_a, customer, items, invoice_type=case["invoice_type"])
+        if case["extra"]:
+            assert tenant_a.client.patch(
+                f"/api/v1/sales/invoices/{inv['id']}/", case["extra"], format="json",
+            ).status_code == 200
+        resp = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+        assert resp.status_code == 200, resp.data
+        invoice = SalesInvoice.objects.prefetch_related("items__product").get(pk=inv["id"])
+        pdf = render_gst_tax_invoice(invoice, copy="ORIGINAL")
+        text = _pdf_text(pdf)
+        assert format_money(invoice.grand_total) in text, (
+            f"{case['id']}: PDF missing grand_total {invoice.grand_total}"
+        )
+
+
 def test_thermal_receipt_pdf_width_and_content(tenant_a):
     """Phase 2 — thermal receipt bytes non-empty and page width matches 80 vs 58 mm."""
     tenant_a.company.gstin = "29ABCDE1234F1ZW"

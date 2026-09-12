@@ -15,7 +15,9 @@
 - [ ] Wave 0 Critical+High mapping complete (`WAVE0_AUDIT.md`)  
 - [ ] Must DoD items Done or PM-waived (`PHASE_0_DOD.md`)  
 - [ ] H9-A signed (`H9_CORRECTION_PATH.md`)  
-- [ ] CA letter stored (F9) + F12 additional-charges scope  
+- [ ] CA letter stored (F9) + F12 additional-charges scope — send `../ca/F9_CA_REVIEW_COVER.md` +
+  `../ca/CA_SIGN_OFF_CHECKLIST.md` (all 9 rows' PDF/DB/FE evidence pre-filled 2026-09-12; only the
+  CA's sign-off and the F12 business decision are still open)  
 - [ ] UAT matrix ≥5 companies (`UAT_CHECKLIST.md`)  
 - [ ] TLS on pilot host (E1) — **Final Gate**  
 - [x] Backup + restore drill dated — **Final Gate** (scripts: `backup` / `restore` compose profiles)
