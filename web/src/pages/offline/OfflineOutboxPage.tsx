@@ -93,7 +93,7 @@ export function OfflineOutboxPage() {
           if (completed?.id) {
             const warn = await printPosThermalOrWarn({
               id: Number(completed.id),
-              number: completed.number ?? completed.invoiceNumber,
+              number: completed.number,
             });
             if (warn) thermalWarns.push(warn);
           }

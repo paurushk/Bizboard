@@ -178,6 +178,25 @@ export function PosPage() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const POS_ACTIVE_CART_STORAGE_KEY = 'bizboard:pos-active-cart';
+  // QOS-0040: remember the till's last-used tender so the common case (a till
+  // that is ~all UPI, or ~all cash) does not re-pick it every sale. Emphasis +
+  // autofocus move to the remembered button; it stays a one-key change.
+  const POS_LAST_METHOD_KEY = 'bizboard:pos-last-method';
+  const [lastMethod, setLastMethod] = useState<'CASH' | 'UPI'>(() => {
+    try {
+      return localStorage.getItem(`${POS_LAST_METHOD_KEY}:${companyId}`) === 'UPI' ? 'UPI' : 'CASH';
+    } catch {
+      return 'CASH';
+    }
+  });
+  const rememberMethod = (m: 'CASH' | 'UPI') => {
+    setLastMethod(m);
+    try {
+      localStorage.setItem(`${POS_LAST_METHOD_KEY}:${companyId}`, m);
+    } catch {
+      // quota / private mode — non-fatal
+    }
+  };
   const [cart, setCart] = useState<CartLine[]>(() => {
     if (typeof localStorage !== 'undefined') {
       try {
@@ -992,7 +1011,7 @@ export function PosPage() {
           if (completed?.id) {
             const warn = await printPosThermalOrWarn({
               id: Number(completed.id),
-              number: completed.number ?? completed.invoiceNumber,
+              number: completed.number,
             });
             if (warn) thermalWarns.push(warn);
           }
@@ -1787,7 +1806,8 @@ export function PosPage() {
             </Stack>
             <Divider />
             <Button
-              variant="contained"
+              variant={lastMethod === 'CASH' ? 'contained' : 'outlined'}
+              autoFocus={lastMethod === 'CASH'}
               size="large"
               disabled={
                 writesBlocked ||
@@ -1796,14 +1816,18 @@ export function PosPage() {
                 Boolean(upiPending) ||
                 (cart.length === 0 && !cashPending)
               }
-              onClick={() => void checkout('CASH')}
+              onClick={() => {
+                rememberMethod('CASH');
+                void checkout('CASH');
+              }}
             >
               {cashPending
                 ? t('pos.finishPayment', { amount: formatMoney(cashPending.amount) })
                 : t('pos.cashPay', { amount: formatMoney(gateTotal) })}
             </Button>
             <Button
-              variant="outlined"
+              variant={lastMethod === 'UPI' ? 'contained' : 'outlined'}
+              autoFocus={lastMethod === 'UPI'}
               size="large"
               disabled={
                 writesBlocked ||
@@ -1813,7 +1837,10 @@ export function PosPage() {
                 Boolean(cashPending) ||
                 (cart.length === 0 && !upiPending)
               }
-              onClick={() => void checkout('UPI')}
+              onClick={() => {
+                rememberMethod('UPI');
+                void checkout('UPI');
+              }}
             >
               {t('pos.upiPay', { amount: formatMoney(gateTotal) })}
             </Button>

@@ -210,7 +210,9 @@ describe('POS upiPending session restore (CR-108)', () => {
       amount: 450,
       key: 'upi-draft-key',
       upiQr: { intentUrl: 'upi://pay?pa=y', qrPngBase64: 'def' },
-      lines: [{ productId: 1, quantity: 2, unitPrice: 225 }],
+      lines: [
+        { productId: 1, productName: 'Widget', sku: 'WID-1', quantity: 2, unitPrice: 225, gstRate: 18 },
+      ],
     };
     expect(parseUpiPending(serializeUpiPending(pending))).toEqual(pending);
     expect(unpaidRecoverFromAbort(pending)).toBeNull();

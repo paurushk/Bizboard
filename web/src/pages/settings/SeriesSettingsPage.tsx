@@ -57,7 +57,7 @@ export function SeriesSettingsPage() {
   const [padding, setPadding] = useState(5);
   const [error, setError] = useState<string | null>(null);
 
-  const isOwner = user?.role === 'OWNER' || (user as any)?.role === 'Owner/Admin';
+  const isOwner = user?.role === 'OWNER';
 
   const query = useQuery({
     queryKey: ['document-series-all'],

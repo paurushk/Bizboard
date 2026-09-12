@@ -1,5 +1,6 @@
 import { parseSerialNumbersText } from '@/components/billing/lineHelpers';
 import { calculateLineTax, extractExclusiveFromInclusiveLine } from '@/utils/tax';
+import type { InvoiceDraftLine } from '@/offline/invoiceDraftCache';
 
 export type PosChipState = 'unsaved' | 'offline' | 'saved' | 'completed' | null;
 
@@ -221,7 +222,7 @@ export type PosUpiPendingSnapshot = {
   amount: number;
   key?: string;
   upiQr: Record<string, string> | null;
-  lines?: any[];
+  lines?: InvoiceDraftLine[];
   confirmBlankPos?: boolean;
 };
 
@@ -258,7 +259,7 @@ export function parseUpiPending(raw: string | null | undefined): PosUpiPendingSn
       amount,
       key: typeof parsed.key === 'string' && parsed.key ? parsed.key : undefined,
       upiQr,
-      lines: Array.isArray(parsed.lines) ? (parsed.lines as any[]) : undefined,
+      lines: Array.isArray(parsed.lines) ? (parsed.lines as InvoiceDraftLine[]) : undefined,
       confirmBlankPos:
         typeof parsed.confirmBlankPos === 'boolean' ? parsed.confirmBlankPos : undefined,
     };

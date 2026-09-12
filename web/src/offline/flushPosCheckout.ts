@@ -17,11 +17,12 @@ import {
   updateDraft,
   type OutboxDraft,
 } from '@/offline/invoiceDraftCache';
+import type { SalesInvoice } from '@/types/domain';
 
 /** Flush a POS outbox draft: create+complete invoice, cash receipt, allocate.
  * CR-006: returns completed invoice so caller can trigger thermal receipt printing.
  */
-export async function flushPosDraft(draft: OutboxDraft): Promise<any> {
+export async function flushPosDraft(draft: OutboxDraft): Promise<SalesInvoice> {
   const payload = draft.payload || {};
   const mode = draft.paymentMode ?? payload.paymentMode ?? 'CASH';
   if (mode === 'UPI') {
