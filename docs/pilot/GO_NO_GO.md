@@ -18,7 +18,18 @@
 - [ ] CA letter stored (F9) + F12 additional-charges scope  
 - [ ] UAT matrix ≥5 companies (`UAT_CHECKLIST.md`)  
 - [ ] TLS on pilot host (E1) — **Final Gate**  
-- [ ] Backup + restore drill dated — **Final Gate** (scripts: `backup` / `restore` compose profiles)  
+- [x] Backup + restore drill dated — **Final Gate** (scripts: `backup` / `restore` compose profiles)
+  **2026-09-12** — ran `scripts/restore_drill.sh` locally (Docker, two throwaway `postgres:17-alpine`
+  containers, real `pg_dump | gzip` → `psql` restore into a scratch DB, same pipeline as
+  `scripts/backup.sh`/`scripts/restore.sh`), then `manage.py check_invariants` against the restored
+  data. Result: **PASS** — "All 1 company(ies) clean." **RTO measured: 4m6s** wall-clock for
+  migrate+seed+dump+restore+invariant-sweep on the single-company demo dataset (re-measure at
+  pilot data volume before relying on this number for a real incident). **RPO commitment: ≤ backup
+  cron interval** (daily `pg_dump`, per `ENV_CHECKLIST.md` row 14) — the drill proves a *fresh* dump
+  restores cleanly, it does not by itself bound RPO. Two pre-existing, unrelated warnings surfaced
+  (`core.W001`/`W002` — local dev Postgres role is superuser/BYPASSRLS, so RLS is bypassed in this
+  throwaway container); not a drill regression, tracked separately under the RLS test-strictness
+  work (D16).
 - [ ] ENV_CHECKLIST signed (incl. JWT localStorage accept-risk)  
 - [ ] Support SLA live (`SUPPORT_SLA.md`)  
 - [ ] Zero open Criticals; no new Critical since UAT sign-off  
