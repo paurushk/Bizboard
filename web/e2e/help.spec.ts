@@ -52,7 +52,11 @@ test.describe('Help v2 (e2e session hook, product flag still off)', () => {
     expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
   });
 
-  test('universal search offers a Help hit and opens the intent', async ({ page }) => {
+  test('universal search offers a Help hit and opens the intent', async ({ page }, testInfo) => {
+    // The AppBar hides UniversalSearch below the `sm` breakpoint (AppShell.tsx
+    // renders it inside a `display: { xs: 'none', sm: 'flex' }` Box), so there
+    // is no search box to find on the mobile project's viewport.
+    testInfo.skip(testInfo.project.name === 'mobile', 'universal search is hidden below the sm breakpoint');
     await loginAsOwner(page);
     await page.goto('/');
     const search = page.getByRole('combobox', { name: /search invoices/i });

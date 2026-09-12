@@ -42,7 +42,7 @@ test.describe('purchases: notes, orders, suppliers', () => {
     await loginAsOwner(page);
     await page.goto('/purchases/credit-notes/new', { waitUntil: 'domcontentloaded' });
     await expect(
-      page.getByText(/purchase credit note/i).or(page.getByText(/supplier/i)).first(),
+      page.getByRole('heading', { name: /record purchase credit note/i }),
     ).toBeVisible({ timeout: 15_000 });
   });
 
@@ -50,7 +50,7 @@ test.describe('purchases: notes, orders, suppliers', () => {
     await loginAsOwner(page);
     await page.goto('/purchases/orders/new', { waitUntil: 'domcontentloaded' });
     await expect(
-      page.getByText(/purchase order/i).or(page.getByText(/supplier/i)).first(),
+      page.getByRole('heading', { name: /new purchase order/i }),
     ).toBeVisible({ timeout: 15_000 });
   });
 

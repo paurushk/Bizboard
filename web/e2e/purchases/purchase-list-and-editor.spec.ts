@@ -32,7 +32,7 @@ test.describe('purchases: history + editor', () => {
     await loginAsOwner(page);
     await page.goto('/purchases/new', { waitUntil: 'domcontentloaded' });
     await expect(
-      page.getByText(/new purchase/i).or(page.getByText(/bill from|supplier/i)).first(),
+      page.getByRole('heading', { name: /create purchase invoice/i }),
     ).toBeVisible({ timeout: 15_000 });
 
     const productBox = page.getByPlaceholder(/add item|search sku|search product/i);

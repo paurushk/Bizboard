@@ -46,7 +46,7 @@ test.describe('Item custom fields v1', () => {
   test('sales product picker can filter by Brand form and add the item', async ({ page }) => {
     await loginAsOwner(page);
     await page.goto('/sales/new');
-    await expect(page.getByRole('heading', { name: /new invoice|sales invoice/i }).or(page.getByText(/bill to|customer/i)).first()).toBeVisible({
+    await expect(page.getByRole('heading', { name: /sales invoice/i })).toBeVisible({
       timeout: 15_000,
     });
     await page.getByRole('button', { name: /filters/i }).click();
