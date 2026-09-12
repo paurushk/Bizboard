@@ -111,7 +111,7 @@ _None._
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
-| [QOS-0003](../qos/backlog/QOS-0003.yaml) | Pilot scale is unvalidated - no executed load, soak, or large-tenant test | P1 | Reports / lists / exports over a full year of data | P1 | L | heuristic | Medium | backend | in_progress |
+| [QOS-0003](../qos/backlog/QOS-0003.yaml) | Pilot scale is unvalidated - no executed load, soak, or large-tenant test | P1 | Reports / lists / exports over a full year of data | P1 | L | heuristic | Medium | backend | investigating |
 
 ## 8. ⚫ Security & privacy fixes  (2 open / 5 tracked)
 

@@ -6,14 +6,18 @@ persona:
 archetype:
 - ARCH-03
 journey: Reports / lists / exports over a full year of data
-problem: 'In progress 2026-09-11, two halves: (1) DONE + verified — a real 50k-invoice fixture (tests/test_qos0003_large_tenant_reports.py)
-  proved sales_register''s existing MAX_REGISTER_ROWS_HARD_CAP (10,000) correctly refuses a full-year
-  pull on a 50k tenant rather than silently materialising it, and that a realistic month-window query
-  stays flat (query count independent of tenant size) and fast; run locally end-to-end, 3/3 pass. (2)
-  WRITTEN, not yet proven green — the load-harness CI job now boots a real backend + Postgres and runs
-  the k6 smoke for real (was `test -f load/k6_smoke.js` with nothing ever executing it), but this session
-  has no k6 binary or a live GitHub Actions run to confirm it passes; it needs its first real CI run before
-  this half can be called verified.'
+problem: 'Updated 2026-09-12. Three parts: (1) DONE + verified on real Postgres — the 50k-invoice fixture
+  (tests/test_qos0003_large_tenant_reports.py) proved sales_register''s MAX_REGISTER_ROWS_HARD_CAP (10,000)
+  correctly refuses a full-year pull on a 50k tenant, and a realistic month-window query stays flat and
+  fast; 3/3 pass against real Postgres (371.95s wall-clock), not just SQLite. (2) DONE — k6_smoke.js (the
+  same script load-harness runs in CI) executed against a real backend+Postgres: green, 0% failed, p95=93ms.
+  Fixed a real bug found while proving this: the script re-logged in every iteration and tripped Bizboard''s
+  own 10/min login throttle within seconds — now authenticates once in setup(). (3) RUN, MISSES SLO, NOT
+  YET STAGING-VALIDATED — k6_slo.js against a real 50k-COMPLETED-invoice tenant on a local dev laptop:
+  invoice list p95=9.33s (target <2s, real number but unrepresentative single-container-on-a-laptop infra,
+  not the staging host the SLO targets); the Complete-scenario number is not usable as-is — the script
+  reuses one pre-created draft so 314/315 samples measure "already completed" 400-rejection latency, not
+  real Complete work (script gap, tracked, not fixed this pass). Full detail: docs/roadmap/ticket-logs/X-01.md.'
 evidence:
   strength: heuristic
   source:
@@ -21,8 +25,11 @@ evidence:
   - .github/workflows/ci.yml load-harness job
   - docs/FREEZE_SCOPE.md C7
   - backend/tests/test_qos0003_large_tenant_reports.py
-  detail: Large-tenant fixture run locally end-to-end (3/3 pass); the k6-in-CI wiring is unverified pending
-    a real CI run.
+  - docs/roadmap/ticket-logs/X-01.md
+  detail: Large-tenant fixture verified on real Postgres (3/3); k6_smoke.js proven green end-to-end (the
+    load-harness CI job's exact script); k6_slo.js run for real numbers on a 50k tenant but on
+    non-staging hardware and with a known script limitation on the Complete scenario — soak/scale is
+    exercised and instrumented, not yet SLO-clean on representative infra.
 scoring:
   reach: 4
   severity: 3
@@ -32,13 +39,15 @@ business_metric: renewal
 priority: P1
 priority_rationale: Impact Medium (36); a cheap executed smoke closes most of the risk now.
 effort: L
-recommendation: 'Large-tenant fixture: done. k6-in-CI: written (boots backend + Postgres, installs k6,
-  asserts the script''s own p95/error-rate thresholds), advisory until it has run green on main a few
-  times — confirm on the first real CI run, don''t assume.'
+recommendation: 'Large-tenant fixture: verified on Postgres. k6 smoke: proven green, no longer advisory-
+  on-faith. Remaining before this can be called fully verified: (a) run k6_slo.js against a real
+  staging-shaped host, not a dev laptop, (b) fix k6_slo.js''s completeDraft() to measure repeated real
+  Completes (pool of drafts or a per-iteration draft) instead of mostly measuring duplicate-completion
+  rejections.'
 test_required: k6 smoke lane (advisory then blocking) + a large-tenant report/export timing test
 guard_ref:
   test: backend/tests/test_qos0003_large_tenant_reports.py::test_realistic_month_window_stays_flat_and_fast_on_a_50k_tenant
-lifecycle: in_progress
+lifecycle: investigating
 owner: backend
 opened: '2026-09-10'
 closed: null

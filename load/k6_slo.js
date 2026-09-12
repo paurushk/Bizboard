@@ -5,6 +5,13 @@
  * thresholds; attach numbers to docs/roadmap/ticket-logs/X-01.md, do not invent them.
  *
  *   k6 run -e BASE_URL=... -e EMAIL=... -e PASSWORD=... -e DRAFT_INVOICE_ID=... load/k6_slo.js
+ *
+ * QOS-0003 (2026-09-12): same fix as k6_smoke.js — authenticate once in
+ * setup() instead of once per iteration. With 10+5 VUs re-logging in every
+ * ~0.5-1s, the script tripped Bizboard's own 10/min login throttle within
+ * seconds, so every measurement after that point was throttle-rejection
+ * latency, not real endpoint latency. M1-026's bearer-token capture is kept,
+ * just moved to run once.
  */
 import http from "k6/http";
 import { check, sleep } from "k6";
@@ -37,20 +44,20 @@ const EMAIL = __ENV.EMAIL || "";
 const PASSWORD = __ENV.PASSWORD || "";
 const DRAFT_ID = __ENV.DRAFT_INVOICE_ID || "";
 
-function authHeaders() {
+export function setup() {
   // M1-026: capture the bearer token from the login body and send it on every
   // subsequent request. Without this, k6's implicit cookie jar was the only
   // thing carrying "auth" — if the backend issues a bearer token in the body
   // (it does: {success, data: {access, ...}}) rather than a cookie, every
   // later call ran unauthenticated and the p95 thresholds below measured
   // 401/403 rejection latency, not real endpoint latency.
-  if (!EMAIL || !PASSWORD) return null;
+  if (!EMAIL || !PASSWORD) return { headers: null };
   const login = http.post(
     `${BASE}/api/v1/auth/login/`,
     JSON.stringify({ email: EMAIL, password: PASSWORD }),
     { headers: { "Content-Type": "application/json" }, tags: { name: "login" } },
   );
-  if (login.status !== 200 && login.status !== 201) return null;
+  if (login.status !== 200 && login.status !== 201) return { headers: null };
   let access = null;
   try {
     const body = login.json();
@@ -58,15 +65,17 @@ function authHeaders() {
   } catch (e) {
     access = null;
   }
-  if (!access) return null;
+  if (!access) return { headers: null };
   return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${access}`,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${access}`,
+    },
   };
 }
 
-export function listInvoices() {
-  const headers = authHeaders();
+export function listInvoices(data) {
+  const headers = data && data.headers;
   if (!headers) {
     sleep(1);
     return;
@@ -82,8 +91,8 @@ export function listInvoices() {
   sleep(0.5);
 }
 
-export function completeDraft() {
-  const headers = authHeaders();
+export function completeDraft(data) {
+  const headers = data && data.headers;
   if (!headers || !DRAFT_ID) {
     sleep(1);
     return;

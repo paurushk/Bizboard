@@ -6,6 +6,15 @@
  *   k6 run -e BASE_URL=... -e EMAIL=... -e PASSWORD=... load/k6_smoke.js
  *
  * Not a soak/capacity proof for 10k tenants — document as MVP load harness.
+ *
+ * QOS-0003 (2026-09-12): login used to run once per VU *iteration* (every
+ * ~0.5-1s across 5 VUs). Bizboard's login throttle is intentionally tight
+ * (10/min, anti-brute-force — see DEFAULT_THROTTLE_RATES in
+ * backend/config/settings.py) so the script tripped its own target's
+ * security control within the first ~6s of every run, turning "login ok"
+ * and everything depending on it into a false failure unrelated to
+ * performance. Fix: authenticate once in setup() and reuse the resulting
+ * session cookies for every iteration, same as a real client would.
  */
 import http from "k6/http";
 import { check, sleep } from "k6";
@@ -23,29 +32,37 @@ const BASE = __ENV.BASE_URL || "http://localhost:8000";
 const EMAIL = __ENV.EMAIL || "";
 const PASSWORD = __ENV.PASSWORD || "";
 
-export default function () {
+function cookieHeaderFrom(res) {
+  const parts = [];
+  for (const name in res.cookies) {
+    const jar = res.cookies[name];
+    if (jar && jar.length) parts.push(`${name}=${jar[0].value}`);
+  }
+  return parts.join("; ");
+}
+
+export function setup() {
+  if (!EMAIL || !PASSWORD) return { cookieHeader: "" };
+  const login = http.post(
+    `${BASE}/api/v1/auth/login/`,
+    JSON.stringify({ email: EMAIL, password: PASSWORD }),
+    { headers: { "Content-Type": "application/json" } },
+  );
+  check(login, { "setup login ok": (r) => r.status === 200 || r.status === 201 });
+  return { cookieHeader: cookieHeaderFrom(login) };
+}
+
+export default function (data) {
   const health = http.get(`${BASE}/api/v1/health/`);
   check(health, {
     "health status is 200": (r) => r.status === 200,
   });
 
-  if (EMAIL && PASSWORD) {
-    const login = http.post(
-      `${BASE}/api/v1/auth/login/`,
-      JSON.stringify({ email: EMAIL, password: PASSWORD }),
-      { headers: { "Content-Type": "application/json" } },
-    );
-    check(login, {
-      "login ok": (r) => r.status === 200 || r.status === 201,
-    });
-    const jar = http.cookieJar();
-    const cookies = jar.cookiesForURL(BASE);
-    const headers = { "Content-Type": "application/json" };
+  const cookieHeader = data && data.cookieHeader;
+  if (cookieHeader) {
+    const headers = { "Content-Type": "application/json", Cookie: cookieHeader };
 
-    const list = http.get(`${BASE}/api/v1/sales/invoices/?page=1`, {
-      cookies,
-      headers,
-    });
+    const list = http.get(`${BASE}/api/v1/sales/invoices/?page=1`, { headers });
     check(list, {
       "invoice list not 5xx": (r) => r.status < 500,
     });
@@ -68,7 +85,7 @@ export default function () {
             },
           ],
         }),
-        { cookies, headers },
+        { headers },
       );
       check(draft, {
         "create-draft not 5xx": (r) => r.status < 500,
