@@ -169,3 +169,43 @@ def test_dashboard_kpis_match_documents(tenant_a):
     assert Decimal(str(resp.data["sales_today"]["total"])) == Decimal("1180.00")
     assert resp.data["sales_today"]["count"] == 1
     assert Decimal(str(resp.data["receivables"])) == Decimal("1180.00")
+
+
+def test_customer_endpoint_exposes_real_outstanding(tenant_a):
+    """CustomerSerializer must carry a live outstanding, not 0 (masters/serializers.py)."""
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "100")
+    customer = make_customer(tenant_a.company, state="Karnataka")
+    other = make_customer(tenant_a.company, state="Karnataka")
+    inv = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "10", "unit_price": "100"}
+    ])
+    tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")  # 1180
+
+    detail = tenant_a.client.get(f"/api/v1/customers/{customer.id}/")
+    assert Decimal(detail.data["outstanding"]) == Decimal("1180.00")
+
+    listing = tenant_a.client.get("/api/v1/customers/")
+    by_id = {row["id"]: row for row in listing.data["results"]}
+    assert Decimal(by_id[customer.id]["outstanding"]) == Decimal("1180.00")
+    assert Decimal(by_id[other.id]["outstanding"]) == Decimal("0")
+
+
+def test_supplier_endpoint_exposes_real_outstanding(tenant_a):
+    """SupplierSerializer must carry a live outstanding, not 0 (masters/serializers.py)."""
+    supplier = make_supplier(tenant_a.company)
+    other = make_supplier(tenant_a.company)
+    product = make_product(tenant_a.company, purchase_price="100", gst_rate="0")
+    draft = create_draft_purchase(
+        tenant_a, supplier, [{"product": product.id, "quantity": "5", "unit_price": "100"}],
+    )
+    resp = tenant_a.client.post(f"/api/v1/purchases/invoices/{draft['id']}/complete/")
+    assert resp.status_code == 200, resp.data
+
+    detail = tenant_a.client.get(f"/api/v1/suppliers/{supplier.id}/")
+    assert Decimal(detail.data["outstanding"]) == Decimal("500.00")
+
+    listing = tenant_a.client.get("/api/v1/suppliers/")
+    by_id = {row["id"]: row for row in listing.data["results"]}
+    assert Decimal(by_id[supplier.id]["outstanding"]) == Decimal("500.00")
+    assert Decimal(by_id[other.id]["outstanding"]) == Decimal("0")

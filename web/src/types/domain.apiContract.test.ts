@@ -34,7 +34,7 @@ const CONTRACT_ENTITIES: Array<{
    */
   knownGaps?: string[];
 }> = [
-  { tsName: 'Customer', knownGaps: ['outstanding'] /* task_4c3d066f: CustomerSerializer never returns this — always 0 in real mode. */ },
+  { tsName: 'Customer' },
   {
     tsName: 'Product',
     // Only StockBalance (inventory/serializers.py) actually returns these;

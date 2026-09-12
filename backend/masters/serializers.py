@@ -61,6 +61,7 @@ class CustomerSerializer(serializers.ModelSerializer):
     price_list = CompanyPrimaryKeyRelatedField(
         queryset=PriceList.objects.all(), allow_null=True, required=False
     )
+    outstanding = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
@@ -70,24 +71,43 @@ class CustomerSerializer(serializers.ModelSerializer):
             "credit_days", "notes", "created_at", "updated_at",
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "price_list", "taxpayer_type", "whatsapp_opt_in", "dunning_opt_out",
+            "outstanding",
         ]
         read_only_fields = [
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
         ]
 
+    def get_outstanding(self, obj):
+        from ledgers.services import LedgerService
+
+        outstanding_by_id = self.context.get("outstanding_by_id")
+        if outstanding_by_id is not None:
+            return str(outstanding_by_id.get(obj.id, 0))
+        return str(LedgerService.customer_outstanding(obj.company, obj))
+
 
 class SupplierSerializer(serializers.ModelSerializer):
+    outstanding = serializers.SerializerMethodField()
+
     class Meta:
         model = Supplier
         fields = [
             "id", "name", "phone", "email", "gstin", "address", "state",
             "is_active", "notes", "created_at", "updated_at",
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
-            "taxpayer_type",
+            "taxpayer_type", "outstanding",
         ]
         read_only_fields = [
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
         ]
+
+    def get_outstanding(self, obj):
+        from ledgers.services import LedgerService
+
+        outstanding_by_id = self.context.get("outstanding_by_id")
+        if outstanding_by_id is not None:
+            return str(outstanding_by_id.get(obj.id, 0))
+        return str(LedgerService.supplier_outstanding(obj.company, obj))
 
 
 class ProductSerializer(serializers.ModelSerializer):

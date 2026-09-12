@@ -176,6 +176,16 @@ class CustomerViewSet(CompanyScopedViewSet):
             qs = qs.filter(Q(name__icontains=q) | Q(phone__icontains=q) | Q(gstin__icontains=q))
         return qs
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        # BUG-301-style fix: one bulk aggregation for the whole list instead of
+        # a per-row LedgerService.customer_outstanding query (N+1).
+        if getattr(self, "action", None) == "list":
+            from ledgers.services import LedgerService
+
+            context["outstanding_by_id"] = LedgerService.bulk_customer_outstanding(self.company)
+        return context
+
     def destroy(self, request, *args, **kwargs):
         """Never hard-delete a referenced customer — deactivate instead (BB-000057)."""
         customer = self.get_object()
@@ -224,6 +234,14 @@ class SupplierViewSet(CompanyScopedViewSet):
         if q:
             qs = qs.filter(Q(name__icontains=q) | Q(phone__icontains=q) | Q(gstin__icontains=q))
         return qs
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if getattr(self, "action", None) == "list":
+            from ledgers.services import LedgerService
+
+            context["outstanding_by_id"] = LedgerService.bulk_supplier_outstanding(self.company)
+        return context
 
     def destroy(self, request, *args, **kwargs):
         """Never hard-delete a referenced supplier — deactivate instead (BB-000057)."""

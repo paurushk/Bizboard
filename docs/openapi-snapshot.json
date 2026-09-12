@@ -25429,6 +25429,10 @@
                     "dunning_opt_out": {
                         "type": "boolean",
                         "description": "A-07: when True, skip automated AR reminders for this customer."
+                    },
+                    "outstanding": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -25438,6 +25442,7 @@
                     "gstin_verified_at",
                     "id",
                     "name",
+                    "outstanding",
                     "updated_at"
                 ]
             },
@@ -29891,6 +29896,10 @@
                     "dunning_opt_out": {
                         "type": "boolean",
                         "description": "A-07: when True, skip automated AR reminders for this customer."
+                    },
+                    "outstanding": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 }
             },
@@ -33325,6 +33334,10 @@
                                 "$ref": "#/components/schemas/BlankEnum"
                             }
                         ]
+                    },
+                    "outstanding": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 }
             },
@@ -38531,6 +38544,10 @@
                                 "$ref": "#/components/schemas/BlankEnum"
                             }
                         ]
+                    },
+                    "outstanding": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -38540,6 +38557,7 @@
                     "gstin_verified_at",
                     "id",
                     "name",
+                    "outstanding",
                     "updated_at"
                 ]
             },
