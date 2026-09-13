@@ -1,7 +1,18 @@
 import { apiClient, shouldUseMocks, unwrapData } from './client';
-import { setAccessToken } from '@/auth/session';
+import { getStoredUser, setAccessToken } from '@/auth/session';
 import { mockAccountantUser, mockSalesUser, mockUser, mockViewerUser } from '@/mocks/data';
 import type { AuthTokens, User } from '@/types/domain';
+
+/** Same email-substring convention login() uses to pick a mock persona —
+ * shared so fetchCurrentUser() resolves the actually-logged-in mock user
+ * instead of always defaulting to OWNER. */
+function mockUserForEmail(email: string): User {
+  const lower = email.toLowerCase();
+  if (lower.includes('viewer')) return mockViewerUser;
+  if (lower.includes('sales')) return mockSalesUser;
+  if (lower.includes('accountant')) return mockAccountantUser;
+  return mockUser;
+}
 
 export interface LoginPayload {
   email: string;
@@ -29,16 +40,8 @@ function tokensFromBody(body: { access?: string | null; refresh?: string }): Aut
 export async function login(payload: LoginPayload): Promise<{ user: User; tokens: AuthTokens }> {
   if (shouldUseMocks()) {
     await delay(300);
-    const email = payload.email.toLowerCase();
-    const user = email.includes('viewer')
-      ? mockViewerUser
-      : email.includes('sales')
-        ? mockSalesUser
-        : email.includes('accountant')
-          ? mockAccountantUser
-          : mockUser;
     return {
-      user,
+      user: mockUserForEmail(payload.email),
       tokens: { access: 'mock-access', refresh: 'mock-refresh' },
     };
   }
@@ -123,7 +126,13 @@ export async function verifyOtp(
 export async function fetchCurrentUser(): Promise<User> {
   if (shouldUseMocks()) {
     await delay(100);
-    return mockUser;
+    // BB fix (2026-09-13): this used to always return mockUser (OWNER),
+    // silently resetting a SALES/ACCT mock session back to OWNER on every
+    // app boot/navigation (AuthContext re-fetches "me" so capabilities
+    // aren't trusted from storage) — the stored profile keeps `email`
+    // specifically so this lookup is possible.
+    const stored = getStoredUser();
+    return stored ? mockUserForEmail(stored.email) : mockUser;
   }
   const { data } = await apiClient.get('/auth/me/');
   return unwrapData<User>(data);

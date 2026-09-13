@@ -5,10 +5,15 @@
  * prove the UI HIDES what the role cannot do (no dead buttons that 403). One
  * describe block per persona, mirroring the backend matrix.
  *
- * OWNER + VIEWER use the credentials that the e2e mock backend already provides
- * (see e2e/helpers/auth.ts). SALES_STAFF / ACCOUNTANT blocks are written but
- * `test.fixme`-skipped until the mock seed exposes those logins; wire them by
- * adding loginAsSales / loginAsAccountant to helpers/auth.ts.
+ * All four personas (OWNER/VIEWER/SALES/ACCOUNTANT) are live — loginAsSales /
+ * loginAsAccountant are in e2e/helpers/auth.ts, backed by mockSalesUser /
+ * mockAccountantUser (web/src/mocks/data.ts). G-4 (2026-09-13): these blocks
+ * used to pass vacuously — mock-mode fetchCurrentUser() always returned
+ * mockUser (OWNER) regardless of who logged in, so AuthContext's boot-time
+ * "re-fetch me" (web/src/auth/AuthContext.tsx) silently reset every
+ * SALES/ACCT session back to OWNER on the very next navigation. Fixed in
+ * web/src/api/auth.ts (fetchCurrentUser now resolves from getStoredUser()'s
+ * email, same convention login() already used) — see web/src/api/auth.test.ts.
  */
 import { expect, test } from '@playwright/test';
 import { loginAsAccountant, loginAsOwner, loginAsSales, loginAsViewer } from '../helpers/auth';
