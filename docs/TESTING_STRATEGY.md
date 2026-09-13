@@ -61,7 +61,7 @@ a regression* exists.
 | L5 | **Matrices** | Does a *setting* or *place-of-supply* change behaviour the way the spec says, across the whole grid? | `tests/matrices/test_company_settings_matrix.py`, `test_gst_settings_matrix.py`, `tests/gst/test_place_of_supply_matrix.py` | Interactions outside the grid dimensions |
 | L6 | **Golden e2e + FE** | Does the real browser against the real backend produce the deliverable (invoice PDF, isolation 404, role-hidden nav, no axe violations)? | `web/e2e-golden/personas-golden.spec.ts` (live Django+PG), `web/e2e/` (light, mocked), `web/e2e/personas/`, `web/e2e/a11y.spec.ts`, vitest units | Scale; network degradation; devices beyond Chromium; subjective friction |
 | L7 | **Exploratory + pilot fieldwork** | Is it usable, fast, trustworthy, and *worth paying for* with real staff and real data? | `pilot/UAT_CHECKLIST.md`, `pilot/ARCH03_PILOT_RUNBOOK.md`, validation hypotheses H-01…H-05, CA sign-off | Nothing automatable replaces this; it is the top of the pyramid, not a nice-to-have |
-| L8 | **Cross-flow state consistency** | When a flow writes a shared, mutable piece of business state (an invoice's status, a stock balance, a period-lock gate), do *all other* flows that read or must enforce that state still agree with it? | `docs/CROSS_FLOW_IMPACT_MAP.md` (the field-by-field fan-out registry) + `scripts/ci_gates/guards/guard_period_gate_coverage.py` (static enforcement-consistency guard) + the regression tests each map entry cites | Interactions the map hasn't been extended to cover yet — it's seeded from fields that already caused a bug, not exhaustive by design (see the map's own "why this exists") |
+| L8 | **Cross-flow state consistency** | When a flow writes a shared, mutable piece of business state (an invoice's status, a stock balance, a period-lock gate), do *all other* flows that read or must enforce that state still agree with it? | `docs/CROSS_FLOW_IMPACT_MAP.md` (the field-by-field fan-out registry) + `scripts/ci_gates/guards/guard_period_gate_coverage.py` (static enforcement-consistency guard) + `backend/sales/status_semantics.py` (canonical predicates, closes CF-001 as a class for `SalesInvoice`) + the regression tests each map entry cites | Interactions the map hasn't been extended to cover yet — it's seeded from fields that already caused a bug, not exhaustive by design (see the map's own "why this exists"). `PurchaseInvoice` has no predicate module yet |
 
 L1–L7 each ask "does this one flow work?" L8 asks a different question:
 **when this flow changes shared state, does every other flow's *interpretation*
@@ -571,13 +571,15 @@ These are **G-15 / G-16** in the register.
 Ranked by **impact × likelihood**. "Blocked" = needs an external dependency, not
 effort. Reconcile with `FREEZE_SCOPE_COVERAGE.md` "Open GAPs" when items close.
 
-**CF-001 — shared-state semantic drift.** G-17 through G-22 are not six
-unrelated bugs; they are six instances of one defect *class*: two independent
-readers (or enforcers) of the same shared business state quietly disagreeing
-about what it means, because each was written and tested in isolation. Treat
-new instances of this class as CF-001, not as a fresh one-off gap — the fix
-that actually closes CF-001 as a class (not just its individual instances) is
-the canonical-semantics recommendation at §8, weak assumption 12.
+**CF-001 — shared-state semantic drift.** G-17 through G-20, G-22, and G-23
+are not unrelated bugs; they are instances of one defect *class*: two
+independent readers (or enforcers) of the same shared business state
+quietly disagreeing about what it means, because each was written and
+tested in isolation (G-21/G-22 are the sibling "gate enforcement" shape of
+the same root cause). Treat new instances of this class as CF-001, not as a
+fresh one-off gap. For `SalesInvoice` the class itself is now closed, not
+just its individual instances — see §8, weak assumption 12 for the
+canonical-predicate module that replaced the scattered status-set filters.
 
 **Trust-breaking defects are P0/P1 regardless of code-change size.** Any
 defect that can produce wrong money, wrong tax, wrong stock, wrong
@@ -593,12 +595,12 @@ wasn't sufficient evidence of correctness on its own.
 | ID | Gap / risk | Impact | Likelihood | State | Proposed test | Prio | Owner |
 |---|---|---|---|---|---|---|---|
 | **G-14** | No CA has filed from the worksheets (H-05) | Critical — the core value prop | Unknown | Blocked on pilot | Stage 3 fieldwork, live filing window, 3–5 CAs | **P0** | founder / pilot |
-| **G-4** | FE role-hiding for SALES / ACCT is `test.fixme` | High — a dead 403 button erodes trust daily (P2/P5 veto) | Medium | 🟡 | Add `loginAsSales`/`loginAsAccountant` mock seeds; un-`fixme` `role-boundaries.spec.ts` | **P1** | web |
-| **G-7** | Load/soak/large-tenant/degraded-network all absent | High — pilot "sized for small traders" is an untested assumption (C7) | Medium | ⛔ (presence-only) | Executed k6 smoke (50 rps/2 min) vs golden stack: p95 budget + zero 5xx; a 50k-invoice fixture for report/list/export timing | **P1** | backend / ops |
-| **G-8** | Per-inbound-webhook signature verification not enumerated | High — one unverified webhook = forged financial events | Low–Med | 🚫 (mis-blocked on D3) | Enumerate every inbound webhook; apply WF-17 forgery pattern to each — **does not need live creds** | **P1** | backend |
-| **G-3** | Recovery paths partial: bank rec proper (WF-33), payment-gateway refund/MDR (WF-37/38) | High — Munshi & proprietor veto triggers | Med | 🟡 / 🚫 | Un-skip WF-33 (no external dep); WF-37/38 need D3 sandbox creds — chase the creds | **P1** | backend |
+| **G-4** | FE role-hiding for SALES / ACCT | High — a dead 403 button erodes trust daily (P2/P5 veto) | Medium | ✅ (2026-09-13) | `loginAsSales`/`loginAsAccountant` and live (non-fixme) `role-boundaries.spec.ts` blocks already existed — the header comment was stale, not the code. The real gap was underneath: mock-mode `fetchCurrentUser()` (`web/src/api/auth.ts`) always returned `mockUser` (OWNER) regardless of who logged in, so AuthContext's boot-time "re-fetch me" silently reset every SALES/ACCT mock session back to OWNER on the next navigation — the PJ-SALES/PJ-ACCT spec blocks were passing vacuously (testing OWNER's permissions). Fixed: `fetchCurrentUser()` now resolves the mock persona from `getStoredUser()`'s email via a shared `mockUserForEmail()` helper (same convention `login()` already used). Regression: `web/src/api/auth.test.ts` (verified red-before-green). Full Playwright run not executable from this sandboxed session (Bash and the preview-server harness run in separate network sandboxes here) — run `npm run test:e2e -- e2e/personas/role-boundaries.spec.ts` to confirm PJ-SALES/PJ-ACCT pass for the right reason now | **P1** | web |
+| **G-7** | Load/soak/large-tenant/degraded-network all absent | High — pilot "sized for small traders" is an untested assumption (C7) | Medium | 🟡 (scaffolded, not executed) | k6 scripts (`load/k6_smoke.js`, `load/k6_slo.js`), an advisory `load-harness` CI job (`.github/workflows/ci.yml`), a 50k-invoice bulk fixture, and a reusable `time.perf_counter()` budget-assertion idiom (all in `backend/tests/test_qos0003_large_tenant_reports.py`) already exist — verified 2026-09-13. What's actually missing is a **real budget number** from a staging-scale run (the one local run on record failed at 68% error/~9.3s p95 against a small local DB, which `load/README.md` already documents as expected, not a CI target) — not missing code. Once a real budget exists, flip `continue-on-error` off for `load-harness` | **P1** | backend / ops |
+| **G-8** | Per-inbound-webhook signature verification not enumerated | High — one unverified webhook = forged financial events | Low–Med | ✅ (2026-09-13) | Both inbound webhooks (Razorpay billing, generic payment-gateway) already have signature verification and forgery tests (`backend/tests/errors/test_webhook_and_async_contracts.py`, `backend/tests/test_payment_webhook_adversarial.py`), plus a structural guard (`backend/tests/errors/test_webhook_enumeration.py`) that fails the build if a new, unenumerated webhook appears. Only the `WF-17` label itself was stale — `test_wf17_gateway_webhook_capture_and_replay` (`backend/tests/workflows/test_wf_todo_stubs.py`) is `@pytest.mark.skip` pointing at coverage that now lives elsewhere under different names; retarget or remove it | **P1** | backend |
+| **G-3** | Recovery paths partial: bank rec proper (WF-33), payment-gateway refund/MDR (WF-37/38) | High — Munshi & proprietor veto triggers | Med | ✅ WF-33 (2026-09-13) / 🚫 WF-37/38 | `test_wf33_bank_reconciliation` was already not skipped and passing (the module header claiming "each is skipped" was stale, now fixed). Idempotent-replay was already well covered for the idempotency-key path (`test_cr_017_bank_statement_commit_idempotency`); added the missing piece — a **bare** re-commit (no key) doesn't duplicate auto-match side effects, protected by both a code-level status check and a DB `OneToOneField` on `ReconMatch.line`: `test_phase3_payments.py::test_g3_bank_statement_bare_recommit_does_not_duplicate_auto_matches`. WF-37/38 remain genuinely blocked on D3 sandbox creds | **P1** | backend |
 | **G-11a** | Concurrency races never run locally (Postgres-only) | High — oversell / double-allocation corrupt money | Low (CI covers) | 🟡 | Document "run `pytest -m postgres` against a local PG container before touching allocation/stock code"; add to `CONTRIBUTING` + a pre-merge reminder | **P1** | backend |
-| **G-6b** | No keyboard-only POS a11y journey | High for ARCH-01 (H-02 assumes it) | Med | ⛔ | Playwright: complete POS with `keyboard.press` only, assert focus never leaves scan field, assert completion | **P1** | web |
+| **G-6b** | No keyboard-only POS a11y journey | High for ARCH-01 (H-02 assumes it) | Med | 🟡 (written, unexecuted — 2026-09-13) | Added `aria-label`s to the POS qty +/- buttons (only delete had one) and `web/e2e/pos-keyboard-checkout.spec.ts` — a 3-line add→qty→cash-checkout flow, zero `.click()`/mouse calls, asserts focus stays in the scan field across the scan loop and the whole flow finishes under the H-02 35s budget. **Not yet run**: this session's Bash and its dev-server preview harness run in separate network sandboxes, so Playwright couldn't reach a server either way it was started — run `npm run test:e2e -- e2e/pos-keyboard-checkout.spec.ts` to confirm before relying on it in CI | **P1** | web |
 | **G-1** | No persona journey for Godown-Keeper at a departmental firm (Model D); ARCH-04 count-variance not a journey | Med | Med | ✅ (2026-09-12) | Closed by `PJ-WHOLE-GODOWN` = `tests/personas/test_pj_stubs.py::test_pj_wholesale_godown_custodian` (QOS-0008: inward, transfer, deny-set) + `tests/personas/test_pj_stock_audit_and_adjustments.py::test_pj_custodian_physical_stock_count_and_adjustments` (count session with variance). See `FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md` §7. | **P2** | backend |
 | **G-2** | ARCH-05 near-expiry guard-band & policy on/off not a matrix dim; ARCH-06 bulk serial partial-failure & warranty-fraud untested | Med (Stage 4 archetypes) | Med | ✅ (2026-09-12) | Expiry-policy × guard-band axis — `tests/matrices/test_company_settings_matrix.py::test_expiry_guard_band_matrix` (tagged G-2/H-04b). Warranty-fraud — `tests/personas/test_pj_serialized.py::test_pj_serialized_lifecycle_and_warranty_fraud_guard`. Bulk-serial partial-failure — `tests/personas/test_pj_serialized.py::test_pj_bulk_serial_import_partial_failure_blocks_whole_job` (added 2026-09-12; bulk serial ingest is the `opening_serials` sheet on a PRODUCTS import — an earlier pass of this register incorrectly stated no such endpoint existed; it does, in `imports/services.py`, and PRODUCTS-kind commit is all-or-nothing, so the pinned behavior is "one bad row blocks the whole job," not a partial write). | **P2** | backend |
 | **G-5** | Broad page-level UX (~90 pages) has ~1 smoke each at best | Med — friction compounds | High | 🟡 | One render+no-console-error+axe smoke per top-20 route; keep the rest LIM | **P2** | web |
@@ -617,6 +619,7 @@ wasn't sufficient evidence of correctness on its own.
 | **G-21** | Period-lock gate (`assert_period_allows_money_amend`) not enforced: `purchases/grn_service.py::GoodsReceiptService.complete()`/`.cancel()` post valuation-carrying stock movements with no `gst_periods` import at all — sibling `PurchaseInvoice.complete()`/`.cancel()` gates consistently on `invoice_date` | Med — the underlying `StockMovement` always posts with today's date regardless (neither method passes `movement_date`), so the stock ledger itself can't be backdated; the real exposure is a GRN's own date/status changing a closed period's document/valuation picture after that period was filed | Low–Med | ✅ (2026-09-13) | Fixed: both methods now call `assert_period_allows_money_amend` on `grn.receipt_date` (`.cancel()` with `allow_soft_closed=True`, mirroring `PurchaseInvoice.cancel`). Regression: `tests/workflows/test_wf_grn.py::test_wf_grn_complete_blocked_in_soft_closed_period` / `::test_wf_grn_cancel_blocked_in_hard_closed_period`, both verified red-without-the-fix (temporarily reverted, confirmed failing, restored). Now also covered structurally by `guard_period_gate_coverage` | **P2** | backend |
 | **G-22** | Period-lock gate: `sales/notes_services.py::cancel_challan()` reverses the same stock posting its own `complete_challan()` gates on `challan_date` (CR-019) before posting — `cancel_challan()` has no gate call anywhere in the function | Med — same mitigating/exposure shape as G-21 (movement date isn't backdated; the challan's own status/date retroactively changes a closed period's picture) | Low–Med | ✅ (2026-09-13) | Fixed: `cancel_challan()` now calls the gate (guarded by `challan.stock_posted`, `allow_soft_closed=True`) before reversing the stock posting. Regression: `tests/test_a10_period_centralization.py::test_g22_challan_cancel_blocked_in_hard_closed_period`, verified red-without-the-fix. Now also covered structurally by `guard_period_gate_coverage` | **P2** | backend |
 | **G-period-gate-coverage** | No structural test asserted every money-amend `complete()`/`cancel()` calls `assert_period_allows_money_amend` — coverage was per-flow black-box tests only, so a newly-added flow forgetting the gate (as G-21/G-22 did) wasn't caught by anything until someone noticed in production | Med — this was the meta-gap that let G-21/G-22 ship unnoticed | Med — recurs every time a new money-amend document type is added | ✅ (2026-09-13) | Built `scripts/ci_gates/guards/guard_period_gate_coverage.py` — a static, `ast`-based registry guard (23 verified call sites across sales/purchases/notes/GRN/BoE/payments) that fails if any registered `complete()`/`cancel()` stops calling the gate. Auto-discovered and self-tested by `run_guards.py`/`--selftest` alongside `guard_no_raw_unit_cost_update`. Extend the registry (and `CROSS_FLOW_IMPACT_MAP.md` §6's call-site list) together as more sites are individually verified — don't add an entry you haven't personally confirmed | **P2** | backend |
+| **G-23** | `payments/dunning.py::customer_risk_snapshot()` filtered `SalesInvoice` to `COMPLETED` only, while the per-invoice outstanding-balance calc it sums (and the already-fixed G-20) both treat `(COMPLETED, RETURNED)` as balance-bearing — same bug shape as G-20, found while designing G-20's fix, not independently rediscovered | High — this snapshot feeds `sales/services.py`'s auto-credit-hold check at invoice completion, plus the customer-risk API/attention feed; a RETURNED invoice with genuine residual AR (a post-return debit note) was invisible to aging/overdue totals and could not trigger a credit hold that should have fired | Med — same root cause as G-17/18/20 | ✅ (2026-09-13, confirmed go by user before implementing — this one changes real credit-hold behavior) | Fixed: filter now uses `ledgers.services.OPEN_SALES_STATUSES`. Regression: `test_a07_dunning.py::test_g23_customer_risk_snapshot_sees_returned_invoice_with_residual_ar`, verified red-before-green | **P1** | backend |
 
 ---
 
@@ -655,36 +658,53 @@ boundary.
     space the function actually receives in production. Page-level render tests
     close the loop the unit test can't. → G-17.
 12. **"Each reader can independently re-derive what a status-set means."**
-    Six times now (G-17…G-22, CF-001), a reader wrote its own
+    Seven times now (G-17…G-20, G-23, CF-001), a reader wrote its own
     `status__in=(COMPLETED, RETURNED)` or equivalent instead of consuming one
     named, tested predicate — and drifted from a sibling reader that wrote the
-    same logic slightly differently. The structural fix is a small set of
-    canonical semantic predicates per shared state (e.g. for `SalesInvoice`:
-    `is_open_receivable()`, `is_operational_sale()`, `is_dunning_eligible()`)
-    that every reader calls instead of restating the status set — a reviewer
-    proposed this and it's the right long-term answer, but it's a real refactor
-    across ~9 money-adjacent files for `SalesInvoice` alone, in a codebase
-    under freeze-gate review. **Not done as part of closing G-17…G-22** — those
-    were fixed as targeted, additive, individually-verified changes instead,
-    which is the appropriate scope for a freeze-adjacent codebase. Treat the
-    predicate refactor as a deliberate, separately-scoped piece of work (pilot
-    it on one field first, most likely `SalesInvoice`, before generalizing) —
-    not something to retrofit opportunistically inside an unrelated PR.
+    same logic slightly differently. **Closed for `SalesInvoice` 2026-09-13**:
+    `backend/sales/status_semantics.py` now holds two predicates —
+    `is_open_receivable()` (may still owe money: outstanding/aging/
+    statements/payment-health/dunning/credit-risk) and `is_operational_sale()`
+    (counts as a live sale: analytics/attribution) — derived from what was
+    already correctly in use, not invented. No third "is_dunning_eligible"
+    predicate: traced it and confirmed dunning eligibility is
+    `is_open_receivable` plus a due-date rule, not a distinct status set.
+    Migrated as a sequence of small, individually-verified, behavior-preserving
+    commits (lowest-risk analytics readers first, `ledgers/services.py` and
+    `reporting/services.py` last, each step touching only the import + call-site
+    swap for that one reader) — exhaustively unit-tested in
+    `backend/tests/test_status_semantics.py` (parametrized over the full
+    `SalesInvoice.Status` enum, closing this exact weak assumption's own
+    lesson — item 11 above — for the predicates themselves). **`PurchaseInvoice`
+    is a deliberately separate, not-yet-started follow-up** — a wider,
+    GST-filing-adjacent reader set (`gstr2b.py`, `gst_health.py`,
+    `gst_returns.py`, `ims.py`), do after this pass has shipped and been
+    observed for a release.
 
 ## 9. High-value tests to add next (prioritized backlog)
 
 In priority order; each is small and closes a named gap.
 
-1. **Un-`fixme` FE SALES/ACCT role boundaries** (G-4) — add mock logins, assert
-   no dead mutate controls for either role across journals / users / sales.
-2. **Executed k6 smoke** (G-7) — 50 rps × 2 min against the `e2e-golden` stack;
-   assert p95 < budget and zero 5xx; advisory lane first, then blocking.
-3. **Webhook forgery sweep** (G-8) — parametrise every inbound webhook route with
-   {missing sig, wrong sig, replayed id}; all must 400 / no-op.
-4. **Keyboard-only POS journey** (G-6b) — Playwright, no mouse, focus stays in
-   the scan field, 5 lines complete under the H-02 budget with `performance.now()`.
-5. **Un-skip WF-33 bank reconciliation** (G-3) — no external dep; match
-   statement lines to GL, assert idempotent replay.
+1. ~~Un-`fixme` FE SALES/ACCT role boundaries~~ (G-4) — **done 2026-09-13**:
+   the login helpers and live spec blocks already existed; the actual bug
+   (mock `fetchCurrentUser()` always returning OWNER, making the blocks
+   pass vacuously) is fixed, see G-4's register row.
+2. **Executed k6 smoke** (G-7) — the scripts/CI job/fixture all already
+   exist; what's missing is a real p95/error-rate budget from a
+   staging-scale run before flipping `load-harness` from advisory to
+   blocking — see G-7's register row.
+3. ~~Webhook forgery sweep~~ (G-8) — **done, verified 2026-09-13**: every
+   inbound webhook already has signature verification, a forgery test, and
+   a structural guard against a new unenumerated one appearing. Only
+   remaining cleanup: retarget/remove the stale `test_wf17...` skip stub.
+4. **Keyboard-only POS journey** (G-6b) — written 2026-09-13
+   (`web/e2e/pos-keyboard-checkout.spec.ts` + the qty-button `aria-label`
+   fix), not yet executed — see the register row for why. Run it before
+   trusting it in CI.
+5. **WF-33 idempotent replay** (G-3) — the test itself already runs and
+   passes (not skipped); the one piece actually missing is asserting a
+   re-run of the same statement import/commit is a no-op, not just that
+   re-matching one line twice 400s.
 6. **`PJ-WHOLE-GODOWN`** (G-1) — the missing departmental Godown-Keeper journey
    with count-variance and a proper deny-set.
 7. **Large-tenant report/export timing fixture** (G-7) — 50k invoices; assert

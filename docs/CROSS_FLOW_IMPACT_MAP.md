@@ -76,21 +76,67 @@ computed, not stored (`backend/sales/serializers.py:178-196`).
   RETURNED→COMPLETED if no other completed return remains against the
   invoice.
 
-**Readers & assumptions**
-- `backend/ledgers/services.py:118` `OPEN_SALES_STATUSES = (COMPLETED, RETURNED)` — used in ~7 outstanding/aging/statement functions — **assumes a RETURNED invoice can still carry a balance** (true: the auto credit-note's unallocation doesn't always net to exactly zero).
-- `backend/reporting/services.py:30` `NET_SALES`/`OPEN_SALES = (COMPLETED, RETURNED)` — dashboard money totals (netted via CN subtraction, comment at `:195-197`) and `receivables_aging` — same assumption, consistent with ledgers.
-- `backend/insights/services.py:32` `OPEN_SALES = (COMPLETED,)` — **excludes RETURNED on purpose**: analytics (best-seller, trending, margin) treat a fully-reversed sale as never having happened.
-- `backend/insights/alerts.py:23` — mirrors `insights/services.py`'s COMPLETED-only definition (fixed 2026-09-12; previously wrongly included RETURNED, over-counting reversed sales in fast-mover/margin/concentration alerts — see G-17).
-- `backend/payments/dunning.py:137-139` — `status=COMPLETED` only (correctly excludes RETURNED — a sales-side dunning check with no known inconsistency, unlike its purchase-side and payment-allocation siblings below).
-- `backend/payments/services.py:1681-1683` — UPI reminder / payment-health query uses `status__in=(COMPLETED, RETURNED)` — assumes a returned invoice's residual balance still deserves a reminder link.
-- Frontend `web/src/utils/status.ts` `paidAwareStatus()` — the FE's own re-derivation of "what badge to show," consumed by `SalesHistoryPage.tsx`, `InvoiceDetailPage.tsx`, `DashboardPage.tsx` — fixed 2026-09-12 to gate the PAID override on `status === COMPLETED` first; previously a RETURNED invoice with a zeroed balance rendered "Paid."
+**Canonical predicates (2026-09-13)**: `backend/sales/status_semantics.py`
+now holds `is_open_receivable()` / `OPEN_RECEIVABLE_STATUSES` (may still owe
+money) and `is_operational_sale()` / `OPERATIONAL_SALE_STATUSES` (counts as
+a live sale) — every reader below either sources from this module directly
+or via a same-valued re-export, closing CF-001 as a class for this field
+(§8 weak assumption 12 in `TESTING_STRATEGY.md`). No third
+"is_dunning_eligible" predicate — dunning eligibility is `is_open_receivable`
+plus a due-date rule, not a distinct status set.
 
-**Known inconsistencies**: none currently open (G-17, fixed 2026-09-12).
+**Readers & assumptions**
+- `backend/ledgers/services.py` — `OPEN_SALES_STATUSES` is now a re-export
+  of `status_semantics.OPEN_RECEIVABLE_STATUSES` (was independently defined
+  until 2026-09-13) — used in ~7 outstanding/aging/statement functions —
+  **assumes a RETURNED invoice can still carry a balance** (true: the auto
+  credit-note's unallocation doesn't always net to exactly zero).
+- `backend/reporting/services.py` `NET_SALES`/`OPEN_SALES` — both now source
+  from `OPEN_RECEIVABLE_STATUSES` too (previously two independently-defined,
+  identically-valued constants) — dashboard money totals (netted via CN
+  subtraction), `receivables_aging`, `recent_invoices`/`invoice_count`
+  (normalized off an `exclude(DRAFT, CANCELLED)` spelling that encoded a
+  different intent but matched today), and `product_sales`/`customer_sales`
+  revenue ranking — same assumption, consistent with ledgers.
+- `backend/insights/services.py` `OPEN_SALES` — now sources
+  `OPERATIONAL_SALE_STATUSES` — **excludes RETURNED on purpose**: analytics
+  (best-seller, trending, margin) treat a fully-reversed sale as never
+  having happened.
+- `backend/insights/alerts.py` — same `OPERATIONAL_SALE_STATUSES` source
+  (fixed 2026-09-12; previously wrongly included RETURNED, over-counting
+  reversed sales in fast-mover/margin/concentration alerts — see G-17).
+- `backend/payments/dunning.py::eligible_invoices` — now sources
+  `OPEN_SALES_STATUSES` from `status_semantics` directly (fixed 2026-09-12,
+  G-20: previously `status=COMPLETED` only, excluding a RETURNED invoice
+  with residual AR from dunning even though the payment-health query below
+  already considered it outstanding).
+- `backend/payments/dunning.py::customer_risk_snapshot` — same source (fixed
+  2026-09-13, G-23: previously `status=COMPLETED` only, making that same
+  residual AR invisible to credit-risk aging/overdue and the
+  auto-credit-hold check that reads this snapshot).
+- `backend/payments/services.py` — UPI reminder / payment-health query now
+  sources `OPEN_RECEIVABLE_STATUSES` (was a raw string tuple) — assumes a
+  returned invoice's residual balance still deserves a reminder link.
+- Frontend `web/src/utils/status.ts` `paidAwareStatus()` — the FE's own
+  re-derivation of "what badge to show," consumed by `SalesHistoryPage.tsx`,
+  `InvoiceDetailPage.tsx`, `DashboardPage.tsx` — fixed 2026-09-12 to gate the
+  PAID override on `status === COMPLETED` first; previously a RETURNED
+  invoice with a zeroed balance rendered "Paid." Deliberately **not** folded
+  into the predicate module — different language/problem shape
+  (single-invoice display override, not queryset filtering).
+
+**Known inconsistencies**: none currently open (G-17/18/19/20/23 fixed;
+G-21/22 tracked under §6 below). The predicate module itself is exhaustively
+unit-tested (`backend/tests/test_status_semantics.py`), so a future reader
+adopting it can't silently reintroduce a hand-picked-cases-only test the way
+`paidAwareStatus()`'s original tests did (weak assumption #11).
 
 **Suggested tests**: `backend/tests/test_return_state_visibility.py` (backend
 `return_state` across full/partial/none); `web/src/pages/sales/*.test.tsx` +
 `web/src/pages/DashboardPage.test.tsx` (badge text across
-status × payment_state × return_state combinations).
+status × payment_state × return_state combinations);
+`backend/tests/test_status_semantics.py` (the predicates themselves,
+exhaustive over the full status enum).
 
 ---
 
@@ -327,19 +373,36 @@ added, assert its journal entry exists (mirrors the existing
   (payment-health / UPI-reminder alert) — filters
   `status__in=(COMPLETED, RETURNED)` before calling
   `bulk_sales_invoice_outstanding`.
+- **`backend/payments/dunning.py:445-460` `customer_risk_snapshot()`** —
+  filtered `status=COMPLETED` only, then summed each matching invoice's
+  outstanding balance into aging/overdue buckets. Feeds
+  `sales/services.py`'s auto-credit-hold check at invoice completion, plus
+  the customer-risk API and attention feed.
 
-**Known inconsistency — FIXED 2026-09-13**: the payment-health strip
-correctly flagged a RETURNED-but-still-outstanding invoice, but the dunning
-reminder pipeline silently excluded it one layer above where the outstanding
-check would say it owes money — so that invoice's customer was shown as
-"needs attention" in one surface and never got an actual reminder from the
-other. Tracked as **G-20**. `eligible_invoices()` now filters on
-`ledgers.services.OPEN_SALES_STATUSES`, matching the payment-health query.
+**Known inconsistency — FIXED 2026-09-13** (two instances, found together
+while designing G-20's fix — G-23 wasn't independently rediscovered, it
+surfaced from tracing every reader of this field in one pass):
+- **G-20**: the payment-health strip correctly flagged a
+  RETURNED-but-still-outstanding invoice, but the dunning reminder pipeline
+  silently excluded it one layer above where the outstanding check would
+  say it owes money — so that invoice's customer was shown as "needs
+  attention" in one surface and never got an actual reminder from the
+  other. `eligible_invoices()` now filters on
+  `ledgers.services.OPEN_SALES_STATUSES`, matching the payment-health query.
+- **G-23**: `customer_risk_snapshot()` made the exact same residual-AR
+  invisible to credit-risk aging/overdue, and by extension to the
+  auto-credit-hold check that reads it — a customer whose only overdue
+  exposure was a fully-returned invoice with genuine residual AR (a
+  post-return debit note) could not trigger a hold that should have fired.
+  Confirmed with the user before fixing, since this changes real
+  credit-hold behavior, not just a read-only report. Now filters on
+  `OPEN_SALES_STATUSES` too.
 
-**Regression test**: `test_a07_dunning.py::test_g20_eligible_invoices_matches_payment_health_for_returned_invoice`
-— partial payment, full return (CR-124 auto-unallocate nets it to zero on
-its own), then a post-return debit note leaves genuine residual AR; asserts
-the invoice is dunning-eligible.
+**Regression tests**: `test_a07_dunning.py::test_g20_eligible_invoices_matches_payment_health_for_returned_invoice`
+and `::test_g23_customer_risk_snapshot_sees_returned_invoice_with_residual_ar`
+— both build the same realistic scenario (partial payment, full return with
+CR-124 auto-unallocate netting to zero on its own, then a post-return debit
+note leaving genuine residual AR) and assert the respective reader now sees it.
 
 ---
 
