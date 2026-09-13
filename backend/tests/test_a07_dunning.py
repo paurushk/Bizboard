@@ -219,3 +219,82 @@ def test_auto_credit_hold_blocks_severe_overdue_customer_with_no_credit_limit(te
     resp = tenant_a.client.post(f"/api/v1/sales/invoices/{second_invoice['id']}/complete/")
     assert resp.status_code == 400, resp.data
     assert "collection hold" in str(resp.data).lower()
+
+
+def test_g20_eligible_invoices_matches_payment_health_for_returned_invoice(tenant_a):
+    """G-20: dunning.eligible_invoices() must agree with
+    payments.services.PaymentService.payment_health / ledgers.services.
+    OPEN_SALES_STATUSES on what "still owes money" means. A partially-paid
+    invoice that later gets fully returned (auto-unallocated per CR-124) can
+    still carry a residual AR (e.g. a post-return debit note) — that invoice
+    is already in the payment-health candidate set (status__in=(COMPLETED,
+    RETURNED)) and must not be silently skipped by dunning."""
+    from ledgers.services import LedgerService, OPEN_SALES_STATUSES
+    from payments.dunning import eligible_invoices
+    from sales.models import SalesDebitNote
+
+    data, product = _complete(tenant_a)
+    invoice = SalesInvoice.objects.get(pk=data["id"])
+    as_of = date(2026, 8, 31)
+    invoice.due_date = as_of - timedelta(days=10)
+    invoice.save(update_fields=["due_date"])
+    _enable_dunning(invoice.company)
+
+    receipt = tenant_a.client.post(
+        "/api/v1/payments/receipts/",
+        {"customer": invoice.customer_id, "amount": "50", "mode": "CASH"},
+        format="json",
+    )
+    assert receipt.status_code in (200, 201), receipt.data
+    alloc = tenant_a.client.post(
+        "/api/v1/payments/allocations/",
+        {"receipt": receipt.data["id"], "sales_invoice": invoice.id, "amount": "50"},
+        format="json",
+    )
+    assert alloc.status_code in (200, 201), alloc.data
+
+    ret = tenant_a.client.post(
+        "/api/v1/sales/returns/",
+        {
+            "customer": invoice.customer_id,
+            "sales_invoice": invoice.id,
+            "items": [{"product": product.id, "quantity": "2", "unit_price": "100"}],
+        },
+        format="json",
+    )
+    assert ret.status_code == 201, ret.data
+    done = tenant_a.client.post(f"/api/v1/sales/returns/{ret.data['id']}/complete/")
+    assert done.status_code == 200, done.data
+    invoice.refresh_from_db()
+    assert invoice.status == SalesInvoice.Status.RETURNED
+    # Sanity: the full return + CR-124 auto-unallocate nets the invoice to zero
+    # on its own -- the residual balance below comes from the debit note.
+    assert LedgerService.sales_invoice_outstanding(invoice) == Decimal("0")
+
+    src = invoice.items.get()
+    note = SalesDebitNote.objects.create(
+        company=invoice.company,
+        customer=invoice.customer,
+        sales_invoice=invoice,
+        note_date=invoice.invoice_date,
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+    from sales.notes_services import SalesNotesService
+
+    SalesNotesService.set_debit_note_items(
+        note,
+        [{"product": product, "quantity": Decimal("1"), "unit_price": Decimal("25"), "source_item": src}],
+        tenant_a.owner,
+    )
+    SalesNotesService.complete_debit_note(note, tenant_a.owner)
+
+    outstanding = LedgerService.sales_invoice_outstanding(invoice)
+    assert outstanding > 0
+
+    # payments/services.py's payment-health candidate query already includes
+    # RETURNED -- this must hold regardless of the dunning fix.
+    assert invoice.status in OPEN_SALES_STATUSES
+
+    eligible_ids = {inv.id for inv in eligible_invoices(invoice.company, as_of=as_of)}
+    assert invoice.id in eligible_ids, "RETURNED invoice with residual AR must be dunning-eligible"

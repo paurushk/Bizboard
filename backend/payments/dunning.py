@@ -133,10 +133,16 @@ def _reminder_count(invoice) -> int:
 def eligible_invoices(company, *, as_of: date):
     from sales.models import SalesInvoice
 
+    from ledgers.services import OPEN_SALES_STATUSES
+
+    # G-20: must agree with payments/services.py's payment-health candidate
+    # query (status__in=(COMPLETED, RETURNED)) — a partially-paid invoice
+    # that later gets fully returned can still carry residual AR (e.g. a
+    # post-return debit note) and must not be silently excluded from dunning.
     return (
         SalesInvoice.objects.filter(
             company=company,
-            status=SalesInvoice.Status.COMPLETED,
+            status__in=OPEN_SALES_STATUSES,
             due_date__isnull=False,
             due_date__lt=as_of,
         )

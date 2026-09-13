@@ -518,9 +518,12 @@ def forecast_cashflow(
     daily_in = expected_in / Decimal(horizon) if horizon else Decimal("0")
 
     ap_by_day: dict[date, Decimal] = {}
+    # G-18: RETURNED must count too, matching payables_aging/_ap's own
+    # (COMPLETED, RETURNED) treatment — a fully-returned purchase invoice can
+    # still carry a residual payable.
     qs = PurchaseInvoice.objects.filter(
         company=company,
-        status=PurchaseInvoice.Status.COMPLETED,
+        status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
         due_date__gte=as_of,
         due_date__lte=as_of + timedelta(days=horizon),
     )

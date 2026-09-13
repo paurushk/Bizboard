@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 import logging
 
-from django.db.models import Count, Sum
+from django.db.models import Count, F, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -20,7 +20,16 @@ from sales.models import SalesInvoice, SalesItem
 
 logger = logging.getLogger(__name__)
 
-OPEN_SALES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
+# Activity/analytics signal — was this product/customer/invoice actually part of a
+# standing sale? A fully-returned invoice is not (its `status` flips to RETURNED,
+# see sales/return_service.py), so it must drop out of "recently sold" / "fast
+# mover" / "customer concentration" / "margin" checks below. This mirrors
+# insights/services.py's OPEN_SALES (COMPLETED-only) — the two used to disagree
+# (this one wrongly included RETURNED, over-counting reversed sales in analytics;
+# G-17), which is a different concern from ledgers.OPEN_SALES_STATUSES or
+# reporting.OPEN_SALES, which correctly include RETURNED because a returned
+# invoice can still carry residual outstanding balance.
+OPEN_SALES = (SalesInvoice.Status.COMPLETED,)
 
 
 def _company_localtime(company):
@@ -110,9 +119,13 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
         rows = []
         due_to = as_of + timedelta(days=7)
         ap_due = Decimal("0")
+        # G-18: RETURNED must count — a fully-returned purchase invoice can
+        # still carry a residual payable (e.g. a post-return debit note),
+        # matching payables_aging / purchase_invoice_outstanding's own
+        # (COMPLETED, RETURNED) treatment of this status.
         for inv in PurchaseInvoice.objects.filter(
             company=company,
-            status=PurchaseInvoice.Status.COMPLETED,
+            status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
             due_date__gte=as_of,
             due_date__lte=due_to,
         ).only("id", "grand_total", "status"):
@@ -315,7 +328,9 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
     as_of = as_of or timezone.localdate()
     month_start = as_of.replace(day=1)
     rows: list[dict] = []
-    open_sales = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
+    # Same COMPLETED-only signal as the module-level OPEN_SALES above (G-17) — a
+    # fully-returned sale is not leakage on a live SKU/discount, it's a reversed one.
+    open_sales = OPEN_SALES
 
     # Sale below cost / expected margin this month (one row per SKU).
     seen_below: set[int] = set()
@@ -510,13 +525,18 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
     sold_ids.discard(None)
     dead_value = Decimal("0")
     dead_n = 0
+    # G-19: reserved-aware, matching low_stock_alert_payload / stock_score —
+    # a SKU fully reserved against an open sales order has zero *available*
+    # stock and must not be flagged (or money-valued) as dead.
     for bal in (
-        StockBalance.objects.filter(company=company, on_hand__gt=0)
+        StockBalance.objects.filter(company=company)
+        .annotate(_available=F("on_hand") - F("reserved"))
+        .filter(_available__gt=0)
         .exclude(product_id__in=sold_ids)
         .select_related("product")[:40]
     ):
         dead_n += 1
-        dead_value += (bal.on_hand or Decimal("0")) * (bal.product.purchase_price or Decimal("0"))
+        dead_value += (bal._available or Decimal("0")) * (bal.product.purchase_price or Decimal("0"))
     if dead_n:
         rows.append(row_factory(
             code="DEAD_STOCK",

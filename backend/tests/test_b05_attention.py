@@ -166,3 +166,38 @@ def test_attention_tenant_isolation(tenant_a, tenant_b):
     cu_b = tenant_b.company.memberships.get(user=tenant_b.owner)
     rows_b = build_attention_rows(tenant_b.company, company_user=cu_b)
     assert "SALE_BELOW_COST" not in {r["code"] for r in rows_b}
+
+
+@pytest.mark.django_db
+def test_g19_dead_stock_ignores_fully_reserved_stock(tenant_a):
+    """G-19: DEAD_STOCK must be reserved-aware (on_hand - reserved), matching
+    low_stock_alert_payload and the health-score stock_score. A SKU that is
+    fully reserved against an open sales order has zero *available* stock and
+    must not be flagged (or money-valued) as dead."""
+    from sales.models import SalesInvoice, SalesOrder
+    from sales.notes_services import SalesNotesService
+
+    product = make_product(tenant_a.company, sku="ATT-RESERVED", purchase_price="50", reorder_level="0")
+    add_stock(tenant_a, product, "40", unit_cost="50")
+    customer = make_customer(tenant_a.company)
+
+    order = SalesOrder.objects.create(
+        company=tenant_a.company,
+        customer=customer,
+        invoice_type=SalesInvoice.InvoiceType.NON_GST,
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+    SalesNotesService.set_order_items(
+        order,
+        [{"product": product, "quantity": Decimal("40"), "unit_price": Decimal("90"), "gst_rate": 0}],
+        tenant_a.owner,
+    )
+    SalesNotesService.confirm_sales_order(order, tenant_a.owner)
+    order.refresh_from_db()
+    assert order.status == SalesOrder.Status.CONFIRMED
+
+    cu = tenant_a.company.memberships.get(user=tenant_a.owner)
+    rows = build_attention_rows(tenant_a.company, company_user=cu)
+    codes = {r["code"] for r in rows}
+    assert "DEAD_STOCK" not in codes

@@ -14,6 +14,7 @@ from insights.services import (
     upsert_alerts,
 )
 from masters.models import Customer
+from tests.conftest import create_draft_purchase, make_product, make_supplier
 
 
 @pytest.mark.django_db
@@ -136,6 +137,80 @@ def test_month_token_usage_zero_when_no_rows(tenant_a):
     from insights.assistant import _month_token_usage
 
     assert _month_token_usage(tenant_a.company) == 0
+
+
+@pytest.mark.django_db
+def test_g18_ap_due_and_cashflow_include_returned_purchase_with_residual_payable(tenant_a):
+    """G-18: a fully-returned purchase invoice can still carry a residual
+    payable (e.g. a post-return debit note, CORRECTION_OF_INVOICE) — both
+    AP_DUE_7D and the cash-flow outflow forecast must see it, matching how
+    payables_aging / purchase_invoice_outstanding already treat
+    (COMPLETED, RETURNED) as the balance-bearing status set."""
+    from insights.alerts import build_business_alerts
+    from ledgers.services import LedgerService
+    from purchases.models import PurchaseDebitNote, PurchaseInvoice, PurchaseNoteReason
+    from purchases.notes_services import PurchaseNotesService
+
+    product = make_product(tenant_a.company, purchase_price="100", gst_rate="0")
+    supplier = make_supplier(tenant_a.company)
+    pur = create_draft_purchase(
+        tenant_a,
+        supplier,
+        [{"product": product.id, "quantity": "10", "unit_price": "100", "gst_rate": "0"}],
+        purchase_type="NON_GST",
+    )
+    assert tenant_a.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/").status_code == 200
+    invoice = PurchaseInvoice.objects.get(pk=pur["id"])
+    as_of = timezone.localdate()
+    invoice.due_date = as_of + timedelta(days=3)
+    invoice.save(update_fields=["due_date"])
+
+    ret = tenant_a.client.post(
+        "/api/v1/purchases/returns/",
+        {
+            "supplier": supplier.id,
+            "purchase_invoice": invoice.id,
+            "items": [{"product": product.id, "quantity": "10", "unit_price": "100"}],
+        },
+        format="json",
+    )
+    assert ret.status_code == 201, ret.data
+    done = tenant_a.client.post(f"/api/v1/purchases/returns/{ret.data['id']}/complete/")
+    assert done.status_code == 200, done.data
+    invoice.refresh_from_db()
+    assert invoice.status == PurchaseInvoice.Status.RETURNED
+
+    src = invoice.items.get()
+    note = PurchaseDebitNote.objects.create(
+        company=tenant_a.company,
+        supplier=supplier,
+        purchase_invoice=invoice,
+        reason=PurchaseNoteReason.CORRECTION_OF_INVOICE,
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+    PurchaseNotesService.set_debit_note_items(
+        note,
+        [{"product": product, "quantity": "1", "unit_price": "50", "gst_rate": "0", "source_item": src}],
+        tenant_a.owner,
+    )
+    PurchaseNotesService.complete_debit_note(note, tenant_a.owner, confirm_additional_debit=True)
+
+    outstanding = LedgerService.purchase_invoice_outstanding(invoice)
+    assert outstanding == Decimal("50.00")
+
+    from reporting.services import ReportService
+
+    aging = ReportService.payables_aging(tenant_a.company)
+    assert sum(aging.values(), Decimal("0")) == outstanding
+
+    alerts = build_business_alerts(tenant_a.company, as_of=as_of)
+    ap_alert = next((a for a in alerts if a["code"] == "AP_DUE_7D"), None)
+    assert ap_alert is not None, "RETURNED purchase invoice with residual payable must trigger AP_DUE_7D"
+
+    cf = forecast_cashflow(tenant_a.company, horizon=7, as_of=as_of)
+    total_outflow = sum(Decimal(p["outflow"]) for p in cf["series"])
+    assert total_outflow == outstanding
 
 
 @pytest.mark.django_db
@@ -339,6 +414,47 @@ def test_low_stock_fast_mover_uses_company_wide_qty(tenant_a):
     )
     resp = tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/complete/")
     assert resp.status_code == 200
+    codes = {a["code"] for a in build_business_alerts(tenant_a.company)}
+    assert "LOW_STOCK_FAST_MOVER" not in codes
+
+
+@pytest.mark.django_db
+def test_low_stock_fast_mover_ignores_fully_returned_invoice(tenant_a):
+    """G-17: a fully-returned invoice is not a live sale — it must not count
+    toward "sold in the last 14 days" and light up LOW_STOCK_FAST_MOVER.
+    insights/alerts.py's OPEN_SALES used to include RETURNED (disagreeing
+    with insights/services.py's own OPEN_SALES, which is COMPLETED-only),
+    so a reversed sale kept falsely flagging the product as a fast mover."""
+    from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
+
+    product = make_product(tenant_a.company, sku="LSFM-RET", reorder_level="10")
+    add_stock(tenant_a, product, "5", unit_cost="50")  # already below reorder, no sale needed
+    customer = make_customer(tenant_a.company)
+    draft = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+        invoice_type="NON_GST",
+    )
+    complete = tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/complete/")
+    assert complete.status_code == 200
+
+    # Sanity: while the sale stands, it IS a fast mover.
+    codes = {a["code"] for a in build_business_alerts(tenant_a.company)}
+    assert "LOW_STOCK_FAST_MOVER" in codes
+
+    created = tenant_a.client.post(
+        "/api/v1/sales/returns/",
+        {
+            "customer": customer.id,
+            "sales_invoice": draft["id"],
+            "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.data
+    completed_return = tenant_a.client.post(f"/api/v1/sales/returns/{created.data['id']}/complete/")
+    assert completed_return.status_code == 200, completed_return.data
+
     codes = {a["code"] for a in build_business_alerts(tenant_a.company)}
     assert "LOW_STOCK_FAST_MOVER" not in codes
 
