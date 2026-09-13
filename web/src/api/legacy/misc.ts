@@ -5,6 +5,7 @@ import {
   mockBankAccounts,
   mockCostCenters,
   mockFixedAssets,
+  mockJournalEntries,
   mockSearchResults,
 } from '@/mocks/data';
 import type { ImportJob, ImportKind, PurchaseBillCommitResult, SearchResult, AssistantMessage, AssistantThread, AttentionRow, BusinessAlert, CashflowForecast, DailyBusinessSummary, GrowthHint } from '@/types/domain';
@@ -361,11 +362,17 @@ export const listAccounts = () =>
 export const createAccount = (payload: Record<string, unknown>) => apiClient.post('/accounting/accounts/', payload).then(({ data }) => unwrapData(data));
 
 export async function listJournals(params?: Record<string, string>): Promise<import('@/types/domain').JournalEntry[]> {
-  return fetchAllPagesMasters<import('@/types/domain').JournalEntry>('/accounting/journals/', params);
+  return withMocks(
+    () => fetchAllPagesMasters<import('@/types/domain').JournalEntry>('/accounting/journals/', params),
+    mockJournalEntries,
+  );
 }
 
 export async function listJournalsPage(params?: PageParams): Promise<PageResult<import('@/types/domain').JournalEntry>> {
-  return fetchPage<import('@/types/domain').JournalEntry>('/accounting/journals/', params);
+  return withMocks(
+    () => fetchPage<import('@/types/domain').JournalEntry>('/accounting/journals/', params),
+    () => ({ results: mockJournalEntries, count: mockJournalEntries.length, next: null, previous: null }),
+  );
 }
 export type UnreconciledGlLine = {
   id: number;

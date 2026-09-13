@@ -6,6 +6,7 @@ import type {
   Customer,
   CustomerReceipt,
   DashboardKpis,
+  JournalEntry,
   PaymentLink,
   Product,
   PurchaseInvoice,
@@ -160,6 +161,58 @@ mockUser.company = mockCompany;
 mockSalesUser.company = mockCompany;
 mockViewerUser.company = mockCompany;
 mockAccountantUser.company = mockCompany;
+
+// Opt-in "books on" variants — every other mock persona shares mockCompany,
+// which deliberately leaves accountingEnabled unset (mirrors a real
+// never-turned-on-books tenant; accounting-domain.spec.ts and
+// reports-domain.spec.ts assert that default on purpose). These exist only
+// so a test can prove real accounting-page content renders once a company
+// *has* turned books on, without disturbing that shared default. Logged
+// into via e2e/helpers/auth.ts's loginAsOwnerBooksOn/loginAsAccountantBooksOn.
+//
+// Each variant's `email` is deliberately its own distinct address (not
+// inherited unchanged from mockUser/mockAccountantUser) — fetchCurrentUser()
+// re-resolves the persona from the *stored* email on every boot (the G-4
+// fix; see api/auth.ts), so if this object kept the base persona's plain
+// email, the very next reload after login would silently lose the
+// "books-on" signal and fall back to the books-off default, the same class
+// of bug G-4 fixed.
+export const mockCompanyAccountingEnabled: Company = { ...mockCompany, accountingEnabled: true };
+export const mockOwnerAccountingUser: User = {
+  ...mockUser,
+  email: 'owner-books-on@bizboard.local',
+  company: mockCompanyAccountingEnabled,
+};
+export const mockAccountantAccountingUser: User = {
+  ...mockAccountantUser,
+  email: 'accountant-books-on@bizboard.local',
+  company: mockCompanyAccountingEnabled,
+};
+
+export const mockJournalEntries: JournalEntry[] = [
+  {
+    id: 1,
+    number: 'JV-0001',
+    entryDate: '2026-08-01',
+    status: 'POSTED',
+    narration: 'Opening balance — HDFC Current a/c',
+    lines: [
+      { id: 1, account: 2, debit: 50000, credit: 0 },
+      { id: 2, account: 3, debit: 0, credit: 50000 },
+    ],
+  },
+  {
+    id: 2,
+    number: 'JV-0002',
+    entryDate: '2026-08-15',
+    status: 'DRAFT',
+    narration: 'Provision for August rent',
+    lines: [
+      { id: 3, account: 1, debit: 12000, credit: 0 },
+      { id: 4, account: 2, debit: 0, credit: 12000 },
+    ],
+  },
+];
 
 export const mockCustomers: Customer[] = [
   {

@@ -57,4 +57,24 @@ describe('mock-mode auth — fetchCurrentUser resolves the actual logged-in pers
     getStoredUser.mockReturnValue(null);
     expect((await fetchCurrentUser()).role).toBe('OWNER');
   });
+
+  it('a "books-on" email opts into the accountingEnabled:true mock company', async () => {
+    const { login } = await import('./auth');
+
+    const owner = (await login({ email: 'owner-books-on@bizboard.local', password: 'x' })).user;
+    expect(owner.role).toBe('OWNER');
+    expect(owner.company?.accountingEnabled).toBe(true);
+
+    const accountant = (await login({ email: 'accountant-books-on@bizboard.local', password: 'x' }))
+      .user;
+    expect(accountant.role).toBe('ACCOUNTANT');
+    expect(accountant.company?.accountingEnabled).toBe(true);
+
+    // the plain personas must still get the shared books-off default —
+    // accounting-domain.spec.ts / reports-domain.spec.ts depend on this.
+    expect(
+      (await login({ email: 'owner@bizboard.local', password: 'x' })).user.company
+        ?.accountingEnabled,
+    ).not.toBe(true);
+  });
 });

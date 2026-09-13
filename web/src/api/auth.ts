@@ -1,13 +1,25 @@
 import { apiClient, shouldUseMocks, unwrapData } from './client';
 import { getStoredUser, setAccessToken } from '@/auth/session';
-import { mockAccountantUser, mockSalesUser, mockUser, mockViewerUser } from '@/mocks/data';
+import {
+  mockAccountantAccountingUser,
+  mockAccountantUser,
+  mockOwnerAccountingUser,
+  mockSalesUser,
+  mockUser,
+  mockViewerUser,
+} from '@/mocks/data';
 import type { AuthTokens, User } from '@/types/domain';
 
 /** Same email-substring convention login() uses to pick a mock persona —
  * shared so fetchCurrentUser() resolves the actually-logged-in mock user
- * instead of always defaulting to OWNER. */
+ * instead of always defaulting to OWNER. A "books-on" email opts into the
+ * accountingEnabled:true company variant (see mocks/data.ts) instead of the
+ * shared books-off default every other persona uses. */
 function mockUserForEmail(email: string): User {
   const lower = email.toLowerCase();
+  if (lower.includes('books-on')) {
+    return lower.includes('accountant') ? mockAccountantAccountingUser : mockOwnerAccountingUser;
+  }
   if (lower.includes('viewer')) return mockViewerUser;
   if (lower.includes('sales')) return mockSalesUser;
   if (lower.includes('accountant')) return mockAccountantUser;

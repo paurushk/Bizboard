@@ -462,7 +462,7 @@ export const navigation: NavItem[] = [
     labelKey: 'nav.accounting',
     visible: (user) =>
       Boolean(user?.company?.accountingEnabled) &&
-      isAccountingFeatureEnabled() &&
+      isAccountingFeatureEnabled(user?.company?.accountingEnabled) &&
       canViewFinancialReports(user),
     children: [
       { id: 'chart-of-accounts', labelKey: 'nav.chartOfAccounts', path: '/accounting/accounts' },

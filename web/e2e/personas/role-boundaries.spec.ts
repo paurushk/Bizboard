@@ -14,9 +14,25 @@
  * SALES/ACCT session back to OWNER on the very next navigation. Fixed in
  * web/src/api/auth.ts (fetchCurrentUser now resolves from getStoredUser()'s
  * email, same convention login() already used) — see web/src/api/auth.test.ts.
+ *
+ * "reaches journals" below only proved the route wasn't blocked — the
+ * books-off "enable accounting" landing (the shared mock company's
+ * deliberate default; see accounting-domain.spec.ts) satisfies that same
+ * assertion, so it never actually proved JournalsPage's real content
+ * rendered for any role. loginAsOwnerBooksOn/loginAsAccountantBooksOn
+ * (helpers/auth.ts) opt into an accountingEnabled:true mock company
+ * (mocks/data.ts) so the two "sees real journal content" tests below can
+ * assert on the real page instead.
  */
 import { expect, test } from '@playwright/test';
-import { loginAsAccountant, loginAsOwner, loginAsSales, loginAsViewer } from '../helpers/auth';
+import {
+  loginAsAccountant,
+  loginAsAccountantBooksOn,
+  loginAsOwner,
+  loginAsOwnerBooksOn,
+  loginAsSales,
+  loginAsViewer,
+} from '../helpers/auth';
 
 test.describe('PJ-OWNER — full capability surface', () => {
   test('owner nav exposes journals, reports and user management', async ({ page }) => {
@@ -35,6 +51,20 @@ test.describe('PJ-OWNER — full capability surface', () => {
     await page.goto('/sales/new');
     await expect(page).toHaveURL(/\/sales\/new/);
     await expect(page).not.toHaveURL(/\/login/);
+  });
+
+  // The "not blocked" check above also passes against the books-off
+  // "enable accounting" landing (mockCompany deliberately leaves
+  // accountingEnabled unset — accounting-domain.spec.ts covers that state
+  // on purpose), so it never actually proved the real JournalsPage renders.
+  // loginAsOwnerBooksOn opts into the accountingEnabled:true mock company
+  // (mocks/data.ts) to close that gap.
+  test('owner sees real journal content once accounting is enabled', async ({ page }) => {
+    await loginAsOwnerBooksOn(page);
+    await page.goto('/accounting/journals');
+    await expect(page.getByRole('button', { name: 'New voucher' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open accounting settings' })).toHaveCount(0);
+    await expect(page.getByText('JV-0001')).toBeVisible();
   });
 });
 
@@ -108,6 +138,15 @@ test.describe('PJ-ACCT — books + reports, no sales creation', () => {
     await page.goto('/sales/new');
     const onForm = await page.getByRole('button', { name: /save draft|complete invoice/i }).count();
     expect(onForm, 'accountant must not get a working invoice form').toBe(0);
+  });
+
+  // Same gap as PJ-OWNER's "reaches journals" check above — this proves the
+  // real page content, not just an unblocked route.
+  test('accountant sees real journal content once accounting is enabled', async ({ page }) => {
+    await loginAsAccountantBooksOn(page);
+    await page.goto('/accounting/journals');
+    await expect(page.getByRole('link', { name: 'Open accounting settings' })).toHaveCount(0);
+    await expect(page.getByText('JV-0001')).toBeVisible();
   });
 });
 

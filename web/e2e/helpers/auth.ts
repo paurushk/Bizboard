@@ -20,6 +20,19 @@ const DEFAULT_ACCOUNTANT = {
   password: 'demo-password',
 };
 
+// "books-on" opts into the accountingEnabled:true mock company (mocks/data.ts)
+// instead of the shared books-off default every other persona uses — see
+// web/src/api/auth.ts's mockUserForEmail.
+const DEFAULT_OWNER_BOOKS_ON = {
+  email: 'owner-books-on@bizboard.local',
+  password: 'demo-password',
+};
+
+const DEFAULT_ACCOUNTANT_BOOKS_ON = {
+  email: 'accountant-books-on@bizboard.local',
+  password: 'demo-password',
+};
+
 /** POST /api/v1/auth/login/ and rely on Set-Cookie (real backend). */
 export async function loginViaApi(
   request: APIRequestContext,
@@ -60,4 +73,12 @@ export async function loginAsSales(page: Page) {
 
 export async function loginAsAccountant(page: Page) {
   await loginViaUi(page, DEFAULT_ACCOUNTANT);
+}
+
+export async function loginAsOwnerBooksOn(page: Page) {
+  await loginViaUi(page, DEFAULT_OWNER_BOOKS_ON);
+}
+
+export async function loginAsAccountantBooksOn(page: Page) {
+  await loginViaUi(page, DEFAULT_ACCOUNTANT_BOOKS_ON);
 }

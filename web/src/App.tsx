@@ -248,7 +248,12 @@ function allowCrm(user: User | null): boolean {
 
 function allowAccounting(user: User | null): boolean {
   return (
-    isAccountingFeatureEnabled() &&
+    // CR-162: company.accountingEnabled must dynamically activate this route
+    // the same way it does the nav (navigation/menu.ts) — passing it through
+    // lets a company that turned books on bypass a build/env with the
+    // static VITE_ENABLE_ACCOUNTING flag off, instead of leaving a nav item
+    // that's visible but whose route still shows "books off".
+    isAccountingFeatureEnabled(user?.company?.accountingEnabled) &&
     Boolean(user?.company?.accountingEnabled) &&
     canViewFinancialReports(user)
   );
