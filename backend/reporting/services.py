@@ -24,6 +24,7 @@ from sales.models import (
     SalesCreditNote,
     SalesDebitNote,
     SalesInvoice,
+    SalesReturn,
 )
 
 OPEN_SALES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
@@ -251,6 +252,13 @@ class ReportService:
         recent = SalesInvoice.objects.filter(company=company).exclude(
             status__in=(SalesInvoice.Status.DRAFT, SalesInvoice.Status.CANCELLED)
         ).order_by("-completed_at")[:5]
+        recent_list = list(recent.select_related("customer"))
+        partially_returned_ids = set(
+            SalesReturn.objects.filter(
+                sales_invoice_id__in=[i.id for i in recent_list],
+                status=SalesReturn.Status.COMPLETED,
+            ).values_list("sales_invoice_id", flat=True)
+        )
 
         # CR-060 / CR-065 / CR-153: aging once; KPI foots to the same document outstanding.
         aging = ReportService.receivables_aging(company)
@@ -285,8 +293,13 @@ class ReportService:
                     "grand_total": i.grand_total,
                     "balance": ReportService._invoice_balance(i),
                     "payment_state": _invoice_payment_state(i),
+                    "return_state": (
+                        "FULL"
+                        if i.status == SalesInvoice.Status.RETURNED
+                        else "PARTIAL" if i.id in partially_returned_ids else "NONE"
+                    ),
                 }
-                for i in recent.select_related("customer")
+                for i in recent_list
             ],
             "product_count": Product.objects.filter(company=company).count(),
             "invoice_count": SalesInvoice.objects.filter(company=company)

@@ -400,6 +400,8 @@ export interface SalesInvoice extends DocumentTotals {
   received?: string | number;
   balance?: string | number;
   paymentState?: 'UNPAID' | 'PAID_PENDING_BOOKS' | 'PAID';
+  /** Distinct from `status` — a partial return leaves `status` COMPLETED. */
+  returnState?: 'NONE' | 'PARTIAL' | 'FULL';
   completedAt?: string | null;
   cancelledAt?: string | null;
   warnings?: string[];
@@ -876,6 +878,7 @@ export interface DashboardKpis {
     grandTotal: string | number;
     balance?: string | number;
     paymentState?: string;
+    returnState?: 'NONE' | 'PARTIAL' | 'FULL';
   }>;
 }
 

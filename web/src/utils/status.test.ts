@@ -25,4 +25,13 @@ describe('paidAwareStatus', () => {
     );
     expect(documentStatusTone('PAID_PENDING_BOOKS')).toBe('info');
   });
+
+  it('keeps RETURNED visible even when the auto credit-note nets the balance to zero', () => {
+    expect(paidAwareStatus('RETURNED', 0, 'PAID')).toBe('RETURNED');
+    expect(paidAwareStatus('RETURNED', 0)).toBe('RETURNED');
+  });
+
+  it('keeps CANCELLED visible regardless of balance/payment state', () => {
+    expect(paidAwareStatus('CANCELLED', 0, 'PAID')).toBe('CANCELLED');
+  });
 });

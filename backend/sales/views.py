@@ -1,4 +1,4 @@
-from django.db.models import DecimalField, OuterRef, Subquery, Sum, Value
+from django.db.models import DecimalField, Exists, OuterRef, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import FileResponse
 from rest_framework import status
@@ -137,6 +137,15 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             _allocated=Coalesce(
                 Subquery(allocated, output_field=DecimalField(max_digits=14, decimal_places=2)),
                 Value(0, output_field=DecimalField(max_digits=14, decimal_places=2)),
+            )
+        )
+        # Bulk existence check so SalesInvoiceSerializer.get_return_state can flag a
+        # partial return (status stays COMPLETED) without an N+1 query per row.
+        qs = qs.annotate(
+            _has_completed_return=Exists(
+                SalesReturn.objects.filter(
+                    sales_invoice_id=OuterRef("pk"), status=SalesReturn.Status.COMPLETED
+                )
             )
         )
         # B2-020: validate before feeding query params to the ORM so bad input
@@ -704,6 +713,8 @@ class SalesReturnViewSet(CompanyScopedViewSet):
             qs = qs.filter(status=self.request.query_params["status"])
         if self.request.query_params.get("customer"):
             qs = qs.filter(customer_id=self.request.query_params["customer"])
+        if self.request.query_params.get("sales_invoice"):
+            qs = qs.filter(sales_invoice_id=self.request.query_params["sales_invoice"])
         return qs
 
     def create(self, request, *args, **kwargs):

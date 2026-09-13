@@ -101,6 +101,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
     balance = serializers.SerializerMethodField()
     whatsapp_offer = serializers.SerializerMethodField()
     payment_state = serializers.SerializerMethodField()
+    return_state = serializers.SerializerMethodField()
 
     class Meta:
         model = SalesInvoice
@@ -126,7 +127,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "completed_at", "cancelled_at", "created_at", "updated_at",
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
             "whatsapp_sent_at", "whatsapp_offer",
-            "payment_state",
+            "payment_state", "return_state",
         ] + TOTAL_READONLY
         read_only_fields = [
             "number", "status", "pdf_status", "pdf_file", "received", "balance",
@@ -135,7 +136,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "completed_at", "cancelled_at", "is_opening_balance",
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
             "whatsapp_sent_at", "whatsapp_offer",
-            "payment_state",
+            "payment_state", "return_state",
             "tcs_amount_manual",
         ] + TOTAL_READONLY + RCM_READONLY
 
@@ -181,6 +182,25 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         if obj.status == SalesInvoice.Status.DRAFT:
             return "UNPAID"
         return invoice_payment_state(obj)
+
+    def get_return_state(self, obj):
+        """NONE / PARTIAL / FULL — distinct from `status`, which only flips to
+        RETURNED once every line is fully returned. A partial return leaves
+        `status` at COMPLETED (it's still a valid, active sale for the items
+        the customer kept), so callers that need to flag "some items came
+        back" without losing that status read this instead."""
+        if obj.status == SalesInvoice.Status.RETURNED:
+            return "FULL"
+        if obj.status != SalesInvoice.Status.COMPLETED:
+            return "NONE"
+        has_return = getattr(obj, "_has_completed_return", None)
+        if has_return is None:
+            from .models import SalesReturn
+
+            has_return = SalesReturn.objects.filter(
+                sales_invoice=obj, status=SalesReturn.Status.COMPLETED
+            ).exists()
+        return "PARTIAL" if has_return else "NONE"
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")

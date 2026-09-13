@@ -359,10 +359,15 @@ export function DashboardPage() {
                   <TableCell>{inv.date}</TableCell>
                   <TableCell>{inv.customer ?? '—'}</TableCell>
                   <TableCell>
-                    <StatusChip
-                      tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
-                      labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
-                    />
+                    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                      <StatusChip
+                        tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
+                        labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
+                      />
+                      {inv.returnState === 'PARTIAL' ? (
+                        <StatusChip tone="warning" labelKey="status.PARTIALLY_RETURNED" />
+                      ) : null}
+                    </Stack>
                   </TableCell>
                   <TableCell align="right">
                     <MoneyText value={inv.grandTotal} />

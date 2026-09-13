@@ -35,6 +35,7 @@ import {
   getUpiQr,
   listAllocationsPage,
   listPaymentLinksPage,
+  listSalesReturns,
   shareInvoice,
   sharePaymentLink,
   unallocatePayment,
@@ -187,6 +188,14 @@ export function InvoiceDetailPage() {
     queryKey: ['invoice-allocations', invoiceId],
     queryFn: () => listAllocationsPage({ sales_invoice: invoiceId, pageSize: 50 }),
     enabled: Number.isFinite(invoiceId) && (query.data?.status === 'COMPLETED' || query.data?.status === 'RETURNED'),
+  });
+
+  const invoiceReturns = useQuery({
+    queryKey: ['invoice-sales-returns', invoiceId],
+    queryFn: () => listSalesReturns({ sales_invoice: String(invoiceId) }),
+    enabled:
+      Number.isFinite(invoiceId) &&
+      (query.data?.status === 'RETURNED' || query.data?.returnState === 'PARTIAL'),
   });
 
   const unallocateMutation = useMutation({
@@ -412,6 +421,9 @@ export function InvoiceDetailPage() {
               tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
               labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
             />
+            {inv.returnState === 'PARTIAL' ? (
+              <StatusChip tone="warning" labelKey="status.PARTIALLY_RETURNED" />
+            ) : null}
             <Chip size="small" label={inv.invoiceType} variant="outlined" />
             <Typography variant="body2" color="text.secondary">
               {inv.invoiceDate}
@@ -604,6 +616,48 @@ export function InvoiceDetailPage() {
               </TableBody>
             </Table>
           )}
+        </Paper>
+      ) : null}
+
+      {(invoiceReturns.data ?? []).length > 0 ? (
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary">
+            {t('billing.relatedReturns')}
+          </Typography>
+          <Divider sx={{ my: 1 }} />
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>{t('common.number')}</TableCell>
+                <TableCell>{t('common.date')}</TableCell>
+                <TableCell>{t('common.status')}</TableCell>
+                <TableCell align="right">{t('common.total')}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(invoiceReturns.data ?? []).map((ret) => (
+                <TableRow key={ret.id}>
+                  <TableCell>
+                    <Typography
+                      component={RouterLink}
+                      to="/sales/returns"
+                      sx={{ color: 'primary.main', textDecoration: 'none' }}
+                    >
+                      {ret.number?.trim() ? ret.number : `#${ret.id}`}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>{ret.returnDate}</TableCell>
+                  <TableCell>
+                    <StatusChip
+                      tone={documentStatusTone(ret.status)}
+                      labelKey={statusLabelKey(ret.status)}
+                    />
+                  </TableCell>
+                  <TableCell align="right">{formatMoney(ret.grandTotal)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </Paper>
       ) : null}
 
