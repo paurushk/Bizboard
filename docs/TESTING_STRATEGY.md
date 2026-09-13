@@ -10,6 +10,7 @@ CONDITIONALLY SUPPORTED + demoted KNOWN LIMITATIONS.
 | [`BUSINESS_ARCHETYPES_AND_PERSONAS.md`](BUSINESS_ARCHETYPES_AND_PERSONAS.md) | *Who* we test for — archetypes, personas, buying roles, validation hypotheses H-01…H-05 |
 | [`FREEZE_SCOPE.md`](FREEZE_SCOPE.md) | *What* is in scope — SUPPORTED / NOT SUPPORTED / KNOWN LIMITATIONS, frozen flag profile |
 | [`FREEZE_SCOPE_COVERAGE.md`](FREEZE_SCOPE_COVERAGE.md) | *Line-item wiring* — each SUPPORTED item → its gating test or an explicit GAP |
+| [`CROSS_FLOW_IMPACT_MAP.md`](CROSS_FLOW_IMPACT_MAP.md) | *Who else reads this* — fan-out map for shared mutable fields (invoice status, stock balance, allocations) with per-reader assumptions; the source for G-17…G-20 below |
 | **this doc** | *How* we build confidence — the layer model, the per-journey question set, the gap register, the regression discipline, the evidence/sign-off model |
 | [`pilot/UAT_CHECKLIST.md`](pilot/UAT_CHECKLIST.md), [`pilot/GO_NO_GO.md`](pilot/GO_NO_GO.md) | Human sign-off gates that consume this strategy's evidence |
 | [`ca/CA_SIGN_OFF_CHECKLIST.md`](ca/CA_SIGN_OFF_CHECKLIST.md) | CA-blessed tax scenarios F1–F8, guarded by `guard_ca_tax_parity` |
@@ -60,6 +61,17 @@ a regression* exists.
 | L5 | **Matrices** | Does a *setting* or *place-of-supply* change behaviour the way the spec says, across the whole grid? | `tests/matrices/test_company_settings_matrix.py`, `test_gst_settings_matrix.py`, `tests/gst/test_place_of_supply_matrix.py` | Interactions outside the grid dimensions |
 | L6 | **Golden e2e + FE** | Does the real browser against the real backend produce the deliverable (invoice PDF, isolation 404, role-hidden nav, no axe violations)? | `web/e2e-golden/personas-golden.spec.ts` (live Django+PG), `web/e2e/` (light, mocked), `web/e2e/personas/`, `web/e2e/a11y.spec.ts`, vitest units | Scale; network degradation; devices beyond Chromium; subjective friction |
 | L7 | **Exploratory + pilot fieldwork** | Is it usable, fast, trustworthy, and *worth paying for* with real staff and real data? | `pilot/UAT_CHECKLIST.md`, `pilot/ARCH03_PILOT_RUNBOOK.md`, validation hypotheses H-01…H-05, CA sign-off | Nothing automatable replaces this; it is the top of the pyramid, not a nice-to-have |
+| L8 | **Cross-flow state consistency** | When a flow writes a shared, mutable piece of business state (an invoice's status, a stock balance, a period-lock gate), do *all other* flows that read or must enforce that state still agree with it? | `docs/CROSS_FLOW_IMPACT_MAP.md` (the field-by-field fan-out registry) + `scripts/ci_gates/guards/guard_period_gate_coverage.py` (static enforcement-consistency guard) + the regression tests each map entry cites | Interactions the map hasn't been extended to cover yet — it's seeded from fields that already caused a bug, not exhaustive by design (see the map's own "why this exists") |
+
+L1–L7 each ask "does this one flow work?" L8 asks a different question:
+**when this flow changes shared state, does every other flow's *interpretation*
+of that state still match?** G-17 through G-22 (§7) are all L8 failures — a
+value or gate had multiple independent readers/enforcers that silently
+disagreed, and no lower layer could have caught it because each reader's own
+tests only exercised the inputs its author thought to write. L8 is deliberately
+light-touch relative to L1–L7: a hand-maintained map plus targeted structural
+guards, not a generic framework — see the map's own scoping rationale for why
+that's a feature, not a shortcut taken for lack of time.
 
 **Strict sweep.** `INVARIANTS_STRICT=1` runs L1 in a `pytest_runtest_call`
 hookwrapper after **every** test in the suite, not just the invariant tests — so
@@ -559,6 +571,25 @@ These are **G-15 / G-16** in the register.
 Ranked by **impact × likelihood**. "Blocked" = needs an external dependency, not
 effort. Reconcile with `FREEZE_SCOPE_COVERAGE.md` "Open GAPs" when items close.
 
+**CF-001 — shared-state semantic drift.** G-17 through G-22 are not six
+unrelated bugs; they are six instances of one defect *class*: two independent
+readers (or enforcers) of the same shared business state quietly disagreeing
+about what it means, because each was written and tested in isolation. Treat
+new instances of this class as CF-001, not as a fresh one-off gap — the fix
+that actually closes CF-001 as a class (not just its individual instances) is
+the canonical-semantics recommendation at §8, weak assumption 12.
+
+**Trust-breaking defects are P0/P1 regardless of code-change size.** Any
+defect that can produce wrong money, wrong tax, wrong stock, wrong
+customer/supplier balance, unauthorized visibility, silent data loss, a
+duplicate transaction, incorrect statutory output, a misleading business
+insight, a false "Paid"/"Outstanding" state, or irreversible corruption gets
+this classification the moment it's found, independent of how small the
+underlying diff is to fix. G-17 is the canonical example: one line of wrong
+precedence in a frontend helper, but it altered what a user believed about
+their own money — that's why a unit-tested helper (§8, weak assumption 11)
+wasn't sufficient evidence of correctness on its own.
+
 | ID | Gap / risk | Impact | Likelihood | State | Proposed test | Prio | Owner |
 |---|---|---|---|---|---|---|---|
 | **G-14** | No CA has filed from the worksheets (H-05) | Critical — the core value prop | Unknown | Blocked on pilot | Stage 3 fieldwork, live filing window, 3–5 CAs | **P0** | founder / pilot |
@@ -579,6 +610,13 @@ effort. Reconcile with `FREEZE_SCOPE_COVERAGE.md` "Open GAPs" when items close.
 | **G-15/16** | Delight has no automated latency/friction budgets | Med | High | ⛔ | See §6.10 table — POS wall-clock, dashboard render budget, modal-count assertions | **P2** | web |
 | **G-determinism** | `determinism-probe` advisory: 5 clock-brittle tests | Low | — | Advisory | Make the 5 fixtures' dates relative to `timezone.now()`; flip probe to blocking | **P2** | backend |
 | **G-mutation** | Mutation audit blocked (mutmut = WSL/Linux only) | Med — line coverage ≠ behaviour coverage | — | Blocked (Windows) | Run `scripts/mutation_audit.sh` in a Linux CI lane (advisory), triage survivors on the money/tax/stock modules first | **P2** | backend |
+| **G-17** | FE-computed display fields (status badges, derived flags) diverge from backend-authoritative state across status combinations; zero page-level render tests for status/history/detail screens | High — found live 2026-09-12: `paidAwareStatus()` checked `payment_state` before `status`, so a fully-returned invoice (auto-CN nets its balance to 0) rendered as "Paid," masking the return; `status.test.ts` only ever exercised `status='COMPLETED'` inputs, so the RETURNED×PAID combination was never hit | Med — recurs anywhere FE duplicates backend precedence logic instead of trusting one server-computed field | ✅ (2026-09-12) | Fixed the instance (`paidAwareStatus` gates on `status` first); added server-side `return_state` (NONE/PARTIAL/FULL) + `test_return_state_visibility.py`. Sibling bug fixed: `insights/alerts.py` `OPEN_SALES` wrongly included RETURNED (disagreed with `insights/services.py`'s own COMPLETED-only `OPEN_SALES` of the same name) — best-seller/fast-mover analytics counted reversed sales; regression pinned in `test_phase6_insights.py::test_low_stock_fast_mover_ignores_fully_returned_invoice` (verified red without the fix). Closed by page-level fixture-matrix render tests asserting visible badge text across status × payment_state × return_state: `SalesHistoryPage.test.tsx`, `InvoiceDetailPage.test.tsx`, `DashboardPage.test.tsx`, `PurchaseHistoryPage.test.tsx` (parity check — this list has no payment-state overlay to begin with). Traced further in `CROSS_FLOW_IMPACT_MAP.md`, which surfaced 3 more instances of the same shape — G-18/G-19/G-20 below | **P1** | web / backend |
+| **G-18** | `PurchaseInvoice.status`: AP_DUE_7D alert (`insights/alerts.py::_ap`) and cash-flow forecast (`insights/services.py::forecast_cashflow`) filter `status=COMPLETED` only, excluding RETURNED — but `payables_aging`/dashboard/`LedgerService.purchase_invoice_outstanding` all treat RETURNED as balance-bearing | High — a fully-returned purchase invoice with a residual payable (partial-return/debit-note mismatch) silently never triggers an AP-due alert or shows in the 14-day outflow forecast, though it counts in payables totals | Med — same root cause as G-17, mirrored on the purchase/AP side | ✅ (2026-09-13) | Fixed: both filters now include RETURNED. Regression: `test_phase6_insights.py::test_g18_ap_due_and_cashflow_include_returned_purchase_with_residual_payable` — a real scenario (full return + post-return debit note leaves a genuine ₹50 residual payable), asserts `payables_aging`, `AP_DUE_7D`, and `forecast_cashflow` all agree | **P1** | backend |
+| **G-19** | `StockBalance`: `DEAD_STOCK` alert (`insights/alerts.py:524-530`) money-values raw `on_hand` with no `reserved` subtraction, while `low_stock_alert_payload` and the health-score `stock_score` are both reserved-aware | Med — a SKU fully reserved against an open sales order (`available == 0`) can be flagged and money-valued as "dead stock" in the same breath other logic treats it as committed/unavailable | Low–Med | ✅ (2026-09-13) | Fixed: both the filter and the money-valuation now use `on_hand - reserved` (an `F()`-annotated `_available`), not just the valuation — a fully-reserved SKU no longer qualifies as a DEAD_STOCK candidate at all. Regression: `test_b05_attention.py::test_g19_dead_stock_ignores_fully_reserved_stock` (confirms a SKU reserved against a confirmed sales order) | **P2** | backend |
+| **G-20** | `PaymentAllocation`: dunning (`payments/dunning.py::eligible_invoices`) filters `status=COMPLETED` only; the payment-health/UPI-reminder alert (`payments/services.py::_payment_health_uncached`) filters `status__in=(COMPLETED, RETURNED)` for the same underlying outstanding-balance question | High — a partially-paid invoice that later gets fully returned (still outstanding after auto-unallocate) shows as "needs attention" in the payment-health strip but never receives an actual dunning reminder | Med — same root cause as G-17/G-18, on the receivables-reminder side | ✅ (2026-09-13) | Fixed: `eligible_invoices()` now filters on `ledgers.services.OPEN_SALES_STATUSES` instead of `COMPLETED`-only. Regression: `test_a07_dunning.py::test_g20_eligible_invoices_matches_payment_health_for_returned_invoice` — a real scenario (partial payment, full return, CR-124 auto-unallocate nets to zero, then a post-return debit note leaves genuine residual AR), asserts the invoice is dunning-eligible | **P1** | backend |
+| **G-21** | Period-lock gate (`assert_period_allows_money_amend`) not enforced: `purchases/grn_service.py::GoodsReceiptService.complete()`/`.cancel()` post valuation-carrying stock movements with no `gst_periods` import at all — sibling `PurchaseInvoice.complete()`/`.cancel()` gates consistently on `invoice_date` | Med — the underlying `StockMovement` always posts with today's date regardless (neither method passes `movement_date`), so the stock ledger itself can't be backdated; the real exposure is a GRN's own date/status changing a closed period's document/valuation picture after that period was filed | Low–Med | ✅ (2026-09-13) | Fixed: both methods now call `assert_period_allows_money_amend` on `grn.receipt_date` (`.cancel()` with `allow_soft_closed=True`, mirroring `PurchaseInvoice.cancel`). Regression: `tests/workflows/test_wf_grn.py::test_wf_grn_complete_blocked_in_soft_closed_period` / `::test_wf_grn_cancel_blocked_in_hard_closed_period`, both verified red-without-the-fix (temporarily reverted, confirmed failing, restored). Now also covered structurally by `guard_period_gate_coverage` | **P2** | backend |
+| **G-22** | Period-lock gate: `sales/notes_services.py::cancel_challan()` reverses the same stock posting its own `complete_challan()` gates on `challan_date` (CR-019) before posting — `cancel_challan()` has no gate call anywhere in the function | Med — same mitigating/exposure shape as G-21 (movement date isn't backdated; the challan's own status/date retroactively changes a closed period's picture) | Low–Med | ✅ (2026-09-13) | Fixed: `cancel_challan()` now calls the gate (guarded by `challan.stock_posted`, `allow_soft_closed=True`) before reversing the stock posting. Regression: `tests/test_a10_period_centralization.py::test_g22_challan_cancel_blocked_in_hard_closed_period`, verified red-without-the-fix. Now also covered structurally by `guard_period_gate_coverage` | **P2** | backend |
+| **G-period-gate-coverage** | No structural test asserted every money-amend `complete()`/`cancel()` calls `assert_period_allows_money_amend` — coverage was per-flow black-box tests only, so a newly-added flow forgetting the gate (as G-21/G-22 did) wasn't caught by anything until someone noticed in production | Med — this was the meta-gap that let G-21/G-22 ship unnoticed | Med — recurs every time a new money-amend document type is added | ✅ (2026-09-13) | Built `scripts/ci_gates/guards/guard_period_gate_coverage.py` — a static, `ast`-based registry guard (23 verified call sites across sales/purchases/notes/GRN/BoE/payments) that fails if any registered `complete()`/`cancel()` stops calling the gate. Auto-discovered and self-tested by `run_guards.py`/`--selftest` alongside `guard_no_raw_unit_cost_update`. Extend the registry (and `CROSS_FLOW_IMPACT_MAP.md` §6's call-site list) together as more sites are individually verified — don't add an entry you haven't personally confirmed | **P2** | backend |
 
 ---
 
@@ -611,8 +649,27 @@ boundary.
 10. **"The frozen flag profile is what pilots run."** Deviations are "documented
     exceptions" — but nothing tests the *deviated* profile. If a pilot host flips
     a flag, that combination is untested.
-
----
+11. **"A unit-tested display helper is a tested display helper."** `paidAwareStatus()`
+    had passing tests and still shipped a masked-return bug, because its tests only
+    covered the inputs someone thought to write, not the full state-combination
+    space the function actually receives in production. Page-level render tests
+    close the loop the unit test can't. → G-17.
+12. **"Each reader can independently re-derive what a status-set means."**
+    Six times now (G-17…G-22, CF-001), a reader wrote its own
+    `status__in=(COMPLETED, RETURNED)` or equivalent instead of consuming one
+    named, tested predicate — and drifted from a sibling reader that wrote the
+    same logic slightly differently. The structural fix is a small set of
+    canonical semantic predicates per shared state (e.g. for `SalesInvoice`:
+    `is_open_receivable()`, `is_operational_sale()`, `is_dunning_eligible()`)
+    that every reader calls instead of restating the status set — a reviewer
+    proposed this and it's the right long-term answer, but it's a real refactor
+    across ~9 money-adjacent files for `SalesInvoice` alone, in a codebase
+    under freeze-gate review. **Not done as part of closing G-17…G-22** — those
+    were fixed as targeted, additive, individually-verified changes instead,
+    which is the appropriate scope for a freeze-adjacent codebase. Treat the
+    predicate refactor as a deliberate, separately-scoped piece of work (pilot
+    it on one field first, most likely `SalesInvoice`, before generalizing) —
+    not something to retrofit opportunistically inside an unrelated PR.
 
 ## 9. High-value tests to add next (prioritized backlog)
 
@@ -673,6 +730,7 @@ Run by `scripts/ci_gates/run_guards.py`, each self-tested by `--selftest`:
 | Guard | Blocks |
 |---|---|
 | `guard_no_raw_unit_cost_update` | raw `unit_cost` write bypassing `stamp_cost` |
+| `guard_period_gate_coverage` (G-21/G-22) | a registered money-amend `complete()`/`cancel()` dropping its `assert_period_allows_money_amend` call |
 | `guard_config_consistency` (FG-1) | a feature flag in code not classified in `FREEZE_SCOPE.md` |
 | `guard_regression_corpus_grows` | a deleted regression test |
 | `guard_required_checks_match` | `ci.yml` jobs vs `REQUIRED_CHECKS.txt` drift |
