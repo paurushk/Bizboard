@@ -5,7 +5,10 @@ every §G/§H flow marked **SUP** is listed here with the **concrete** test(s) t
 gate it, or an explicit **GAP** / **not gated** line. The `FG-2x` codes in
 `FREEZE_SCOPE.md` are plan labels; this file is the actual wiring.
 
-Last reconciled: 2026-09-10. Backend suite paths are under `backend/`.
+Last reconciled: 2026-09-10, spot-corrected 2026-09-13 (A25/H10 webhook
+mis-blocking, WF-33 bank-rec staleness, determinism-probe closure) against
+this session's own verified fixes — not a full re-sweep. Backend suite
+paths are under `backend/`.
 
 ## Legend
 
@@ -47,7 +50,7 @@ Last reconciled: 2026-09-10. Backend suite paths are under `backend/`.
 | A22 | Money representation | ✅ | invariant `money.header_totals_identity`, `tests/test_money_contract.py` |
 | A23 | Counter POS (D1) | ✅ | `test_wf19_pos_checkout`, `test_pj_retail_owner_normal_day`, `test_pj_retail_sales_staff_boundary` |
 | A24 | TDS / TCS (D2) | ✅ | `test_wf34_tcs_on_sales_206c`, `test_wf35_tds_on_purchases_194q`, `test_wf36_tds_tcs_worksheets_reconcile` |
-| A25 | Online payment collection (D3, sandbox) | 🚫 | `test_wf17_gateway_webhook_capture_and_replay` / `test_wf37_refunds` / `test_wf38_mdr_settlement_reconciliation` skipped — **need Cashfree/PayU sandbox credentials + `SANDBOX_WEBHOOK_SECRET` in CI**. `test_wf51_idempotency_contract` covers the replay-safety pattern generically |
+| A25 | Online payment collection (D3, sandbox) | 🚫 | The **live sandbox gateway** flow (`test_wf37_refunds` / `test_wf38_mdr_settlement_reconciliation`) is still skipped — needs real Cashfree/PayU sandbox credentials + `SANDBOX_WEBHOOK_SECRET` in CI, unchanged. `test_wf51_idempotency_contract` covers the replay-safety pattern generically. **`test_wf17_gateway_webhook_capture_and_replay` retargeted 2026-09-13** (was a permanently-skipped D3-blocked placeholder) — its actual scope (signature verification, replay-is-a-no-op, closed-period park+reconcile, cancelled-invoice park+auto-refund) turned out to need no live creds at all and is fully covered under other names; see H10 below and G-8 in `TESTING_STRATEGY.md`. Don't re-block A25 on WF-17 — only the genuine live-gateway E2E (refunds/MDR) remains creds-blocked |
 | A26 | OTP login (D4) | 🟡 | `tests/test_auth.py::test_otp_*` (hashing / debug gate); dedicated `test_wf18_otp_login_and_ratelimit` still skipped — rate-limit assertion needs throttling enabled in `settings_test` |
 
 ## C. KNOWN LIMITATIONS — route guards (scope revision 2026-09-09b)
@@ -68,7 +71,7 @@ Last reconciled: 2026-09-10. Backend suite paths are under `backend/`.
 | Chart of accounts management | ✅ | `test_wf30_chart_of_accounts_management` |
 | Financial-year close | ✅ | `test_wf31_financial_year_close` |
 | Opening balance entry | ✅ | `test_wf32_opening_balance_entry`, `test_pj_migration_trader_cutover_and_reconcile`, `test_pj_migration_wholesale_large_cutover_with_history` (callable `reports.opening_ties_out`) |
-| Bank reconciliation | 🟡 | `test_wf33_bank_reconciliation` skipped; `test_wf41_bank_statement_import_and_matching` covers AA statement ingest + auto/'human' match + idempotent replay |
+| Bank reconciliation | ✅ | `test_wf33_bank_reconciliation` is **not** skipped and passes (this row was already stale before 2026-09-13 — the module's own header claiming "each is skipped" has been corrected); `test_wf41_bank_statement_import_and_matching` covers AA statement ingest + auto/'human' match + idempotent replay. Idempotent-replay gap closed 2026-09-13: `test_phase3_payments.py::test_g3_bank_statement_bare_recommit_does_not_duplicate_auto_matches` (a bare re-commit with no Idempotency-Key doesn't duplicate `ReconMatch` rows, complementing the existing idempotency-key-path test) |
 | Accounting period lifecycle | ✅ | `test_pj_wholesale_owner_multi_godown_day` (open→close), `test_pj_wholesale_accountant_period_close` |
 | TCS on sales / TDS on purchase / worksheets | ✅ | WF-34 / WF-35 / WF-36 |
 | Refunds / MDR reconciliation | 🚫 | WF-37 / WF-38 skipped — D3 sandbox credentials |
@@ -115,7 +118,7 @@ Last reconciled: 2026-09-10. Backend suite paths are under `backend/`.
 | H8 — pagination correctness | ✅ | `tests/errors/test_pagination_contract.py` |
 | H9 — SQLite vs Postgres parity | ✅ | `invariant-sweep` + `backend` + `e2e-golden` CI jobs run on Postgres |
 | H9 — security headers / CORS / CSRF / CSP | 🟡 | `test_freeze_gate_contracts.py` covers the Django-emitted headers; CSP is not implemented in-app (edge/CDN concern) — stated, not gated |
-| H10 — webhook signature verification (every inbound) | 🚫 | WF-17 pattern exists; per-webhook enumeration blocked with the rest of D3 |
+| H10 — webhook signature verification (every inbound) | ✅ | **Was `🚫`, corrected 2026-09-13 — this was never actually D3/creds-blocked.** Both inbound webhooks (Razorpay billing, generic payment-gateway) have signature verification + a forgery test (`tests/errors/test_webhook_and_async_contracts.py`, `tests/test_payment_webhook_adversarial.py`), and `tests/errors/test_webhook_enumeration.py` structurally fails the build if a new, unverified webhook route appears. Don't confuse with A25 above (the live sandbox gateway E2E), which genuinely is creds-blocked |
 | H10 — LLM bill extraction failure / injection | ✅ | `tests/errors/test_llm_extraction_failures.py`, `tests/errors/test_llm_injection_guard.py` (D14) |
 
 ---
@@ -124,18 +127,19 @@ Last reconciled: 2026-09-10. Backend suite paths are under `backend/`.
 
 1. **H7** — cost-centre filter snapshot still missing (date, party and godown
    filters + the TB↔P&L↔BS cross-reconcile are covered).
-2. **Determinism-probe — throttle crash FIXED, 5 clock-brittle tests remain.**
-   The `fake_time() takes 0 positional arguments` 500 on every throttled endpoint
-   (freezegun rebinding DRF `SimpleRateThrottle.timer`) is fixed in
-   `backend/tests/conftest.py` (wrap the real timer in `staticmethod()`). Probe is
-   now **1472 pass / 5 fail** (was ~all-POSTs-500). Residual 5 are test fixtures
-   with hard-coded Aug/Sep-2026 dates that read as "future" under the frozen
-   `2026-06-15` clock (`test_a07_dunning`, `test_b03_ims`,
-   `test_item_godown_expiry`, `test_pr6_period_gl`, `test_sprint_a_prod_gst_p1`).
-   Per-test triage (dates relative to `timezone.now()`) flips advisory→blocking.
-3. **Blocked on external deps:** A25 / G3 refunds+MDR / H10 per-webhook
-   (Cashfree/PayU sandbox creds); concurrency races (Postgres-only, runs in CI
-   not locally); mutation audit (WSL/Linux only).
+2. **Determinism-probe — CLOSED 2026-09-11** (per `scripts/ci_gates/GATE_INVENTORY.md`,
+   which is the more current source for this item than this row was). The
+   throttle-timer crash fix (above) plus re-anchoring the 5 clock-brittle
+   fixtures to the real/frozen clock instead of hardcoded literals
+   (`test_a07_dunning`, `test_b03_ims`, `test_item_godown_expiry`,
+   `test_pr6_period_gl`, `test_sprint_a_prod_gst_p1`) brought
+   `TESTS_FREEZE_CLOCK=1` to **1488 passed / 0 failed / 23 skip**. `determinism-probe`
+   stays advisory in CI until it's shown green on `main` for 3 consecutive
+   runs (a CI-history fact this doc can't itself confirm), then flip to blocking.
+3. **Blocked on external deps:** A25 live-gateway E2E / G3 refunds+MDR
+   (Cashfree/PayU sandbox creds — **H10 webhook signature verification is
+   NOT in this list**, corrected 2026-09-13, see H10's row above); concurrency
+   races (Postgres-only, runs in CI not locally); mutation audit (WSL/Linux only).
 
 ## P0 / P1 issue-register sweep (C15, 2026-09-10)
 
@@ -338,6 +342,10 @@ WF-23/24/25 → PJ-TRADER-IMPORT.
 
 Still genuinely skipped in `test_wf_todo_stubs.py`: WF-11 (recurring invoice),
 WF-13 (purchase debit note + TDS), WF-14/15 (LLM bill upload — D14-adjacent),
-WF-17/18 (D3/D4 blocked). In `test_wf_extended_stubs.py`: WF-33 (bank
-reconciliation), WF-37/38 (D3), WF-45-verify / WF-46-ratelimit (need the flow /
+WF-18 (D4 blocked). **WF-17 corrected 2026-09-13** — retargeted to real
+(unskipped) coverage, no longer D3-blocked; see A25/H10 above. In
+`test_wf_extended_stubs.py`: **WF-33 corrected 2026-09-13** — was already
+unskipped and passing, the module header claiming otherwise was stale (now
+fixed); not in this list anymore. WF-37/38 (D3, genuinely blocked),
+WF-45-verify / WF-46-ratelimit (need the flow /
 throttling in `settings_test`).
