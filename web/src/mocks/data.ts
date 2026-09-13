@@ -56,6 +56,13 @@ export const mockSalesUser: User = {
   canCancelDocuments: false,
   canViewFinancialReports: true,
   canExport: false,
+  // Matches accounts/models.py CompanyUser.capability_defaults_for_role's
+  // SALES_STAFF row (can_create_sales/can_create_payments both True) —
+  // missing here meant /sales/new and /pos (canAccessPos = canCreateSales
+  // && canCreatePayments) were unreachable for the mock Sales persona,
+  // even though role-boundaries.spec.ts asserts they should be.
+  canCreateSales: true,
+  canCreatePayments: true,
 };
 
 export const mockAccountantUser: User = {

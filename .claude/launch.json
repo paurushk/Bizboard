@@ -5,6 +5,12 @@
       "name": "web-dev",
       "url": "http://localhost:5180",
       "port": 5180
+    },
+    {
+      "name": "web-e2e",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "web", "--", "--mode", "e2e", "--host", "127.0.0.1", "--port", "34521", "--strictPort"],
+      "port": 34521
     }
   ]
 }
