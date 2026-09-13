@@ -10,10 +10,16 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 
 from tests.conftest import make_product, make_supplier
 
 pytestmark = pytest.mark.django_db
+
+
+def _this_period() -> str:
+    d = timezone.localdate()
+    return f"{d.year:04d}-{d.month:02d}"
 
 
 def _books(company):
@@ -108,3 +114,69 @@ def test_wf_grn_cancel_reverses_received_stock(tenant_a, assert_consistent):
     assert InventoryService.available_quantity(company=company, product=product) == Decimal("0.000")
 
     assert_consistent(company)
+
+
+def test_wf_grn_complete_blocked_in_soft_closed_period(tenant_a):
+    """G-21: GoodsReceiptService.complete() posts valuation-carrying stock
+    (unit_cost) same as PurchaseInvoice.complete, so it must gate on the
+    period lock the same way — previously it had no gst_periods import at all."""
+    from reporting.gst_periods import soft_close_period
+
+    company = tenant_a.company
+    _books(company)
+    from inventory.services import InventoryService
+
+    supplier = make_supplier(company, state="Karnataka", gstin="29ZZZZZ7777Z1Z5")
+    product = make_product(company, gst_rate="18", purchase_price="100")
+    warehouse = InventoryService.default_warehouse(company)
+
+    soft_close_period(company, _this_period(), tenant_a.owner)
+
+    payload = _grn_payload(supplier, warehouse, product, received="4", accepted="4")
+    payload["receipt_date"] = timezone.localdate().isoformat()
+    grn = tenant_a.client.post("/api/v1/purchases/grns/", payload, format="json")
+    assert grn.status_code == 201, grn.data
+    gid = grn.data["id"]
+
+    complete = tenant_a.client.post(f"/api/v1/purchases/grns/{gid}/complete/")
+    assert complete.status_code == 400, complete.data
+    from inventory.models import StockMovement
+
+    assert not StockMovement.objects.filter(
+        company=company, reference_type="goods_receipt"
+    ).exists()
+
+
+def test_wf_grn_cancel_blocked_in_hard_closed_period(tenant_a):
+    """G-21: cancel() reverses that same stock posting and must gate too.
+    Cancel uses allow_soft_closed=True like every other unwind call site, so
+    a soft-close alone must NOT block it — only a hard CLOSED does, exactly
+    like PurchaseInvoice.cancel / StockTransferService.cancel."""
+    from reporting.models import GstReturnPeriod
+
+    company = tenant_a.company
+    _books(company)
+    from inventory.services import InventoryService
+
+    supplier = make_supplier(company, state="Karnataka", gstin="29ZZZZZ8888Z1Z5")
+    product = make_product(company, gst_rate="18", purchase_price="100")
+    warehouse = InventoryService.default_warehouse(company)
+
+    payload = _grn_payload(supplier, warehouse, product, received="4", accepted="4")
+    payload["receipt_date"] = timezone.localdate().isoformat()
+    grn = tenant_a.client.post("/api/v1/purchases/grns/", payload, format="json")
+    assert grn.status_code == 201, grn.data
+    gid = grn.data["id"]
+    assert tenant_a.client.post(f"/api/v1/purchases/grns/{gid}/complete/").status_code == 200
+    assert InventoryService.available_quantity(company=company, product=product) == Decimal("4.000")
+
+    GstReturnPeriod.objects.update_or_create(
+        company=company, period=_this_period(),
+        defaults={"status": GstReturnPeriod.Status.CLOSED},
+    )
+
+    canc = tenant_a.client.post(
+        f"/api/v1/purchases/grns/{gid}/cancel/", {"reason": "wrong delivery"}, format="json"
+    )
+    assert canc.status_code == 400, canc.data
+    assert InventoryService.available_quantity(company=company, product=product) == Decimal("4.000")

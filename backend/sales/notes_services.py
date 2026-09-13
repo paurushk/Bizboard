@@ -1023,6 +1023,16 @@ class SalesNotesService:
             return challan
         if challan.status != DeliveryChallan.Status.COMPLETED:
             raise BusinessRuleError("Only draft or completed challans can be cancelled.")
+        # G-22: mirrors complete_challan's own CR-019 gate — reversing the
+        # same stock posting must be checked too, not just the forward posting.
+        # allow_soft_closed=True matches the cancel/reverse convention used by
+        # every other call site of this gate.
+        if challan.stock_posted:
+            from reporting.gst_periods import assert_period_allows_money_amend
+
+            assert_period_allows_money_amend(
+                challan.company, challan.challan_date, allow_soft_closed=True
+            )
         from .irn_guard import assert_no_live_eway
 
         assert_no_live_eway(challan, kind="delivery challan")

@@ -35,6 +35,13 @@ class GoodsReceiptService:
         if not items:
             raise BusinessRuleError("Cannot complete GRN with no line items.")
 
+        # G-21: period gate before number/status/stock — a GRN posts
+        # valuation-carrying stock (unit_cost), same as PurchaseInvoice.complete,
+        # so it must not be completable with a receipt_date inside a locked period.
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(grn.company, grn.receipt_date)
+
         warehouse = grn.warehouse or GoodsReceiptService.get_default_warehouse(grn.company)
         if not warehouse:
             raise BusinessRuleError("A warehouse is required to receive goods into stock.")
@@ -118,6 +125,13 @@ class GoodsReceiptService:
     def cancel(grn: GoodsReceipt, user) -> GoodsReceipt:
         if grn.status == GoodsReceipt.Status.CANCELLED:
             raise BusinessRuleError("GRN is already cancelled.")
+
+        # G-21: mirrors PurchaseInvoice.cancel's gate — allow_soft_closed=True
+        # so a completed GRN can still be unwound after a soft-close, matching
+        # every other cancel/reverse call site of this gate.
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(grn.company, grn.receipt_date, allow_soft_closed=True)
 
         if grn.status == GoodsReceipt.Status.COMPLETED:
             warehouse = grn.warehouse or GoodsReceiptService.get_default_warehouse(grn.company)

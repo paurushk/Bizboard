@@ -105,6 +105,47 @@ def test_cr019_challan_complete_blocked_when_stock_posts_in_soft_closed(tenant_a
     ).exists()
 
 
+def test_g22_challan_cancel_blocked_in_hard_closed_period(tenant_a):
+    """G-22: cancel_challan() reverses the same stock posting complete_challan
+    gates (CR-019 above) — but cancel had no gate call at all. allow_soft_closed=True
+    matches every other unwind call site, so only a hard CLOSED must block it."""
+    tenant_a.company.stock_on_delivery_challan = True
+    tenant_a.company.save(update_fields=["stock_on_delivery_challan"])
+    product = make_product(tenant_a.company, sku="G22-CHLN")
+    add_stock(tenant_a, product, "5")
+    customer = make_customer(tenant_a.company)
+    resp = tenant_a.client.post(
+        "/api/v1/sales/delivery-challans/",
+        {
+            "customer": customer.id,
+            "items": [{"product": product.id, "quantity": "1", "unit_price": "10", "gst_rate": "0"}],
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    challan = DeliveryChallan.objects.get(pk=resp.data["id"])
+    challan = SalesNotesService.complete_challan(challan, tenant_a.owner)
+    assert challan.stock_posted is True
+    assert StockMovement.objects.filter(
+        company=tenant_a.company,
+        movement_type=MovementType.SALE,
+        reference_type="delivery_challan",
+        reference_id=str(challan.pk),
+    ).exists()
+
+    GstReturnPeriod.objects.update_or_create(
+        company=tenant_a.company,
+        period=_this_period(),
+        defaults={"status": GstReturnPeriod.Status.CLOSED},
+    )
+    with pytest.raises(BusinessRuleError, match="CLOSED|closed|amend money"):
+        SalesNotesService.cancel_challan(challan, tenant_a.owner)
+    assert DeliveryChallan.objects.get(pk=challan.pk).status == DeliveryChallan.Status.COMPLETED
+    assert not StockMovement.objects.filter(
+        company=tenant_a.company, reference_type="delivery_challan_cancel"
+    ).exists()
+
+
 # --- CR-023 -----------------------------------------------------------------
 
 
