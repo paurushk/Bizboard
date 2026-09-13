@@ -1648,7 +1648,11 @@ export function PosPage() {
                         </TableCell>
                         <TableCell align="right">
                           <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
-                            <IconButton size="small" onClick={() => updateQty(line.key, line.quantity - 1)}>
+                            <IconButton
+                              size="small"
+                              onClick={() => updateQty(line.key, line.quantity - 1)}
+                              aria-label={t('quickEntry.decrease')}
+                            >
                               <RemoveIcon fontSize="small" />
                             </IconButton>
                             <NumericField
@@ -1659,7 +1663,11 @@ export function PosPage() {
                               fullWidth={false}
                               sx={{ width: 56 }}
                             />
-                            <IconButton size="small" onClick={() => updateQty(line.key, line.quantity + 1)}>
+                            <IconButton
+                              size="small"
+                              onClick={() => updateQty(line.key, line.quantity + 1)}
+                              aria-label={t('quickEntry.increase')}
+                            >
                               <AddIcon fontSize="small" />
                             </IconButton>
                             {line.product.alternateUnitName ? (
