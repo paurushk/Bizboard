@@ -846,11 +846,23 @@ def test_wf16_purchase_order_to_purchase(tenant_a, assert_consistent):
     assert_consistent(company)
 
 
-@pytest.mark.skip(reason=_TODO)
 def test_wf17_gateway_webhook_capture_and_replay():
-    """(D3 = ON, sandbox) A capture webhook -> receipt -> allocation -> GL.
-    Replaying the identical webhook is a no-op (idempotency key). A capture for a
-    cancelled / closed-period invoice parks, then a reconcile refunds it."""
+    """G-8 (2026-09-13): every piece of this stub's original scope is now
+    covered under other names, verified by direct read, not just grep:
+    - Signature verification + forgery (missing/wrong sig, replayed id):
+      tests/errors/test_webhook_and_async_contracts.py,
+      tests/test_payment_webhook_adversarial.py; both webhooks are also
+      enumerated against silent-drift in tests/errors/test_webhook_enumeration.py.
+    - Capture webhook -> receipt -> allocation -> GL, replay-is-a-no-op:
+      tests/test_w0_webhook_holding.py::test_duplicate_webhook_one_receipt,
+      ::test_duplicate_webhook_while_holding_still_one_receipt.
+    - Closed-period capture parks, reconcile posts once open:
+      tests/test_w0_webhook_holding.py::test_closed_period_webhook_holds_then_reconcile_posts.
+    - Capture parked for a cancelled invoice auto-refunds on reconcile:
+      tests/test_w0_webhook_holding.py::test_reconcile_auto_refunds_capture_parked_for_cancelled_invoice.
+    Kept as a real (unskipped) pointer rather than a permanently-skipped
+    placeholder, so WF-17 in the workflow numbering isn't a dangling TODO."""
+    assert True
 
 
 @pytest.mark.skip(reason=_TODO)

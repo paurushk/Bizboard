@@ -663,3 +663,64 @@ def test_cr_017_bank_statement_commit_idempotency(tenant_a):
     assert r2.status_code == 200
     assert r2.data["status"] == BankStatementStatus.COMMITTED
 
+
+def test_g3_bank_statement_bare_recommit_does_not_duplicate_auto_matches(tenant_a):
+    """G-3 (docs/TESTING_STRATEGY.md WF-33): commit() protects idempotency-key
+    replay (CR-017 above), but a bare re-commit with no key relies on its own
+    status check (payments/views.py BankStatementViewSet.commit: an
+    already-COMMITTED statement short-circuits before the auto-match pass
+    runs again) — assert that actually holds by calling commit twice with no
+    key and checking auto-match side effects (ReconMatch rows, matched line
+    count) are identical, not doubled."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from payments.models import BankAccount, BankStatementStatus, ReconMatch
+
+    tenant_a.company.auto_match_bank_exact = True
+    tenant_a.company.save(update_fields=["auto_match_bank_exact"])
+
+    ba = BankAccount.objects.create(company=tenant_a.company, name="HDFC-G3", is_default=True)
+    PaymentService.create_receipt(
+        company=tenant_a.company,
+        customer=make_customer(tenant_a.company),
+        amount=Decimal("750"),
+        mode="BANK",
+        utr="UTRG3RECOMMIT",
+        bank_account=ba,
+        receipt_date=timezone.localdate(),
+    )
+    csv_content = (
+        "Date,Credit,Debit,Narration,Ref No\n"
+        f"{timezone.localdate().strftime('%d/%m/%Y')},750,,PAYMENT UTRG3RECOMMIT,UTRG3RECOMMIT\n"
+    )
+    upload = SimpleUploadedFile("stmt_recommit.csv", csv_content.encode(), content_type="text/csv")
+    r = tenant_a.client.post(
+        "/api/v1/payments/statements/upload/",
+        {"bank_account": ba.id, "preset": "generic", "file": upload},
+        format="multipart",
+    )
+    assert r.status_code == 201, r.data
+    sid = r.data["id"]
+
+    first = tenant_a.client.post(f"/api/v1/payments/statements/{sid}/commit/")
+    assert first.status_code == 200, first.data
+    assert first.data["status"] == BankStatementStatus.COMMITTED
+    matches_after_first = list(
+        ReconMatch.objects.filter(company=tenant_a.company, line__statement_id=sid).values_list(
+            "id", "matched_at"
+        )
+    )
+    assert len(matches_after_first) == 1, "auto-match should confirm the one exact UTR line"
+
+    second = tenant_a.client.post(f"/api/v1/payments/statements/{sid}/commit/")
+    assert second.status_code == 200, second.data
+    assert second.data["status"] == BankStatementStatus.COMMITTED
+    matches_after_second = list(
+        ReconMatch.objects.filter(company=tenant_a.company, line__statement_id=sid).values_list(
+            "id", "matched_at"
+        )
+    )
+    assert matches_after_second == matches_after_first, (
+        "re-commit must not re-run auto-match: same ReconMatch row, not a new one"
+    )
+

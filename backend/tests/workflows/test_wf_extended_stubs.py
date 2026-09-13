@@ -1,10 +1,14 @@
 """Extended workflow chains from FREEZE_SCOPE.md Section G.
 
-Each is skipped and carries its contract. These assume the §G "proposed"
-disposition (D5=ON => accounting core SUPPORTED; D2=ON => TDS/TCS core
-SUPPORTED; D3=ON => refunds / reconciliation SUPPORTED). If the founder marks a
-flow OUT or LIM, delete its stub. Implement by replacing the body with the chain
-+ ``assert_consistent(company)`` and removing the skip.
+These assume the §G "proposed" disposition (D5=ON => accounting core
+SUPPORTED; D2=ON => TDS/TCS core SUPPORTED; D3=ON => refunds / reconciliation
+SUPPORTED). If the founder marks a flow OUT or LIM, delete its stub. Implement
+a still-skipped one by replacing the body with the chain +
+``assert_consistent(company)`` and removing the skip.
+
+Not every chain here is still a stub — WF-33 (bank reconciliation, G-3 in
+TESTING_STRATEGY.md) is implemented and unskipped below; verify a flow's own
+``@pytest.mark.skip`` before assuming the module-level description applies.
 """
 
 from __future__ import annotations
