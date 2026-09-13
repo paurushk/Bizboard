@@ -26,9 +26,16 @@ from sales.models import (
     SalesInvoice,
     SalesReturn,
 )
+from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
-OPEN_SALES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
-NET_SALES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
+# CF-001: OPEN_SALES (receivables/aging) and NET_SALES (dashboard money
+# totals, product/customer revenue ranking) were two independently-defined
+# constants that happened to hold the identical tuple — kept as two names
+# since each documents a distinct intent at its call sites, but now sourced
+# from one place so they can't silently drift from each other the way
+# insights/alerts.py's own OPEN_SALES once did (G-17).
+OPEN_SALES = OPEN_RECEIVABLE_STATUSES
+NET_SALES = OPEN_RECEIVABLE_STATUSES
 logger = logging.getLogger(__name__)
 
 
@@ -249,8 +256,12 @@ class ReportService:
 
         low_stock = len(low_stock_alert_payload(company))
 
-        recent = SalesInvoice.objects.filter(company=company).exclude(
-            status__in=(SalesInvoice.Status.DRAFT, SalesInvoice.Status.CANCELLED)
+        # CF-001: was exclude(DRAFT, CANCELLED) — equivalent to OPEN_RECEIVABLE_STATUSES
+        # today (4-value enum) but encoded a different intent ("not void") that
+        # would silently diverge from "still collectible" if a 5th status is
+        # ever added. Normalized to the same shared constant.
+        recent = SalesInvoice.objects.filter(
+            company=company, status__in=OPEN_RECEIVABLE_STATUSES
         ).order_by("-completed_at")[:5]
         recent_list = list(recent.select_related("customer"))
         partially_returned_ids = set(
@@ -302,9 +313,9 @@ class ReportService:
                 for i in recent_list
             ],
             "product_count": Product.objects.filter(company=company).count(),
-            "invoice_count": SalesInvoice.objects.filter(company=company)
-            .exclude(status__in=(SalesInvoice.Status.DRAFT, SalesInvoice.Status.CANCELLED))
-            .count(),
+            "invoice_count": SalesInvoice.objects.filter(
+                company=company, status__in=OPEN_RECEIVABLE_STATUSES
+            ).count(),
         }
 
     @staticmethod

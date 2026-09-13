@@ -229,9 +229,10 @@ def test_g20_eligible_invoices_matches_payment_health_for_returned_invoice(tenan
     still carry a residual AR (e.g. a post-return debit note) — that invoice
     is already in the payment-health candidate set (status__in=(COMPLETED,
     RETURNED)) and must not be silently skipped by dunning."""
-    from ledgers.services import LedgerService, OPEN_SALES_STATUSES
+    from ledgers.services import LedgerService
     from payments.dunning import eligible_invoices
     from sales.models import SalesDebitNote
+    from sales.status_semantics import OPEN_SALES_STATUSES
 
     data, product = _complete(tenant_a)
     invoice = SalesInvoice.objects.get(pk=data["id"])
@@ -298,3 +299,81 @@ def test_g20_eligible_invoices_matches_payment_health_for_returned_invoice(tenan
 
     eligible_ids = {inv.id for inv in eligible_invoices(invoice.company, as_of=as_of)}
     assert invoice.id in eligible_ids, "RETURNED invoice with residual AR must be dunning-eligible"
+
+
+def test_g23_customer_risk_snapshot_sees_returned_invoice_with_residual_ar(tenant_a):
+    """G-23: customer_risk_snapshot() filtered SalesInvoice to COMPLETED only,
+    while the outstanding-balance calc it sums per invoice (and G-20's
+    dunning fix) already treats (COMPLETED, RETURNED) as balance-bearing —
+    same bug shape as G-20, on the credit-risk/auto-credit-hold side. A
+    RETURNED invoice with genuine residual AR (a post-return debit note) must
+    show up in the aging/overdue totals this snapshot feeds into
+    sales/services.py's auto-credit-hold check."""
+    from ledgers.services import LedgerService
+    from payments.dunning import customer_risk_snapshot
+    from sales.models import SalesDebitNote
+
+    data, product = _complete(tenant_a)
+    invoice = SalesInvoice.objects.get(pk=data["id"])
+    as_of = date(2026, 8, 31)
+    invoice.due_date = as_of - timedelta(days=10)
+    invoice.save(update_fields=["due_date"])
+
+    receipt = tenant_a.client.post(
+        "/api/v1/payments/receipts/",
+        {"customer": invoice.customer_id, "amount": "50", "mode": "CASH"},
+        format="json",
+    )
+    assert receipt.status_code in (200, 201), receipt.data
+    alloc = tenant_a.client.post(
+        "/api/v1/payments/allocations/",
+        {"receipt": receipt.data["id"], "sales_invoice": invoice.id, "amount": "50"},
+        format="json",
+    )
+    assert alloc.status_code in (200, 201), alloc.data
+
+    ret = tenant_a.client.post(
+        "/api/v1/sales/returns/",
+        {
+            "customer": invoice.customer_id,
+            "sales_invoice": invoice.id,
+            "items": [{"product": product.id, "quantity": "2", "unit_price": "100"}],
+        },
+        format="json",
+    )
+    assert ret.status_code == 201, ret.data
+    done = tenant_a.client.post(f"/api/v1/sales/returns/{ret.data['id']}/complete/")
+    assert done.status_code == 200, done.data
+    invoice.refresh_from_db()
+    assert invoice.status == SalesInvoice.Status.RETURNED
+    assert LedgerService.sales_invoice_outstanding(invoice) == Decimal("0")
+
+    src = invoice.items.get()
+    note = SalesDebitNote.objects.create(
+        company=invoice.company,
+        customer=invoice.customer,
+        sales_invoice=invoice,
+        note_date=invoice.invoice_date,
+        created_by=tenant_a.owner,
+        updated_by=tenant_a.owner,
+    )
+    from sales.notes_services import SalesNotesService
+
+    SalesNotesService.set_debit_note_items(
+        note,
+        [{"product": product, "quantity": Decimal("1"), "unit_price": Decimal("25"), "source_item": src}],
+        tenant_a.owner,
+    )
+    SalesNotesService.complete_debit_note(note, tenant_a.owner)
+
+    residual = LedgerService.sales_invoice_outstanding(invoice)
+    assert residual > 0
+
+    snap = customer_risk_snapshot(invoice.company, invoice.customer, as_of=as_of)
+    total_ageing = sum((Decimal(v) for v in snap["ageing"].values()), Decimal("0"))
+    assert total_ageing == residual, (
+        "RETURNED invoice's residual AR must be counted in credit-risk ageing"
+    )
+    assert Decimal(snap["overdue_amount"]) == residual, (
+        "RETURNED invoice's residual AR must be counted in overdue (feeds auto-credit-hold)"
+    )

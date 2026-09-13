@@ -17,19 +17,20 @@ from purchases.models import PurchaseInvoice
 from reporting.gst_health import build_gst_health
 from reporting.services import ReportService
 from sales.models import SalesInvoice, SalesItem
+from sales.status_semantics import OPERATIONAL_SALE_STATUSES
 
 logger = logging.getLogger(__name__)
 
 # Activity/analytics signal — was this product/customer/invoice actually part of a
 # standing sale? A fully-returned invoice is not (its `status` flips to RETURNED,
 # see sales/return_service.py), so it must drop out of "recently sold" / "fast
-# mover" / "customer concentration" / "margin" checks below. This mirrors
-# insights/services.py's OPEN_SALES (COMPLETED-only) — the two used to disagree
-# (this one wrongly included RETURNED, over-counting reversed sales in analytics;
-# G-17), which is a different concern from ledgers.OPEN_SALES_STATUSES or
+# mover" / "customer concentration" / "margin" checks below. Sourced from
+# sales.status_semantics (CF-001) so this can't independently drift from
+# insights/services.py's identical OPEN_SALES again the way it did before
+# (G-17) — that's a different concern from ledgers.OPEN_SALES_STATUSES or
 # reporting.OPEN_SALES, which correctly include RETURNED because a returned
 # invoice can still carry residual outstanding balance.
-OPEN_SALES = (SalesInvoice.Status.COMPLETED,)
+OPEN_SALES = OPERATIONAL_SALE_STATUSES
 
 
 def _company_localtime(company):

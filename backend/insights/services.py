@@ -18,6 +18,7 @@ from ledgers.services import LedgerService
 from purchases.models import PurchaseInvoice
 from reporting.services import ReportService
 from sales.models import SalesInvoice
+from sales.status_semantics import OPERATIONAL_SALE_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,9 @@ from .models import (
     DailyBusinessSummary,
 )
 
-OPEN_SALES = (SalesInvoice.Status.COMPLETED,)
+# CF-001: sourced from sales.status_semantics so this can't independently
+# drift from insights/alerts.py's identical OPEN_SALES again (G-17).
+OPEN_SALES = OPERATIONAL_SALE_STATUSES
 MIN_SALES_FOR_FULL_SCORE = 30
 
 

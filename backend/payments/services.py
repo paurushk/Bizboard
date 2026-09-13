@@ -1675,11 +1675,12 @@ class PaymentService:
         # had, just re-expressed up front so bulk work is skipped entirely
         # when it can't matter).
         from sales.models import SalesInvoice
+        from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
         if not (company.upi_id or "").strip():
             open_inv_ids = list(
                 SalesInvoice.objects.filter(
-                    company=company, status__in=("COMPLETED", "RETURNED")
+                    company=company, status__in=OPEN_RECEIVABLE_STATUSES
                 ).values_list("id", flat=True)[:50]
             )
             outstanding_by_id = LedgerService.bulk_sales_invoice_outstanding(company, open_inv_ids)

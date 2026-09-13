@@ -52,6 +52,9 @@ from sales.models import (
     SalesInvoice,
     SalesReturn,
 )
+from sales.status_semantics import (
+    OPEN_SALES_STATUSES as OPEN_SALES_STATUSES,  # noqa: F401 — CF-001 re-export
+)
 
 
 # UXW2B-005: map JournalEntry.source_type -> the model whose .number is the
@@ -114,8 +117,6 @@ _ALLOC_PREFETCH = Prefetch(
         "id", "amount", "receipt_id", "supplier_payment_id"
     ),
 )
-
-OPEN_SALES_STATUSES = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
 
 # Same-date statement ordering: charges (invoices / debit notes) before value
 # relief (returns / credit notes) before settlement (receipts / payments), then

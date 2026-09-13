@@ -132,8 +132,7 @@ def _reminder_count(invoice) -> int:
 
 def eligible_invoices(company, *, as_of: date):
     from sales.models import SalesInvoice
-
-    from ledgers.services import OPEN_SALES_STATUSES
+    from sales.status_semantics import OPEN_SALES_STATUSES
 
     # G-20: must agree with payments/services.py's payment-health candidate
     # query (status__in=(COMPLETED, RETURNED)) — a partially-paid invoice
@@ -445,6 +444,7 @@ def _avg_payment_delay_days(company, customer) -> int | None:
 def customer_risk_snapshot(company, customer, *, as_of: date | None = None) -> dict:
     from ledgers.services import LedgerService
     from sales.models import SalesInvoice
+    from sales.status_semantics import OPEN_SALES_STATUSES
 
     as_of = as_of or _ist_today()
     outstanding = Decimal(str(LedgerService.customer_outstanding(company, customer) or 0))
@@ -453,10 +453,14 @@ def customer_risk_snapshot(company, customer, *, as_of: date | None = None) -> d
     ageing = {"current": Decimal("0"), "1_30": Decimal("0"), "31_60": Decimal("0"),
               "61_90": Decimal("0"), "90_plus": Decimal("0")}
     overdue = Decimal("0")
+    # G-23: a RETURNED invoice can still carry residual AR (e.g. a post-return
+    # debit note), same as the customer_outstanding total above already
+    # accounts for — COMPLETED-only here made that exposure invisible to
+    # aging/overdue and the auto-credit-hold check that reads this snapshot.
     invoices = SalesInvoice.objects.filter(
         company=company,
         customer=customer,
-        status=SalesInvoice.Status.COMPLETED,
+        status__in=OPEN_SALES_STATUSES,
     )
     for inv in invoices:
         os_amt = _outstanding(inv)
