@@ -10,14 +10,22 @@ CONDITIONALLY SUPPORTED + demoted KNOWN LIMITATIONS.
 | [`BUSINESS_ARCHETYPES_AND_PERSONAS.md`](BUSINESS_ARCHETYPES_AND_PERSONAS.md) | *Who* we test for — archetypes, personas, buying roles, validation hypotheses H-01…H-05 |
 | [`FREEZE_SCOPE.md`](FREEZE_SCOPE.md) | *What* is in scope — SUPPORTED / NOT SUPPORTED / KNOWN LIMITATIONS, frozen flag profile |
 | [`FREEZE_SCOPE_COVERAGE.md`](FREEZE_SCOPE_COVERAGE.md) | *Line-item wiring* — each SUPPORTED item → its gating test or an explicit GAP |
-| [`CROSS_FLOW_IMPACT_MAP.md`](CROSS_FLOW_IMPACT_MAP.md) | *Who else reads this* — fan-out map for shared mutable fields (invoice status, stock balance, allocations) with per-reader assumptions; the source for G-17…G-20 below |
-| **this doc** | *How* we build confidence — the layer model, the per-journey question set, the gap register, the regression discipline, the evidence/sign-off model |
+| [`HOLISTIC_VALIDATION_REVIEW.md`](HOLISTIC_VALIDATION_REVIEW.md) | *Quality model* — one hierarchy; Flow / Impact / Truth graphs; product-truth vs capability; architecture-first sequence. Other docs are views of this model. |
+| [`CROSS_FLOW_IMPACT_MAP.md`](CROSS_FLOW_IMPACT_MAP.md) | *Impact graph (Graph 2)* — writers and readers of shared state; evolving from field→readers to event→projections |
+| **this doc** | *How* we build confidence — layers **L1–L10**, the per-journey question set, the gap register, regression discipline, evidence/sign-off. The only layer numbering. |
+| [`FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md`](FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md) | *L4 view* — persona × archetype index. T1–T7 maps onto L1–L10; not a second pyramid |
+| [`Q-OS_QUALITY_PIPELINE_PLAN.md`](Q-OS_QUALITY_PIPELINE_PLAN.md) | *Quality output* — ranked backlog from evidence. Does not define test layers |
 | [`pilot/UAT_CHECKLIST.md`](pilot/UAT_CHECKLIST.md), [`pilot/GO_NO_GO.md`](pilot/GO_NO_GO.md) | Human sign-off gates that consume this strategy's evidence |
 | [`ca/CA_SIGN_OFF_CHECKLIST.md`](ca/CA_SIGN_OFF_CHECKLIST.md) | CA-blessed tax scenarios F1–F8, guarded by `guard_ca_tax_parity` |
 
 `FREEZE_SCOPE_COVERAGE.md` is the authority for *per-item* status and must be
 reconciled when chains land. This document is the authority for *method,
-priorities, and gaps* and is reviewed at each phase boundary.
+priorities, and gaps* and is reviewed at each phase boundary. Philosophy,
+the three graphs, and the architecture-first sequence live in
+[`HOLISTIC_VALIDATION_REVIEW.md`](HOLISTIC_VALIDATION_REVIEW.md) §0 — this
+file implements them as L1–L10. Do not grow the persona suite by volume
+until Graph 1 (generated flow catalog), Graph 2 (event × projection), and
+Graph 3 (projection-identity registry) exist.
 
 ---
 
@@ -28,9 +36,10 @@ and layered (invariants, workflow chains, persona journeys, matrices, tenancy
 sweeps, golden e2e, CI guards). What was missing was a single place that:
 
 1. States the **method** — what each test layer proves and what it cannot.
-2. Frames every important journey through the same five questions:
+2. Frames every important journey through the same **six** questions:
    **what should happen → what could go wrong → how we test it → what evidence
-   proves it → whether it satisfies or delights the persona.**
+   proves it → whether it satisfies or delights the persona → where else it
+   must be true, under what name, after the next event.**
 3. Names the **gaps and weak assumptions** honestly and ranks them by
    impact × risk.
 4. Defines a **regression strategy** that gives strong confidence without
@@ -46,7 +55,7 @@ not a coverage percentage.
 
 ## 2. The confidence model
 
-### 2.1 The seven test layers
+### 2.1 The ten test layers (L1–L10)
 
 Each layer answers a different question. A claim is only "confident" when the
 layers that *can* prove it agree, and at least one layer that *could have caught
@@ -61,17 +70,11 @@ a regression* exists.
 | L5 | **Matrices** | Does a *setting* or *place-of-supply* change behaviour the way the spec says, across the whole grid? | `tests/matrices/test_company_settings_matrix.py`, `test_gst_settings_matrix.py`, `tests/gst/test_place_of_supply_matrix.py` | Interactions outside the grid dimensions |
 | L6 | **Golden e2e + FE** | Does the real browser against the real backend produce the deliverable (invoice PDF, isolation 404, role-hidden nav, no axe violations)? | `web/e2e-golden/personas-golden.spec.ts` (live Django+PG), `web/e2e/` (light, mocked), `web/e2e/personas/`, `web/e2e/a11y.spec.ts`, vitest units | Scale; network degradation; devices beyond Chromium; subjective friction |
 | L7 | **Exploratory + pilot fieldwork** | Is it usable, fast, trustworthy, and *worth paying for* with real staff and real data? | `pilot/UAT_CHECKLIST.md`, `pilot/ARCH03_PILOT_RUNBOOK.md`, validation hypotheses H-01…H-05, CA sign-off | Nothing automatable replaces this; it is the top of the pyramid, not a nice-to-have |
-| L8 | **Cross-flow state consistency** | When a flow writes a shared, mutable piece of business state (an invoice's status, a stock balance, a period-lock gate), do *all other* flows that read or must enforce that state still agree with it? | `docs/CROSS_FLOW_IMPACT_MAP.md` (the field-by-field fan-out registry) + `scripts/ci_gates/guards/guard_period_gate_coverage.py` (static enforcement-consistency guard) + `backend/sales/status_semantics.py` (canonical predicates, closes CF-001 as a class for `SalesInvoice`) + the regression tests each map entry cites | Interactions the map hasn't been extended to cover yet — it's seeded from fields that already caused a bug, not exhaustive by design (see the map's own "why this exists"). `PurchaseInvoice` has no predicate module yet |
+| L8 | **Cross-flow state consistency** | When a flow writes a shared, mutable piece of business state (an invoice's status, a stock balance, a period-lock gate), do *all other* flows that read or must enforce that state still agree with it? | `docs/CROSS_FLOW_IMPACT_MAP.md` (the field-by-field fan-out registry — **Graph 2 reader index**) + `scripts/ci_gates/guards/guard_period_gate_coverage.py` (static enforcement-consistency guard) + `backend/sales/status_semantics.py` (canonical predicates, closes CF-001 as a class for `SalesInvoice`) + the regression tests each map entry cites | Interactions the map hasn't been extended to cover yet — it's seeded from fields that already caused a bug, not exhaustive by design (see the map's own "why this exists"). `PurchaseInvoice` has no predicate module yet. **Target:** event × projection matrix, not only field → readers. See `HOLISTIC_VALIDATION_REVIEW.md` §0.3 |
+| L9 | **Lifecycle + time** | After create → pay → return → residual → report → attention, *and after the next event or close*, is the original business intent still represented on every user surface? | Lead-archetype UI goldens (ARCH-01, ARCH-03) — **not yet built**; P0 in `HOLISTIC_VALIDATION_REVIEW.md` | A single-flow chain (L3) or an API persona day (L4). Does not prove historical truth after a later event |
+| L10 | **Projection identity** | Do independently computed surfaces of the *same named metric* agree? Do two *different* metrics avoid sharing a user-facing label? | Named identities in `backend/core/invariants/projection.py` (dashboard AR/AP = aging, stock available = on_hand − reserved, operational vs open-receivable sets, PDF snapshot vs live outstanding, bank-recon match_status). `reports.cross_reconcile` is registered and gated on `accounting_enabled` — GL-report agreement only; document identities stay in `projection.py` | That the user would *act* correctly on the number (decision quality stays L7 + attention assertions) |
 
-L1–L7 each ask "does this one flow work?" L8 asks a different question:
-**when this flow changes shared state, does every other flow's *interpretation*
-of that state still match?** G-17 through G-22 (§7) are all L8 failures — a
-value or gate had multiple independent readers/enforcers that silently
-disagreed, and no lower layer could have caught it because each reader's own
-tests only exercised the inputs its author thought to write. L8 is deliberately
-light-touch relative to L1–L7: a hand-maintained map plus targeted structural
-guards, not a generic framework — see the map's own scoping rationale for why
-that's a feature, not a shortcut taken for lack of time.
+L1–L7 each ask "does this one flow work?" L8 asks: **when this flow changes shared state, does every other flow's *interpretation* of that state still match?** L9 asks whether **intent survives the loop and the next event**. L10 asks whether **the same named metric is one number everywhere**. G-17 through G-22 (§7) are L8 failures; G-17's "Paid" badge is also an L9/L10 product-truth failure — no lower layer could have caught it because each reader's own tests only exercised the inputs its author thought to write. L8 is still light-touch relative to L1–L7 until the event catalog exists — see `HOLISTIC_VALIDATION_REVIEW.md` §0.8 (architecture first). T1–T7 in the persona plan **map onto these layers**; they are not a second pyramid.
 
 **Strict sweep.** `INVARIANTS_STRICT=1` runs L1 in a `pytest_runtest_call`
 hookwrapper after **every** test in the suite, not just the invariant tests — so
@@ -79,7 +82,7 @@ any test that leaves a company inconsistent fails, wherever it lives. This is th
 single highest-leverage safety net and is **blocking** in CI (`invariant-sweep`
 job) in both fixed and randomised order.
 
-### 2.2 The five questions (apply to every important journey)
+### 2.2 The six questions (apply to every important journey)
 
 For each persona × archetype journey and each cross-cutting concern, answer:
 
@@ -93,8 +96,14 @@ For each persona × archetype journey and each cross-cutting concern, answer:
 5. **Delight** — does the persona feel fast, confident, unsurprised, and
    unanxious? What measurable proxy stands in for that (keystroke count, seconds
    to complete, modal count, "did the clerk touch the mouse")?
+6. **Where else / under what name / after the next event** — which other
+   projections (stock, GL, AR/AP, GST, dashboard, attention, badge, channel)
+   must tell the same story; whether two metrics share a label; whether a
+   later return, residual, or period close still leaves historical truth intact.
+   This is the product-truth question (`HOLISTIC_VALIDATION_REVIEW.md` §0).
+   A journey that cannot name its Graph 2 cells is not gated.
 
-Sections 4 and 5 apply this lens. Where question 5 has no measurable proxy today,
+Sections 4 and 5 apply this lens. Where question 5 or 6 has no measurable proxy today,
 it is logged as a gap in §6.10 and §7.
 
 ### 2.3 What "done" means for a claim — the evidence ledger
@@ -119,7 +128,7 @@ assets and status. "Status" is a judgement of *confidence*, not of effort spent.
 
 | Dimension | What "good" looks like here | Current assets | Status | Gap ref |
 |---|---|---|---|---|
-| **Personas & archetypes** | Every archetype's core loop has a persona journey at L4; disposition (SUP/COND/OUT/deprioritized) is explicit | `PJ-*` (55 tests / 24 files as of 2026-09-12, see `FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md`), `BUSINESS_ARCHETYPES_AND_PERSONAS.md` §6–§8 | ✅ — retail/trader/wholesale/batch/serialized/contractor/manufacturing/migration covered; ARCH-07 milestone/job-work out of scope by design; G-1 and G-2 both closed | — |
+| **Personas & archetypes** | Every archetype's core loop has a persona journey at L4; disposition (SUP/COND/OUT/deprioritized) is explicit | `PJ-*` (see `FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md`; manufacturing/payroll/CRM tagged `dark_module` and **do not count toward freeze coverage**). Route coverage counts come from generated `docs/FLOW_CATALOG.md`, not a hand-typed file/test tally. `BUSINESS_ARCHETYPES_AND_PERSONAS.md` §6–§8 | ✅ — retail/trader/wholesale/batch/serialized/contractor/manufacturing/migration covered; ARCH-07 milestone/job-work out of scope by design; G-1 and G-2 both closed | — |
 | **End-to-end journeys** | Happy + alternate + failure + recovery per loop | `WF-01…WF-59`, `PJ-*`, `tests/edge/` | 🟡 — happy paths strong; recovery paths partial (H9 amend ✅, cancellation ✅, offline conflict ✅; payment-gateway recovery 🚫) | G-3, G-8 |
 | **Functional correctness** | Unit + contract + chain + regression, all green in CI | vitest (279), `pytest` (~1477 pass), `tests/regression/` corpus | ✅ | — |
 | **Multi-user & permissions** | RBAC matrix + per-persona API deny-set + UI hides denied actions + tenant isolation on every endpoint | `tests/tenancy/test_rbac_matrix.py`, `test_endpoint_isolation.py`, `*_boundary` journeys, `web/e2e/personas/role-boundaries.spec.ts` | 🟡 — API side ✅; FE side OWNER/VIEWER live, **SALES/ACCT `test.fixme`** | G-4 |
@@ -132,7 +141,7 @@ assets and status. "Status" is a judgement of *confidence*, not of effort spent.
 | **Cross-platform / environment** | SQLite(local) vs Postgres(prod) parity; browser matrix; mobile shell; Docker image runs | CI runs `backend`/`invariant-sweep`/`e2e-golden` on Postgres 17; `docker` job (compose config, hadolint, trivy); `mobile` + `mobile-apk` + `mobile-emulator-smoke` (advisory) | 🟡 — **Chromium only** in e2e; mobile emulator smoke advisory; local dev still SQLite | G-12 |
 | **AI-specific quality** | Extraction failure → draft-with-warning not crash; cost ceiling; prompt-injection inert; grounding | `tests/errors/test_llm_extraction_failures.py`, `test_llm_injection_guard.py` (D14); FE injection warning (SR-23) | ✅ for failure + injection; ⛔ no accuracy/grounding benchmark (AI insights are `ENABLE_AI=0` — out of scope) | G-13 |
 | **Business outcomes & compliance** | GST splits correct, TB=0, GSTR-1↔3B tie-out, period lock, CA accepts worksheets, dashboard KPI == drill-down | `tests/snapshots/test_gstr1_json.py`/`_gstr3b_json.py`, `test_wf27_gstr1_3b_tie_out`, `guard_ca_tax_parity` (F1–F8), `reports.cross_reconcile` | 🟡 — computation ✅; **CA acceptance (H-05) untested until pilot**; KPI==drill-down partly in `cross_reconcile` | G-14 |
-| **Experience & delight** | Speed, predictability, reduced anxiety, minimal friction — with measurable proxies | H-02 (POS ≤35s, no-mouse), H-03 (zero dup/loss), offline "Queued to sync" / "Rejected: …" copy tests | ⛔ — **no automated latency budgets in e2e**, delight is pilot-only today | G-15, G-16 |
+| **Experience & delight** | Speed, predictability, reduced anxiety, minimal friction — with measurable proxies | H-02 (POS ≤35s) on live `pos-golden-path.spec.ts`; keyboard-only mocked `pos-keyboard-checkout.spec.ts`; H-03 / offline copy tests | 🟡 — live POS wall-clock is encoded; not a merge-blocking gate; dashboard budget still pilot | G-15, G-16 |
 
 ---
 
@@ -525,8 +534,11 @@ sales/purchase registers and files without recalculation. Automated proxy today 
 
 ### 6.8 AI-specific
 
-- In scope only for **LLM bill extraction** (D14). `ENABLE_AI=0` puts insights
-  out of scope entirely.
+- In scope only for **LLM bill extraction** (D14) as an *AI quality* dimension.
+  `ENABLE_AI=0` puts **`/insights/*` LLM surfaces** out of scope.
+- **`/attention`, dunning, payment-health, credit-hold, and dashboard KPIs are
+  in scope independent of `ENABLE_AI`.** They are live decision surfaces, not
+  AI features. Only `/insights/*` is OUT when the flag is off.
 - **Covered:** provider timeout / 5xx / 429 / malformed JSON → job `FAILED`,
   never crash / silent partial; cost-ceiling assert; injected instructions in
   uploaded bill text are inert; FE surfaces the injection warning in the bill

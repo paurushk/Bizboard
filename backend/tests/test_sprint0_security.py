@@ -11,8 +11,20 @@ from config.settings import (
     _assert_cors_credentials_safe,
     _is_local_allowed_host,
     _parse_debug_flag,
+    _with_loopback_companions,
 )
 from core.authentication import CookieJWTAuthentication
+
+
+def test_loopback_companions_pair_localhost_and_127():
+    assert _with_loopback_companions(["http://localhost:5173"]) == [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+    assert _with_loopback_companions(["http://127.0.0.1:5173", "http://localhost:5173"]) == [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+    ]
 
 
 def test_star_is_not_a_local_allowed_host():

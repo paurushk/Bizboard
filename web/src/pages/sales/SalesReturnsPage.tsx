@@ -42,7 +42,7 @@ import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
-import { canCreateSales } from '@/utils/permissions';
+import { canCancelDocuments, canCreateSales } from '@/utils/permissions';
 import { useAuth } from '@/auth/AuthContext';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
@@ -54,6 +54,7 @@ export function SalesReturnsPage() {
   const { user } = useAuth();
   const { writesBlocked } = useSubscriptionGate();
   const canWrite = canCreateSales(user) && !writesBlocked;
+  const canCompleteReturn = canCancelDocuments(user) && !writesBlocked;
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
@@ -278,6 +279,9 @@ export function SalesReturnsPage() {
             {/* Same-family fix as UXW2B-011/UXW2B-010: surface mutation errors inside
                 the modal itself — a page-level Alert behind the Dialog is invisible. */}
             {error ? <HelpErrorAlert message={error} /> : null}
+            {!canCompleteReturn ? (
+              <Alert severity="info">{t('phase1.salesReturnCompleteOwnerOnly')}</Alert>
+            ) : null}
             {invoice && lines.length > 0 && activeSourceLines(lines).length === 0 ? (
               <Alert severity="warning">{t('phase1.selectItemToReturn')}</Alert>
             ) : null}
@@ -319,7 +323,12 @@ export function SalesReturnsPage() {
           </Button>
           <Button
             variant="contained"
-            disabled={!invoice || activeSourceLines(lines).length === 0 || createMutation.isPending}
+            disabled={
+              !canCompleteReturn ||
+              !invoice ||
+              activeSourceLines(lines).length === 0 ||
+              createMutation.isPending
+            }
             onClick={() => createMutation.mutate()}
           >
             {t('common.complete')}

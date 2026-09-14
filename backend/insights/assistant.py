@@ -261,13 +261,13 @@ class ToolExecutor:
         end = timezone.localdate()
         start = end - timedelta(days=days - 1)
         from sales.models import SalesInvoice
-
         from sales.models import SalesReturn
+        from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
         sales = (
             SalesInvoice.objects.filter(
                 company=self.company,
-                status__in=(SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED),
+                status__in=OPEN_RECEIVABLE_STATUSES,
                 invoice_date__gte=start,
                 invoice_date__lte=end,
             ).aggregate(total=Coalesce(Sum("grand_total"), Decimal("0")))["total"]

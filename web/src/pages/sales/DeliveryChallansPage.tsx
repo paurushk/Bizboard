@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import Button from '@mui/material/Button';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   cancelDeliveryChallan,
   completeDeliveryChallan,
+  convertDeliveryChallan,
   downloadSalesDocumentPdf,
   listDeliveryChallansPage,
 } from '@/api/resources';
@@ -20,6 +22,7 @@ const PAGE_SIZE = 50;
 export function DeliveryChallansPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const canWrite = canCreateSales(user);
   const canCancel = canCancelDocuments(user);
   const [page, setPage] = useState(1);
@@ -34,6 +37,16 @@ export function DeliveryChallansPage() {
     onSuccess: () => {
       setError(null);
       void qc.invalidateQueries({ queryKey: ['delivery-challans'] });
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+  const convert = useMutation({
+    mutationFn: (id: number) => convertDeliveryChallan(id),
+    onSuccess: (invoice) => {
+      setError(null);
+      void qc.invalidateQueries({ queryKey: ['delivery-challans'] });
+      void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
+      void navigate(`/sales/history/${invoice.id}/edit`);
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -78,6 +91,11 @@ export function DeliveryChallansPage() {
             {row.status === 'DRAFT' && canWrite ? (
               <Button size="small" disabled={complete.isPending} onClick={() => complete.mutate(row.id)}>
                 {t('common.complete')}
+              </Button>
+            ) : null}
+            {row.status === 'COMPLETED' && canWrite ? (
+              <Button size="small" variant="contained" disabled={convert.isPending} onClick={() => convert.mutate(row.id)}>
+                {t('common.convert')}
               </Button>
             ) : null}
             {row.status === 'COMPLETED' ? (

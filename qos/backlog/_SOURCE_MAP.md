@@ -109,6 +109,14 @@ for anything after Phase 1 — but keep adding rows here when new sources are mi
 | BB-000671 | QOS-0079 | No SaaS subscription / entitlement billing (Deferred - roadmap) |
 | issue-register P1 'No BizBoard SaaS subscription / entitlement billing' | QOS-0079 | roadmap |
 | FREEZE_SCOPE G7: multi-currency | QOS-0080 |  |
+| G-17 | QOS-0081 | CROSS_FLOW_IMPACT_MAP — returned invoice shown as Paid |
+| G-18 | QOS-0081 | CROSS_FLOW_IMPACT_MAP — purchase RETURNED readers |
+| G-19 | QOS-0081 | CROSS_FLOW_IMPACT_MAP — stock available vs on-hand |
+| G-20 | QOS-0081 | CROSS_FLOW_IMPACT_MAP — allocation / residual AR |
+| G-21 | QOS-0081 | CROSS_FLOW_IMPACT_MAP — period gate GRN complete |
+| G-22 | QOS-0081 | CROSS_FLOW_IMPACT_MAP — period gate challan cancel |
+| G-23 | QOS-0081 | CROSS_FLOW_IMPACT_MAP — dunning residual after return |
+| B8 | QOS-0082 | Two bank-recon UIs; match_status identity until consolidation |
 
 ## MASTER_ISSUE_REGISTER reconciliation (runbook P1-T4)
 

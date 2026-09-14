@@ -36,19 +36,22 @@ These are covered in the two READMEs rather than duplicated here:
 | [`reviews/`](reviews/) | Engineering audit apparatus: numbered reviews `01`–`21`, `MASTER_ISSUE_REGISTER.md`, `CHANGELOG.md`, `REMEDIATION_ROADMAP.md`, `KNOWN_LIMITATIONS_AND_TECH_DEBT.md`, wave findings, audit master prompts | **History, not scope** — see [`reviews/README.md`](reviews/README.md) |
 | [`FREEZE_SCOPE.md`](FREEZE_SCOPE.md) | Authoritative freeze scope: SUPPORTED / NOT SUPPORTED / KNOWN LIMITATIONS, frozen flag profile, founder decisions | **Active** — supersedes the README module table for scope |
 | [`FREEZE_SCOPE_COVERAGE.md`](FREEZE_SCOPE_COVERAGE.md) | Every SUPPORTED / SUP item → the concrete test that gates it, or an explicit GAP / blocked line | **Active** — reconcile when chains land |
-| [`TESTING_STRATEGY.md`](TESTING_STRATEGY.md) | Persona-centric testing method: the 7-layer confidence model, per-journey question set, quality-dimension coverage map, ranked gap register, weak assumptions, regression discipline, evidence/sign-off model | **Active** — authority for method, priorities, gaps (line-item status stays in `FREEZE_SCOPE_COVERAGE.md`) |
-| [`Q-OS_QUALITY_PIPELINE_PLAN.md`](Q-OS_QUALITY_PIPELINE_PLAN.md) | Design + phased plan for the Q-OS pipeline that turns testing evidence into an actionable Product Quality Backlog (10 categories, calibrated scoring, evidence-strength cap, lifecycle enforcement, sequenced frontier, observation layer) | **Plan — for build** · reference implementation is Bizboard; generated output is `PRODUCT_QUALITY_BACKLOG.md` |
+| [`TESTING_STRATEGY.md`](TESTING_STRATEGY.md) | Persona-centric testing **method**: layers **L1–L10**, per-journey question set, quality-dimension coverage map, ranked gap register, weak assumptions, regression discipline, evidence/sign-off | **Active** — authority for method, priorities, gaps (line-item status stays in `FREEZE_SCOPE_COVERAGE.md`). Philosophy lives in `HOLISTIC_VALIDATION_REVIEW.md` |
+| [`HOLISTIC_VALIDATION_REVIEW.md`](HOLISTIC_VALIDATION_REVIEW.md) | **BizBoard Quality Model** + diagnostic: product-truth vs capability, Flow / Impact / Truth graphs, generated-catalog target, flow inventory, P0–P2 | **Active** — operating model (rev 2). Other testing docs are *views*, not competing frameworks |
+| [`HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md`](HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md) | **Executable build plan** for the model above — Phases 0–7, each task with goal/steps/files/acceptance/deps/effort | **Phases 0–7 encoded** (2026-09-13). `flow-catalog` stays advisory until 2 green CI weeks (A3). Decision-quality target remains Medium-high (C6). |
+| [`HOLISTIC_VALIDATION_80_PLAN.md`](HOLISTIC_VALIDATION_80_PLAN.md) | LLM-session plan to 80% on each review §0.9 dimension. Rubric + C6-80. Not High. | **Active** — scores live in that file’s table; Cursor canvases are IDE-only |
+| [`CROSS_FLOW_IMPACT_MAP.md`](CROSS_FLOW_IMPACT_MAP.md) | **Graph 2 (Impact)** — writers/readers of shared mutable fields; event × projection summary is generated | **Active** — `python validation/tools/build_event_matrix.py` |
+| [`FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md`](FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md) | **L4 view** — persona × archetype index. T1–T7 maps onto L1–L10 | **Active** — not a second pyramid |
+| [`Q-OS_QUALITY_PIPELINE_PLAN.md`](Q-OS_QUALITY_PIPELINE_PLAN.md) | **Quality output** — pipeline that turns testing evidence into a Product Quality Backlog | **Plan — for build**. Does not define test layers |
 | [`Q-OS_IMPLEMENTATION_RUNBOOK.md`](Q-OS_IMPLEMENTATION_RUNBOOK.md) | Executable task-by-task build plan for the above — Phases 0–5, each task with goal / steps / files / acceptance check / deps / effort; appendices carry the JSON Schema, lint checks, CI jobs, frontier scoring, and a sample item | **Runbook** — Phase 0 + Phase 1 built; Phase 2 partial |
-| [`PRODUCT_QUALITY_BACKLOG.md`](PRODUCT_QUALITY_BACKLOG.md) | **GENERATED** by `qos/tools/build_backlog.py` — the ranked backlog itself: dashboard, sequenced top-12 frontier, 10 categories, Accepted/won't-fix. Edit `qos/backlog/*.yaml`, not this file | **Live** — gated by the `qos-lint` CI job; see [`../qos/README.md`](../qos/README.md) |
+| [`FLOW_CATALOG.md`](FLOW_CATALOG.md) | **GENERATED** Graph 1 — every `App.tsx` route + in-page money action with a coverage label | **Live** — `python validation/tools/build_flow_catalog.py`; advisory CI job `flow-catalog` |
+| [`EVENT_MATRIX.md`](EVENT_MATRIX.md) | **GENERATED** Graph 2 — verb × document × projection cells | **Live** — `python validation/tools/build_event_matrix.py` |
+| [`PRODUCT_QUALITY_BACKLOG.md`](PRODUCT_QUALITY_BACKLOG.md) | **GENERATED** by `qos/tools/build_backlog.py` — the ranked backlog itself: dashboard, sequenced top-12 frontier, 11 categories, Accepted/won't-fix. Edit `qos/backlog/*.yaml`, not this file | **Live** — gated by the `qos-lint` CI job; see [`../qos/README.md`](../qos/README.md) |
 | [`archive/`](archive/) | Superseded historical reports kept for reference (security/test/bug/perf snapshots, old code-review dumps, UX audits, old Phase 1 plan) | **Frozen** — do not update |
 
 ### Notes
 
-- **`reviews/`** mixes the current issue register (`MASTER_ISSUE_REGISTER.md`,
-  `CHANGELOG.md`, `KNOWN_LIMITATIONS_AND_TECH_DEBT.md`) with point-in-time wave
-  audits and reusable master prompts. Live remediation currently also tracked in
-  the repo-root `DEEP_CODE_REVIEW_2026-09-03.md` / `FIX_PLAN_2026-09-03.md`.
-  Consolidating these into one register is planned but not yet done.
+- **`reviews/`** is **history, not a live backlog.** [`MASTER_ISSUE_REGISTER.md`](reviews/MASTER_ISSUE_REGISTER.md) has three parallel ID schemes (CR-*, R-*, BB-*) that **must not be summed**. Open work was mined into Q-OS (`QOS-0053`…`0058`; see `qos/backlog/_SOURCE_MAP.md`). Drive new defects from `qos/backlog/`, not by adding the register’s Open counts.
 - **`archive/`** contents are frozen snapshots. Each points at its live
   replacement in its header; don't cite them as current.
 - The repo root holds only `README.md`, `MVP_IMPLEMENTATION_PLAN.md`,

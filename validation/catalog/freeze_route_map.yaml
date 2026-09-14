@@ -1,0 +1,200 @@
+# Prefix/exact freeze mapping used by coverage labels (P1-T4) and the
+# P1-T5 persona/archetype join. Longest prefix wins. Lists are list-valued
+# (never a single scalar). UNMAPPED is the honest default when nothing here matches.
+
+out_prefixes:
+  - /insights
+  - /manufacturing
+  - /payroll
+  - /crm
+  - /purchases/bills-of-entry
+  - /settings/tally
+  - /accounting/fixed-assets
+  - /payments/account-aggregator
+  - /reports/gstr
+  - /reports/cmp08
+  - /reports/gst-health
+  - /reports/gst-rate-exposure
+  - /reports/gstr1
+  - /reports/gstr2b
+  - /reports/gstr3b
+  - /reports/gstr4
+  - /reports/gstr6
+  - /reports/gstr7
+  - /reports/gstr8
+  - /reports/gstr9
+  - /settings/ai
+  - /settings/help
+
+lim_exact:
+  - /sales/recurring
+  - /sales/quick-entry
+  - /sales/bill-upload
+  - /offline-outbox
+  - /ca-needs
+
+# BoE is dark (ENABLE_BOE=0) AND a known ungated defect if ever enabled (B6).
+known_defect_not_gated:
+  - /purchases/bills-of-entry
+
+# Capability mapping (FREEZE_SCOPE.md §A). Exact paths and prefixes.
+a_rows:
+  /login: A20
+  /register: A20
+  /forgot-password: A20
+  /reset-password: A20
+  /invite: A17
+  /pay/:token: A25
+  /setup: A19
+  /: A13
+  /pos: A23
+  /attention: A13
+  /help: A20
+  /sales/new: A1
+  /sales/quick-entry: A1
+  /sales/history: A1
+  /sales/history/:id: A1
+  /sales/history/:id/edit: A1
+  /sales/quotations: A4
+  /sales/orders: A1
+  /sales/orders/new: A1
+  /sales/orders/:id: A1
+  /sales/delivery-challans: A1
+  /sales/delivery-challans/new: A1
+  /sales/delivery-challans/:id: A1
+  /sales/credit-notes: A5
+  /sales/credit-notes/new: A5
+  /sales/credit-notes/:id: A5
+  /sales/debit-notes: A5
+  /sales/debit-notes/new: A5
+  /sales/debit-notes/:id: A5
+  /sales/returns: A5
+  /sales/customers: A12
+  /sales/receipts: A10
+  /sales/bill-upload: A15
+  /purchases/new: A6
+  /purchases/history: A6
+  /purchases/history/:id: A6
+  /purchases/history/:id/edit: A6
+  /purchases/returns: A7
+  /purchases/credit-notes: A7
+  /purchases/credit-notes/new: A7
+  /purchases/credit-notes/:id: A7
+  /purchases/debit-notes: A7
+  /purchases/debit-notes/new: A7
+  /purchases/debit-notes/:id: A7
+  /purchases/orders: A6
+  /purchases/orders/new: A6
+  /purchases/orders/:id: A6
+  /purchases/suppliers: A12
+  /purchases/payments: A11
+  /purchases/bill-upload: A15
+  /payments/reconciliation: A10
+  /payments/links: A25
+  /payments/statements: A10
+  /inventory/products: A8
+  /inventory/stock: A9
+  /inventory/low-stock: A9
+  /inventory/expiry-alerts: A9
+  /inventory/adjustments: A9
+  /inventory/warehouses: A9
+  /inventory/stock-counts: A9
+  /inventory/transfers: A9
+  /inventory/serials: A9
+  /inventory/labels: A9
+  /reports/sales: A13
+  /reports/purchases: A13
+  /reports/inventory: A13
+  /reports/customer-ledger: A12
+  /reports/supplier-ledger: A12
+  /reports/cash-book: A13
+  /reports/stock-valuation: A13
+  /reports/trial-balance: A13
+  /reports/profit-and-loss: A13
+  /reports/balance-sheet: A13
+  /reports/books-health: A13
+  /reports/tds-tcs: A24
+  /reports/statutory-events: A13
+  /reports/missing-documents: A13
+  /ca-needs: A13
+  /accounting/accounts: A13
+  /accounting/journals: A13
+  /accounting/bank-reconciliation: A10
+  /accounting/periods: A21
+  /accounting/cost-centers: A13
+  /settings/company: A17
+  /settings/users: A17
+  /settings/gst: A1
+  /settings/series: A1
+  /settings/units: A8
+  /settings/items: A8
+  /settings/templates: A14
+  /settings/bank-accounts: A10
+  /settings/payment-gateway: A25
+  /settings/import: A15
+  /settings/backup: A16
+  /settings/accounting: A13
+  /settings/billing: A17
+  /settings/price-lists: A8
+  /settings/statutory-licences: A1
+
+# P1-T5: one row per route, list-valued. Longest prefix wins.
+default_join:
+  personas: [P1]
+  archetypes: [ARCH-01, ARCH-03]
+
+persona_prefixes:
+  /pos:
+    personas: [P1, P2, P3]
+    archetypes: [ARCH-01]
+  /sales:
+    personas: [P1, P3]
+    archetypes: [ARCH-01, ARCH-03, ARCH-04]
+  /purchases:
+    personas: [P1, P3, P5]
+    archetypes: [ARCH-03, ARCH-04]
+  /payments:
+    personas: [P1, P5]
+    archetypes: [ARCH-01, ARCH-03]
+  /inventory:
+    personas: [P1, P4]
+    archetypes: [ARCH-01, ARCH-03, ARCH-06]
+  /reports:
+    personas: [P1, P5, P6]
+    archetypes: [ARCH-03, ARCH-05]
+  /ca-needs:
+    personas: [P5, P6]
+    archetypes: [ARCH-05]
+  /accounting:
+    personas: [P1, P5]
+    archetypes: [ARCH-03, ARCH-05]
+  /attention:
+    personas: [P1, P5]
+    archetypes: [ARCH-01, ARCH-03]
+  /insights:
+    personas: [P1]
+    archetypes: [ARCH-01]
+  /manufacturing:
+    personas: [P1, P4]
+    archetypes: [ARCH-07]
+  /payroll:
+    personas: [P1, P5]
+    archetypes: [ARCH-03]
+  /crm:
+    personas: [P1, P3]
+    archetypes: [ARCH-03]
+  /settings:
+    personas: [P1]
+    archetypes: [ARCH-01, ARCH-03]
+  /pay:
+    personas: [P1]
+    archetypes: [ARCH-01, ARCH-03]
+  /login:
+    personas: [P1, P2, P3, P4, P5]
+    archetypes: [ARCH-01]
+  /register:
+    personas: [P1]
+    archetypes: [ARCH-01]
+  /setup:
+    personas: [P1]
+    archetypes: [ARCH-01]

@@ -5,8 +5,10 @@ import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { listCollectionRisk } from '@/api/resources';
+import { CreditHoldChip } from '@/components/CreditHoldChip';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
+import { isCollectionHoldStatus } from '@/utils/collectionHold';
 
 /**
  * QOS-0038: a proactive dashboard nudge for the P1 "who owes me money"
@@ -62,9 +64,12 @@ export function CollectionAttentionCard() {
             to={`/reports/customer-ledger?customer=${row.customerId}`}
             sx={{ color: 'text.primary', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
           >
-            <Typography variant="body2" noWrap sx={{ maxWidth: 220 }}>
-              {row.customerName ?? `#${row.customerId}`}
-            </Typography>
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0, maxWidth: 280 }}>
+              <Typography variant="body2" noWrap sx={{ maxWidth: 180 }}>
+                {row.customerName ?? `#${row.customerId}`}
+              </Typography>
+              {isCollectionHoldStatus(row.status) ? <CreditHoldChip /> : null}
+            </Stack>
             <Typography variant="body2" color="warning.main">
               {formatMoney(row.overdueAmount)}
             </Typography>

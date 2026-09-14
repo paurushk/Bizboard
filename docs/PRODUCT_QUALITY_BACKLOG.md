@@ -13,32 +13,33 @@ PRODUCT QUALITY BACKLOG - dashboard
 🟣 Persona gaps               :   1
 🔵 Business gaps              :   5
 🟤 Reliability & trust issues :   2
+🔗 Cross-flow consistency     :   1
 🟢 Performance improvements   :   1
 ⚫ Security & privacy fixes   :   2
 ✨ Delight opportunities      :   1
 💡 Innovation opportunities   :   3
 
-Leading indicator - risk surface with ZERO evidence: 18 / 51 journeys
+Leading indicator - risk surface with ZERO evidence: 17 / 51 journeys
 ```
 
-## Do next - sequenced frontier (top 12 of 16 open)
+## Do next - sequenced frontier (top 12 of 17 open)
 
 | # | id | title | category | priority | effort | value | moves | blocked by |
 |--:|---|---|---|---|---|--:|---|---|
 | 1 | QOS-0021 | Pilot Go/No-Go gates are unsigned | BUSINESS_GAP | P1 | S | 40.0 | none | - |
 | 2 | QOS-0020 | No TLS termination at the application edge | SECURITY_PRIVACY | P1 | M | 20.0 | renewal | - |
-| 3 | QOS-0003 | Pilot scale is unvalidated - no executed load, soak, or large-tenant test | PERFORMANCE | P1 | L | 5.0 | renewal | - |
-| 4 | QOS-0049 | DPDP controls checklist is unsigned | SECURITY_PRIVACY | P2 | S | 5.0 | renewal | - |
-| 5 | QOS-0052 | Q-OS scoring rubric, ADR-0001, and locked decisions are not formally ratified | BUSINESS_GAP | P2 | S | 5.0 | none | - |
-| 6 | QOS-0016 | Dashboard render budget is unmeasured with realistic data volume | DELIGHT | P1-investigate | M | 4.0 | activation | - |
-| 7 | QOS-0004 | No practising CA has filed GST returns from Bizboard worksheets (H-05) | BUSINESS_GAP | P1-investigate | L | 2.25 | renewal | - |
-| 8 | QOS-0029 | UX readiness is untested with real non-technical staff (readiness dim 4) | DISSATISFACTION | P1-investigate | L | 2.25 | activation | - |
-| 9 | QOS-0030 | Operational readiness is untested - can a business run a full day unaided? (dim 8) | BUSINESS_GAP | P1-investigate | L | 1.5 | renewal | - |
-| 10 | QOS-0031 | Commercial readiness is untested - will pilots pay and renew? (dim 9) | BUSINESS_GAP | P1-investigate | L | 1.5 | renewal | - |
-| 11 | QOS-0028 | ARCH-07 milestone billing, job-work, and technician dispatch are unbuilt | PERSONA_GAP | P2 | XL | 0.5 | none | - |
-| 12 | QOS-0014 | No schema-migration rehearsal against a production-shaped dataset | RELIABILITY_TRUST | P3 | M | 0.5 | renewal | - |
+| 3 | QOS-0082 | Payments and accounting bank-recon UIs must share one match state | CROSS_FLOW_CONSISTENCY | P2 | M | 6.67 | renewal | - |
+| 4 | QOS-0003 | Pilot scale is unvalidated - no executed load, soak, or large-tenant test | PERFORMANCE | P1 | L | 5.0 | renewal | - |
+| 5 | QOS-0049 | DPDP controls checklist is unsigned | SECURITY_PRIVACY | P2 | S | 5.0 | renewal | - |
+| 6 | QOS-0052 | Q-OS scoring rubric, ADR-0001, and locked decisions are not formally ratified | BUSINESS_GAP | P2 | S | 5.0 | none | - |
+| 7 | QOS-0016 | Dashboard render budget is unmeasured with realistic data volume | DELIGHT | P1-investigate | M | 4.0 | activation | - |
+| 8 | QOS-0004 | No practising CA has filed GST returns from Bizboard worksheets (H-05) | BUSINESS_GAP | P1-investigate | L | 2.25 | renewal | - |
+| 9 | QOS-0029 | UX readiness is untested with real non-technical staff (readiness dim 4) | DISSATISFACTION | P1-investigate | L | 2.25 | activation | - |
+| 10 | QOS-0030 | Operational readiness is untested - can a business run a full day unaided? (dim 8) | BUSINESS_GAP | P1-investigate | L | 1.5 | renewal | - |
+| 11 | QOS-0031 | Commercial readiness is untested - will pilots pay and renew? (dim 9) | BUSINESS_GAP | P1-investigate | L | 1.5 | renewal | - |
+| 12 | QOS-0028 | ARCH-07 milestone billing, job-work, and technician dispatch are unbuilt | PERSONA_GAP | P2 | XL | 0.5 | none | - |
 
-Risk retired by this frontier: **83.5%** of open High/Medium-impact risk.
+Risk retired by this frontier: **86.3%** of open High/Medium-impact risk.
 
 ## 1. 🔴 Critical bugs  (0 open / 0 tracked)
 
@@ -107,13 +108,20 @@ _None._
 | [QOS-0014](../qos/backlog/QOS-0014.yaml) | No schema-migration rehearsal against a production-shaped dataset | P1 | Applying a migration to real data | P3 | M | heuristic | Low | backend | in_progress |
 | [QOS-0015](../qos/backlog/QOS-0015.yaml) | No accuracy benchmark for LLM bill extraction | P5 | LLM bill extraction quality over time | P3 | M | heuristic | Low | backend | in_progress |
 
-## 7. 🟢 Performance improvements  (1 open / 1 tracked)
+## 7. 🔗 Cross-flow consistency  (1 open / 2 tracked)
+
+| id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
+|---|---|---|---|---|---|---|---|---|---|
+| [QOS-0081](../qos/backlog/QOS-0081.yaml) | Returned-invoice readers can still disagree after G-17–G-23 API fixes | P1,P2 | Complete a sale, pay, fully return, residual debit note, then read every money surface | P1 | L | measured | High | qa | verified |
+| [QOS-0082](../qos/backlog/QOS-0082.yaml) | Payments and accounting bank-recon UIs must share one match state | P1,P5 | Match a bank statement line in either recon UI, then read the other | P2 | M | measured | Medium | qa | in_progress |
+
+## 8. 🟢 Performance improvements  (1 open / 1 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
 | [QOS-0003](../qos/backlog/QOS-0003.yaml) | Pilot scale is unvalidated - no executed load, soak, or large-tenant test | P1 | Reports / lists / exports over a full year of data | P1 | L | heuristic | Medium | backend | investigating |
 
-## 8. ⚫ Security & privacy fixes  (2 open / 5 tracked)
+## 9. ⚫ Security & privacy fixes  (2 open / 5 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -123,7 +131,7 @@ _None._
 | [QOS-0023](../qos/backlog/QOS-0023.yaml) | CD pushes mutable sha tags without a digest pin | P1 | Container image supply chain | P2 | S | heuristic | Low | devops | fixed |
 | [QOS-0049](../qos/backlog/QOS-0049.yaml) | DPDP controls checklist is unsigned | P1 | Data-protection governance for the pilot | P2 | S | heuristic | Low | ops | investigating |
 
-## 9. ✨ Delight opportunities  (1 open / 8 tracked)
+## 10. ✨ Delight opportunities  (1 open / 8 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -136,7 +144,7 @@ _None._
 | [QOS-0040](../qos/backlog/QOS-0040.yaml) | POS does not remember the last payment method or customer per till | P2 | Repeated counter checkouts at the same till | P3 | S | hypothesis | Medium | web | fixed |
 | [QOS-0041](../qos/backlog/QOS-0041.yaml) | The GSTR worksheet has no contextual 'how to file this on the portal' help | P6,P5 | Taking a Bizboard worksheet to the GST portal | P3 | S | hypothesis | Low | web | fixed |
 
-## 10. 💡 Innovation opportunities  (3 open / 7 tracked)
+## 11. 💡 Innovation opportunities  (3 open / 7 tracked)
 
 | id | title | why now / why us | expected value | effort | lifecycle |
 |---|---|---|---|---|---|

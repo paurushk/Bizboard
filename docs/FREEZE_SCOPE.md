@@ -171,7 +171,7 @@ config-consistency guard ignores them): `AUTO_PICK_COMPANY_ON_EMPTY`,
 `DJANGO_FAIL_FAST_SECRETS`, `GATEWAY_HOLDING_STATE`, `GSP_CERTIFIED`,
 `GSP_HTTP_SANDBOX`, `JSON_REQUEST_LOGS`, `OTP_DEBUG_ECHO`,
 `PAYMENTS_REFUND_EVENT_MAP_V2`, `REQUIRE_SANDBOX_WEBHOOK_SECRET`,
-`SECURE_SSL_REDIRECT`, `USE_TLS`. These control
+`SECURE_SSL_REDIRECT`, `USE_TLS`, `ENABLE_SCHEDULED_COVERAGE_AUDIT`. These control
 infra/runtime behaviour, not product surface. `GATEWAY_HOLDING_STATE` and
 `GSP_HTTP_SANDBOX` are sub-toggles of D3 / C2 respectively and follow those
 decisions.

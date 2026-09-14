@@ -1,4 +1,14 @@
 import { expect, test } from '@playwright/test';
+import {
+  addInvoiceItem,
+  addStockAdjustment,
+  createCustomer,
+  createProduct,
+  registerTenant,
+  selectPartyOnDocument,
+  selectReceiptCustomer,
+  unique,
+} from './helpers/documents';
 
 /**
  * BUG-725 — a true end-to-end run against the live backend (not mocked
@@ -10,10 +20,6 @@ import { expect, test } from '@playwright/test';
  * Run with: npm run test:e2e:golden
  */
 
-function unique() {
-  return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-}
-
 test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page }) => {
   const id = unique();
   const companyName = `E2E Golden ${id}`;
@@ -23,69 +29,32 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
   const customerName = `Golden Customer ${id}`;
 
   // 1. Register a fresh, isolated tenant.
-  await page.goto('/register');
-  await page.getByLabel('Company name').fill(companyName);
-  await page.getByLabel('Full name').fill('E2E Tester');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill('GoldenPath123!');
-  await page.getByLabel('State').click();
-  await page.getByRole('option', { name: 'Karnataka' }).click();
-  await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page).toHaveURL(/\/login\?registered=1/);
-  await expect(page.getByText(/Account created/i)).toBeVisible();
-  await page.getByLabel('Password', { exact: true }).fill('GoldenPath123!');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).toHaveURL('/');
+  await registerTenant(page, { companyName, email, password: 'GoldenPath123!' });
 
   // 2. Create a product.
-  await page.goto('/inventory/products');
-  await page.getByRole('button', { name: 'Add' }).click();
-  await page.getByLabel('Name').fill(productName);
-  await page.getByLabel('SKU').fill(productSku);
-  await page.getByLabel('GST %').fill('18');
-  await page.getByLabel('Purchase price').fill('80');
-  await page.getByLabel('Selling price').fill('100');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText(productName)).toBeVisible();
+  await createProduct(page, { name: productName, sku: productSku, sellingPrice: '100', purchasePrice: '80' });
 
   // 3. Give it opening stock.
-  await page.goto('/inventory/adjustments');
-  const productsCombo = page.getByRole('combobox', { name: 'Products', exact: true });
-  await productsCombo.click();
-  await productsCombo.fill(productSku);
-  await page.getByRole('option', { name: new RegExp(productSku) }).click();
-  await page.getByLabel('Quantity delta (+/−)').fill('50');
-  await page.getByLabel('Reason').fill('Opening stock for golden-path e2e');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('Stock adjustment recorded')).toBeVisible();
+  await addStockAdjustment(page, { sku: productSku, quantity: '50' });
 
   // 4. Create a customer.
-  await page.goto('/sales/customers');
-  await page.getByRole('button', { name: 'Add' }).click();
-  await page.getByLabel('Name').fill(customerName);
-  await page.getByLabel('State').click();
-  await page.getByRole('option', { name: 'Karnataka' }).click();
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText(customerName)).toBeVisible();
+  await createCustomer(page, { name: customerName });
 
-  // 5. Raise a sales invoice and complete it.
+  // 5. Raise a sales invoice and complete it. A fresh registration defaults
+  // to registration_type=UNREGISTERED (the /register form never sends
+  // registrationType — see accounts/serializers.py RegisterSerializer), so
+  // the invoice type defaults to NON_GST and no tax applies regardless of
+  // the product's own GST rate: 1 unit @ ₹100 -> ₹100.00 flat.
   await page.goto('/sales/new');
-  const invoiceCustomerCombo = page.getByRole('combobox', { name: 'Customer', exact: true });
-  await invoiceCustomerCombo.click();
-  await invoiceCustomerCombo.fill(customerName);
-  await page.getByRole('option', { name: customerName }).click();
-
-  const itemInput = page.getByPlaceholder('+ Add Item / Scan barcode or search SKU / name');
-  await itemInput.click();
-  await itemInput.fill(productSku);
-  await page.getByRole('option', { name: new RegExp(productSku) }).click();
-  await expect(page.getByText('₹118.00').first()).toBeVisible();
+  await selectPartyOnDocument(page, customerName);
+  await addInvoiceItem(page, productSku);
+  await expect(page.getByText('₹100.00').first()).toBeVisible();
 
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/);
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
   await expect(invoiceRow).toContainText('Completed');
-  await expect(invoiceRow).toContainText('₹118.00');
+  await expect(invoiceRow).toContainText('₹100.00');
   const invoiceNumber = (await invoiceRow.locator('td').nth(1).textContent())?.trim();
   expect(invoiceNumber).toMatch(/^INV-\d+$/);
 
@@ -96,12 +65,9 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
 
   // 7. Receive payment and allocate it to the invoice in one step.
   await page.goto('/sales/receipts');
-  await page.getByRole('button', { name: 'Create' }).click();
-  const receiptCustomerCombo = page.getByRole('combobox', { name: 'Customer', exact: true });
-  await receiptCustomerCombo.click();
-  await receiptCustomerCombo.fill(customerName);
-  await page.getByRole('option', { name: customerName }).click();
-  await page.getByLabel('Amount').fill('118');
+  await page.getByRole('button', { name: 'New receipt' }).click();
+  await selectReceiptCustomer(page, customerName);
+  await page.getByLabel('Amount').fill('100');
   const allocateCombo = page.getByRole('combobox', { name: 'Apply to specific invoice (optional)' });
   await allocateCombo.click();
   await page.getByRole('option', { name: new RegExp(invoiceNumber!) }).click();

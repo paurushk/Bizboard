@@ -45,6 +45,7 @@ type CompanyForm = Pick<
   dunningMaxReminders: number;
   dunningQuietHoursStart: number;
   dunningQuietHoursEnd: number;
+  autoCreditHoldOnSevereOverdue: boolean;
 };
 
 export function CompanySettingsPage() {
@@ -81,6 +82,7 @@ export function CompanySettingsPage() {
         dunningMaxReminders: query.data.dunningMaxReminders ?? 3,
         dunningQuietHoursStart: query.data.dunningQuietHoursStart ?? 21,
         dunningQuietHoursEnd: query.data.dunningQuietHoursEnd ?? 8,
+        autoCreditHoldOnSevereOverdue: Boolean(query.data.autoCreditHoldOnSevereOverdue),
       });
     }
   }, [query.data, reset]);
@@ -113,6 +115,7 @@ export function CompanySettingsPage() {
         dunningMaxReminders: values.dunningMaxReminders,
         dunningQuietHoursStart: values.dunningQuietHoursStart,
         dunningQuietHoursEnd: values.dunningQuietHoursEnd,
+        autoCreditHoldOnSevereOverdue: values.autoCreditHoldOnSevereOverdue,
       });
     },
     onSuccess: (_data, variables) => {
@@ -357,6 +360,24 @@ export function CompanySettingsPage() {
               )}
             />
           </Stack>
+          <Controller
+            name="autoCreditHoldOnSevereOverdue"
+            control={control}
+            render={({ field }) => (
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={Boolean(field.value)}
+                    onChange={(_, v) => field.onChange(v)}
+                  />
+                }
+                label={t('settings.autoCreditHold')}
+              />
+            )}
+          />
+          <Typography variant="body2" color="text.secondary">
+            {t('settings.autoCreditHoldHelp')}
+          </Typography>
           <Button type="submit" variant="contained" size="large" disabled={mutation.isPending}>
             {t('common.save')}
           </Button>

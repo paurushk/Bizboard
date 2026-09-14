@@ -1,0 +1,47 @@
+id: QOS-0082
+category: CROSS_FLOW_CONSISTENCY
+title: Payments and accounting bank-recon UIs must share one match state
+persona:
+- P1
+- P5
+archetype:
+- ARCH-03
+- ARCH-05
+journey: Match a bank statement line in either recon UI, then read the other
+problem: "/payments/reconciliation matches BankStatementLine.match_status to a
+  receipt. /accounting/bank-reconciliation matched a JournalLine to the same
+  statement line without writing match_status, so the two screens could disagree
+  about whether a deposit was cleared. Locked default: payments recon is the
+  operational UI; accounting recon is the GL matcher. Both write match_status
+  until a founder-gated consolidation."
+evidence:
+  strength: measured
+  source:
+  - docs/HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md
+  - web/src/pages/phase/BankingPhasePages.tsx
+  - web/src/pages/phase/AccountingExtraPages.tsx
+  - backend/accounting/views.py
+  detail: "Accounting match now sets BankStatementLine.match_status=MATCHED.
+    projection.bank_recon_match_status_identity flags drift. Locked default:
+    /payments/reconciliation is the operational (receipt-matching) UI;
+    /accounting/bank-reconciliation remains the GL-match UI. Both write
+    match_status. Consolidation is founder-gated, not an implementation gap."
+scoring:
+  reach: 3
+  severity: 4
+  frequency: 2
+  impact_band: Medium
+business_metric: renewal
+priority: P2
+priority_rationale: Measured two-UI drift; identity is in place, consolidation is not.
+effort: M
+recommendation: Keep one match_status field as the identity. Do not add a third
+  recon surface. Payments recon is the operational UI until founder consolidates;
+  accounting recon stays as the GL matcher. Both screens must write the same field.
+test_required: test_accounting_bank_recon_match asserts MATCHED; projection.bank_recon_match_status_identity
+guard_ref:
+  test: backend/tests/test_phase5_accounting.py
+lifecycle: in_progress
+owner: qa
+opened: "2026-09-13"
+closed: null

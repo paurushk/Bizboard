@@ -43,7 +43,9 @@ def public_payment_link(request, token: str):
 
     with rls_bypass():
         link = (
-            PaymentLink.objects.select_related("company", "customer", "sales_invoice")
+            PaymentLink.objects.select_related(
+                "company", "customer", "sales_invoice", "sales_invoice__customer"
+            )
             .filter(token=token)
             .first()
         )
@@ -65,21 +67,36 @@ def public_payment_link(request, token: str):
         return Response({"detail": "This payment link has expired."}, status=status.HTTP_410_GONE)
     company = link.company
     from payments.upi import upi_qr_fields
+    from ledgers.services import LedgerService
+
+    invoice = link.sales_invoice
+    amount = link.amount
+    invoice_number = ""
+    customer_name = ""
+    if invoice is not None:
+        amount = LedgerService.sales_invoice_outstanding(invoice)
+        invoice_number = invoice.number or ""
+        if invoice.customer_id:
+            customer_name = getattr(invoice.customer, "name", "") or ""
+    elif link.customer_id:
+        customer_name = getattr(link.customer, "name", "") or ""
 
     upi = upi_qr_fields(
         upi_id=company.upi_id,
-        amount=link.amount,
-        note=link.sales_invoice.number if link.sales_invoice_id else link.token[:12],
+        amount=amount,
+        note=invoice_number or (link.token[:12] if link.token else ""),
         payee_name=company.legal_name or company.name,
     )
     return Response(
         {
             "token": link.token,
             "status": link.status,
-            "amount": str(link.amount),
+            "amount": str(amount),
             "allow_partial": link.allow_partial,
             "expires_at": link.expires_at,
             "company_name": company.legal_name or company.name,
+            "invoice_number": invoice_number,
+            "customer_name": customer_name,
             "provider": link.provider,
             "provider_short_url": link.provider_short_url,
             "upi": upi,

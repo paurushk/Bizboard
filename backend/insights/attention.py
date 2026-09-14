@@ -45,6 +45,7 @@ SEVERITY_RANK = {"critical": 0, "warning": 1, "info": 2}
 FINANCIAL_CODES = frozenset({
     "AR_OVERDUE_CRITICAL",
     "AR_OVERDUE_WARN",
+    "AR_RESIDUAL_AFTER_RETURN",
     "AP_DUE_7D",
     "CREDIT_LIMIT_NEAR",
     "CUSTOMER_CONCENTRATION",
@@ -435,6 +436,33 @@ def _overdue_customer_rows(company, as_of: date) -> list[dict]:
     return rows
 
 
+def _residual_return_rows(company) -> list[dict]:
+    """P5-T2: a RETURNED invoice that still owes money is residual AR, not 'Paid'."""
+    from ledgers.services import LedgerService
+    from sales.models import SalesInvoice
+
+    rows = []
+    returned = SalesInvoice.objects.filter(company=company, status=SalesInvoice.Status.RETURNED)[:40]
+    for inv in returned:
+        outstanding = LedgerService.sales_invoice_outstanding(inv)
+        if outstanding <= 0:
+            continue
+        number = inv.number or inv.pk
+        rows.append(_row(
+            code="AR_RESIDUAL_AFTER_RETURN",
+            severity="warning",
+            title=f"{number}: residual balance after return",
+            money_impact_paise=rupees_to_paise(outstanding),
+            reason=f"residual balance after return ₹{outstanding} on {number}",
+            action_label="Open invoice",
+            action_href=f"/sales/history/{inv.id}",
+            source_ticket="P5-T2",
+            entity_type="sales_invoice",
+            entity_id=inv.id,
+        ))
+    return rows
+
+
 def _expiry_rows(company) -> list[dict]:
     from inventory.item_stock import expiry_horizon_rows
 
@@ -550,6 +578,7 @@ def _build_raw_rows(company, as_of: date) -> list[dict]:
     raw.extend(_irn_rows(company))
     raw.extend(_paid_pending_books_rows(company))
     raw.extend(_overdue_customer_rows(company, as_of))
+    raw.extend(_residual_return_rows(company))
     raw.extend(_expiry_rows(company))
     return raw
 

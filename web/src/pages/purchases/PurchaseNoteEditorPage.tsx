@@ -102,7 +102,15 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     enabled: Boolean(supplierId),
   });
   const supplierSearch = useSupplierSearch({ selected: selectedSupplierQuery.data ?? null });
-  const purchases = useQuery({ queryKey: ['purchases', 'completed'], queryFn: () => listPurchases({ status: 'COMPLETED' }) });
+  const purchases = useQuery({
+    queryKey: ['purchases', 'note-source', kind],
+    queryFn: async () => {
+      const completed = await listPurchases({ status: 'COMPLETED' });
+      if (isCredit) return completed;
+      const returned = await listPurchases({ status: 'RETURNED' });
+      return [...returned, ...completed];
+    },
+  });
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const existing = useQuery({
@@ -356,7 +364,9 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     return <ErrorState message={getErrorMessage(existing.error)} error={existing.error} onRetry={() => void existing.refetch()} />;
   }
 
-  const completedPurchases = (purchases.data ?? []).filter((p) => p.status === 'COMPLETED');
+  const sourcePurchases = (purchases.data ?? []).filter((p) =>
+    isCredit ? p.status === 'COMPLETED' : p.status === 'COMPLETED' || p.status === 'RETURNED',
+  );
 
   return (
     <DocumentEditorShell
@@ -405,9 +415,9 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
         />
         {!isEdit ? (
           <Autocomplete
-            options={completedPurchases}
+            options={sourcePurchases}
             getOptionLabel={(o) => `${o.number ?? o.id} · ${o.supplierName ?? ''}`}
-            value={completedPurchases.find((p) => p.id === Number(purchaseInvoiceId)) ?? null}
+            value={sourcePurchases.find((p) => p.id === Number(purchaseInvoiceId)) ?? null}
             onChange={(_, v) => void onPurchasePick(v)}
             disabled={readOnly}
             renderInput={(params) => <TextField {...params} label={t('phase1.optionalPurchaseInvoice')} />}

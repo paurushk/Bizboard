@@ -27,6 +27,7 @@ from sales.models import (
     SalesReturn,
 )
 from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 
 # CF-001: OPEN_SALES (receivables/aging) and NET_SALES (dashboard money
 # totals, product/customer revenue ranking) were two independently-defined
@@ -166,6 +167,7 @@ class ReportService:
                 company=company,
                 status__in=OPEN_SALES,
                 is_opening_balance=False,
+                invoice_date__lte=as_of,
             ).only(
                 "id", "invoice_date", "due_date", "payment_terms_days"
             )
@@ -235,7 +237,7 @@ class ReportService:
         )
         # CR-043 / CR-045: include RETURNED and cap at today
         purchases_month = PurchaseInvoice.objects.filter(
-            company=company, status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+            company=company, status__in=OPEN_PAYABLE_STATUSES,
             invoice_date__gte=month_start, invoice_date__lte=today, is_opening_balance=False,
         ).aggregate(total=Sum("grand_total"), count=Count("id"))
         # CR-064: purchases_this_month net of completed purchase CNs/DNs
@@ -651,8 +653,9 @@ class ReportService:
         invoices = list(
             PurchaseInvoice.objects.filter(
                 company=company,
-                status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+                status__in=OPEN_PAYABLE_STATUSES,
                 is_opening_balance=False,
+                invoice_date__lte=as_of,
             ).only("id", "grand_total", "invoice_date", "due_date", "payment_terms_days")
         )
         if not invoices:

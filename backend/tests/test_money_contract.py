@@ -58,6 +58,10 @@ def test_sales_invoice_money_fields_are_decimal_strings(tenant_a):
     grand = Decimal(data["grand_total"])
     assert abs((taxable + cgst + sgst + igst + rnd) - grand) < Decimal("0.02")
     assert grand == Decimal("236.00")  # 200 taxable + 36 GST
+    assert "balance" in data and data["balance"] is not None, (
+        "SalesInvoice.balance must always be present (B12 / Phase 7.2)"
+    )
+    Decimal(str(data["balance"]))
 
 
 def test_purchase_invoice_money_fields_are_decimal_strings(tenant_a):
@@ -80,6 +84,22 @@ def test_purchase_invoice_money_fields_are_decimal_strings(tenant_a):
         assert field in done.data
         _assert_money_string(done.data[field], field)
     assert Decimal(done.data["grand_total"]) == Decimal("59.00")
+    assert "balance" in done.data and done.data["balance"] is not None, (
+        "PurchaseInvoice.balance must always be present (B12 / Phase 7.2)"
+    )
+    Decimal(str(done.data["balance"]))
+
+
+def test_stock_balance_available_always_present(tenant_a):
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "10")
+    resp = tenant_a.client.get("/api/v1/inventory/balances/")
+    assert resp.status_code == 200, resp.data
+    row = resp.data["results"][0]
+    assert row.get("available") is not None, (
+        "StockBalance.available must always be present (B12 / Phase 7.2)"
+    )
+    Decimal(str(row["available"]))
 
 
 def test_openapi_lists_money_fields_as_string_or_decimal(tenant_a):

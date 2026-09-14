@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizboard/validation/flow_item.schema.json",
+  "title": "Flow catalog item (Graph 1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["path", "kind", "route_kind", "coverage"],
+  "properties": {
+    "path": { "type": "string", "minLength": 1 },
+    "kind": { "enum": ["route", "action"] },
+    "route_kind": { "enum": ["page", "redirect", "index", "action"] },
+    "component": { "type": "string" },
+    "guards": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "redirect_to": { "type": "string" },
+    "nav_label": { "type": ["string", "null"] },
+    "nav_mismatch": { "type": "boolean" },
+    "coverage": {
+      "enum": [
+        "JOURNEY", "API-ONLY", "SMOKE", "FLAG-OFF", "UNIT",
+        "GAP", "OUT", "LIM", "UNMAPPED"
+      ]
+    },
+    "coverage_evidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "freeze_row": { "type": ["string", "null"] },
+    "defect": { "type": ["string", "null"] },
+    "personas": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "archetypes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "override": { "type": "boolean" }
+  }
+}

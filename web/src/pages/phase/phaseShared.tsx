@@ -118,7 +118,10 @@ export function DataTable({
       <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
         <VirtualizedTable rowCount={rows.length} maxHeight={maxHeight} rowHeight={rowHeight}>
           {({ rows: virtualRows, totalSize, measureElement }) => (
-            <Table size="small" stickyHeader>
+            // No stickyHeader: the Actions <th> was intercepting Post/Reverse
+            // on the first body row (accounting-golden-path). Same class of
+            // bug as SalesHistoryPage.
+            <Table size="small">
               <TableHead>
                 <TableRow>
                   {columns.map((c) => (

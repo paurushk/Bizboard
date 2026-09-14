@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Checkbox from '@mui/material/Checkbox';
@@ -21,7 +21,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { getCompany, createCustomer, listCustomersPage, listPriceLists, updateCustomer, verifyCustomerGstin } from '@/api/resources';
+import { getCompany, createCustomer, listCollectionRisk, listCustomersPage, listPriceLists, updateCustomer, verifyCustomerGstin } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
@@ -42,6 +42,8 @@ import { isViewer } from '@/utils/permissions';
 import { placeOfSupplyKnown } from '@/utils/tax';
 import { customerStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { CreditHoldChip } from '@/components/CreditHoldChip';
+import { isCollectionHoldStatus } from '@/utils/collectionHold';
 
 const emptyForm = {
   name: '',
@@ -85,6 +87,18 @@ export function CustomersPage() {
       }),
   });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  const collectionRisk = useQuery({
+    queryKey: ['collection-risk'],
+    queryFn: listCollectionRisk,
+    retry: false,
+  });
+  const holdByCustomer = useMemo(() => {
+    const map = new Map<number, boolean>();
+    for (const row of collectionRisk.data ?? []) {
+      if (isCollectionHoldStatus(row.status)) map.set(row.customerId, true);
+    }
+    return map;
+  }, [collectionRisk.data]);
   const priceLists = useQuery({ queryKey: ['price-lists'], queryFn: listPriceLists });
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
@@ -237,7 +251,10 @@ export function CustomersPage() {
                       minWidth: 120,
                     }}
                   >
-                    {c.name}
+                    <Stack direction="row" spacing={0.75} alignItems="center">
+                      <span>{c.name}</span>
+                      {holdByCustomer.get(c.id) ? <CreditHoldChip /> : null}
+                    </Stack>
                   </TableCell>
                   <TableCell>{c.phone ?? '—'}</TableCell>
                   <TableCell>
@@ -286,7 +303,7 @@ export function CustomersPage() {
                       <Button
                         size="small"
                         component={RouterLink}
-                        to={`/reports/customer-ledger?customerId=${c.id}`}
+                        to={`/reports/customer-ledger?customer=${c.id}`}
                       >
                         {t('billing.viewLedger')}
                       </Button>

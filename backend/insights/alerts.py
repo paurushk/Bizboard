@@ -14,6 +14,7 @@ from ledgers.services import LedgerService
 from masters.models import Customer
 from payments.models import CustomerReceipt
 from purchases.models import PurchaseInvoice
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 from reporting.gst_health import build_gst_health
 from reporting.services import ReportService
 from sales.models import SalesInvoice, SalesItem
@@ -126,7 +127,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
         # (COMPLETED, RETURNED) treatment of this status.
         for inv in PurchaseInvoice.objects.filter(
             company=company,
-            status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+            status__in=OPEN_PAYABLE_STATUSES,
             due_date__gte=as_of,
             due_date__lte=due_to,
         ).only("id", "grand_total", "status"):

@@ -170,6 +170,10 @@ def test_accounting_bank_recon_match(books):
     assert resp.status_code == 200, resp.data
     jl.refresh_from_db()
     assert jl.bank_statement_line_id == bs_line.id
+    bs_line.refresh_from_db()
+    from payments.models import BankLineMatchStatus
+
+    assert bs_line.match_status == BankLineMatchStatus.MATCHED
 
 
 def test_f2_028_unreconciled_gl_lines_endpoint_is_not_capped_and_filters(books):

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { loginAsOwner } from './helpers/auth';
+import { PROTECTED_ROUTES } from './helpers/protectedRoutes';
 
 /**
  * QOS-0010 — a render + no-page-error + not-bounced-to-login smoke for the
@@ -7,32 +8,12 @@ import { loginAsOwner } from './helpers/auth';
  * boundary" class of regression across the app, not just the handful of pages
  * that have a bespoke spec. The long tail of settings screens stays an
  * accepted LIM.
+ *
+ * This is the AUTHENTICATED pass. See route-smoke-unauthenticated.spec.ts for
+ * the logged-out deep-link pass over the same route list (BB-000829).
  */
-const ROUTES = [
-  '/',
-  '/pos',
-  '/sales/new',
-  '/sales/history',
-  '/sales/customers',
-  '/sales/quotations',
-  '/sales/orders',
-  '/sales/delivery-challans',
-  '/sales/credit-notes',
-  '/sales/recurring',
-  '/purchases/history',
-  '/purchases/bill-upload',
-  '/inventory/products',
-  '/inventory/stock',
-  '/accounting/journals',
-  '/accounting/chart-of-accounts',
-  '/reports/sales',
-  '/insights',
-  '/offline-outbox',
-  '/settings/company',
-];
-
 test.describe('route smoke (top 20)', () => {
-  for (const path of ROUTES) {
+  for (const path of PROTECTED_ROUTES) {
     test(`${path} renders without a page error`, async ({ page }) => {
       const errors: string[] = [];
       page.on('pageerror', (e) => errors.push(e.message));

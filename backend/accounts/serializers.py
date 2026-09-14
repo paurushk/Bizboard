@@ -66,11 +66,12 @@ class RegisterSerializer(serializers.Serializer):
     # BB-000751: state drives GSTIN structure and place-of-supply on every
     # invoice this company issues — it must not be silently skippable.
     state = serializers.CharField(max_length=64)
-    # BB-000082: optional GST registration at signup; default UNREGISTERED (empty GSTIN OK).
+    # BB-000082: GST registration at signup defaults to REGULAR (most businesses are);
+    # GSTIN is not required yet if defaulted — Setup Wizard's tax step collects it.
     registration_type = serializers.ChoiceField(
         choices=Company.RegistrationType.choices,
         required=False,
-        default=Company.RegistrationType.UNREGISTERED,
+        default=Company.RegistrationType.REGULAR,
     )
     gstin = serializers.CharField(max_length=15, required=False, allow_blank=True, default="")
 
@@ -98,11 +99,19 @@ class RegisterSerializer(serializers.Serializer):
 
         from core.validators import validate_gstin
 
-        reg = attrs.get("registration_type") or Company.RegistrationType.UNREGISTERED
+        reg = attrs.get("registration_type") or Company.RegistrationType.REGULAR
         gstin = attrs.get("gstin") or ""
         attrs["registration_type"] = reg
         attrs["gstin"] = gstin
-        if reg in (Company.RegistrationType.REGULAR, Company.RegistrationType.COMPOSITION):
+        # Only enforce the GSTIN requirement when the caller explicitly chose
+        # REGULAR/COMPOSITION or supplied a GSTIN. A silently-defaulted REGULAR
+        # (no registration_type in the request) is completed later in the
+        # Setup Wizard's tax step, which already gates on missing GSTIN.
+        explicit_registration = "registration_type" in self.initial_data
+        if (explicit_registration or gstin) and reg in (
+            Company.RegistrationType.REGULAR,
+            Company.RegistrationType.COMPOSITION,
+        ):
             if len(gstin) != 15:
                 raise serializers.ValidationError(
                     {"gstin": "A valid 15-character GSTIN is required for REGULAR or COMPOSITION registration."}

@@ -1869,8 +1869,8 @@
             }
         },
         "/api/v1/accounting/settings/": {
-            "post": {
-                "operationId": "accounting_settings_create",
+            "get": {
+                "operationId": "accounting_settings_retrieve",
                 "tags": [
                     "accounting"
                 ],
@@ -1881,7 +1881,57 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AccountingSettings"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "accounting_settings_create",
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingSettings"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingSettings"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingSettings"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AccountingSettings"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -24195,6 +24245,23 @@
                 "type": "string",
                 "description": "* `OPEN` - Open\n* `SOFT_CLOSED` - Soft Closed\n* `CLOSED` - Closed"
             },
+            "AccountingSettings": {
+                "type": "object",
+                "description": "GET/POST /accounting/settings/ — 7.9b backfill flag is part of the money contract.",
+                "properties": {
+                    "accounting_enabled": {
+                        "type": "boolean"
+                    },
+                    "accounting_backfill_needed": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "accounting_backfill_needed",
+                    "accounting_enabled"
+                ]
+            },
             "AssistantMessage": {
                 "type": "object",
                 "properties": {
@@ -32748,6 +32815,10 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "return_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "subtotal": {
                         "type": "string",
                         "format": "decimal",
@@ -37119,6 +37190,10 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "return_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "subtotal": {
                         "type": "string",
                         "format": "decimal",
@@ -37209,6 +37284,7 @@
                     "rcm_sgst",
                     "rcm_taxable",
                     "received",
+                    "return_state",
                     "round_off",
                     "sgst_total",
                     "status",

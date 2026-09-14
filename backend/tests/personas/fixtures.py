@@ -55,7 +55,10 @@ def _client(user: User) -> APIClient:
 
 
 def _catalogue(company: Company, kind: str) -> list[Product]:
-    n = {"retail": 15, "trader": 20, "wholesale": 25, "service": 6, "migration": 0}[kind]
+    n = {
+        "retail": 15, "trader": 20, "wholesale": 25, "service": 6, "migration": 0,
+        "batch": 15, "serialized": 10, "contractor": 8, "manufacturing": 8,
+    }[kind]
     rate = ["18", "12", "5", "28", "0"]
     out = []
     for i in range(n):
@@ -63,17 +66,43 @@ def _catalogue(company: Company, kind: str) -> list[Product]:
         if kind == "service":
             kw["product_type"] = "SERVICE"
             kw["track_inventory"] = False
+        elif kind == "contractor":
+            if i % 2 == 0:
+                kw["product_type"] = "SERVICE"
+                kw["track_inventory"] = False
+                kw["hsn_code"] = "998714"
+            else:
+                kw["product_type"] = "GOODS"
+                kw["track_inventory"] = True
+                kw["hsn_code"] = "841590"
+        elif kind == "manufacturing":
+            kw["product_type"] = "GOODS"
+            kw["track_inventory"] = True
+            if i >= 5:
+                # Finished goods
+                kw["name"] = f"Finished Product {i-4}"
+                kw["hsn_code"] = "841590"
+            else:
+                # Raw material components
+                kw["name"] = f"Raw Material Component {i+1}"
+                kw["hsn_code"] = "720810"
+        elif kind == "batch":
+            kw["track_batch"] = True
+        elif kind == "serialized":
+            kw["track_serial"] = True
         elif kind in ("trader", "wholesale") and i % 5 == 0:
             kw["track_batch"] = True
+        name = kw.pop("name", f"{kind.title()} Item {i:02d}")
         out.append(
             Product.objects.create(
                 company=company,
-                name=f"{kind.title()} Item {i:02d}",
+                name=name,
                 sku=f"{kind[:3].upper()}-{i:03d}",
+                hsn_code=kw.pop("hsn_code", "841590"),
                 gst_rate=Decimal(rate[i % len(rate)]),
                 purchase_price=Decimal("60"),
                 selling_price=Decimal("100"),
-                reorder_level=Decimal("5") if kind == "wholesale" else Decimal("0"),
+                reorder_level=Decimal("5") if kind in ("wholesale", "batch") else Decimal("0"),
                 **kw,
             )
         )
@@ -81,9 +110,12 @@ def _catalogue(company: Company, kind: str) -> list[Product]:
 
 
 def seed_archetype(kind: str) -> SimpleNamespace:
-    assert kind in ("retail", "trader", "wholesale", "service", "migration"), kind
+    assert kind in (
+        "retail", "trader", "wholesale", "service", "migration",
+        "batch", "serialized", "contractor", "manufacturing",
+    ), kind
     state = "Karnataka"
-    books = kind in ("trader", "wholesale", "migration")
+    books = kind in ("trader", "wholesale", "migration", "batch", "serialized", "contractor", "manufacturing")
     company = Company.objects.create(
         name=f"{kind.title()} Co", state=state,
         gstin="29AAAAA0000A1ZY",
@@ -102,17 +134,17 @@ def seed_archetype(kind: str) -> SimpleNamespace:
     ns.owner, ns.owner_cu = owner, _member(company, owner, _ROLE.OWNER)
     ns.owner_client = _client(owner)
 
-    if kind in ("retail", "trader", "wholesale"):
+    if kind in ("retail", "trader", "wholesale", "batch", "serialized", "contractor", "manufacturing"):
         sales = _user(kind, "sales")
         ns.sales, ns.sales_cu = sales, _member(company, sales, _ROLE.SALES_STAFF)
         ns.sales_client = _client(sales)
 
-    if kind in ("trader", "wholesale", "migration"):
+    if kind in ("trader", "wholesale", "migration", "batch", "serialized", "contractor", "manufacturing"):
         acct = _user(kind, "acct")
         ns.acct, ns.acct_cu = acct, _member(company, acct, _ROLE.ACCOUNTANT)
         ns.acct_client = _client(acct)
 
-    if kind == "wholesale":
+    if kind in ("wholesale", "batch", "serialized", "manufacturing"):
         # P4 "Godown Custodian": SALES_STAFF with can_manage_inventory explicitly
         # granted (no role has it by default). Does inward / transfer / counts;
         # denied pricing visibility, financial reports, journals, cancel.
@@ -154,14 +186,18 @@ def seed_archetype(kind: str) -> SimpleNamespace:
         def _gstin(seq, pan_c="A"):
             return f"29{pan_c}{pan_c}{pan_c}{pan_c}{pan_c}{seq:04d}A1Z5"
 
+        party_count = {
+            "retail": 4, "trader": 10, "wholesale": 20, "service": 3,
+            "batch": 6, "serialized": 6, "contractor": 5, "manufacturing": 6,
+        }[kind]
         ns.customers = [
             Customer.objects.create(
                 company=company, name=f"Cust {i}", state=state,
                 gstin=_gstin(i) if i % 2 == 0 else "",
             )
-            for i in range({"retail": 4, "trader": 10, "wholesale": 20, "service": 3}[kind])
+            for i in range(party_count)
         ]
-        if kind in ("trader", "wholesale"):
+        if kind in ("trader", "wholesale", "batch", "serialized", "contractor", "manufacturing"):
             ns.suppliers = [
                 Supplier.objects.create(company=company, name=f"Supp {i}", state=state,
                                         gstin=_gstin(i, pan_c="Z"))
@@ -169,3 +205,4 @@ def seed_archetype(kind: str) -> SimpleNamespace:
             ]
 
     return ns
+

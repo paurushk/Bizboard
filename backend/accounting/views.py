@@ -25,7 +25,8 @@ from core.viewsets import CompanyScopedViewSet
 from .models import Account, AccountingPeriod, BankReconSession, CostCenter, FixedAsset, JournalEntry, JournalLine
 from .reports import balance_sheet, cash_flow, close_financial_year, profit_and_loss, trial_balance
 from .serializers import (
-    AccountSerializer, AccountingPeriodSerializer, BankReconSessionSerializer, CostCenterSerializer,
+    AccountSerializer, AccountingPeriodSerializer, AccountingSettingsSerializer,
+    BankReconSessionSerializer, CostCenterSerializer,
     FixedAssetSerializer, JournalEntrySerializer, UnreconciledGlLineSerializer,
 )
 from .services import BooksHealthService, PostingService, seed_chart_of_accounts
@@ -352,6 +353,11 @@ class BankReconSessionViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         line.bank_statement_line = bank_line
         line.reconciled_at = timezone.now()
         line.save(update_fields=["bank_statement_line", "reconciled_at"])
+        from payments.models import BankLineMatchStatus
+
+        if bank_line.match_status != BankLineMatchStatus.MATCHED:
+            bank_line.match_status = BankLineMatchStatus.MATCHED
+            bank_line.save(update_fields=["match_status", "updated_at"])
         return Response({"ok": True})
 
 
@@ -439,8 +445,41 @@ class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         return Response(self.get_serializer(asset).data)
 
 
+def accounting_backfill_needed(company) -> bool:
+    """True when books are on but completed documents have no journals (7.9b / B9)."""
+    if not getattr(company, "accounting_enabled", False):
+        return False
+    from accounting.models import JournalEntry
+    from purchases.models import PurchaseInvoice
+    from purchases.status_semantics import OPEN_PAYABLE_STATUSES
+    from sales.models import SalesInvoice
+    from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
+
+    if JournalEntry.objects.filter(company=company).exists():
+        return False
+    return (
+        SalesInvoice.objects.filter(company=company, status__in=OPEN_RECEIVABLE_STATUSES).exists()
+        or PurchaseInvoice.objects.filter(company=company, status__in=OPEN_PAYABLE_STATUSES).exists()
+    )
+
+
 class AccountingSettingsView(APIView):
-    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+    serializer_class = AccountingSettingsSerializer
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+        return [IsAuthenticated(), HasCompany(), IsOwner()]
+
+    def get(self, request):
+        company = get_company_user(request).company
+        ser = AccountingSettingsSerializer(
+            {
+                "accounting_enabled": company.accounting_enabled,
+                "accounting_backfill_needed": accounting_backfill_needed(company),
+            }
+        )
+        return Response(ser.data)
 
     def post(self, request):
         company = get_company_user(request).company
@@ -455,7 +494,13 @@ class AccountingSettingsView(APIView):
         company.save(update_fields=["accounting_enabled", "updated_at"])
         if enabled:
             seed_chart_of_accounts(company, request.user)
-        return Response({"accounting_enabled": company.accounting_enabled})
+        ser = AccountingSettingsSerializer(
+            {
+                "accounting_enabled": company.accounting_enabled,
+                "accounting_backfill_needed": accounting_backfill_needed(company),
+            }
+        )
+        return Response(ser.data)
 
 
 class FinancialYearCloseView(AccountingEnabledMixin, APIView):

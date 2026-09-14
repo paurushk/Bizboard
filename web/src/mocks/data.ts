@@ -258,7 +258,6 @@ export const mockProducts: Product[] = [
     gstRate: 5,
     reorderLevel: 10,
     status: 'ACTIVE',
-    available: 40,
     customFields: { brandForm: 'Strip', color: 'Red', brandCode: 'TEA' },
   },
   {
@@ -273,7 +272,6 @@ export const mockProducts: Product[] = [
     gstRate: 5,
     reorderLevel: 20,
     status: 'ACTIVE',
-    available: 15,
     customFields: { brandForm: 'Bottle', color: 'Gold', brandCode: 'OIL' },
   },
   {
@@ -288,7 +286,6 @@ export const mockProducts: Product[] = [
     gstRate: 18,
     reorderLevel: 5,
     status: 'ACTIVE',
-    available: 3,
   },
 ];
 
@@ -334,6 +331,7 @@ export const mockInvoices: SalesInvoice[] = [
     sgstTotal: 62.5,
     grandTotal: 2625,
     pdfStatus: 'READY',
+    balance: 2625,
   },
 ];
 
@@ -365,6 +363,7 @@ export const mockPurchases: PurchaseInvoice[] = [
     ...zeroTotals,
     grandTotal: 15000,
     outstanding: 12000,
+    balance: 12000,
   },
 ];
 
@@ -401,9 +400,9 @@ export const mockStock: StockBalance[] = mockProducts.map((p, i) => ({
   product: p.id,
   productName: p.name,
   sku: p.sku,
-  onHand: Number(p.available ?? 0),
+  onHand: [40, 15, 3][i] ?? 0,
   reserved: 0,
-  available: Number(p.available ?? 0),
+  available: [40, 15, 3][i] ?? 0,
   reorderLevel: Number(p.reorderLevel),
   customFields: p.customFields,
 }));

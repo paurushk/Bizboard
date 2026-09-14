@@ -105,10 +105,31 @@ def test_products_import_with_unit_and_opening_stock(tenant_a):
     product = Product.objects.get(company=tenant_a.company, sku="TEA-1")
     assert product.unit is not None
     assert product.unit.short_name == "PCS"
+    assert product.unit.uqc_code == "PCS"
 
     from inventory.models import StockBalance
     balance = StockBalance.objects.get(company=tenant_a.company, product=product)
     assert balance.on_hand == Decimal("50")
+
+
+def test_products_import_unrecognized_unit_leaves_uqc_blank(tenant_a):
+    csv_content = (
+        b"name,sku,gst_rate,selling_price,hsn_code,unit\n"
+        b"Detergent Pouch,POUCH-1,18,60,3402,Pouch\n"
+    )
+    job = _upload(tenant_a, "products", csv_content).data
+    assert job["valid_rows"] == 1
+
+    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp.status_code == 200
+
+    product = Product.objects.get(company=tenant_a.company, sku="POUCH-1")
+    assert product.unit is not None
+    assert product.unit.short_name == "POUCH"
+    # An unrecognized unit string must not be stored as a fake UQC code —
+    # leave it blank so it surfaces for manual mapping instead of silently
+    # forcing every invoice line onto the OTH fallback with no visibility.
+    assert product.unit.uqc_code == ""
 
 
 def test_products_import_zero_opening_stock_is_catalog_only(tenant_a):

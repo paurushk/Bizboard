@@ -18,6 +18,7 @@ import { getErrorMessage } from '@/api/client';
 import {
   cancelDeliveryChallan,
   completeDeliveryChallan,
+  convertDeliveryChallan,
   createDeliveryChallan,
   downloadSalesDocumentPdf,
   getCustomer,
@@ -298,6 +299,16 @@ export function DeliveryChallanEditorPage() {
     onError: (err) => flashError(getErrorMessage(err)),
   });
 
+  const convertMutation = useMutation({
+    mutationFn: () => convertDeliveryChallan(editId as number),
+    onSuccess: (invoice) => {
+      void qc.invalidateQueries({ queryKey: ['delivery-challans'] });
+      void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
+      void navigate(`/sales/history/${invoice.id}/edit`);
+    },
+    onError: (err) => flashError(getErrorMessage(err)),
+  });
+
   if (isEdit && existing.isLoading) return <LoadingState />;
   if (isEdit && existing.isError) {
     return <ErrorState message={getErrorMessage(existing.error)} error={existing.error} onRetry={() => void existing.refetch()} />;
@@ -320,6 +331,11 @@ export function DeliveryChallanEditorPage() {
       onDraft={() => saveMutation.mutate('draft')}
       extraActions={
         <>
+          {readOnly && editingStatus === 'COMPLETED' && isEdit && !existing.data?.convertedInvoice ? (
+            <Button size="small" variant="contained" disabled={convertMutation.isPending} onClick={() => convertMutation.mutate()}>
+              {t('common.convert')}
+            </Button>
+          ) : null}
           {readOnly && editingStatus === 'COMPLETED' && isEdit ? (
             <Button
               size="small"

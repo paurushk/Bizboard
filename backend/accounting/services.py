@@ -1986,6 +1986,35 @@ class BooksHealthService:
         ).values("id")
         return qs.exclude(id__in=je_direct).exclude(id__in=posted_via_cn).distinct()
 
+    @staticmethod
+    def _unposted_sales_returns(company, qs):
+        """A sales return is posted if it has an SR JE or a linked completed SCN JE.
+
+        Auto-CN carries the AR reversal; COGS_REVERSE is omitted when COGS is 0,
+        so requiring a SALES_RETURN journal would block every period close after
+        a return (7.8 / ARCH-03).
+        """
+        je_direct = JournalEntry.objects.filter(
+            company=company,
+            source_type="SALES_RETURN",
+            status=JournalEntry.Status.POSTED,
+            lines__isnull=False,
+        ).values("source_id")
+        posted_cn = JournalEntry.objects.filter(
+            company=company,
+            source_type="SALES_CREDIT_NOTE",
+            purpose="COMPLETE",
+            status=JournalEntry.Status.POSTED,
+            lines__isnull=False,
+        ).values("source_id")
+        from sales.models import SalesCreditNote
+
+        posted_via_cn = qs.filter(
+            credit_notes__status=SalesCreditNote.Status.COMPLETED,
+            credit_notes__id__in=posted_cn,
+        ).values("id")
+        return qs.exclude(id__in=je_direct).exclude(id__in=posted_via_cn).distinct()
+
     @classmethod
     def _split_legacy_unposted(cls, company, qs) -> tuple[bool, int]:
         cutoff = cls.missing_posting_cutoff(company)
@@ -2027,8 +2056,10 @@ class BooksHealthService:
         # whenever unallocated receipts exist and blocks period close.
         expected_ar = tagged_net("1200", "customer")
         expected_ap = -tagged_net("2100", "supplier")
-        docs_gl_ar = expected_ar + tagged_net("2300", "customer")
-        docs_gl_ap = expected_ap + (-tagged_net("1250", "supplier"))
+        # 2300/1250 are advances, not invoice AR/AP. Document outstanding
+        # (B1-009) does not net unallocated receipts; folding 2300 into this
+        # identity false-blocks period close after a return auto-unallocates
+        # a receipt onto customer advances. Advances stay on CUSTOMER_ADVANCE_MISMATCH.
         alerts = []
         # R3-013: a paise of rounding (or one untagged manual-journal line)
         # must not hard-block period close. Tolerance mirrors _advance_recon_alerts.
@@ -2154,10 +2185,11 @@ class BooksHealthService:
                 ),
             )
             for qs, source_type, purpose in expanded:
-                blocking, legacy = BooksHealthService._split_legacy_unposted(
-                    company,
-                    BooksHealthService._unposted_qs(company, qs, source_type, purpose),
-                )
+                if source_type == "SALES_RETURN":
+                    unposted = BooksHealthService._unposted_sales_returns(company, qs)
+                else:
+                    unposted = BooksHealthService._unposted_qs(company, qs, source_type, purpose)
+                blocking, legacy = BooksHealthService._split_legacy_unposted(company, unposted)
                 missing = missing or blocking
                 legacy_unposted += legacy
             pr_blocking, pr_legacy = BooksHealthService._split_legacy_unposted(
@@ -2188,16 +2220,20 @@ class BooksHealthService:
             })
         alerts.extend(BooksHealthService._depreciation_alerts(company))
         alerts.extend(BooksHealthService._advance_recon_alerts(company))
-        # CR-082: warn when document AR/AP totals diverge from tagged GL party nets
-        # (including advances 2300/1250 — not the bare control expected_* used above).
+        # CR-082: document invoice outstanding vs tagged AR/AP control (1200/2100).
         if company.accounting_enabled:
-            alerts.extend(BooksHealthService._docs_gl_party_alerts(company, docs_gl_ar, docs_gl_ap))
+            alerts.extend(BooksHealthService._docs_gl_party_alerts(company, expected_ar, expected_ap))
         return {"ar": {"gl": ar, "ledger": expected_ar, "healthy": ar_healthy},
                 "ap": {"gl": ap, "ledger": expected_ap, "healthy": ap_healthy}, "alerts": alerts}
 
     @staticmethod
     def _docs_gl_party_alerts(company, gl_ar, gl_ap):
-        """CR-082: compare document outstanding totals to tagged GL party nets (warn)."""
+        """CR-082: compare document outstanding to tagged AR/AP control (1200/2100).
+
+        Unallocated receipts live on 2300 and are reconciled by
+        ``CUSTOMER_ADVANCE_MISMATCH`` — they must not enter this identity
+        (document outstanding does not net advances; B1-009).
+        """
         from ledgers.services import LedgerService
 
         _TOL = Decimal("1.00")
@@ -2228,7 +2264,7 @@ class BooksHealthService:
                 "code": "DOCS_GL_AR_MISMATCH",
                 "severity": "error",
                 "message": (
-                    f"Document AR ({doc_ar}) differs from tagged GL party AR ({gl_ar}). "
+                    f"Document AR ({doc_ar}) differs from tagged GL AR 1200 ({gl_ar}). "
                     "Invoice outstanding and party ledger may disagree."
                 ),
                 "document": str(doc_ar),
@@ -2239,7 +2275,7 @@ class BooksHealthService:
                 "code": "DOCS_GL_AP_MISMATCH",
                 "severity": "error",
                 "message": (
-                    f"Document AP ({doc_ap}) differs from tagged GL party AP ({gl_ap}). "
+                    f"Document AP ({doc_ap}) differs from tagged GL AP 2100 ({gl_ap}). "
                     "Bill outstanding and party ledger may disagree."
                 ),
                 "document": str(doc_ap),

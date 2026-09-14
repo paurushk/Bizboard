@@ -1,0 +1,82 @@
+# In-page money actions — not extractable from App.tsx.
+# Seeded from HOLISTIC_VALIDATION_REVIEW.md §2.13. A new in-page money
+# action requires a row here in the same PR (honor-system + advisory
+# money-verb grep; see validation/tools/check_money_verbs.py).
+actions:
+  - id: complete_document
+    title: Complete a draft document from its screen
+    surfaces: ["/sales/history/:id", "/purchases/history/:id", "/sales/new", "/purchases/new"]
+    writes: ["status", "stock", "gl", "ar_ap"]
+    review_row: "§2.13 complete / cancel / amend"
+  - id: cancel_document
+    title: Cancel a completed document from its screen
+    surfaces: ["/sales/history/:id", "/purchases/history/:id"]
+    writes: ["status", "stock", "gl", "ar_ap"]
+    review_row: "§2.13 complete / cancel / amend"
+  - id: amend_document
+    title: Amend a completed document (H9 correction path)
+    surfaces: ["/sales/history/:id/edit", "/purchases/history/:id/edit"]
+    writes: ["status", "stock", "gl", "historical_period"]
+    review_row: "§2.13 complete / cancel / amend"
+  - id: allocate_receipt
+    title: Allocate a customer receipt or supplier payment
+    surfaces: ["/sales/receipts", "/purchases/payments"]
+    writes: ["ar_ap", "gl"]
+    review_row: "§2.13 allocate / unallocate"
+  - id: unallocate_receipt
+    title: Reverse or unallocate a receipt allocation
+    surfaces: ["/sales/receipts", "/purchases/payments"]
+    writes: ["ar_ap", "gl"]
+    review_row: "§2.13 allocate / unallocate"
+  - id: return_with_auto_cn
+    title: Full or partial return with auto credit note
+    surfaces: ["/sales/returns", "/purchases/returns"]
+    writes: ["status", "stock", "ar_ap", "gst"]
+    review_row: "§2.13 return + auto CN + residual DN"
+  - id: residual_debit_note
+    title: Post-return residual debit note leaving collectible AR
+    surfaces: ["/sales/debit-notes/new", "/purchases/debit-notes/new"]
+    writes: ["ar_ap", "gst"]
+    review_row: "§2.13 return + auto CN + residual DN"
+  - id: print_pdf
+    title: Print PDF and wait for READY
+    surfaces: ["/sales/history/:id", "/purchases/history/:id"]
+    writes: ["pdf_status"]
+    review_row: "§2.13 print PDF"
+  - id: share_pdf_link
+    title: Share invoice PDF link
+    surfaces: ["/sales/history/:id"]
+    writes: ["channel"]
+    review_row: "§2.13 print PDF, share link"
+  - id: whatsapp_dunning
+    title: WhatsApp dunning send from a money screen
+    surfaces: ["/sales/history/:id", "/attention"]
+    writes: ["notifications"]
+    notes: "Delivery stays LIM; UI copy is the in-scope concern."
+    review_row: "§2.13 WhatsApp / share-link dunning"
+  - id: share_link_dunning
+    title: Share-link dunning from attention or invoice
+    surfaces: ["/attention", "/sales/history/:id"]
+    writes: ["channel"]
+    review_row: "§2.13 WhatsApp / share-link dunning"
+  - id: offline_queue_flush
+    title: Flush POS/invoice offline outbox
+    surfaces: ["/offline-outbox", "/pos"]
+    writes: ["status", "stock", "ar_ap"]
+    review_row: "§2.13 POS/invoice offline queue flush"
+  - id: flag_flip_then_review
+    title: Change accounting/GST/expiry flags then re-view old documents
+    surfaces: ["/settings/accounting", "/settings/gst", "/sales/history/:id"]
+    writes: ["flag_flip"]
+    review_row: "§2.13 feature-flag change then old documents"
+  - id: multi_tab_invoice_race
+    title: Two tabs or two users on one invoice
+    surfaces: ["/sales/history/:id"]
+    writes: ["status"]
+    review_row: "§2.13 multi-tab / two users"
+  - id: hindi_locale_money_screens
+    title: Hindi locale on money/status screens
+    surfaces: ["/sales/history", "/pos", "/attention"]
+    writes: ["channel"]
+    notes: "P2 (B11); labeled here so it stays visible, not freeze-gated."
+    review_row: "§2.13 Hindi locale on money screens"

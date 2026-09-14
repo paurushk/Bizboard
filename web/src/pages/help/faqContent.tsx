@@ -998,6 +998,16 @@ const MORE_FAQ: FaqItem[] = [
     ],
   ),
   faq(
+    'per-godown-reorder',
+    'Stock & Godowns',
+    'What is Per-godown reorder?',
+    ['per-godown reorder', 'add godown reorder', 'reorder level override', 'godown specific reorder'],
+    [
+      'Every item has one company-wide **reorder level** that drives **t:nav.lowStock**. A per-godown reorder rule overrides that threshold for one specific godown — for example a fast-moving godown that should alert earlier than the company default.',
+      'Add one from **t:nav.inventory** → **t:nav.stockCounts** → **Add godown reorder**: pick the item, the godown, and the reorder quantity. The **Per-godown reorder** table on that page lists every rule you have added. An item/godown pair with no rule keeps using the item’s company-wide reorder level.',
+    ],
+  ),
+  faq(
     'opening-stock-once',
     'Stock & Godowns',
     'Can I enter opening stock twice for the same item?',

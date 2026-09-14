@@ -235,6 +235,7 @@ export interface Company {
   dunningQuietHoursEnd?: number;
   dunningChannelWhatsapp?: boolean;
   dunningChannelSms?: boolean;
+  autoCreditHoldOnSevereOverdue?: boolean;
 }
 
 export interface Customer {
@@ -314,9 +315,6 @@ export interface Product {
   defaultDiscountPercent?: string | number;
   hasMovements?: boolean;
   status: ProductStatus;
-  onHand?: string | number;
-  reserved?: string | number;
-  available?: string | number;
 }
 
 export interface LineItem {
@@ -398,7 +396,7 @@ export interface SalesInvoice extends DocumentTotals {
   pdfStatus?: PdfStatus;
   pdfFile?: number | null;
   received?: string | number;
-  balance?: string | number;
+  balance: string | number;
   paymentState?: 'UNPAID' | 'PAID_PENDING_BOOKS' | 'PAID';
   /** Distinct from `status` — a partial return leaves `status` COMPLETED. */
   returnState?: 'NONE' | 'PARTIAL' | 'FULL';
@@ -548,6 +546,7 @@ export interface DeliveryChallan extends DocumentTotals {
   customer: number;
   customerName?: string;
   salesOrder?: number | null;
+  convertedInvoice?: number | null;
   challanDate: string;
   vehicleNumber?: string;
   transporterName?: string;
@@ -588,7 +587,7 @@ export interface PurchaseInvoice extends DocumentTotals {
   attachment?: number | null;
   items: LineItem[];
   paid?: string | number;
-  balance?: string | number;
+  balance: string | number;
   outstanding?: string | number;
   completedAt?: string | null;
   cancelledAt?: string | null;

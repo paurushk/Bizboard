@@ -684,7 +684,9 @@ class SalesReturnViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         if action == "cancel":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
-        if action in ("create", "update", "partial_update", "destroy", "complete"):
+        if action == "complete":
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
+        if action in ("create", "update", "partial_update", "destroy"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]

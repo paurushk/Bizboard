@@ -537,7 +537,7 @@ export function InvoiceDetailPage() {
             </Stack>
             <Stack direction="row" justifyContent="space-between">
               <Typography>{t('billing.balance')}</Typography>
-              <Typography fontWeight={600}>{formatMoney(inv.balance ?? inv.grandTotal)}</Typography>
+              <Typography fontWeight={600}>{formatMoney(inv.balance)}</Typography>
             </Stack>
           </Stack>
         </Paper>
@@ -661,14 +661,14 @@ export function InvoiceDetailPage() {
         </Paper>
       ) : null}
 
-      {canAct && toNumber(inv.balance ?? inv.grandTotal) > 0 ? (
+      {canAct && toNumber(inv.balance) > 0 ? (
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
           <Paper sx={{ p: 2, flex: 1 }}>
             <Typography variant="h6" sx={{ mb: 1 }}>
               UPI collect
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              Amount-locked QR for outstanding {formatMoney(inv.balance ?? inv.grandTotal)}.
+              Amount-locked QR for outstanding {formatMoney(inv.balance)}.
             </Typography>
             {upiError ? <HelpErrorAlert message={upiError} sx={{ mb: 1 }} /> : null}
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>

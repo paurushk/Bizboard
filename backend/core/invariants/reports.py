@@ -171,13 +171,13 @@ def inventory_gl_matches_running_cost(company) -> list[str]:
     return []
 
 
-# --- plain callable, NOT registered (§H7 cross_reconcile) ---------------------
-# Ties the derived reports to each other and to the ledger. Only holds once the
-# whole period's activity is in the books, so chains that post a full document
-# lifecycle call it directly:
-#     from core.invariants.reports import cross_reconcile
-#     assert not cross_reconcile(company)
+# Registered (Phase 3) and gated on accounting_enabled inside the body.
+# Document identities live in projection.py — do not merge them here.
 
+@invariant(
+    "reports.cross_reconcile",
+    consequence="Trial balance and P&L disagree — two financial reports tell different stories after the same events.",
+)
 def cross_reconcile(company) -> list[str]:
     """The pure-GL derived reports agree with each other and with the ledger:
     the trial balance sums to zero, and the P&L net profit ties to the

@@ -29,3 +29,5 @@ real-broker      # advisory  — QOS-0012 chains against a real Celery broker (R
 mutation-audit    # advisory  — QOS-0019 mutmut on the crown-jewel modules; survivors are missing assertions, not a gate
 qos-lint          # merge blocker — Q-OS backlog schema / evidence cap / lifecycle / doc-sync + linter selftest
 qos-dashboard     # advisory  — appends the Q-OS dashboard trend snapshot as an artifact (main only)
+flow-catalog      # advisory  — Graph 1 extractor + generated FLOW_CATALOG.md; 2 green weeks then web lead flips
+writer-impact     # advisory  — Graph 2 P2-T6 writer-diff nudge; flips blocking with Phase 6 (S5b), separate clock from flow-catalog's A3

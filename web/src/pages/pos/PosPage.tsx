@@ -318,7 +318,7 @@ export function PosPage() {
     const map = new Map<number, number>();
     for (const s of stockBalances.data ?? []) {
       const id = Number(s.product);
-      map.set(id, (map.get(id) ?? 0) + toNumber(s.available ?? s.onHand));
+      map.set(id, (map.get(id) ?? 0) + toNumber(s.available));
     }
     return map;
   }, [stockBalances.data]);
@@ -831,7 +831,7 @@ export function PosPage() {
         }
         const invoiceDate = todayIso();
         const receiptKey = key ? `${key}-receipt` : undefined;
-        const invoiceTotal = toNumber(completed.grandTotal ?? settlement.amount);
+        const invoiceTotal = toNumber(completed.grandTotal);
         const tenderedVal = cashTendered ? Number(cashTendered) : 0;
         let receiptNotes = `POS — ${completed.number ?? completed.id}`;
         if (tenderedVal > invoiceTotal) {
@@ -1073,8 +1073,16 @@ export function PosPage() {
         setError(t('billing.writesBlocked'));
         return;
       }
-      // CR-004 / CR-112: ref guard against concurrent checkout or in-flight flush
-      if (checkoutGuard.current || flushGuard.current || busy || isFlushing) return;
+      // Confirm-dialog retries must not be blocked by the busy flag from the
+      // attempt that opened the dialog — that attempt returns before React
+      // has committed setBusy(false).
+      if (
+        !opts?.confirmBlankPos &&
+        !opts?.confirmWalkIn &&
+        (checkoutGuard.current || flushGuard.current || busy || isFlushing)
+      ) {
+        return;
+      }
       // CR-119: block a new cart sale while mid-settlement is outstanding.
       if (upiPending) {
         setError(t('pos.finishPendingUpi'));
@@ -1130,6 +1138,8 @@ export function PosPage() {
         if (walkInCustomer) {
           if (!opts?.confirmWalkIn) {
             setWalkInConfirmMode(mode);
+            checkoutGuard.current = false;
+            setBusy(false);
             return;
           }
           effectiveCustomerId = walkInCustomer.id;
@@ -1185,7 +1195,8 @@ export function PosPage() {
           return;
         }
       }
-      if (mode === 'CASH' && tenderedAmount + 1e-9 < tenderGateTotal) {
+      const exactTender = cashTendered === '' ? tenderGateTotal : tenderedAmount;
+      if (mode === 'CASH' && exactTender + 1e-9 < tenderGateTotal) {
         setError(t('pos.tenderTooLow'));
         return;
       }
@@ -1204,6 +1215,8 @@ export function PosPage() {
         !String((cust as { gstin?: string } | undefined)?.gstin || '').trim();
       if (blankPos && !opts?.confirmBlankPos) {
         setBlankPosMode(mode);
+        checkoutGuard.current = false;
+        setBusy(false);
         return;
       }
 
@@ -1769,10 +1782,10 @@ export function PosPage() {
             </Stack>
             <NumericField
               label={t('pos.cashTendered')}
-              value={cashTendered === '' ? totals.grandTotal : cashTendered}
+              value={cashTendered === '' ? gateTotal : cashTendered}
               onValueChange={(n) => setCashTendered(n)}
               min={0}
-              emptyAs={totals.grandTotal}
+              emptyAs={gateTotal}
               size="small"
               fullWidth
             />
@@ -1781,8 +1794,8 @@ export function PosPage() {
                 label={t('pos.exact')}
                 size="small"
                 clickable
-                onClick={() => setCashTendered(totals.grandTotal)}
-                color={cashTendered === totals.grandTotal ? 'primary' : 'default'}
+                onClick={() => setCashTendered(gateTotal)}
+                color={cashTendered === gateTotal || cashTendered === '' ? 'primary' : 'default'}
               />
               {[100, 200, 500, 2000].map((amt) => (
                 <Chip

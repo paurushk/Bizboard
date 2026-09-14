@@ -19,6 +19,7 @@ import { getErrorMessage } from '@/api/client';
 import {
   cancelSalesOrder,
   convertSalesOrder,
+  convertSalesOrderToChallan,
   createSalesOrder,
   getCompany,
   getCustomer,
@@ -258,6 +259,18 @@ export function SalesOrderEditorPage() {
     onError: (err) => flashError(getErrorMessage(err)),
   });
 
+  const convertToChallanMutation = useMutation({
+    mutationFn: () => convertSalesOrderToChallan(editId as number),
+    onSuccess: (challan) => {
+      void qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      void qc.invalidateQueries({ queryKey: ['sales-order', editId] });
+      void qc.invalidateQueries({ queryKey: ['delivery-challans'] });
+      skipLeaveGuard.current = true;
+      void navigate(`/sales/delivery-challans/${challan.id}`);
+    },
+    onError: (err) => flashError(getErrorMessage(err)),
+  });
+
   const cancelMutation = useMutation({
     mutationFn: () => cancelSalesOrder(editId as number),
     onSuccess: () => {
@@ -293,7 +306,17 @@ export function SalesOrderEditorPage() {
       extraActions={
         <>
           {editingStatus === 'DRAFT' && isEdit ? (
-            <Button size="small" disabled={convertMutation.isPending} onClick={() => convertMutation.mutate()}>
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={convertToChallanMutation.isPending || convertMutation.isPending}
+              onClick={() => convertToChallanMutation.mutate()}
+            >
+              {t('phase1.toChallan')}
+            </Button>
+          ) : null}
+          {editingStatus === 'DRAFT' && isEdit ? (
+            <Button size="small" disabled={convertMutation.isPending || convertToChallanMutation.isPending} onClick={() => convertMutation.mutate()}>
               {t('common.convert')}
             </Button>
           ) : null}

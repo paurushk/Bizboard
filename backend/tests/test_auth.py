@@ -45,8 +45,103 @@ def test_register_creates_user_company_and_owner_membership():
     assert me.status_code == 200
     assert me.data["role"] == "OWNER"
     assert me.data["company"]["name"] == "Fresh Mart"
-    assert me.data["company"]["registration_type"] == "UNREGISTERED"
+    assert me.data["company"]["registration_type"] == "REGULAR"
     assert me.data["company"].get("gstin", "") in ("", None)
+
+
+def test_register_explicit_regular_requires_gstin():
+    """An explicit REGULAR choice at signup still must come with a GSTIN —
+    only a silently-defaulted REGULAR (no registration_type in the request)
+    skips this, to be completed later in the Setup Wizard's tax step."""
+    client = APIClient()
+    resp = client.post("/api/v1/auth/register/", {
+        "company_name": "No Gstin Mart",
+        "email": "nogstin@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+        "registration_type": "REGULAR",
+    }, format="json")
+    assert resp.status_code == 400
+    assert "gstin" in resp.data["error"]["details"]
+
+
+def test_register_explicit_composition_requires_gstin():
+    client = APIClient()
+    resp = client.post("/api/v1/auth/register/", {
+        "company_name": "No Gstin Composition",
+        "email": "nogstincomp@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+        "registration_type": "COMPOSITION",
+    }, format="json")
+    assert resp.status_code == 400
+    assert "gstin" in resp.data["error"]["details"]
+
+
+def test_register_explicit_regular_with_valid_gstin_succeeds():
+    from accounts.models import Company
+
+    client = APIClient()
+    resp = client.post("/api/v1/auth/register/", {
+        "company_name": "Gstin Mart",
+        "email": "hasgstin@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+        "registration_type": "REGULAR",
+        "gstin": "29AAAAA0000A1ZY",
+    }, format="json")
+    assert resp.status_code == 200
+    company = Company.objects.get(name="Gstin Mart")
+    assert company.registration_type == "REGULAR"
+    assert company.gstin == "29AAAAA0000A1ZY"
+
+
+def test_register_explicit_regular_rejects_malformed_gstin():
+    client = APIClient()
+    resp = client.post("/api/v1/auth/register/", {
+        "company_name": "Bad Gstin Mart",
+        "email": "badgstin@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+        "registration_type": "REGULAR",
+        "gstin": "NOT-A-GSTIN",
+    }, format="json")
+    assert resp.status_code == 400
+    assert "gstin" in resp.data["error"]["details"]
+
+
+def test_register_explicit_unregistered_without_gstin_still_allowed():
+    """Choosing UNREGISTERED explicitly (not just relying on the REGULAR
+    default) must not require a GSTIN — this is the opt-out path."""
+    from accounts.models import Company
+
+    client = APIClient()
+    resp = client.post("/api/v1/auth/register/", {
+        "company_name": "Opt Out Mart",
+        "email": "optout@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+        "registration_type": "UNREGISTERED",
+    }, format="json")
+    assert resp.status_code == 200
+    company = Company.objects.get(name="Opt Out Mart")
+    assert company.registration_type == "UNREGISTERED"
+    assert company.gstin == ""
+
+
+def test_register_gstin_without_explicit_registration_type_is_validated():
+    """A GSTIN supplied without an explicit registration_type still gets
+    validated against the REGULAR default rather than silently accepted."""
+    client = APIClient()
+    resp = client.post("/api/v1/auth/register/", {
+        "company_name": "Gstin No Type Mart",
+        "email": "gstinnotype@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+        "gstin": "BAD",
+    }, format="json")
+    assert resp.status_code == 400
+    assert "gstin" in resp.data["error"]["details"]
 
 
 def test_register_copies_phone_to_company():
@@ -438,6 +533,28 @@ def test_owner_invites_staff_without_password(tenant_a):
     assert accept.status_code == 200
     user.refresh_from_db()
     assert user.has_usable_password()
+
+
+def test_owner_invites_staff_with_password_can_sign_in(tenant_a):
+    """Password invite activates membership so the UI copy ('they can sign in') is true."""
+    resp = tenant_a.client.post(
+        "/api/v1/company/users/",
+        {
+            "email": "invite.pw@alpha.test",
+            "password": "InvitePass123!",
+            "full_name": "Password Invitee",
+            "role": "SALES_STAFF",
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    assert resp.data.get("is_active") is True
+    login = APIClient().post(
+        "/api/v1/auth/login/",
+        {"email": "invite.pw@alpha.test", "password": "InvitePass123!"},
+        format="json",
+    )
+    assert login.status_code == 200, login.data
 
 
 def test_staff_cannot_read_bank_details(tenant_a):

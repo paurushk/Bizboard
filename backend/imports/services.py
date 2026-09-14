@@ -17,6 +17,7 @@ from core.exceptions import BusinessRuleError
 from core.help_codes import HelpCode
 from core.services.audit import AuditService
 from core.services.files import CSV_UTF8_HINT
+from core.services.uqc import normalize_uqc
 from core.validators import ALLOWED_GST_RATES, GSTIN_RE, HSN_RE, validate_gst_rate
 from inventory.models import MovementType, StockMovement
 from inventory.services import InventoryService
@@ -489,12 +490,12 @@ def _validate_row(
             ):
                 if seen_skus is not None:
                     seen_skus.add(key)
+                product = products_by_sku.get(key) if products_by_sku is not None else Product.objects.filter(
+                    company=company, sku__iexact=sku
+                ).first()
                 if opening_raw:
                     try:
                         if Decimal(opening_raw) > 0:
-                            product = products_by_sku.get(key) if products_by_sku is not None else Product.objects.filter(
-                                company=company, sku__iexact=sku
-                            ).first()
                             already = False
                             if product is not None:
                                 if skus_with_opening is not None:
@@ -507,6 +508,26 @@ def _validate_row(
                                     errors.append(f"opening stock already recorded for '{product.name}'")
                     except InvalidOperation:
                         pass
+                # BB-000???: bulk_update() in _commit_products writes `unit`
+                # straight onto the ORM object, bypassing ProductSerializer's
+                # validate() entirely -- without this check here, a re-import
+                # matched by SKU could silently change an existing item's
+                # base unit even with stock on hand or open documents still
+                # keyed to the old one (the one guard the API/UI path enforces).
+                unit_str = (row.get("unit") or row.get("unit_name") or "").strip()
+                if product is not None and unit_str:
+                    current_short = (product.unit.short_name if product.unit_id else "").strip()
+                    if current_short and current_short.casefold() != unit_str.casefold():
+                        from core.exceptions import BusinessRuleError
+                        from inventory.item_stock import assert_unit_change_allowed
+
+                        try:
+                            assert_unit_change_allowed(product)
+                        except BusinessRuleError as exc:
+                            errors.append(
+                                f"unit: cannot change base unit for '{product.name}' — "
+                                f"{str(getattr(exc, 'detail', None) or exc)}"
+                            )
             elif seen_skus is not None:
                 seen_skus.add(key)
         if barcode:
@@ -1582,7 +1603,7 @@ class ImportService:
                         company=company,
                         name=orig.upper(),
                         short_name=orig.upper()[:10],
-                        uqc_code=orig.upper()[:8],
+                        uqc_code=normalize_uqc(orig),
                         created_by=user,
                         updated_by=user,
                         created_at=now,

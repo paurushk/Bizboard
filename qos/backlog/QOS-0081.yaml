@@ -1,0 +1,46 @@
+id: QOS-0081
+category: CROSS_FLOW_CONSISTENCY
+title: Returned-invoice readers can still disagree after G-17–G-23 API fixes
+persona:
+- P1
+- P2
+journey: Complete a sale, pay, fully return, residual debit note, then read every money surface
+problem: "G-17 through G-23 were the same class: independent readers of shared status/allocation/stock
+  fields drifted, so a returned invoice could show as Paid, dunning could miss residual AR, and a
+  closed period could still accept a write. API predicates, period-gate coverage,
+  projection identities, and ARCH-01/03 lifecycle goldens now exist; keep them
+  honest rather than adding more isolated persona tests."
+evidence:
+  strength: measured
+  source:
+  - docs/CROSS_FLOW_IMPACT_MAP.md
+  - docs/TESTING_STRATEGY.md
+  - backend/sales/status_semantics.py
+  - backend/purchases/status_semantics.py
+  - web/e2e-golden/lifecycle-arch01.spec.ts
+  - web/e2e-golden/lifecycle-arch03.spec.ts
+  - web/e2e-golden/lifecycle-arch03-purchase.spec.ts
+  - web/e2e-golden/lifecycle-roles.spec.ts
+  - .github/workflows/ci.yml
+  detail: "API regressions exist for G-17–G-23. ARCH-01/03 lifecycle goldens, purchase residual,
+    and role goldens live under e2e-golden (required CI job). Accounting journal golden is
+    no longer fixme-skipped."
+scoring:
+  reach: 5
+  severity: 5
+  frequency: 3
+  impact_band: High
+business_metric: renewal
+priority: P1
+priority_rationale: Measured class; API, identities, and lifecycle goldens landed in the required e2e-golden CI job.
+effort: L
+recommendation: "Keep the named predicates and AST guard. Do not add more isolated persona tests.
+  ARCH-01 return path is `/sales/returns` (D15 confirmed). Lifecycle goldens:
+  web/e2e-golden/lifecycle-arch01.spec.ts and lifecycle-arch03.spec.ts."
+test_required: "lifecycle goldens for ARCH-01 and ARCH-03 asserting the same badge/number after return + residual DN"
+guard_ref:
+  test: backend/tests/test_status_semantics.py
+lifecycle: verified
+owner: qa
+opened: "2026-09-13"
+closed: "2026-09-14"

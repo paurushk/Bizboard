@@ -55,6 +55,9 @@ The behaviours the wave scripts *gestured* at are covered — properly — by:
 | `guard_regression_corpus_grows` | A regression test was deleted without lowering `backend/tests/regression/.corpus_count`; a fixed bug is unprotected again. |
 | `guard_required_checks_match` | `ci.yml` jobs and `REQUIRED_CHECKS.txt` drifted; a merge gate may not be enforced. |
 | `guard_ca_tax_parity` | A CA-signed GST scenario (F1–F8 in `docs/ca/CA_SIGN_OFF_CHECKLIST.md`) lost its automated parity case in `backend/tests/fixtures/tax_parity_cases.json`, or the checklist stopped referencing the fixture — the sign-off no longer maps to the computed tax. |
+| `guard_flow_catalog_drift` (**advisory**) | A route exists in `App.tsx` but not in `validation/catalog/routes.yaml`, or the extractor undercounted / left `unparsed` tags. Skipped by `run_guards.py` until `--include-advisory` / the 2-week flip. Selftest still runs. |
+| `guard_status_semantics_usage` | A multi-value `status__in` on SalesInvoice/PurchaseInvoice inlined the status set instead of `status_semantics.py` — G-17/G-18 class drift. |
+| `guard_writer_impact_coverage` (**advisory**) | A sales/purchases/payments/inventory/accounting/ledgers writer changed without a test path or `validation/impact-none.txt`. Skipped unless `--include-advisory`. |
 
 ## Known findings for the founder
 

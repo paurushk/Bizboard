@@ -96,8 +96,15 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     enabled: !!customerId,
   });
   const invoices = useQuery({
-    queryKey: ['completed-sales'],
-    queryFn: () => listSalesInvoices({ status: 'COMPLETED' }),
+    queryKey: ['note-source-invoices', kind],
+    queryFn: async () => {
+      const completed = await listSalesInvoices({ status: 'COMPLETED' });
+      if (isCredit) return completed;
+      // Residual debit notes after a full return attach to RETURNED invoices
+      // (P5-T2 / ARCH-03). The list API takes one status, so join both.
+      const returned = await listSalesInvoices({ status: 'RETURNED' });
+      return [...returned, ...completed];
+    },
     enabled: !isEdit,
   });
   const existing = useQuery({

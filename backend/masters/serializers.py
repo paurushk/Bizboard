@@ -177,6 +177,16 @@ class ProductSerializer(serializers.ModelSerializer):
             attrs = apply_product_type_matrix(attrs, self.instance)
         except BusinessRuleError as exc:
             raise serializers.ValidationError(exc.detail)
+        # The alternate unit's conversion_rate is only meaningful relative to
+        # the base unit it was set up against ("1 CARTON = 48 PCS"). A base
+        # unit change (only reachable once stock is zero -- see
+        # assert_tracking_unlocked) always invalidates that pairing, so clear
+        # it rather than silently reinterpreting a stale ratio under the new
+        # base unit. The caller can re-pair alternate unit + rate in a
+        # follow-up save once they know what it should mean under the new unit.
+        if self.instance is not None and attrs.get("unit") and attrs["unit"] != self.instance.unit:
+            attrs["alternate_unit"] = None
+            attrs["conversion_rate"] = Decimal("1")
         rate = attrs.get("conversion_rate", getattr(self.instance, "conversion_rate", None))
         if rate is not None and Decimal(str(rate)) <= 0:
             raise serializers.ValidationError({"conversion_rate": "Must be greater than zero."})

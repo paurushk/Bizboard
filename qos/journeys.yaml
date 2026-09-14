@@ -21,7 +21,7 @@ journeys:
     persona: P2
     archetype: ARCH-01
     journey: "POS checkout within the H-02 35s no-mouse budget"
-    evidence: none          # H-02 is a pilot hypothesis; no automated timing
+    evidence: test          # web/e2e/pos-keyboard-checkout.spec.ts H-02 35s budget
     ref: "TESTING_STRATEGY.md#6.10; hypothesis H-02"
   - id: J-RETAIL-P2-OFFLINE
     persona: P2

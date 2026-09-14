@@ -71,7 +71,7 @@ export function SetupWizardPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [completedInvoiceId, setCompletedInvoiceId] = useState<number | null>(null);
-  const [registrationType, setRegistrationType] = useState<RegistrationType>('UNREGISTERED');
+  const [registrationType, setRegistrationType] = useState<RegistrationType>('REGULAR');
   const [gstin, setGstin] = useState('');
   const [shop, setShop] = useState({ address: '', city: '', pincode: '' });
   const [payments, setPayments] = useState({ bankAccount: '', upiId: '' });

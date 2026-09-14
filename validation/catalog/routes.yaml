@@ -1,0 +1,1203 @@
+count: 150
+dead_nav: []
+routes:
+- path: /login
+  component: LoginPage
+  guards: []
+  route_kind: page
+  nav_label: null
+- path: /register
+  component: RegisterPage
+  guards: []
+  route_kind: page
+  nav_label: null
+- path: /forgot-password
+  component: ForgotPasswordPage
+  guards: []
+  route_kind: page
+  nav_label: null
+- path: /reset-password
+  component: ResetPasswordPage
+  guards: []
+  route_kind: page
+  nav_label: null
+- path: /invite
+  component: AcceptInvitePage
+  guards: []
+  route_kind: page
+  nav_label: null
+- path: /pay/:token
+  component: PublicPayPage
+  guards: []
+  route_kind: page
+  nav_label: null
+- path: /setup
+  component: SetupWizardPage
+  guards:
+  - ProtectedRoute
+  - RoleRoute:inline
+  route_kind: page
+  nav_label: null
+- path: /reports/profit-loss
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /reports/profit-and-loss
+  nav_label: null
+- path: /accounting/chart-of-accounts
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /accounting/accounts
+  nav_label: null
+- path: /accounting/bank-recon
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /accounting/bank-reconciliation
+  nav_label: null
+- path: /sales/quotations/new
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /sales/quotations?create=1
+  nav_label: null
+- path: /sales/returns/new
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /sales/returns?create=1
+  nav_label: null
+- path: /sales/challans
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /sales/delivery-challans
+  nav_label: null
+- path: /sales/challans/new
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /sales/delivery-challans/new
+  nav_label: null
+- path: /purchases/returns/new
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /purchases/returns?create=1
+  nav_label: null
+- path: /reports/gstr-1
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /reports/gstr1
+  nav_label: null
+- path: /reports/gstr-3b
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /reports/gstr3b
+  nav_label: null
+- path: /reports/gstr-2b
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /reports/gstr2b
+  nav_label: null
+- path: /reports/gstr-9
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /reports/gstr9
+  nav_label: null
+- path: /reports/cmp-08
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: redirect
+  redirect_to: /reports/cmp08
+  nav_label: null
+- path: /
+  component: HomePage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: index
+  nav_label: nav.dashboard
+- path: /offline-outbox
+  component: OfflineOutboxPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: page
+  nav_label: nav.offlineOutbox
+- path: /help
+  component: HelpPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  route_kind: page
+  nav_label: nav.help
+- path: /settings/help
+  component: HelpHealthPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowHelpHealth
+  route_kind: page
+  nav_label: nav.helpHealth
+- path: /insights
+  component: InsightsHubPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAiInsights
+  route_kind: page
+  nav_label: nav.insights
+- path: /insights/alerts
+  component: InsightsAlertsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAiInsights
+  route_kind: page
+  nav_label: nav.insightsAlerts
+- path: /insights/health
+  component: InsightsHealthPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAiInsights
+  route_kind: page
+  nav_label: nav.insightsHealth
+- path: /insights/cashflow
+  component: InsightsCashflowPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAiInsights
+  route_kind: page
+  nav_label: nav.insightsCashflow
+- path: /insights/assistant
+  component: InsightsAssistantPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAiAssistant
+  route_kind: page
+  nav_label: nav.insightsAssistant
+- path: /sales/new
+  component: SalesInvoiceEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  route_kind: page
+  nav_label: nav.sales
+- path: /sales/history/:id/edit
+  component: SalesInvoiceEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  route_kind: page
+  nav_label: null
+- path: /sales/quick-entry
+  component: QuickEntryPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  route_kind: page
+  nav_label: nav.quickEntry
+- path: /sales/bill-upload
+  component: SalesBillUploadPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canImport
+  route_kind: page
+  nav_label: nav.uploadSalesBill
+- path: /sales/upload
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canImport
+  route_kind: redirect
+  redirect_to: /sales/bill-upload
+  nav_label: null
+- path: /pos
+  component: PosPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowPos
+  route_kind: page
+  nav_label: nav.pos
+- path: /sales/history
+  component: SalesHistoryPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  route_kind: page
+  nav_label: nav.salesHistory
+- path: /sales/history/:id
+  component: InvoiceDetailPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  route_kind: page
+  nav_label: null
+- path: /sales/credit-notes
+  component: CreditNotesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  route_kind: page
+  nav_label: nav.creditNotes
+- path: /sales/debit-notes
+  component: DebitNotesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  route_kind: page
+  nav_label: nav.debitNotes
+- path: /sales/orders
+  component: SalesOrdersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  route_kind: page
+  nav_label: nav.salesOrders
+- path: /sales/delivery-challans
+  component: DeliveryChallansPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  route_kind: page
+  nav_label: nav.deliveryChallans
+- path: /sales/recurring
+  component: RecurringInvoicesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  route_kind: page
+  nav_label: nav.recurringInvoices
+- path: /sales/customers
+  component: CustomersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  route_kind: page
+  nav_label: nav.customers
+- path: /sales/quotations
+  component: QuotationsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  route_kind: page
+  nav_label: nav.quotations
+- path: /sales/returns
+  component: SalesReturnsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  route_kind: page
+  nav_label: nav.salesReturns
+- path: /sales/credit-notes/:id
+  component: CreditNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  route_kind: page
+  nav_label: null
+- path: /sales/debit-notes/:id
+  component: DebitNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  route_kind: page
+  nav_label: null
+- path: /sales/orders/:id
+  component: SalesOrderEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  route_kind: page
+  nav_label: null
+- path: /sales/delivery-challans/:id
+  component: DeliveryChallanEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  route_kind: page
+  nav_label: null
+- path: /sales/credit-notes/new
+  component: CreditNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  route_kind: page
+  nav_label: null
+- path: /sales/debit-notes/new
+  component: DebitNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  route_kind: page
+  nav_label: null
+- path: /sales/orders/new
+  component: SalesOrderEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  route_kind: page
+  nav_label: null
+- path: /sales/delivery-challans/new
+  component: DeliveryChallanEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  route_kind: page
+  nav_label: null
+- path: /sales/receipts
+  component: ReceiptsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPaymentSurfaces
+  route_kind: page
+  nav_label: nav.receipts
+- path: /payments/reconciliation
+  component: BankReconPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewBankRecon
+  route_kind: page
+  nav_label: nav.bankReconciliation
+- path: /payments/account-aggregator
+  component: AccountAggregatorPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewBankRecon
+  route_kind: page
+  nav_label: nav.accountAggregator
+- path: /payments/recon
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewBankRecon
+  route_kind: redirect
+  redirect_to: /payments/reconciliation
+  nav_label: null
+- path: /purchases/payments
+  component: SupplierPaymentsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePayments
+  route_kind: page
+  nav_label: nav.supplierPayments
+- path: /payments/links
+  component: PaymentLinksPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePayments
+  route_kind: page
+  nav_label: nav.payments
+- path: /payments/statements
+  component: BankStatementsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePayments
+  route_kind: page
+  nav_label: nav.bankStatements
+- path: /purchases/returns
+  component: PurchaseReturnsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  route_kind: page
+  nav_label: nav.purchaseReturns
+- path: /purchases/new
+  component: PurchaseInvoiceEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  route_kind: page
+  nav_label: nav.purchases
+- path: /purchases/history/:id/edit
+  component: PurchaseInvoiceEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  route_kind: page
+  nav_label: null
+- path: /purchases/credit-notes/new
+  component: PurchaseCreditNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  route_kind: page
+  nav_label: null
+- path: /purchases/debit-notes/new
+  component: PurchaseDebitNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  route_kind: page
+  nav_label: null
+- path: /purchases/orders/new
+  component: PurchaseOrderEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  route_kind: page
+  nav_label: null
+- path: /purchases/credit-notes/:id
+  component: PurchaseCreditNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  route_kind: page
+  nav_label: null
+- path: /purchases/debit-notes/:id
+  component: PurchaseDebitNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  route_kind: page
+  nav_label: null
+- path: /purchases/orders/:id
+  component: PurchaseOrderEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  route_kind: page
+  nav_label: null
+- path: /purchases/history
+  component: PurchaseHistoryPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  route_kind: page
+  nav_label: nav.purchaseHistory
+- path: /purchases/history/:id
+  component: PurchaseDetailPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  route_kind: page
+  nav_label: null
+- path: /purchases/credit-notes
+  component: PurchaseCreditNotesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  route_kind: page
+  nav_label: nav.purchaseCreditNotes
+- path: /purchases/debit-notes
+  component: PurchaseDebitNotesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  route_kind: page
+  nav_label: nav.purchaseDebitNotes
+- path: /purchases/orders
+  component: PurchaseOrdersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  route_kind: page
+  nav_label: nav.purchaseOrders
+- path: /purchases/suppliers
+  component: SuppliersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  route_kind: page
+  nav_label: nav.suppliers
+- path: /purchases/bills-of-entry
+  component: BillsOfEntryPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  route_kind: page
+  nav_label: nav.billsOfEntry
+- path: /purchases/bill-upload
+  component: PurchaseBillUploadPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canImport
+  route_kind: page
+  nav_label: nav.uploadBill
+- path: /purchases/upload
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canImport
+  route_kind: redirect
+  redirect_to: /purchases/bill-upload
+  nav_label: null
+- path: /inventory/products
+  component: ProductsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  route_kind: page
+  nav_label: nav.inventory
+- path: /inventory/stock
+  component: CurrentStockPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  route_kind: page
+  nav_label: nav.currentStock
+- path: /inventory/low-stock
+  component: LowStockPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  route_kind: page
+  nav_label: nav.lowStock
+- path: /inventory/expiry-alerts
+  component: ExpiryAlertsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  route_kind: page
+  nav_label: nav.expiryAlerts
+- path: /inventory/expiry
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  route_kind: redirect
+  redirect_to: /inventory/expiry-alerts
+  nav_label: null
+- path: /inventory/adjustments
+  component: StockAdjustmentPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  route_kind: page
+  nav_label: nav.stockAdjustment
+- path: /inventory/warehouses
+  component: WarehousesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  route_kind: page
+  nav_label: nav.warehouses
+- path: /inventory/stock-counts
+  component: StockCountPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  route_kind: page
+  nav_label: nav.stockCounts
+- path: /inventory/count
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  route_kind: redirect
+  redirect_to: /inventory/stock-counts
+  nav_label: null
+- path: /inventory/transfers
+  component: StockTransferPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  route_kind: page
+  nav_label: nav.stockTransfers
+- path: /inventory/serials
+  component: SerialsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  route_kind: page
+  nav_label: nav.serials
+- path: /inventory/labels
+  component: LabelPrintPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  route_kind: page
+  nav_label: nav.labelPrint
+- path: /attention
+  component: AttentionPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  route_kind: page
+  nav_label: nav.attention
+- path: /reports/sales
+  component: SalesReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  route_kind: page
+  nav_label: nav.reports
+- path: /reports/purchases
+  component: PurchaseReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  route_kind: page
+  nav_label: nav.purchaseReports
+- path: /reports/inventory
+  component: InventoryReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  route_kind: page
+  nav_label: nav.inventoryReports
+- path: /reports/customer-ledger
+  component: CustomerLedgerPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  route_kind: page
+  nav_label: nav.customerLedger
+- path: /reports/supplier-ledger
+  component: SupplierLedgerPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  route_kind: page
+  nav_label: nav.supplierLedger
+- path: /reports/statutory-events
+  component: StatutoryEventsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  route_kind: page
+  nav_label: nav.statutoryEvents
+- path: /reports/cash-book
+  component: CashBookPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  route_kind: page
+  nav_label: nav.cashBook
+- path: /reports/stock-valuation
+  component: StockValuationPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  route_kind: page
+  nav_label: nav.stockValuation
+- path: /reports/tds-tcs
+  component: TdsTcsReportsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowTdsReports
+  route_kind: page
+  nav_label: nav.tdsTcs
+- path: /reports/trial-balance
+  component: TrialBalancePage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  route_kind: page
+  nav_label: nav.trialBalance
+- path: /reports/profit-and-loss
+  component: ProfitAndLossPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  route_kind: page
+  nav_label: nav.profitAndLoss
+- path: /reports/balance-sheet
+  component: BalanceSheetPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  route_kind: page
+  nav_label: nav.balanceSheet
+- path: /reports/books-health
+  component: BooksHealthPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  route_kind: page
+  nav_label: nav.booksHealth
+- path: /reports/gstr1
+  component: Gstr1ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.gstr1
+- path: /reports/gstr3b
+  component: Gstr3bReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.gstr3b
+- path: /reports/gstr4
+  component: Gstr4ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.gstr4
+- path: /reports/cmp08
+  component: Cmp08ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.cmp08
+- path: /reports/gstr6
+  component: Gstr6ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.gstr6
+- path: /reports/gstr7
+  component: Gstr7ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.gstr7
+- path: /reports/gstr8
+  component: Gstr8ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.gstr8
+- path: /reports/gstr9
+  component: Gstr9ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.gstr9
+- path: /reports/gstr2b
+  component: Gstr2bPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.gstr2b
+- path: /reports/missing-documents
+  component: MissingDocumentsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.missingDocuments
+- path: /ca-needs
+  component: MissingDocumentsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.caNeeds
+- path: /reports/gst-health
+  component: GstHealthPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.gstHealth
+- path: /reports/gst-rate-exposure
+  component: GstRateExposurePage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  route_kind: page
+  nav_label: nav.gstRateExposure
+- path: /settings/company
+  component: CompanySettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  route_kind: page
+  nav_label: nav.company
+- path: /settings/series
+  component: SeriesSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  route_kind: page
+  nav_label: nav.seriesSettings
+- path: /settings/units
+  component: UnitsSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  route_kind: page
+  nav_label: nav.units
+- path: /settings/items
+  component: ItemSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  route_kind: page
+  nav_label: nav.itemSettings
+- path: /settings/templates
+  component: InvoiceTemplatesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  route_kind: page
+  nav_label: nav.invoiceTemplates
+- path: /settings/users
+  component: UsersSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  route_kind: page
+  nav_label: nav.users
+- path: /settings/bank-accounts
+  component: BankAccountsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  route_kind: page
+  nav_label: nav.settings
+- path: /settings/payment-gateway
+  component: PaymentGatewayPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  route_kind: page
+  nav_label: nav.paymentGateway
+- path: /settings/billing
+  component: BillingPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  route_kind: page
+  nav_label: nav.billing
+- path: /settings/price-lists
+  component: PriceListsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  route_kind: page
+  nav_label: nav.priceLists
+- path: /settings/backup
+  component: BackupExportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canExport
+  route_kind: page
+  nav_label: nav.backupExport
+- path: /settings/ai
+  component: AiSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:allowAiSettings
+  route_kind: page
+  nav_label: nav.aiSettings
+- path: /settings/accounting
+  component: AccountingSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:allowAccountingSettings
+  route_kind: page
+  nav_label: nav.accounting
+- path: /settings/gst
+  component: GstSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageGst
+  route_kind: page
+  nav_label: nav.gst
+- path: /settings/statutory-licences
+  component: StatutoryLicencesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageGst
+  route_kind: page
+  nav_label: nav.statutoryLicences
+- path: /settings/import
+  component: ImportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canImport
+  route_kind: page
+  nav_label: nav.importData
+- path: /settings/tally
+  component: TallyMigrationPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:allowTally
+  route_kind: page
+  nav_label: nav.tallyMigration
+- path: /accounting/accounts
+  component: ChartOfAccountsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  route_kind: page
+  nav_label: nav.accounting
+- path: /accounting/journals
+  component: JournalsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  route_kind: page
+  nav_label: nav.journals
+- path: /accounting/bank-reconciliation
+  component: AccountingBankReconPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  route_kind: page
+  nav_label: nav.bankReconciliation
+- path: /accounting/cost-centers
+  component: CostCentersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  route_kind: page
+  nav_label: nav.costCenters
+- path: /accounting/fixed-assets
+  component: FixedAssetsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  route_kind: page
+  nav_label: nav.fixedAssets
+- path: /accounting/periods
+  component: PeriodsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  route_kind: page
+  nav_label: nav.accountingPeriods
+- path: /manufacturing
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowManufacturing
+  route_kind: redirect
+  redirect_to: /manufacturing/boms
+  nav_label: null
+- path: /manufacturing/boms
+  component: BomsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowManufacturing
+  route_kind: page
+  nav_label: nav.manufacturing
+- path: /manufacturing/work-orders
+  component: WorkOrdersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowManufacturing
+  route_kind: page
+  nav_label: nav.workOrders
+- path: /payroll
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowPayroll
+  route_kind: redirect
+  redirect_to: /payroll/employees
+  nav_label: null
+- path: /payroll/employees
+  component: EmployeesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowPayroll
+  route_kind: page
+  nav_label: nav.payroll
+- path: /payroll/pay-runs
+  component: PayRunsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowPayroll
+  route_kind: page
+  nav_label: nav.payRuns
+- path: /crm
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowCrm
+  route_kind: redirect
+  redirect_to: /crm/leads
+  nav_label: null
+- path: /crm/leads
+  component: LeadsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowCrm
+  route_kind: page
+  nav_label: nav.crm
+- path: /crm/opportunities
+  component: OpportunitiesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowCrm
+  route_kind: page
+  nav_label: nav.opportunities
+- path: /*
+  component: NotFoundPage
+  guards: []
+  route_kind: page
+  nav_label: null

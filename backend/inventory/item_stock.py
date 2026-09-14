@@ -15,8 +15,14 @@ from .models import BatchLot, StockBalance, StockMovement, Warehouse
 
 logger = logging.getLogger(__name__)
 TWOPLACES = Decimal("0.01")
+# The base unit used to sit in this tuple too. StockMovement rows are
+# append-only (see save()/delete() below) and every past row's `quantity` is
+# permanently "in the unit that was active at the time" -- so a unit change
+# can never rewrite history. What it CAN safely do is start a new chapter:
+# once on-hand + reserved stock for the item is zero everywhere (no ambiguous
+# quantity left to reinterpret), assert_tracking_unlocked() below lets the
+# base unit change; product type and the tracking flags stay frozen for good.
 FROZEN_AFTER_MOVEMENT = (
-    "unit",
     "product_type",
     "track_inventory",
     "track_batch",
@@ -144,7 +150,58 @@ def assert_tracking_unlocked(instance, attrs: dict):
             continue
         if attrs[field] != getattr(instance, field):
             raise BusinessRuleError(
-                "Unit, item type, and tracking flags cannot change after stock movements exist."
+                "Item type and tracking flags cannot change after stock movements exist."
+            )
+    if "unit" in attrs and attrs["unit"] != instance.unit:
+        assert_unit_change_allowed(instance)
+
+
+def assert_unit_change_allowed(instance):
+    """Shared by the product serializer and the CSV import validator -- any
+    path that can change a product's base unit on an existing item must run
+    the same two checks: on-hand/reserved stock is zero everywhere, and no
+    open document still owes a quantity keyed to the old unit."""
+    totals = StockBalance.objects.filter(company=instance.company, product=instance).aggregate(
+        on_hand=Sum("on_hand"), reserved=Sum("reserved"),
+    )
+    on_hand = totals["on_hand"] or Decimal("0")
+    reserved = totals["reserved"] or Decimal("0")
+    if on_hand != 0 or reserved != 0:
+        raise BusinessRuleError(
+            "The base unit can only be changed once on-hand stock for this item is zero in "
+            "every godown. Adjust stock to zero first (Stock Adjustment), then change the unit."
+        )
+    assert_no_open_documents_for_unit_change(instance)
+
+
+# Documents in these draft/open statuses carry a quantity that hasn't been
+# resolved against a unit yet -- that happens later, at completion, against
+# whatever the product's unit is AT THAT TIME (see base_quantity() /
+# _alternate_unit_factor() above). A confirmed sales order is included too:
+# rebuild_balance() clamps StockBalance.reserved to on_hand, so a confirmed
+# SO against an item whose on-hand is already zero (our unit-change
+# precondition) would NOT show up as reserved stock, even though the order
+# still owes a quantity that was entered under the old unit.
+_OPEN_DOCUMENT_CHECKS = (
+    ("purchases", "PurchaseOrderItem", "purchase_order__status", ("DRAFT",), "an open purchase order"),
+    ("purchases", "PurchaseItem", "invoice__status", ("DRAFT",), "a draft purchase bill"),
+    ("sales", "QuotationItem", "quotation__status", ("DRAFT",), "an open quotation"),
+    ("sales", "SalesOrderItem", "sales_order__status", ("DRAFT", "CONFIRMED"), "an open sales order"),
+    ("sales", "SalesItem", "invoice__status", ("DRAFT",), "a draft sales invoice"),
+    ("sales", "DeliveryChallanItem", "challan__status", ("DRAFT",), "an open delivery challan"),
+)
+
+
+def assert_no_open_documents_for_unit_change(instance):
+    from django.apps import apps
+
+    for app_label, model_name, status_path, statuses, label in _OPEN_DOCUMENT_CHECKS:
+        model = apps.get_model(app_label, model_name)
+        lookup = {"product": instance, f"{status_path}__in": statuses}
+        if model.objects.filter(**lookup).exists():
+            raise BusinessRuleError(
+                f"The base unit can't be changed while this item is on {label}. "
+                "Complete or cancel it first, then change the unit."
             )
 
 

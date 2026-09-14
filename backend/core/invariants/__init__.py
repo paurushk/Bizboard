@@ -18,6 +18,7 @@ from . import (  # noqa: F401 — import = register
     inventory,
     money,
     numbering,
+    projection,
     reports,
     tenancy,
 )

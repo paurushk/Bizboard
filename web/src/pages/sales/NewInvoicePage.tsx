@@ -35,6 +35,7 @@ import {
   getSalesInvoice,
   getSalesInvoiceNumberSeries,
   listCustomersPage,
+  listCollectionRisk,
   listBatches,
   listCostCenters,
   listPriceLists,
@@ -64,9 +65,11 @@ import { usePreviewTotals } from '@/hooks/usePreviewTotals';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { DocumentTaxSummary } from '@/components/DocumentTaxSummary';
 import { t } from '@/i18n';
-import { preferredInvoiceType } from '@/onboarding/taxHints';
+import { preferredInvoiceType, companyStepIncompleteNeedsGst } from '@/onboarding/taxHints';
 import type { InvoiceType, PaymentMode, PriceMode, Product, SalesInvoice } from '@/types/domain';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
+import { isCollectionHoldStatus } from '@/utils/collectionHold';
+import { CreditHoldChip } from '@/components/CreditHoldChip';
 import { resolveListUnitPrice } from '@/utils/priceList';
 import {
   addDaysIso,
@@ -270,6 +273,11 @@ export function NewInvoicePage() {
     queryFn: () => getCustomer(customerId as number),
     enabled: Boolean(customerId),
   });
+  const collectionRisk = useQuery({
+    queryKey: ['collection-risk'],
+    queryFn: listCollectionRisk,
+    retry: false,
+  });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
   const companyGstins = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
   const costCenters = useQuery({
@@ -312,7 +320,7 @@ export function NewInvoicePage() {
     for (const s of stockBalances.data ?? []) {
       if (wh != null && Number(s.warehouse) !== wh) continue;
       const id = Number(s.product);
-      map.set(id, (map.get(id) ?? 0) + toNumber(s.available ?? s.onHand));
+      map.set(id, (map.get(id) ?? 0) + toNumber(s.available));
     }
     return map;
   }, [stockBalances.data, warehouseId]);
@@ -635,6 +643,17 @@ export function NewInvoicePage() {
     );
   }, [selectedCustomer, totals.grandTotal]);
 
+  const collectionHoldBanner = useMemo(() => {
+    if (!customerId) return null;
+    const row = (collectionRisk.data ?? []).find((r) => r.customerId === Number(customerId));
+    if (!isCollectionHoldStatus(row?.status)) return null;
+    return (
+      <Alert severity="error">
+        <CreditHoldChip /> {t('phase1.creditHoldBanner')}
+      </Alert>
+    );
+  }, [customerId, collectionRisk.data]);
+
   const resetForm = () => {
     // BUG-500 / P0-311: do NOT call clearFeedback here — Save & New sets the
     // success flash then resets fields in the same tick; wiping feedback would
@@ -759,6 +778,9 @@ export function NewInvoicePage() {
       if (lines.length === 0) throw new Error(t('billing.addAtLeastOneItem'));
 
       const shouldComplete = mode === 'complete' || mode === 'complete_new';
+      if (shouldComplete && invoiceType !== 'NON_GST' && companyStepIncompleteNeedsGst(company.data)) {
+        throw new Error(t('billing.gstinRequiredBeforeGstComplete'));
+      }
       if (shouldComplete && invoiceType !== 'NON_GST' && intraState === null) {
         throw new Error(t('billing.placeOfSupplyRequired'));
       }
@@ -1049,11 +1071,14 @@ export function NewInvoicePage() {
   // invoice — allow Complete with the on-device totals (the server recomputes
   // authoritative totals on save regardless) but surface that it happened.
   const previewFellBack = previewOnline && !preview.ready && preview.error != null;
+  const gstinRequiredForGst =
+    invoiceType !== 'NON_GST' && companyStepIncompleteNeedsGst(company.data);
   const canComplete =
     canSave &&
     posKnown &&
     (isCompletedEdit || stockShortfalls.length === 0) &&
-    (!previewOnline || preview.ready || previewFellBack);
+    (!previewOnline || preview.ready || previewFellBack) &&
+    !gstinRequiredForGst;
   const shownTotals = preview.totals
     ? {
         ...totals,
@@ -1245,7 +1270,7 @@ export function NewInvoicePage() {
             ? t('billing.editingCompletedWarning')
             : null
       }
-      infoBanner={creditLimitBanner}
+      infoBanner={collectionHoldBanner ?? creditLimitBanner}
       saving={saveMutation.isPending}
       onPrimarySave={() => saveMutation.mutate(primarySave.mode)}
       onSaveAndNew={() => saveMutation.mutate('complete_new')}
@@ -1255,6 +1280,18 @@ export function NewInvoicePage() {
     >
       <Stack spacing={2}>
       <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(customerId))} />
+      {gstinRequiredForGst ? (
+        <Alert
+          severity="warning"
+          action={
+            <Button color="inherit" size="small" component={RouterLink} to="/settings/gst">
+              {t('billing.openGstSettings')}
+            </Button>
+          }
+        >
+          {t('billing.gstinRequiredBeforeGstComplete')}
+        </Alert>
+      ) : null}
       {offline || hasOutboxItems || Boolean(outboxBanner) ? (
         !hideOutboxWarn || offline ? (
           <Alert
@@ -1343,13 +1380,13 @@ export function NewInvoicePage() {
                 }}
                 sx={{ minWidth: 140 }}
               >
-                {company.data?.registrationType === 'REGULAR' ? (
-                  <>
-                    <MenuItem value="GST">GST Invoice</MenuItem>
-                    <MenuItem value="TAX">Tax Invoice</MenuItem>
-                    <MenuItem value="RETAIL">Retail Invoice</MenuItem>
-                  </>
-                ) : null}
+                {company.data?.registrationType === 'REGULAR'
+                  ? [
+                      <MenuItem key="GST" value="GST">GST Invoice</MenuItem>,
+                      <MenuItem key="TAX" value="TAX">Tax Invoice</MenuItem>,
+                      <MenuItem key="RETAIL" value="RETAIL">Retail Invoice</MenuItem>,
+                    ]
+                  : null}
                 <MenuItem value="NON_GST">Non-GST Invoice</MenuItem>
               </CompactField>
               {invoiceType !== 'NON_GST' ? (

@@ -300,8 +300,9 @@ class Product(CompanyScopedModel):
             "cost_layers",
             "running_costs",
             "warehouse_reorder_levels",
-            "bom_items",
-            "bom_components",
+            "boms_as_fg",
+            "bom_lines_as_component",
+            "price_list_items",
         ):
             accessor = getattr(self, rel, None)
             if accessor is not None:

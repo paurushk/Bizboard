@@ -16,6 +16,7 @@ from django.utils import timezone
 from inventory.models import StockBalance
 from ledgers.services import LedgerService
 from purchases.models import PurchaseInvoice
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 from reporting.services import ReportService
 from sales.models import SalesInvoice
 from sales.status_semantics import OPERATIONAL_SALE_STATUSES
@@ -526,7 +527,7 @@ def forecast_cashflow(
     # still carry a residual payable.
     qs = PurchaseInvoice.objects.filter(
         company=company,
-        status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+        status__in=OPEN_PAYABLE_STATUSES,
         due_date__gte=as_of,
         due_date__lte=as_of + timedelta(days=horizon),
     )

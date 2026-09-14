@@ -70,7 +70,7 @@ export function SupplierPaymentsPage() {
     }
     const cap = Math.min(
       toNumber(amount),
-      toNumber(purchase.balance ?? purchase.grandTotal),
+      toNumber(purchase.balance),
     );
     setAllocAmount(cap > 0 ? String(cap) : '');
   }, [amount, purchase]);
@@ -98,7 +98,7 @@ export function SupplierPaymentsPage() {
         const alloc = Number(allocAmount);
         const cap = Math.min(
           paymentAmount,
-          toNumber(purchase.balance ?? purchase.grandTotal),
+          toNumber(purchase.balance),
         );
         if (alloc > cap + 0.001) {
           throw new Error(
@@ -150,7 +150,7 @@ export function SupplierPaymentsPage() {
     (p) =>
       p.status === 'COMPLETED' &&
       (!supplier || p.supplier === supplier.id) &&
-      toNumber(p.balance ?? p.grandTotal) > 0,
+      toNumber(p.balance) > 0,
   );
 
   return (

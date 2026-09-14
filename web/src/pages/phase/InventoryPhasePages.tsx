@@ -8,6 +8,7 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
@@ -31,6 +32,7 @@ import { enqueueDraft } from '@/offline/invoiceDraftCache';
 import { useStockOffline } from '@/pages/inventory/useStockOffline';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { codeFromName } from '@/utils/codeGen';
+import { formatMoney, toNumber } from '@/utils/money';
 import {
   asRows,
   DataTable,
@@ -559,6 +561,7 @@ export function StockValuationPage() {
   }));
   const basisLabel =
     basis === 'purchase' ? 'purchase price' : basis === 'selling' ? 'selling price' : basis === 'mrp' ? 'MRP' : 'unit cost';
+  const totalValue = items.reduce((sum, r) => sum + toNumber(r.value as string | number | null | undefined), 0);
   return (
     <PageShell
       title={t('phase.stockValuation')}
@@ -568,19 +571,29 @@ export function StockValuationPage() {
           : `Valued at item ${basisLabel} × quantity on hand.`
       }
       actions={
-        <TextField
-          select
-          size="small"
-          label="Value stock at"
-          value={basis}
-          onChange={(e) => setBasis(e.target.value)}
-          sx={{ minWidth: 200 }}
-        >
-          <MenuItem value="cost">Cost (WAVG / FIFO)</MenuItem>
-          <MenuItem value="purchase">Purchase price</MenuItem>
-          <MenuItem value="selling">Selling price</MenuItem>
-          <MenuItem value="mrp">MRP</MenuItem>
-        </TextField>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+          <Paper variant="outlined" sx={{ px: 2, py: 1 }}>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Total stock value
+            </Typography>
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>
+              {formatMoney(totalValue)}
+            </Typography>
+          </Paper>
+          <TextField
+            select
+            size="small"
+            label="Value stock at"
+            value={basis}
+            onChange={(e) => setBasis(e.target.value)}
+            sx={{ minWidth: 200 }}
+          >
+            <MenuItem value="cost">Cost (WAVG / FIFO)</MenuItem>
+            <MenuItem value="purchase">Purchase price</MenuItem>
+            <MenuItem value="selling">Selling price</MenuItem>
+            <MenuItem value="mrp">MRP</MenuItem>
+          </TextField>
+        </Stack>
       }
     >
       <HonestyBanner

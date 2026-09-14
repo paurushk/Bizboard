@@ -452,6 +452,9 @@ export const hi = {
     invoiceDiscountAfterTaxBlockedB2b:
       'B2B GST चालान पर कर-पश्चात छूट मान्य नहीं — "GST घटाती है" चुनें या पूर्ण होने के बाद क्रेडिट नोट जारी करें।',
     placeOfSupplyRequired: 'GST इनवॉइस पूर्ण करने से पहले ग्राहक राज्य या GSTIN जोड़ें।',
+    gstinRequiredBeforeGstComplete:
+      'GST इनवॉइस पूर्ण करने से पहले GST सेटिंग में कंपनी GSTIN सहेजें।',
+    openGstSettings: 'GST सेटिंग',
     placeOfSupplyRequiredSupplier: 'GST इनवॉइस पूर्ण करने से पहले आपूर्तिकर्ता राज्य या GSTIN जोड़ें।',
     previewFailed: 'सर्वर से कर योग नहीं मिला। पूर्वावलोकन सफल होने तक पूर्ण बंद है।',
     shortcutsBar: 'शॉर्टकट: Ctrl/Cmd+S ड्राफ्ट सहेजें · Ctrl/Cmd+Enter पूर्ण · Ctrl/Cmd+Shift+L आइटम जोड़ें · F2 स्कैन',
@@ -649,6 +652,8 @@ export const hi = {
     categoryHint: 'Excel कॉलम Category जैसा। नया नाम लिखकर बनाएं।',
     brandHint: 'Excel कॉलम Brand जैसा।',
     generateBarcode: 'जनरेट करें',
+    confirmDelete: 'यह आइटम हटाएं? यह वापस नहीं किया जा सकता।',
+    deleted: 'आइटम हटा दिया गया।',
   },
   customFields: {
     columns: 'कॉलम',
@@ -701,6 +706,10 @@ export const hi = {
     outOfStockBlock: 'स्टॉक खत्म होने पर बिलिंग रोकें (कड़ा नियम)',
     outOfStockWarn: 'चेतावनी देकर बिल बनाने दें (फ्लेक्सिबल)',
     assumeLocalState: 'वॉक-इन खुदरा ग्राहकों के लिए स्थानीय राज्य (CGST+SGST) लागू करें',
+    confirmRegistrationChange:
+      'GST पंजीकरण प्रकार {type} में बदलें? इससे हर भावी दस्तावेज़ पर टैक्स की गणना बदल जाती है (COMPOSITION बिना टैक्स के बिल ऑफ सप्लाई जारी करता है)।',
+    confirmNegativeStockChange:
+      'नेगेटिव-स्टॉक नीति {policy} में बदलें? WARN कर्मचारियों को स्टॉक-आउट वस्तुएँ बेचने देता है।',
   },
   onboarding: {
     title: 'बिज़बोर्ड में शुरुआत करें',
@@ -737,10 +746,6 @@ export const hi = {
     addProduct: 'उत्पाद जोड़ें और आगे बढ़ें',
     createFirstBill: 'पहला बिल बनाकर पूरा करें',
     registrationType: 'GST पंजीकरण प्रकार',
-    confirmRegistrationChange:
-      'GST पंजीकरण प्रकार {type} में बदलें? इससे हर भावी दस्तावेज़ पर टैक्स की गणना बदल जाती है (COMPOSITION बिना टैक्स के बिल ऑफ सप्लाई जारी करता है)।',
-    confirmNegativeStockChange:
-      'नेगेटिव-स्टॉक नीति {policy} में बदलें? WARN कर्मचारियों को स्टॉक-आउट वस्तुएँ बेचने देता है।',
     unregistered: 'अपंजीकृत',
     regular: 'रेगुलर GST',
     composition: 'कंपोजिशन योजना',
@@ -1406,7 +1411,11 @@ export const hi = {
     convertedToInvoice: 'ड्राफ्ट इनवॉइस #{id} में बदला गया',
     creditLimitWarning:
       'क्रेडिट सीमा चेतावनी: {exposure} एक्सपोज़र (बकाया + यह इनवॉइस) बनाम {limit} सीमा ({pct}%)।',
+    creditHoldChip: 'क्रेडिट होल्ड',
+    creditHoldBanner:
+      'यह ग्राहक कलेक्शन होल्ड पर है। गंभीर बकाया चुकाने तक Complete अवरुद्ध रहेगा।',
     salesReturnCompleted: 'बिक्री वापसी पूर्ण हुई',
+    salesReturnCompleteOwnerOnly: 'केवल मालिक (या रद्द अनुमति वाला व्यक्ति) बिक्री वापसी पूर्ण कर सकता है।',
     purchaseReturnCompleted: 'खरीद वापसी पूर्ण हुई',
     originalInvoice: 'मूल इनवॉइस',
     originalPurchase: 'मूल खरीद',
@@ -1550,6 +1559,8 @@ export const hi = {
   phase: {
     accounting: 'लेखांकन',
     accountingSubtitle: 'वैकल्पिक हल्की बही। दस्तावेज़ ही स्रोत सत्य हैं।',
+    accountingBackfillNeeded:
+      'लेखांकन चालू है, लेकिन इस कंपनी के पूरे बिल हैं और कोई जर्नल नहीं है। ट्रायल बैलेंस, लाभ-हानि या बैलेंस शीट पर भरोसा करने से पहले अकाउंटिंग बैकफ़िल चलाएँ।',
     journals: 'जर्नल',
     journalsSubtitle: 'मैनुअल वाउचर। पोस्ट की गई पंक्तियाँ अपरिवर्तनीय हैं — उलटा कॉन्ट्रा प्रविष्टि से करें।',
     periods: 'लेखांकन अवधि',
@@ -1565,7 +1576,7 @@ export const hi = {
     costCenters: 'लागत केंद्र',
     costCentersSubtitle: 'P&L काटने के लिए वैकल्पिक आयाम।',
     glRecon: 'GL बैंक समाधान',
-    glReconSubtitle: 'GL बैंक पंक्तियों को चरण 3 स्टेटमेंट पंक्तियों से साफ़ करता है।',
+    glReconSubtitle: 'GL मिलान — पोस्टेड बैंक जर्नल पंक्तियों को स्टेटमेंट से मिलाएँ। यह भुगतान रिस्कॉन नहीं है।',
     bankAccounts: 'बैंक खाते',
     bankAccountsSubtitle: 'रसीद, भुगतान और समाधान पर प्रयुक्त नकद बॉक्स और बैंक साधन।',
     paymentGateway: 'भुगतान गेटवे',
@@ -1575,7 +1586,7 @@ export const hi = {
     bankStatements: 'बैंक स्टेटमेंट',
     bankStatementsSubtitle: 'CSV अपलोड → पूर्वावलोकन → कमिट, फिर समाधान में मिलाएँ।',
     bankRecon: 'बैंक समाधान',
-    bankReconSubtitle: 'सुझावों की समीक्षा करें। अस्पष्ट मिलान स्वतः लागू नहीं होते।',
+    bankReconSubtitle: 'परिचालन मिलान — रसीद/भुगतान सुझावों की समीक्षा करें। अस्पष्ट मिलान स्वतः लागू नहीं होते। यह GL रिस्कॉन नहीं है।',
     bulkAcceptExact: 'सभी सटीक मिलान स्वीकारें',
     bulkAcceptExactAccepted: '{count} सटीक मिलान स्वीकार किए गए। ज़रूरत पड़ने पर लाइन से पूर्ववत करें।',
     bulkAcceptExactNone: 'अभी स्वीकार करने के लिए कोई सटीक मिलान नहीं है।',
@@ -1695,6 +1706,9 @@ export const hi = {
     dunningQuietStart: 'शांत समय शुरू (IST)',
     dunningQuietEnd: 'शांत समय समाप्त (IST)',
     dunningOptOut: 'स्वचालित भुगतान रिमाइंडर न भेजें',
+    autoCreditHold: 'गंभीर बकाया पर स्वतः क्रेडिट होल्ड',
+    autoCreditHoldHelp:
+      'डिफ़ॉल्ट बंद। चालू होने पर stop-credit या 90+ दिन बकाया ग्राहक नया इनवॉइस Complete नहीं कर सकते, स्थिर क्रेडिट सीमा न होने पर भी।',
     valuationDateOrder: 'स्टॉक को एंट्री समय नहीं, दस्तावेज़ की तारीख से मूल्यांकित करें',
     valuationDateOrderHelp:
       'मौजूदा कंपनियों के लिए बंद। चालू करने से बैकडेटेड मूवमेंट पर ऐतिहासिक इन्वेंटरी और COGS बदल सकते हैं। पहले बैकअप लें और CA से पुष्टि करें।',

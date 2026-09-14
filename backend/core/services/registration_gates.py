@@ -8,10 +8,31 @@ from core.help_codes import HelpCode
 
 
 def assert_may_issue_gst_tax_invoice(company: Company, *, tax_enabled: bool) -> None:
-    """COMPOSITION/UNREGISTERED must not issue CGST/SGST/IGST tax invoices."""
+    """COMPOSITION/UNREGISTERED must not issue CGST/SGST/IGST tax invoices.
+
+    B14: REGULAR + GST invoice also requires a company GSTIN so skip-wizard
+    tenants cannot Complete a tax invoice and only discover the hole at period close.
+    """
     if not tax_enabled:
         return
     rt = company.registration_type
+    if rt == Company.RegistrationType.REGULAR:
+        gstin = (getattr(company, "gstin", None) or "").strip()
+        if not gstin:
+            from accounts.models import CompanyGstin
+
+            gstin = (
+                CompanyGstin.objects.filter(company=company, is_active=True)
+                .exclude(gstin="")
+                .values_list("gstin", flat=True)
+                .first()
+                or ""
+            )
+        if not (gstin or "").strip():
+            raise BusinessRuleError(
+                "Save the company GSTIN in GST settings before completing a GST invoice.",
+                code=HelpCode.COMPANY_GSTIN_REQUIRED,
+            )
     if rt == Company.RegistrationType.UNREGISTERED:
         raise BusinessRuleError(
             "Unregistered companies cannot issue GST/TAX invoices with CGST/SGST/IGST. "

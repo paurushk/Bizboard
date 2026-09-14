@@ -13,7 +13,8 @@ is where it is first stood up and proven.
 
 | Doc | Role in Q-OS |
 |---|---|
-| [`TESTING_STRATEGY.md`](TESTING_STRATEGY.md) | The analysis layer Q-OS consumes — 7-layer confidence model, per-journey question set, gap register G-1…G-16 |
+| [`TESTING_STRATEGY.md`](TESTING_STRATEGY.md) | The analysis layer Q-OS consumes — **L1–L10** method, per-journey question set, gap register. Philosophy: `HOLISTIC_VALIDATION_REVIEW.md` |
+| [`HOLISTIC_VALIDATION_REVIEW.md`](HOLISTIC_VALIDATION_REVIEW.md) | Quality model Q-OS must not duplicate — Flow / Impact / Truth graphs. Q-OS is **output**, not a second layer system |
 | [`BUSINESS_ARCHETYPES_AND_PERSONAS.md`](BUSINESS_ARCHETYPES_AND_PERSONAS.md) | Persona / archetype / journey vocabulary; validation hypotheses H-01…H-05 = delight/outcome thresholds |
 | [`FREEZE_SCOPE.md`](FREEZE_SCOPE.md) / [`FREEZE_SCOPE_COVERAGE.md`](FREEZE_SCOPE_COVERAGE.md) | Scope boundary + per-item gated/GAP status → seeds the backlog and the "accepted / won't-fix" set |
 | [`reviews/MASTER_ISSUE_REGISTER.md`](reviews/MASTER_ISSUE_REGISTER.md), [`reviews/UX_AUDIT_FINDINGS.md`](reviews/UX_AUDIT_FINDINGS.md) | Historical findings mined into the backlog (with the multi-scheme dedup problem this plan explicitly fixes) |

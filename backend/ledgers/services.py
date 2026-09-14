@@ -46,6 +46,7 @@ from purchases.models import (
     PurchaseInvoice,
     PurchaseReturn,
 )
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 from sales.models import (
     SalesCreditNote,
     SalesDebitNote,
@@ -680,7 +681,7 @@ class LedgerService:
         inv_qs = PurchaseInvoice.objects.filter(
             company=company,
             supplier=supplier,
-            status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+            status__in=OPEN_PAYABLE_STATUSES,
         )
         invoices = _sum(inv_qs, "grand_total") - _sum(inv_qs, "tds_amount")
         # BB-000323: exclude returns already relieved via an auto CN to avoid
@@ -743,7 +744,7 @@ class LedgerService:
         invoices = dict(
             PurchaseInvoice.objects.filter(
                 company=company,
-                status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+                status__in=OPEN_PAYABLE_STATUSES,
             )
             .values("supplier_id")
             .annotate(total=Sum("grand_total") - Sum("tds_amount"))
@@ -818,7 +819,7 @@ class LedgerService:
         """
         inv_qs = PurchaseInvoice.objects.filter(
             company=company,
-            status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+            status__in=OPEN_PAYABLE_STATUSES,
         )
         if invoice_ids is not None:
             inv_qs = inv_qs.filter(pk__in=invoice_ids)
@@ -948,7 +949,7 @@ class LedgerService:
         for inv in PurchaseInvoice.objects.filter(
             company=company,
             supplier=supplier,
-            status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+            status__in=OPEN_PAYABLE_STATUSES,
         ).select_related("supplier"):
             tds = Decimal(str(getattr(inv, "tds_amount", 0) or 0))
             net_credit = max(Decimal("0"), inv.grand_total - tds)

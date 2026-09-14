@@ -3,7 +3,7 @@
 **Document Version:** 2.2.0
 **Status:** Living document — verified snapshot below, re-verify on every change to `backend/tests/personas/`
 **Last verified:** 2026-09-12, tree on top of commit `2ccb253` (+2 uncommitted tests, see §7), `pytest tests/personas/ -q` → **55 passed, 0 failed** in 83.0s (Windows, Python 3.13, default SQLite test settings, Redis running; Postgres-only concurrency tests are a separate suite — see §8)
-**Scope of this document:** the persona-journey layer only (`backend/tests/personas/`, 24 files / 55 tests) — one layer (**L4**) of the whole-product strategy in `docs/TESTING_STRATEGY.md`
+**Scope of this document:** the persona-journey layer only (`backend/tests/personas/`, 24 files / 55 tests) — one layer (**L4**) of the whole-product strategy in `docs/TESTING_STRATEGY.md`. Manufacturing / payroll / CRM journeys are tagged `dark_module` and **do not count toward freeze coverage**.
 **Repository Location:** `backend/tests/personas/`
 **Core Invariant chain:** Business Archetype → Persona → Journey → Transaction → Document → Stock → GL/Subledger → Reports → Insights → Action → Outcome
 
@@ -16,9 +16,10 @@ This plan does **not** define its own taxonomy. It narrates and indexes what alr
 | Doc | Owns | Ground truth for |
 | :--- | :--- | :--- |
 | [`BUSINESS_ARCHETYPES_AND_PERSONAS.md`](BUSINESS_ARCHETYPES_AND_PERSONAS.md) | *Who* we build for | Canonical `ARCH-01`…`ARCH-08` archetype codes, `P1`…`P6` + Viewer/Import/Migrator persona definitions, which modules are dark in production |
-| [`TESTING_STRATEGY.md`](TESTING_STRATEGY.md) | Whole-product test strategy | Layer model (L1–L6), open gap register (`G-*`), disposition (SUP/COND/OUT/deprioritized) per archetype |
+| [`TESTING_STRATEGY.md`](TESTING_STRATEGY.md) | Whole-product test **method** | Layer model **L1–L10** (only numbering), open gap register (`G-*`), disposition per archetype. T1–T7 below **map onto** those layers. |
+| [`HOLISTIC_VALIDATION_REVIEW.md`](HOLISTIC_VALIDATION_REVIEW.md) | Quality model | Philosophy, Flow / Impact / Truth graphs, architecture-first sequence. This plan is the **L4 view**, not a competing pyramid |
 | [`backend/tests/personas/README.md`](../backend/tests/personas/README.md) | The persona-journey layer itself | Archetype `kind` strings (`seed_archetype`), persona-to-role mapping, the journey matrix, capability/deny-sets |
-| **This document** | — | A narrative walkthrough + execution guide over the 55 tests in `backend/tests/personas/`, plus the T1–T7 quality-tier framing |
+| **This document** | — | A narrative walkthrough + execution guide over the tests in `backend/tests/personas/`. T1–T7 is a *reading frame* for L4, not a second strategy |
 
 **Persona numbering used below is copied verbatim from `README.md`** (P1-OWNER, P2-CLERK, P3-SALES, P4-CUSTODIAN, P5-ACCT, P6-CA, plus VIEWER/IMPORT/MIGRATOR). Earlier drafts of this document used an independent, inconsistent P1–P4 scheme that collided with the README's — that has been removed.
 
@@ -32,7 +33,9 @@ BizBoard's validation strategy extends beyond traditional transactional testing 
 
 Indian MSME owners (Kirana shopkeepers, distributors, pharmacists, manufacturers, contractors, and micro-vendors) rely on BizBoard for operational correctness, statutory compliance (GST/e-Invoicing), cash flow survival, and audit defense.
 
-This document indexes the backend persona-journey suite that exercises that reality end to end, so that:
+This document indexes the backend persona-journey suite that exercises that reality end to end. **Do not grow this suite by volume** to close product-truth gaps — those belong to L9 lifecycle goldens and L10 identities (`HOLISTIC_VALIDATION_REVIEW.md` §0.7). Dark-module tests (manufacturing, payroll, CRM) prove flagged-on code paths; they do not close freeze coverage.
+
+What L4 still must prove:
 
 1. **Multi-Archetype Cohesion** — every supported archetype's operating reality is validated through realistic operational cycles.
 2. **Deep Accounting & Stock Accuracy** — inward stock, consumption, transfers, and billing strictly balance physical stock with general ledger accounts.
@@ -44,7 +47,9 @@ This document indexes the backend persona-journey suite that exercises that real
 
 ---
 
-## 2. The 7-Tier Validation Architecture
+## 2. The 7-Tier Validation Architecture (reading frame for L4)
+
+T1–T7 is how this L4 index *talks about* quality. The only layer numbering for the product is **L1–L10** in `TESTING_STRATEGY.md`. Rough map: T1–T3 → L1–L3, T4 → L4, T5 → L10, T6 → decision/attention assertions, T7 → L2 tenancy + L7.
 
 ```text
 +----------------------------------------------------------------------------------------------+

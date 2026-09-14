@@ -287,3 +287,11 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             "accumulated_depreciation_account": {"required": False},
             "depreciation_expense_account": {"required": False},
         }
+
+
+class AccountingSettingsSerializer(serializers.Serializer):
+    """GET/POST /accounting/settings/ — 7.9b backfill flag is part of the money contract."""
+
+    accounting_enabled = serializers.BooleanField()
+    accounting_backfill_needed = serializers.BooleanField(read_only=True)
+

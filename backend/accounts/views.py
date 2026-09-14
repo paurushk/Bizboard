@@ -328,7 +328,7 @@ class RegisterView(APIView):
             state=data.get("state", ""),
             phone=data.get("phone", ""),
             email=data.get("email", ""),
-            registration_type=data.get("registration_type", Company.RegistrationType.UNREGISTERED),
+            registration_type=data.get("registration_type", Company.RegistrationType.REGULAR),
             gstin=data.get("gstin", ""),
             valuation_business_date_order=True,
             recompute_tax_on_complete=True,
@@ -1195,11 +1195,16 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
             role = data["role"]
             caps = _invite_caps(data)
             membership = CompanyUser.objects.create(
-                company=company, user=user, role=role, is_active=False, **caps,
+                company=company, user=user, role=role, is_active=bool(password), **caps,
             )
             AuditService.log(company=company, user=request.user, action="CREATE",
                              entity_type="CompanyUser", entity_id=membership.id)
             body = CompanyUserSerializer(membership).data
+            if password:
+                if not user.active_company_id:
+                    user.active_company_id = company.id
+                    user.save(update_fields=["active_company_id"])
+                return Response(body, status=status.HTTP_201_CREATED)
             token = _make_invite_token(
                 user_id=user.id, company_id=company.id, membership_id=membership.id,
             )

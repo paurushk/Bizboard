@@ -1,6 +1,7 @@
 # Cross-Flow Impact Map
 
-**Status:** Living document · **Created:** 2026-09-12 · **Last extended:** 2026-09-13 · **Owner:** backend + web
+**Status:** Living document · **Created:** 2026-09-12 · **Last extended:** 2026-09-13 · **Owner:** backend + web  
+**Role in the quality model:** **Graph 2 (Impact)** — writers and readers of shared state. Philosophy and the three-graph operating model: [`HOLISTIC_VALIDATION_REVIEW.md`](HOLISTIC_VALIDATION_REVIEW.md) §0. Method: [`TESTING_STRATEGY.md`](TESTING_STRATEGY.md) L8.
 
 ## Why this exists
 
@@ -12,6 +13,22 @@ GST filings, and multiple frontend pages, each of which embeds its own
 assumption about what the value means. Those assumptions drift
 independently, because nothing forces the readers to agree with each other
 or with the writer.
+
+**This document is the reader index of Graph 2, not the whole validation
+framework.** The stronger primitive is a **business event**, not a field:
+
+```text
+BUSINESS EVENT → canonical state → writers → all projections
+  → all user surfaces → user decision → subsequent event → historical truth
+```
+
+Today's entries are still field-shaped (`SalesInvoice.status`, `StockBalance`,
+…). That remains useful for code review. The **target** is an event ×
+projection matrix (complete, return, allocate, reverse, amend, close, …)
+with cells for stock, GL, AR/AP, GST, reports, attention, badge, PDF,
+public payment page, and notifications. Until that matrix is machine-readable,
+treat every field entry below as *necessary but not sufficient* product-truth
+coverage.
 
 This document is not an exhaustive flow diagram — that would be stale within
 a month in a codebase this size and nobody would trust it. It is a **fan-out
@@ -38,10 +55,14 @@ wrong if I don't tell them?*
   catch.
 - **When adding a test for a flow that writes one of these fields** — the
   "Suggested tests" column is the minimum cross-flow assertion to add
-  alongside the flow's own happy-path test.
+  alongside the flow's own happy-path test. Prefer one topology-rich
+  lifecycle assertion (invoice → pay → return → residual → all surfaces)
+  over another isolated reader test.
 - **When you find a new shared field with 3+ independent readers across app
-  boundaries** — add it here. That's the only growth trigger; don't try to
-  pre-populate fields nobody has been bitten by yet.
+  boundaries, or add a new money/stock *event*** — add it here *and* to the
+  event catalog. Do not wait to be bitten. The old "only after 3+ readers
+  have already failed" growth rule is retired as of 2026-09-13
+  (`HOLISTIC_VALIDATION_REVIEW.md` §0.8).
 
 ---
 
@@ -56,6 +77,30 @@ wrong if I don't tell them?*
 | [`PaymentAllocation` / invoice outstanding](#5-paymentallocation--invoice-outstanding-balance) | 4 (allocate ×2, reverse, void) | 10 | Fixed 2026-09-13 (G-20) |
 | [GST/accounting period-lock (`assert_period_allows_money_amend`)](#6-gstaccounting-period-lock-assert_period_allows_money_amend) | n/a (enforcement gate, not a stored field) | ~25 call sites across 10 apps | Fixed 2026-09-13 (G-21/G-22) + structural guard added |
 | [`Company.accounting_enabled`](#7-companyaccounting_enabled) | 1 (`AccountingSettingsView`) | ~20 posting gates + report view | None found — API-level mixin gates every report reader; see backfill note |
+
+<!-- BEGIN GENERATED EVENT SUMMARY -->
+
+**Generated event × projection summary** (P2-T5). Full grid: [`EVENT_MATRIX.md`](EVENT_MATRIX.md). Do not hand-edit this block.
+
+| Verb | Docs | stock | GL | AR/AP | GST | reports | attention | dash | badge | channel | closed-period |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `complete` | `sales_invoice`, `purchase_invoice`, `sales_return`, … | yes | yes | yes | yes | yes | yes | yes | yes | yes | required |
+| `cancel` | `sales_invoice`, `purchase_invoice`, `delivery_challan`, … | yes | yes | yes | yes | yes | yes | yes | yes | yes | required |
+| `return` | `sales_invoice`, `purchase_invoice`, `pos_sale` | yes | yes | yes | yes | yes | yes | yes | yes | yes | required |
+| `credit_note` | `sales_credit_note`, `purchase_credit_note` | lim | yes | yes | yes | yes | yes | yes | yes | no | required |
+| `debit_note` | `sales_debit_note`, `purchase_debit_note` | no | yes | yes | yes | yes | yes | yes | yes | yes | required |
+| `allocate` | `customer_receipt`, `supplier_payment` | no | yes | yes | no | yes | yes | yes | yes | yes | required |
+| `reverse_allocation` | `customer_receipt`, `supplier_payment` | no | yes | yes | no | yes | yes | yes | yes | yes | required |
+| `void` | `customer_receipt`, `supplier_payment` | no | yes | yes | no | yes | yes | yes | yes | yes | required |
+| `amend` | `sales_invoice`, `purchase_invoice` | yes | yes | yes | yes | yes | yes | yes | yes | yes | required |
+| `close_period` | `accounting_period`, `gst_period` | no | yes | no | yes | yes | yes | yes | no | no | n/a |
+| `stock_count` | `stock_count_session` | yes | lim | no | no | yes | yes | yes | no | no | required |
+| `stock_transfer` | `stock_transfer` | yes | no | no | no | yes | no | yes | no | no | required |
+| `import` | `import_job` | yes | lim | yes | lim | yes | yes | yes | yes | no | required |
+| `flag_flip` | `company` | no | yes | no | lim | yes | yes | yes | no | no | n/a |
+| `invite` | `company_user` | no | no | no | no | no | no | no | no | yes | n/a |
+
+<!-- END GENERATED EVENT SUMMARY -->
 
 ---
 

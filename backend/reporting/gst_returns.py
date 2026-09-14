@@ -22,7 +22,9 @@ from django.utils import timezone
 from core.services.billing import extract_state_code, is_intra_state, q2
 from core.services.uqc import normalize_uqc
 from purchases.models import BillOfEntry, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 from sales.models import SalesCreditNote, SalesDebitNote, SalesInvoice
+from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
 from .models import GstReturnPeriod, GstReturnSnapshot
 from .gst_returns_sections import (
@@ -328,7 +330,7 @@ def _rate_buckets(items, invoice=None) -> dict[Decimal, dict]:
 def _gst_sales_invoices_base(company, date_from: date, date_to: date):
     return SalesInvoice.objects.filter(
         company=company,
-        status__in=(SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED),
+        status__in=OPEN_RECEIVABLE_STATUSES,
         invoice_type__in=GST_INVOICE_TYPES,
         invoice_date__gte=date_from,
         invoice_date__lte=date_to,
@@ -403,7 +405,7 @@ def _gst_debit_notes(company, date_from: date, date_to: date, *, company_gstin_i
 def _gst_purchase_invoices(company, date_from: date, date_to: date, *, company_gstin_id=None):
     qs = PurchaseInvoice.objects.filter(
         company=company,
-        status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+        status__in=OPEN_PAYABLE_STATUSES,
         purchase_type=PurchaseInvoice.PurchaseType.GST,
         invoice_date__gte=date_from,
         invoice_date__lte=date_to,

@@ -1,0 +1,223 @@
+# Graph 2 event catalog (P2-T1). Source of truth for the impact matrix.
+# historical_period: required = write must be rejected when the period is closed (G-21/G-22).
+# channel includes public_payment_page. notifications = delivery LIM (no dedicated column).
+# No PDF column — named non-identity (B2): PDF is a snapshot, not a live projection.
+# No otp_login verb.
+
+events:
+  - verb: complete
+    document_types: [sales_invoice, purchase_invoice, sales_return, purchase_return, delivery_challan, pos_sale]
+    g_ids: [G-17, G-18, G-19]
+    impacts:
+      stock: yes
+      gl: yes
+      ar_ap: yes
+      gst: yes
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: yes
+      channel: yes
+      historical_period: required
+  - verb: cancel
+    document_types: [sales_invoice, purchase_invoice, delivery_challan, payment_allocation]
+    g_ids: [G-21, G-22]
+    impacts:
+      stock: yes
+      gl: yes
+      ar_ap: yes
+      gst: yes
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: yes
+      channel: yes
+      historical_period: required
+  - verb: return
+    document_types: [sales_invoice, purchase_invoice, pos_sale]
+    g_ids: [G-17, G-18, G-19]
+    note: POS returns go through /sales/returns (D15). Owner can complete the return.
+    impacts:
+      stock: yes
+      gl: yes
+      ar_ap: yes
+      gst: yes
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: yes
+      channel: yes
+      historical_period: required
+  - verb: credit_note
+    document_types: [sales_credit_note, purchase_credit_note]
+    g_ids: [G-17, G-20]
+    impacts:
+      stock: lim
+      gl: yes
+      ar_ap: yes
+      gst: yes
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: yes
+      channel: no
+      historical_period: required
+  - verb: debit_note
+    document_types: [sales_debit_note, purchase_debit_note]
+    g_ids: [G-17, G-18, G-20, G-23]
+    note: Residual DN after a full return is the P5-T2 attention amount.
+    impacts:
+      stock: no
+      gl: yes
+      ar_ap: yes
+      gst: yes
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: yes
+      channel: yes
+      historical_period: required
+  - verb: allocate
+    document_types: [customer_receipt, supplier_payment]
+    g_ids: [G-20]
+    impacts:
+      stock: no
+      gl: yes
+      ar_ap: yes
+      gst: no
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: yes
+      channel: yes
+      historical_period: required
+  - verb: reverse_allocation
+    document_types: [customer_receipt, supplier_payment]
+    g_ids: [G-20]
+    impacts:
+      stock: no
+      gl: yes
+      ar_ap: yes
+      gst: no
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: yes
+      channel: yes
+      historical_period: required
+  - verb: void
+    document_types: [customer_receipt, supplier_payment]
+    g_ids: [G-20]
+    impacts:
+      stock: no
+      gl: yes
+      ar_ap: yes
+      gst: no
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: yes
+      channel: yes
+      historical_period: required
+  - verb: amend
+    document_types: [sales_invoice, purchase_invoice]
+    g_ids: [G-21]
+    impacts:
+      stock: yes
+      gl: yes
+      ar_ap: yes
+      gst: yes
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: yes
+      channel: yes
+      historical_period: required
+  - verb: close_period
+    document_types: [accounting_period, gst_period]
+    g_ids: [G-21, G-22]
+    impacts:
+      stock: no
+      gl: yes
+      ar_ap: no
+      gst: yes
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: no
+      channel: no
+      historical_period: n/a
+  - verb: stock_count
+    document_types: [stock_count_session]
+    g_ids: [G-19]
+    impacts:
+      stock: yes
+      gl: lim
+      ar_ap: no
+      gst: no
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: no
+      channel: no
+      historical_period: required
+  - verb: stock_transfer
+    document_types: [stock_transfer]
+    g_ids: [G-19]
+    impacts:
+      stock: yes
+      gl: no
+      ar_ap: no
+      gst: no
+      reports: yes
+      attention: no
+      dashboard: yes
+      badge_ui: no
+      channel: no
+      historical_period: required
+  - verb: import
+    document_types: [import_job]
+    extended: true
+    g_ids: []
+    impacts:
+      stock: yes
+      gl: lim
+      ar_ap: yes
+      gst: lim
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: yes
+      channel: no
+      historical_period: required
+  - verb: flag_flip
+    document_types: [company]
+    extended: true
+    g_ids: []
+    note: accounting_enabled without backfill is 7.9b.
+    impacts:
+      stock: no
+      gl: yes
+      ar_ap: no
+      gst: lim
+      reports: yes
+      attention: yes
+      dashboard: yes
+      badge_ui: no
+      channel: no
+      historical_period: n/a
+  - verb: invite
+    document_types: [company_user]
+    extended: true
+    g_ids: []
+    impacts:
+      stock: no
+      gl: no
+      ar_ap: no
+      gst: no
+      reports: no
+      attention: no
+      dashboard: no
+      badge_ui: no
+      channel: yes
+      historical_period: n/a

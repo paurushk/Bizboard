@@ -108,7 +108,7 @@ export function ReceiptsPage() {
         const alloc = Number(allocAmount);
         const maxAlloc = Math.min(
           receiptAmount,
-          toNumber(invoice.balance ?? invoice.grandTotal),
+          toNumber(invoice.balance),
         );
         if (!(alloc > 0) || alloc > maxAlloc + 0.001) {
           throw new Error(
@@ -167,7 +167,7 @@ export function ReceiptsPage() {
   const openInvoices = (invoices.data?.results ?? []).filter(
     (inv) =>
       (!customer || inv.customer === customer.id) &&
-      toNumber(inv.balance ?? inv.grandTotal) > 0,
+      toNumber(inv.balance) > 0,
   );
 
   return (
@@ -355,7 +355,7 @@ export function ReceiptsPage() {
             <Autocomplete
               options={openInvoices}
               getOptionLabel={(o) =>
-                `Invoice ${o.number ?? o.id} · Due: ${formatMoney(o.balance ?? o.grandTotal)}`
+                `Invoice ${o.number ?? o.id} · Due: ${formatMoney(o.balance)}`
               }
               value={invoice}
               onInputChange={(_, v, reason) => {
@@ -365,7 +365,7 @@ export function ReceiptsPage() {
                 setInvoice(v);
                 if (v) {
                   setAllocAmount(
-                    String(Math.min(toNumber(amount), toNumber(v.balance ?? v.grandTotal))),
+                    String(Math.min(toNumber(amount), toNumber(v.balance))),
                   );
                 }
               }}

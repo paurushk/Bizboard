@@ -452,7 +452,7 @@ observation; ~3 weeks to "backlog + gates" (Phases 0–2).
   "properties": {
     "id":        { "type": "string", "pattern": "^QOS-[0-9]{4,}$" },
     "category":  { "enum": ["CRITICAL_BUG","DISSATISFACTION","USABILITY","PERSONA_GAP",
-                            "BUSINESS_GAP","RELIABILITY_TRUST","PERFORMANCE",
+                            "BUSINESS_GAP","RELIABILITY_TRUST","CROSS_FLOW_CONSISTENCY","PERFORMANCE",
                             "SECURITY_PRIVACY","DELIGHT","INNOVATION"] },
     "title":     { "type": "string", "minLength": 8, "maxLength": 120 },
     "persona":   { "type": "array", "minItems": 1,

@@ -44,6 +44,7 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
     """Extend 2B match with B-03 match_class + 16(4) flags. Does not auto-accept."""
     from .gstr2b import match_gstr2b_to_purchases
     from purchases.models import PurchaseInvoice
+    from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 
     result = match_gstr2b_to_purchases(company, period, persist=persist)
     as_of = timezone.localdate()
@@ -67,7 +68,7 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
         ((gstin or "").upper(), (number or "").strip())
         for gstin, number in PurchaseInvoice.objects.filter(
             company=company,
-            status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+            status__in=OPEN_PAYABLE_STATUSES,
             invoice_date__gte=_date(fy_start_year, 4, 1),
             invoice_date__lt=_date(fy_start_year + 1, 4, 1),
             is_opening_balance=False,
@@ -94,10 +95,7 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
         candidate_qs = PurchaseInvoice.objects.filter(
             company=company,
             number__in=list(needed_numbers),
-            status__in=(
-                PurchaseInvoice.Status.COMPLETED,
-                PurchaseInvoice.Status.RETURNED,
-            ),
+            status__in=OPEN_PAYABLE_STATUSES,
         ).select_related("supplier")
         for inv in candidate_qs:
             invoices_by_num.setdefault((inv.number or "").strip().upper(), []).append(inv)
@@ -332,6 +330,7 @@ def credit_at_risk(company, period: str, *, as_of: date | None = None) -> dict:
 def supplier_scorecard(company, period: str) -> list[dict]:
     from masters.models import Supplier
     from purchases.models import PurchaseInvoice
+    from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 
     year, month = period.split("-")
     y, m = int(year), int(month)
@@ -384,7 +383,7 @@ def supplier_scorecard(company, period: str) -> list[dict]:
             PurchaseInvoice.objects.filter(
                 company=company,
                 supplier_id__in=supplier_ids,
-                status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+                status__in=OPEN_PAYABLE_STATUSES,
                 invoice_date__year=y,
                 invoice_date__month=m,
             )

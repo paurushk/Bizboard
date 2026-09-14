@@ -1,0 +1,137 @@
+# Human corrections applied after heuristic coverage labels (P1-T4 / D5).
+# Keyed by path (routes) or action id. Non-destructive: only listed fields
+# replace the generated value. Same idea as qos/tools/merge.py.
+#
+# On generator-vs-review disagreement, log it in the landing PR (D4).
+# S0: only relabel when a golden asserts a money/status consequence.
+
+routes:
+  /purchases/bills-of-entry:
+    coverage: OUT
+    defect: known-defect-not-gated
+    note: "B6 working default — BoE is dark; record the ungated RETURNED-unlink so it surfaces if ENABLE_BOE is ever turned on. Needs founder override."
+  /sales/quick-entry:
+    coverage: LIM
+    note: "Reachable sales capability, not freeze-journeyed (B7-style LIM)."
+  /sales/bill-upload:
+    coverage: LIM
+    note: "OCR is aid-only; no freeze JOURNEY."
+  /sales/recurring:
+    coverage: LIM
+    note: "B7 — reachable but retainers/recurring billing is out of freeze; smoke-level safety only."
+  /pay/:token:
+    coverage: JOURNEY
+    note: "lifecycle-arch03.spec.ts asserts live outstanding after return (B3)."
+  /sales/debit-notes/new:
+    coverage: JOURNEY
+    note: "helpers/documents.ts completeResidualSalesDebitNote + lifecycle-arch03."
+  /sales/debit-notes/:id:
+    coverage: JOURNEY
+    note: "Residual DN complete lands on /sales/debit-notes/:id (ARCH-03)."
+  /sales/history/:id:
+    coverage: JOURNEY
+    note: "ARCH-01/03 open invoice after return; payment-link create; attention walk."
+  /sales/history/:id/edit:
+    coverage: JOURNEY
+    note: "Challan convert lands on /sales/history/:id/edit then Save & Complete (ARCH-03)."
+  /sales/delivery-challans/new:
+    coverage: JOURNEY
+    note: "ops-remaining-golden-path.spec.ts challan cancel; ARCH-03 To Challan."
+  /sales/delivery-challans/:id:
+    coverage: JOURNEY
+    note: "ops-remaining + ARCH-03 convert-to-invoice from completed challan."
+  /sales/orders/:id:
+    coverage: JOURNEY
+    note: "ARCH-03 quotation To Order lands on /sales/orders."
+  /sales/quotations:
+    coverage: JOURNEY
+    note: "createQuotationConvertedToOrder in ARCH-03."
+  /purchases/debit-notes/new:
+    coverage: JOURNEY
+    note: "ops-remaining purchase residual DN; lifecycle-arch03-purchase."
+  /purchases/debit-notes/:id:
+    coverage: JOURNEY
+    note: "Purchase residual DN complete lands on /purchases/debit-notes/:id."
+  /purchases/history:
+    coverage: JOURNEY
+    note: "purchase-golden-path + lifecycle-arch03-purchase: complete bill, list Completed, open row."
+  /purchases/history/:id:
+    coverage: JOURNEY
+    note: "purchase-golden-path + lifecycle-arch03-purchase open the completed bill row."
+  /purchases/history/:id/edit:
+    coverage: LIM
+    note: "Purchase editor after complete is amend-adjacent; freeze journey is history open-row."
+  /purchases/credit-notes/:id:
+    coverage: LIM
+    note: "Purchase CN editor reachable; freeze journey is residual DN not CN."
+  /sales/credit-notes/:id:
+    coverage: LIM
+    note: "Auto-CN after return is asserted via return_with_auto_cn; manual CN editor is LIM."
+  /inventory/serials:
+    coverage: JOURNEY
+    note: "ops-remaining serial AVAILABLE → SOLD."
+  /inventory/expiry-alerts:
+    coverage: LIM
+    note: "ARCH-05 COND; no freeze money golden."
+  /ca-needs:
+    coverage: LIM
+    note: "H-05 human CA packet; not a freeze JOURNEY."
+  /purchases/orders/:id:
+    coverage: LIM
+    note: "PO detail reachable; not freeze-journeyed."
+  /invite:
+    coverage: JOURNEY
+    note: "e2e-golden/invite-accept.spec.ts accept-and-land."
+  /forgot-password:
+    coverage: JOURNEY
+    note: "e2e/auth-recovery.spec.ts submits forgot-password and asserts dispatched copy."
+  /reset-password:
+    coverage: JOURNEY
+    note: "e2e/auth-recovery.spec.ts tokenless reset shows request-a-new-link."
+  /purchases/bill-upload:
+    coverage: LIM
+    note: "OCR is aid-only, same as /sales/bill-upload; no freeze JOURNEY."
+  "/*":
+    coverage: LIM
+    note: "SPA catch-all; not a freeze workflow (no FREEZE_SCOPE A-row)."
+
+actions:
+  complete_document:
+    coverage: JOURNEY
+    note: "Invoice/purchase/challan Save & Complete in goldens."
+  cancel_document:
+    coverage: JOURNEY
+    note: "ops-remaining challan Cancel document."
+  allocate_receipt:
+    coverage: JOURNEY
+    note: "ARCH-03 receipt allocate; purchase-golden supplier payment allocate."
+  residual_debit_note:
+    coverage: JOURNEY
+    note: "completeResidualSalesDebitNote + purchase residual DN golden."
+  return_with_auto_cn:
+    coverage: JOURNEY
+    note: "completeSalesReturn / completePurchaseReturn in ARCH-01/03/ops."
+  hindi_locale_money_screens:
+    coverage: JOURNEY
+    note: "hindi-money-status.spec.ts पूर्ण / बकाया / वापस."
+  amend_document:
+    coverage: LIM
+    note: "H9 Owner amend exists; not a freeze golden."
+  unallocate_receipt:
+    coverage: LIM
+    note: "API covered; no freeze UI golden."
+  print_pdf:
+    coverage: LIM
+    note: "invoice-golden downloads PDF; not a dedicated print-READY journey."
+  share_pdf_link:
+    coverage: LIM
+  whatsapp_dunning:
+    coverage: LIM
+  share_link_dunning:
+    coverage: LIM
+  offline_queue_flush:
+    coverage: LIM
+  flag_flip_then_review:
+    coverage: LIM
+  multi_tab_invoice_race:
+    coverage: LIM

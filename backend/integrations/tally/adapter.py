@@ -632,10 +632,11 @@ def update_tally_preview(company, sync_run: IntegrationSyncRun, preview: dict) -
 def build_tally_export_csv(company, date_from=None, date_to=None) -> bytes:
     """Export sales register as Tally-friendly voucher CSV aid."""
     from sales.models import SalesInvoice
+    from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
     qs = SalesInvoice.objects.filter(
         company=company,
-        status__in=(SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED),
+        status__in=OPEN_RECEIVABLE_STATUSES,
     ).exclude(notes=OPENING_NOTE).select_related("customer").order_by("invoice_date", "id")
     if date_from:
         qs = qs.filter(invoice_date__gte=date_from)
@@ -817,10 +818,11 @@ def _masters_xml(company) -> str:
 
 def _vouchers_xml(company, date_from=None, date_to=None) -> str:
     from sales.models import SalesInvoice
+    from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
     qs = SalesInvoice.objects.filter(
         company=company,
-        status__in=(SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED),
+        status__in=OPEN_RECEIVABLE_STATUSES,
     ).exclude(notes=OPENING_NOTE).order_by("invoice_date", "id")
     if date_from:
         qs = qs.filter(invoice_date__gte=date_from)

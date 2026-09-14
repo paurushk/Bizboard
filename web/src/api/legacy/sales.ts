@@ -1103,6 +1103,13 @@ export async function completeDeliveryChallan(id: number): Promise<DeliveryChall
   }, { ...(await getDeliveryChallan(id)), status: 'COMPLETED', number: `DC-${id}` });
 }
 
+export async function convertDeliveryChallan(id: number): Promise<SalesInvoice> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/sales/delivery-challans/${id}/convert/`);
+    return unwrapData<SalesInvoice>(data);
+  }, { ...mockInvoices[0], id: Date.now(), status: 'DRAFT' });
+}
+
 export async function cancelDeliveryChallan(id: number): Promise<DeliveryChallan> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/delivery-challans/${id}/cancel/`);

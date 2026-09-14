@@ -68,4 +68,20 @@ describe('CollectionAttentionCard — QOS-0038', () => {
     expect(link).toHaveAttribute('href', '/reports/customer-ledger?customer=7');
     expect(screen.queryByText('Within 30 Days')).toBeNull();
   });
+
+  it('shows a credit-hold chip when collection_status is severe', async () => {
+    vi.mocked(listCollectionRisk).mockResolvedValue([
+      {
+        customerId: 9,
+        customerName: 'Held Trader',
+        outstanding: '12000',
+        overdueAmount: '12000',
+        status: 'overdue_severe',
+        ageing: { current: '0', '1_30': '0', '31_60': '0', '61_90': '0', '90_plus': '12000' },
+      },
+    ]);
+    wrap(<CollectionAttentionCard />);
+    await screen.findByText('Held Trader');
+    expect(screen.getByText('Credit hold')).toBeTruthy();
+  });
 });

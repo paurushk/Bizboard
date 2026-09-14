@@ -1,65 +1,24 @@
 import { expect, test, type Page } from '@playwright/test';
+import {
+  addInvoiceItem,
+  addStockAdjustment,
+  createCustomer,
+  createProduct,
+  registerTenant,
+  selectPartyOnDocument,
+  unique,
+} from './helpers/documents';
 
 /**
  * Phase 1 golden extensions: multi-line return, sales CN + PDF, SO→invoice convert.
  */
 
-function unique() {
-  return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-}
-
-async function registerTenant(page: Page, id: string) {
-  const email = `e2e-p1-${id}@example.test`;
-  await page.goto('/register');
-  await page.getByLabel('Company name').fill(`E2E P1 ${id}`);
-  await page.getByLabel('Full name').fill('E2E Tester');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill('GoldenPath123!');
-  await page.getByLabel('State').click();
-  await page.getByRole('option', { name: 'Karnataka' }).click();
-  await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page).toHaveURL(/\/login\?registered=1/);
-  await expect(page.getByText(/Account created/i)).toBeVisible();
-  await page.getByLabel('Password', { exact: true }).fill('GoldenPath123!');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).toHaveURL('/');
-}
-
 async function createProductWithStock(page: Page, id: string, skuSuffix: string) {
   const productName = `P1 Widget ${skuSuffix} ${id}`;
   const productSku = `P1-${skuSuffix}-${id}`;
-  await page.goto('/inventory/products');
-  await page.getByRole('button', { name: 'Add' }).click();
-  await page.getByLabel('Name').fill(productName);
-  await page.getByLabel('SKU').fill(productSku);
-  await page.getByLabel('GST %').fill('0');
-  await page.getByLabel('Purchase price').fill('50');
-  await page.getByLabel('Selling price').fill('100');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText(productName)).toBeVisible();
-
-  await page.goto('/inventory/adjustments');
-  const productsCombo = page.getByRole('combobox', { name: 'Products', exact: true });
-  await productsCombo.click();
-  await productsCombo.fill(productSku);
-  await page.getByRole('option', { name: new RegExp(productSku) }).click();
-  await page.getByLabel('Quantity delta (+/−)').fill('20');
-  await page.getByLabel('Reason').fill('Opening stock phase1 e2e');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('Stock adjustment recorded')).toBeVisible();
+  await createProduct(page, { name: productName, sku: productSku, sellingPrice: '100', purchasePrice: '50', gstRate: '0' });
+  await addStockAdjustment(page, { sku: productSku, quantity: '20' });
   return { productName, productSku };
-}
-
-async function createCustomer(page: Page, id: string) {
-  const customerName = `P1 Customer ${id}`;
-  await page.goto('/sales/customers');
-  await page.getByRole('button', { name: 'Add' }).click();
-  await page.getByLabel('Name').fill(customerName);
-  await page.getByLabel('State').click();
-  await page.getByRole('option', { name: 'Karnataka' }).click();
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText(customerName)).toBeVisible();
-  return customerName;
 }
 
 async function completeInvoiceWithProducts(
@@ -68,18 +27,12 @@ async function completeInvoiceWithProducts(
   skus: string[],
 ) {
   await page.goto('/sales/new');
-  const invoiceCustomerCombo = page.getByRole('combobox', { name: 'Customer', exact: true });
-  await invoiceCustomerCombo.click();
-  await invoiceCustomerCombo.fill(customerName);
-  await page.getByRole('option', { name: customerName }).click();
+  await selectPartyOnDocument(page, customerName);
   await page.getByLabel('Invoice type').click();
   await page.getByRole('option', { name: /Non-GST/i }).click();
 
-  const itemInput = page.getByPlaceholder('+ Add Item / Scan barcode or search SKU / name');
   for (const sku of skus) {
-    await itemInput.click();
-    await itemInput.fill(sku);
-    await page.getByRole('option', { name: new RegExp(sku) }).click();
+    await addInvoiceItem(page, sku);
   }
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/);
@@ -92,10 +45,14 @@ async function completeInvoiceWithProducts(
 
 test('phase1: multi-line return + credit note PDF + SO convert', async ({ page }) => {
   const id = unique();
-  await registerTenant(page, id);
+  const companyName = `E2E P1 ${id}`;
+  const email = `e2e-p1-${id}@example.test`;
+  await registerTenant(page, { companyName, email, password: 'GoldenPath123!' });
+
   const a = await createProductWithStock(page, id, 'A');
   const b = await createProductWithStock(page, id, 'B');
-  const customerName = await createCustomer(page, id);
+  const customerName = `P1 Customer ${id}`;
+  await createCustomer(page, { name: customerName });
 
   const invoiceNumber = await completeInvoiceWithProducts(page, customerName, [
     a.productSku,
@@ -104,8 +61,8 @@ test('phase1: multi-line return + credit note PDF + SO convert', async ({ page }
 
   // Multi-line sales return — include both lines via checkboxes.
   await page.goto('/sales/returns');
-  await page.getByRole('button', { name: 'Create' }).click();
-  const invCombo = page.getByLabel('Original invoice');
+  await page.getByRole('button', { name: 'New sales return' }).first().click();
+  const invCombo = page.getByPlaceholder('Search by invoice # or customer');
   await invCombo.click();
   await invCombo.fill(invoiceNumber);
   await page.getByRole('option', { name: new RegExp(invoiceNumber) }).click();
@@ -120,7 +77,7 @@ test('phase1: multi-line return + credit note PDF + SO convert', async ({ page }
   // Credit note + PDF ready.
   const cnSource = await completeInvoiceWithProducts(page, customerName, [a.productSku]);
   await page.goto('/sales/credit-notes/new');
-  const source = page.getByLabel('Source invoice');
+  const source = page.getByRole('combobox', { name: 'Source invoice' });
   await source.click();
   await source.fill(cnSource);
   await page.getByRole('option', { name: new RegExp(cnSource) }).click();
@@ -136,13 +93,13 @@ test('phase1: multi-line return + credit note PDF + SO convert', async ({ page }
   await soCustomer.click();
   await soCustomer.fill(customerName);
   await page.getByRole('option', { name: customerName }).click();
-  const soProduct = page.getByRole('combobox', { name: 'Products' });
+  const soProduct = page.getByRole('combobox', { name: 'Products', exact: true });
   await soProduct.click();
   await soProduct.fill(a.productSku);
   await page.getByRole('option', { name: new RegExp(a.productSku) }).click();
   await page.getByRole('button', { name: 'Add' }).click();
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/sales\/orders\/\d+/);
-  await page.getByRole('button', { name: 'Convert' }).click();
+  await page.getByRole('button', { name: /Convert/ }).click();
   await expect(page).toHaveURL(/\/sales\/history/);
 });

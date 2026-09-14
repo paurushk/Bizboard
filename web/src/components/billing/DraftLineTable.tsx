@@ -95,7 +95,7 @@ export function DraftLineTable({
             {t('billing.price')}
           </TableCell>
           <TableCell width={200}>{t('billing.discount')}</TableCell>
-          <TableCell width={100}>{t('billing.tax')}</TableCell>
+          <TableCell width={140}>{t('billing.tax')}</TableCell>
           {showSupplyNature ? (
             <TableCell width={130}>{t('billing.supplyNature')}</TableCell>
           ) : null}
@@ -255,9 +255,10 @@ export function DraftLineTable({
                     decimals={2}
                     fullWidth={false}
                     disabled={moneyDisabled}
-                    sx={{ width: 72, mt: 0.5, display: { xs: 'none', md: 'inline-flex' } }}
+                    title="Cess %"
+                    sx={{ width: 108, mt: 0.5, display: { xs: 'none', md: 'inline-flex' } }}
                     InputProps={{
-                      endAdornment: <InputAdornment position="end">cess%</InputAdornment>,
+                      endAdornment: <InputAdornment position="end">cess %</InputAdornment>,
                     }}
                   />
                 ) : null}

@@ -299,7 +299,7 @@ export function NewPurchasePage() {
     const map = new Map<number, number>();
     for (const s of stockBalances.data ?? []) {
       const id = Number(s.product);
-      map.set(id, (map.get(id) ?? 0) + toNumber(s.available ?? s.onHand));
+      map.set(id, (map.get(id) ?? 0) + toNumber(s.available));
     }
     return map;
   }, [stockBalances.data]);

@@ -111,7 +111,12 @@ export function isPosEnabled(): boolean {
 }
 
 export function isAtomicPosCheckoutEnabled(): boolean {
-  return resolveModuleFlag(features.atomicPosCheckout, 'ENABLE_ATOMIC_POS_CHECKOUT');
+  if (features.advancedPilot) return true;
+  const cached = getCachedFeatureFlags();
+  if (cached && Object.prototype.hasOwnProperty.call(cached, 'ENABLE_ATOMIC_POS_CHECKOUT')) {
+    return Boolean(cached.ENABLE_ATOMIC_POS_CHECKOUT);
+  }
+  return features.atomicPosCheckout;
 }
 
 export function isTdsEnabled(): boolean {

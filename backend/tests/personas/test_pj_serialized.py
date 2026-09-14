@@ -121,7 +121,10 @@ def test_pj_serialized_lifecycle_and_warranty_fraud_guard(boundary):
     assert ret_resp.status_code == 201, ret_resp.data
     rid = ret_resp.data["id"]
 
-    ret_done = sc.post(f"/api/v1/sales/returns/{rid}/complete/")
+    # Completing a sales return is Owner / cancel-cap (CanCancelDocuments). Sales staff draft the return.
+    denied = sc.post(f"/api/v1/sales/returns/{rid}/complete/")
+    assert denied.status_code == 403, denied.data
+    ret_done = oc.post(f"/api/v1/sales/returns/{rid}/complete/")
     assert ret_done.status_code == 200, ret_done.data
 
     # Upon sellable return, serial returns to AVAILABLE
@@ -144,7 +147,7 @@ def test_pj_serialized_lifecycle_and_warranty_fraud_guard(boundary):
         format="json",
     )
     if ret_dupe.status_code == 201:
-        bad_ret = sc.post(f"/api/v1/sales/returns/{ret_dupe.data['id']}/complete/")
+        bad_ret = oc.post(f"/api/v1/sales/returns/{ret_dupe.data['id']}/complete/")
         assert bad_ret.status_code != 200, "Duplicate return must be rejected (warranty fraud guard)"
     else:
         assert ret_dupe.status_code >= 400

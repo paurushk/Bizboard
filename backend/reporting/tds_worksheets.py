@@ -8,7 +8,9 @@ from decimal import Decimal
 from django.db.models import Q
 
 from purchases.models import PurchaseInvoice
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 from sales.models import SalesInvoice
+from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
 
 def parse_month_period(period: str) -> tuple[date, date]:
@@ -34,10 +36,7 @@ def tds_worksheet_rows(company, period: str) -> list[dict]:
             invoice_date__gte=start,
             invoice_date__lte=end,
             is_opening_balance=False,  # B5-015
-            status__in=(
-                PurchaseInvoice.Status.COMPLETED,
-                PurchaseInvoice.Status.RETURNED,
-            ),
+            status__in=OPEN_PAYABLE_STATUSES,
         )
         .filter(Q(tds_amount__gt=0) | ~Q(tds_section=""))
         .select_related("supplier")
@@ -166,10 +165,7 @@ def tcs_worksheet_rows(company, period: str) -> list[dict]:
             invoice_date__gte=start,
             invoice_date__lte=end,
             is_opening_balance=False,  # B5-015
-            status__in=(
-                SalesInvoice.Status.COMPLETED,
-                SalesInvoice.Status.RETURNED,
-            ),
+            status__in=OPEN_RECEIVABLE_STATUSES,
         )
         .filter(Q(tcs_amount__gt=0) | ~Q(tcs_section=""))
         .select_related("customer")

@@ -10,6 +10,8 @@ from decimal import Decimal
 from django.db.models import Q, Sum
 
 from reporting.models import Gstr2bIngest
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES
+from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
 
 def _indian_fy_start_year(d) -> int:
@@ -77,7 +79,7 @@ def match_gstr2b_to_purchases(company, period: str, *, persist: bool = True) -> 
             continue
         qs = PurchaseInvoice.objects.filter(
             company=company,
-            status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+            status__in=OPEN_PAYABLE_STATUSES,
             supplier__gstin__iexact=row.supplier_gstin,
             number__iexact=row.invoice_number,
             is_opening_balance=False,
@@ -216,7 +218,7 @@ def build_cmp08(company, period: str) -> dict:
     q_start_m = ((m - 1) // 3) * 3 + 1
     invoices = SalesInvoice.objects.filter(
         company=company,
-        status__in=(SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED),
+        status__in=OPEN_RECEIVABLE_STATUSES,
         invoice_date__year=y,
         invoice_date__month__gte=q_start_m,
         invoice_date__month__lt=q_start_m + 3,
@@ -248,7 +250,7 @@ def build_cmp08(company, period: str) -> dict:
     # Inward supplies attracting reverse charge (Table 2)
     rcm_purchases = PurchaseInvoice.objects.filter(
         company=company,
-        status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+        status__in=OPEN_PAYABLE_STATUSES,
         invoice_date__year=y,
         invoice_date__month__gte=q_start_m,
         invoice_date__month__lt=q_start_m + 3,

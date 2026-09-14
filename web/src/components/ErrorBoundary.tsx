@@ -59,9 +59,15 @@ export class ErrorBoundary extends Component<Props, State> {
     // ChunkLoadError / "Failed to fetch dynamically imported module". A hard
     // reload fetches the new index.html and fixes it; do that once
     // automatically instead of stranding the user on the error screen.
+    // BB-000829: the phrasing above only covered Chrome/Firefox's wording for a
+    // failed dynamic import. A deep link straight into a code-split route (e.g.
+    // /sales/new before the auth check redirects away) hits this same failure
+    // through the browser's generic "fetching the script" / "module script
+    // failed" phrasing instead, which slipped past the old regex and stranded
+    // the user on the dead-end error screen rather than self-healing.
     const msg = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     const isChunkError =
-      /ChunkLoadError|Loading chunk [\d]+ failed|Failed to fetch dynamically imported module|error loading dynamically imported module/i.test(
+      /ChunkLoadError|Loading chunk [\d]+ failed|Failed to fetch dynamically imported module|error loading dynamically imported module|error occurred when fetching the script|module script failed|networkerror when attempting to fetch resource/i.test(
         msg,
       );
     if (isChunkError && typeof sessionStorage !== 'undefined') {

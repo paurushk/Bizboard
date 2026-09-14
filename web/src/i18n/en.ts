@@ -456,6 +456,9 @@ export const en = {
     invoiceDiscountAfterTaxBlockedB2b:
       'After-tax invoice discount is not allowed on B2B GST invoices — use "reduces GST" or issue a credit note after completion.',
     placeOfSupplyRequired: 'Add customer state or GSTIN before completing a GST invoice.',
+    gstinRequiredBeforeGstComplete:
+      'Save the company GSTIN in GST settings before completing a GST invoice.',
+    openGstSettings: 'GST settings',
     placeOfSupplyRequiredSupplier: 'Add supplier state or GSTIN before completing a GST invoice.',
     previewFailed: 'Could not load tax totals from the server. Complete is disabled until preview succeeds.',
     shortcutsBar: 'Shortcuts: Ctrl/Cmd+S save draft · Ctrl/Cmd+Enter complete · Ctrl/Cmd+Shift+L add item · F2 scan',
@@ -803,6 +806,8 @@ export const en = {
     categoryHint: 'Same as Excel column Category. Type a new name to create it.',
     brandHint: 'Same as Excel column Brand.',
     generateBarcode: 'Generate',
+    confirmDelete: 'Delete this item? This cannot be undone.',
+    deleted: 'Item deleted.',
   },
   customFields: {
     columns: 'Columns',
@@ -855,6 +860,10 @@ export const en = {
     outOfStockBlock: 'Block Billing (Strict Inventory)',
     outOfStockWarn: 'Allow & Warn (Flexible Counter Billing)',
     assumeLocalState: 'Default walk-in retail customers to local state (Intra-state CGST+SGST)',
+    confirmRegistrationChange:
+      'Change GST registration type to {type}? This changes how every future document is taxed (COMPOSITION issues a Bill of Supply with no tax).',
+    confirmNegativeStockChange:
+      'Change negative-stock policy to {policy}? WARN lets staff sell items that are out of stock.',
   },
   onboarding: {
     title: 'Getting Started with Bizboard',
@@ -891,10 +900,6 @@ export const en = {
     addProduct: 'Add product & continue',
     createFirstBill: 'Create & complete first bill',
     registrationType: 'GST registration type',
-    confirmRegistrationChange:
-      'Change GST registration type to {type}? This changes how every future document is taxed (COMPOSITION issues a Bill of Supply with no tax).',
-    confirmNegativeStockChange:
-      'Change negative-stock policy to {policy}? WARN lets staff sell items that are out of stock.',
     unregistered: 'Unregistered',
     regular: 'Regular GST',
     composition: 'Composition scheme',
@@ -1415,7 +1420,11 @@ export const en = {
     convertedToInvoice: 'Converted to draft invoice #{id}',
     creditLimitWarning:
       'Credit limit warning: {exposure} exposure (outstanding + this invoice) vs {limit} limit ({pct}%).',
+    creditHoldChip: 'Credit hold',
+    creditHoldBanner:
+      'This customer is on collection hold. Complete is blocked until they pay down severe overdue.',
     salesReturnCompleted: 'Sales return completed',
+    salesReturnCompleteOwnerOnly: 'Only the Owner (or someone with cancel permission) can complete a sales return.',
     purchaseReturnCompleted: 'Purchase return completed',
     originalInvoice: 'Original invoice',
     originalPurchase: 'Original purchase',
@@ -1559,6 +1568,8 @@ export const en = {
   phase: {
     accounting: 'Accounting',
     accountingSubtitle: 'Opt-in light books. Documents remain the source of truth.',
+    accountingBackfillNeeded:
+      'Accounting is on, but this company has completed invoices and no journals. Run the accounting backfill (or post documents after enabling) before trusting trial balance, P&L, or the balance sheet.',
     journals: 'Journals',
     journalsSubtitle: 'Manual vouchers. Posted lines are immutable — reverse with a contra entry.',
     periods: 'Accounting periods',
@@ -1574,7 +1585,7 @@ export const en = {
     costCenters: 'Cost centers',
     costCentersSubtitle: 'Optional dimension for P&L slicing.',
     glRecon: 'GL bank reconciliation',
-    glReconSubtitle: 'Clears GL bank lines against Phase 3 statement lines.',
+    glReconSubtitle: 'GL match — clears posted bank journal lines against statement lines. Not the operational payments recon.',
     bankAccounts: 'Bank accounts',
     bankAccountsSubtitle: 'Cash boxes and bank instruments used on receipts, payments, and reconciliation.',
     paymentGateway: 'Payment gateway',
@@ -1584,7 +1595,7 @@ export const en = {
     bankStatements: 'Bank statements',
     bankStatementsSubtitle: 'Upload CSV → preview → commit, then match in reconciliation.',
     bankRecon: 'Bank reconciliation',
-    bankReconSubtitle: 'Review suggestions. Ambiguous matches never auto-apply.',
+    bankReconSubtitle: 'Operational match — review statement suggestions against receipts and payments. Ambiguous matches never auto-apply. Not the GL bank recon.',
     bulkAcceptExact: 'Accept all exact matches',
     bulkAcceptExactAccepted: 'Accepted {count} exact match(es). Undo any of them from the line if needed.',
     bulkAcceptExactNone: 'No exact matches to accept right now.',
@@ -1704,6 +1715,9 @@ export const en = {
     dunningQuietStart: 'Quiet hours start (IST)',
     dunningQuietEnd: 'Quiet hours end (IST)',
     dunningOptOut: 'Skip automatic payment reminders',
+    autoCreditHold: 'Auto credit hold on severe overdue',
+    autoCreditHoldHelp:
+      'Off by default. When on, customers with stop-credit or 90+ day overdue cannot Complete a new invoice, even without a static credit limit.',
     valuationDateOrder: 'Value stock by document date, not when it was entered',
     valuationDateOrderHelp:
       'Off for existing companies. Turning this on can restate historical inventory and COGS for backdated movements. Take a backup and confirm with your CA before enabling.',

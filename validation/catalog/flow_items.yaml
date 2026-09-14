@@ -1,0 +1,3498 @@
+items:
+- path: /login
+  kind: route
+  route_kind: page
+  component: LoginPage
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A20
+  defect: null
+  personas:
+  - P1
+  - P2
+  - P3
+  - P4
+  - P5
+  archetypes:
+  - ARCH-01
+  override: false
+- path: /register
+  kind: route
+  route_kind: page
+  component: RegisterPage
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A20
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  override: false
+- path: /forgot-password
+  kind: route
+  route_kind: page
+  component: ForgotPasswordPage
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  - 'override: e2e/auth-recovery.spec.ts submits forgot-password and asserts dispatched
+    copy.'
+  freeze_row: A20
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: /reset-password
+  kind: route
+  route_kind: page
+  component: ResetPasswordPage
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  - 'override: e2e/auth-recovery.spec.ts tokenless reset shows request-a-new-link.'
+  freeze_row: A20
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: /invite
+  kind: route
+  route_kind: page
+  component: AcceptInvitePage
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  - 'override: e2e-golden/invite-accept.spec.ts accept-and-land.'
+  freeze_row: A17
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: /pay/:token
+  kind: route
+  route_kind: page
+  component: PublicPayPage
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - mapped A25, no gating UI/API test found
+  - 'override: lifecycle-arch03.spec.ts asserts live outstanding after return (B3).'
+  freeze_row: A25
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: /setup
+  kind: route
+  route_kind: page
+  component: SetupWizardPage
+  guards:
+  - ProtectedRoute
+  - RoleRoute:inline
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A19
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  override: false
+- path: /reports/profit-loss
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /reports/profit-and-loss
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /accounting/chart-of-accounts
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /accounting/accounts
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /accounting/bank-recon
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /accounting/bank-reconciliation
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /sales/quotations/new
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /sales/quotations?create=1
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: A4
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/returns/new
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /sales/returns?create=1
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: A5
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/challans
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /sales/delivery-challans
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/challans/new
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /sales/delivery-challans/new
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /purchases/returns/new
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /purchases/returns?create=1
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: A7
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /reports/gstr-1
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /reports/gstr1
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gstr-3b
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /reports/gstr3b
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gstr-2b
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /reports/gstr2b
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gstr-9
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /reports/gstr9
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/cmp-08
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  redirect_to: /reports/cmp08
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /
+  kind: route
+  route_kind: index
+  component: HomePage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  nav_label: nav.dashboard
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /offline-outbox
+  kind: route
+  route_kind: page
+  component: OfflineOutboxPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  nav_label: nav.offlineOutbox
+  coverage: LIM
+  coverage_evidence:
+  - LIM — reachable, not freeze-journeyed
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /help
+  kind: route
+  route_kind: page
+  component: HelpPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  nav_label: nav.help
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A20
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/help
+  kind: route
+  route_kind: page
+  component: HelpHealthPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowHelpHealth
+  nav_label: nav.helpHealth
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /insights
+  kind: route
+  route_kind: page
+  component: InsightsHubPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAiInsights
+  nav_label: nav.insights
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  override: false
+- path: /insights/alerts
+  kind: route
+  route_kind: page
+  component: InsightsAlertsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAiInsights
+  nav_label: nav.insightsAlerts
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  override: false
+- path: /insights/health
+  kind: route
+  route_kind: page
+  component: InsightsHealthPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAiInsights
+  nav_label: nav.insightsHealth
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  override: false
+- path: /insights/cashflow
+  kind: route
+  route_kind: page
+  component: InsightsCashflowPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAiInsights
+  nav_label: nav.insightsCashflow
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  override: false
+- path: /insights/assistant
+  kind: route
+  route_kind: page
+  component: InsightsAssistantPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAiAssistant
+  nav_label: nav.insightsAssistant
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  override: false
+- path: /sales/new
+  kind: route
+  route_kind: page
+  component: SalesInvoiceEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  nav_label: nav.sales
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/history/:id/edit
+  kind: route
+  route_kind: page
+  component: SalesInvoiceEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - mapped A1, no gating UI/API test found
+  - 'override: Challan convert lands on /sales/history/:id/edit then Save & Complete
+    (ARCH-03).'
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/quick-entry
+  kind: route
+  route_kind: page
+  component: QuickEntryPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  nav_label: nav.quickEntry
+  coverage: LIM
+  coverage_evidence:
+  - LIM — reachable, not freeze-journeyed
+  - 'override: Reachable sales capability, not freeze-journeyed (B7-style LIM).'
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/bill-upload
+  kind: route
+  route_kind: page
+  component: SalesBillUploadPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canImport
+  nav_label: nav.uploadSalesBill
+  coverage: LIM
+  coverage_evidence:
+  - LIM — reachable, not freeze-journeyed
+  - 'override: OCR is aid-only; no freeze JOURNEY.'
+  freeze_row: A15
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/upload
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canImport
+  redirect_to: /sales/bill-upload
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /pos
+  kind: route
+  route_kind: page
+  component: PosPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowPos
+  nav_label: nav.pos
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A23
+  defect: null
+  personas:
+  - P1
+  - P2
+  - P3
+  archetypes:
+  - ARCH-01
+  override: false
+- path: /sales/history
+  kind: route
+  route_kind: page
+  component: SalesHistoryPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: nav.salesHistory
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/history/:id
+  kind: route
+  route_kind: page
+  component: InvoiceDetailPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - mapped A1, no gating UI/API test found
+  - 'override: ARCH-01/03 open invoice after return; payment-link create; attention
+    walk.'
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/credit-notes
+  kind: route
+  route_kind: page
+  component: CreditNotesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: nav.creditNotes
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A5
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/debit-notes
+  kind: route
+  route_kind: page
+  component: DebitNotesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: nav.debitNotes
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A5
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/orders
+  kind: route
+  route_kind: page
+  component: SalesOrdersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: nav.salesOrders
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/delivery-challans
+  kind: route
+  route_kind: page
+  component: DeliveryChallansPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: nav.deliveryChallans
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/recurring
+  kind: route
+  route_kind: page
+  component: RecurringInvoicesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: nav.recurringInvoices
+  coverage: LIM
+  coverage_evidence:
+  - LIM — reachable, not freeze-journeyed
+  - 'override: B7 — reachable but retainers/recurring billing is out of freeze; smoke-level
+    safety only.'
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/customers
+  kind: route
+  route_kind: page
+  component: CustomersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: nav.customers
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A12
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/quotations
+  kind: route
+  route_kind: page
+  component: QuotationsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: nav.quotations
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  - 'override: createQuotationConvertedToOrder in ARCH-03.'
+  freeze_row: A4
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/returns
+  kind: route
+  route_kind: page
+  component: SalesReturnsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: nav.salesReturns
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A5
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/credit-notes/:id
+  kind: route
+  route_kind: page
+  component: CreditNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - mapped A5, no gating UI/API test found
+  - 'override: Auto-CN after return is asserted via return_with_auto_cn; manual CN
+    editor is LIM.'
+  freeze_row: A5
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/debit-notes/:id
+  kind: route
+  route_kind: page
+  component: DebitNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - mapped A5, no gating UI/API test found
+  - 'override: Residual DN complete lands on /sales/debit-notes/:id (ARCH-03).'
+  freeze_row: A5
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/orders/:id
+  kind: route
+  route_kind: page
+  component: SalesOrderEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - mapped A1, no gating UI/API test found
+  - 'override: ARCH-03 quotation To Order lands on /sales/orders.'
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/delivery-challans/:id
+  kind: route
+  route_kind: page
+  component: DeliveryChallanEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - mapped A1, no gating UI/API test found
+  - 'override: ops-remaining + ARCH-03 convert-to-invoice from completed challan.'
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/credit-notes/new
+  kind: route
+  route_kind: page
+  component: CreditNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A5
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/debit-notes/new
+  kind: route
+  route_kind: page
+  component: DebitNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  - 'override: helpers/documents.ts completeResidualSalesDebitNote + lifecycle-arch03.'
+  freeze_row: A5
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/orders/new
+  kind: route
+  route_kind: page
+  component: SalesOrderEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/delivery-challans/new
+  kind: route
+  route_kind: page
+  component: DeliveryChallanEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreateSales
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  - 'override: ops-remaining-golden-path.spec.ts challan cancel; ARCH-03 To Challan.'
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /sales/receipts
+  kind: route
+  route_kind: page
+  component: ReceiptsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPaymentSurfaces
+  nav_label: nav.receipts
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A10
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /payments/reconciliation
+  kind: route
+  route_kind: page
+  component: BankReconPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewBankRecon
+  nav_label: nav.bankReconciliation
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A10
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /payments/account-aggregator
+  kind: route
+  route_kind: page
+  component: AccountAggregatorPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewBankRecon
+  nav_label: nav.accountAggregator
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /payments/recon
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewBankRecon
+  redirect_to: /payments/reconciliation
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /purchases/payments
+  kind: route
+  route_kind: page
+  component: SupplierPaymentsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePayments
+  nav_label: nav.supplierPayments
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A11
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /payments/links
+  kind: route
+  route_kind: page
+  component: PaymentLinksPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePayments
+  nav_label: nav.payments
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A25
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /payments/statements
+  kind: route
+  route_kind: page
+  component: BankStatementsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePayments
+  nav_label: nav.bankStatements
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A10
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /purchases/returns
+  kind: route
+  route_kind: page
+  component: PurchaseReturnsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  nav_label: nav.purchaseReturns
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A7
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /purchases/new
+  kind: route
+  route_kind: page
+  component: PurchaseInvoiceEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  nav_label: nav.purchases
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A6
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /purchases/history/:id/edit
+  kind: route
+  route_kind: page
+  component: PurchaseInvoiceEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - mapped A6, no gating UI/API test found
+  - 'override: Purchase editor after complete is amend-adjacent; freeze journey is
+    history open-row.'
+  freeze_row: A6
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /purchases/credit-notes/new
+  kind: route
+  route_kind: page
+  component: PurchaseCreditNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  nav_label: null
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A7
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /purchases/debit-notes/new
+  kind: route
+  route_kind: page
+  component: PurchaseDebitNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  - 'override: ops-remaining purchase residual DN; lifecycle-arch03-purchase.'
+  freeze_row: A7
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /purchases/orders/new
+  kind: route
+  route_kind: page
+  component: PurchaseOrderEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  nav_label: null
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A6
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /purchases/credit-notes/:id
+  kind: route
+  route_kind: page
+  component: PurchaseCreditNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - mapped A7, no gating UI/API test found
+  - 'override: Purchase CN editor reachable; freeze journey is residual DN not CN.'
+  freeze_row: A7
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /purchases/debit-notes/:id
+  kind: route
+  route_kind: page
+  component: PurchaseDebitNoteEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - mapped A7, no gating UI/API test found
+  - 'override: Purchase residual DN complete lands on /purchases/debit-notes/:id.'
+  freeze_row: A7
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /purchases/orders/:id
+  kind: route
+  route_kind: page
+  component: PurchaseOrderEditor
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canCreatePurchases
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - mapped A6, no gating UI/API test found
+  - 'override: PO detail reachable; not freeze-journeyed.'
+  freeze_row: A6
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /purchases/history
+  kind: route
+  route_kind: page
+  component: PurchaseHistoryPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  nav_label: nav.purchaseHistory
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  - 'override: purchase-golden-path + lifecycle-arch03-purchase: complete bill, list
+    Completed, open row.'
+  freeze_row: A6
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /purchases/history/:id
+  kind: route
+  route_kind: page
+  component: PurchaseDetailPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - mapped A6, no gating UI/API test found
+  - 'override: purchase-golden-path + lifecycle-arch03-purchase open the completed
+    bill row.'
+  freeze_row: A6
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /purchases/credit-notes
+  kind: route
+  route_kind: page
+  component: PurchaseCreditNotesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  nav_label: nav.purchaseCreditNotes
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A7
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /purchases/debit-notes
+  kind: route
+  route_kind: page
+  component: PurchaseDebitNotesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  nav_label: nav.purchaseDebitNotes
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A7
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /purchases/orders
+  kind: route
+  route_kind: page
+  component: PurchaseOrdersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  nav_label: nav.purchaseOrders
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A6
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /purchases/suppliers
+  kind: route
+  route_kind: page
+  component: SuppliersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  nav_label: nav.suppliers
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A12
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /purchases/bills-of-entry
+  kind: route
+  route_kind: page
+  component: BillsOfEntryPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewPurchaseSurfaces
+  nav_label: nav.billsOfEntry
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  - known-defect-not-gated
+  - 'override: B6 working default — BoE is dark; record the ungated RETURNED-unlink
+    so it surfaces if ENABLE_BOE is ever turned on. Needs founder override.'
+  freeze_row: null
+  defect: known-defect-not-gated
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /purchases/bill-upload
+  kind: route
+  route_kind: page
+  component: PurchaseBillUploadPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canImport
+  nav_label: nav.uploadBill
+  coverage: LIM
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  - 'override: OCR is aid-only, same as /sales/bill-upload; no freeze JOURNEY.'
+  freeze_row: A15
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: true
+- path: /purchases/upload
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canImport
+  redirect_to: /purchases/bill-upload
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /inventory/products
+  kind: route
+  route_kind: page
+  component: ProductsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  nav_label: nav.inventory
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A8
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
+- path: /inventory/stock
+  kind: route
+  route_kind: page
+  component: CurrentStockPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  nav_label: nav.currentStock
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A9
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
+- path: /inventory/low-stock
+  kind: route
+  route_kind: page
+  component: LowStockPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  nav_label: nav.lowStock
+  coverage: API-ONLY
+  coverage_evidence:
+  - persona/workflow API test
+  freeze_row: A9
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
+- path: /inventory/expiry-alerts
+  kind: route
+  route_kind: page
+  component: ExpiryAlertsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  nav_label: nav.expiryAlerts
+  coverage: LIM
+  coverage_evidence:
+  - mapped A9, no gating UI/API test found
+  - 'override: ARCH-05 COND; no freeze money golden.'
+  freeze_row: A9
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: true
+- path: /inventory/expiry
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  redirect_to: /inventory/expiry-alerts
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
+- path: /inventory/adjustments
+  kind: route
+  route_kind: page
+  component: StockAdjustmentPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  nav_label: nav.stockAdjustment
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A9
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
+- path: /inventory/warehouses
+  kind: route
+  route_kind: page
+  component: WarehousesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  nav_label: nav.warehouses
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A9
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
+- path: /inventory/stock-counts
+  kind: route
+  route_kind: page
+  component: StockCountPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  nav_label: nav.stockCounts
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A9
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
+- path: /inventory/count
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  redirect_to: /inventory/stock-counts
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - redirect — not a page
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
+- path: /inventory/transfers
+  kind: route
+  route_kind: page
+  component: StockTransferPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  nav_label: nav.stockTransfers
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A9
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
+- path: /inventory/serials
+  kind: route
+  route_kind: page
+  component: SerialsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  nav_label: nav.serials
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  - 'override: ops-remaining serial AVAILABLE → SOLD.'
+  freeze_row: A9
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: true
+- path: /inventory/labels
+  kind: route
+  route_kind: page
+  component: LabelPrintPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAdjustInventory
+  nav_label: nav.labelPrint
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A9
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
+- path: /attention
+  kind: route
+  route_kind: page
+  component: AttentionPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.attention
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /reports/sales
+  kind: route
+  route_kind: page
+  component: SalesReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.reports
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/purchases
+  kind: route
+  route_kind: page
+  component: PurchaseReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.purchaseReports
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/inventory
+  kind: route
+  route_kind: page
+  component: InventoryReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.inventoryReports
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/customer-ledger
+  kind: route
+  route_kind: page
+  component: CustomerLedgerPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.customerLedger
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A12
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/supplier-ledger
+  kind: route
+  route_kind: page
+  component: SupplierLedgerPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.supplierLedger
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A12
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/statutory-events
+  kind: route
+  route_kind: page
+  component: StatutoryEventsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.statutoryEvents
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/cash-book
+  kind: route
+  route_kind: page
+  component: CashBookPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.cashBook
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/stock-valuation
+  kind: route
+  route_kind: page
+  component: StockValuationPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.stockValuation
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/tds-tcs
+  kind: route
+  route_kind: page
+  component: TdsTcsReportsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowTdsReports
+  nav_label: nav.tdsTcs
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A24
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/trial-balance
+  kind: route
+  route_kind: page
+  component: TrialBalancePage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  nav_label: nav.trialBalance
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/profit-and-loss
+  kind: route
+  route_kind: page
+  component: ProfitAndLossPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  nav_label: nav.profitAndLoss
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/balance-sheet
+  kind: route
+  route_kind: page
+  component: BalanceSheetPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  nav_label: nav.balanceSheet
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/books-health
+  kind: route
+  route_kind: page
+  component: BooksHealthPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  nav_label: nav.booksHealth
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gstr1
+  kind: route
+  route_kind: page
+  component: Gstr1ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.gstr1
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gstr3b
+  kind: route
+  route_kind: page
+  component: Gstr3bReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.gstr3b
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gstr4
+  kind: route
+  route_kind: page
+  component: Gstr4ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.gstr4
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/cmp08
+  kind: route
+  route_kind: page
+  component: Cmp08ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.cmp08
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gstr6
+  kind: route
+  route_kind: page
+  component: Gstr6ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.gstr6
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gstr7
+  kind: route
+  route_kind: page
+  component: Gstr7ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.gstr7
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gstr8
+  kind: route
+  route_kind: page
+  component: Gstr8ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.gstr8
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gstr9
+  kind: route
+  route_kind: page
+  component: Gstr9ReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.gstr9
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gstr2b
+  kind: route
+  route_kind: page
+  component: Gstr2bPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.gstr2b
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/missing-documents
+  kind: route
+  route_kind: page
+  component: MissingDocumentsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.missingDocuments
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /ca-needs
+  kind: route
+  route_kind: page
+  component: MissingDocumentsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.caNeeds
+  coverage: LIM
+  coverage_evidence:
+  - LIM — reachable, not freeze-journeyed
+  - 'override: H-05 human CA packet; not a freeze JOURNEY.'
+  freeze_row: A13
+  defect: null
+  personas:
+  - P5
+  - P6
+  archetypes:
+  - ARCH-05
+  override: true
+- path: /reports/gst-health
+  kind: route
+  route_kind: page
+  component: GstHealthPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.gstHealth
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/gst-rate-exposure
+  kind: route
+  route_kind: page
+  component: GstRateExposurePage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowGstrReports
+  nav_label: nav.gstRateExposure
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /settings/company
+  kind: route
+  route_kind: page
+  component: CompanySettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  nav_label: nav.company
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A17
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/series
+  kind: route
+  route_kind: page
+  component: SeriesSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  nav_label: nav.seriesSettings
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/units
+  kind: route
+  route_kind: page
+  component: UnitsSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  nav_label: nav.units
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A8
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/items
+  kind: route
+  route_kind: page
+  component: ItemSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  nav_label: nav.itemSettings
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A8
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/templates
+  kind: route
+  route_kind: page
+  component: InvoiceTemplatesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  nav_label: nav.invoiceTemplates
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A14
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/users
+  kind: route
+  route_kind: page
+  component: UsersSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  nav_label: nav.users
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A17
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/bank-accounts
+  kind: route
+  route_kind: page
+  component: BankAccountsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  nav_label: nav.settings
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A10
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/payment-gateway
+  kind: route
+  route_kind: page
+  component: PaymentGatewayPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  nav_label: nav.paymentGateway
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A25
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/billing
+  kind: route
+  route_kind: page
+  component: BillingPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  nav_label: nav.billing
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A17
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/price-lists
+  kind: route
+  route_kind: page
+  component: PriceListsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageUsers
+  nav_label: nav.priceLists
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A8
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/backup
+  kind: route
+  route_kind: page
+  component: BackupExportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canExport
+  nav_label: nav.backupExport
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A16
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/ai
+  kind: route
+  route_kind: page
+  component: AiSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:allowAiSettings
+  nav_label: nav.aiSettings
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/accounting
+  kind: route
+  route_kind: page
+  component: AccountingSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:allowAccountingSettings
+  nav_label: nav.accounting
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/gst
+  kind: route
+  route_kind: page
+  component: GstSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageGst
+  nav_label: nav.gst
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/statutory-licences
+  kind: route
+  route_kind: page
+  component: StatutoryLicencesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canManageGst
+  nav_label: nav.statutoryLicences
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A1
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/import
+  kind: route
+  route_kind: page
+  component: ImportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:canImport
+  nav_label: nav.importData
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A15
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/tally
+  kind: route
+  route_kind: page
+  component: TallyMigrationPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:allowTally
+  nav_label: nav.tallyMigration
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /accounting/accounts
+  kind: route
+  route_kind: page
+  component: ChartOfAccountsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  nav_label: nav.accounting
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /accounting/journals
+  kind: route
+  route_kind: page
+  component: JournalsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  nav_label: nav.journals
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /accounting/bank-reconciliation
+  kind: route
+  route_kind: page
+  component: AccountingBankReconPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  nav_label: nav.bankReconciliation
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A10
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /accounting/cost-centers
+  kind: route
+  route_kind: page
+  component: CostCentersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  nav_label: nav.costCenters
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /accounting/fixed-assets
+  kind: route
+  route_kind: page
+  component: FixedAssetsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  nav_label: nav.fixedAssets
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /accounting/periods
+  kind: route
+  route_kind: page
+  component: PeriodsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  nav_label: nav.accountingPeriods
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A21
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /manufacturing
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowManufacturing
+  redirect_to: /manufacturing/boms
+  nav_label: null
+  coverage: OUT
+  coverage_evidence:
+  - redirect — dark alias
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-07
+  override: false
+- path: /manufacturing/boms
+  kind: route
+  route_kind: page
+  component: BomsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowManufacturing
+  nav_label: nav.manufacturing
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-07
+  override: false
+- path: /manufacturing/work-orders
+  kind: route
+  route_kind: page
+  component: WorkOrdersPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowManufacturing
+  nav_label: nav.workOrders
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-07
+  override: false
+- path: /payroll
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowPayroll
+  redirect_to: /payroll/employees
+  nav_label: null
+  coverage: OUT
+  coverage_evidence:
+  - redirect — dark alias
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  override: false
+- path: /payroll/employees
+  kind: route
+  route_kind: page
+  component: EmployeesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowPayroll
+  nav_label: nav.payroll
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  override: false
+- path: /payroll/pay-runs
+  kind: route
+  route_kind: page
+  component: PayRunsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowPayroll
+  nav_label: nav.payRuns
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  override: false
+- path: /crm
+  kind: route
+  route_kind: redirect
+  component: Navigate
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowCrm
+  redirect_to: /crm/leads
+  nav_label: null
+  coverage: OUT
+  coverage_evidence:
+  - redirect — dark alias
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-03
+  override: false
+- path: /crm/leads
+  kind: route
+  route_kind: page
+  component: LeadsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowCrm
+  nav_label: nav.crm
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-03
+  override: false
+- path: /crm/opportunities
+  kind: route
+  route_kind: page
+  component: OpportunitiesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowCrm
+  nav_label: nav.opportunities
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-03
+  override: false
+- path: /*
+  kind: route
+  route_kind: page
+  component: NotFoundPage
+  guards: []
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - e2e-golden
+  - no FREEZE_SCOPE A-row
+  - 'override: SPA catch-all; not a freeze workflow (no FREEZE_SCOPE A-row).'
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: complete_document
+  kind: action
+  route_kind: action
+  component: Complete a draft document from its screen
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - §2.13 complete / cancel / amend
+  - 'override: Invoice/purchase/challan Save & Complete in goldens.'
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: cancel_document
+  kind: action
+  route_kind: action
+  component: Cancel a completed document from its screen
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - §2.13 complete / cancel / amend
+  - 'override: ops-remaining challan Cancel document.'
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: amend_document
+  kind: action
+  route_kind: action
+  component: Amend a completed document (H9 correction path)
+  guards: []
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - §2.13 complete / cancel / amend
+  - 'override: H9 Owner amend exists; not a freeze golden.'
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: allocate_receipt
+  kind: action
+  route_kind: action
+  component: Allocate a customer receipt or supplier payment
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - §2.13 allocate / unallocate
+  - 'override: ARCH-03 receipt allocate; purchase-golden supplier payment allocate.'
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: unallocate_receipt
+  kind: action
+  route_kind: action
+  component: Reverse or unallocate a receipt allocation
+  guards: []
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - §2.13 allocate / unallocate
+  - 'override: API covered; no freeze UI golden.'
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: return_with_auto_cn
+  kind: action
+  route_kind: action
+  component: Full or partial return with auto credit note
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - §2.13 return + auto CN + residual DN
+  - 'override: completeSalesReturn / completePurchaseReturn in ARCH-01/03/ops.'
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: residual_debit_note
+  kind: action
+  route_kind: action
+  component: Post-return residual debit note leaving collectible AR
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - §2.13 return + auto CN + residual DN
+  - 'override: completeResidualSalesDebitNote + purchase residual DN golden.'
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: print_pdf
+  kind: action
+  route_kind: action
+  component: Print PDF and wait for READY
+  guards: []
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - §2.13 print PDF
+  - 'override: invoice-golden downloads PDF; not a dedicated print-READY journey.'
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: share_pdf_link
+  kind: action
+  route_kind: action
+  component: Share invoice PDF link
+  guards: []
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - §2.13 print PDF, share link
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: whatsapp_dunning
+  kind: action
+  route_kind: action
+  component: WhatsApp dunning send from a money screen
+  guards: []
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - §2.13 WhatsApp / share-link dunning
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: share_link_dunning
+  kind: action
+  route_kind: action
+  component: Share-link dunning from attention or invoice
+  guards: []
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - §2.13 WhatsApp / share-link dunning
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: offline_queue_flush
+  kind: action
+  route_kind: action
+  component: Flush POS/invoice offline outbox
+  guards: []
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - §2.13 POS/invoice offline queue flush
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: flag_flip_then_review
+  kind: action
+  route_kind: action
+  component: Change accounting/GST/expiry flags then re-view old documents
+  guards: []
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - §2.13 feature-flag change then old documents
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: multi_tab_invoice_race
+  kind: action
+  route_kind: action
+  component: Two tabs or two users on one invoice
+  guards: []
+  nav_label: null
+  coverage: LIM
+  coverage_evidence:
+  - §2.13 multi-tab / two users
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true
+- path: hindi_locale_money_screens
+  kind: action
+  route_kind: action
+  component: Hindi locale on money/status screens
+  guards: []
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - §2.13 Hindi locale on money screens
+  - 'override: hindi-money-status.spec.ts पूर्ण / बकाया / वापस.'
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: true

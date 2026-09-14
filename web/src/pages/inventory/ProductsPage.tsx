@@ -18,11 +18,11 @@ import Typography from '@mui/material/Typography';
 import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import TableViewOutlinedIcon from '@mui/icons-material/TableViewOutlined';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { csvCell } from '@/utils/csv';
-import { listProducts, listProductsPage, listStock } from '@/api/resources';
+import { deleteProduct, listProducts, listProductsPage, listStock } from '@/api/resources';
 import { ItemFormDialog } from '@/pages/inventory/ItemFormDialog';
 import { useAuth } from '@/auth/AuthContext';
 import { ColumnPicker } from '@/components/ColumnPicker';
@@ -57,6 +57,7 @@ const STANDARD_COLUMNS: ColumnSpec[] = [
 
 export function ProductsPage() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const { user } = useAuth();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -95,8 +96,23 @@ export function ProductsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [saveOk, setSaveOk] = useState(false);
+  const [notice, setNotice] = useState<{ severity: 'success' | 'info' | 'error'; message: string } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [bulkAnchor, setBulkAnchor] = useState<null | HTMLElement>(null);
+  const removeProduct = useMutation({
+    mutationFn: (id: number) => deleteProduct(id),
+    onSuccess: (result) => {
+      void qc.invalidateQueries({ queryKey: ['products'] });
+      void qc.invalidateQueries({ queryKey: ['products-count'] });
+      void qc.invalidateQueries({ queryKey: ['stock'] });
+      setNotice(
+        result.deactivated
+          ? { severity: 'info', message: result.detail || 'Product is referenced by documents; marked Inactive instead of deleting.' }
+          : { severity: 'success', message: t('products.deleted') },
+      );
+    },
+    onError: (err) => setNotice({ severity: 'error', message: getErrorMessage(err) }),
+  });
   const rows = query.data?.results ?? [];
   const canMutate = canAdjustInventory(user);
   const canContinueSetup =
@@ -243,6 +259,11 @@ export function ProductsPage() {
           Product saved.
         </Alert>
       ) : null}
+      {notice ? (
+        <Alert severity={notice.severity} onClose={() => setNotice(null)}>
+          {notice.message}
+        </Alert>
+      ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
@@ -327,15 +348,29 @@ export function ProductsPage() {
                     ) : null}
                     <TableCell align="right">
                       {canMutate ? (
-                        <Button
-                          size="small"
-                          onClick={() => {
-                            setEditing(p);
-                            setOpen(true);
-                          }}
-                        >
-                          {t('common.edit')}
-                        </Button>
+                        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setEditing(p);
+                              setOpen(true);
+                            }}
+                          >
+                            {t('common.edit')}
+                          </Button>
+                          <Button
+                            size="small"
+                            color="error"
+                            disabled={removeProduct.isPending}
+                            onClick={() => {
+                              setNotice(null);
+                              if (!window.confirm(t('products.confirmDelete'))) return;
+                              removeProduct.mutate(p.id);
+                            }}
+                          >
+                            {t('common.delete')}
+                          </Button>
+                        </Stack>
                       ) : null}
                     </TableCell>
                   </TableRow>

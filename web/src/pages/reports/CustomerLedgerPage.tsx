@@ -34,7 +34,7 @@ export function CustomerLedgerPage() {
   // collection-attention card (`?customer=<id>`), instead of forcing a
   // second manual search for a customer already identified as at-risk.
   useEffect(() => {
-    const id = searchParams.get('customer');
+    const id = searchParams.get('customer') || searchParams.get('customerId');
     if (!id || customer) return;
     let cancelled = false;
     getCustomer(id).then((c) => {

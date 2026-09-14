@@ -45,6 +45,7 @@ import { todayIso } from '@/components/billing';
 import type { Product } from '@/types/domain';
 import { isValidHsnSac, normalizeGstRate, GST_RATE_OPTIONS } from '@/utils/gst';
 import { STANDARD_UNITS, formatUnitLabel } from '@/constants/unitLabels';
+import { toNumber } from '@/utils/money';
 import { activeCustomFieldDefs, type ItemCustomFieldDef } from './itemCustomFieldDefaults';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
@@ -206,6 +207,20 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
   const locked = Boolean(product?.hasMovements);
   const hsnKind = isService ? 'SAC' : 'HSN';
   const stockHidden = isService || !form.trackInventory;
+
+  // The base unit stays frozen once movements exist -- past movement
+  // quantities are permanently "in whatever unit was active then" and can
+  // never be rewritten. But once on-hand + reserved stock is back to zero
+  // everywhere, there's no ambiguous quantity left to reinterpret, so the
+  // backend allows starting a new chapter under a different unit. Stay
+  // conservative (locked) while the stock totals are still loading.
+  const totalStock = useMemo(() => {
+    if (!product) return 0;
+    return (stockQuery.data ?? [])
+      .filter((row) => Number(row.product) === Number(product.id))
+      .reduce((sum, row) => sum + toNumber(row.onHand) + toNumber(row.reserved), 0);
+  }, [stockQuery.data, product]);
+  const unitLocked = locked && (stockQuery.isLoading || totalStock !== 0);
 
   // The dropdowns offer a set of common units, but items created via import or the
   // API can carry any unit string. Fold the item's stored units into the option
@@ -645,20 +660,25 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                       onChange={(e) =>
                         setForm((current) => {
                           const unitName = e.target.value;
-                          const collides = current.alternateUnitName === unitName;
+                          // The conversion rate only means something relative to
+                          // the base unit ("1 CARTON = 48 PCS") -- changing the
+                          // base always invalidates it, not just on a name clash.
+                          const changed = current.unitName !== unitName;
                           return {
                             ...current,
                             unitName,
-                            alternateUnitName: collides ? '' : current.alternateUnitName,
-                            conversionRate: collides ? '1' : current.conversionRate,
+                            alternateUnitName: changed ? '' : current.alternateUnitName,
+                            conversionRate: changed ? '1' : current.conversionRate,
                           };
                         })
                       }
-                      disabled={locked}
+                      disabled={unitLocked}
                       helperText={
-                        locked
-                          ? 'Locked — this item already has stock movements. Use a stock adjustment to change quantities.'
-                          : 'How you buy and sell this item (e.g. PCS, BOX, KG). Stock is counted in this unit and it becomes fixed after the first stock movement.'
+                        unitLocked
+                          ? 'Locked — this item has stock on hand. Bring stock to zero (Stock Adjustment) to change the unit.'
+                          : locked
+                            ? 'Stock for this item is zero, so the unit can be changed. New stock movements will use the new unit; past movements stay recorded in the old one.'
+                            : 'How you buy and sell this item (e.g. PCS, BOX, KG). Stock is counted in this unit and it becomes fixed after the first stock movement.'
                       }
                       sx={{ minWidth: 160, width: '100%' }}
                     >
@@ -765,7 +785,10 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
               ) : null}
               {locked ? (
                 <Alert severity="info">
-                  Tracking flags and the base unit are locked after the first stock movement.{' '}
+                  Item type and tracking flags are locked after the first stock movement.{' '}
+                  {unitLocked
+                    ? 'The base unit is also locked while stock is on hand — bring it to zero to change the unit.'
+                    : 'Stock is zero, so the base unit (Basic details tab) can still be changed.'}{' '}
                   {product ? (
                     <Button size="small" component={RouterLink} to={`/inventory/adjustments?product=${product.id}`}>
                       Adjust stock

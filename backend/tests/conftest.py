@@ -4,6 +4,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import Company, CompanyUser, User
@@ -161,7 +162,16 @@ def make_tenant(slug, state="Karnataka"):
     staff = User.objects.create_user(
         email=f"staff@{slug}.test", password="StrongPass123!", full_name=f"{slug} staff",
     )
-    company = Company.objects.create(name=f"{slug} Traders", state=state, ai_features_enabled=True)
+    company = Company.objects.create(
+        name=f"{slug} Traders",
+        state=state,
+        ai_features_enabled=True,
+        # Fixture companies are GST-capable shops. Skip-wizard empty-GSTIN is
+        # tested explicitly (B14 / GSTIN_MISSING_COMPANY), not as the default.
+        gstin="29AAAAA0000A1ZY",
+        gstin_verification_status="VALID",
+        gstin_verified_at=timezone.now(),
+    )
     CompanyUser.objects.create(
         company=company, user=owner, role=CompanyUser.Role.OWNER,
         can_manage_inventory=True, can_import=True,

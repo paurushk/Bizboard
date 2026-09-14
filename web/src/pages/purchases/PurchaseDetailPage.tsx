@@ -179,7 +179,7 @@ export function PurchaseDetailPage() {
             </Stack>
             <Stack direction="row" justifyContent="space-between">
               <Typography>{t('billing.balance')}</Typography>
-              <Typography fontWeight={600}>{formatMoney(inv.balance ?? inv.grandTotal)}</Typography>
+              <Typography fontWeight={600}>{formatMoney(inv.balance)}</Typography>
             </Stack>
           </Stack>
         </Paper>

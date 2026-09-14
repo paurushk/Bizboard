@@ -77,6 +77,13 @@ export function ResetPasswordPage() {
                   {t('auth.returnToLogin')}
                 </Button>
               </Stack>
+            ) : !token ? (
+              <Stack spacing={2}>
+                <Alert severity="error">{t('auth.resetLinkMissingToken')}</Alert>
+                <Button component={RouterLink} to="/forgot-password" variant="contained" fullWidth>
+                  {t('auth.requestNewLink')}
+                </Button>
+              </Stack>
             ) : (
               <Box component="form" onSubmit={handleSubmit} noValidate>
                 <Stack spacing={2.5}>

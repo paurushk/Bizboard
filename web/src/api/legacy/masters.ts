@@ -244,6 +244,23 @@ export async function createProduct(payload: Partial<Product>): Promise<Product>
   });
 }
 
+export async function deleteProduct(id: number): Promise<{ deactivated: boolean; detail?: string }> {
+  return withMocks(
+    async () => {
+      const { data, status } = await apiClient.delete(`/products/${id}/`);
+      if (status === 200) {
+        return { deactivated: true, detail: (data as { detail?: string } | undefined)?.detail };
+      }
+      return { deactivated: false };
+    },
+    () => {
+      const index = mockProducts.findIndex((p) => p.id === id);
+      if (index >= 0) mockProducts.splice(index, 1);
+      return { deactivated: false };
+    },
+  );
+}
+
 export async function generateBarcode(productId?: number): Promise<{ barcode: string; svg?: string }> {
   const { data } = await apiClient.post('/products/generate-barcode/', productId ? { product: productId } : {});
   return unwrapData<{ barcode: string; svg?: string }>(data);

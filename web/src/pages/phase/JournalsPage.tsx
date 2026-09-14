@@ -82,6 +82,7 @@ export function JournalsPage() {
   });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
+  const journalRows = asRows(query.data);
   return (
     <PageShell
       title={t('phase.journals')}
@@ -94,12 +95,12 @@ export function JournalsPage() {
     >
       {error && !open ? <HelpErrorAlert message={error} /> : null}
       <DataTable
-        rows={asRows(query.data)}
+        rows={journalRows}
         empty={t('phase.noJournals')}
-        // F3-016: every journal ever posted comes back in one unbounded
-        // fetch (BB-... listJournals) — window the DOM rows so a large
-        // ledger doesn't render thousands of <TableRow>s at once.
-        virtualized
+        // F3-016: unbounded listJournals — window only when the ledger is
+        // large. A one-row draft list must stay a normal table so Post is
+        // clickable (virtualizer + sticky Actions header ate the button).
+        virtualized={journalRows.length > 40}
         columns={[
           { key: 'number', label: t('common.number') },
           { key: 'entryDate', label: t('common.date') },

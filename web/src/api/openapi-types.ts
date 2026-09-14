@@ -492,7 +492,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["accounting_settings_retrieve"];
         put?: never;
         post: operations["accounting_settings_create"];
         delete?: never;
@@ -7590,6 +7590,11 @@ export interface components {
          * @enum {string}
          */
         AccountingPeriodStatusEnum: "OPEN" | "SOFT_CLOSED" | "CLOSED";
+        /** @description GET/POST /accounting/settings/ — 7.9b backfill flag is part of the money contract. */
+        AccountingSettings: {
+            accountingEnabled: boolean;
+            readonly accountingBackfillNeeded: boolean;
+        };
         AssistantMessage: {
             readonly id: number;
             role: components["schemas"]["AssistantMessageRoleEnum"];
@@ -10631,6 +10636,7 @@ export interface components {
             readonly whatsappSentAt?: string | null;
             readonly whatsappOffer?: string;
             readonly paymentState?: string;
+            readonly returnState?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
@@ -11943,6 +11949,7 @@ export interface components {
             readonly whatsappSentAt: string | null;
             readonly whatsappOffer: string;
             readonly paymentState: string;
+            readonly returnState: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
@@ -13593,7 +13600,7 @@ export interface operations {
             };
         };
     };
-    accounting_settings_create: {
+    accounting_settings_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -13602,12 +13609,38 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description No response body */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AccountingSettings"];
+                };
+            };
+        };
+    };
+    accounting_settings_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountingSettings"];
+                "multipart/form-data": components["schemas"]["AccountingSettings"];
+                "application/x-www-form-urlencoded": components["schemas"]["AccountingSettings"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountingSettings"];
+                };
             };
         };
     };

@@ -21,6 +21,7 @@ import { codeFromName } from '@/utils/codeGen';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { AccountingBackfillBanner } from '@/components/AccountingBackfillBanner';
 import {
   asRows,
   DataTable,
@@ -61,6 +62,7 @@ export function AccountingSettingsPage() {
   });
   return (
     <PageShell title={t('phase.accounting')} subtitle={t('phase.accountingSubtitle')}>
+      <AccountingBackfillBanner />
       {msg ? <Alert severity={msgSeverity} onClose={() => setMsg('')}>{msg}</Alert> : null}
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack spacing={2}>

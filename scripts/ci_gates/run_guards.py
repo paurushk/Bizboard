@@ -36,9 +36,12 @@ def _load_guards() -> list[object]:
     return mods
 
 
-def _run(guards: list[object]) -> int:
+def _run(guards: list[object], *, include_advisory: bool = False) -> int:
     failed = False
     for g in guards:
+        if getattr(g, "ADVISORY", False) and not include_advisory:
+            print(f"skip  {g.NAME} (advisory — flip after 2 green CI weeks)")
+            continue
         violations = g.check(REPO_ROOT)
         if violations:
             failed = True
@@ -69,12 +72,17 @@ def _selftest(guards: list[object]) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--selftest", action="store_true", help="prove each guard can fail")
+    ap.add_argument(
+        "--include-advisory",
+        action="store_true",
+        help="also run guards marked ADVISORY=True (flow-catalog until the 2-week flip)",
+    )
     args = ap.parse_args()
     guards = _load_guards()
     if not guards:
         print("no guards found under scripts/ci_gates/guards/", file=sys.stderr)
         return 1
-    return _selftest(guards) if args.selftest else _run(guards)
+    return _selftest(guards) if args.selftest else _run(guards, include_advisory=args.include_advisory)
 
 
 if __name__ == "__main__":

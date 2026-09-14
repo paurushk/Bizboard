@@ -240,26 +240,34 @@ function expireSessionOnInvalidRefresh(opts?: { notifyOnFailure?: boolean }): vo
   }
 }
 
-async function postRefresh(): Promise<string | null> {
-  await ensureCsrfCookie();
+async function postRefresh(retriedCsrf = false): Promise<string | null> {
+  await ensureCsrfCookie(retriedCsrf);
   const csrf = readCsrfToken();
-  const { data, status } = await axios.post(
-    `${baseURL}/auth/refresh/`,
-    {},
-    {
-      withCredentials: true,
-      timeout: 15000,
-      headers: csrf ? { 'X-CSRFToken': csrf } : undefined,
-    },
-  );
-  if (status >= 200 && status < 300) {
-    lastRefreshSuccessTime = Date.now();
-    const access = data?.data?.access ?? data?.access;
-    const token = typeof access === 'string' && access ? access : 'cookie';
-    setAccessToken(token);
-    return token;
+  try {
+    const { data, status } = await axios.post(
+      `${baseURL}/auth/refresh/`,
+      {},
+      {
+        withCredentials: true,
+        timeout: 15000,
+        headers: csrf ? { 'X-CSRFToken': csrf } : undefined,
+      },
+    );
+    if (status >= 200 && status < 300) {
+      lastRefreshSuccessTime = Date.now();
+      const access = data?.data?.access ?? data?.access;
+      const token = typeof access === 'string' && access ? access : 'cookie';
+      setAccessToken(token);
+      return token;
+    }
+    return null;
+  } catch (err) {
+    // Raw axios (not apiClient) — the 403 CSRF interceptor does not apply here.
+    if (!retriedCsrf && axios.isAxiosError(err) && isCsrfFailure(err)) {
+      return postRefresh(true);
+    }
+    throw err;
   }
-  return null;
 }
 
 async function doRefresh(opts?: { notifyOnFailure?: boolean }): Promise<string | null> {

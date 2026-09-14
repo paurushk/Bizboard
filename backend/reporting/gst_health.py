@@ -12,7 +12,9 @@ from core.services.billing import extract_state_code
 from core.validators import ALLOWED_GST_RATES, GSTIN_RE
 from core.services.uqc import normalize_uqc
 from purchases.models import PurchaseInvoice
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 from sales.models import DeliveryChallan, SalesCreditNote, SalesDebitNote, SalesInvoice
+from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
 from .gst_returns import (
     EINVOICE_AATO_THRESHOLD,
@@ -141,7 +143,7 @@ def build_gst_health(company, period: str | None = None) -> dict:
     invoices = list(
         SalesInvoice.objects.filter(
             company=company,
-            status__in=(SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED),
+            status__in=OPEN_RECEIVABLE_STATUSES,
             invoice_type__in=GST_INVOICE_TYPES,
             invoice_date__gte=date_from,
             invoice_date__lte=date_to,
@@ -342,7 +344,7 @@ def build_gst_health(company, period: str | None = None) -> dict:
     # RCM hint: unregistered supplier GST purchases
     for pur in PurchaseInvoice.objects.filter(
         company=company,
-        status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED),
+        status__in=OPEN_PAYABLE_STATUSES,
         purchase_type=PurchaseInvoice.PurchaseType.GST,
         invoice_date__gte=date_from,
         invoice_date__lte=date_to,

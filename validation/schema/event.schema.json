@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizboard/validation/event.schema.json",
+  "title": "Business event catalog row (Graph 2)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verb", "document_types", "impacts", "g_ids"],
+  "properties": {
+    "verb": { "type": "string", "minLength": 2 },
+    "document_types": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "extended": { "type": "boolean" },
+    "note": { "type": "string" },
+    "g_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "impacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stock", "gl", "ar_ap", "gst", "reports", "attention",
+        "dashboard", "badge_ui", "channel", "historical_period"
+      ],
+      "properties": {
+        "stock": { "enum": ["yes", "no", "lim"] },
+        "gl": { "enum": ["yes", "no", "lim"] },
+        "ar_ap": { "enum": ["yes", "no", "lim"] },
+        "gst": { "enum": ["yes", "no", "lim"] },
+        "reports": { "enum": ["yes", "no", "lim"] },
+        "attention": { "enum": ["yes", "no", "lim"] },
+        "dashboard": { "enum": ["yes", "no", "lim"] },
+        "badge_ui": { "enum": ["yes", "no", "lim"] },
+        "channel": { "enum": ["yes", "no", "lim"] },
+        "historical_period": { "enum": ["required", "n/a", "lim"] }
+      }
+    }
+  }
+}

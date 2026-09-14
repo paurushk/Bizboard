@@ -259,7 +259,7 @@ jobs:
   # Required golden path against real Postgres + Django (Chromium).
   e2e-golden:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: web
@@ -697,7 +697,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - run: pip install -r qos/tools/requirements.txt
+      - run: pip install -r scripts/requirements-tools.txt
       - name: Lint the backlog
         run: python qos/tools/lint.py
       - name: Backlog doc is in sync
@@ -706,6 +706,52 @@ jobs:
           git diff --exit-code docs/PRODUCT_QUALITY_BACKLOG.md
       - name: Linter selftest (every check can fail)
         run: python qos/tools/lint.py --selftest
+
+  # Graph 1 flow catalog. Advisory until 2 consecutive green CI weeks, then the
+  # web lead removes continue-on-error (A3 / load-harness pattern).
+  flow-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install -r scripts/requirements-tools.txt
+      - name: Extractor + action registry selftests
+        run: |
+          python validation/tools/extract_routes.py --selftest
+          python validation/tools/extract_actions.py --selftest
+          python validation/tools/build_flow_catalog.py --selftest
+          python validation/tools/build_event_matrix.py --selftest
+      - name: Generated catalog is in sync
+        run: |
+          python validation/tools/build_flow_catalog.py
+          python validation/tools/build_event_matrix.py
+          git diff --exit-code docs/FLOW_CATALOG.md docs/EVENT_MATRIX.md docs/CROSS_FLOW_IMPACT_MAP.md validation/catalog/routes.yaml validation/catalog/flow_items.yaml validation/catalog/route_count.json validation/catalog/event_matrix.yaml
+      - name: Advisory drift guard
+        run: python scripts/ci_gates/guards/guard_flow_catalog_drift.py
+      - name: Advisory money-verb nudge
+        run: python validation/tools/check_money_verbs.py || true
+
+  # Graph 2 writer-impact nudge (P2-T6). Advisory: a money/stock writer diff
+  # needs a touched test path, or an explicit `validation/impact-none.txt`
+  # reason. Flips blocking with Phase 6 (S5b) — not the flow-catalog A3
+  # two-week rule, a separate clock.
+  writer-impact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Advisory writer-impact guard
+        run: |
+          git fetch --no-tags --depth=50 origin main || true
+          python scripts/ci_gates/guards/guard_writer_impact_coverage.py
 
   # Q-OS dashboard trend snapshot. Advisory. Appends today's per-category counts
   # and publishes them two ways: (1) committed to the dedicated `qos-history`
@@ -723,7 +769,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - run: pip install -r qos/tools/requirements.txt
+      - run: pip install -r scripts/requirements-tools.txt
       - name: Compute + append today's snapshot
         run: |
           python qos/tools/dashboard.py --append "qos/history/$(date +%Y-%m).jsonl"

@@ -73,7 +73,7 @@ export function GstSettingsPage() {
       pan: '',
       udyam: '',
       state: '',
-      registrationType: 'UNREGISTERED',
+      registrationType: 'REGULAR',
       negativeStockPolicy: 'BLOCK',
       valuationBusinessDateOrder: false,
       recomputeTaxOnComplete: false,
@@ -126,10 +126,12 @@ export function GstSettingsPage() {
         throw new Error('Enter a valid 15-character GSTIN.');
       }
       const payload: Record<string, unknown> = {
-        gstin: gstin || null,
-        pan: (values.pan ?? '').trim().toUpperCase() || null,
-        udyam: (values.udyam ?? '').trim().toUpperCase() || null,
-        state: values.state || null,
+        // These are CharField(blank=True) without null=True on the backend —
+        // sending null instead of '' 400s with "This field may not be null."
+        gstin,
+        pan: (values.pan ?? '').trim().toUpperCase(),
+        udyam: (values.udyam ?? '').trim().toUpperCase(),
+        state: values.state ?? '',
         registrationType: values.registrationType,
         negativeStockPolicy: values.negativeStockPolicy,
         valuationBusinessDateOrder: values.valuationBusinessDateOrder,
@@ -337,7 +339,7 @@ export function GstSettingsPage() {
             control={control}
             render={({ field }) => (
               <HelpHint intent="registration-type" slot="registration-type-settings">
-                <TextField select label="GST Registration Type" {...field} value={field.value ?? 'UNREGISTERED'}>
+                <TextField select label="GST Registration Type" {...field} value={field.value ?? 'REGULAR'}>
                   <MenuItem value="REGULAR">Regular Taxpayer (Issues Tax Invoices with CGST/SGST/IGST)</MenuItem>
                   <MenuItem value="COMPOSITION">Composition Scheme (Issues Bill of Supply without Tax)</MenuItem>
                   <MenuItem value="UNREGISTERED">Unregistered / Exempt Business</MenuItem>

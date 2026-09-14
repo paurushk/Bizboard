@@ -35,14 +35,7 @@ const CONTRACT_ENTITIES: Array<{
   knownGaps?: string[];
 }> = [
   { tsName: 'Customer' },
-  {
-    tsName: 'Product',
-    // Only StockBalance (inventory/serializers.py) actually returns these;
-    // Product never does. formatProductOptionLabel.ts falls back to them
-    // when its explicit availableQty arg is omitted, which every real call
-    // site avoids — harmless dead fallback, not a live-data bug.
-    knownGaps: ['onHand', 'reserved', 'available'],
-  },
+  { tsName: 'Product' },
   { tsName: 'CustomerReceipt' },
   { tsName: 'PaymentAllocation' },
   { tsName: 'AccountingAccount', schemaName: 'Account' },

@@ -35,7 +35,8 @@ SOURCE_MAP = BACKLOG_DIR / "_SOURCE_MAP.md"
 
 CATEGORIES = [
     "CRITICAL_BUG", "DISSATISFACTION", "USABILITY", "PERSONA_GAP", "BUSINESS_GAP",
-    "RELIABILITY_TRUST", "PERFORMANCE", "SECURITY_PRIVACY", "DELIGHT", "INNOVATION",
+    "RELIABILITY_TRUST", "CROSS_FLOW_CONSISTENCY", "PERFORMANCE", "SECURITY_PRIVACY",
+    "DELIGHT", "INNOVATION",
 ]
 
 CATEGORY_LABEL = {
@@ -45,6 +46,7 @@ CATEGORY_LABEL = {
     "PERSONA_GAP": "Persona gaps",
     "BUSINESS_GAP": "Business gaps",
     "RELIABILITY_TRUST": "Reliability & trust issues",
+    "CROSS_FLOW_CONSISTENCY": "Cross-flow consistency",
     "PERFORMANCE": "Performance improvements",
     "SECURITY_PRIVACY": "Security & privacy fixes",
     "DELIGHT": "Delight opportunities",
@@ -58,6 +60,7 @@ CATEGORY_EMOJI = {
     "PERSONA_GAP": "\U0001F7E3",        # purple circle
     "BUSINESS_GAP": "\U0001F535",       # blue circle
     "RELIABILITY_TRUST": "\U0001F7E4",  # brown circle
+    "CROSS_FLOW_CONSISTENCY": "\U0001F517",  # link
     "PERFORMANCE": "\U0001F7E2",        # green circle
     "SECURITY_PRIVACY": "\U000026AB",   # black circle
     "DELIGHT": "\U00002728",            # sparkles

@@ -234,6 +234,18 @@ if "sqlite" in _db_engine:
     # CFG-06: persistent SQLite connections are a "database is locked" source
     # under the dev server + eager Celery; keep sqlite connections per-request.
     DATABASES["default"]["CONN_MAX_AGE"] = 0
+    DATABASES["default"].setdefault("OPTIONS", {})["timeout"] = 30
+
+    def _sqlite_wal(sender, connection, **kwargs):
+        if connection.vendor != "sqlite":
+            return
+        cursor = connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute("PRAGMA busy_timeout=30000;")
+
+    from django.db.backends.signals import connection_created
+
+    connection_created.connect(_sqlite_wal)
 else:
     # CFG-05: reap dead pooled connections (needed with CONN_MAX_AGE > 0).
     DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
@@ -371,10 +383,34 @@ SPECTACULAR_SETTINGS = {
     "SCHEMA_PATH_PREFIX": r"/api/v1",
 }
 
+def _with_loopback_companions(origins: list[str]) -> list[str]:
+    """Pair localhost ↔ 127.0.0.1 so cookie CSRF works on either host in non-prod.
+
+    Playwright and some browsers use 127.0.0.1 while .env lists localhost (or
+    the reverse). CSRF_TRUSTED_ORIGINS is an exact Origin match — missing the
+    companion 403s cookie refresh after a full page load and the SPA boots
+    logged-out.
+    """
+    seen = list(origins)
+    extras: list[str] = []
+    for origin in origins:
+        companion = None
+        if "://localhost" in origin:
+            companion = origin.replace("://localhost", "://127.0.0.1", 1)
+        elif "://127.0.0.1" in origin:
+            companion = origin.replace("://127.0.0.1", "://localhost", 1)
+        if companion and companion not in seen:
+            seen.append(companion)
+            extras.append(companion)
+    return origins + extras
+
+
 _cors_env = os.environ.get("CORS_ALLOWED_ORIGINS", "")
 CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()]
 if not CORS_ALLOWED_ORIGINS and DJANGO_ENV not in ("production", "staging"):
     CORS_ALLOWED_ORIGINS = ["http://localhost:5173"]
+if DJANGO_ENV not in ("production", "staging"):
+    CORS_ALLOWED_ORIGINS = _with_loopback_companions(CORS_ALLOWED_ORIGINS)
 if DJANGO_ENV in ("production", "staging"):
     if not _cors_env.strip():
         raise ImproperlyConfigured("CORS_ALLOWED_ORIGINS must be set in production/staging.")
@@ -624,6 +660,8 @@ if DJANGO_ENV in ("production", "staging") and CSRF_TRUSTED_ORIGINS:
         )
 if not CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
+if DJANGO_ENV not in ("production", "staging"):
+    CSRF_TRUSTED_ORIGINS = _with_loopback_companions(CSRF_TRUSTED_ORIGINS)
 
 # Do not expand ALLOWED_HOSTS ".host" into CSRF/CORS wildcards — that would
 # trust every subdomain of a tunnel/host suffix. Set CSRF_TRUSTED_ORIGINS explicitly.

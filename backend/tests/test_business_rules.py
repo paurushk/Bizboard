@@ -106,6 +106,45 @@ def test_referenced_product_soft_deletes(tenant_a):
     assert resp.status_code == 204
 
 
+def test_product_on_price_list_soft_deletes_not_cascades(tenant_a):
+    """PriceListItem.product is on_delete=CASCADE; is_referenced() must cover
+    it or a delete silently wipes the price-list entry instead of deactivating."""
+    from masters.models import PriceList, PriceListItem
+
+    product = make_product(tenant_a.company, sku="PRICED-1")
+    price_list = PriceList.objects.create(company=tenant_a.company, name="Wholesale")
+    PriceListItem.objects.create(
+        company=tenant_a.company, price_list=price_list, product=product, unit_price=Decimal("90"),
+    )
+    resp = tenant_a.client.delete(f"/api/v1/products/{product.id}/")
+    assert resp.status_code == 200, resp.data
+    product.refresh_from_db()
+    assert product.status == Product.Status.INACTIVE
+    assert PriceListItem.objects.filter(product=product).exists()
+
+
+def test_bom_component_soft_deletes_not_error(tenant_a):
+    """Bom.product / BomLine.component are on_delete=PROTECT; is_referenced()
+    must cover them so a delete deactivates cleanly instead of relying on the
+    ProtectedError fallback."""
+    from manufacturing.models import Bom, BomLine
+
+    finished_good = make_product(tenant_a.company, sku="FG-1")
+    component = make_product(tenant_a.company, sku="COMP-1")
+    bom = Bom.objects.create(company=tenant_a.company, product=finished_good, name="FG-1 recipe")
+    BomLine.objects.create(company=tenant_a.company, bom=bom, component=component, qty=Decimal("2"))
+
+    resp = tenant_a.client.delete(f"/api/v1/products/{finished_good.id}/")
+    assert resp.status_code == 200, resp.data
+    finished_good.refresh_from_db()
+    assert finished_good.status == Product.Status.INACTIVE
+
+    resp = tenant_a.client.delete(f"/api/v1/products/{component.id}/")
+    assert resp.status_code == 200, resp.data
+    component.refresh_from_db()
+    assert component.status == Product.Status.INACTIVE
+
+
 def test_invalid_hsn_rejected(tenant_a):
     # CORE-15: 2-digit chapter codes are legal on a product master; a
     # 3-digit / non-numeric code is not.

@@ -14,8 +14,8 @@
     "category": {
       "enum": [
         "CRITICAL_BUG", "DISSATISFACTION", "USABILITY", "PERSONA_GAP",
-        "BUSINESS_GAP", "RELIABILITY_TRUST", "PERFORMANCE",
-        "SECURITY_PRIVACY", "DELIGHT", "INNOVATION"
+        "BUSINESS_GAP", "RELIABILITY_TRUST", "CROSS_FLOW_CONSISTENCY",
+        "PERFORMANCE", "SECURITY_PRIVACY", "DELIGHT", "INNOVATION"
       ]
     },
     "title": { "type": "string", "minLength": 8, "maxLength": 140 },

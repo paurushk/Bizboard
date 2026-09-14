@@ -19,9 +19,9 @@ codebase got here. They are **not** the specification of what BizBoard does and
 ## Active Review Artifacts & Registers
 
 - [`MASTER_ISSUE_REGISTER.md`](MASTER_ISSUE_REGISTER.md) / [`CHANGELOG.md`](CHANGELOG.md) —
-  consult during the Phase 3 P0/P1 sweep, then each remaining P0/P1 is either
-  fixed with a permanent test in `backend/tests/regression/` or reclassified in
-  writing.
+  **historical.** Three ID schemes (CR-*, R-*, BB-*) are not one Open total.
+  Remaining work was absorbed into Q-OS (`QOS-0053`…`0058`;
+  `qos/backlog/_SOURCE_MAP.md`). Do not drive freeze work by summing this file.
 - [`BUGS_AND_GAPS_WITH_SCREENSHOTS.md`](BUGS_AND_GAPS_WITH_SCREENSHOTS.md) —
   Comprehensive Playwright E2E GUI bug and usability gap register with full screenshot evidence.
 - [`UX_AUDIT_FINDINGS.md`](UX_AUDIT_FINDINGS.md) —

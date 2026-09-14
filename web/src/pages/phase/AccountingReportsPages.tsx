@@ -14,6 +14,7 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney, toNumber } from '@/utils/money';
 import { t } from '@/i18n';
 import { triggerBlobDownload } from '@/utils/blob';
+import { AccountingBackfillBanner } from '@/components/AccountingBackfillBanner';
 import {
   asRows,
   DataTable,
@@ -143,6 +144,7 @@ function AccountingReportPage({
         </Stack>
       ) : undefined}
     >
+      <AccountingBackfillBanner />
       {report === 'books-health' ? (
         <Stack spacing={2}>
           {(ar || ap) ? (

@@ -203,11 +203,10 @@ describe('refresh token rejection (BUG-407 / P0-111 / R-045)', () => {
     };
     window.addEventListener('bizboard:session-expired', onExpired);
 
-    vi.spyOn(axios, 'post').mockRejectedValueOnce(
-      Object.assign(new AxiosError('Forbidden'), {
-        response: { status: 403, data: { detail: 'CSRF Failed: CSRF token missing.' } },
-      }),
-    );
+    const csrfError = Object.assign(new AxiosError('Forbidden'), {
+      response: { status: 403, data: { detail: 'CSRF Failed: CSRF token missing.' } },
+    });
+    vi.spyOn(axios, 'post').mockRejectedValue(csrfError);
 
     apiClient.defaults.adapter = async (config) => {
       throw unauthorizedConfig(config as InternalAxiosRequestConfig);
@@ -218,6 +217,35 @@ describe('refresh token rejection (BUG-407 / P0-111 / R-045)', () => {
     expect(expired).toBe(false);
 
     window.removeEventListener('bizboard:session-expired', onExpired);
+  });
+
+  it('retries refresh once on CSRF failure then succeeds', async () => {
+    const csrfError = Object.assign(new AxiosError('Forbidden'), {
+      response: { status: 403, data: { detail: 'CSRF Failed: CSRF token missing.' } },
+    });
+    const postSpy = vi
+      .spyOn(axios, 'post')
+      .mockRejectedValueOnce(csrfError)
+      .mockResolvedValueOnce({ status: 200, data: { access: 'fresh-access' } } as never);
+
+    let calls = 0;
+    apiClient.defaults.adapter = async (config) => {
+      calls += 1;
+      if (calls === 1) throw unauthorizedConfig(config as InternalAxiosRequestConfig);
+      return {
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: config as InternalAxiosRequestConfig,
+        data: { success: true, data: [{ id: 1 }] },
+      };
+    };
+
+    const resp = await apiClient.get('/customers/');
+    expect(postSpy).toHaveBeenCalledTimes(2);
+    expect(calls).toBe(2);
+    expect(resp.data).toEqual({ success: true, data: [{ id: 1 }] });
+    expect(getAccessToken()).toBe('cookie');
   });
 
   it('R-045: 401 without invalid-token language does not logout', async () => {
