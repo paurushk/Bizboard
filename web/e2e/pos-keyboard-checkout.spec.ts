@@ -27,7 +27,7 @@ import { loginAsSales } from './helpers/auth';
  * `.click()` / `page.mouse` calls — every interaction is `.type()`,
  * `.press()`, or Locator.press() (focuses the target itself, no pointer event).
  *
- * Uses the three mock products actually seeded (web/src/mocks/data.ts) as
+ * Uses the mock products seeded in web/src/mocks/data.ts as
  * three distinct cart lines — a literal "5 lines" would need fixture data
  * that doesn't exist yet; three real, distinct SKUs is a faithful stand-in
  * for the same claim (a multi-line sale is keyboard-completable).
@@ -76,9 +76,10 @@ test('adds 3 lines and adjusts quantity keyboard-only, focus stays in the scan f
   // Bump the first line's quantity via the now-labeled stepper (G-6b a11y
   // fix) — Locator.press() focuses the target itself before sending the
   // key, so this stays pointer-free without a fragile manual Tab chain.
-  const increaseFirstLine = page.getByLabel(/increase quantity/i).first();
-  await increaseFirstLine.press('Enter');
-  await expect(page.getByText('2', { exact: true }).first()).toBeVisible();
+  // Qty lives in NumericField (an input value, not a text node).
+  const firstLine = page.locator('tr').filter({ hasText: 'TEA-500' });
+  await firstLine.getByLabel(/increase quantity/i).press('Enter');
+  await expect(firstLine.getByRole('textbox').first()).toHaveValue('2');
 
   // Cart is pay-ready: a real total is showing and the Cash button carries
   // it (PosPage renders `Cash — ${amount}` once cart.length > 0), all

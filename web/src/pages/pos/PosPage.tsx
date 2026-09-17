@@ -8,6 +8,7 @@ import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Tooltip from '@mui/material/Tooltip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -73,7 +74,7 @@ import {
   newIdempotencyKey,
   userGestureIdempotencyKey,
 } from '@/api/client';
-import { trackShopFloor, trackInvoiceComplete } from '@/lib/telemetry';
+import { trackShopFloor, trackInvoiceComplete, trackJourneyStarted, trackJourneyFailed, classifyCompleteFailure } from '@/lib/telemetry';
 import { onNetworkOnline, scanBarcode } from '@/lib/native';
 import { useAuth } from '@/auth/AuthContext';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
@@ -99,6 +100,7 @@ import { flushPosDraft } from '@/offline/flushPosCheckout';
 import type { Customer, PaymentMode, Product } from '@/types/domain';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
+import { posPayDisabledReason } from '@/completeGates/completeBlockers';
 import { isAllowedPaymentUrl, openShareUrl } from '@/utils/safeUrl';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
 import { formatUnitLabel } from '@/constants/unitLabels';
@@ -117,6 +119,7 @@ interface CartLine {
   discountPercent: number;
   unitName: string;
   serialNumbers?: string[];
+  batchNo?: string;
   /** Outbox snapshot already stored the alt-unit price; do not convert again. */
   priceAlreadyConverted?: boolean;
 }
@@ -166,6 +169,7 @@ function draftLinesFromCart(
     discountPercent: line.discountPercent || 0,
     unitName: line.unitName,
     serials: line.serialNumbers,
+    batchNo: line.batchNo,
   }));
 }
 
@@ -322,6 +326,22 @@ export function PosPage() {
     }
     return map;
   }, [stockBalances.data]);
+
+  const posStockBlocked = useMemo(() => {
+    if (company.data?.negativeStockPolicy !== 'BLOCK') return false;
+    const needed = new Map<number, number>();
+    for (const line of cart) {
+      needed.set(line.product.id, (needed.get(line.product.id) ?? 0) + toNumber(line.quantity));
+    }
+    for (const [id, qty] of needed) {
+      if (qty > (availableByProduct.get(id) ?? 0) + 1e-9) return true;
+    }
+    return false;
+  }, [cart, availableByProduct, company.data?.negativeStockPolicy]);
+  const posMissingBatch = cart.some((l) => l.product.trackBatch && !String(l.batchNo ?? '').trim());
+  const posMissingSerial = cart.some(
+    (l) => l.product.trackSerial && (l.serialNumbers ?? []).length !== Math.trunc(l.quantity),
+  );
 
   const activeCustomers = useMemo(() => {
     const rows = (customers.data?.results ?? []).filter((c) => c.status === 'ACTIVE');
@@ -701,12 +721,14 @@ export function PosPage() {
             discountPercent: line.discountPercent ?? 0,
             unitName: line.unitName || undefined,
             ...(line.serials?.length ? { serialNumbers: line.serials } : {}),
+            ...(line.batchNo ? { batchNo: line.batchNo } : {}),
           })),
         },
         { idempotencyKey: key },
       );
+      const started = Date.now();
+      trackJourneyStarted('invoice_complete', 'pos');
       try {
-        const started = Date.now();
         // F2-004: a stable key derived from the create key means a retry
         // that reaches the server again (rather than minting a fresh key,
         // see `checkout`) replays the already-completed response instead
@@ -734,8 +756,14 @@ export function PosPage() {
           /* can't confirm either way -- handled below */
         }
         if (existing?.status === 'COMPLETED') {
+          trackInvoiceComplete(Date.now() - started, pointerCount.current);
+          pointerCount.current = 0;
           return existing;
         }
+        trackJourneyFailed('invoice_complete', classifyCompleteFailure(err), {
+          durationMs: Date.now() - started,
+          feature: 'pos',
+        });
         if (existing) {
           // Confirmed still DRAFT -- genuinely failed, safe to clean up.
           try {
@@ -783,40 +811,52 @@ export function PosPage() {
           const invoiceDate = todayIso();
           const isInclusive = company.data?.priceMode === 'INCLUSIVE';
           const tenderedVal = cashTendered ? Number(cashTendered) : undefined;
-          const atomicRes = await posCheckout(
-            {
-              invoice: {
-                customer,
-                invoice_type: posInvoiceType,
-                price_mode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
-                invoice_date: invoiceDate,
-                due_date: invoiceDate,
-                payment_terms_days: 0,
-                auto_round_off: true,
-                warehouse: warehouseId ? Number(warehouseId) : undefined,
-                items: lines.map((line) => ({
-                  product: line.productId,
-                  description: line.productName,
-                  quantity: line.quantity,
-                  unit_price: line.unitPrice,
-                  unit_price_inclusive: isInclusive ? line.unitPrice : undefined,
-                  gst_rate: taxEnabled ? line.gstRate : 0,
-                  cess_rate: taxEnabled ? toNumber((line as { cessRate?: number }).cessRate) : 0,
-                  discount_percent: line.discountPercent ?? 0,
-                  unit_name: line.unitName || undefined,
-                  ...(line.serials?.length ? { serial_numbers: line.serials } : {}),
-                })),
+          const started = Date.now();
+          trackJourneyStarted('invoice_complete', 'pos');
+          try {
+            const atomicRes = await posCheckout(
+              {
+                invoice: {
+                  customer,
+                  invoice_type: posInvoiceType,
+                  price_mode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
+                  invoice_date: invoiceDate,
+                  due_date: invoiceDate,
+                  payment_terms_days: 0,
+                  auto_round_off: true,
+                  warehouse: warehouseId ? Number(warehouseId) : undefined,
+                  items: lines.map((line) => ({
+                    product: line.productId,
+                    description: line.productName,
+                    quantity: line.quantity,
+                    unit_price: line.unitPrice,
+                    unit_price_inclusive: isInclusive ? line.unitPrice : undefined,
+                    gst_rate: taxEnabled ? line.gstRate : 0,
+                    cess_rate: taxEnabled ? toNumber((line as { cessRate?: number }).cessRate) : 0,
+                    discount_percent: line.discountPercent ?? 0,
+                    unit_name: line.unitName || undefined,
+                    ...(line.serials?.length ? { serial_numbers: line.serials } : {}),
+                  })),
+                },
+                payment: {
+                  mode: 'CASH',
+                  tendered_amount: tenderedVal,
+                },
               },
-              payment: {
-                mode: 'CASH',
-                tendered_amount: tenderedVal,
-              },
-            },
-            { idempotencyKey: key },
-          );
-          completed = atomicRes.invoice;
-          await finishSale(completed, key);
-          return;
+              { idempotencyKey: key },
+            );
+            trackInvoiceComplete(Date.now() - started, pointerCount.current);
+            pointerCount.current = 0;
+            completed = atomicRes.invoice;
+            await finishSale(completed, key);
+            return;
+          } catch (err) {
+            trackJourneyFailed('invoice_complete', classifyCompleteFailure(err), {
+              durationMs: Date.now() - started,
+              feature: 'pos',
+            });
+            throw err;
+          }
         } else {
           completed = await createCompletedInvoice(lines, customer, key, confirmBlankPos);
           settlement = {
@@ -943,38 +983,50 @@ export function PosPage() {
           draftLinesFromCart(cart, taxEnabled, (id, qty) =>
             unitPriceFor(id, qty, cart.find((l) => l.product.id === id)?.product.sellingPrice),
           );
-        const atomicRes = await posCheckout(
-          {
-            invoice: {
-              customer: upiPending.customer,
-              invoice_type: posInvoiceType,
-              price_mode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
-              invoice_date: invoiceDate,
-              due_date: invoiceDate,
-              payment_terms_days: 0,
-              auto_round_off: true,
-              warehouse: warehouseId ? Number(warehouseId) : undefined,
-              items: checkoutLines.map((line) => ({
-                product: line.productId,
-                description: line.productName,
-                quantity: line.quantity,
-                unit_price: line.unitPrice,
-                unit_price_inclusive: isInclusive ? line.unitPrice : undefined,
-                gst_rate: taxEnabled ? line.gstRate : 0,
-                cess_rate: taxEnabled ? toNumber((line as { cessRate?: number }).cessRate) : 0,
-                discount_percent: line.discountPercent ?? 0,
-                unit_name: line.unitName || undefined,
-                ...(line.serials?.length ? { serial_numbers: line.serials } : {}),
-              })),
+        const started = Date.now();
+        trackJourneyStarted('invoice_complete', 'pos');
+        try {
+          const atomicRes = await posCheckout(
+            {
+              invoice: {
+                customer: upiPending.customer,
+                invoice_type: posInvoiceType,
+                price_mode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
+                invoice_date: invoiceDate,
+                due_date: invoiceDate,
+                payment_terms_days: 0,
+                auto_round_off: true,
+                warehouse: warehouseId ? Number(warehouseId) : undefined,
+                items: checkoutLines.map((line) => ({
+                  product: line.productId,
+                  description: line.productName,
+                  quantity: line.quantity,
+                  unit_price: line.unitPrice,
+                  unit_price_inclusive: isInclusive ? line.unitPrice : undefined,
+                  gst_rate: taxEnabled ? line.gstRate : 0,
+                  cess_rate: taxEnabled ? toNumber((line as { cessRate?: number }).cessRate) : 0,
+                  discount_percent: line.discountPercent ?? 0,
+                  unit_name: line.unitName || undefined,
+                  ...(line.serials?.length ? { serial_numbers: line.serials } : {}),
+                })),
+              },
+              payment: {
+                mode: 'UPI',
+                amount: upiPending.amount,
+              },
             },
-            payment: {
-              mode: 'UPI',
-              amount: upiPending.amount,
-            },
-          },
-          { idempotencyKey: upiPending.key },
-        );
-        await finishSale(atomicRes.invoice, upiPending.key);
+            { idempotencyKey: upiPending.key },
+          );
+          trackInvoiceComplete(Date.now() - started, pointerCount.current);
+          pointerCount.current = 0;
+          await finishSale(atomicRes.invoice, upiPending.key);
+        } catch (err) {
+          trackJourneyFailed('invoice_complete', classifyCompleteFailure(err), {
+            durationMs: Date.now() - started,
+            feature: 'pos',
+          });
+          throw err;
+        }
       }
       setUpiPending(null);
       clearUpiPendingStorage(companyId, userId);
@@ -1071,6 +1123,20 @@ export function PosPage() {
     async (mode: PaymentMode, opts?: { confirmBlankPos?: boolean; confirmWalkIn?: boolean }) => {
       if (writesBlocked) {
         setError(t('billing.writesBlocked'));
+        return;
+      }
+      if (posStockBlocked) {
+        setError(t('billing.completeDisabledInsufficientStock'));
+        return;
+      }
+      if (posMissingBatch) {
+        setError(t('billing.completeDisabledMissingBatch'));
+        setSerialBatchError({ mode, message: t('billing.completeDisabledMissingBatch') });
+        return;
+      }
+      if (posMissingSerial) {
+        setError(t('pos.serialRequired'));
+        setSerialBatchError({ mode, message: t('pos.serialRequired') });
         return;
       }
       // Confirm-dialog retries must not be blocked by the busy flag from the
@@ -1301,12 +1367,50 @@ export function PosPage() {
       walkInCustomer,
       walkInName,
       writesBlocked,
+      posStockBlocked,
+      posMissingBatch,
+      posMissingSerial,
       busy,
       activeCustomers,
       selectedCustomer.data,
       warehouseId,
     ],
   );
+
+  const cashPayDisabled =
+    writesBlocked ||
+    busy ||
+    isFlushing ||
+    Boolean(upiPending) ||
+    (cart.length === 0 && !cashPending) ||
+    (cart.length > 0 && (posStockBlocked || posMissingBatch || posMissingSerial));
+  const upiPayDisabled =
+    writesBlocked ||
+    busy ||
+    isFlushing ||
+    tenderPreviewFailed ||
+    Boolean(cashPending) ||
+    (cart.length === 0 && !upiPending) ||
+    (cart.length > 0 && (posStockBlocked || posMissingBatch || posMissingSerial));
+  const cashPayReason = posPayDisabledReason({
+    mode: 'CASH',
+    writesBlocked,
+    busy: busy || isFlushing,
+    upiPending: Boolean(upiPending),
+    stockBlocked: posStockBlocked,
+    missingBatch: posMissingBatch,
+    missingSerial: posMissingSerial,
+  });
+  const upiPayReason = posPayDisabledReason({
+    mode: 'UPI',
+    writesBlocked,
+    busy: busy || isFlushing,
+    cashPending: Boolean(cashPending),
+    tenderPreviewFailed,
+    stockBlocked: posStockBlocked,
+    missingBatch: posMissingBatch,
+    missingSerial: posMissingSerial,
+  });
 
   if (!posEnabled()) {
     return (
@@ -1658,6 +1762,23 @@ export function PosPage() {
                               sx={{ mt: 0.5 }}
                             />
                           ) : null}
+                          {line.product.trackBatch ? (
+                            <TextField
+                              size="small"
+                              required
+                              error={!String(line.batchNo ?? '').trim()}
+                              value={line.batchNo ?? ''}
+                              onChange={(e) =>
+                                setCart((prev) =>
+                                  prev.map((row) =>
+                                    row.key === line.key ? { ...row, batchNo: e.target.value } : row,
+                                  ),
+                                )
+                              }
+                              placeholder={t('billing.purchaseBatchPlaceholder')}
+                              sx={{ mt: 0.5 }}
+                            />
+                          ) : null}
                         </TableCell>
                         <TableCell align="right">
                           <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
@@ -1674,6 +1795,7 @@ export function PosPage() {
                               min={1}
                               emptyAs={1}
                               fullWidth={false}
+                              inputProps={{ 'aria-label': t('pos.qty') }}
                               sx={{ width: 56 }}
                             />
                             <IconButton
@@ -1826,17 +1948,14 @@ export function PosPage() {
               <Typography>{formatMoney(changeDue)}</Typography>
             </Stack>
             <Divider />
+            {cashPayReason ? <Alert severity="warning">{cashPayReason}</Alert> : null}
+            <Tooltip title={cashPayDisabled ? cashPayReason || '' : ''}>
+              <span>
             <Button
               variant={lastMethod === 'CASH' ? 'contained' : 'outlined'}
               autoFocus={lastMethod === 'CASH'}
               size="large"
-              disabled={
-                writesBlocked ||
-                busy ||
-                isFlushing ||
-                Boolean(upiPending) ||
-                (cart.length === 0 && !cashPending)
-              }
+              disabled={cashPayDisabled}
               onClick={() => {
                 rememberMethod('CASH');
                 void checkout('CASH');
@@ -1846,18 +1965,15 @@ export function PosPage() {
                 ? t('pos.finishPayment', { amount: formatMoney(cashPending.amount) })
                 : t('pos.cashPay', { amount: formatMoney(gateTotal) })}
             </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title={upiPayDisabled ? upiPayReason || '' : ''}>
+              <span>
             <Button
               variant={lastMethod === 'UPI' ? 'contained' : 'outlined'}
               autoFocus={lastMethod === 'UPI'}
               size="large"
-              disabled={
-                writesBlocked ||
-                busy ||
-                isFlushing ||
-                tenderPreviewFailed ||
-                Boolean(cashPending) ||
-                (cart.length === 0 && !upiPending)
-              }
+              disabled={upiPayDisabled}
               onClick={() => {
                 rememberMethod('UPI');
                 void checkout('UPI');
@@ -1865,6 +1981,8 @@ export function PosPage() {
             >
               {t('pos.upiPay', { amount: formatMoney(gateTotal) })}
             </Button>
+              </span>
+            </Tooltip>
             <Button
               variant="text"
               color="inherit"

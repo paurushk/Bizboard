@@ -34,7 +34,7 @@ test('low-traffic money-adjacent surfaces: create + one action each', async ({ p
   await expect(page.getByRole('cell', { name: listName })).toBeVisible();
 
   await page.goto('/accounting/cost-centers');
-  await page.getByRole('button', { name: 'Add' }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByLabel('Name').fill(centerName);
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByRole('row', { name: new RegExp(centerName) })).toBeVisible();
