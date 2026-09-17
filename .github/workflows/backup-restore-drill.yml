@@ -2,7 +2,9 @@ name: Backup restore drill
 
 # QOS-0022: the backup/restore *logic* is covered by
 # backend/tests/errors/test_backup_restore_drill.py at the Django-ORM layer;
-# this exercises the real pg_dump/gzip -> psql restore pipeline on a schedule,
+# 95-plan V3 G-11b (dump → migrate → restore → invariants) is
+# backend/tests/test_holistic_95.py::test_v3_g11b_export_migrate_restore_invariants.
+# This workflow is the real pg_dump/gzip -> psql restore pipeline on a schedule,
 # into a throwaway scratch DB (never anything live), then runs the standalone
 # invariant sweep (manage.py check_invariants) against the restored data.
 # Advisory: alert on failure via the workflow's own red-X notification, don't

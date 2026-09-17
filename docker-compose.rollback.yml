@@ -1,0 +1,17 @@
+# Overlay: roll back to the previous known-good image digests (14.6).
+# Usage (Human sets the previous digest env vars from the last good deploy):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     -f docker-compose.rollback.yml up -d
+#
+# Do not use :latest. Prefer restore-from-backup if money/tenant data may be wrong
+# (docs/pilot/RUNBOOKS.md).
+
+services:
+  api:
+    image: ${BIZBOARD_API_PREVIOUS_IMAGE:?set previous api digest}
+  worker:
+    image: ${BIZBOARD_API_PREVIOUS_IMAGE:?set previous api digest}
+  beat:
+    image: ${BIZBOARD_API_PREVIOUS_IMAGE:?set previous api digest}
+  web:
+    image: ${BIZBOARD_WEB_PREVIOUS_IMAGE:?set previous web digest}

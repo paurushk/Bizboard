@@ -1,0 +1,18 @@
+# Gitleaks config — advisory CI job. Example env templates are not secrets.
+title = "BizBoard"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Example env templates and local compose placeholders"
+paths = [
+  '''.*\.example$''',
+  '''.*\.example\..*$''',
+  '''.*env\.(dev|staging|production|pilot)\.example$''',
+]
+regexes = [
+  '''local-staging-only-''',
+  '''CHANGE_ME_''',
+  '''replace-with-''',
+]

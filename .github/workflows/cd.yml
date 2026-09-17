@@ -90,8 +90,8 @@ jobs:
             --build-arg VITE_ENABLE_ACCOUNTING=true \
             --build-arg VITE_ENABLE_AI=false \
             --build-arg VITE_ENABLE_TALLY=false \
-            --build-arg VITE_ENABLE_GSTR=true \
-            --build-arg VITE_ENABLE_EINVOICE_SUBMIT=true \
+            --build-arg VITE_ENABLE_GSTR=false \
+            --build-arg VITE_ENABLE_EINVOICE_SUBMIT=false \
             --build-arg VITE_ENABLE_POS=true \
             --build-arg VITE_ENABLE_MANUFACTURING=false \
             --build-arg VITE_ENABLE_PAYROLL=false \
@@ -111,3 +111,30 @@ jobs:
           ./scripts/pin_image_digests.sh "$API" "$WEB" docker-compose.digest.yml
           grep -E '@sha256:[0-9a-f]{32,}' docker-compose.digest.yml >/dev/null \
             || { echo "::error::W0-08b image digest pin missing"; exit 1; }
+
+  post-deploy-smoke:
+    needs: [push-images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Smoke staging when STAGING_BASE_URL is set
+        env:
+          STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
+          STAGING_EMAIL: ${{ secrets.STAGING_SMOKE_EMAIL }}
+          STAGING_PASSWORD: ${{ secrets.STAGING_SMOKE_PASSWORD }}
+        run: |
+          if [ -z "${STAGING_BASE_URL}" ]; then
+            echo "skip: STAGING_BASE_URL is not configured"
+            exit 0
+          fi
+          python scripts/post_deploy_smoke.py \
+            --base-url "$STAGING_BASE_URL" \
+            --email "$STAGING_EMAIL" \
+            --password "$STAGING_PASSWORD"

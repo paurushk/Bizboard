@@ -1,0 +1,123 @@
+# Thin STAGING overlay. Independent project, volumes, network, env, backups,
+# and host port. Must never share persistent data with DEV.
+#
+#   copy .env.staging.example → .env.staging  (gitignored)
+#   docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml --profile migrate run --rm migrate
+#   docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml up -d
+#   .\scripts\compose-env.ps1 staging up -d
+#
+# This is local/pre-staging, not production. Production remains:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml
+# See docs/DOCKER_ENVIRONMENT.md
+name: bizboard-staging
+
+networks:
+  default:
+    name: bizboard_staging_net
+
+volumes:
+  postgres_data:
+    name: bizboard_staging_postgres
+  redis_data:
+    name: bizboard_staging_redis
+  media_data:
+    name: bizboard_staging_media
+  static_data:
+    name: bizboard_staging_static
+  pip_cache:
+    name: bizboard_pip_cache
+
+services:
+  migrate:
+    image: bizboard-api:latest
+    env_file:
+      - path: .env.staging
+        required: true
+    environment:
+      DJANGO_ENV: staging
+      DJANGO_DEBUG: "0"
+      BIZBOARD_COMPOSE_ENV: staging
+      POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-1}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    command:
+      [
+        "sh",
+        "-c",
+        "echo '[bizboard] compose_env=staging migrate' && exec python manage.py migrate --noinput",
+      ]
+  api:
+    env_file:
+      - path: .env.staging
+        required: true
+    environment:
+      DJANGO_ENV: staging
+      DJANGO_DEBUG: "0"
+      BIZBOARD_COMPOSE_ENV: staging
+      POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-1}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    command: >
+      sh -c "echo '[bizboard] compose_env=staging django_env=staging' &&
+      exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout 120"
+  worker:
+    image: bizboard-api:latest
+    env_file:
+      - path: .env.staging
+        required: true
+    environment:
+      DJANGO_ENV: staging
+      DJANGO_DEBUG: "0"
+      BIZBOARD_COMPOSE_ENV: staging
+      POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-1}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    command: >
+      sh -c "echo '[bizboard] compose_env=staging worker' &&
+      exec celery -A config worker -l info"
+  beat:
+    image: bizboard-api:latest
+    env_file:
+      - path: .env.staging
+        required: true
+    environment:
+      DJANGO_ENV: staging
+      DJANGO_DEBUG: "0"
+      BIZBOARD_COMPOSE_ENV: staging
+      POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-1}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    command: >
+      sh -c "echo '[bizboard] compose_env=staging beat' &&
+      exec celery -A config beat -l info"
+  backup:
+    env_file:
+      - path: .env.staging
+        required: true
+    environment:
+      BIZBOARD_COMPOSE_ENV: staging
+    volumes:
+      - ./backups/staging:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+  restore:
+    env_file:
+      - path: .env.staging
+        required: true
+    environment:
+      BIZBOARD_COMPOSE_ENV: staging
+    volumes:
+      - ./backups/staging:/backups
+      - ./scripts/restore.sh:/restore.sh:ro
+  test:
+    env_file:
+      - path: .env.staging
+        required: false
+    environment:
+      BIZBOARD_COMPOSE_ENV: staging
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  web:
+    image: bizboard-web
+  nginx:
+    ports: !override
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8081}:80"

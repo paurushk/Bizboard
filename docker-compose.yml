@@ -1,4 +1,10 @@
 # BB-000217: POSTGRES_PASSWORD and REDIS_PASSWORD must be set in .env (no weak defaults).
+#
+# Local isolation overlays (do not replace this file):
+#   DEV:     docker compose -f docker-compose.yml -f docker-compose.dev.yml
+#   STAGING: docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml
+#   PROD:    docker compose -f docker-compose.yml -f docker-compose.prod.yml
+# See docs/DOCKER_ENVIRONMENT.md
 services:
   db:
     image: postgres:17-alpine
@@ -85,7 +91,7 @@ services:
   worker:
     build: ./backend
     restart: unless-stopped
-    command: celery -A config worker -l info
+    command: celery -A config worker -l info --concurrency=${CELERY_CONCURRENCY:-2}
     # BB-000314: required:false for local/dev; a prod overlay should set required:true.
     env_file:
       - path: .env
@@ -159,7 +165,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - ./backups:/backups
+      - ${BACKUP_DIR:-./backups}:/backups
       - ./scripts/backup.sh:/backup.sh:ro
     entrypoint: ["/bin/sh", "/backup.sh"]
     depends_on:
@@ -184,7 +190,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       RESTORE_FILE: ${RESTORE_FILE:-}
     volumes:
-      - ./backups:/backups
+      - ${BACKUP_DIR:-./backups}:/backups
       - ./scripts/restore.sh:/restore.sh:ro
     entrypoint: ["/bin/sh", "/restore.sh"]
     depends_on:
@@ -243,8 +249,8 @@ services:
         VITE_ENABLE_ACCOUNTING: ${VITE_ENABLE_ACCOUNTING:-true}
         VITE_ENABLE_AI: ${VITE_ENABLE_AI:-false}
         VITE_ENABLE_TALLY: ${VITE_ENABLE_TALLY:-false}
-        VITE_ENABLE_GSTR: ${VITE_ENABLE_GSTR:-true}
-        VITE_ENABLE_EINVOICE_SUBMIT: ${VITE_ENABLE_EINVOICE_SUBMIT:-true}
+        VITE_ENABLE_GSTR: ${VITE_ENABLE_GSTR:-false}
+        VITE_ENABLE_EINVOICE_SUBMIT: ${VITE_ENABLE_EINVOICE_SUBMIT:-false}
         VITE_ENABLE_POS: ${VITE_ENABLE_POS:-true}
         VITE_ENABLE_MANUFACTURING: ${VITE_ENABLE_MANUFACTURING:-false}
         VITE_ENABLE_PAYROLL: ${VITE_ENABLE_PAYROLL:-false}

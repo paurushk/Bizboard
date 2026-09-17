@@ -331,6 +331,12 @@ jobs:
             'BIZBOARD_API_IMAGE=ghcr.io/example/bizboard-api@sha256:0000000000000000000000000000000000000000000000000000000000000000' > .env
       - run: docker compose config
       - run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config
+      - name: Dev/staging compose overlays render
+        run: |
+          cp .env.dev.example .env.dev
+          cp .env.staging.example .env.staging
+          docker compose --env-file .env.dev -f docker-compose.yml -f docker-compose.dev.yml config >/dev/null
+          docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml config >/dev/null
       # M1-010: a committed capacitor.config must never hardcode server.url.
       - name: capacitor.config has no hardcoded server url
         run: |
@@ -643,9 +649,10 @@ jobs:
         if: always()
         run: kill "$(cat /tmp/celery.pid)" || true
 
-  # QOS-0019: mutation audit on the crown-jewel modules. Advisory — mutmut needs
-  # Linux (no native Windows), so this is the home for it. Survivors are missing
-  # assertions; triage them into core/invariants/ or tests/gst/. Not a merge gate.
+  # QOS-0019 / 95-plan V3: mutation audit on the crown-jewel modules. Advisory —
+  # mutmut needs Linux (no native Windows), so this is the home for it. Do not
+  # make this blocking. Survivors are missing assertions; triage them into
+  # core/invariants/ or tests/gst/. Not a merge gate.
   mutation-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -752,6 +759,38 @@ jobs:
         run: |
           git fetch --no-tags --depth=50 origin main || true
           python scripts/ci_gates/guards/guard_writer_impact_coverage.py
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Scan repository for secrets
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 detect \
+            --source=/repo --verbose --redact --config=/repo/.gitleaks.toml
+
+  # 10.2 — advisory DAST. Empty STAGING_BASE_URL must skip (no false-red, no
+  # attack on an unset host). continue-on-error: findings never block merge.
+  zap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: OWASP ZAP baseline (skip when STAGING_BASE_URL is unset)
+        env:
+          STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
+        run: |
+          if [ -z "${STAGING_BASE_URL}" ]; then
+            echo "skip: STAGING_BASE_URL secret is empty"
+            exit 0
+          fi
+          docker run --rm -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+            -t "${STAGING_BASE_URL}" -I
 
   # Q-OS dashboard trend snapshot. Advisory. Appends today's per-category counts
   # and publishes them two ways: (1) committed to the dedicated `qos-history`

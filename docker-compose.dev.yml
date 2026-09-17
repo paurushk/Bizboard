@@ -1,0 +1,51 @@
+# Thin DEV overlay. Pins the current Compose project and volume names so
+# existing local data (`bizboard_postgres_data`, etc.) is unchanged.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#   .\scripts\compose-env.ps1 dev up -d
+#
+# Production is docker-compose.prod.yml — do not use this overlay on a prod host.
+# See docs/DOCKER_ENVIRONMENT.md
+name: bizboard
+
+networks:
+  default:
+    name: bizboard_default
+
+volumes:
+  postgres_data:
+    name: bizboard_postgres_data
+  redis_data:
+    name: bizboard_redis_data
+  media_data:
+    name: bizboard_media_data
+  static_data:
+    name: bizboard_static_data
+  pip_cache:
+    name: bizboard_pip_cache
+
+services:
+  migrate:
+    environment:
+      BIZBOARD_COMPOSE_ENV: development
+  api:
+    environment:
+      BIZBOARD_COMPOSE_ENV: development
+  worker:
+    environment:
+      BIZBOARD_COMPOSE_ENV: development
+  beat:
+    environment:
+      BIZBOARD_COMPOSE_ENV: development
+  backup:
+    environment:
+      BIZBOARD_COMPOSE_ENV: development
+    volumes:
+      - ./backups/dev:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+  restore:
+    environment:
+      BIZBOARD_COMPOSE_ENV: development
+    volumes:
+      - ./backups/dev:/backups
+      - ./scripts/restore.sh:/restore.sh:ro

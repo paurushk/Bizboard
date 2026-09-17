@@ -23,6 +23,8 @@ mobile/ios/
 
 # Environment and editor
 .env
+.env.dev
+.env.staging
 .idea/
 .vscode/
 *.log
