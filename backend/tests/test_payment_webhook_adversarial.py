@@ -319,7 +319,9 @@ def test_test_mode_sandbox_settle_blocked_in_production(tenant_a):
     assert link.status != PaymentLinkStatus.PAID
 
 
-def test_public_pay_omits_customer_and_invoice(tenant_a):
+def test_public_pay_omits_internal_party_identifiers(tenant_a):
+    """Public tokenized pay may show invoice number + customer name (PublicPayPage)
+    but must not leak internal ids or contact PII."""
     inv, customer = _complete_invoice(tenant_a)
     link = PaymentService.create_payment_link(
         company=tenant_a.company,
@@ -330,10 +332,12 @@ def test_public_pay_omits_customer_and_invoice(tenant_a):
     )
     r = tenant_a.client.get(f"/api/v1/public/pay/{link.token}/")
     assert r.status_code == 200
-    assert "customer_name" not in r.data
-    assert "invoice_number" not in r.data
     assert "amount" in r.data
     assert "company_name" in r.data
+    assert r.data.get("invoice_number") == inv.number
+    assert r.data.get("customer_name") == customer.name
+    for leaked in ("customer", "customer_id", "sales_invoice", "phone", "email", "gstin"):
+        assert leaked not in r.data
 
 
 def test_company_patch_cannot_set_gateway_test_mode(tenant_a):

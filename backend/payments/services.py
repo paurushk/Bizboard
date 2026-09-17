@@ -348,12 +348,13 @@ class PaymentService:
         if tds_amt > Decimal(str(amount)):
             raise BusinessRuleError("TDS amount cannot exceed the payment amount.")
         from purchases.models import PurchaseInvoice
+        from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 
         if tds_amt > 0 and PurchaseInvoice.objects.filter(
             company=company,
             supplier=supplier,
             tds_amount__gt=0,
-            status=PurchaseInvoice.Status.COMPLETED,
+            status__in=OPEN_PAYABLE_STATUSES,
         ).exists():
             raise BusinessRuleError(
                 "This supplier already has invoices with TDS. Record TDS on the invoice only; "
@@ -744,6 +745,12 @@ class PaymentService:
             updated_by=user,
         )
         emit("payment_link.created", document=link, user=user, event="payment_link.created")
+        try:
+            from insights.telemetry import record_journey_started
+
+            record_journey_started(company, "payment", user=user)
+        except Exception:  # noqa: BLE001
+            pass
         return link
 
     @staticmethod

@@ -19,6 +19,30 @@ test.describe('payments domain', () => {
     await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
   });
 
+  test('create payment link: invoice and customer pickers show the picked value, not the raw query', async ({ page }) => {
+    // Regression guard: these Autocompletes only set the invoice/customer
+    // object on select (BankingPhasePages' PaymentLinksPage), so the box must
+    // display the picked label — a stale query here looks exactly like the
+    // click did nothing.
+    await loginAsOwner(page);
+    await page.goto('/payments/links', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: /create link/i }).click();
+    await expect(page.getByRole('dialog').getByText(/create payment link/i)).toBeVisible();
+
+    // Customer first — picking an invoice below disables this field.
+    const customerCombo = page.getByRole('combobox', { name: /customer \(if no invoice\)/i });
+    await customerCombo.click();
+    await customerCombo.fill('Rahul');
+    await page.getByRole('option', { name: /Rahul Stores/i }).click();
+    await expect(customerCombo).toHaveValue(/Rahul Stores/i);
+
+    const invoiceCombo = page.getByRole('combobox', { name: /sales invoice/i });
+    await invoiceCombo.click();
+    await invoiceCombo.fill('INV-2026-0001');
+    await page.getByRole('option', { name: /INV-2026-0001/i }).click();
+    await expect(invoiceCombo).toHaveValue(/INV-2026-0001/i);
+  });
+
   test('bank statements page lists a committed statement', async ({ page }) => {
     await loginAsOwner(page);
     await page.goto('/payments/statements', { waitUntil: 'domcontentloaded' });

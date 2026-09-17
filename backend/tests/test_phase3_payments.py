@@ -316,6 +316,30 @@ def test_outstanding_invariant_after_webhook(tenant_a):
     assert LedgerService.sales_invoice_outstanding(inv) == Decimal("0")
 
 
+def test_payment_webhook_emits_trace_span(tenant_a):
+    from core.tracing import captured_spans, clear_spans
+
+    inv, customer = _complete_invoice(tenant_a, price="500")
+    link = PaymentService.create_payment_link(
+        company=tenant_a.company,
+        amount=Decimal("500"),
+        sales_invoice=inv,
+        customer=customer,
+        provider="sandbox",
+    )
+    body = {
+        "payment_id": "pay_span_1",
+        "amount": "500.00",
+        "fee": "0",
+        "status": "CAPTURED",
+        "payment_link_id": link.provider_link_id,
+    }
+    clear_spans()
+    wh = _post_sandbox_webhook(tenant_a.client, tenant_a.company.id, body)
+    assert wh.status_code == 200, wh.data
+    assert "payments.webhook" in [row["name"] for row in captured_spans()]
+
+
 def test_ambiguous_match_does_not_auto_apply(tenant_a):
     from payments.models import BankLineMatchStatus, BankStatement, BankStatementLine, BankStatementStatus
     from payments.recon import is_exact_unique_suggestion, suggest_matches

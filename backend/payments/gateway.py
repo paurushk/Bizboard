@@ -36,6 +36,23 @@ def _json_body(body: bytes) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _provider_post(circuit_name: str, *args, **kwargs):
+    """Fail-closed HTTP POST for money-path gateways (9.3)."""
+    import requests
+
+    from core.circuit_breaker import CircuitOpenError, call as circuit_call
+
+    def _do():
+        return requests.post(*args, **kwargs)
+
+    try:
+        return circuit_call(circuit_name, _do, failure_threshold=5, cooldown_seconds=30)
+    except CircuitOpenError as exc:
+        raise BusinessRuleError(
+            "Payments provider is temporarily unavailable. Try again shortly."
+        ) from exc
+
+
 def _refund_event_map_v2() -> bool:
     """R-002/R-003: classify refund.* by exact event name. Emergency off restores the old map."""
     from django.conf import settings
@@ -361,10 +378,9 @@ class RazorpayAdapter:
 
         import base64
 
-        import requests
-
         auth = base64.b64encode(f"{self.key_id}:{self.key_secret}".encode()).decode()
-        resp = requests.post(
+        resp = _provider_post(
+            "razorpay_collections",
             "https://api.razorpay.com/v1/payment_links",
             headers={"Authorization": f"Basic {auth}", "Content-Type": "application/json"},
             json=payload,
@@ -497,8 +513,6 @@ class RazorpayAdapter:
             raise BusinessRuleError("Razorpay credentials are not configured.")
         import base64
 
-        import requests
-
         auth = base64.b64encode(f"{self.key_id}:{self.key_secret}".encode()).decode()
         amount_paise = int(Decimal(amount).quantize(Decimal("0.01")) * 100)
         headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
@@ -507,7 +521,8 @@ class RazorpayAdapter:
         body = {"amount": amount_paise}
         if idempotency_key:
             body["receipt"] = idempotency_key[:40]
-        resp = requests.post(
+        resp = _provider_post(
+            "razorpay_collections",
             f"https://api.razorpay.com/v1/payments/{provider_payment_id}/refund",
             headers=headers,
             json=body,
@@ -524,10 +539,9 @@ class RazorpayAdapter:
             raise BusinessRuleError("Missing Razorpay payment link id.")
         import base64
 
-        import requests
-
         auth = base64.b64encode(f"{self.key_id}:{self.key_secret}".encode()).decode()
-        resp = requests.post(
+        resp = _provider_post(
+            "razorpay_collections",
             f"https://api.razorpay.com/v1/payment_links/{provider_link_id}/cancel",
             headers={"Authorization": f"Basic {auth}", "Content-Type": "application/json"},
             timeout=30,
@@ -588,9 +602,8 @@ class CashfreeGateway:
             "link_notify": {"send_sms": False, "send_email": False},
             "link_meta": {"return_url": kwargs.get("callback_url") or ""},
         }
-        import requests
-
-        resp = requests.post(
+        resp = _provider_post(
+            "cashfree_collections",
             f"{self.api_base}/links",
             headers={
                 "x-client-id": self.app_id,
@@ -617,9 +630,8 @@ class CashfreeGateway:
             raise BusinessRuleError("Cashfree credentials are not configured.")
         if not provider_link_id:
             raise BusinessRuleError("Missing Cashfree payment link id.")
-        import requests
-
-        resp = requests.post(
+        resp = _provider_post(
+            "cashfree_collections",
             f"{self.api_base}/links/{provider_link_id}/cancel",
             headers={
                 "x-client-id": self.app_id,
@@ -724,12 +736,11 @@ class CashfreeGateway:
         idempotency_key = idempotency_key or _stable_refund_key(provider_payment_id, amount)
         if not self.app_id or not self.secret_key:
             raise BusinessRuleError("Cashfree credentials are not configured.")
-        import requests
-
         order_id = cashfree_order_id_for_refund(provider_payment_id, raw)
         refund_amount = str(Decimal(amount).quantize(Decimal("0.01")))
         refund_id = (idempotency_key or f"bb_rf_{secrets.token_hex(8)}")[:40]
-        resp = requests.post(
+        resp = _provider_post(
+            "cashfree_collections",
             f"{self.api_base}/orders/{order_id}/refunds",
             headers={
                 "x-client-id": self.app_id,
@@ -805,7 +816,8 @@ class PayUGateway:
         # account before enabling this provider in production.
         links_base = self.api_base.replace("secure.payu.in", "info.payu.in")
         try:
-            lr = requests.post(
+            lr = _provider_post(
+                "payu_collections",
                 f"{links_base}/payment-links",
                 json={
                     "subAmount": str(amount),
@@ -840,7 +852,7 @@ class PayUGateway:
         elif lr.status_code not in (404, 405, 501):
             raise BusinessRuleError(f"PayU payment link failed (HTTP {lr.status_code}).")
 
-        resp = requests.post(f"{self.api_base}/_payment", data=payload, timeout=30)
+        resp = _provider_post("payu_collections", f"{self.api_base}/_payment", data=payload, timeout=30)
         if resp.status_code >= 400:
             raise BusinessRuleError(f"PayU payment link failed (HTTP {resp.status_code}).")
         short_url = resp.url if resp.url else f"{self.api_base}/_payment?txnid={txnid}"
@@ -908,8 +920,6 @@ class PayUGateway:
         idempotency_key = idempotency_key or _stable_refund_key(provider_payment_id, amount)
         if not self.merchant_key or not self.merchant_salt:
             raise BusinessRuleError("PayU credentials are not configured.")
-        import requests
-
         refund_amount = str(Decimal(amount).quantize(Decimal("0.01")))
         command = "cancel_refund_transaction"
         hash_seq = f"{self.merchant_key}|{command}|{provider_payment_id}|{self.merchant_salt}"
@@ -925,7 +935,8 @@ class PayUGateway:
             "var3": (idempotency_key or "")[:64],
             "hash": payu_hash,
         }
-        resp = requests.post(
+        resp = _provider_post(
+            "payu_collections",
             f"{self.api_base}/merchant/postservice?form=2",
             data=payload,
             timeout=30,

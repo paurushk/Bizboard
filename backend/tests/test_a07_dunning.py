@@ -180,7 +180,7 @@ def test_dunning_skips_an_unreachable_customer(tenant_a):
 
 
 def test_auto_credit_hold_blocks_severe_overdue_customer_with_no_credit_limit(tenant_a):
-    """QOS-0044 — opt-in: a customer with no credit_limit set but 90+ days overdue
+    """CFT-117 / QOS-0044 — opt-in: a customer with no credit_limit set but 90+ days overdue
     on an existing invoice (collection_status=overdue_severe) is held from billing
     further once the company turns the flag on; unaffected while it stays off."""
     from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product

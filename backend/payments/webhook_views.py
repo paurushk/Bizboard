@@ -273,17 +273,19 @@ def payment_webhook(request, provider: str):
         park_gateway_payment,
     )
     from payments.models import GatewayPayment, GatewayPaymentStatus
+    from core.tracing import trace_span
 
     try:
-        gp = PaymentService.finalize_gateway_payment(
-            company=company,
-            provider=provider,
-            provider_payment_id=event.provider_payment_id,
-            amount=event.amount,
-            fee=event.fee,
-            payment_link=link,
-            raw_payload=event.raw,
-        )
+        with trace_span("payments.webhook", provider=provider, company_id=company.id):
+            gp = PaymentService.finalize_gateway_payment(
+                company=company,
+                provider=provider,
+                provider_payment_id=event.provider_payment_id,
+                amount=event.amount,
+                fee=event.fee,
+                payment_link=link,
+                raw_payload=event.raw,
+            )
     except BusinessRuleError as exc:
         gp = GatewayPayment.objects.filter(
             company=company,
@@ -308,4 +310,29 @@ def payment_webhook(request, provider: str):
                 park_gateway_payment(gp, books_hold_reason(exc), err_detail(exc))
             return Response({"ok": True, "gateway_payment_id": gp.id, "status": gp.status})
         return Response({"detail": str(exc.detail)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as exc:  # noqa: BLE001 — park after signature+dedupe, never 500
+        from billing.services import park_dead_letter
+        from payments.services import redact_gateway_payload
+
+        parked = park_dead_letter(
+            provider=provider,
+            event_id=str(event.provider_payment_id),
+            company=company,
+            error=str(exc),
+            payload={
+                "kind": "payment_webhook",
+                "provider": provider,
+                "provider_payment_id": event.provider_payment_id,
+                "amount": str(event.amount),
+                "fee": str(event.fee or 0),
+                "payment_link_id": link.pk,
+                "provider_link_id": link.provider_link_id,
+                "raw": redact_gateway_payload(event.raw),
+                "status": event.status,
+            },
+        )
+        return Response(
+            {"ok": True, "parked": True, "dead_letter_id": parked.pk},
+            status=status.HTTP_202_ACCEPTED,
+        )
     return Response({"ok": True, "gateway_payment_id": gp.id, "status": gp.status})

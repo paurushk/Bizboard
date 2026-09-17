@@ -1,9 +1,11 @@
 from django.core.management.base import BaseCommand
+
+from billing.entitlements import freeze_safe_modules
 from billing.models import Plan
 
 
 class Command(BaseCommand):
-    help = "Seed standard PRD §22 SaaS subscription plans."
+    help = "Seed standard PRD §22 SaaS subscription plans (freeze-safe modules)."
 
     def handle(self, *args, **options):
         plans_data = [
@@ -11,61 +13,45 @@ class Command(BaseCommand):
                 "name": "Free",
                 "slug": "free",
                 "seat_limit": 1,
+                "monthly_complete_limit": 30,
+                "storage_bytes_limit": 50 * 1024 * 1024,
+                "api_rate_per_minute": 60,
                 "price_paise": 0,
                 "is_active": True,
-                "modules": {
-                    "ENABLE_POS": False,
-                    "ENABLE_GSTR": False,
-                    "ENABLE_MANUFACTURING": False,
-                    "ENABLE_PAYROLL": False,
-                    "ENABLE_CRM": False,
-                    "ENABLE_TALLY": False,
-                },
+                "modules": freeze_safe_modules(pos=False),
             },
             {
                 "name": "Starter",
                 "slug": "starter",
                 "seat_limit": 2,
+                "monthly_complete_limit": 300,
+                "storage_bytes_limit": 500 * 1024 * 1024,
+                "api_rate_per_minute": 120,
                 "price_paise": 49900,
                 "is_active": True,
-                "modules": {
-                    "ENABLE_POS": True,
-                    "ENABLE_GSTR": True,
-                    "ENABLE_MANUFACTURING": False,
-                    "ENABLE_PAYROLL": False,
-                    "ENABLE_CRM": False,
-                    "ENABLE_TALLY": False,
-                },
+                "modules": freeze_safe_modules(pos=True),
             },
             {
                 "name": "Professional",
                 "slug": "pro",
                 "seat_limit": 5,
+                "monthly_complete_limit": 2000,
+                "storage_bytes_limit": 2 * 1024 * 1024 * 1024,
+                "api_rate_per_minute": 300,
                 "price_paise": 149900,
                 "is_active": True,
-                "modules": {
-                    "ENABLE_POS": True,
-                    "ENABLE_GSTR": True,
-                    "ENABLE_MANUFACTURING": True,
-                    "ENABLE_PAYROLL": True,
-                    "ENABLE_CRM": True,
-                    "ENABLE_TALLY": True,
-                },
+                "modules": freeze_safe_modules(pos=True),
             },
             {
                 "name": "Enterprise",
                 "slug": "enterprise",
                 "seat_limit": 999,
+                "monthly_complete_limit": 0,
+                "storage_bytes_limit": 0,
+                "api_rate_per_minute": 0,
                 "price_paise": 499900,
                 "is_active": True,
-                "modules": {
-                    "ENABLE_POS": True,
-                    "ENABLE_GSTR": True,
-                    "ENABLE_MANUFACTURING": True,
-                    "ENABLE_PAYROLL": True,
-                    "ENABLE_CRM": True,
-                    "ENABLE_TALLY": True,
-                },
+                "modules": freeze_safe_modules(pos=True),
             },
         ]
 

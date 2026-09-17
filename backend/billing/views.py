@@ -18,9 +18,15 @@ from core.exceptions import BusinessRuleError
 from core.permissions import HasCompany, IsOwner, get_company_user
 from core.services.audit import AuditService
 
-from .models import Plan
+from .models import DeadLetterEvent, Plan
 from .serializers import PlanSerializer, SubscriptionSerializer
-from .services import apply_razorpay_subscription_status, start_or_update_subscription, subscription_for_company
+from .services import (
+    apply_razorpay_subscription_status,
+    park_dead_letter,
+    replay_dead_letter,
+    start_or_update_subscription,
+    subscription_for_company,
+)
 
 logger = logging.getLogger("bizboard.billing")
 
@@ -48,6 +54,9 @@ class SubscriptionDetailView(APIView):
         data = SubscriptionSerializer(sub).data
         data["billing_override_active"] = cu.company.billing_override_active
         data["seat_limit"] = sub.plan.seat_limit
+        from billing.quotas import usage_snapshot
+
+        data["quotas"] = usage_snapshot(cu.company, sub=sub)
         return Response(data)
 
 
@@ -159,7 +168,16 @@ class RazorpayWebhookView(APIView):
         from accounts.models import Company
         from billing.models import Subscription
         from core.rls import rls_bypass, set_rls_company
+        from core.tracing import trace_span
         from payments.models import ProcessedWebhookEvent
+
+        created_at = _webhook_created_at(payload)
+        if created_at is not None:
+            last_key = f"billing:wh:lastts:{rzp_id}"
+            last = cache.get(last_key)
+            if last is not None and int(created_at) < int(last):
+                return Response({"ok": True, "ignored": True, "reason": "out_of_order"})
+            cache.set(last_key, int(created_at), timeout=7 * 24 * 60 * 60)
 
         event_id = (
             request.headers.get("X-Razorpay-Event-Id")
@@ -199,11 +217,55 @@ class RazorpayWebhookView(APIView):
             cache.set(dedup_key, "1", timeout=24 * 60 * 60)
             return Response({"ok": True, "duplicate": True})
         cache.set(dedup_key, "1", timeout=24 * 60 * 60)
-        sub = apply_razorpay_subscription_status(
-            razorpay_subscription_id=rzp_id,
-            rzp_status=rzp_status,
-            current_end=entity.get("current_end"),
-        )
+        stale = _reject_stale_webhook(payload)
+        if stale is not None:
+            # BB-000671 gap fix: a delayed-but-legitimate retry (worker outage,
+            # queue backlog) must not be silently dropped with no recovery
+            # path — park it like every other post-signature failure so an
+            # owner/operator can replay it once the status is confirmed still
+            # relevant, instead of the subscription status change being lost.
+            parked = park_dead_letter(
+                provider="razorpay_subscription",
+                event_id=str(event_id),
+                payload=payload if isinstance(payload, dict) else {},
+                error="Stale webhook: age exceeds BILLING_WEBHOOK_MAX_AGE_SECONDS.",
+                company=company,
+            )
+            AuditService.log(
+                action="billing.webhook_dlq",
+                company=company,
+                entity_type="DeadLetterEvent",
+                entity_id=parked.pk,
+                description=f"Parked stale Razorpay webhook {event_id}.",
+                metadata={"reason": "stale"},
+            )
+            logger.warning("Razorpay subscription webhook stale; parked in DLQ")
+            return Response({"ok": True, "parked": True, "dead_letter_id": parked.pk})
+        try:
+            with trace_span("billing.razorpay_webhook", company_id=company.id, event_id=event_id):
+                sub = apply_razorpay_subscription_status(
+                    razorpay_subscription_id=rzp_id,
+                    rzp_status=rzp_status,
+                    current_end=entity.get("current_end"),
+                )
+        except Exception as exc:  # noqa: BLE001 — park, do not 500 after signature verified
+            parked = park_dead_letter(
+                provider="razorpay_subscription",
+                event_id=str(event_id),
+                payload=payload if isinstance(payload, dict) else {},
+                error=str(exc),
+                company=company,
+            )
+            AuditService.log(
+                action="billing.webhook_dlq",
+                company=company,
+                entity_type="DeadLetterEvent",
+                entity_id=parked.pk,
+                description=f"Parked Razorpay webhook {event_id}.",
+                metadata={"error": str(exc)[:500]},
+            )
+            logger.exception("Razorpay subscription webhook parked in DLQ")
+            return Response({"ok": True, "parked": True, "dead_letter_id": parked.pk})
         if sub is not None:
             AuditService.log(
                 action="billing.webhook",
@@ -216,6 +278,34 @@ class RazorpayWebhookView(APIView):
         return Response({"ok": True, "subscription_id": sub.pk if sub else None, "status": sub.status if sub else None})
 
 
+def _webhook_created_at(payload: dict) -> int | None:
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("created_at")
+    if raw is None:
+        nested = (((payload.get("payload") or {}).get("subscription") or {}).get("entity")) or {}
+        raw = nested.get("created_at") if isinstance(nested, dict) else None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _reject_stale_webhook(payload: dict):
+    import time
+
+    max_age = int(getattr(settings, "BILLING_WEBHOOK_MAX_AGE_SECONDS", 0) or 0)
+    if max_age <= 0:
+        return None
+    created_at = _webhook_created_at(payload)
+    if created_at is None:
+        return None
+    now = int(time.time())
+    if now - created_at > max_age or created_at - now > 60:
+        return Response({"detail": "Stale webhook."}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
 def _extract_subscription_entity(payload: dict) -> dict | None:
     if not isinstance(payload, dict):
         return None
@@ -225,3 +315,37 @@ def _extract_subscription_entity(payload: dict) -> dict | None:
     if payload.get("id") and payload.get("entity") == "subscription":
         return payload
     return None
+
+
+class DeadLetterListView(APIView):
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def get(self, request):
+        cu = get_company_user(request)
+        qs = DeadLetterEvent.objects.filter(company=cu.company).order_by("-id")[:100]
+        return Response(
+            [
+                {
+                    "id": row.pk,
+                    "provider": row.provider,
+                    "event_id": row.event_id,
+                    "status": row.status,
+                    "error": row.error,
+                    "attempts": row.attempts,
+                    "created_at": row.created_at,
+                }
+                for row in qs
+            ]
+        )
+
+
+class DeadLetterReplayView(APIView):
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def post(self, request, pk: int):
+        cu = get_company_user(request)
+        event = DeadLetterEvent.objects.filter(pk=pk, company=cu.company).first()
+        if event is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        replayed = replay_dead_letter(event, user=request.user)
+        return Response({"ok": True, "status": replayed.status, "id": replayed.pk})

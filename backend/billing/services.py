@@ -189,12 +189,20 @@ def _create_razorpay_subscription(plan: Plan, company, *, start_at: int | None =
 
     token = base64.b64encode(f"{key}:{secret}".encode()).decode()
     req.add_header("Authorization", f"Basic {token}")
-    try:
-        with urlopen(req, timeout=15) as resp:  # noqa: S310 — fixed Razorpay HTTPS URL
-            payload = json.loads(resp.read().decode("utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        from core.exceptions import BusinessRuleError
+    from core.circuit_breaker import CircuitOpenError, call as circuit_call
+    from core.exceptions import BusinessRuleError
 
+    def _post():
+        with urlopen(req, timeout=15) as resp:  # noqa: S310 — fixed Razorpay HTTPS URL
+            return json.loads(resp.read().decode("utf-8"))
+
+    try:
+        payload = circuit_call("razorpay_subscriptions", _post, failure_threshold=5, cooldown_seconds=30)
+    except CircuitOpenError as exc:
+        raise BusinessRuleError(
+            "Payments provider is temporarily unavailable. Try again shortly."
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
         raise BusinessRuleError("Could not create Razorpay subscription. Try again or contact support.") from exc
     return str(payload.get("id") or "")
 
@@ -231,6 +239,37 @@ def _cancel_razorpay_subscription(subscription_id: str, *, at_cycle_end: bool = 
         logging.getLogger(__name__).warning(
             "Could not cancel prior Razorpay subscription %s", sid
         )
+
+
+def fetch_razorpay_subscription(subscription_id: str) -> dict | None:
+    """GET /v1/subscriptions/{id}. None when keys or id are missing.
+
+    Network/circuit failures raise so recon can park a DeadLetterEvent.
+    """
+    import base64
+    import json
+    from urllib.request import Request, urlopen
+
+    sid = (subscription_id or "").strip()
+    key = (getattr(settings, "RAZORPAY_KEY_ID", "") or "").strip()
+    secret = (getattr(settings, "RAZORPAY_KEY_SECRET", "") or "").strip()
+    if not sid or not key or not secret:
+        return None
+    req = Request(
+        f"https://api.razorpay.com/v1/subscriptions/{sid}",
+        method="GET",
+        headers={
+            "Authorization": "Basic " + base64.b64encode(f"{key}:{secret}".encode()).decode(),
+        },
+    )
+    from core.circuit_breaker import call as circuit_call
+
+    def _get():
+        with urlopen(req, timeout=15) as resp:  # noqa: S310 — fixed Razorpay HTTPS URL
+            return json.loads(resp.read().decode("utf-8"))
+
+    payload = circuit_call("razorpay_subscriptions", _get, failure_threshold=5, cooldown_seconds=30)
+    return payload if isinstance(payload, dict) else None
 
 
 def apply_razorpay_subscription_status(
@@ -284,3 +323,126 @@ def _map_razorpay_status(rzp_status: str) -> str | None:
     if status in {"cancelled", "completed", "expired"}:
         return Subscription.Status.SUSPENDED
     return None
+
+
+def map_razorpay_status(rzp_status: str) -> str | None:
+    """Public alias for recon / webhooks (8.6)."""
+    return _map_razorpay_status(rzp_status)
+
+
+def park_dead_letter(*, provider: str, event_id: str, payload: dict, error: str, company=None):
+    from django.db import IntegrityError, transaction
+
+    from .models import DeadLetterEvent
+
+    trimmed_event_id = (event_id or "")[:128]
+    try:
+        # A savepoint: on IntegrityError only this INSERT rolls back, not
+        # whatever outer transaction/atomic block the caller (a request view,
+        # a recon loop) is already running inside -- without it, catching the
+        # exception here still leaves the caller's transaction unusable for
+        # the fallback SELECT below (Postgres/SQLite both poison the whole
+        # transaction after an unhandled constraint violation).
+        with transaction.atomic():
+            event = DeadLetterEvent.objects.create(
+                company=company,
+                provider=provider,
+                event_id=trimmed_event_id,
+                payload=payload if isinstance(payload, dict) else {},
+                error=(error or "")[:4000],
+                status=DeadLetterEvent.Status.PENDING,
+                attempts=1,
+            )
+    except IntegrityError:
+        # billing_dlq_uniq_pending_provider_event closed a check-then-create
+        # race here: a concurrent caller (e.g. overlapping recon runs, or a
+        # webhook retry racing a manual replay trigger) already parked a
+        # PENDING row for this provider/event_id. Return that row instead of
+        # raising or creating a duplicate.
+        existing = DeadLetterEvent.objects.filter(
+            provider=provider, event_id=trimmed_event_id, status=DeadLetterEvent.Status.PENDING
+        ).first()
+        if existing is not None:
+            return existing
+        raise
+    if company is not None:
+        try:
+            from insights.telemetry import record_journey_failed
+
+            record_journey_failed(company, "payment", "5xx")
+        except Exception:  # noqa: BLE001
+            pass
+    return event
+
+
+def replay_dead_letter(event, *, user=None):
+    """Re-apply a parked Razorpay subscription or payment-gateway webhook. Audited."""
+    from decimal import Decimal
+
+    from django.utils import timezone as dj_tz
+
+    from core.services.audit import AuditService
+
+    from .models import DeadLetterEvent
+
+    if event.status == DeadLetterEvent.Status.REPLAYED:
+        return event
+    payload = event.payload if isinstance(event.payload, dict) else {}
+    event.attempts = int(event.attempts or 0) + 1
+    meta = {}
+    company = event.company
+    if payload.get("kind") == "payment_webhook":
+        from payments.models import PaymentLink
+        from payments.services import PaymentService
+
+        link = None
+        plid = payload.get("payment_link_id")
+        if plid:
+            qs = PaymentLink.objects.filter(pk=plid)
+            if event.company_id:
+                qs = qs.filter(company_id=event.company_id)
+            link = qs.first()
+        if link is None and payload.get("provider_link_id"):
+            qs = PaymentLink.objects.filter(provider_link_id=payload["provider_link_id"])
+            if event.company_id:
+                qs = qs.filter(company_id=event.company_id)
+            link = qs.first()
+        company = event.company or (link.company if link is not None else None)
+        PaymentService.finalize_gateway_payment(
+            company=company,
+            provider=str(payload.get("provider") or event.provider or ""),
+            provider_payment_id=str(payload.get("provider_payment_id") or event.event_id or ""),
+            amount=Decimal(str(payload.get("amount") or "0")),
+            fee=Decimal(str(payload.get("fee") or "0")),
+            payment_link=link,
+            raw_payload=payload.get("raw") or {},
+        )
+        meta = {"kind": "payment_webhook"}
+    else:
+        nested = (((payload.get("payload") or {}).get("subscription") or {}).get("entity")) or {}
+        if not nested and payload.get("entity") == "subscription":
+            nested = payload
+        rzp_id = str(nested.get("id") or event.event_id or "")
+        rzp_status = str(nested.get("status") or "")
+        sub = apply_razorpay_subscription_status(
+            razorpay_subscription_id=rzp_id,
+            rzp_status=rzp_status,
+            current_end=nested.get("current_end"),
+        )
+        company = event.company or (sub.company if sub else None)
+        meta = {"razorpay_status": rzp_status}
+    event.status = DeadLetterEvent.Status.REPLAYED
+    event.replayed_at = dj_tz.now()
+    event.replayed_by = user
+    event.save(update_fields=["status", "replayed_at", "replayed_by", "attempts", "updated_at"])
+    AuditService.log(
+        action="billing.dlq_replay",
+        company=company,
+        user=user,
+        entity_type="DeadLetterEvent",
+        entity_id=event.pk,
+        description=f"Replayed {event.provider} {event.event_id}.",
+        metadata=meta,
+    )
+    return event
+

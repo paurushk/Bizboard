@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { getBillingSubscription, type BillingSubscription } from '@/api/billing';
-import { shouldUseMocks } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { isOwner } from '@/utils/permissions';
 
@@ -21,7 +20,7 @@ export function useSubscriptionGate() {
   const query = useQuery({
     queryKey: ['billing-subscription', user?.companyId],
     queryFn: getBillingSubscription,
-    enabled: isAuthenticated && !shouldUseMocks() && Boolean(user && isOwner(user.role)),
+    enabled: isAuthenticated && Boolean(user && isOwner(user.role)),
     staleTime: 30_000,
   });
   const subscription = query.data;

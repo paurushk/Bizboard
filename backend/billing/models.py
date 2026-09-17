@@ -11,6 +11,15 @@ class Plan(TimeStampedModel):
     name = models.CharField(max_length=64)
     slug = models.SlugField(unique=True)
     seat_limit = models.PositiveIntegerField(default=1)
+    monthly_complete_limit = models.PositiveIntegerField(
+        default=0, help_text="0 = unlimited completed sales+purchase invoices per calendar month."
+    )
+    storage_bytes_limit = models.PositiveBigIntegerField(
+        default=0, help_text="0 = unlimited user-uploaded bytes (attachments/imports/logos)."
+    )
+    api_rate_per_minute = models.PositiveIntegerField(
+        default=0, help_text="0 = no extra per-tenant cap beyond global DRF throttles."
+    )
     modules = models.JSONField(default=dict, blank=True)
     price_paise = models.PositiveIntegerField(default=0)
     razorpay_plan_id = models.CharField(max_length=64, blank=True)
@@ -48,6 +57,9 @@ class Subscription(TimeStampedModel):
     pending_plan = models.ForeignKey(
         Plan, null=True, blank=True, on_delete=models.SET_NULL, related_name="pending_subscriptions"
     )
+    # 8.5 — expand-only SaaS dunning cadence (not AR / payments.dunning).
+    last_dunning_at = models.DateTimeField(null=True, blank=True)
+    last_dunning_step = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         indexes = [models.Index(fields=["status", "trial_ends_at"])]
@@ -92,3 +104,43 @@ class Subscription(TimeStampedModel):
                 return True
             return timezone.now() >= anchor + timedelta(days=grace_days)
         return False
+
+
+class DeadLetterEvent(TimeStampedModel):
+    """Parked inbound events that failed after signature verification (9.5)."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        REPLAYED = "replayed"
+        DISCARDED = "discarded"
+
+    company = models.ForeignKey(
+        "accounts.Company",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="billing_dead_letters",
+    )
+    provider = models.CharField(max_length=64, db_index=True)
+    event_id = models.CharField(max_length=128, db_index=True)
+    payload = models.JSONField(default=dict)
+    error = models.TextField(blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    attempts = models.PositiveIntegerField(default=0)
+    replayed_at = models.DateTimeField(null=True, blank=True)
+    replayed_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="replayed_dead_letters"
+    )
+
+    class Meta:
+        indexes = [models.Index(fields=["provider", "status", "created_at"], name="billing_dlq_prov_st_ca_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "event_id"],
+                condition=models.Q(status="pending"),
+                name="billing_dlq_uniq_pending_provider_event",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.provider}:{self.event_id}:{self.status}"
