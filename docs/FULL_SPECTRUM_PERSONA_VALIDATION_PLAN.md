@@ -321,7 +321,7 @@ This document covers the backend API persona layer (**L4** in `TESTING_STRATEGY.
 - `web/e2e/personas/*.spec.ts` — Playwright specs asserting the **UI hides** what each role's API denies (the concrete form of `TESTING_STRATEGY.md` §H1).
 - `web/e2e-golden/*.spec.ts` — golden-path specs against a live Django+Postgres stack (`accounting-`, `invoice-`, `payments-`, `purchase-`, `pos-`, `multi-warehouse-golden-path.spec.ts`, `phase1-documents.spec.ts`).
 
-Per `TESTING_STRATEGY.md` gap `G-4`, FE role-hiding coverage for **SALES/ACCT is `test.fixme`** as of that document's last update — only OWNER/VIEWER FE journeys are confirmed live. A backend test in this suite passing (e.g. `test_pj_trader_sales_staff_boundary` denying journal creation via the API) does **not** by itself prove the frontend hides the corresponding button for that role; check `G-4`'s state before assuming FE parity.
+Per `TESTING_STRATEGY.md` gap `G-4` (**closed 2026-09-13**, docs reconciled 2026-09-15): FE role-hiding for **SALES/ACCT is live** in `web/e2e/personas/role-boundaries.spec.ts`. A backend test in this suite passing (e.g. `test_pj_trader_sales_staff_boundary` denying journal creation via the API) still does **not** by itself prove the frontend hides the corresponding button — that proof is the Playwright spec, not this L4 file.
 
 ---
 

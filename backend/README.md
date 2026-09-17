@@ -110,7 +110,9 @@ From the monorepo root (with `docker-compose.yml`):
 docker compose up --build api worker
 ```
 
-The `api` service builds from this directory (`./backend`).
+The `api` service builds from this directory (`./backend`). Isolated DEV vs
+STAGING Compose (own databases, port 8081 for staging):
+[`docs/DOCKER_ENVIRONMENT.md`](../docs/DOCKER_ENVIRONMENT.md).
 
 **Media uploads (BB-000521):** PDFs and images are stored on the shared `media_data`
 volume without antivirus scanning in the default image. For production hardening,

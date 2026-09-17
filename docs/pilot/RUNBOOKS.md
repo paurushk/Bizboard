@@ -116,3 +116,11 @@ Record the **image tag** (or compose build digest) and **migration head** for ev
 - **Hours:** best-effort during pilot business hours (IST) unless otherwise agreed.
 - **Escalate when:** `/health/` down >5m; PDF queue stuck with customer-visible 409s; backup job failed; suspected cross-tenant incident (page immediately).
 - Fill names before paid pilot traffic; keep the page in the same channel as uptime alerts.
+
+## Related ops docs
+- Alerts → [`../ops/ALERTS.md`](../ops/ALERTS.md)
+- Incidents → [`../ops/INCIDENT_RESPONSE.md`](../ops/INCIDENT_RESPONSE.md)
+- Chargebacks (SaaS vs collections) → [`../ops/CHARGEBACKS.md`](../ops/CHARGEBACKS.md)
+- Secret rotation drill → [`../ops/SECRET_ROTATION.md`](../ops/SECRET_ROTATION.md)
+- Erasure → [`../ops/ERASURE_PLAYBOOK.md`](../ops/ERASURE_PLAYBOOK.md)
+- Pilot FAQs (A1–A26) → [`FAQS.md`](FAQS.md)

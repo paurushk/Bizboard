@@ -2360,6 +2360,52 @@
                 }
             }
         },
+        "/api/v1/billing/dlq/": {
+            "get": {
+                "operationId": "billing_dlq_retrieve",
+                "tags": [
+                    "billing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/dlq/{id}/replay/": {
+            "post": {
+                "operationId": "billing_dlq_replay_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/billing/plans/": {
             "get": {
                 "operationId": "billing_plans_retrieve",
@@ -5921,6 +5967,42 @@
                 ],
                 "responses": {
                     "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/invariants/check/": {
+            "get": {
+                "operationId": "invariants_check_retrieve",
+                "description": "Owner/support surface for `check_invariants` against the active company.",
+                "tags": [
+                    "invariants"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "invariants_check_create",
+                "description": "Owner/support surface for `check_invariants` against the active company.",
+                "tags": [
+                    "invariants"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
                         "description": "No response body"
                     }
                 }
@@ -32775,6 +32857,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "amend_revision": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -35969,6 +36055,12 @@
                         "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$",
                         "nullable": true
                     },
+                    "converted_quantity": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,9}(?:\\.\\d{0,3})?$",
+                        "readOnly": true
+                    },
                     "taxable_amount": {
                         "type": "string",
                         "format": "decimal",
@@ -36009,6 +36101,7 @@
                 "required": [
                     "cess",
                     "cgst",
+                    "converted_quantity",
                     "id",
                     "igst",
                     "line_total",
@@ -37150,6 +37243,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "amend_revision": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -37252,6 +37349,7 @@
                 "required": [
                     "ack_date",
                     "ack_no",
+                    "amend_revision",
                     "balance",
                     "cancelled_at",
                     "cess_total",

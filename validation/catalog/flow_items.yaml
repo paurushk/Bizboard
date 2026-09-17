@@ -1243,9 +1243,9 @@ items:
   - AppShell
   - RoleRoute:canCreatePayments
   nav_label: nav.payments
-  coverage: SMOKE
+  coverage: JOURNEY
   coverage_evidence:
-  - e2e smoke / domain spec; no business-outcome assertion
+  - e2e-golden
   freeze_row: A25
   defect: null
   personas:
@@ -1264,9 +1264,9 @@ items:
   - AppShell
   - RoleRoute:canCreatePayments
   nav_label: nav.bankStatements
-  coverage: SMOKE
+  coverage: JOURNEY
   coverage_evidence:
-  - e2e smoke / domain spec; no business-outcome assertion
+  - e2e-golden
   freeze_row: A10
   defect: null
   personas:
@@ -1398,9 +1398,9 @@ items:
   - AppShell
   - RoleRoute:canCreatePurchases
   nav_label: null
-  coverage: SMOKE
+  coverage: JOURNEY
   coverage_evidence:
-  - e2e smoke / domain spec; no business-outcome assertion
+  - e2e-golden
   freeze_row: A6
   defect: null
   personas:
@@ -1581,9 +1581,9 @@ items:
   - AppShell
   - RoleRoute:canViewPurchaseSurfaces
   nav_label: nav.purchaseOrders
-  coverage: SMOKE
+  coverage: JOURNEY
   coverage_evidence:
-  - e2e smoke / domain spec; no business-outcome assertion
+  - e2e-golden
   freeze_row: A6
   defect: null
   personas:
@@ -2249,9 +2249,9 @@ items:
   - AppShell
   - RoleRoute:allowAccounting
   nav_label: nav.booksHealth
-  coverage: SMOKE
+  coverage: JOURNEY
   coverage_evidence:
-  - e2e smoke / domain spec; no business-outcome assertion
+  - e2e-golden
   freeze_row: A13
   defect: null
   personas:
@@ -2683,9 +2683,9 @@ items:
   - RoleRoute:canAccessSettings
   - RoleRoute:canManageUsers
   nav_label: nav.settings
-  coverage: SMOKE
+  coverage: JOURNEY
   coverage_evidence:
-  - e2e smoke / domain spec; no business-outcome assertion
+  - e2e-golden
   freeze_row: A10
   defect: null
   personas:
@@ -2913,9 +2913,9 @@ items:
   - AppShell
   - RoleRoute:allowAccounting
   nav_label: nav.accounting
-  coverage: SMOKE
+  coverage: JOURNEY
   coverage_evidence:
-  - e2e smoke / domain spec; no business-outcome assertion
+  - e2e-golden
   freeze_row: A13
   defect: null
   personas:
@@ -3467,9 +3467,12 @@ items:
   component: Two tabs or two users on one invoice
   guards: []
   nav_label: null
-  coverage: LIM
+  coverage: JOURNEY
   coverage_evidence:
   - §2.13 multi-tab / two users
+  - 'override: CFT-120 — tests/test_cft_cross_flow.py::test_cft_120_stale_amend_revision_conflicts
+    + postgres test_concurrency_races.test_cft_120_concurrent_same_invoice_amend_one_wins.
+    UI sends expectedAmendRevision.'
   freeze_row: null
   defect: null
   personas:

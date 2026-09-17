@@ -13,6 +13,8 @@ when off, onboarding remains checklist-only.
 7. Partial receipt + allocate.
 8. Invite Staff with least privilege; verify export/cancel flags.
 
+Pilot FAQs (freeze-accurate, not tax advice): [`FAQS.md`](FAQS.md). Training outline: [`TRAINING_A1_A26.md`](TRAINING_A1_A26.md).
+
 ## Privacy (DPDP one-liner)
 
 BizBoard stores customer/supplier names, phones, and GSTINs for your company only. Data is used to issue invoices and reports. Contact support for export/deletion requests during the pilot. Operator posture: [`DPDP_POSTURE.md`](DPDP_POSTURE.md). See `ENV_CHECKLIST.md` for operator controls.

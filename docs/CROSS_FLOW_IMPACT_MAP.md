@@ -99,6 +99,7 @@ wrong if I don't tell them?*
 | `import` | `import_job` | yes | lim | yes | lim | yes | yes | yes | yes | no | required |
 | `flag_flip` | `company` | no | yes | no | lim | yes | yes | yes | no | no | n/a |
 | `invite` | `company_user` | no | no | no | no | no | no | no | no | yes | n/a |
+| `convert` | `quotation`, `sales_order`, `delivery_challan` | lim | no | no | no | lim | no | lim | yes | no | required |
 
 <!-- END GENERATED EVENT SUMMARY -->
 
@@ -169,6 +170,14 @@ plus a due-date rule, not a distinct status set.
   invoice with a zeroed balance rendered "Paid." Deliberately **not** folded
   into the predicate module — different language/problem shape
   (single-invoice display override, not queryset filtering).
+
+**Named non-identity CFT-NID-01** (checklist correction #5; same shape as
+locked B2 `pdf_as_issued` vs `live_outstanding`): reporting/ledgers
+`OPEN_SALES` = `OPEN_RECEIVABLE_STATUSES` (**includes RETURNED**); insights
+`OPEN_SALES` = `OPERATIONAL_SALE_STATUSES` (**excludes RETURNED**). Gated by
+`projection.operational_sales_not_collapsed_into_open_receivables` plus
+`test_status_semantics.test_reporting_includes_returned_insights_exclude`.
+Do not "fix" this by unifying the two sets.
 
 **Known inconsistencies**: none currently open (G-17/18/19/20/23 fixed;
 G-21/22 tracked under §6 below). The predicate module itself is exhaustively

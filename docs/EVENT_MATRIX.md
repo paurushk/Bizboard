@@ -39,6 +39,9 @@
 | `import` | `import_job` | yes | lim | yes | lim | yes | yes | yes | yes | no | required | — |
 | `flag_flip` | `company` | no | yes | no | lim | yes | yes | yes | no | no | n/a | — |
 | `invite` | `company_user` | no | no | no | no | no | no | no | no | yes | n/a | — |
+| `convert` | `quotation` | lim | no | no | no | lim | no | lim | yes | no | required | — |
+| `convert` | `sales_order` | lim | no | no | no | lim | no | lim | yes | no | required | — |
+| `convert` | `delivery_challan` | lim | no | no | no | lim | no | lim | yes | no | required | — |
 
 ## Core vs extended
 

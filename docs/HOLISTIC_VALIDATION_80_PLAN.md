@@ -1,6 +1,6 @@
 # Holistic Validation — 80% per dimension (LLM-executable)
 
-**Status:** executed 2026-09-14 · **Companion to:** [`HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md`](HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md) (Phases 0–7 encoded) · [`HOLISTIC_VALIDATION_REVIEW.md`](HOLISTIC_VALIDATION_REVIEW.md) §0.9 / §0.10  
+**Status:** executed 2026-09-14 · **Companion to:** [`HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md`](HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md) (Phases 0–7 encoded) · [`HOLISTIC_VALIDATION_REVIEW.md`](HOLISTIC_VALIDATION_REVIEW.md) §0.9 / §0.10 · next bar: [`HOLISTIC_VALIDATION_95_PLAN.md`](HOLISTIC_VALIDATION_95_PLAN.md) (90 then 95; not started)  
 **Scoreboard (repo source of truth):** the living table in this file. A Cursor IDE canvas (`confidence-80-llm-plan.canvas.tsx`) may sit beside chat; **it is not a git artifact** and must not be cited as if it lived in the tree.  
 **Owner:** whoever runs the Cursor sessions below  
 **C6-80:** **signed 2026-09-14** (founder: implement this plan with nothing left partial). Still not High.
@@ -292,5 +292,7 @@ S1b and S2a may run as parallel agents **after** S0, on separate branches.
 ## Post-80 LLM leftovers (closed in this tree)
 
 Accounting journal golden is live (not `test.fixme`). Freeze-SUPPORTED presence-only pages are LIM; redirects are LIM (or OUT when dark); `/forgot-password` and `/reset-password` are JOURNEY via auth-recovery; SPA `/*` is LIM. Collection walk golden + credit-hold chip/settings exist. Founder/calendar items in the section above remain out of scope — do not flip A3, merge recon UIs, turn BoE on, or claim Insight/UX High.
+
+**Next bar:** [`HOLISTIC_VALIDATION_95_PLAN.md`](HOLISTIC_VALIDATION_95_PLAN.md) (90 High locked, then 95 freeze/go-live).
 
 When every signed row’s **rubric** is met, update `HOLISTIC_VALIDATION_REVIEW.md` §0.9 from evidence, not from this file’s targets. Keep the band (Low/Medium/High) as the review’s language; put the percent in parentheses as today.

@@ -6,8 +6,10 @@
 |---|---|---|
 | Backend fast lane | `cd backend && pytest` | every change |
 | Backend Phase-2 gate | `cd backend && INVARIANTS_STRICT=1 pytest tests/workflows tests/tenancy tests/gst tests/snapshots tests/edge tests/errors tests/matrices tests/personas tests/test_invariants_smoke.py tests/regression` | before push |
+| **Postgres row-locks** | `cd backend && pytest -m postgres` against a local PG container (`scripts/test_concurrency_local.sh`) | **any change to allocation, stock movement, document numbering, or period close** |
 | Frontend | `cd web && npm run lint && npm test -- --run && npm run build` | FE change |
 | **Concurrency / row-lock lane** | `scripts/test_concurrency_local.sh` | **any change to allocation, stock movement, document numbering, or period close** |
+| **Migration rehearsal (G-11b)** | `scripts/migration_rehearsal.sh` (optional `INVARIANTS_STRICT_REHEARSAL=1`) | schema/migration changes against a volume seed |
 | Q-OS backlog | `python qos/tools/lint.py` | any `qos/` change |
 
 ## The concurrency lane — do not skip it (QOS-0006)

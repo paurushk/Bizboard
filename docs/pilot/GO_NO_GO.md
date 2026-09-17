@@ -59,8 +59,9 @@
   and the CI check that was supposed to enforce this was found to be a no-op and fixed (see git log)
   — run the same script against the real deploy host once one exists.*
 - [ ] Sentry DSN + on-call routing live — **Final Gate** — *blocked: needs a real Sentry/PagerDuty
-  account. `manage.py sentry_test_event` (added 2026-09-12) makes verification a single command once
-  `SENTRY_DSN` is set — see `ENV_CHECKLIST.md` row 18.*
+  account. Playbook `docs/ops/OGATE_HUMAN.md`. `manage.py sentry_test_event` makes verification a
+  single command once `SENTRY_DSN` is set — see `ENV_CHECKLIST.md` row 18. Paste the event id; do
+  not tick until the on-call person confirms they received the page.*
 - [ ] SMTP spot-send verified — **Final Gate** — *blocked: needs real SMTP credentials. Django's
   built-in `manage.py sendtestemail <addr>` is now named explicitly in `ENV_CHECKLIST.md` row 11 —
   run it once credentials exist.*

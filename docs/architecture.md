@@ -100,10 +100,14 @@ etc.).
 
 ## Deployment
 
-`docker-compose.yml` (local full stack: `db`, `redis`, `migrate`, `api`,
+`docker-compose.yml` (shared service graph: `db`, `redis`, `migrate`, `api`,
 `worker`, `beat`, `web`, `nginx`, optional `clamav`, plus `backup` / `restore` /
-`test` helpers). `docker-compose.prod.yml` layers the production `api` / `worker`
-/ `beat` / `migrate` / `clamav`. `nginx/` terminates and serves the built SPA.
-`scripts/` holds `backup.sh`, `restore.sh`, `pin_image_digests.sh`. See
+`test` helpers). Thin overlays isolate local stacks: `docker-compose.dev.yml`
+(project `bizboard`, current volumes) and `docker-compose.staging.yml` (project
+`bizboard-staging`, own volumes, port 8081). `docker-compose.prod.yml` layers
+the production `api` / `worker` / `beat` / `migrate` / `clamav`. `nginx/`
+terminates and serves the built SPA. `scripts/` holds `backup.sh`,
+`restore.sh`, `pin_image_digests.sh`, `compose-env.ps1`. See
+[`DOCKER_ENVIRONMENT.md`](DOCKER_ENVIRONMENT.md),
 [`reviews/12_DEVOPS_REVIEW.md`](reviews/12_DEVOPS_REVIEW.md) and
 [`pilot/RUNBOOKS.md`](pilot/RUNBOOKS.md).

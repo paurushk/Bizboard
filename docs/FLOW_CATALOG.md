@@ -6,9 +6,9 @@ Router pages+index: **129**. All extracted routes (incl. redirects): **150**.
 
 | Label | Count |
 |---|---:|
-| JOURNEY | 63 |
+| JOURNEY | 70 |
 | API-ONLY | 1 |
-| SMOKE | 25 |
+| SMOKE | 18 |
 | GAP | 0 |
 | OUT | 28 |
 | LIM | 12 |
@@ -93,9 +93,9 @@ Coverage is heuristic. `UNMAPPED` means no FREEZE_SCOPE.md A-row — expected on
 | `/purchases/history/:id` | page | **JOURNEY** | A6 | P1, P3, P5 | ARCH-03, ARCH-04 | mapped A6, no gating UI/API test found; override: purchase-golden-path + lifecycle-arch03-purchase open the completed bill row. |
 | `/purchases/history/:id/edit` | page | **LIM** | A6 | P1, P3, P5 | ARCH-03, ARCH-04 | mapped A6, no gating UI/API test found; override: Purchase editor after complete is amend-adjacent; freeze journey is history open-row. |
 | `/purchases/new` | page | **JOURNEY** | A6 | P1, P3, P5 | ARCH-03, ARCH-04 | e2e-golden |
-| `/purchases/orders` | page | **SMOKE** | A6 | P1, P3, P5 | ARCH-03, ARCH-04 | e2e smoke / domain spec; no business-outcome assertion |
+| `/purchases/orders` | page | **JOURNEY** | A6 | P1, P3, P5 | ARCH-03, ARCH-04 | e2e-golden |
 | `/purchases/orders/:id` | page | **LIM** | A6 | P1, P3, P5 | ARCH-03, ARCH-04 | mapped A6, no gating UI/API test found; override: PO detail reachable; not freeze-journeyed. |
-| `/purchases/orders/new` | page | **SMOKE** | A6 | P1, P3, P5 | ARCH-03, ARCH-04 | e2e smoke / domain spec; no business-outcome assertion |
+| `/purchases/orders/new` | page | **JOURNEY** | A6 | P1, P3, P5 | ARCH-03, ARCH-04 | e2e-golden |
 | `/purchases/payments` | page | **JOURNEY** | A11 | P1, P3, P5 | ARCH-03, ARCH-04 | e2e-golden |
 | `/purchases/returns` | page | **JOURNEY** | A7 | P1, P3, P5 | ARCH-03, ARCH-04 | e2e-golden |
 | `/purchases/returns/new` | redirect | **LIM** | A7 | P1, P3, P5 | ARCH-03, ARCH-04 | redirect — not a page |
@@ -107,10 +107,10 @@ Coverage is heuristic. `UNMAPPED` means no FREEZE_SCOPE.md A-row — expected on
 | Path | Kind | Coverage | Freeze | Personas | Archetypes | Evidence |
 |---|---|---|---|---|---|---|
 | `/payments/account-aggregator` | page | **OUT** |  | P1, P5 | ARCH-01, ARCH-03 | FREEZE_SCOPE §B / dark prefix |
-| `/payments/links` | page | **SMOKE** | A25 | P1, P5 | ARCH-01, ARCH-03 | e2e smoke / domain spec; no business-outcome assertion |
+| `/payments/links` | page | **JOURNEY** | A25 | P1, P5 | ARCH-01, ARCH-03 | e2e-golden |
 | `/payments/recon` | redirect | **LIM** |  | P1, P5 | ARCH-01, ARCH-03 | redirect — not a page |
 | `/payments/reconciliation` | page | **JOURNEY** | A10 | P1, P5 | ARCH-01, ARCH-03 | e2e-golden |
-| `/payments/statements` | page | **SMOKE** | A10 | P1, P5 | ARCH-01, ARCH-03 | e2e smoke / domain spec; no business-outcome assertion |
+| `/payments/statements` | page | **JOURNEY** | A10 | P1, P5 | ARCH-01, ARCH-03 | e2e-golden |
 
 ## Inventory
 
@@ -135,7 +135,7 @@ Coverage is heuristic. `UNMAPPED` means no FREEZE_SCOPE.md A-row — expected on
 |---|---|---|---|---|---|---|
 | `/ca-needs` | page | **LIM** | A13 | P5, P6 | ARCH-05 | LIM — reachable, not freeze-journeyed; override: H-05 human CA packet; not a freeze JOURNEY. |
 | `/reports/balance-sheet` | page | **SMOKE** | A13 | P1, P5, P6 | ARCH-03, ARCH-05 | e2e smoke / domain spec; no business-outcome assertion |
-| `/reports/books-health` | page | **SMOKE** | A13 | P1, P5, P6 | ARCH-03, ARCH-05 | e2e smoke / domain spec; no business-outcome assertion |
+| `/reports/books-health` | page | **JOURNEY** | A13 | P1, P5, P6 | ARCH-03, ARCH-05 | e2e-golden |
 | `/reports/cash-book` | page | **SMOKE** | A13 | P1, P5, P6 | ARCH-03, ARCH-05 | e2e smoke / domain spec; no business-outcome assertion |
 | `/reports/cmp-08` | redirect | **LIM** |  | P1, P5, P6 | ARCH-03, ARCH-05 | redirect — not a page |
 | `/reports/cmp08` | page | **OUT** |  | P1, P5, P6 | ARCH-03, ARCH-05 | FREEZE_SCOPE §B / dark prefix |
@@ -180,7 +180,7 @@ Coverage is heuristic. `UNMAPPED` means no FREEZE_SCOPE.md A-row — expected on
 
 | Path | Kind | Coverage | Freeze | Personas | Archetypes | Evidence |
 |---|---|---|---|---|---|---|
-| `/accounting/accounts` | page | **SMOKE** | A13 | P1, P5 | ARCH-03, ARCH-05 | e2e smoke / domain spec; no business-outcome assertion |
+| `/accounting/accounts` | page | **JOURNEY** | A13 | P1, P5 | ARCH-03, ARCH-05 | e2e-golden |
 | `/accounting/bank-recon` | redirect | **LIM** |  | P1, P5 | ARCH-03, ARCH-05 | redirect — not a page |
 | `/accounting/bank-reconciliation` | page | **JOURNEY** | A10 | P1, P5 | ARCH-03, ARCH-05 | e2e-golden |
 | `/accounting/chart-of-accounts` | redirect | **LIM** |  | P1, P5 | ARCH-03, ARCH-05 | redirect — not a page |
@@ -196,7 +196,7 @@ Coverage is heuristic. `UNMAPPED` means no FREEZE_SCOPE.md A-row — expected on
 | `/settings/accounting` | page | **JOURNEY** | A13 | P1 | ARCH-01, ARCH-03 | e2e-golden |
 | `/settings/ai` | page | **OUT** |  | P1 | ARCH-01, ARCH-03 | FREEZE_SCOPE §B / dark prefix |
 | `/settings/backup` | page | **SMOKE** | A16 | P1 | ARCH-01, ARCH-03 | e2e smoke / domain spec; no business-outcome assertion |
-| `/settings/bank-accounts` | page | **SMOKE** | A10 | P1 | ARCH-01, ARCH-03 | e2e smoke / domain spec; no business-outcome assertion |
+| `/settings/bank-accounts` | page | **JOURNEY** | A10 | P1 | ARCH-01, ARCH-03 | e2e-golden |
 | `/settings/billing` | page | **SMOKE** | A17 | P1 | ARCH-01, ARCH-03 | e2e smoke / domain spec; no business-outcome assertion |
 | `/settings/company` | page | **JOURNEY** | A17 | P1 | ARCH-01, ARCH-03 | e2e-golden |
 | `/settings/gst` | page | **JOURNEY** | A1 | P1 | ARCH-01, ARCH-03 | e2e-golden |
@@ -243,7 +243,7 @@ Coverage is heuristic. `UNMAPPED` means no FREEZE_SCOPE.md A-row — expected on
 | `complete_document` | action | **JOURNEY** |  | P1 | ARCH-01, ARCH-03 | §2.13 complete / cancel / amend; override: Invoice/purchase/challan Save & Complete in goldens. |
 | `flag_flip_then_review` | action | **LIM** |  | P1 | ARCH-01, ARCH-03 | §2.13 feature-flag change then old documents |
 | `hindi_locale_money_screens` | action | **JOURNEY** |  | P1 | ARCH-01, ARCH-03 | §2.13 Hindi locale on money screens; override: hindi-money-status.spec.ts पूर्ण / बकाया / वापस. |
-| `multi_tab_invoice_race` | action | **LIM** |  | P1 | ARCH-01, ARCH-03 | §2.13 multi-tab / two users |
+| `multi_tab_invoice_race` | action | **JOURNEY** |  | P1 | ARCH-01, ARCH-03 | §2.13 multi-tab / two users; override: CFT-120 — tests/test_cft_cross_flow.py::test_cft_120_stale_amend_revision_conflicts + postgres test_concurrency_races.test_cft_120_concurrent_same_invoice_amend_one_wins. UI sends expectedAmendRevision. |
 | `offline_queue_flush` | action | **LIM** |  | P1 | ARCH-01, ARCH-03 | §2.13 POS/invoice offline queue flush |
 | `print_pdf` | action | **LIM** |  | P1 | ARCH-01, ARCH-03 | §2.13 print PDF; override: invoice-golden downloads PDF; not a dedicated print-READY journey. |
 | `residual_debit_note` | action | **JOURNEY** |  | P1 | ARCH-01, ARCH-03 | §2.13 return + auto CN + residual DN; override: completeResidualSalesDebitNote + purchase residual DN golden. |

@@ -80,6 +80,11 @@ git config core.hooksPath .githooks
 
 3. Open `http://localhost`. API docs: `/api/v1/docs/`.
 
+Isolated **staging** on the same machine (own database, Redis, volumes, port
+8081): copy `.env.staging.example` → `.env.staging`, then see
+[`docs/DOCKER_ENVIRONMENT.md`](docs/DOCKER_ENVIRONMENT.md). URL:
+`http://127.0.0.1:8081`.
+
 ### Without Docker
 
 Backend:
@@ -138,6 +143,9 @@ architecture reference: [`docs/architecture.md`](docs/architecture.md).
 cd backend && pytest
 cd web && npm run lint && npm test -- --run && npm run build
 docker compose config
+docker compose -f docker-compose.yml -f docker-compose.dev.yml config
+# staging overlay requires .env.staging (copy from .env.staging.example)
+docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml config
 ```
 
 GST calculations and invoice layouts require CA approval before a production

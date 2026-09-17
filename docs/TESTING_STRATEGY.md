@@ -12,6 +12,7 @@ CONDITIONALLY SUPPORTED + demoted KNOWN LIMITATIONS.
 | [`FREEZE_SCOPE_COVERAGE.md`](FREEZE_SCOPE_COVERAGE.md) | *Line-item wiring* — each SUPPORTED item → its gating test or an explicit GAP |
 | [`HOLISTIC_VALIDATION_REVIEW.md`](HOLISTIC_VALIDATION_REVIEW.md) | *Quality model* — one hierarchy; Flow / Impact / Truth graphs; product-truth vs capability; architecture-first sequence. Other docs are views of this model. |
 | [`CROSS_FLOW_IMPACT_MAP.md`](CROSS_FLOW_IMPACT_MAP.md) | *Impact graph (Graph 2)* — writers and readers of shared state; evolving from field→readers to event→projections |
+| [`COMPLETE_GATE_VISIBILITY_PLAN.md`](COMPLETE_GATE_VISIBILITY_PLAN.md) | *L6 Complete-gate class* — **CG-01…CG-37**: party + line present but Complete still blocked or silent; catalog in `web/src/completeGates/` |
 | **this doc** | *How* we build confidence — layers **L1–L10**, the per-journey question set, the gap register, regression discipline, evidence/sign-off. The only layer numbering. |
 | [`FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md`](FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md) | *L4 view* — persona × archetype index. T1–T7 maps onto L1–L10; not a second pyramid |
 | [`Q-OS_QUALITY_PIPELINE_PLAN.md`](Q-OS_QUALITY_PIPELINE_PLAN.md) | *Quality output* — ranked backlog from evidence. Does not define test layers |
@@ -70,7 +71,7 @@ a regression* exists.
 | L5 | **Matrices** | Does a *setting* or *place-of-supply* change behaviour the way the spec says, across the whole grid? | `tests/matrices/test_company_settings_matrix.py`, `test_gst_settings_matrix.py`, `tests/gst/test_place_of_supply_matrix.py` | Interactions outside the grid dimensions |
 | L6 | **Golden e2e + FE** | Does the real browser against the real backend produce the deliverable (invoice PDF, isolation 404, role-hidden nav, no axe violations)? | `web/e2e-golden/personas-golden.spec.ts` (live Django+PG), `web/e2e/` (light, mocked), `web/e2e/personas/`, `web/e2e/a11y.spec.ts`, vitest units | Scale; network degradation; devices beyond Chromium; subjective friction |
 | L7 | **Exploratory + pilot fieldwork** | Is it usable, fast, trustworthy, and *worth paying for* with real staff and real data? | `pilot/UAT_CHECKLIST.md`, `pilot/ARCH03_PILOT_RUNBOOK.md`, validation hypotheses H-01…H-05, CA sign-off | Nothing automatable replaces this; it is the top of the pyramid, not a nice-to-have |
-| L8 | **Cross-flow state consistency** | When a flow writes a shared, mutable piece of business state (an invoice's status, a stock balance, a period-lock gate), do *all other* flows that read or must enforce that state still agree with it? | `docs/CROSS_FLOW_IMPACT_MAP.md` (the field-by-field fan-out registry — **Graph 2 reader index**) + `scripts/ci_gates/guards/guard_period_gate_coverage.py` (static enforcement-consistency guard) + `backend/sales/status_semantics.py` (canonical predicates, closes CF-001 as a class for `SalesInvoice`) + the regression tests each map entry cites | Interactions the map hasn't been extended to cover yet — it's seeded from fields that already caused a bug, not exhaustive by design (see the map's own "why this exists"). `PurchaseInvoice` has no predicate module yet. **Target:** event × projection matrix, not only field → readers. See `HOLISTIC_VALIDATION_REVIEW.md` §0.3 |
+| L8 | **Cross-flow state consistency** | When a flow writes a shared, mutable piece of business state (an invoice's status, a stock balance, a period-lock gate), do *all other* flows that read or must enforce that state still agree with it? | `docs/CROSS_FLOW_IMPACT_MAP.md` (the field-by-field fan-out registry — **Graph 2 reader index**) + `scripts/ci_gates/guards/guard_period_gate_coverage.py` (static enforcement-consistency guard) + `backend/sales/status_semantics.py` and `backend/purchases/status_semantics.py` (canonical predicates, closes CF-001 for sales and purchase invoices) + the regression tests each map entry cites | Interactions the map hasn't been extended to cover yet — it's seeded from fields that already caused a bug, not exhaustive by design (see the map's own "why this exists"). **Target:** event × projection matrix, not only field → readers. See `HOLISTIC_VALIDATION_REVIEW.md` §0.3 |
 | L9 | **Lifecycle + time** | After create → pay → return → residual → report → attention, *and after the next event or close*, is the original business intent still represented on every user surface? | Lead-archetype UI goldens (ARCH-01, ARCH-03) — **not yet built**; P0 in `HOLISTIC_VALIDATION_REVIEW.md` | A single-flow chain (L3) or an API persona day (L4). Does not prove historical truth after a later event |
 | L10 | **Projection identity** | Do independently computed surfaces of the *same named metric* agree? Do two *different* metrics avoid sharing a user-facing label? | Named identities in `backend/core/invariants/projection.py` (dashboard AR/AP = aging, stock available = on_hand − reserved, operational vs open-receivable sets, PDF snapshot vs live outstanding, bank-recon match_status). `reports.cross_reconcile` is registered and gated on `accounting_enabled` — GL-report agreement only; document identities stay in `projection.py` | That the user would *act* correctly on the number (decision quality stays L7 + attention assertions) |
 
@@ -129,19 +130,19 @@ assets and status. "Status" is a judgement of *confidence*, not of effort spent.
 | Dimension | What "good" looks like here | Current assets | Status | Gap ref |
 |---|---|---|---|---|
 | **Personas & archetypes** | Every archetype's core loop has a persona journey at L4; disposition (SUP/COND/OUT/deprioritized) is explicit | `PJ-*` (see `FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md`; manufacturing/payroll/CRM tagged `dark_module` and **do not count toward freeze coverage**). Route coverage counts come from generated `docs/FLOW_CATALOG.md`, not a hand-typed file/test tally. `BUSINESS_ARCHETYPES_AND_PERSONAS.md` §6–§8 | ✅ — retail/trader/wholesale/batch/serialized/contractor/manufacturing/migration covered; ARCH-07 milestone/job-work out of scope by design; G-1 and G-2 both closed | — |
-| **End-to-end journeys** | Happy + alternate + failure + recovery per loop | `WF-01…WF-59`, `PJ-*`, `tests/edge/` | 🟡 — happy paths strong; recovery paths partial (H9 amend ✅, cancellation ✅, offline conflict ✅; payment-gateway recovery 🚫) | G-3, G-8 |
+| **End-to-end journeys** | Happy + alternate + failure + recovery per loop | `WF-01…WF-59`, `PJ-*`, `tests/edge/` | 🟡 — happy paths strong; recovery paths partial (H9 amend ✅, cancellation ✅, offline conflict ✅; payment-gateway refund/MDR 🚫 D3 creds) | G-3 |
 | **Functional correctness** | Unit + contract + chain + regression, all green in CI | vitest (279), `pytest` (~1477 pass), `tests/regression/` corpus | ✅ | — |
-| **Multi-user & permissions** | RBAC matrix + per-persona API deny-set + UI hides denied actions + tenant isolation on every endpoint | `tests/tenancy/test_rbac_matrix.py`, `test_endpoint_isolation.py`, `*_boundary` journeys, `web/e2e/personas/role-boundaries.spec.ts` | 🟡 — API side ✅; FE side OWNER/VIEWER live, **SALES/ACCT `test.fixme`** | G-4 |
-| **UX & usability** | Discoverability, low cognitive load, feedback on every action, no dead 403 buttons | `web/e2e/personas/`, `HelpErrorAlert.test.tsx`, `validation-parity.spec.ts` | 🟡 — parity + error rendering covered; broad page-level UX is pilot-only (Readiness dim 4 "UNTESTED IN PILOT") | G-5, G-16 |
-| **Accessibility** | axe clean on key screens; keyboard-only journeys; AT scenarios for POS + invoice | `web/e2e/a11y.spec.ts` (login, dashboard, invoice form, POS, a report, a settings screen — wcag2a/2aa, serious/critical = 0); two real WCAG fixes shipped (1.3.1 list nav, progressbar name) | 🟡 — 6 screens covered; **no full keyboard-only POS checkout journey (G-6b), no screen-reader-labels pass** | G-6, G-6b |
+| **Multi-user & permissions** | RBAC matrix + per-persona API deny-set + UI hides denied actions + tenant isolation on every endpoint | `tests/tenancy/test_rbac_matrix.py`, `test_endpoint_isolation.py`, `*_boundary` journeys, `web/e2e/personas/role-boundaries.spec.ts` | ✅ — API + FE OWNER/VIEWER/SALES/ACCT live (`role-boundaries.spec.ts`; G-4) | — |
+| **UX & usability** | Discoverability, low cognitive load, feedback on every action, no dead 403 buttons | `web/e2e/personas/`, `HelpErrorAlert.test.tsx`, `validation-parity.spec.ts`, `route-smoke.spec.ts`, Complete-gate catalog (`COMPLETE_GATE_VISIBILITY_PLAN.md`) | 🟡 — G-5 route-smoke ✅; Complete-gate CG-01–CG-37 gated | G-16, G-complete-gate |
+| **Accessibility** | axe clean on key screens; keyboard-only journeys; AT scenarios for POS + invoice | `web/e2e/a11y.spec.ts` (login, dashboard, invoice form, POS, a report, a settings screen — wcag2a/2aa, serious/critical = 0) plus accessible-name rules on login/dashboard/POS/invoice; route-smoke axe on top-20 desktop; `pos-keyboard-checkout.spec.ts` (chromium, 2026-09-15) | 🟡 — automated keyboard POS ✅ (G-6b); live H-02 still L7 | G-6, G-6b |
 | **Performance & scalability** | Query-count flat as rows grow; report/list latency budget; 100k-invoice company; degraded network | `test_ws08_report_performance.py` (N+1 guards), `test_qos0003_large_tenant_reports.py` (50k-invoice tenant, hard-cap + flat-query proof, 3/3 local), `load-harness` CI job **executes** `load/k6_smoke.js` against a seeded Postgres tenant (thresholds: p95<2s, error rate<5%) | 🟡 — large-tenant query behavior proven locally; k6 smoke is written+advisory, **first real CI run unconfirmed** (QOS-0003); no staged 50k-tenant SLO run (`k6_slo.js`) or degraded-network journey; C7 defers the SLO soak to Phase 5 | G-7 |
-| **Security, privacy & trust** | Tenant isolation, IDOR, path traversal, webhook signature, PII masking, audit immutability, injection guard, headers, boot-time secret checks | `tests/tenancy/`, `tests/errors/test_freeze_gate_contracts.py`, `test_payment_webhook_adversarial.py`, `test_llm_injection_guard.py`, `test_erasure.py`, `test_sprint0_security.py` | 🟡 — strong in-app; **per-inbound-webhook enumeration 🚫 (D3 creds)**, CSP not in-app, external pen-test = Phase 5 | G-8, G-9 |
-| **Reliability & resilience** | Failure → visible state (never stuck/500), retry, idempotent replay, backup/restore round-trip, kill-switch | `tests/errors/test_async_task_state.py`, `test_backup_restore_drill.py`, `test_ops_contracts.py`, `test_wf51_idempotency_contract.py` | 🟡 — effects asserted in eager mode; **real-broker ordering = Phase 5**, beat retry→user-state partial | G-10 |
-| **Data & state integrity** | Balances derive correctly, transitions legal, persistence survives restart, migration/cutover clean, no corruption under concurrency | L1 invariants, `PJ-MIGRATION-*`, `reports.opening_ties_out`, `test_concurrency_races.py` (Postgres) | 🟡 — at-rest consistency ✅; **concurrency races Postgres-only, don't run locally**; schema-migration rehearsal = P3 | G-11 |
-| **Cross-platform / environment** | SQLite(local) vs Postgres(prod) parity; browser matrix; mobile shell; Docker image runs | CI runs `backend`/`invariant-sweep`/`e2e-golden` on Postgres 17; `docker` job (compose config, hadolint, trivy); `mobile` + `mobile-apk` + `mobile-emulator-smoke` (advisory) | 🟡 — **Chromium only** in e2e; mobile emulator smoke advisory; local dev still SQLite | G-12 |
+| **Security, privacy & trust** | Tenant isolation, IDOR, path traversal, webhook signature, PII masking, audit immutability, injection guard, headers, boot-time secret checks | `tests/tenancy/`, `tests/errors/test_freeze_gate_contracts.py`, `test_payment_webhook_adversarial.py`, `test_llm_injection_guard.py`, `test_erasure.py`, `test_sprint0_security.py` | 🟡 — in-app ✅ including CSP header + webhook enumeration (G-8); **external pen-test = Phase 5** | G-9 |
+| **Reliability & resilience** | Failure → visible state (never stuck/500), retry, idempotent replay, backup/restore round-trip, kill-switch | `tests/errors/test_async_task_state.py`, `test_backup_restore_drill.py`, `test_ops_contracts.py`, `test_wf51_idempotency_contract.py` | 🟡 — effects + beat dry-run + PDF FAILED→READY asserted in eager mode; **real-broker ordering = Phase 5** | G-10 |
+| **Data & state integrity** | Balances derive correctly, transitions legal, persistence survives restart, migration/cutover clean, no corruption under concurrency | L1 invariants, `PJ-MIGRATION-*`, `reports.opening_ties_out`, `test_concurrency_races.py` (Postgres) | 🟡 — at-rest consistency ✅; concurrency Postgres-only (G-11a documented); synthetic G-11b rehearsal sweep in; **real anonymised dump = 95** | G-11 |
+| **Cross-platform / environment** | SQLite(local) vs Postgres(prod) parity; browser matrix; mobile shell; Docker image runs | CI runs `backend`/`invariant-sweep`/`e2e-golden` on Postgres 17; `docker` job (compose config, hadolint, trivy); `mobile` + `mobile-apk` + `mobile-emulator-smoke` (advisory); WebKit scoped to a11y / role-boundaries / mobile-layout | 🟡 — goldens Chromium; mobile LIM accepted (G-12); local dev still SQLite; WebKit goldens = V9 | G-12 |
 | **AI-specific quality** | Extraction failure → draft-with-warning not crash; cost ceiling; prompt-injection inert; grounding | `tests/errors/test_llm_extraction_failures.py`, `test_llm_injection_guard.py` (D14); FE injection warning (SR-23) | ✅ for failure + injection; ⛔ no accuracy/grounding benchmark (AI insights are `ENABLE_AI=0` — out of scope) | G-13 |
 | **Business outcomes & compliance** | GST splits correct, TB=0, GSTR-1↔3B tie-out, period lock, CA accepts worksheets, dashboard KPI == drill-down | `tests/snapshots/test_gstr1_json.py`/`_gstr3b_json.py`, `test_wf27_gstr1_3b_tie_out`, `guard_ca_tax_parity` (F1–F8), `reports.cross_reconcile` | 🟡 — computation ✅; **CA acceptance (H-05) untested until pilot**; KPI==drill-down partly in `cross_reconcile` | G-14 |
-| **Experience & delight** | Speed, predictability, reduced anxiety, minimal friction — with measurable proxies | H-02 (POS ≤35s) on live `pos-golden-path.spec.ts`; keyboard-only mocked `pos-keyboard-checkout.spec.ts`; H-03 / offline copy tests | 🟡 — live POS wall-clock is encoded; not a merge-blocking gate; dashboard budget still pilot | G-15, G-16 |
+| **Experience & delight** | Speed, predictability, reduced anxiety, minimal friction — with measurable proxies | H-02 (POS ≤35s) on live `pos-golden-path.spec.ts`; keyboard-only mocked `pos-keyboard-checkout.spec.ts`; H-03 / offline copy tests; dashboard heading budget `dashboard-budget.spec.ts` | 🟡 — automated proxies exist; live shop H-02/H-03 remain L7 | G-15, G-16 |
 
 ---
 
@@ -409,9 +410,10 @@ sales/purchase registers and files without recalculation. Automated proxy today 
   `test_endpoint_isolation.py` (URL-conf parametrised) assert every
   list/detail/mutation endpoint is `company_id`-scoped; `test_wf28` interleaves
   two tenants.
-- **Gap G-4:** FE role-hiding for **SALES_STAFF / ACCOUNTANT** is `test.fixme`
-  pending mock logins in `web/e2e/helpers/auth.ts`. Until then a UI that renders
-  a dead action that 403s for those roles would not be caught. **P1.**
+- **Gap G-4:** **Closed 2026-09-13** (code) / **docs reconciled 2026-09-15**.
+  FE role-hiding for SALES_STAFF / ACCOUNTANT is live in
+  `web/e2e/personas/role-boundaries.spec.ts` (`loginAsSales` /
+  `loginAsAccountant`). Do not re-open this as `test.fixme`.
 - **Weak assumption:** app-layer scoping is the *only* isolation guarantee
   (`POSTGRES_RLS_ENABLED=0`). RLS job is advisory. Accepted for pilot; revisit
   before GA (defense-in-depth).
@@ -429,8 +431,10 @@ sales/purchase registers and files without recalculation. Automated proxy today 
   `test_backup_restore_drill.py`.
 - **Gap G-11:** (a) `test_concurrency_races.py` is `postgres`-marked → **never
   runs on a local SQLite dev box**; a race regression is invisible until CI.
-  (b) No **schema-migration rehearsal** (apply migrations to a
-  production-shaped dump) in CI — P3.
+  (b) Schema-migration rehearsal: `scripts/migration_rehearsal.sh` applies
+  migrate → synthetic seed → migrate-again (budget) → `check_invariants`
+  (warning unless `INVARIANTS_STRICT_REHEARSAL=1`). A real anonymised dump
+  remains P3 / 95.
 - **Weak assumption:** running weighted-average cost ≈ perpetual FIFO COGS (C3).
   Cost is recomputable from movements; the *accounting difference* from true FIFO
   is disclosed internally but not quantified by a test.
@@ -441,10 +445,12 @@ sales/purchase registers and files without recalculation. Automated proxy today 
   (`test_async_task_state.py`, `test_webhook_and_async_contracts.py`);
   idempotent replay of any mutating call (`test_wf51`, `IdempotencyRecord`);
   recompute commands run twice = no-op (`test_ops_contracts.py`); feature-flag
-  kill-switch; celery-beat registry importable + callable.
+  kill-switch; celery-beat registry importable + each beat task dry-run once
+  (`test_every_beat_task_dry_runs_eager`); PDF fail → `FAILED` → regenerate
+  `READY` (`test_failed_invoice_pdf_ends_FAILED_and_is_recoverable`).
 - **Gap G-10:** real-broker task ordering (webhook vs period close) is hidden by
-  eager mode → **Phase 5** run against a real broker; retry → user-visible state
-  is only spot-covered.
+  eager mode → **Phase 5** run against a real broker. Retry → user-visible
+  state is no longer the leftover; it is the PDF status test above.
 - **Not tested (accepted):** infra-level — TLS termination (P0, ops-owned), DB
   connection limits, secret rotation (P5).
 
@@ -460,12 +466,11 @@ sales/purchase registers and files without recalculation. Automated proxy today 
   security headers present, no `Server` version leak; formula-injection
   sanitisation on CSV/XLSX export; LLM prompt-injection inert (D14); DPDP export
   = exactly one company's data.
-- **Gap G-8:** per-inbound-webhook signature enumeration is **blocked on D3
-  sandbox credentials** — the WF-17 pattern exists but isn't applied to every
-  webhook. **Enumerate all inbound webhooks and apply the pattern regardless of
-  D3** (the signature check doesn't need live creds).
-- **Gap G-9:** CSP is not implemented in-app (edge/CDN concern — stated, not
-  gated); no external pen-test yet (`pilot/PENTEST_SOW.md` drafted, Phase 5).
+- **Gap G-8:** **Closed 2026-09-13** (pointer 2026-09-15). Both inbound webhooks
+  have signature verification, a forgery test, and `test_webhook_enumeration.py`.
+  Live refund/MDR remains D3-creds (G-3 / A25), not this gap.
+- **Gap G-9:** Django emits CSP (`test_api_response_carries_hardening_headers`).
+  External pen-test remains Phase 5 (`pilot/PENTEST_SOW.md`).
 - **Weak assumption:** offline drafts plaintext on device, wiped on sign-out
   (C5) — the *disclosure* is the mitigation; the test only proves the wipe
   happens.
@@ -510,12 +515,10 @@ sales/purchase registers and files without recalculation. Automated proxy today 
   settings screen** — two real fixes shipped (WCAG 1.3.1 drawer-nav list
   semantics, `aria-progressbar-name`); a basic keyboard-operability check
   also exists for the POS scan field (`Tab` + type, no mouse).
-- **Gap G-6 (residual — narrowed; the original scope is now G-6b):**
-  - a **full keyboard-only** journey for POS — completing all 5 lines and
-    checkout with no mouse, not just the scan field (H-02 assumes it;
-    tracked as G-6b below, not duplicated here);
-  - one **screen-reader-labels** pass (every interactive control has an
-    accessible name) as a Playwright assertion, not just axe.
+- **Gap G-6 (residual — G-6b executed 2026-09-15):**
+  - keyboard-only POS add → qty → pay-ready cart is green on chromium
+    (`pos-keyboard-checkout.spec.ts`); live shop H-02 remains L7;
+  - accessible-name rules on login/dashboard/POS/invoice (2026-09-15).
 
 ### 6.7 Cross-platform / environment
 
@@ -525,9 +528,11 @@ sales/purchase registers and files without recalculation. Automated proxy today 
   server URL; `mobile-apk` builds the pilot APK; `mobile-emulator-smoke`
   (advisory) runs login → invoice → offline draft → reconnect via Maestro.
 - **Gap G-12:**
-  - e2e is **Chromium only** — no Firefox/WebKit, and 2 known mobile-viewport
-    layout fails are carried as pre-existing (`help.spec.ts:55`,
-    `item-custom-fields.spec.ts:46`);
+  - e2e goldens are **Chromium**; WebKit is scoped to a11y / role-boundaries /
+    mobile-layout (not goldens — V9 only if founder asks);
+  - two mobile-viewport cases are **accepted LIM** (2026-09-15):
+    `help.spec.ts` skips UniversalSearch below `sm`; `item-custom-fields.spec.ts`
+    skips `/sales/new` heading on the Pixel 5 project (occluded under AppBar);
   - local dev is still SQLite → parity relies entirely on CI;
   - mobile session-persistence / deep-link / offline-on-mobile is a partial
     "mobile test lane", emulator smoke is non-blocking.
@@ -609,19 +614,20 @@ wasn't sufficient evidence of correctness on its own.
 | **G-14** | No CA has filed from the worksheets (H-05) | Critical — the core value prop | Unknown | Blocked on pilot | Stage 3 fieldwork, live filing window, 3–5 CAs | **P0** | founder / pilot |
 | **G-4** | FE role-hiding for SALES / ACCT | High — a dead 403 button erodes trust daily (P2/P5 veto) | Medium | ✅ (2026-09-13) | `loginAsSales`/`loginAsAccountant` and live (non-fixme) `role-boundaries.spec.ts` blocks already existed — the header comment was stale, not the code. The real gap was underneath: mock-mode `fetchCurrentUser()` (`web/src/api/auth.ts`) always returned `mockUser` (OWNER) regardless of who logged in, so AuthContext's boot-time "re-fetch me" silently reset every SALES/ACCT mock session back to OWNER on the next navigation — the PJ-SALES/PJ-ACCT spec blocks were passing vacuously (testing OWNER's permissions). Fixed: `fetchCurrentUser()` now resolves the mock persona from `getStoredUser()`'s email via a shared `mockUserForEmail()` helper (same convention `login()` already used). Regression: `web/src/api/auth.test.ts` (verified red-before-green). Full Playwright run not executable from this sandboxed session (Bash and the preview-server harness run in separate network sandboxes here) — run `npm run test:e2e -- e2e/personas/role-boundaries.spec.ts` to confirm PJ-SALES/PJ-ACCT pass for the right reason now | **P1** | web |
 | **G-7** | Load/soak/large-tenant/degraded-network all absent | High — pilot "sized for small traders" is an untested assumption (C7) | Medium | 🟡 (scaffolded, not executed) | k6 scripts (`load/k6_smoke.js`, `load/k6_slo.js`), an advisory `load-harness` CI job (`.github/workflows/ci.yml`), a 50k-invoice bulk fixture, and a reusable `time.perf_counter()` budget-assertion idiom (all in `backend/tests/test_qos0003_large_tenant_reports.py`) already exist — verified 2026-09-13. What's actually missing is a **real budget number** from a staging-scale run (the one local run on record failed at 68% error/~9.3s p95 against a small local DB, which `load/README.md` already documents as expected, not a CI target) — not missing code. Once a real budget exists, flip `continue-on-error` off for `load-harness` | **P1** | backend / ops |
-| **G-8** | Per-inbound-webhook signature verification not enumerated | High — one unverified webhook = forged financial events | Low–Med | ✅ (2026-09-13) | Both inbound webhooks (Razorpay billing, generic payment-gateway) already have signature verification and forgery tests (`backend/tests/errors/test_webhook_and_async_contracts.py`, `backend/tests/test_payment_webhook_adversarial.py`), plus a structural guard (`backend/tests/errors/test_webhook_enumeration.py`) that fails the build if a new, unenumerated webhook appears. Only the `WF-17` label itself was stale — `test_wf17_gateway_webhook_capture_and_replay` (`backend/tests/workflows/test_wf_todo_stubs.py`) is `@pytest.mark.skip` pointing at coverage that now lives elsewhere under different names; retarget or remove it | **P1** | backend |
+| **G-8** | Per-inbound-webhook signature verification not enumerated | High — one unverified webhook = forged financial events | Low–Med | ✅ (2026-09-13; pointer 2026-09-15) | Both inbound webhooks have signature verification, a forgery test, and `test_webhook_enumeration.py`. `test_wf17_gateway_webhook_capture_and_replay` is now a structural pointer at those files (no `assert True`, no skip). Live refund/MDR remains D3-creds 🚫 | **P1** | backend |
 | **G-3** | Recovery paths partial: bank rec proper (WF-33), payment-gateway refund/MDR (WF-37/38) | High — Munshi & proprietor veto triggers | Med | ✅ WF-33 (2026-09-13) / 🚫 WF-37/38 | `test_wf33_bank_reconciliation` was already not skipped and passing (the module header claiming "each is skipped" was stale, now fixed). Idempotent-replay was already well covered for the idempotency-key path (`test_cr_017_bank_statement_commit_idempotency`); added the missing piece — a **bare** re-commit (no key) doesn't duplicate auto-match side effects, protected by both a code-level status check and a DB `OneToOneField` on `ReconMatch.line`: `test_phase3_payments.py::test_g3_bank_statement_bare_recommit_does_not_duplicate_auto_matches`. WF-37/38 remain genuinely blocked on D3 sandbox creds | **P1** | backend |
-| **G-11a** | Concurrency races never run locally (Postgres-only) | High — oversell / double-allocation corrupt money | Low (CI covers) | 🟡 | Document "run `pytest -m postgres` against a local PG container before touching allocation/stock code"; add to `CONTRIBUTING` + a pre-merge reminder | **P1** | backend |
-| **G-6b** | No keyboard-only POS a11y journey | High for ARCH-01 (H-02 assumes it) | Med | 🟡 (written, unexecuted — 2026-09-13) | Added `aria-label`s to the POS qty +/- buttons (only delete had one) and `web/e2e/pos-keyboard-checkout.spec.ts` — a 3-line add→qty→cash-checkout flow, zero `.click()`/mouse calls, asserts focus stays in the scan field across the scan loop and the whole flow finishes under the H-02 35s budget. **Not yet run**: this session's Bash and its dev-server preview harness run in separate network sandboxes, so Playwright couldn't reach a server either way it was started — run `npm run test:e2e -- e2e/pos-keyboard-checkout.spec.ts` to confirm before relying on it in CI | **P1** | web |
+| **G-11a** | Concurrency races never run locally (Postgres-only) | High — oversell / double-allocation corrupt money | Low (CI covers) | ✅ (2026-09-15) | `CONTRIBUTING.md` verification table + concurrency-lane section name `pytest -m postgres` / `scripts/test_concurrency_local.sh` as required before allocation/stock/numbering/period-close changes | **P1** | backend |
+| **G-6b** | No keyboard-only POS a11y journey | High for ARCH-01 (H-02 assumes it) | Med | ✅ (executed chromium 2026-09-15) | `web/e2e/pos-keyboard-checkout.spec.ts` — 3 SKUs keyboard-only, qty stepper via `increase quantity` aria-label, Cash pay-ready under 35s. Stops short of paid checkout (preview hits real backend). Live counter H-02 remains L7 | **P1** | web |
 | **G-1** | No persona journey for Godown-Keeper at a departmental firm (Model D); ARCH-04 count-variance not a journey | Med | Med | ✅ (2026-09-12) | Closed by `PJ-WHOLE-GODOWN` = `tests/personas/test_pj_stubs.py::test_pj_wholesale_godown_custodian` (QOS-0008: inward, transfer, deny-set) + `tests/personas/test_pj_stock_audit_and_adjustments.py::test_pj_custodian_physical_stock_count_and_adjustments` (count session with variance). See `FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md` §7. | **P2** | backend |
 | **G-2** | ARCH-05 near-expiry guard-band & policy on/off not a matrix dim; ARCH-06 bulk serial partial-failure & warranty-fraud untested | Med (Stage 4 archetypes) | Med | ✅ (2026-09-12) | Expiry-policy × guard-band axis — `tests/matrices/test_company_settings_matrix.py::test_expiry_guard_band_matrix` (tagged G-2/H-04b). Warranty-fraud — `tests/personas/test_pj_serialized.py::test_pj_serialized_lifecycle_and_warranty_fraud_guard`. Bulk-serial partial-failure — `tests/personas/test_pj_serialized.py::test_pj_bulk_serial_import_partial_failure_blocks_whole_job` (added 2026-09-12; bulk serial ingest is the `opening_serials` sheet on a PRODUCTS import — an earlier pass of this register incorrectly stated no such endpoint existed; it does, in `imports/services.py`, and PRODUCTS-kind commit is all-or-nothing, so the pinned behavior is "one bad row blocks the whole job," not a partial write). | **P2** | backend |
-| **G-5** | Broad page-level UX (~90 pages) has ~1 smoke each at best | Med — friction compounds | High | 🟡 | One render+no-console-error+axe smoke per top-20 route; keep the rest LIM | **P2** | web |
-| **G-9** | CSP not in-app; no external pen-test | Med | Low | Stated, not gated | Pen-test = Phase 5 (`PENTEST_SOW.md`); add a CSP header presence test once edge config is decided | **P2** | ops |
+| **G-5** | Broad page-level UX (~90 pages) has ~1 smoke each at best | Med — friction compounds | High | ✅ (2026-09-15) | `web/e2e/helpers/protectedRoutes.ts` (20 freeze routes) + authenticated `route-smoke.spec.ts` (render, no error boundary, no console pageerror, axe serious/critical on desktop) and the unauthenticated twin. Long-tail settings stay LIM | **P2** | web |
+| **G-9** | External pen-test; CSP was untested | Med | Low | 🟡 CSP gated (2026-09-15); pen-test Phase 5 | CSP header presence is `test_freeze_gate_contracts.py`. Pen-test = Phase 5 (`PENTEST_SOW.md`) | **P2** | ops |
 | **G-10** | Real-broker task ordering hidden by eager mode | Med | Low | 🟡 | Phase 5: run WF-17 / period-close / e-invoice submit against a real broker | **P3** | backend |
-| **G-12** | Chromium-only e2e; 2 mobile-viewport fails carried | Med | Med | 🟡 | Add a WebKit project to `playwright.config.ts` for the golden + a11y specs; fix or formally accept the 2 mobile fails | **P3** | web |
-| **G-11b** | No schema-migration rehearsal on a prod-shaped dump | Med | Low | ⛔ | P3: CI step — restore an anonymised dump, `migrate`, run the strict sweep | **P3** | backend / ops |
+| **G-12** | Chromium-only e2e; 2 mobile-viewport fails carried | Med | Med | 🟡 (mobile LIM accepted 2026-09-15; WebKit goldens = V9) | UniversalSearch skip below `sm` (`help.spec.ts`); `/sales/new` heading skip on Pixel 5 (`item-custom-fields.spec.ts`). Do not expand WebKit to goldens unless founder asks | **P3** | web |
+| **G-11b** | No schema-migration rehearsal on a prod-shaped dump | Med | Low | 🟡 synthetic (2026-09-15) | `scripts/migration_rehearsal.sh` now runs `manage.py check_invariants` after migrate+seed. Synthetic bulk may be dirty — fails the script only when `INVARIANTS_STRICT_REHEARSAL=1`. Real anonymised dump remains the 95 bar. Pytest twin: `test_v3_g11b_export_migrate_restore_invariants` | **P3** | backend / ops |
 | **G-13** | No LLM extraction accuracy benchmark | Low (draft-with-review) | Med | ⛔ | Corpus of ~30 real bills → expected fields → accuracy floor; advisory lane | **P3** | backend / AI |
-| **G-15/16** | Delight has no automated latency/friction budgets | Med | High | ⛔ | See §6.10 table — POS wall-clock, dashboard render budget, modal-count assertions | **P2** | web |
+| **G-15/16** | Delight has no automated latency/friction budgets | Med | High | ✅ automated proxy (2026-09-15) | `web/e2e/dashboard-budget.spec.ts` (heading ≤4s), `pos-friction.spec.ts` (no blocking modal, scan focus), `pos-keyboard-checkout.spec.ts` (H-02 35s keyboard cart). Live counter H-02 / H-03 remain L7 pilot | **P2** | web |
+| **G-complete-gate** | Complete stays disabled (or fails) after party + line for a secondary reason, with a generic or missing explanation | High — clerk cannot finish a correct bill | High — sales/purchase `canComplete` has extra conjuncts that goldens skip | ✅ CG-01–CG-37 gated (2026-09-16) | Plan + catalog: [`COMPLETE_GATE_VISIBILITY_PLAN.md`](COMPLETE_GATE_VISIBILITY_PLAN.md). Named Complete reasons on sales/purchase/notes/POS/orders/returns; purchase GSTIN aligned with sales; notes preview fallback. Index: `web/src/completeGates/completeGateIndex.test.ts` | **P1** | web |
 | **G-determinism** | `determinism-probe` advisory: 5 clock-brittle tests | Low | — | Advisory | Make the 5 fixtures' dates relative to `timezone.now()`; flip probe to blocking | **P2** | backend |
 | **G-mutation** | Mutation audit blocked (mutmut = WSL/Linux only) | Med — line coverage ≠ behaviour coverage | — | Blocked (Windows) | Run `scripts/mutation_audit.sh` in a Linux CI lane (advisory), triage survivors on the money/tax/stock modules first | **P2** | backend |
 | **G-17** | FE-computed display fields (status badges, derived flags) diverge from backend-authoritative state across status combinations; zero page-level render tests for status/history/detail screens | High — found live 2026-09-12: `paidAwareStatus()` checked `payment_state` before `status`, so a fully-returned invoice (auto-CN nets its balance to 0) rendered as "Paid," masking the return; `status.test.ts` only ever exercised `status='COMPLETED'` inputs, so the RETURNED×PAID combination was never hit | Med — recurs anywhere FE duplicates backend precedence logic instead of trusting one server-computed field | ✅ (2026-09-12) | Fixed the instance (`paidAwareStatus` gates on `status` first); added server-side `return_state` (NONE/PARTIAL/FULL) + `test_return_state_visibility.py`. Sibling bug fixed: `insights/alerts.py` `OPEN_SALES` wrongly included RETURNED (disagreed with `insights/services.py`'s own COMPLETED-only `OPEN_SALES` of the same name) — best-seller/fast-mover analytics counted reversed sales; regression pinned in `test_phase6_insights.py::test_low_stock_fast_mover_ignores_fully_returned_invoice` (verified red without the fix). Closed by page-level fixture-matrix render tests asserting visible badge text across status × payment_state × return_state: `SalesHistoryPage.test.tsx`, `InvoiceDetailPage.test.tsx`, `DashboardPage.test.tsx`, `PurchaseHistoryPage.test.tsx` (parity check — this list has no payment-state overlay to begin with). Traced further in `CROSS_FLOW_IMPACT_MAP.md`, which surfaced 3 more instances of the same shape — G-18/G-19/G-20 below | **P1** | web / backend |
@@ -650,8 +656,9 @@ boundary.
 4. **"Worksheets are enough for the CA."** Entirely a proxy until H-05. → G-14.
 5. **"Running weighted cost ≈ FIFO COGS."** The delta from true FIFO is disclosed
    but not quantified. A large price swing during the pilot could surprise a CA.
-6. **"Persona journeys via API ≈ what the user experiences."** The UI can diverge
-   from the API's permission model; only OWNER/VIEWER FE journeys are live. → G-4.
+6. **"Persona journeys via API ≈ what the user experiences."** Closed for
+   the four freeze roles: FE `role-boundaries.spec.ts` is live for OWNER /
+   VIEWER / SALES / ACCOUNTANT (G-4). API deny-sets remain the L4 proof.
 7. **"Invariants at rest are enough."** Mid-transaction inconsistency is
    deliberately not checked (`no_invariant_check`). A crash mid-`complete()` that
    commits half is caught only if a specific test exercises that crash.
@@ -688,46 +695,33 @@ boundary.
     `backend/tests/test_status_semantics.py` (parametrized over the full
     `SalesInvoice.Status` enum, closing this exact weak assumption's own
     lesson — item 11 above — for the predicates themselves). **`PurchaseInvoice`
-    is a deliberately separate, not-yet-started follow-up** — a wider,
-    GST-filing-adjacent reader set (`gstr2b.py`, `gst_health.py`,
-    `gst_returns.py`, `ims.py`), do after this pass has shipped and been
-    observed for a release.
+    follow-up done 2026-09-15**: `purchases/status_semantics.py` +
+    `test_purchase_status_semantics.py` pins GST/IMS/ledger/reporting readers
+    on `OPEN_PAYABLE_STATUSES` and insights price-creep on
+    `OPERATIONAL_PURCHASE_STATUSES`; books-health unposted check uses the
+    same open receivable/payable sets.
 
 ## 9. High-value tests to add next (prioritized backlog)
 
 In priority order; each is small and closes a named gap.
 
-1. ~~Un-`fixme` FE SALES/ACCT role boundaries~~ (G-4) — **done 2026-09-13**:
-   the login helpers and live spec blocks already existed; the actual bug
-   (mock `fetchCurrentUser()` always returning OWNER, making the blocks
-   pass vacuously) is fixed, see G-4's register row.
-2. **Executed k6 smoke** (G-7) — the scripts/CI job/fixture all already
-   exist; what's missing is a real p95/error-rate budget from a
-   staging-scale run before flipping `load-harness` from advisory to
-   blocking — see G-7's register row.
-3. ~~Webhook forgery sweep~~ (G-8) — **done, verified 2026-09-13**: every
-   inbound webhook already has signature verification, a forgery test, and
-   a structural guard against a new unenumerated one appearing. Only
-   remaining cleanup: retarget/remove the stale `test_wf17...` skip stub.
-4. **Keyboard-only POS journey** (G-6b) — written 2026-09-13
-   (`web/e2e/pos-keyboard-checkout.spec.ts` + the qty-button `aria-label`
-   fix), not yet executed — see the register row for why. Run it before
-   trusting it in CI.
-5. **WF-33 idempotent replay** (G-3) — the test itself already runs and
-   passes (not skipped); the one piece actually missing is asserting a
-   re-run of the same statement import/commit is a no-op, not just that
-   re-matching one line twice 400s.
-6. **`PJ-WHOLE-GODOWN`** (G-1) — the missing departmental Godown-Keeper journey
-   with count-variance and a proper deny-set.
-7. **Large-tenant report/export timing fixture** (G-7) — 50k invoices; assert
-   report + CSV export complete under budget and query count stays flat.
-8. ~~axe on invoice form + one report + one settings screen~~ (G-6) —
-   **done**, `a11y.spec.ts` covers all four (QOS-0007). Residual G-6 scope
-   (screen-reader-labels pass) folds into item 4's keyboard-only POS work.
-9. **Expiry-policy matrix axis** (G-2) — policy on/off × expired × near-expiry
-   guard-band, auto-pick and manual-pick.
-10. **Make `determinism-probe` blocking** (G-determinism) — fix the 5 date-brittle
-    fixtures.
+1. ~~Un-`fixme` FE SALES/ACCT role boundaries~~ (G-4) — **done 2026-09-13**.
+2. **Executed k6 smoke** (G-7) — still needs a staging-scale budget before flipping `load-harness` (calendar/ops).
+3. ~~Webhook forgery sweep~~ (G-8) — **done**; WF-17 is a structural pointer as of 2026-09-15.
+4. ~~Keyboard-only POS journey~~ (G-6b) — **executed chromium 2026-09-15**.
+5. ~~WF-33 idempotent replay~~ (G-3) — **done 2026-09-13**.
+6. ~~`PJ-WHOLE-GODOWN`~~ (G-1) — **done**.
+7. **Large-tenant report/export timing fixture** (G-7) — 50k fixture exists; staging SLO soak is Phase 5.
+8. ~~axe on invoice form + one report + one settings screen~~ (G-6) — **done**. Accessible-name rules added on login/dashboard/POS/invoice 2026-09-15.
+9. ~~Expiry-policy matrix axis~~ (G-2) — **done**.
+10. **Make `determinism-probe` blocking** (G-determinism) — wait for 3 green `main` runs (calendar).
+11. ~~A11 supplier payment chain~~ — `tests/workflows/test_a11_supplier_payment.py` 2026-09-15.
+12. ~~A26 OTP rate-limit / WF-18~~ — **done 2026-09-15**.
+13. ~~Completed-doc MoneyFieldAudit~~ — `test_money_audit_completed.py` 2026-09-15.
+14. ~~Complete/cancel/allocate/amend `AuditEvent`~~ — `test_complete_cancel_allocate_amend_write_audit_events` 2026-09-15.
+15. ~~H3 beat dry-run + PDF retry→READY~~ — `test_every_beat_task_dry_runs_eager` + existing PDF status test 2026-09-15.
+16. ~~WF-14 sales-bill CSV idempotency~~ — `test_wf14_upload_sales_bill_idempotent` 2026-09-15 (OCR UI stays LIM).
+17. ~~Dangling WF skips converted to pointers / LIM pins~~ — WF-20/23/24/25 pointers; WF-45-verify LIM pin. Remaining skip: WF-37/38 only.
 
 ---
 
@@ -822,7 +816,7 @@ cheaper and faster than a behavioural test.
 | Hypothesis | Automated proxy (must stay green) | Human proof (pilot) |
 |---|---|---|
 | **H-01** ledger reconciliation | `gl.party_subledger_complete` + allocation chains + `cross_reconcile` | 100 consecutive real allocations, zero unexplained deltas |
-| **H-02** POS speed / usability | *to build:* keyboard-only POS Playwright timing (G-6b, G-16) | 90% of checkouts ≤ 35 s, no mouse |
+| **H-02** POS speed / usability | `web/e2e/pos-keyboard-checkout.spec.ts` (chromium, ≤35s to pay-ready cart) | 90% of checkouts ≤ 35 s, no mouse |
 | **H-03** offline outbox integrity | `offline-outbox-conflict.spec.ts` + idempotency contract | 100% drafts flushed, zero dup / loss |
 | **H-04a** FEFO order | `inventory.*` + `test_wave15_fefo.py` | 100% non-manual dispatches earliest-expiry-first |
 | **H-04b** expiry block | `inventory.no_expired_issue_when_blocked` (+ guard-band, G-2) | 100% expired-invoice attempts rejected |

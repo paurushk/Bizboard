@@ -371,7 +371,7 @@ each Q-OS guard proves it can fail.
 
 | G-id | → QOS item | Category | evidence.strength | priority |
 |---|---|---|---|---|
-| G-4 (FE SALES/ACCT role-hiding `test.fixme`) | "UI may render dead controls that 403 for SALES/ACCOUNTANT" | DISSATISFACTION | heuristic | P1 |
+| G-4 (FE SALES/ACCT role-hiding) | Closed 2026-09-13 — `role-boundaries.spec.ts` live for all four freeze roles; QOS-0001 `lifecycle: verified` | DISSATISFACTION | — | closed |
 | G-7 (no executed load test) | "Pilot scale unvalidated — no load/soak/large-tenant test" | PERFORMANCE | heuristic | P1 |
 | G-8 (per-webhook forgery not enumerated) | "Not every inbound webhook has a signature-forgery test" | SECURITY_PRIVACY | heuristic | P1 (sev-5 exempt from cap) |
 | G-1 (no Godown-Keeper journey) | "Missing PJ journey for P4 at a departmental firm" | PERSONA_GAP | heuristic | P2 |

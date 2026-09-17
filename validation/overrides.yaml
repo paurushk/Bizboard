@@ -134,4 +134,5 @@ actions:
   flag_flip_then_review:
     coverage: LIM
   multi_tab_invoice_race:
-    coverage: LIM
+    coverage: JOURNEY
+    note: "CFT-120 — tests/test_cft_cross_flow.py::test_cft_120_stale_amend_revision_conflicts + postgres test_concurrency_races.test_cft_120_concurrent_same_invoice_amend_one_wins. UI sends expectedAmendRevision."

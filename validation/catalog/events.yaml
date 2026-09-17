@@ -122,6 +122,7 @@ events:
   - verb: amend
     document_types: [sales_invoice, purchase_invoice]
     g_ids: [G-21]
+    note: "Live IRN/e-way locks sales-invoice line amend (CFT-116). Multi-tab concurrent edit is G-11a (CFT-120)."
     impacts:
       stock: yes
       gl: yes
@@ -221,3 +222,19 @@ events:
       badge_ui: no
       channel: yes
       historical_period: n/a
+  - verb: convert
+    document_types: [quotation, sales_order, delivery_challan]
+    extended: true
+    g_ids: []
+    note: "Quote→SO→challan→invoice (WF-06/09/10). Checklist CFT-114/CFT-115. Stock reservation until challan/invoice complete; quotation itself never posts stock/GL."
+    impacts:
+      stock: lim
+      gl: no
+      ar_ap: no
+      gst: no
+      reports: lim
+      attention: no
+      dashboard: lim
+      badge_ui: yes
+      channel: no
+      historical_period: required

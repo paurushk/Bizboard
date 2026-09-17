@@ -23,6 +23,19 @@ Sign before any host receives real pilot PII / GSTINs. Copy rows into the go-mee
 
 ---
 
+## Freeze Table B / known-limitation flags (must stay 0 on freeze hosts)
+
+| # | Check | Expected | OK | Notes |
+|---|--------|----------|----|-------|
+| 10a | `ENABLE_GSTR` / `ENABLE_GSTN_JSON` / `ENABLE_TALLY` | `0` | ☐ | Worksheets stay C1; live filing is Table B. |
+| 10b | `ENABLE_MANUFACTURING` / `ENABLE_PAYROLL` / `ENABLE_CRM` | `0` | ☐ | Paid plans must not grant these (`freeze_safe_modules`). |
+| 10c | `ENABLE_FIXED_ASSETS` / `ENABLE_BOE` | `0` | ☐ | D6/D10 known limitations; Django default is now OFF. |
+| 10d | `GSP_LIVE_ENABLED` / `ENABLE_WHATSAPP_CLOUD` / `ENABLE_ACCOUNT_AGGREGATOR` | `0` | ☐ | Preview / `wa.me` fallbacks only. |
+| 10e | `VITE_ENABLE_GSTR` / `VITE_ENABLE_EINVOICE_SUBMIT` (image bake) | `false` | ☐ | CD and compose default false. |
+| 10f | `ENABLE_POS` / `ENABLE_TDS` / `ENABLE_SETUP_WIZARD` | `1` | ☐ | Freeze-supported (A23 / A24 / A19). |
+
+---
+
 ## Email / SMS
 
 | # | Check | Expected | OK | Notes |
@@ -41,7 +54,7 @@ Sign before any host receives real pilot PII / GSTINs. Copy rows into the go-mee
 | 15 | Uptime URL | External checker on `GET /api/v1/health/` + alert | ☐ | |
 | 16 | Celery worker | Running; queue depth watched during PDF bursts | ☐ | Prefer inspect/active over flaky celery ping healthchecks. |
 | 17 | Image / deploy tags | Immutable tags recorded per release | ☐ | Needed for rollback (P0-508). |
-| 18 | `SENTRY_DSN` + on-call routing | Errors reach Sentry; a real alert fires to on-call | ☐ | Set `SENTRY_DSN`, run `python manage.py sentry_test_event`, confirm the event lands in the Sentry project and pages on-call — paste the event id here, don't check this box on a claim alone. |
+| 18 | `SENTRY_DSN` + on-call routing | Errors reach Sentry; a real alert fires to on-call | ☐ | Playbook: `docs/ops/OGATE_HUMAN.md`. Set `SENTRY_DSN`, run `python manage.py sentry_test_event`, confirm the event lands in the Sentry project and pages on-call — paste the event id here, don't check this box on a claim alone. |
 
 ---
 

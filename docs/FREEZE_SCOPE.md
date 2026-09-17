@@ -141,8 +141,8 @@ belongs to. Source: `backend/config/settings.py`,
 | `company.ai_features_enabled` / `VITE_ENABLE_AI` | both | OFF | B |
 | `ENABLE_GSTR` / `VITE_ENABLE_GSTR` | both | OFF | B (worksheets = C1) |
 | `ENABLE_GSTN_JSON` | backend | OFF | B |
-| `ENABLE_FIXED_ASSETS` | backend | **OFF** (`0`) — default ON in code | B (D6 → KNOWN LIMITATION, revision 2026-09-09b) |
-| `ENABLE_BOE` | backend | **OFF** (`0`) — default ON in code | B (D10 → KNOWN LIMITATION, revision 2026-09-09b) |
+| `ENABLE_FIXED_ASSETS` | backend | **OFF** (`0`) — Django default OFF; tests opt in via `settings_test` | B (D6 → KNOWN LIMITATION, revision 2026-09-09b) |
+| `ENABLE_BOE` | backend | **OFF** (`0`) — Django default OFF; tests opt in via `settings_test` | B (D10 → KNOWN LIMITATION, revision 2026-09-09b) |
 | `ENABLE_ARCH05_STATUTORY_FORMS` | backend | **OFF** (`0`) | D15 — ARCH-05 drug-licence (20B/21B) + FSSAI compliance; ships per-company when a pharma/food pilot is provisioned; no effect on the ARCH-03 pilot |
 | `ENABLE_TENANT_ERASURE` | backend | **OFF** (`0`) | D13 owner-initiated erasure endpoint. **SR-40 signed 2026-09-10:** default mode is `tombstone` — statutory tax docs kept with party PII scrubbed, `Company` row survives with `erased_at`, `purge_tombstoned_companies` hard-deletes after the 8-yr GST window. Flag still OFF by default; flip it per deployment when erasure requests are handled in-product. |
 | `ENABLE_TALLY` / `VITE_ENABLE_TALLY` | both | OFF | B |

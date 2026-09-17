@@ -1,8 +1,8 @@
 # BizBoard Holistic Validation — Operating Model & Review
 
-**Status:** Canonical quality model + diagnostic review · **Date:** 2026-09-14 · **Rev:** 2.2 (C6-80 signed; 80-plan sessions S0–S7 evidenced) · **Owner:** QA + founder  
+**Status:** Canonical quality model + diagnostic review · **Date:** 2026-09-14 · **Rev:** 2.3 (C6-80 signed; 80-plan S0–S7 evidenced; 95-plan V2–V6 evidenced) · **Owner:** QA + founder  
 **Inputs:** `TESTING_STRATEGY.md`, `CROSS_FLOW_IMPACT_MAP.md`, `FREEZE_SCOPE.md`, `web/src/App.tsx`, `web/src/navigation/menu.ts`, `backend/tests/personas/`, `web/e2e/`, `web/e2e-golden/`  
-**Companions:** [`HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md`](HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md) (HOW) · [`HOLISTIC_VALIDATION_80_PLAN.md`](HOLISTIC_VALIDATION_80_PLAN.md) (session target 80% per dimension) · Cursor IDE canvases are not git artifacts
+**Companions:** [`HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md`](HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md) (HOW) · [`HOLISTIC_VALIDATION_80_PLAN.md`](HOLISTIC_VALIDATION_80_PLAN.md) (session target 80% per dimension) · [`HOLISTIC_VALIDATION_95_PLAN.md`](HOLISTIC_VALIDATION_95_PLAN.md) (90 then 95; V2–V6 done, V0/V1/V7–V12 still human) · Cursor IDE canvases are not git artifacts
 
 This file has two jobs:
 
@@ -68,6 +68,7 @@ There is **one** BizBoard Quality Model. L1–L10, T1–T7, and Q-OS are not thr
 | [`Q-OS_QUALITY_PIPELINE_PLAN.md`](Q-OS_QUALITY_PIPELINE_PLAN.md) | **Output** — ranked quality backlog from evidence | Define its own test layers |
 | [`FLOW_CATALOG.md`](FLOW_CATALOG.md) (generated) | Machine-readable Graph 1; CI drift gate (advisory until A3) | Stay a hand-maintained Markdown table; count `dark_module` as freeze coverage |
 | [`HOLISTIC_VALIDATION_80_PLAN.md`](HOLISTIC_VALIDATION_80_PLAN.md) | Session target: 80% per §0.9 dimension | Redefine High; mint C6-80 without this file’s §0.10 |
+| [`HOLISTIC_VALIDATION_95_PLAN.md`](HOLISTIC_VALIDATION_95_PLAN.md) | Path to ~90 High-locked then ~95 freeze/go-live | Flip A3 early; claim Insight High without H-05; treat 95 as more goldens |
 
 Capability correctness and data integrity are the **current edge**. Product truth, user understanding, decision quality, and long-term consistency are what this model closes.
 
@@ -214,15 +215,15 @@ The flow catalog is generated (`FLOW_CATALOG.md`). §2 below is a **frozen** dia
 
 | Claim | Confidence |
 |---|---|
-| At-rest stock / GL / subledger consistency | **High (~85%)** — hold; `INVARIANTS_STRICT` on books-on docs (S1a) |
-| A named SUPPORTED workflow completes its own job (API) | **High (~80%)** — S0 catalog honesty + S1b `/purchases/history` + `/invite` journeys |
-| The user can perform that job in the UI and see the consequence | **High (~80%)** — ARCH-01/03, purchase residual, invite-accept, roles |
-| After a return / residual / amendment, every screen still tells the same story | **High (~80%)** — S5a cashier Returned; S0 event cells filled (LIM/GAP allowed, none blank) |
+| At-rest stock / GL / subledger consistency | **High (~90%)** — V3 G-11b dump→migrate→restore + Linux `mutation-audit` advisory lane; `INVARIANTS_STRICT` still red-capable |
+| A named SUPPORTED workflow completes its own job (API) | **High (~80%)** — S0 catalog honesty + S1b `/purchases/history` + `/invite` journeys. Single-flow **lock** is V1 / A3 |
+| The user can perform that job in the UI and see the consequence | **High (~80%)** — V2 freeze workflows are JOURNEY; published 90 waits for V1 catalog lock (**90-pending-lock**) |
+| After a return / residual / amendment, every screen still tells the same story | **High (~90%)** — required `e2e-golden` ARCH-01/03 + purchase residual + accounting journal stay in CI (not `test.fixme`) |
 | Attention, dunning, and dashboard are safe to act on | **Medium-high (~80%)** — C6-80 signed; residual `code`, dunning RETURNED+residual, KPI=aging. **Not High** (H-05) |
-| UX / mental-model truth | **Medium-high (~80%)** — C6-80 signed; glossary, recon labels, Hindi outstanding/Returned, B14 GSTIN prompt. **Not High** (H-05 / live-shop copy) |
-| Historical truth after a later event | **High (~80%)** — closed calendar month N TB/aging as-of unchanged after N+1 Complete |
+| UX / mental-model truth | **Medium-high (~80%)** — C6-80 signed; glossary, recon labels, Hindi outstanding/Returned, B14 GSTIN prompt. **Not High** (H-05 / live-shop copy / V7) |
+| Historical truth after a later event | **High (~90%)** — V4 closed N **and** N−1 reject backdated Complete; as-of N snapshot unchanged after N+1 |
 
-**Headline:** 80-plan sessions S0–S7 are evidenced. Decision-quality and UX **80%** under **C6-80** stay **Medium-high**, not High. Flow-catalog / writer-impact remain advisory until A3's two consecutive green CI weeks. Do not treat `dark_module` persona tests as freeze coverage — generated `FLOW_CATALOG.md` is the route-count source.
+**Headline:** 80-plan S0–S7 plus 95-plan **V2–V6** are evidenced. Decision-quality and UX stay **Medium-high**, not High. Flow-catalog / writer-impact remain advisory until A3's two consecutive green CI weeks (**V0 dates blank; V1 not flipped**). Do not treat `dark_module` persona tests as freeze coverage — generated `FLOW_CATALOG.md` is the route-count source.
 
 Percents in parentheses are **illustrative anchors**, not coverage %. The **band** is the claim. A later 80-plan session may publish 80% on a row only when that plan’s rubric is fully met; that still does not promote Insight/UX to **High**.
 
@@ -306,7 +307,7 @@ Source of truth for “does this flow exist?” is `App.tsx` + `navigation/menu.
 
 | Flow | Route / action | Freeze | Strategy | Actual tests | Verdict |
 |---|---|---|---|---|---|
-| POS checkout cash/UPI | `/pos` | A23 SUP | Named (WF-19, PJ-RETAIL, H-02) | golden POS; API WF-19; keyboard spec **written, unexecuted (G-6b)** | **JOURNEY** backend; **UI delight GAP** |
+| POS checkout cash/UPI | `/pos` | A23 SUP | Named (WF-19, PJ-RETAIL, H-02) | golden POS; API WF-19; keyboard spec **executed chromium (G-6b, 2026-09-15)** | **JOURNEY** backend; **UI delight proxy ✅**; live H-02 L7 |
 | POS warehouse / godown pick | `/pos` + warehouses | A23 | Weak | POS golden visits warehouses | **thin JOURNEY** |
 | Thermal print | POS complete | A23 | Named “when available” | not asserted in golden | **GAP** |
 | POS shift / drawer | in-page | delight / PJ | `test_pj_pos_shift_and_cash_reconciliation` | **API-ONLY** | |

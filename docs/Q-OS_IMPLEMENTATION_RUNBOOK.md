@@ -570,6 +570,8 @@ Deterministic: no timestamps in the body; sort keys fixed; trailing newline.
 
 ## Appendix D — sample `qos/backlog/QOS-0001.yaml`
 
+> Historical sample from 2026-09-10. **G-4 is closed** (2026-09-13): `role-boundaries.spec.ts` is live for SALES and ACCOUNTANT; live YAML is `qos/backlog/QOS-0001.yaml` (`lifecycle: verified`). Do not copy the `test.fixme` problem text into new items.
+
 ```yaml
 id: QOS-0001
 category: DISSATISFACTION

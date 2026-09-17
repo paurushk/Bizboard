@@ -9,6 +9,7 @@ architecture invariants.
 | Doc | What |
 |---|---|
 | [`architecture.md`](architecture.md) | How the system is built — layout, invariants, tenancy, feature flags, async, deployment |
+| [`DOCKER_ENVIRONMENT.md`](DOCKER_ENVIRONMENT.md) | Isolated Docker DEV vs STAGING — volumes, commands, seed, backup |
 | [`reviews/ARCHITECTURAL_DECISIONS.md`](reviews/ARCHITECTURAL_DECISIONS.md) | ADR-A01…A10 — the reasoning behind the invariants |
 | [`../README.md`](../README.md) | Product scope, local dev (Docker + non-Docker), verification commands |
 | [`../backend/README.md`](../backend/README.md) | Backend quick start, API surface, environment variables, Celery |
@@ -18,9 +19,9 @@ architecture invariants.
 
 These are covered in the two READMEs rather than duplicated here:
 
-- **Setup** — [`../README.md` § Local development](../README.md#local-development) (Docker and non-Docker); backend detail in [`../backend/README.md`](../backend/README.md).
+- **Setup** — [`../README.md` § Local development](../README.md#local-development) (Docker and non-Docker); backend detail in [`../backend/README.md`](../backend/README.md). Isolated DEV vs STAGING Compose: [`DOCKER_ENVIRONMENT.md`](DOCKER_ENVIRONMENT.md).
 - **Testing** — [`../README.md` § Verification](../README.md#verification): `cd backend && pytest`; `cd web && npm run lint && npm test -- --run && npm run build`. Backend tests live in `backend/tests/` (`config.settings_test`, SQLite; the `postgres` marker gates row-lock tests). CI: `.github/workflows/ci.yml`.
-- **Deployment** — [`architecture.md` § Deployment](architecture.md#deployment), [`reviews/12_DEVOPS_REVIEW.md`](reviews/12_DEVOPS_REVIEW.md), [`pilot/RUNBOOKS.md`](pilot/RUNBOOKS.md). CI gate scripts: `scripts/ci_gates/`.
+- **Deployment** — [`architecture.md` § Deployment](architecture.md#deployment), [`DOCKER_ENVIRONMENT.md`](DOCKER_ENVIRONMENT.md), [`reviews/12_DEVOPS_REVIEW.md`](reviews/12_DEVOPS_REVIEW.md), [`pilot/RUNBOOKS.md`](pilot/RUNBOOKS.md). CI gate scripts: `scripts/ci_gates/`.
 
 ## Directory map
 
@@ -40,11 +41,14 @@ These are covered in the two READMEs rather than duplicated here:
 | [`HOLISTIC_VALIDATION_REVIEW.md`](HOLISTIC_VALIDATION_REVIEW.md) | **BizBoard Quality Model** + diagnostic: product-truth vs capability, Flow / Impact / Truth graphs, generated-catalog target, flow inventory, P0–P2 | **Active** — operating model (rev 2). Other testing docs are *views*, not competing frameworks |
 | [`HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md`](HOLISTIC_VALIDATION_IMPLEMENTATION_PLAN.md) | **Executable build plan** for the model above — Phases 0–7, each task with goal/steps/files/acceptance/deps/effort | **Phases 0–7 encoded** (2026-09-13). `flow-catalog` stays advisory until 2 green CI weeks (A3). Decision-quality target remains Medium-high (C6). |
 | [`HOLISTIC_VALIDATION_80_PLAN.md`](HOLISTIC_VALIDATION_80_PLAN.md) | LLM-session plan to 80% on each review §0.9 dimension. Rubric + C6-80. Not High. | **Active** — scores live in that file’s table; Cursor canvases are IDE-only |
+| [`SAAS_READINESS_EXECUTION_PLAN.md`](SAAS_READINESS_EXECUTION_PLAN.md) | Trackable 17-phase production SaaS plan (Excel IDs, LLM vs Human, gates, Go/No-Go). Status is repo evidence, not a signed gate. | **Active** — git copy of the Cursor canvas |
+| [`OBSERVABILITY_IMPLEMENTATION_PLAN.md`](OBSERVABILITY_IMPLEMENTATION_PLAN.md) | Product Health & Observability: Journey-central diagnostic chain. Three gates; P0 is Gate 1+2. Human Sentry/on-call: `ops/OGATE_HUMAN.md`. Staging grep: `ops/OGATE_GREP_WALK.md`. Gate 3 deferred | **Active** — execute Gate 1 then 2; stop |
 | [`CROSS_FLOW_IMPACT_MAP.md`](CROSS_FLOW_IMPACT_MAP.md) | **Graph 2 (Impact)** — writers/readers of shared mutable fields; event × projection summary is generated | **Active** — `python validation/tools/build_event_matrix.py` |
 | [`FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md`](FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md) | **L4 view** — persona × archetype index. T1–T7 maps onto L1–L10 | **Active** — not a second pyramid |
 | [`Q-OS_QUALITY_PIPELINE_PLAN.md`](Q-OS_QUALITY_PIPELINE_PLAN.md) | **Quality output** — pipeline that turns testing evidence into a Product Quality Backlog | **Plan — for build**. Does not define test layers |
 | [`Q-OS_IMPLEMENTATION_RUNBOOK.md`](Q-OS_IMPLEMENTATION_RUNBOOK.md) | Executable task-by-task build plan for the above — Phases 0–5, each task with goal / steps / files / acceptance check / deps / effort; appendices carry the JSON Schema, lint checks, CI jobs, frontier scoring, and a sample item | **Runbook** — Phase 0 + Phase 1 built; Phase 2 partial |
 | [`FLOW_CATALOG.md`](FLOW_CATALOG.md) | **GENERATED** Graph 1 — every `App.tsx` route + in-page money action with a coverage label | **Live** — `python validation/tools/build_flow_catalog.py`; advisory CI job `flow-catalog` |
+| [`COMPLETE_GATE_VISIBILITY_PLAN.md`](COMPLETE_GATE_VISIBILITY_PLAN.md) | **L6 Complete-gate class** — party + line present but Complete still blocked or silent (**CG-01**–**CG-37**) | **Active** — catalog `web/src/completeGates/`; CG-01–CG-37 gated |
 | [`EVENT_MATRIX.md`](EVENT_MATRIX.md) | **GENERATED** Graph 2 — verb × document × projection cells | **Live** — `python validation/tools/build_event_matrix.py` |
 | [`PRODUCT_QUALITY_BACKLOG.md`](PRODUCT_QUALITY_BACKLOG.md) | **GENERATED** by `qos/tools/build_backlog.py` — the ranked backlog itself: dashboard, sequenced top-12 frontier, 11 categories, Accepted/won't-fix. Edit `qos/backlog/*.yaml`, not this file | **Live** — gated by the `qos-lint` CI job; see [`../qos/README.md`](../qos/README.md) |
 | [`archive/`](archive/) | Superseded historical reports kept for reference (security/test/bug/perf snapshots, old code-review dumps, UX audits, old Phase 1 plan) | **Frozen** — do not update |
