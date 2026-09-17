@@ -59,4 +59,8 @@ These are covered in the two READMEs rather than duplicated here:
 - **`archive/`** contents are frozen snapshots. Each points at its live
   replacement in its header; don't cite them as current.
 - The repo root holds only `README.md`, `MVP_IMPLEMENTATION_PLAN.md`,
-  `REPOSITORY_AUDIT.md`, and the current `DEEP_CODE_REVIEW` / `FIX_PLAN`.
+  `REPOSITORY_AUDIT.md`, and the current release review —
+  `RELEASE_BLOCKING_CODE_REVIEW_2026-09-08.md` /
+  `FUNCTIONAL_CODE_REVIEW_2026-09-08_CLAUDE.md`. The superseded
+  `DEEP_CODE_REVIEW_2026-09-03.md` / `FIX_PLAN_2026-09-03.md` cycle
+  moved to `archive/`.
