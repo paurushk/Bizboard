@@ -7,8 +7,8 @@ import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from django.db.models import Count, Sum
-from django.db.models.functions import Coalesce
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Sum
+from django.db.models.functions import Abs, Coalesce, TruncMonth
 from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
@@ -27,7 +27,7 @@ from sales.models import (
     SalesReturn,
 )
 from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
-from purchases.status_semantics import OPEN_PAYABLE_STATUSES
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES, OPERATIONAL_PURCHASE_STATUSES
 
 # CF-001: OPEN_SALES (receivables/aging) and NET_SALES (dashboard money
 # totals, product/customer revenue ranking) were two independently-defined
@@ -115,6 +115,118 @@ def assert_report_date_span(date_from, date_to, *, kind: str = "Report") -> None
             f"{kind} date range is {span} days; maximum allowed is "
             f"{MAX_REPORT_DATE_SPAN_DAYS} days. Narrow date_from/date_to."
         )
+
+
+def _discount_report(*, header_qs, item_qs, header_prefix: str, party_field: str, date_field: str = "invoice_date"):
+    """Shared discount aggregation for sales/purchase discount reports.
+
+    `header_qs` is a pre-filtered header queryset (SalesInvoice/PurchaseInvoice) used
+    for the header-level `invoice_discount` total. `item_qs` is the matching line-item
+    queryset (SalesItem/PurchaseItem), pre-filtered the same way. `header_prefix` is the
+    FK name on the line item pointing back to its header ("invoice"). `party_field` is
+    the FK path from the line item to the customer/supplier ("invoice__customer").
+
+    Only `discount_percent` is stored at line level (no line-level discount amount), so
+    the per-line discount amount is derived here as unit_price * quantity * pct / 100.
+    """
+    line_discount_expr = ExpressionWrapper(
+        F("unit_price") * F("quantity") * F("discount_percent") / Decimal("100"),
+        output_field=DecimalField(max_digits=14, decimal_places=2),
+    )
+    pre_discount_expr = ExpressionWrapper(
+        F("unit_price") * F("quantity"),
+        output_field=DecimalField(max_digits=14, decimal_places=2),
+    )
+    item_qs = item_qs.annotate(_line_discount=line_discount_expr, _pre_discount=pre_discount_expr)
+
+    header_totals = header_qs.aggregate(
+        header_discount_total=Coalesce(Sum("invoice_discount"), Decimal("0")),
+        pre_discount_revenue=Coalesce(Sum("subtotal"), Decimal("0")),
+        invoice_count=Count("id"),
+    )
+    line_totals = item_qs.aggregate(
+        line_discount_total=Coalesce(Sum("_line_discount"), Decimal("0")),
+    )
+    discounted_invoice_count = header_qs.filter(discount_total__gt=0).count() + header_qs.filter(
+        invoice_discount__gt=0
+    ).exclude(discount_total__gt=0).count()
+
+    line_discount_total = line_totals["line_discount_total"]
+    header_discount_total = header_totals["header_discount_total"]
+    total_discount = line_discount_total + header_discount_total
+    pre_discount_revenue = header_totals["pre_discount_revenue"]
+    # Weighted average, not a naive mean of per-line discount_percent values --
+    # averaging percents directly would let a handful of small heavily-discounted
+    # lines skew the figure regardless of how much revenue they represent.
+    avg_discount_percent = (
+        (total_discount / pre_discount_revenue * 100) if pre_discount_revenue else Decimal("0")
+    )
+
+    by_party = list(
+        item_qs.values(f"{party_field}_id", f"{party_field}__name")
+        .annotate(
+            line_discount=Coalesce(Sum("_line_discount"), Decimal("0")),
+            revenue=Coalesce(Sum("_pre_discount"), Decimal("0")),
+            invoices=Count(header_prefix, distinct=True),
+        )
+        .order_by("-line_discount")
+    )
+    by_product = list(
+        item_qs.values("product_id", "product__name")
+        .annotate(
+            line_discount=Coalesce(Sum("_line_discount"), Decimal("0")),
+            revenue=Coalesce(Sum("_pre_discount"), Decimal("0")),
+        )
+        .order_by("-line_discount")
+    )
+    by_period = list(
+        item_qs.annotate(period=TruncMonth(f"{header_prefix}__{date_field}"))
+        .values("period")
+        .annotate(
+            line_discount=Coalesce(Sum("_line_discount"), Decimal("0")),
+            revenue=Coalesce(Sum("_pre_discount"), Decimal("0")),
+        )
+        .order_by("period")
+    )
+
+    return {
+        "totals": {
+            "invoice_count": header_totals["invoice_count"],
+            "discounted_invoice_count": discounted_invoice_count,
+            "line_discount_total": line_discount_total,
+            "header_discount_total": header_discount_total,
+            "total_discount": total_discount,
+            "pre_discount_revenue": pre_discount_revenue,
+            "avg_discount_percent": avg_discount_percent,
+        },
+        "by_party": [
+            {
+                "id": r[f"{party_field}_id"],
+                "name": r[f"{party_field}__name"] or "—",
+                "line_discount": r["line_discount"],
+                "revenue": r["revenue"],
+                "invoices": r["invoices"],
+            }
+            for r in by_party
+        ],
+        "by_product": [
+            {
+                "product_id": r["product_id"],
+                "product": r["product__name"] or "—",
+                "line_discount": r["line_discount"],
+                "revenue": r["revenue"],
+            }
+            for r in by_product
+        ],
+        "by_period": [
+            {
+                "period": r["period"],
+                "line_discount": r["line_discount"],
+                "revenue": r["revenue"],
+            }
+            for r in by_period
+        ],
+    }
 
 
 class ReportService:
@@ -984,3 +1096,253 @@ class ReportService:
             "outflow_mtd": totals_mtd["outflow"],
             "kind": "actuals",
         }
+
+    @staticmethod
+    def sales_discount_report(company, date_from=None, date_to=None, customer_id=None):
+        assert_report_date_span(date_from, date_to, kind="Sales discount report")
+        from sales.models import SalesItem
+
+        header_qs = SalesInvoice.objects.filter(company=company, status__in=NET_SALES)
+        item_qs = SalesItem.objects.filter(invoice__company=company, invoice__status__in=NET_SALES)
+        if customer_id:
+            header_qs = header_qs.filter(customer_id=customer_id)
+            item_qs = item_qs.filter(invoice__customer_id=customer_id)
+        if date_from:
+            header_qs = header_qs.filter(invoice_date__gte=date_from)
+            item_qs = item_qs.filter(invoice__invoice_date__gte=date_from)
+        if date_to:
+            header_qs = header_qs.filter(invoice_date__lte=date_to)
+            item_qs = item_qs.filter(invoice__invoice_date__lte=date_to)
+
+        return _discount_report(
+            header_qs=header_qs,
+            item_qs=item_qs,
+            header_prefix="invoice",
+            party_field="invoice__customer",
+        )
+
+    @staticmethod
+    def purchase_discount_report(company, date_from=None, date_to=None, supplier_id=None):
+        assert_report_date_span(date_from, date_to, kind="Purchase discount report")
+        from purchases.models import PurchaseItem
+
+        header_qs = PurchaseInvoice.objects.filter(company=company, status__in=OPERATIONAL_PURCHASE_STATUSES)
+        item_qs = PurchaseItem.objects.filter(
+            invoice__company=company, invoice__status__in=OPERATIONAL_PURCHASE_STATUSES
+        )
+        if supplier_id:
+            header_qs = header_qs.filter(supplier_id=supplier_id)
+            item_qs = item_qs.filter(invoice__supplier_id=supplier_id)
+        if date_from:
+            header_qs = header_qs.filter(invoice_date__gte=date_from)
+            item_qs = item_qs.filter(invoice__invoice_date__gte=date_from)
+        if date_to:
+            header_qs = header_qs.filter(invoice_date__lte=date_to)
+            item_qs = item_qs.filter(invoice__invoice_date__lte=date_to)
+
+        return _discount_report(
+            header_qs=header_qs,
+            item_qs=item_qs,
+            header_prefix="invoice",
+            party_field="invoice__supplier",
+        )
+
+    @staticmethod
+    def invoice_profit_report(
+        company, date_from=None, date_to=None, customer_id=None, cost_center_id=None,
+        cost_basis=None, status=None,
+    ):
+        assert_report_date_span(date_from, date_to, kind="Invoice profit report")
+        from .models import InvoiceProfitSnapshot
+
+        qs = InvoiceProfitSnapshot.objects.filter(company=company).select_related("customer")
+        if status:
+            qs = qs.filter(invoice_status=status)
+        else:
+            # Default view excludes cancelled invoices, same convention as sales_register.
+            qs = qs.exclude(invoice_status=SalesInvoice.Status.CANCELLED)
+        if customer_id:
+            qs = qs.filter(customer_id=customer_id)
+        if cost_center_id:
+            qs = qs.filter(cost_center_id=cost_center_id)
+        if cost_basis:
+            qs = qs.filter(cost_basis=cost_basis)
+        if date_from:
+            qs = qs.filter(invoice_date__gte=date_from)
+        if date_to:
+            qs = qs.filter(invoice_date__lte=date_to)
+
+        rows = [
+            {
+                "id": s.id,
+                "invoice_id": s.sales_invoice_id,
+                "invoice_number": s.invoice_number,
+                "invoice_date": s.invoice_date,
+                "invoice_status": s.invoice_status,
+                "customer": _party_name(s, "customer"),
+                "revenue_pre_discount": s.revenue_pre_discount,
+                "line_discount_total": s.line_discount_total,
+                "invoice_discount": s.invoice_discount,
+                "cogs_total": s.cogs_total,
+                "gross_margin": s.gross_margin,
+                "margin_percent": s.margin_percent,
+                "cost_basis": s.cost_basis,
+                "is_backfilled": s.is_backfilled,
+            }
+            for s in qs.order_by("-invoice_date", "-id")
+        ]
+        totals = qs.aggregate(
+            revenue=Coalesce(Sum("revenue_pre_discount"), Decimal("0")),
+            cogs=Coalesce(Sum("cogs_total"), Decimal("0")),
+            margin=Coalesce(Sum("gross_margin"), Decimal("0")),
+            invoice_count=Count("id"),
+        )
+        return {"rows": rows, "totals": totals}
+
+    @staticmethod
+    def _product_cogs_map(company, invoice_ids: list) -> dict:
+        """Sum COGS per product across the given invoices' stock movements.
+
+        InvoiceProfitSnapshot is invoice-grained by design (a line-grained
+        snapshot would explode row count and complicate the FIFO-tier
+        instrumentation for no benefit to the customer/period/cost-center
+        rollups) -- so the product rollup is the one view that has to join
+        back to StockMovement instead of just GROUP BY on the snapshot table.
+        """
+        from collections import defaultdict
+
+        from inventory.models import MovementType, StockMovement
+        from sales.models import DeliveryChallan
+
+        str_ids = [str(i) for i in invoice_ids]
+        cogs_expr = ExpressionWrapper(
+            F("unit_cost") * Abs(F("quantity")),
+            output_field=DecimalField(max_digits=14, decimal_places=4),
+        )
+        direct = StockMovement.objects.filter(
+            company=company, movement_type=MovementType.SALE,
+            reference_type="sales_invoice", reference_id__in=str_ids,
+        )
+        challan_ids = list(
+            DeliveryChallan.objects.filter(
+                converted_invoice_id__in=invoice_ids, stock_posted=True,
+            ).values_list("id", flat=True)
+        )
+        via_challan = StockMovement.objects.filter(
+            company=company, movement_type=MovementType.SALE,
+            reference_type="delivery_challan", reference_id__in=[str(c) for c in challan_ids],
+        )
+        cogs_map: dict = defaultdict(lambda: Decimal("0"))
+        for qs in (direct, via_challan):
+            for row in qs.annotate(_cogs=cogs_expr).values("product_id").annotate(
+                cogs=Coalesce(Sum("_cogs"), Decimal("0"))
+            ):
+                cogs_map[row["product_id"]] += row["cogs"] or Decimal("0")
+        return cogs_map
+
+    @staticmethod
+    def invoice_profit_rollup(
+        company, group_by, date_from=None, date_to=None, customer_id=None, cost_center_id=None,
+    ):
+        assert_report_date_span(date_from, date_to, kind="Invoice profit rollup")
+        from .models import InvoiceProfitSnapshot
+
+        base_qs = InvoiceProfitSnapshot.objects.filter(company=company).exclude(
+            invoice_status=SalesInvoice.Status.CANCELLED
+        )
+        if customer_id:
+            base_qs = base_qs.filter(customer_id=customer_id)
+        if cost_center_id:
+            base_qs = base_qs.filter(cost_center_id=cost_center_id)
+        if date_from:
+            base_qs = base_qs.filter(invoice_date__gte=date_from)
+        if date_to:
+            base_qs = base_qs.filter(invoice_date__lte=date_to)
+
+        if group_by == "customer":
+            rows = list(
+                base_qs.values("customer_id", "customer__name")
+                .annotate(
+                    revenue=Coalesce(Sum("revenue_pre_discount"), Decimal("0")),
+                    cogs=Coalesce(Sum("cogs_total"), Decimal("0")),
+                    margin=Coalesce(Sum("gross_margin"), Decimal("0")),
+                    invoices=Count("id"),
+                )
+                .order_by("-margin")
+            )
+            return {"rows": [
+                {
+                    "id": r["customer_id"],
+                    "name": r["customer__name"] or "—",
+                    "revenue": r["revenue"], "cogs": r["cogs"], "margin": r["margin"], "invoices": r["invoices"],
+                }
+                for r in rows
+            ]}
+        if group_by == "cost_center":
+            rows = list(
+                base_qs.values("cost_center_id", "cost_center__name")
+                .annotate(
+                    revenue=Coalesce(Sum("revenue_pre_discount"), Decimal("0")),
+                    cogs=Coalesce(Sum("cogs_total"), Decimal("0")),
+                    margin=Coalesce(Sum("gross_margin"), Decimal("0")),
+                    invoices=Count("id"),
+                )
+                .order_by("-margin")
+            )
+            return {"rows": [
+                {
+                    "id": r["cost_center_id"],
+                    "name": r["cost_center__name"] or "—",
+                    "revenue": r["revenue"], "cogs": r["cogs"], "margin": r["margin"], "invoices": r["invoices"],
+                }
+                for r in rows
+            ]}
+        if group_by == "period":
+            rows = list(
+                base_qs.annotate(period=TruncMonth("invoice_date"))
+                .values("period")
+                .annotate(
+                    revenue=Coalesce(Sum("revenue_pre_discount"), Decimal("0")),
+                    cogs=Coalesce(Sum("cogs_total"), Decimal("0")),
+                    margin=Coalesce(Sum("gross_margin"), Decimal("0")),
+                    invoices=Count("id"),
+                )
+                .order_by("period")
+            )
+            return {"rows": rows}
+        if group_by == "product":
+            from sales.models import SalesItem
+
+            invoice_ids = list(base_qs.values_list("sales_invoice_id", flat=True))
+            # Pre-discount, pre-tax (unit_price * quantity) to match the
+            # invoice-level revenue_pre_discount semantic -- SalesItem.line_total
+            # is the tax-inclusive, post-discount final line amount.
+            pre_discount_expr = ExpressionWrapper(
+                F("unit_price") * F("quantity"),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+            item_rows = list(
+                SalesItem.objects.filter(invoice_id__in=invoice_ids)
+                .annotate(_revenue=pre_discount_expr)
+                .values("product_id", "product__name")
+                .annotate(revenue=Coalesce(Sum("_revenue"), Decimal("0")))
+            )
+            cogs_map = ReportService._product_cogs_map(company, invoice_ids)
+            rows = sorted(
+                (
+                    {
+                        "id": r["product_id"],
+                        "name": r["product__name"] or "—",
+                        "revenue": r["revenue"],
+                        "cogs": cogs_map.get(r["product_id"], Decimal("0")),
+                        "margin": r["revenue"] - cogs_map.get(r["product_id"], Decimal("0")),
+                    }
+                    for r in item_rows
+                ),
+                key=lambda row: row["margin"],
+                reverse=True,
+            )
+            return {"rows": rows}
+        raise BusinessRuleError(
+            "Invoice profit rollup: group_by must be one of customer, product, period, cost_center."
+        )

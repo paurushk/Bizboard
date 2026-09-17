@@ -12,7 +12,11 @@ evidence:
   source:
   - docs/TESTING_STRATEGY.md#7 G-15
   - docs/TESTING_STRATEGY.md#6.10
-  detail: No latency budget exists in any e2e spec; not observed with a realistic dataset.
+  detail: Backend observation landed 2026-09-16 (`tests/test_qos0016_dashboard_budget.py`,
+    400 COMPLETED invoices, 5s ReportService budget). Playwright
+    `e2e-golden/v95-dashboard-budget.spec.ts` times first Dashboard KPI paint
+    under a loose 15s budget. Neither is a signed p95 SLO; 12-month fixture
+    remains Human.
 scoring:
   reach: 5
   severity: 2
@@ -26,7 +30,8 @@ effort: M
 recommendation: Once the observation layer lands, seed a 12-month fixture and assert dashboard first-contentful
   render under a p95 budget in a Playwright timing spec.
 test_required: a dashboard render-budget assertion in the e2e suite
-guard_ref: null
+guard_ref:
+  test: web/e2e-golden/v95-dashboard-budget.spec.ts
 lifecycle: open
 owner: web
 opened: '2026-09-10'

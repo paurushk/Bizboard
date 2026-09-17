@@ -11,6 +11,7 @@ from django.utils import timezone
 from core.exceptions import BusinessRuleError
 
 from .models import Gstr2bIngest, ImsActionHistory
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES  # noqa: F401 — CF-001 re-export
 
 IMS_BULK_CHUNK = 500
 EXPIRING_DAYS = 30

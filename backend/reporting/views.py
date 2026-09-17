@@ -234,6 +234,76 @@ class CustomerSalesView(BaseReportView):
         ))
 
 
+class SalesDiscountReportView(BaseReportView):
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "heavy_reports"
+
+    def get(self, request):
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        assert_report_date_span(date_from, date_to, kind="Sales discount report")
+        return Response(ReportService.sales_discount_report(
+            self.company,
+            date_from=date_from,
+            date_to=date_to,
+            customer_id=_int_or_none(request.query_params.get("customer")),
+        ))
+
+
+class PurchaseDiscountReportView(BaseReportView):
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "heavy_reports"
+
+    def get(self, request):
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        assert_report_date_span(date_from, date_to, kind="Purchase discount report")
+        return Response(ReportService.purchase_discount_report(
+            self.company,
+            date_from=date_from,
+            date_to=date_to,
+            supplier_id=_int_or_none(request.query_params.get("supplier")),
+        ))
+
+
+class InvoiceProfitReportView(BaseReportView):
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "heavy_reports"
+
+    def get(self, request):
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        assert_report_date_span(date_from, date_to, kind="Invoice profit report")
+        return Response(ReportService.invoice_profit_report(
+            self.company,
+            date_from=date_from,
+            date_to=date_to,
+            customer_id=_int_or_none(request.query_params.get("customer")),
+            cost_center_id=_int_or_none(request.query_params.get("cost_center")),
+            cost_basis=request.query_params.get("cost_basis"),
+            status=request.query_params.get("status"),
+        ))
+
+
+class InvoiceProfitRollupView(BaseReportView):
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "heavy_reports"
+
+    def get(self, request):
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        assert_report_date_span(date_from, date_to, kind="Invoice profit rollup")
+        group_by = request.query_params.get("group_by") or "customer"
+        return Response(ReportService.invoice_profit_rollup(
+            self.company,
+            group_by,
+            date_from=date_from,
+            date_to=date_to,
+            customer_id=_int_or_none(request.query_params.get("customer")),
+            cost_center_id=_int_or_none(request.query_params.get("cost_center")),
+        ))
+
+
 class CashBookView(BaseReportView):
     """Cash book actuals — JSON or XLSX."""
 

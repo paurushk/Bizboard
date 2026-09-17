@@ -14,7 +14,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { getDashboard, getBusinessHealth, getCompany, getDailySummary, listBusinessAlerts, listLowStock } from '@/api/resources';
-import { getShopFloorSummary } from '@/lib/telemetry';
+import { getShopFloorSummary, funnelCount, funnelReasons } from '@/lib/telemetry';
 import { canCreateSales, canViewAiInsights, isOwner } from '@/utils/permissions';
 import { KpiStat, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
@@ -185,14 +185,7 @@ export function DashboardPage() {
           <Typography variant="subtitle1" fontWeight={600} gutterBottom>
             {t('dashboard.shopFloor')}
           </Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
-            <Typography variant="body2">
-              {t('dashboard.completeP95')}: {shopFloor.data.completeP95Ms != null ? `${shopFloor.data.completeP95Ms} ms` : '—'}
-            </Typography>
-            <Typography variant="body2">
-              {t('dashboard.offlineFails')}: {shopFloor.data.offlineFlushFail ?? 0}
-            </Typography>
-          </Stack>
+          <ShopFloorFunnel summary={shopFloor.data} />
         </Paper>
       ) : null}
 
@@ -403,6 +396,94 @@ export function DashboardPage() {
           </Stack>
         )}
       </Stack>
+    </Stack>
+  );
+}
+
+function ShopFloorFunnel({ summary }: { summary: import('@/lib/telemetry').ShopFloorSummary }) {
+  const funnel = summary.funnel;
+  const p95 = summary.completeP95Ms ?? summary.complete_p95_ms;
+  const offline = summary.offlineFlushFail ?? summary.offline_flush_fail ?? 0;
+  const reasons = funnelReasons(
+    funnel,
+    'invoice_complete_failed_by_reason',
+    'invoiceCompleteFailedByReason',
+  );
+  const reasonBits = Object.entries(reasons).filter(([, n]) => n > 0);
+  const rows: { key: string; started: number | string; completed: number | string; failed: number }[] = [
+    {
+      key: 'invoice',
+      started: funnelCount(funnel, 'invoice_complete_started', 'invoiceCompleteStarted'),
+      completed: funnelCount(funnel, 'invoice_complete', 'invoiceComplete'),
+      failed: funnelCount(funnel, 'invoice_complete_failed', 'invoiceCompleteFailed'),
+    },
+    {
+      key: 'pdf',
+      started: funnelCount(funnel, 'pdf_started', 'pdfStarted'),
+      completed: '—',
+      failed: funnelCount(funnel, 'pdf_failed', 'pdfFailed'),
+    },
+    {
+      key: 'payment',
+      started: funnelCount(funnel, 'payment_started', 'paymentStarted'),
+      completed: funnelCount(funnel, 'payment_completed', 'paymentCompleted'),
+      failed: funnelCount(funnel, 'payment_failed', 'paymentFailed'),
+    },
+    {
+      key: 'signup',
+      started: '—',
+      completed: funnelCount(funnel, 'signup_completed', 'signupCompleted'),
+      failed: funnelCount(funnel, 'signup_failed', 'signupFailed'),
+    },
+  ];
+  return (
+    <Stack spacing={2}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
+        <Typography variant="body2">
+          {t('dashboard.completeP95')}: {p95 != null ? `${p95} ms` : '—'}
+        </Typography>
+        <Typography variant="body2">
+          {t('dashboard.offlineFails')}: {offline}
+        </Typography>
+      </Stack>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>{t('dashboard.journey')}</TableCell>
+            <TableCell align="right">{t('dashboard.journeyStarted')}</TableCell>
+            <TableCell align="right">{t('dashboard.journeyCompleted')}</TableCell>
+            <TableCell align="right">{t('dashboard.journeyFailed')}</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.key}>
+              <TableCell>
+                {row.key === 'invoice'
+                  ? t('dashboard.journeyInvoice')
+                  : row.key === 'pdf'
+                    ? t('dashboard.journeyPdf')
+                    : row.key === 'payment'
+                      ? t('dashboard.journeyPayment')
+                      : t('dashboard.journeySignup')}
+              </TableCell>
+              <TableCell align="right">{row.started}</TableCell>
+              <TableCell align="right">{row.completed}</TableCell>
+              <TableCell align="right">{row.failed}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {reasonBits.length ? (
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          <Typography variant="body2" color="text.secondary">
+            {t('dashboard.failedReasons')}:
+          </Typography>
+          {reasonBits.map(([reason, n]) => (
+            <Chip key={reason} size="small" label={`${reason}: ${n}`} />
+          ))}
+        </Stack>
+      ) : null}
     </Stack>
   );
 }

@@ -3,7 +3,7 @@
 from django.conf import settings
 from django.db import models
 
-from core.models import TimeStampedModel
+from core.models import CompanyScopedModel, TimeStampedModel
 
 
 class GstReturnPeriod(TimeStampedModel):
@@ -206,3 +206,71 @@ class ImsActionHistory(TimeStampedModel):
 
     def delete(self, *args, **kwargs):
         raise ValueError("IMS action history is append-only.")
+
+
+class InvoiceProfitSnapshot(CompanyScopedModel):
+    """Per-invoice gross margin, persisted at invoice-complete time.
+
+    COGS is only ever posted to the GL as one aggregate journal entry per
+    invoice (accounting.services.PostingService.post_sales_cogs) — there is
+    no per-invoice cost figure anywhere else, so this is the one place a
+    margin report can read from without re-deriving COGS from StockMovement
+    on every request.
+    """
+
+    class CostBasis(models.TextChoices):
+        FIFO = "FIFO", "FIFO cost layers"
+        VALUATION_FALLBACK = "VALUATION_FALLBACK", "Inventory valuation fallback"
+        PURCHASE_PRICE_FALLBACK = "PURCHASE_PRICE_FALLBACK", "Product purchase-price fallback"
+        ZERO_COST = "ZERO_COST", "No cost basis found"
+        NO_COGS = "NO_COGS", "No stock-tracked lines"
+
+    sales_invoice = models.OneToOneField(
+        "sales.SalesInvoice", on_delete=models.CASCADE, related_name="profit_snapshot"
+    )
+    # Denormalized so the report/rollup queries don't have to join back to
+    # sales_invoice for every filter/display field.
+    invoice_number = models.CharField(max_length=32, db_index=True)
+    invoice_date = models.DateField(db_index=True)
+    invoice_status = models.CharField(max_length=12)
+    customer = models.ForeignKey(
+        "masters.Customer", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    # Margin = revenue_pre_discount - cogs_total. invoice_discount/line
+    # discount (rolled into taxable_total/grand_total) are kept as their own
+    # columns rather than netted into margin, so a report reader can see
+    # what discount ate into a sale without it being baked silently into the
+    # profit figure.
+    revenue_pre_discount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    line_discount_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    invoice_discount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    taxable_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    grand_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    cogs_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    gross_margin = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    margin_percent = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+
+    cost_basis = models.CharField(max_length=24, choices=CostBasis.choices, default=CostBasis.NO_COGS)
+    has_cogs_lines = models.BooleanField(default=False)
+    # Backfilled rows re-derive COGS read-only from existing StockMovement
+    # rows after the fact — the live per-tier cost-basis signal wasn't
+    # captured when those invoices were originally posted, so their
+    # cost_basis classification is a coarser best-effort guess.
+    is_backfilled = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["company", "invoice_date"]),
+            models.Index(fields=["company", "customer"]),
+            models.Index(fields=["company", "cost_basis"]),
+        ]
+
+    def __str__(self):
+        return f"{self.company_id}:{self.invoice_number}:{self.gross_margin}"

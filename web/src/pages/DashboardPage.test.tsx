@@ -45,7 +45,34 @@ vi.mock('@/onboarding/shouldForceSetup', () => ({ shouldForceSetup: () => false 
 vi.mock('@/components/OnboardingChecklist', () => ({ OnboardingChecklist: () => null }));
 vi.mock('@/pages/AttentionPage', () => ({ AttentionQueuePreview: () => null }));
 vi.mock('@/components/CollectionAttentionCard', () => ({ CollectionAttentionCard: () => null }));
-vi.mock('@/lib/telemetry', () => ({ getShopFloorSummary: vi.fn(async () => ({})) }));
+vi.mock('@/lib/telemetry', () => ({
+  getShopFloorSummary: vi.fn(async () => ({
+    days: 7,
+    completeP95Ms: 410,
+    offlineFlushFail: 0,
+    funnel: {
+      invoiceCompleteStarted: 10,
+      invoiceComplete: 8,
+      invoiceCompleteFailed: 2,
+      invoiceCompleteFailedByReason: { validation: 1, '5xx': 1, timeout: 0, offline: 0, help_code: 0, unknown: 0 },
+      pdfStarted: 8,
+      pdfFailed: 1,
+      paymentStarted: 3,
+      paymentCompleted: 3,
+      paymentFailed: 0,
+      signupCompleted: 1,
+      signupFailed: 0,
+    },
+  })),
+  funnelCount: (funnel: Record<string, unknown> | undefined, snake: string, camel: string) => {
+    const v = funnel?.[camel] ?? funnel?.[snake];
+    return typeof v === 'number' ? v : 0;
+  },
+  funnelReasons: (funnel: Record<string, unknown> | undefined, snake: string, camel: string) => {
+    const v = funnel?.[camel] ?? funnel?.[snake];
+    return v && typeof v === 'object' ? v : {};
+  },
+}));
 
 vi.mock('@/api/resources', () => ({
   getDashboard: async () => DASHBOARD_DATA,
@@ -72,5 +99,14 @@ describe('DashboardPage recent-sales badge — G-17', () => {
     expect(row).toBeTruthy();
     expect(within(row as HTMLElement).getByText(/returned/i)).toBeTruthy();
     expect(within(row as HTMLElement).queryByText(/^paid$/i)).toBeNull();
+  });
+
+  it('shows Complete started / completed / failed and the reason split', async () => {
+    wrap(<DashboardPage />);
+    expect(await screen.findByText('Invoice Complete')).toBeInTheDocument();
+    expect(screen.getByText('Started')).toBeInTheDocument();
+    expect(screen.getByText('10')).toBeInTheDocument();
+    expect(screen.getByText('validation: 1')).toBeInTheDocument();
+    expect(screen.getByText('5xx: 1')).toBeInTheDocument();
   });
 });
