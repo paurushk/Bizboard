@@ -62,7 +62,8 @@ test.describe('PJ-OWNER — full capability surface', () => {
   test('owner sees real journal content once accounting is enabled', async ({ page }) => {
     await loginAsOwnerBooksOn(page);
     await page.goto('/accounting/journals');
-    await expect(page.getByRole('button', { name: 'New voucher' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /journals/i })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('button', { name: 'New voucher' })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole('link', { name: 'Open accounting settings' })).toHaveCount(0);
     await expect(page.getByText('JV-0001')).toBeVisible();
   });

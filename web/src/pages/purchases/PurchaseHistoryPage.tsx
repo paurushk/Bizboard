@@ -41,6 +41,7 @@ import {
   type HistoryFilters,
 } from '@/components/HistoryFilterBar';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { PurchaseInvoice } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
@@ -141,7 +142,7 @@ export function PurchaseHistoryPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.purchaseHistory')}</Typography>
+        <PageTitle>{t('nav.purchaseHistory')}</PageTitle>
         {allowCreate ? (
           <Button component={RouterLink} to="/purchases/new" variant="contained">
             {t('nav.newPurchase')}

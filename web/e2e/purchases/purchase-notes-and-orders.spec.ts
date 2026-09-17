@@ -46,12 +46,47 @@ test.describe('purchases: notes, orders, suppliers', () => {
     ).toBeVisible({ timeout: 15_000 });
   });
 
+  test('purchase credit note: manual product picker shows the picked product, not the raw query', async ({ page }) => {
+    // Regression guard: this Autocomplete stages the pick behind a separate
+    // Add button (PurchaseNoteEditorPage), so the box must display the picked
+    // product — a stale query here looks exactly like the click did nothing.
+    await loginAsOwner(page);
+    await page.goto('/purchases/credit-notes/new', { waitUntil: 'domcontentloaded' });
+    await expect(
+      page.getByRole('heading', { name: /record purchase credit note/i }),
+    ).toBeVisible({ timeout: 15_000 });
+
+    const combo = page.getByRole('combobox', { name: 'Products', exact: true });
+    await combo.click();
+    await combo.fill('Steel');
+    await page.getByRole('option', { name: /Steel Bottle/i }).click();
+    await expect(combo).toHaveValue(/Steel Bottle/i);
+  });
+
   test('purchase order editor opens for a new order', async ({ page }) => {
     await loginAsOwner(page);
     await page.goto('/purchases/orders/new', { waitUntil: 'domcontentloaded' });
     await expect(
       page.getByRole('heading', { name: /new purchase order/i }),
     ).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('purchase order: product picker shows the picked product, not the raw query', async ({ page }) => {
+    // Regression guard: this Autocomplete stages the pick behind a separate
+    // Add button (PurchaseOrderEditorPage), so the box must display the
+    // picked product — a stale query here looks exactly like the click did
+    // nothing.
+    await loginAsOwner(page);
+    await page.goto('/purchases/orders/new', { waitUntil: 'domcontentloaded' });
+    await expect(
+      page.getByRole('heading', { name: /new purchase order/i }),
+    ).toBeVisible({ timeout: 15_000 });
+
+    const combo = page.getByRole('combobox', { name: 'Products', exact: true });
+    await combo.click();
+    await combo.fill('Steel');
+    await page.getByRole('option', { name: /Steel Bottle/i }).click();
+    await expect(combo).toHaveValue(/Steel Bottle/i);
   });
 
   test('suppliers: existing supplier listed, add-dialog opens and validates a name', async ({ page }) => {

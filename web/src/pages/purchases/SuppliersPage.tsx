@@ -26,6 +26,7 @@ import {
   EMPTY_HISTORY_FILTERS,
   type HistoryFilters,
 } from '@/components/HistoryFilterBar';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Supplier } from '@/types/domain';
 import { isValidGstin, isValidIndianPhone } from '@/utils/gst';
@@ -120,7 +121,7 @@ export function SuppliersPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.suppliers')}</Typography>
+        <PageTitle>{t('nav.suppliers')}</PageTitle>
         <Button
           variant="contained"
           onClick={() => {

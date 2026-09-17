@@ -47,6 +47,7 @@ import type { Product, PurchaseType, Supplier } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { toNumber } from '@/utils/money';
+import { firstCompleteDisabledReason } from '@/completeGates/completeBlockers';
 
 export function PurchaseOrderEditorPage() {
   const { id: editIdParam } = useParams();
@@ -189,7 +190,10 @@ export function PurchaseOrderEditorPage() {
     [lineTaxes, lines, intraState, purchaseType],
   );
 
-  const canSave = Boolean(supplierId) && lines.length > 0;
+  const zeroQty = lines.some((l) => Number(l.quantity) <= 0);
+  const canSaveBase = Boolean(supplierId) && lines.length > 0;
+  const canSave = canSaveBase && !zeroQty;
+  const completeDisabledReason = firstCompleteDisabledReason({ canSave: canSaveBase, zeroQty });
 
   const addLine = () => {
     if (!pendingProduct) return;
@@ -263,6 +267,8 @@ export function PurchaseOrderEditorPage() {
       primarySave={{ mode: 'save', labelKey: 'common.save' }}
       canSave={canSave}
       canComplete={canSave}
+      primaryDisabledReason={completeDisabledReason}
+      warning={completeDisabledReason && canSaveBase && !canSave ? completeDisabledReason : null}
       isEdit={isEdit}
       backTo="/purchases/orders"
       message={message}
@@ -355,14 +361,15 @@ export function PurchaseOrderEditorPage() {
                           setLines((prev) =>
                             prev.map((x) =>
                               x.key === l.key
-                                ? recomputeLine({ ...x, quantity: Math.max(1, n || 1) }, intraState)
+                                ? recomputeLine({ ...x, quantity: Math.max(0, n || 0) }, intraState)
                                 : x,
                             ),
                           )
                         }
-                        min={1}
-                        emptyAs={1}
+                        min={0}
+                        emptyAs={0}
                         size="small"
+                        inputProps={{ 'aria-label': t('billing.qty') }}
                         sx={{ width: 80 }}
                       />
                     )}
@@ -434,7 +441,7 @@ export function PurchaseOrderEditorPage() {
               filterOptions={(opts) => opts}
               inputValue={productSearch.productQuery}
               onInputChange={(_, v, reason) => {
-                if (reason === 'input' || reason === 'clear') productSearch.setProductQuery(v);
+                if (reason === 'input' || reason === 'clear' || reason === 'reset') productSearch.setProductQuery(v);
               }}
               getOptionLabel={(o) => `${o.name} · ${o.sku}`}
               value={pendingProduct}

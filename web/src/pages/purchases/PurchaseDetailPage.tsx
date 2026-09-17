@@ -23,6 +23,7 @@ import {
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { PageTitle } from '@/contextHelp';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { formatMoney, toNumber } from '@/utils/money';
@@ -91,9 +92,9 @@ export function PurchaseDetailPage() {
         spacing={1}
       >
         <Box>
-          <Typography variant="h4" sx={{ fontFamily: '"IBM Plex Sans", sans-serif' }}>
+          <PageTitle sx={{ fontFamily: '"IBM Plex Sans", sans-serif' }}>
             {inv.number?.trim() ? inv.number : `Draft #${inv.id}`}
-          </Typography>
+          </PageTitle>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: 'wrap' }}>
             <StatusChip tone={documentStatusTone(inv.status)} labelKey={statusLabelKey(inv.status)} />
             <Chip size="small" label={inv.purchaseType} variant="outlined" />

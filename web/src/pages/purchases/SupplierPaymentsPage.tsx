@@ -29,6 +29,7 @@ import {
 } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { todayIso } from '@/components/billing';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { PaymentMode, PurchaseInvoice, Supplier } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
@@ -156,7 +157,7 @@ export function SupplierPaymentsPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.supplierPayments')}</Typography>
+        <PageTitle>{t('nav.supplierPayments')}</PageTitle>
         <Button variant="contained" onClick={() => setOpen(true)}>
           {t('phase1.newSupplierPayment')}
         </Button>

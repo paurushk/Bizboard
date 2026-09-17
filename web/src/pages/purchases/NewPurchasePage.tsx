@@ -70,7 +70,13 @@ import { PartySelectPanel } from '@/components/PartySelectPanel';
 import { StateSelect } from '@/components/StateSelect';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { t } from '@/i18n';
-import { preferredInvoiceType } from '@/onboarding/taxHints';
+import { FieldHelpTip } from '@/contextHelp';
+import { preferredInvoiceType, companyStepIncompleteNeedsGst } from '@/onboarding/taxHints';
+import {
+  firstCompleteDisabledReason,
+  previewAllowsComplete,
+  serialCountMatchesQty,
+} from '@/completeGates/completeBlockers';
 import type { PaymentMode, PriceMode, Product, PurchaseInvoice, PurchaseType } from '@/types/domain';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
@@ -774,14 +780,26 @@ export function NewPurchasePage() {
       if (lines.length === 0) throw new Error(t('billing.addAtLeastOneItem'));
 
       const shouldComplete = mode === 'complete' || mode === 'complete_new';
+      if (shouldComplete && purchaseType !== 'NON_GST' && companyStepIncompleteNeedsGst(company.data)) {
+        throw new Error(t('billing.gstinRequiredBeforeGstComplete'));
+      }
       if (shouldComplete && purchaseType !== 'NON_GST' && intraState === null) {
-        throw new Error(
-          'Supplier state or GSTIN is required for GST purchases. Update the supplier or enable assume-local in GST settings.',
-        );
+        throw new Error(t('billing.placeOfSupplyRequiredSupplier'));
       }
       const missingBatch = lines.find((l) => l.trackBatch && !l.batchNo.trim());
       if (shouldComplete && missingBatch) {
         throw new Error(`A batch is required for tracked product '${missingBatch.productName}'.`);
+      }
+      const missingSerial = lines.find(
+        (l) => l.trackSerial && !serialCountMatchesQty(l.serialNumbersText, l.quantity),
+      );
+      if (shouldComplete && missingSerial) {
+        throw new Error(
+          t('billing.completeDisabledMissingSerial', { name: missingSerial.productName }),
+        );
+      }
+      if (shouldComplete && lines.some((l) => toNumber(l.quantity) <= 0)) {
+        throw new Error(t('billing.completeDisabledZeroQty'));
       }
       const payload = buildPayload();
       // PD-01: one fresh Idempotency-Key per user gesture. Network auto-retry
@@ -1077,17 +1095,38 @@ export function NewPurchasePage() {
     (c) => c.isActive !== false && (c as unknown as { is_active?: boolean }).is_active !== false,
   );
   const canSave = lines.length > 0 && Boolean(supplierId) && !saveMutation.isPending;
-  const missingPurchaseBatch = lines.some((l) => l.trackBatch && !l.batchNo.trim());
+  const missingBatchLine = lines.find((l) => l.trackBatch && !l.batchNo.trim()) ?? null;
+  const missingPurchaseBatch = missingBatchLine != null;
+  const missingSerialLine =
+    lines.find((l) => l.trackSerial && !serialCountMatchesQty(l.serialNumbersText, l.quantity)) ??
+    null;
+  const zeroQty = lines.some((l) => l.product && toNumber(l.quantity) <= 0);
+  const gstinRequiredForGst =
+    purchaseType !== 'NON_GST' && companyStepIncompleteNeedsGst(company.data);
   // F2-018: mirror NewInvoicePage (FE-07) — if the server preview endpoint keeps
   // erroring, don't strand a valid bill. Allow Complete with on-device totals
   // (the server recomputes authoritative totals on save) but surface that it
   // happened via the warning banner below.
   const previewFellBack = previewOnline && !preview.ready && preview.error != null;
+  const previewPending = previewOnline && !preview.ready && preview.error == null;
+  const completeDisabledReason = firstCompleteDisabledReason({
+    canSave,
+    partyRole: 'supplier',
+    posKnown,
+    gstinRequired: gstinRequiredForGst,
+    missingBatchName: missingBatchLine?.productName ?? null,
+    missingSerialName: missingSerialLine?.productName ?? null,
+    zeroQty,
+    previewPending,
+  });
   const canComplete =
     canSave &&
     posKnown &&
+    !gstinRequiredForGst &&
     !missingPurchaseBatch &&
-    (!previewOnline || preview.ready || previewFellBack);
+    !missingSerialLine &&
+    !zeroQty &&
+    previewAllowsComplete(previewOnline, preview.ready, preview.error);
   const shownTotals = useMemo(
     () =>
       preview.totals
@@ -1235,6 +1274,7 @@ export function NewPurchasePage() {
       canSave={canSave}
       canComplete={canComplete}
       primaryDisabledExtra={isCompletedEdit && !isOwner}
+      primaryDisabledReason={completeDisabledReason}
       isEdit={isEdit}
       showDraftButton={!isEdit || editingStatus === 'DRAFT'}
       backTo={isEdit ? '/purchases/history' : null}
@@ -1271,9 +1311,26 @@ export function NewPurchasePage() {
           </Button>
         ) : null
       }
+      infoBanner={
+        completeDisabledReason && canSave && !canComplete ? (
+          <Alert severity="warning">{completeDisabledReason}</Alert>
+        ) : null
+      }
     >
       <Stack spacing={2}>
       <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(supplierId))} />
+      {gstinRequiredForGst ? (
+        <Alert
+          severity="warning"
+          action={
+            <Button color="inherit" size="small" component={RouterLink} to="/settings/gst">
+              {t('billing.openGstSettings')}
+            </Button>
+          }
+        >
+          {t('billing.gstinRequiredBeforeGstComplete')}
+        </Alert>
+      ) : null}
       {pendingDraft ? (
         <Alert
           severity="info"
@@ -1370,11 +1427,13 @@ export function NewPurchasePage() {
                 }
               />
             </Stack>
+            <Stack direction="row" alignItems="flex-start" spacing={0.25}>
             <CompactField
               select
               label={t('nav.warehouses')}
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : '')}
+              sx={{ flex: 1, minWidth: 140 }}
             >
               {(warehouses.data ?? []).filter((warehouse) => warehouse.isActive !== false).map((warehouse) => (
                 <MenuItem key={warehouse.id} value={warehouse.id}>
@@ -1382,6 +1441,8 @@ export function NewPurchasePage() {
                 </MenuItem>
               ))}
             </CompactField>
+            <FieldHelpTip slot="godown" title={t('help.godownTip')} />
+            </Stack>
             {(companyGstins.data ?? []).length > 0 ? (
               <CompactField
                 select
@@ -1568,7 +1629,9 @@ export function NewPurchasePage() {
           onUpdate={updateLine}
           onDelete={(key) => setLines((prev) => prev.filter((x) => x.key !== key))}
           onFocusAdd={() => barcodeRef.current?.focus()}
-          renderBatchSlot={(line) => (
+          renderBatchSlot={(line) => {
+            const batchMissing = Boolean(line.trackBatch && !line.batchNo.trim());
+            return (
             <>
               <TableCell>
                 {line.trackBatch ? (
@@ -1590,16 +1653,20 @@ export function NewPurchasePage() {
                       renderInput={(params) => (
                         <TextField
                           {...params}
-                          placeholder={t('billing.fefoBatch')}
-                          helperText={t('billing.fefoBatchHint')}
+                          required
+                          error={batchMissing}
+                          placeholder={t('billing.purchaseBatchPlaceholder')}
+                          helperText={t('billing.purchaseBatchHint')}
                         />
                       )}
                     />
                     {!line.batch ? (
                       <CompactField
+                        required
+                        error={batchMissing}
                         value={line.batchNo}
                         onChange={(e) => updateLine(line.key, { batchNo: e.target.value, batch: null })}
-                        placeholder={t('billing.newBatchOptional')}
+                        placeholder={t('billing.purchaseNewBatch')}
                       />
                     ) : null}
                   </Stack>
@@ -1624,7 +1691,8 @@ export function NewPurchasePage() {
                 />
               </TableCell>
             </>
-          )}
+            );
+          }}
           renderSerialSlot={(line) => {
             if (!line.trackSerial) return <TableCell />;
             // QOS-0035: a bulk consignment paste needs to tell the dealer
@@ -1639,13 +1707,15 @@ export function NewPurchasePage() {
             if (parsed.duplicates.length > 0) {
               parts.push(t('erp.serialDuplicatesDropped', { count: parsed.duplicates.length }));
             }
-            const mismatch = line.quantity > 0 && parsed.serials.length !== Math.trunc(line.quantity);
+            const mismatch =
+              line.quantity > 0 && !serialCountMatchesQty(line.serialNumbersText, line.quantity);
             return (
               <TableCell>
                 <CompactField
                   multiline
                   minRows={1}
                   maxRows={3}
+                  required
                   placeholder="SN-001, SN-002 or SN-001-SN-050"
                   value={line.serialNumbersText ?? ''}
                   onChange={(e) => updateLine(line.key, { serialNumbersText: e.target.value })}

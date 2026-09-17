@@ -1,9 +1,8 @@
-"""Phase 2 workflow chains not yet implemented — each is a spec.
+"""Phase 2 workflow chains.
 
-Every function is skipped with the exact contract it must assert. Implement one
-by replacing its body with the chain (drive the API end to end, then call
-``assert_consistent(company)`` plus the flow-specific numbers), and delete the
-skip. `pytest -q tests/workflows/` shows the outstanding count.
+Remaining skips are only where freeze says LIM (OCR UI) or a later flow does
+not exist. Redirected ids are unskipped structural pointers (no ``assert True``).
+Live-gateway E2E stays WF-37/38 in ``test_wf_extended_stubs.py``.
 """
 
 from __future__ import annotations
@@ -23,7 +22,16 @@ from tests.conftest import (
 
 pytestmark = pytest.mark.django_db
 
-_TODO = "Phase 2 chain not yet implemented — see docstring"
+
+def _pointer(required: dict):
+    """Fail if a cited coverage file or needle disappears."""
+    for path, needles in required.items():
+        assert path.is_file(), path.name
+        blob = path.read_text(encoding="utf-8")
+        if isinstance(needles, str):
+            needles = (needles,)
+        for needle in needles:
+            assert needle in blob, f"{path.name} missing {needle}"
 
 
 def _books(company):
@@ -749,14 +757,56 @@ def _upload_bill(tenant, kind, csv_body, name="bill.csv"):
     )
 
 
-@pytest.mark.skip(
-    reason="SALES_BILL structured-CSV commit has no dedicated chain — the "
-    "purchase-bill idempotency contract is WF-15; sales-bill extraction detail "
-    "lives in tests/test_purchase_bill_import.py's sibling coverage"
-)
-def test_wf14_upload_sales_bill_idempotent():
-    """LLM extraction of an uploaded sales bill produces a draft invoice;
-    re-uploading the same file does not create a second draft."""
+def test_wf14_upload_sales_bill_idempotent(tenant_a, assert_consistent):
+    """Structured CSV sales-bill commit is idempotent (OCR UI stays LIM).
+    Twin of WF-15; LLM image extract → draft is ``test_sales_bill_commit_creates_draft_sales_invoice``.
+    """
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from sales.models import SalesInvoice
+
+    company = tenant_a.company
+    customer = make_customer(company, state="Karnataka", gstin="29AAAAA0000A1ZY")
+    csv_body = (
+        b"name,sku,hsn_code,quantity,unit_price,gst_rate,mrp\n"
+        b"Surf Excel 1kg,SURF-1,3402,3,180.00,18,220\n"
+        b"Colgate 200g,COL-200,3306,5,90.00,18,110\n"
+    )
+    up = tenant_a.client.post(
+        "/api/v1/imports/",
+        {
+            "kind": "SALES_BILL",
+            "customer": customer.id,
+            "file": SimpleUploadedFile("sale.csv", csv_body, content_type="text/csv"),
+        },
+        format="multipart",
+    )
+    assert up.status_code == 201, up.data
+    assert up.data["status"] == "PREVIEWED", up.data
+    job_id = up.data["id"]
+
+    prev = tenant_a.client.post(
+        f"/api/v1/imports/{job_id}/preview/",
+        {"customer": customer.id, "bill_number": "SO-INV-9001", "bill_date": "2026-06-12"},
+        format="json",
+    )
+    assert prev.status_code == 200, prev.data
+
+    key = "wf14-bill-commit-1"
+    first = tenant_a.client.post(
+        f"/api/v1/imports/{job_id}/commit/", HTTP_IDEMPOTENCY_KEY=key
+    )
+    assert first.status_code == 200, first.data
+    sid = first.data["sales_invoice_id"]
+    assert sid
+
+    replay = tenant_a.client.post(
+        f"/api/v1/imports/{job_id}/commit/", HTTP_IDEMPOTENCY_KEY=key
+    )
+    assert replay.status_code == 200, replay.data
+    assert replay.data.get("sales_invoice_id") == sid
+    assert SalesInvoice.objects.filter(company=company).count() == 1
+    assert_consistent(company)
 
 
 def test_wf15_upload_purchase_bill_idempotent(tenant_a, assert_consistent):
@@ -847,28 +897,63 @@ def test_wf16_purchase_order_to_purchase(tenant_a, assert_consistent):
 
 
 def test_wf17_gateway_webhook_capture_and_replay():
-    """G-8 (2026-09-13): every piece of this stub's original scope is now
-    covered under other names, verified by direct read, not just grep:
-    - Signature verification + forgery (missing/wrong sig, replayed id):
-      tests/errors/test_webhook_and_async_contracts.py,
-      tests/test_payment_webhook_adversarial.py; both webhooks are also
-      enumerated against silent-drift in tests/errors/test_webhook_enumeration.py.
-    - Capture webhook -> receipt -> allocation -> GL, replay-is-a-no-op:
-      tests/test_w0_webhook_holding.py::test_duplicate_webhook_one_receipt,
-      ::test_duplicate_webhook_while_holding_still_one_receipt.
-    - Closed-period capture parks, reconcile posts once open:
-      tests/test_w0_webhook_holding.py::test_closed_period_webhook_holds_then_reconcile_posts.
-    - Capture parked for a cancelled invoice auto-refunds on reconcile:
-      tests/test_w0_webhook_holding.py::test_reconcile_auto_refunds_capture_parked_for_cancelled_invoice.
-    Kept as a real (unskipped) pointer rather than a permanently-skipped
-    placeholder, so WF-17 in the workflow numbering isn't a dangling TODO."""
-    assert True
+    """G-8: structural pointer — live-creds E2E stays WF-37/38; this id must
+    keep citing the in-repo signature/replay/holding tests so the WF number
+    cannot become a dangling TODO again."""
+    from pathlib import Path
+
+    tests = Path(__file__).resolve().parents[1]
+    required = {
+        tests / "errors" / "test_webhook_and_async_contracts.py": (
+            "signature",
+        ),
+        tests / "test_payment_webhook_adversarial.py": ("signature",),
+        tests / "errors" / "test_webhook_enumeration.py": ("webhook",),
+        tests / "test_w0_webhook_holding.py": (
+            "test_duplicate_webhook_one_receipt",
+            "test_closed_period_webhook_holds_then_reconcile_posts",
+            "test_reconcile_auto_refunds_capture_parked_for_cancelled_invoice",
+        ),
+    }
+    for path, needles in required.items():
+        assert path.is_file(), path.name
+        blob = path.read_text(encoding="utf-8")
+        for needle in needles:
+            assert needle in blob, f"{path.name} missing {needle}"
 
 
-@pytest.mark.skip(reason=_TODO)
-def test_wf18_otp_login_and_ratelimit():
-    """(D4 = ON) request OTP -> verify -> session issued. OTP is hashed at rest.
-    Request and verify are rate-limited; N failures lock the account."""
+def test_wf18_otp_login_and_ratelimit(tenant_a, monkeypatch):
+    """(D4 = ON) request OTP → hashed at rest → verify issues session.
+    Request is DRF-throttled (otp 5/min); N verify failures lock the challenge.
+    """
+    from accounts.models import OtpChallenge
+    from accounts.otp_utils import hash_otp, phone_lookup_values
+    from rest_framework.test import APIClient
+
+    monkeypatch.setattr("accounts.views.secrets.randbelow", lambda n: 123456)
+    monkeypatch.setattr("django.conf.settings.OTP_ENABLED", True)
+    monkeypatch.setattr("django.conf.settings.OTP_DEBUG_ECHO", False)
+    monkeypatch.setattr("django.conf.settings.SMS_PROVIDER", "console")
+
+    client = APIClient()
+    phone = tenant_a.owner.phone
+    requested = client.post("/api/v1/auth/otp/request/", {"phone": phone}, format="json")
+    assert requested.status_code == 200, requested.data
+    assert "debug_code" not in requested.data
+
+    challenge = OtpChallenge.objects.filter(phone__in=phone_lookup_values(phone)).latest("created_at")
+    assert challenge.code == hash_otp("123456")
+    assert challenge.code != "123456"
+
+    ok = client.post("/api/v1/auth/otp/verify/", {"phone": phone, "code": "123456"}, format="json")
+    assert ok.status_code == 200, ok.data
+    assert "access" in ok.data
+
+    for _ in range(5):
+        resp = APIClient().post("/api/v1/auth/otp/request/", {"phone": phone}, format="json")
+        assert resp.status_code in (200, 429)
+    throttled = APIClient().post("/api/v1/auth/otp/request/", {"phone": phone}, format="json")
+    assert throttled.status_code == 429
 
 
 def test_wf19_pos_checkout(tenant_a, assert_consistent):
@@ -940,15 +1025,15 @@ def test_wf19_pos_checkout(tenant_a, assert_consistent):
     assert_consistent(company)
 
 
-@pytest.mark.skip(
-    reason="covered — period close + back-dated rejection is "
-    "tests/personas/test_pj_stubs.py::test_pj_wholesale_accountant_period_close; "
-    "the H9 sanctioned correction (reverse + re-post) is "
-    "tests/workflows/test_wf_extended_stubs.py::test_wf44_invoice_amendment_h9"
-)
 def test_wf20_period_close_then_sanctioned_correction():
-    """Closing a period rejects a back-dated posting; the sanctioned correction
-    path posts a reversing + re-post pair that nets to zero."""
+    """Pointer — period close + back-dated rejection and H9 reverse+re-post."""
+    from pathlib import Path
+
+    tests = Path(__file__).resolve().parents[1]
+    _pointer({
+        tests / "personas" / "test_pj_stubs.py": "test_pj_wholesale_accountant_period_close",
+        tests / "workflows" / "test_wf_extended_stubs.py": "test_wf44_invoice_amendment_h9",
+    })
 
 
 def test_wf21_stock_transfer_between_godowns(tenant_a, assert_consistent):
@@ -1057,21 +1142,31 @@ def test_wf22_stock_adjustment_writeoff(tenant_a, assert_consistent):
     assert_consistent(company)
 
 
-@pytest.mark.skip(reason="superseded — import idempotency is PJ-TRADER-IMPORT (tests/personas/test_pj_stubs.py)")
 def test_wf23_import_products_idempotent():
-    """Importing the same product rows twice creates each product once.
-    Covered by tests/personas/test_pj_stubs.py::test_pj_trader_import_operator."""
+    """Pointer — product import idempotency is PJ-TRADER-IMPORT."""
+    from pathlib import Path
+
+    tests = Path(__file__).resolve().parents[1]
+    _pointer({tests / "personas" / "test_pj_stubs.py": "test_pj_trader_import_operator"})
 
 
-@pytest.mark.skip(reason="superseded — import idempotency is PJ-TRADER-IMPORT (tests/personas/test_pj_stubs.py)")
 def test_wf24_import_customers_idempotent():
-    """Covered by tests/personas/test_pj_stubs.py::test_pj_trader_import_operator."""
+    """Pointer — customer import idempotency is PJ-TRADER-IMPORT."""
+    from pathlib import Path
+
+    tests = Path(__file__).resolve().parents[1]
+    _pointer({tests / "personas" / "test_pj_stubs.py": "test_pj_trader_import_operator"})
 
 
-@pytest.mark.skip(reason="superseded — opening-stock import is PJ-TRADER-IMPORT + tests/test_imports.py")
 def test_wf25_import_opening_stock_idempotent():
-    """Covered by tests/personas/test_pj_stubs.py::test_pj_trader_import_operator
-    and tests/test_imports.py::test_reimport_committed_opening_stock_rejected."""
+    """Pointer — opening-stock import idempotency is PJ-TRADER-IMPORT + test_imports."""
+    from pathlib import Path
+
+    tests = Path(__file__).resolve().parents[1]
+    _pointer({
+        tests / "personas" / "test_pj_stubs.py": "test_pj_trader_import_operator",
+        tests / "test_imports.py": "test_cr_016_duplicate_opening_stock_file_rejected",
+    })
 
 
 def test_wf26_bank_receipt_to_gl(tenant_a, assert_consistent):

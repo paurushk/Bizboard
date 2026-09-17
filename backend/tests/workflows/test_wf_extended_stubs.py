@@ -510,14 +510,23 @@ def test_wf36_tds_tcs_worksheets_reconcile(tenant_a):
 
 
 # --- G3 payments (D3 = ON) ---
-@pytest.mark.skip(reason=_G)
+# Wave 5: unskip only when Cashfree/PayU sandbox + SANDBOX_WEBHOOK_SECRET exist
+# in CI. Do not replace these with assert True. Signature/replay coverage is
+# already G-8 / H10 (no live creds).
+_G_SANDBOX = (
+    "A25 / WF-37/38 — live sandbox gateway E2E needs Cashfree/PayU credentials "
+    "+ SANDBOX_WEBHOOK_SECRET; do not unskip until those are in CI"
+)
+
+
+@pytest.mark.skip(reason=_G_SANDBOX)
 def test_wf37_refunds():
     """A customer refund (and a gateway refund) reverses the original receipt's
     allocation and GL; the invoice returns to unpaid/partly-paid; a double
     refund of the same receipt is rejected."""
 
 
-@pytest.mark.skip(reason=_G)
+@pytest.mark.skip(reason=_G_SANDBOX)
 def test_wf38_mdr_settlement_reconciliation():
     """Gateway settlement is matched to captured payments; the MDR fee posts to a
     fee expense account; settled net + fee == gross captured."""
@@ -833,7 +842,8 @@ def test_wf44_invoice_amendment_h9(tenant_a, assert_consistent):
         [{"product": product.id, "quantity": "4", "unit_price": "100.00", "gst_rate": "18"}],
     )
     inv_id = inv["id"]
-    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv_id}/complete/").status_code == 200
+    done = tenant_a.client.post(f"/api/v1/sales/invoices/{inv_id}/complete/")
+    assert done.status_code == 200
 
     from accounting.models import Account, JournalEntry, JournalLine
     from inventory.services import InventoryService
@@ -860,6 +870,7 @@ def test_wf44_invoice_amendment_h9(tenant_a, assert_consistent):
         f"/api/v1/sales/invoices/{inv_id}/",
         {
             "confirm_amend": True,
+            "expected_amend_revision": done.data.get("amend_revision", 0),
             "notes": "price correction per customer dispute",
             "items": [{"product": product.id, "quantity": "4", "unit_price": "90.00", "gst_rate": "18"}],
         },
@@ -937,9 +948,18 @@ def test_wf45_registration(db):
     # area — 3 register tests there fail in the full-suite context; team-owned).
 
 
-@pytest.mark.skip(reason=_G)
 def test_wf45_registration_email_verify():
-    """TODO: email-verification step once that flow exists."""
+    """LIM pin: register has no email-verification step. Auth URLconf exposes
+    register + OTP verify, not verify-email. Do not invent a flow here."""
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[2] / "accounts" / "urls_auth.py"
+    blob = src.read_text(encoding="utf-8")
+    assert "register/" in blob
+    assert "otp/verify/" in blob
+    assert "email/verify" not in blob
+    assert "verify-email" not in blob
+    assert "VerifyEmail" not in blob
 
 
 def test_wf46_password_reset(tenant_a):

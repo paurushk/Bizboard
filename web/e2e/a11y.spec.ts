@@ -54,8 +54,6 @@ test.describe('Accessibility smoke (axe)', () => {
     });
   }
 
-  // QOS-0007: the counter clerk works keyboard + scanner only. The scan field
-  // must be reachable and usable without a pointer.
   test('POS scan field is keyboard-operable without a mouse', async ({ page }) => {
     await loginAsOwner(page);
     await page.goto('/pos', { waitUntil: 'domcontentloaded' });
@@ -70,4 +68,27 @@ test.describe('Accessibility smoke (axe)', () => {
     await expect(scan).toHaveValue(/wid/i);
     await expect(scan).toBeFocused();
   });
+
+  // G-6 residual: accessible name on interactive controls, not only axe impact.
+  for (const { name, path } of [
+    { name: 'login', path: '/login' },
+    { name: 'dashboard', path: '/' },
+    { name: 'POS', path: '/pos' },
+    { name: 'new invoice', path: '/sales/new' },
+  ]) {
+    test(`${name} interactive controls have accessible names`, async ({ page }) => {
+      if (path !== '/login') {
+        await loginAsOwner(page);
+      }
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      await expect
+        .poll(async () => (await page.locator('#root').innerHTML()).length, { timeout: 20_000 })
+        .toBeGreaterThan(0);
+
+      const results = await new AxeBuilder({ page })
+        .withRules(['button-name', 'link-name', 'label', 'input-button-name', 'image-alt'])
+        .analyze();
+      expect(results.violations, `${name}: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
+    });
+  }
 });

@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import { loginAsOwner } from './helpers/auth';
 import { PROTECTED_ROUTES } from './helpers/protectedRoutes';
@@ -14,7 +15,7 @@ import { PROTECTED_ROUTES } from './helpers/protectedRoutes';
  */
 test.describe('route smoke (top 20)', () => {
   for (const path of PROTECTED_ROUTES) {
-    test(`${path} renders without a page error`, async ({ page }) => {
+    test(`${path} renders without a page error`, async ({ page }, testInfo) => {
       const errors: string[] = [];
       page.on('pageerror', (e) => errors.push(e.message));
 
@@ -30,6 +31,14 @@ test.describe('route smoke (top 20)', () => {
         `${path} rendered the error boundary`,
       ).toHaveCount(0);
       expect(errors, `${path} threw: ${errors.join(' | ')}`).toEqual([]);
+
+      if (testInfo.project.name !== 'mobile') {
+        const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
+        const blocking = results.violations.filter(
+          (v) => v.impact === 'critical' || v.impact === 'serious',
+        );
+        expect(blocking, `${path} axe: ${JSON.stringify(blocking, null, 2)}`).toEqual([]);
+      }
     });
   }
 });

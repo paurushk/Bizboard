@@ -580,6 +580,9 @@ class PurchaseService:
                  confirm_gstin_total_change=False):
         """Atomic Complete: number + PURCHASE movements + event (E3.3)."""
         invoice = PurchaseInvoice.objects.select_for_update().get(pk=invoice.pk)
+        from billing.quotas import assert_complete_allowed
+
+        assert_complete_allowed(invoice.company)
         if invoice.warehouse_id is None:
             invoice.warehouse = InventoryService.default_warehouse(invoice.company)
         if invoice.status != PurchaseInvoice.Status.DRAFT:

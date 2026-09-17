@@ -40,6 +40,7 @@ test.describe('purchases: history + editor', () => {
     await productBox.fill('Steel');
     await page.getByRole('option', { name: /Steel Bottle/i }).click();
     await expect(page.getByText('Steel Bottle').first()).toBeVisible();
+    await expect(productBox).toHaveValue('');
 
     await page.getByRole('combobox', { name: /bill from/i }).fill('Western');
     await page.getByRole('option', { name: /Western Distributors/i }).click();

@@ -82,3 +82,30 @@ export async function loginAsOwnerBooksOn(page: Page) {
 export async function loginAsAccountantBooksOn(page: Page) {
   await loginViaUi(page, DEFAULT_ACCOUNTANT_BOOKS_ON);
 }
+
+const DEFAULT_OWNER_EMPTY_GSTIN = {
+  email: 'owner-empty-gstin@bizboard.local',
+  password: 'demo-password',
+};
+
+const DEFAULT_OWNER_STOCK_BLOCK = {
+  email: 'owner-stock-block@bizboard.local',
+  password: 'demo-password',
+};
+
+export async function loginAsOwnerEmptyGstin(page: Page) {
+  await loginViaUi(page, DEFAULT_OWNER_EMPTY_GSTIN);
+}
+
+export async function loginAsOwnerStockBlock(page: Page) {
+  await loginViaUi(page, DEFAULT_OWNER_STOCK_BLOCK);
+}
+
+const DEFAULT_OWNER_WRITES_BLOCKED = {
+  email: 'owner-writes-blocked@bizboard.local',
+  password: 'demo-password',
+};
+
+export async function loginAsOwnerWritesBlocked(page: Page) {
+  await loginViaUi(page, DEFAULT_OWNER_WRITES_BLOCKED);
+}

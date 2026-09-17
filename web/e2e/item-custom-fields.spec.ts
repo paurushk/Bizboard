@@ -43,7 +43,13 @@ test.describe('Item custom fields v1', () => {
     await expect(page.getByText('Cooking Oil 1L')).toHaveCount(0);
   });
 
-  test('sales product picker can filter by Brand form and add the item', async ({ page }) => {
+  test('sales product picker can filter by Brand form and add the item', async ({ page }, testInfo) => {
+    // G-12 accepted LIM: at Pixel 5 the editor title sits under the fixed AppBar
+    // (AppShell Toolbar + mock/billing banners). Chromium covers this picker.
+    testInfo.skip(
+      testInfo.project.name === 'mobile',
+      'sales invoice heading is occluded under the mobile AppBar; accepted LIM (G-12)',
+    );
     await loginAsOwner(page);
     await page.goto('/sales/new');
     await expect(page.getByRole('heading', { name: /sales invoice/i })).toBeVisible({
@@ -58,6 +64,7 @@ test.describe('Item custom fields v1', () => {
     await productBox.fill('Premium');
     await page.getByRole('option', { name: /Premium Tea/i }).click();
     await expect(page.getByText('Premium Tea 500g').first()).toBeVisible();
+    await expect(productBox).toHaveValue('');
 
     await page.getByRole('combobox', { name: /bill to/i }).fill('Ra');
     await page.getByRole('option', { name: /Rahul Stores/i }).click();

@@ -87,3 +87,58 @@ test.describe('Help v2 (e2e session hook, product flag still off)', () => {
     await expect(page.locator('#invoice-cancel')).toBeVisible({ timeout: 15_000 });
   });
 });
+
+test.describe('Page contextual help', () => {
+  test('invoice ? opens the drawer, closes, and Complete still works', async ({ page }, testInfo) => {
+    await loginAsOwner(page);
+    await page.goto('/sales/new', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('context-help-trigger')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: /save & complete/i })).toBeVisible();
+
+    const trigger = page.getByTestId('context-help-trigger');
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    const drawer = page.getByTestId('context-help-drawer');
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole('heading', { name: /sales invoice/i })).toBeVisible();
+    await expect(page).toHaveURL(/\/sales\/new/);
+
+    const axe = await new AxeBuilder({ page })
+      .include('[data-testid="context-help-drawer"]')
+      .withTags(['wcag2a', 'wcag2aa'])
+      .analyze();
+    const blocking = axe.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
+    expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
+
+    if (testInfo.project.name === 'mobile') {
+      const box = await drawer.boundingBox();
+      const vp = page.viewportSize();
+      expect(box?.width ?? 0).toBeGreaterThan((vp?.width ?? 0) * 0.9);
+    }
+
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeHidden();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(page).toHaveURL(/\/sales\/new/);
+
+    await expect(page.locator('[data-help-slot="godown"]')).toBeVisible();
+    await expect(page.locator('[data-help-slot="place-of-supply"]')).toBeVisible();
+    await expect(page.locator('[data-help-slot="complete"]')).toBeVisible();
+
+    await page.getByRole('combobox', { name: /bill to/i }).fill('Rahul');
+    await page.getByRole('option', { name: /Rahul Stores/i }).click();
+    const productBox = page.getByPlaceholder(/add item|search sku|search product/i);
+    await productBox.click();
+    await productBox.fill('Tea');
+    await page.getByRole('option', { name: /Premium Tea 500g/i }).click();
+    await expect(productBox).toHaveValue('');
+
+    const complete = page.getByRole('button', { name: /save & complete/i });
+    await expect(complete).toBeEnabled();
+    await complete.click();
+    await expect(page.getByTestId('context-help-drawer')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/\/help/);
+    await expect(page).toHaveURL(/\/sales\/(new|history)/);
+    await expect(page.getByRole('heading', { name: /invoice/i }).first()).toBeVisible();
+  });
+});

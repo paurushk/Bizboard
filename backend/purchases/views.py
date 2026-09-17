@@ -37,6 +37,15 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
     queryset = PurchaseInvoice.objects.select_related("supplier", "bill_of_entry").prefetch_related("items__product")
     serializer_class = PurchaseInvoiceSerializer
 
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        if getattr(self, "action", None) == "complete":
+            from core.throttles import CompanyRateThrottle
+
+            self.throttle_scope = "purchase_complete"
+            throttles.append(CompanyRateThrottle())
+        return throttles
+
     def create(self, request, *args, **kwargs):
         """Durable Idempotency-Key with begin-of-request placeholder (same as sales)."""
         def _run():
@@ -349,7 +358,7 @@ class BillOfEntryViewSet(CompanyScopedViewSet):
         from django.conf import settings
         from django.http import Http404
 
-        if not getattr(settings, "ENABLE_BOE", True):
+        if not getattr(settings, "ENABLE_BOE", False):
             raise Http404()
         super().initial(request, *args, **kwargs)
 

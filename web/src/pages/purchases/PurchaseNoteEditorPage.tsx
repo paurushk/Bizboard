@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -51,6 +52,10 @@ import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
+import {
+  firstCompleteDisabledReason,
+  previewAllowsComplete,
+} from '@/completeGates/completeBlockers';
 import { useAuth } from '@/auth/AuthContext';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import { canCancelDocuments, canCreatePurchases } from '@/utils/permissions';
@@ -256,8 +261,8 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
   const anyOverCap = lines.some(
     (l) => l.maxQty != null && Number(l.quantity) > l.maxQty + 1e-9,
   );
-  const canSave =
-    Boolean(supplierId) && effectiveLines.length > 0 && !anyOverCap && canWrite;
+  const zeroQty = lines.length > 0 && effectiveLines.length === 0;
+  const canSave = Boolean(supplierId) && lines.length > 0 && canWrite;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
 
   const addLine = () => {
@@ -359,6 +364,20 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     onError: (err) => flashError(getErrorMessage(err)),
   });
 
+  const previewFellBack = previewOnline && !preview.ready && preview.error != null;
+  const previewPending = previewOnline && !preview.ready && preview.error == null;
+  const completeDisabledReason = firstCompleteDisabledReason({
+    canSave,
+    overCap: anyOverCap,
+    zeroQty,
+    previewPending,
+  });
+  const canComplete =
+    canSave &&
+    !zeroQty &&
+    !anyOverCap &&
+    previewAllowsComplete(previewOnline, preview.ready, preview.error);
+
   if (isEdit && existing.isLoading) return <LoadingState />;
   if (isEdit && existing.isError) {
     return <ErrorState message={getErrorMessage(existing.error)} error={existing.error} onRetry={() => void existing.refetch()} />;
@@ -373,11 +392,18 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
       title={t(isEdit ? (isCredit ? 'phase1.editPurchaseCreditNote' : 'phase1.editPurchaseDebitNote') : (isCredit ? 'phase1.newPurchaseCreditNote' : 'phase1.newPurchaseDebitNote'))}
       primarySave={primarySave}
       canSave={canSave}
-      canComplete={canSave && (!previewOnline || preview.ready)}
+      canComplete={canComplete}
+      primaryDisabledReason={completeDisabledReason}
       isEdit={isEdit}
       backTo={listPath}
       message={message}
       error={error || preview.error}
+      warning={previewFellBack ? t('billing.previewUnavailableClientTotals') : null}
+      infoBanner={
+        completeDisabledReason && canSave && !canComplete ? (
+          <Alert severity="warning">{completeDisabledReason}</Alert>
+        ) : null
+      }
       saving={saveMutation.isPending}
       hideSaveAndNew
       showDraftButton={!readOnly}
@@ -460,17 +486,14 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
                               x.key === l.key
                                 ? {
                                     ...x,
-                                    // F2-012: clamp to (0, source quantity].
-                                    quantity: Math.min(
-                                      Math.max(0, v),
-                                      x.maxQty ?? Number.POSITIVE_INFINITY,
-                                    ),
+                                    quantity: Math.max(0, v),
                                   }
                                 : x,
                             ),
                           )
                         }
                         helperText={l.maxQty != null ? `max ${l.maxQty}` : undefined}
+                        inputProps={{ 'aria-label': t('billing.qty') }}
                         sx={{ width: 100 }}
                       />
                     ) : (
@@ -516,7 +539,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
               filterOptions={(opts) => opts}
               inputValue={productSearch.productQuery}
               onInputChange={(_, v, reason) => {
-                if (reason === 'input' || reason === 'clear') productSearch.setProductQuery(v);
+                if (reason === 'input' || reason === 'clear' || reason === 'reset') productSearch.setProductQuery(v);
               }}
               getOptionLabel={(o) => `${o.name} · ${o.sku}`}
               value={pendingProduct}

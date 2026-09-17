@@ -267,19 +267,21 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         if items_data is serializers.empty:
             prepared = None
 
-        from core.models import log_money_change
+        from core.models import log_money_field_diff, money_field_snapshot
 
-        for fld in ("additional_charges", "invoice_discount", "grand_total", "taxable_total"):
-            if fld in validated_data:
-                log_money_change(
-                    company=instance.company,
-                    entity_type="purchaseinvoice",
-                    entity_id=instance.pk,
-                    field=fld,
-                    old_value=getattr(instance, fld, ""),
-                    new_value=validated_data[fld],
-                    user=request.user,
-                )
+        before_money = money_field_snapshot(instance)
+
+        def _flush_money_audit(inv):
+            inv.refresh_from_db()
+            log_money_field_diff(
+                company=inv.company,
+                entity_type="purchaseinvoice",
+                entity_id=inv.pk,
+                before=before_money,
+                instance=inv,
+                user=request.user,
+            )
+            return inv
 
         instance = super().update(instance, validated_data)
         user = self.context["request"].user
@@ -302,13 +304,13 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
                     from reporting.gst_periods import mark_period_dirty_if_snapshotted
 
                     mark_period_dirty_if_snapshotted(instance.company, instance.invoice_date)
-            return instance
+            return _flush_money_audit(instance)
 
         if prepared is not None:
             PurchaseService.set_items(instance, prepared, user)
         else:
             PurchaseService.set_items(instance, existing_lines_as_items_data(instance.items), user)
-        return instance
+        return _flush_money_audit(instance)
 
 
 class PurchaseReturnItemSerializer(serializers.ModelSerializer):
