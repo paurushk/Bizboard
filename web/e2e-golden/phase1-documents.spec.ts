@@ -97,7 +97,7 @@ test('phase1: multi-line return + credit note PDF + SO convert', async ({ page }
   await soProduct.click();
   await soProduct.fill(a.productSku);
   await page.getByRole('option', { name: new RegExp(a.productSku) }).click();
-  await page.getByRole('button', { name: 'Add' }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/sales\/orders\/\d+/);
   await page.getByRole('button', { name: /Convert/ }).click();

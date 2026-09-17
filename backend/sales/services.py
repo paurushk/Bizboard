@@ -459,6 +459,82 @@ def _update_items_in_place(invoice: SalesInvoice, items_data):
     return items
 
 
+def _quotation_remaining(item) -> Decimal:
+    return Decimal(str(item.quantity)) - Decimal(str(getattr(item, "converted_quantity", 0) or 0))
+
+
+def _quotation_convert_plan(quotation, line_quantities=None):
+    """CFT-115: convert remaining qty, or an explicit subset of line quantities."""
+    items = list(quotation.items.select_related("product").order_by("id"))
+    by_id = {item.id: item for item in items}
+    plan = []
+    if line_quantities is None:
+        for item in items:
+            remaining = _quotation_remaining(item)
+            if remaining > 0:
+                plan.append((item, remaining))
+    else:
+        seen = set()
+        for spec in line_quantities:
+            try:
+                line_id = int(spec["id"])
+                qty = Decimal(str(spec["quantity"]))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise BusinessRuleError("Each convert item needs id and quantity.") from exc
+            if line_id in seen:
+                raise BusinessRuleError("Duplicate quotation line in convert payload.")
+            seen.add(line_id)
+            item = by_id.get(line_id)
+            if item is None:
+                raise BusinessRuleError("Unknown quotation line.")
+            if qty <= 0:
+                raise BusinessRuleError("Convert quantity must be positive.")
+            remaining = _quotation_remaining(item)
+            if qty > remaining:
+                raise BusinessRuleError(
+                    f"Cannot convert quantity {qty}; only {remaining} remaining on this quotation line."
+                )
+            plan.append((item, qty))
+    if not plan:
+        raise BusinessRuleError("Nothing left to convert on this quotation.")
+    return plan
+
+
+def _quotation_items_data_from_plan(plan):
+    return [
+        {
+            "product": item.product,
+            "description": item.description,
+            "quantity": qty,
+            "unit_price": item.unit_price,
+            "discount_percent": item.discount_percent,
+            "gst_rate": item.gst_rate,
+            "cess_rate": getattr(item, "cess_rate", Decimal("0")),
+            "cess_amount": getattr(item, "cess_amount", Decimal("0")),
+            "supply_nature": getattr(item, "supply_nature", None),
+            "hsn_code": getattr(item, "hsn_code", "") or "",
+            "unit_price_inclusive": getattr(item, "unit_price_inclusive", None),
+            "rate_override": getattr(item, "rate_override", False),
+            "rate_override_reason": getattr(item, "rate_override_reason", "") or "",
+        }
+        for item, qty in plan
+    ]
+
+
+def _commit_quotation_conversion(quotation, plan, user, *, invoice=None, order=None):
+    for item, qty in plan:
+        item.converted_quantity = Decimal(str(item.converted_quantity or 0)) + qty
+        item.save(update_fields=["converted_quantity"])
+    remaining = any(_quotation_remaining(row) > 0 for row in quotation.items.all())
+    quotation.status = Quotation.Status.DRAFT if remaining else Quotation.Status.CONVERTED
+    if invoice is not None:
+        quotation.converted_invoice = invoice
+    if order is not None:
+        quotation.converted_order = order
+    quotation.updated_by = user
+    quotation.save()
+
+
 class SalesService:
     # ---------------- Sales invoice ----------------
 
@@ -568,7 +644,7 @@ class SalesService:
         if invoice.status == SalesInvoice.Status.COMPLETED:
             from .irn_guard import assert_no_live_eway, assert_no_live_irn
 
-            assert_no_live_irn(invoice, kind="invoice")
+            assert_no_live_irn(invoice, kind="invoice", action="amend")
             assert_no_live_eway(invoice, kind="invoice")
 
         old_qty = defaultdict(Decimal)
@@ -705,6 +781,12 @@ class SalesService:
                 transaction.on_commit(
                     lambda: generate_invoice_pdf.delay(invoice_id, company_id=company_id)
                 )
+            try:
+                from insights.telemetry import record_pdf_started
+
+                record_pdf_started(invoice.company, user=user)
+            except Exception:  # noqa: BLE001
+                pass
             return invoice
 
         invoice.updated_by = user
@@ -717,6 +799,11 @@ class SalesService:
                  confirm_gstin_total_change=False, confirm_missing_licence=False):
         """Atomic Complete: rules + number + SALE movements + PDF event (E4.4)."""
         invoice = SalesInvoice.objects.select_for_update().get(pk=invoice.pk)
+        from billing.quotas import assert_complete_allowed
+        from core.tracing import trace_span
+
+        with trace_span("sales.complete", invoice_id=invoice.pk, company_id=invoice.company_id):
+            assert_complete_allowed(invoice.company)
         if invoice.warehouse_id is None:
             invoice.warehouse = InventoryService.default_warehouse(invoice.company)
         # BB-000708: fail closed when multi-GSTIN and stamp unset; else stamp only single active.
@@ -1106,12 +1193,20 @@ class SalesService:
                     order.updated_by = user
                     order.save(update_fields=["status", "updated_by", "updated_at"])
 
+            cost_basis_counts: dict = {}
             cogs_total = CogsService.post_sale_stock_and_cogs(
-                invoice, items, user, stock_from_challan=stock_from_challan, warnings=warnings
+                invoice, items, user, stock_from_challan=stock_from_challan, warnings=warnings,
+                cost_basis_counts=cost_basis_counts,
             )
             from reporting.gst_periods import mark_period_dirty_if_snapshotted
 
             mark_period_dirty_if_snapshotted(invoice.company, invoice.invoice_date)
+
+            # Snapshot margin regardless of accounting_enabled — profit/margin
+            # BI shouldn't depend on double-entry books being switched on.
+            from reporting.invoice_profit_service import InvoiceProfitService
+
+            InvoiceProfitService.write_snapshot(invoice, cogs_total, cost_basis_counts, user=user)
 
         if not is_tally_opening:
             if invoice.company.accounting_enabled:
@@ -1307,6 +1402,9 @@ class SalesService:
         invoice.cancelled_at = timezone.now()
         invoice.updated_by = user
         invoice.save()
+        from reporting.invoice_profit_service import InvoiceProfitService
+
+        InvoiceProfitService.sync_status(invoice)
         # CR-020: unlink SO so reservation stays and order can be re-converted / cancelled.
         from .models import SalesOrder
 
@@ -1351,6 +1449,10 @@ class SalesService:
     def set_quotation_items(quotation: Quotation, items_data, user):
         if quotation.status != Quotation.Status.DRAFT:
             raise BusinessRuleError("Only draft quotations can be edited.")
+        if quotation.items.filter(converted_quantity__gt=0).exists():
+            raise BusinessRuleError(
+                "Cannot edit lines on a quotation that already has converted quantity."
+            )
         _validate_lines(items_data, quotation.company)
         quotation.items.all().delete()
         items = _build_items(QuotationItem, "quotation", quotation, items_data)
@@ -1378,8 +1480,8 @@ class SalesService:
 
     @staticmethod
     @transaction.atomic
-    def convert_quotation(quotation: Quotation, user, *, confirm_expired=False):
-        """Quotation → draft sales invoice, preserving lines (E4.5)."""
+    def convert_quotation(quotation: Quotation, user, *, confirm_expired=False, line_quantities=None):
+        """Quotation → draft sales invoice, preserving lines (E4.5). CFT-115: optional partial qty."""
         quotation = Quotation.objects.select_for_update().get(pk=quotation.pk)
         if quotation.status != Quotation.Status.DRAFT:
             raise BusinessRuleError(f"Cannot convert a quotation in status {quotation.status}.")
@@ -1391,6 +1493,7 @@ class SalesService:
                     "Quotation validity has expired. Refresh pricing or pass "
                     "confirm_expired=true to convert anyway."
                 )
+        plan = _quotation_convert_plan(quotation, line_quantities)
         if not quotation.number:
             quotation.number = DocumentNumberService.next_number(quotation.company, "QUOTATION")
 
@@ -1422,39 +1525,18 @@ class SalesService:
             created_by=user,
             updated_by=user,
         )
-        # R2-003: carry the full line tax classification across — cess, supply
-        # nature and inclusive-price fields were being dropped, silently turning
-        # an inclusive / cess-bearing / exempt quotation into a plain exclusive
-        # taxable invoice.
-        items_data = [
-            {
-                "product": item.product, "description": item.description,
-                "quantity": item.quantity, "unit_price": item.unit_price,
-                "discount_percent": item.discount_percent, "gst_rate": item.gst_rate,
-                "cess_rate": getattr(item, "cess_rate", Decimal("0")),
-                "cess_amount": getattr(item, "cess_amount", Decimal("0")),
-                "supply_nature": getattr(item, "supply_nature", None),
-                "hsn_code": getattr(item, "hsn_code", "") or "",
-                "unit_price_inclusive": getattr(item, "unit_price_inclusive", None),
-                "rate_override": getattr(item, "rate_override", False),
-                "rate_override_reason": getattr(item, "rate_override_reason", "") or "",
-            }
-            for item in quotation.items.select_related("product")
-        ]
+        items_data = _quotation_items_data_from_plan(plan)
         if getattr(quotation, "price_mode", None) and hasattr(invoice, "price_mode"):
             invoice.price_mode = quotation.price_mode
             invoice.save(update_fields=["price_mode"])
         SalesService.set_items(invoice, items_data, user)
-        quotation.status = Quotation.Status.CONVERTED
-        quotation.converted_invoice = invoice
-        quotation.updated_by = user
-        quotation.save()
+        _commit_quotation_conversion(quotation, plan, user, invoice=invoice)
         return invoice
 
     @staticmethod
     @transaction.atomic
-    def convert_quotation_to_order(quotation: Quotation, user, *, confirm_expired=False):
-        """Quotation → draft sales order, preserving lines."""
+    def convert_quotation_to_order(quotation: Quotation, user, *, confirm_expired=False, line_quantities=None):
+        """Quotation → draft sales order, preserving lines. CFT-115: optional partial qty."""
         from .models import SalesOrder
         from .notes_services import SalesNotesService
 
@@ -1469,6 +1551,7 @@ class SalesService:
                     "Quotation validity has expired. Refresh pricing or pass "
                     "confirm_expired=true to convert anyway."
                 )
+        plan = _quotation_convert_plan(quotation, line_quantities)
         if not quotation.number:
             quotation.number = DocumentNumberService.next_number(quotation.company, "QUOTATION")
 
@@ -1492,33 +1575,12 @@ class SalesService:
             created_by=user,
             updated_by=user,
         )
-        # R2-003: keep cess / supply nature / inclusive fields on conversion.
-        items_data = [
-            {
-                "product": item.product,
-                "description": item.description,
-                "quantity": item.quantity,
-                "unit_price": item.unit_price,
-                "discount_percent": item.discount_percent,
-                "gst_rate": item.gst_rate,
-                "cess_rate": getattr(item, "cess_rate", Decimal("0")),
-                "cess_amount": getattr(item, "cess_amount", Decimal("0")),
-                "supply_nature": getattr(item, "supply_nature", None),
-                "hsn_code": getattr(item, "hsn_code", "") or "",
-                "unit_price_inclusive": getattr(item, "unit_price_inclusive", None),
-                "rate_override": getattr(item, "rate_override", False),
-                "rate_override_reason": getattr(item, "rate_override_reason", "") or "",
-            }
-            for item in quotation.items.select_related("product")
-        ]
+        items_data = _quotation_items_data_from_plan(plan)
         if getattr(quotation, "price_mode", None) and hasattr(order, "price_mode"):
             order.price_mode = quotation.price_mode
             order.save(update_fields=["price_mode"])
         SalesNotesService.set_order_items(order, items_data, user)
-        quotation.status = Quotation.Status.CONVERTED
-        quotation.converted_order = order
-        quotation.updated_by = user
-        quotation.save()
+        _commit_quotation_conversion(quotation, plan, user, order=order)
         return order
 
     @staticmethod
@@ -1526,6 +1588,11 @@ class SalesService:
     def cancel_quotation(quotation: Quotation, user):
         if quotation.status != Quotation.Status.DRAFT:
             raise BusinessRuleError(f"Cannot cancel a quotation in status {quotation.status}.")
+        if quotation.items.filter(converted_quantity__gt=0).exists():
+            raise BusinessRuleError(
+                "Cannot cancel a quotation with converted quantity; cancel the "
+                "sales order or invoice instead."
+            )
         quotation.status = Quotation.Status.CANCELLED
         quotation.updated_by = user
         quotation.save()

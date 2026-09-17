@@ -51,7 +51,7 @@ import type { Customer, Product, SalesOrder } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { getCompany } from '@/api/resources';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
-import { toNumber } from '@/utils/money';
+import { firstCompleteDisabledReason } from '@/completeGates/completeBlockers';
 
 export function DeliveryChallanEditorPage() {
   const { id: editIdParam } = useParams();
@@ -247,7 +247,11 @@ export function DeliveryChallanEditorPage() {
     [lineTaxes, lines, intraState],
   );
 
-  const canSave = Boolean(customerId) && lines.length > 0;
+  const zeroQty = lines.some((l) => Number(l.quantity) <= 0);
+  const canSaveBase = Boolean(customerId) && lines.length > 0;
+  const canSave = canSaveBase;
+  const canComplete = canSaveBase && !zeroQty;
+  const completeDisabledReason = firstCompleteDisabledReason({ canSave: canSaveBase, zeroQty });
   const primarySave = primarySaveAction({ isEdit, editingStatus });
 
   const addLine = () => {
@@ -319,7 +323,9 @@ export function DeliveryChallanEditorPage() {
       title={t(isEdit ? 'phase1.editDeliveryChallan' : 'phase1.newDeliveryChallan')}
       primarySave={primarySave}
       canSave={canSave}
-      canComplete={canSave}
+      canComplete={canComplete}
+      primaryDisabledReason={completeDisabledReason}
+      warning={completeDisabledReason && canSave && !canComplete ? completeDisabledReason : null}
       isEdit={isEdit}
       backTo="/sales/delivery-challans"
       message={message}
@@ -425,12 +431,13 @@ export function DeliveryChallanEditorPage() {
                         value={l.quantity}
                         onValueChange={(n) =>
                           setLines((prev) =>
-                            prev.map((x) => (x.key === l.key ? { ...x, quantity: Math.max(1, n || 1) } : x)),
+                            prev.map((x) => (x.key === l.key ? { ...x, quantity: Math.max(0, n || 0) } : x)),
                           )
                         }
-                        min={1}
-                        emptyAs={1}
+                        min={0}
+                        emptyAs={0}
                         size="small"
+                        inputProps={{ 'aria-label': t('billing.qty') }}
                         sx={{ width: 80 }}
                       />
                     )}
@@ -477,7 +484,7 @@ export function DeliveryChallanEditorPage() {
               filterOptions={(opts) => opts}
               inputValue={productSearch.productQuery}
               onInputChange={(_, v, reason) => {
-                if (reason === 'input' || reason === 'clear') productSearch.setProductQuery(v);
+                if (reason === 'input' || reason === 'clear' || reason === 'reset') productSearch.setProductQuery(v);
               }}
               getOptionLabel={(o) => `${o.name} · ${o.sku}`}
               value={pendingProduct}

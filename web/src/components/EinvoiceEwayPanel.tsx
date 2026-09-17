@@ -29,6 +29,7 @@ import { isEinvoiceSubmitEnabled, isEwaySubmitEnabled } from '@/config/features'
 import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 import { triggerBlobDownload } from '@/utils/blob';
+import { hasLiveIrn } from '@/utils/einvoiceLock';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 type Props = {
@@ -204,6 +205,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
 
   const base = invoice.number ?? `invoice-${invoice.id}`;
   const einvoiceGenerated = invoice.einvoiceStatus === 'GENERATED';
+  const liveIrn = hasLiveIrn(invoice);
   const ewayGenerated = invoice.ewayStatus === 'GENERATED';
   const canSubmitEinvoice = isEinvoiceSubmitEnabled();
   const canSubmitEway = isEwaySubmitEnabled();
@@ -230,6 +232,11 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
             />
           </Stack>
           {invoice.einvoiceError ? <HelpErrorAlert message={invoice.einvoiceError} sx={{ mb: 1 }} /> : null}
+          {liveIrn ? (
+            <Alert severity="warning" sx={{ mb: 1 }}>
+              {t('einvoice.lineAmendBlocked')}
+            </Alert>
+          ) : null}
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
             <Button
               variant="outlined"

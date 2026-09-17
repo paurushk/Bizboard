@@ -164,11 +164,12 @@ export function DraftLineTable({
                 <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 110 }}>
                   <NumericField
                     value={line.quantity}
-                    onValueChange={(n) => onUpdate(line.key, { quantity: n > 0 ? n : 1 })}
+                    onValueChange={(n) => onUpdate(line.key, { quantity: Math.max(0, n) })}
                     min={0}
-                    emptyAs={1}
+                    emptyAs={0}
                     fullWidth={false}
                     disabled={qtyDisabled}
+                    inputProps={{ 'aria-label': t('billing.qty') }}
                     sx={{ width: 80, minWidth: 80 }}
                   />
                   {line.alternateUnitName ? (

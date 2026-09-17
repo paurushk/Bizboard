@@ -20,6 +20,7 @@ import { EmptyState } from '@/components/PageState';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { useProductSearch } from '@/hooks/useProductSearch';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Customer, Product } from '@/types/domain';
 import { canCreateSales } from '@/utils/permissions';
@@ -175,7 +176,7 @@ export function QuickEntryPage() {
 
   return (
     <Stack spacing={2} sx={{ maxWidth: 480, mx: 'auto', pb: 8 }}>
-      <Typography variant="h5">{t('quickEntry.pageTitle')}</Typography>
+      <PageTitle variant="h5">{t('quickEntry.pageTitle')}</PageTitle>
 
       {saveError ? <HelpErrorAlert error={saveError} /> : null}
 
@@ -205,7 +206,7 @@ export function QuickEntryPage() {
               filterOptions={(opts) => opts}
               inputValue={customerSearch.query}
               onInputChange={(_, v, reason) => {
-                if (reason === 'input' || reason === 'clear') customerSearch.setQuery(v);
+                if (reason === 'input' || reason === 'clear' || reason === 'reset') customerSearch.setQuery(v);
               }}
               onChange={(_, value) => setCustomer(value)}
               getOptionLabel={(c) => c.name}

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 from django.utils import timezone
 
@@ -85,6 +87,8 @@ class SalesInvoice(DocumentTotalsModel):
     )
     completed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    # CFT-120: optimistic concurrency token for completed-invoice amend.
+    amend_revision = models.PositiveIntegerField(default=0)
 
     class EInvoiceStatus(models.TextChoices):
         NONE = "NONE"
@@ -279,6 +283,8 @@ class QuotationItem(DocumentLineModel):
     hsn_code = models.CharField(max_length=8, blank=True)
     supply_nature = models.CharField(max_length=12, blank=True, default="TAXABLE")
     unit_price_inclusive = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    # CFT-115: qty already converted to an SO/invoice; remainder stays convertible.
+    converted_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
 
 
 class SalesReturn(DocumentTotalsModel):

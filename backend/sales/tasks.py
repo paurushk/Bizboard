@@ -51,18 +51,27 @@ def generate_invoice_pdf(self, invoice_id, company_id=None):
         return
 
     try:
-        content = render_gst_tax_invoice(invoice, copy="ORIGINAL")
-        _store_doc_pdf(
-            company=invoice.company,
-            content=content,
-            filename=f"{invoice.number or invoice.pk}.pdf",
-            kind=FileAsset.Kind.INVOICE_PDF,
-            document=invoice,
-        )
+        from core.tracing import trace_span
+
+        with trace_span("sales.pdf", invoice_id=invoice.pk, company_id=invoice.company_id):
+            content = render_gst_tax_invoice(invoice, copy="ORIGINAL")
+            _store_doc_pdf(
+                company=invoice.company,
+                content=content,
+                filename=f"{invoice.number or invoice.pk}.pdf",
+                kind=FileAsset.Kind.INVOICE_PDF,
+                document=invoice,
+            )
     except Exception:
         logger.exception("PDF generation failed for invoice %s", invoice_id)
         invoice.pdf_status = SalesInvoice.PdfStatus.FAILED
         invoice.save(update_fields=["pdf_status"])
+        try:
+            from insights.telemetry import record_pdf_failed
+
+            record_pdf_failed(invoice.company)
+        except Exception:  # noqa: BLE001 — telemetry must not hide the PDF failure
+            pass
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)

@@ -79,6 +79,9 @@ describe('QuickEntryPage — QOS-0048', () => {
     fireEvent.mouseDown(productInput);
     fireEvent.change(productInput, { target: { value: 'Widget' } });
     fireEvent.click(await screen.findByText('Widget (WID-1)'));
+    // Selecting adds the line immediately and clears the box for the next
+    // scan — guards against the picked label getting stuck in the box.
+    await waitFor(() => expect(productInput).toHaveValue(''));
 
     expect(await screen.findByText(/Pick a customer before saving/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /save order/i })).toBeDisabled();

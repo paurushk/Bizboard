@@ -20,6 +20,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { PageTitle } from '@/contextHelp';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   amendInvoiceFilingIdentity,
@@ -55,6 +56,7 @@ import { formatMoney, toNumber } from '@/utils/money';
 import { canCancelDocuments, canCreateSales, canViewFinancialReports } from '@/utils/permissions';
 import { isAllowedPaymentUrl, isAllowedShareUrl, openShareUrl } from '@/utils/safeUrl';
 import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
+import { canEditInvoiceLines, hasLiveIrn } from '@/utils/einvoiceLock';
 
 export function InvoiceDetailPage() {
   const { user } = useAuth();
@@ -413,9 +415,9 @@ export function InvoiceDetailPage() {
         spacing={1}
       >
         <Box>
-          <Typography variant="h4">
+          <PageTitle>
             {inv.number?.trim() ? inv.number : `Draft #${inv.id}`}
-          </Typography>
+          </PageTitle>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: 'wrap' }}>
             <StatusChip
               tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
@@ -458,11 +460,21 @@ export function InvoiceDetailPage() {
         }}
       >
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-          {inv.status === 'DRAFT' || inv.status === 'COMPLETED' ? (
+          {canEditInvoiceLines(inv) ? (
             <Button
               component={RouterLink}
               to={`/sales/history/${inv.id}/edit`}
               variant="outlined"
+            >
+              {t('common.edit')}
+            </Button>
+          ) : null}
+          {inv.status === 'COMPLETED' && hasLiveIrn(inv) ? (
+            <Button
+              variant="outlined"
+              disabled
+              aria-label={t('common.edit')}
+              title={t('einvoice.editDisabledLiveIrn')}
             >
               {t('common.edit')}
             </Button>

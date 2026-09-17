@@ -18,7 +18,7 @@ import { enableAccounting, registerTenant, unique } from './helpers/documents';
 test('golden path: register -> enable accounting -> post journal -> trial balance + P&L reflect it', async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(150_000);
   const id = unique();
   const companyName = `E2E Accounting ${id}`;
   const email = `e2e-accounting-${id}@example.test`;
@@ -60,4 +60,12 @@ test('golden path: register -> enable accounting -> post journal -> trial balanc
   await page.goto('/reports/profit-and-loss');
   await expect(page.getByText(/Income ₹0\.00/)).toBeVisible();
   await expect(page.getByText(/Expenses ₹500\.00/)).toBeVisible();
+
+  // V2 — CoA and books-health are freeze workflows, not heading-only visits.
+  await page.goto('/accounting/accounts');
+  await expect(page.getByRole('row', { name: /\b1100\b/ })).toBeVisible();
+  await page.goto('/reports/books-health');
+  await expect(
+    page.getByText(/No books-health alerts|Healthy|Mismatch/i).first(),
+  ).toBeVisible();
 });

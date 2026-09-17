@@ -25,6 +25,8 @@ interface Props {
   intraState: boolean | null;
   readOnly?: boolean;
   availableToAdd?: InvoiceSourceLine[];
+  /** When true, qty may exceed maxQty so Complete can name the over-cap gate. */
+  allowOverCap?: boolean;
 }
 
 export function InvoiceSourceLineTable({
@@ -33,6 +35,7 @@ export function InvoiceSourceLineTable({
   intraState,
   readOnly = false,
   availableToAdd = [],
+  allowOverCap = false,
 }: Props) {
   const updateLine = (key: string, patch: Partial<InvoiceSourceLine>) => {
     onChange(
@@ -40,7 +43,10 @@ export function InvoiceSourceLineTable({
         if (l.key !== key) return l;
         const next = { ...l, ...patch };
         if (patch.quantity != null) {
-          next.quantity = clampSourceLineQty(next, patch.quantity);
+          // Notes: allow over-cap so Complete can name CG-27 instead of silently clamping.
+          next.quantity = allowOverCap
+            ? Math.max(0, Number.isFinite(patch.quantity) ? patch.quantity : 0)
+            : clampSourceLineQty(next, patch.quantity);
         }
         return next;
       }),
@@ -116,7 +122,13 @@ export function InvoiceSourceLineTable({
                           onChange={(e) =>
                             updateLine(line.key, { quantity: Number(e.target.value) })
                           }
-                          inputProps={{ min: 0, max: line.maxQty, step: "any", style: { width: 72 } }}
+                          inputProps={{
+                            min: 0,
+                            'aria-label': t('billing.qty'),
+                            ...(allowOverCap ? {} : { max: line.maxQty }),
+                            step: "any",
+                            style: { width: 72 },
+                          }}
                           helperText={`max ${line.maxQty}`}
                           FormHelperTextProps={{ sx: { m: 0, textAlign: 'right' } }}
                         />
@@ -315,7 +327,13 @@ export function InvoiceReturnLineTable({
                     size="small"
                     value={line.quantity}
                     onChange={(e) => updateLine(line.key, { quantity: Number(e.target.value) })}
-                    inputProps={{ min: 0, max: line.maxQty, step: "any", style: { width: 72 } }}
+                    inputProps={{
+                      min: 0,
+                      max: line.maxQty,
+                      step: "any",
+                      style: { width: 72 },
+                      'aria-label': t('billing.qty'),
+                    }}
                   />
                 )}
               </TableCell>

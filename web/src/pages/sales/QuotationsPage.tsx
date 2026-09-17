@@ -35,13 +35,16 @@ import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { useAuth } from '@/auth/AuthContext';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
-import type { Customer, Product } from '@/types/domain';
+import type { Customer, Product, Quotation } from '@/types/domain';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canCreateSales } from '@/utils/permissions';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { ConvertQuotationDialog } from '@/pages/sales/ConvertQuotationDialog';
+import { quotationHasRemainingAfterConvert, type ConvertLinePayload } from '@/utils/quotationConvert';
 
 interface DraftLine {
   key: string;
@@ -154,13 +157,27 @@ export function QuotationsPage() {
   });
 
   const [convertingId, setConvertingId] = useState<number | null>(null);
+  const [convertTarget, setConvertTarget] = useState<{
+    quotation: Quotation;
+    mode: 'invoice' | 'order';
+  } | null>(null);
   const convertMutation = useMutation({
-    mutationFn: (id: number) => convertQuotation(id),
-    onSuccess: async (invoice) => {
+    mutationFn: ({ id, items }: { id: number; items: ConvertLinePayload[] }) =>
+      convertQuotation(id, { items }),
+    onSuccess: async (invoice, vars) => {
+      const remaining = quotationHasRemainingAfterConvert(
+        convertTarget?.quotation.items ?? [],
+        vars.items,
+      );
+      setConvertingId(null);
+      setConvertTarget(null);
+      void qc.invalidateQueries({ queryKey: ['quotations'] });
+      if (remaining) {
+        setMessage(t('common.convertedPartialInvoice', { id: invoice.id }));
+        return;
+      }
       const flash = `Converted to draft invoice #${invoice.id}`;
       setMessage(flash);
-      setConvertingId(null);
-      void qc.invalidateQueries({ queryKey: ['quotations'] });
       try {
         await qc.fetchQuery({
           queryKey: ['sales-invoices'],
@@ -179,13 +196,23 @@ export function QuotationsPage() {
   });
 
   const convertToOrderMutation = useMutation({
-    mutationFn: (id: number) => convertQuotationToOrder(id),
-    onSuccess: async (order) => {
-      const flash = `Converted to draft sales order #${order.id}`;
-      setMessage(flash);
+    mutationFn: ({ id, items }: { id: number; items: ConvertLinePayload[] }) =>
+      convertQuotationToOrder(id, { items }),
+    onSuccess: async (order, vars) => {
+      const remaining = quotationHasRemainingAfterConvert(
+        convertTarget?.quotation.items ?? [],
+        vars.items,
+      );
       setConvertingId(null);
+      setConvertTarget(null);
       void qc.invalidateQueries({ queryKey: ['quotations'] });
       void qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      if (remaining) {
+        setMessage(t('common.convertedPartialOrder', { id: order.id }));
+        return;
+      }
+      const flash = `Converted to draft sales order #${order.id}`;
+      setMessage(flash);
       void navigate('/sales/orders', { state: { message: flash } });
     },
     onError: (err) => {
@@ -199,7 +226,7 @@ export function QuotationsPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.quotations')}</Typography>
+        <PageTitle>{t('nav.quotations')}</PageTitle>
         {canCreate ? (
           <Button variant="contained" onClick={() => setOpen(true)}>
             {t('phase1.newQuotation')}
@@ -250,9 +277,9 @@ export function QuotationsPage() {
                             convertingId === q.id
                           }
                           onClick={() => {
-                            if (!window.confirm(t('common.confirmToOrder'))) return;
+                            setError(null);
                             setConvertingId(q.id);
-                            convertToOrderMutation.mutate(q.id);
+                            setConvertTarget({ quotation: q, mode: 'order' });
                           }}
                         >
                           {t('common.toOrder')}
@@ -264,9 +291,9 @@ export function QuotationsPage() {
                             convertingId === q.id
                           }
                           onClick={() => {
-                            if (!window.confirm(t('common.confirmConvert'))) return;
+                            setError(null);
                             setConvertingId(q.id);
-                            convertMutation.mutate(q.id);
+                            setConvertTarget({ quotation: q, mode: 'invoice' });
                           }}
                         >
                           {t('common.convert')}
@@ -396,7 +423,7 @@ export function QuotationsPage() {
                 filterOptions={(opts) => opts}
                 inputValue={productSearch.productQuery}
                 onInputChange={(_, v, reason) => {
-                  if (reason === 'input' || reason === 'clear') productSearch.setProductQuery(v);
+                  if (reason === 'input' || reason === 'clear' || reason === 'reset') productSearch.setProductQuery(v);
                 }}
                 getOptionLabel={(o) => `${o.name} · ${o.sku}`}
                 value={pendingProduct}
@@ -464,6 +491,24 @@ export function QuotationsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <ConvertQuotationDialog
+        quotation={convertTarget?.quotation ?? null}
+        mode={convertTarget?.mode ?? null}
+        pending={convertMutation.isPending || convertToOrderMutation.isPending}
+        error={error}
+        onClose={() => {
+          setConvertTarget(null);
+          setConvertingId(null);
+        }}
+        onConfirm={(items) => {
+          if (!convertTarget) return;
+          if (convertTarget.mode === 'order') {
+            convertToOrderMutation.mutate({ id: convertTarget.quotation.id, items });
+          } else {
+            convertMutation.mutate({ id: convertTarget.quotation.id, items });
+          }
+        }}
+      />
     </Stack>
   );
 }

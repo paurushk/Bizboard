@@ -139,7 +139,7 @@ export function PartySelectPanel<T extends PartyOption>({
             filterOptions={(opts) => opts}
             inputValue={query}
             onInputChange={(_, v, reason) => {
-              if (reason === 'input' || reason === 'clear') onQueryChange(v);
+              if (reason === 'input' || reason === 'clear' || reason === 'reset') onQueryChange(v);
             }}
             value={null}
             onChange={(_, v) => onSelect(v)}

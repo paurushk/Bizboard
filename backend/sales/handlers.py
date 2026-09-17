@@ -24,6 +24,12 @@ def _enqueue(task, pk, company_id):
 def enqueue_invoice_pdf(*, invoice, **kwargs):
     """Queue async PDF after Complete. Task never re-raises into the business txn."""
     _enqueue(generate_invoice_pdf, invoice.pk, invoice.company_id)
+    try:
+        from insights.telemetry import record_pdf_started
+
+        record_pdf_started(invoice.company, user=getattr(invoice, "updated_by", None))
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @subscribe("sales_credit_note.completed")

@@ -49,6 +49,10 @@ import { PdfStatusPoller } from '@/components/PdfStatusPoller';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
+import {
+  firstCompleteDisabledReason,
+  previewAllowsComplete,
+} from '@/completeGates/completeBlockers';
 import { useAuth } from '@/auth/AuthContext';
 import { canCancelDocuments, canCreateSales } from '@/utils/permissions';
 import type { NoteReason, SalesCreditNote, SalesDebitNote, SalesInvoice } from '@/types/domain';
@@ -189,7 +193,10 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     [lineTaxes, intraState],
   );
 
-  const canSave = Boolean(invoice) && activeSourceLines(lines).length > 0 && canWrite;
+  const included = lines.filter((l) => l.included);
+  const anyOverCap = included.some((l) => Number(l.quantity) > l.maxQty + 1e-9);
+  const zeroQty = included.length > 0 && !included.some((l) => Number(l.quantity) > 0);
+  const canSave = Boolean(invoice) && included.length > 0 && canWrite;
   const primarySave = primarySaveAction({ isEdit, editingStatus });
 
   const buildPayload = () => ({
@@ -275,6 +282,20 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     onError: (err) => flashError(getErrorMessage(err)),
   });
 
+  const previewFellBack = previewOnline && !preview.ready && preview.error != null;
+  const previewPending = previewOnline && !preview.ready && preview.error == null;
+  const completeDisabledReason = firstCompleteDisabledReason({
+    canSave,
+    overCap: anyOverCap,
+    zeroQty,
+    previewPending,
+  });
+  const canComplete =
+    canSave &&
+    !zeroQty &&
+    !anyOverCap &&
+    previewAllowsComplete(previewOnline, preview.ready, preview.error);
+
   if (isEdit && existing.isLoading) return <LoadingState />;
   if (isEdit && existing.isError) {
     return (
@@ -295,11 +316,22 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
       title={t(isEdit ? (isCredit ? 'phase1.editCreditNote' : 'phase1.editDebitNote') : (isCredit ? 'phase1.newCreditNote' : 'phase1.newDebitNote'))}
       primarySave={primarySave}
       canSave={canSave}
-      canComplete={canSave && (!previewOnline || preview.ready)}
+      canComplete={canComplete}
+      primaryDisabledReason={completeDisabledReason}
       isEdit={isEdit}
       backTo={listPath}
       message={message}
       error={error || preview.error}
+      warning={
+        previewFellBack
+          ? t('billing.previewUnavailableClientTotals')
+          : // firstCompleteDisabledReason() already returns undefined
+            // whenever canSave is false, so completeDisabledReason being
+            // truthy already implies canSave -- no need to re-check it here.
+            completeDisabledReason && !canComplete
+            ? completeDisabledReason
+            : null
+      }
       infoBanner={infoBanner}
       saving={saveMutation.isPending}
       hideSaveAndNew
@@ -412,6 +444,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
           intraState={intraState}
           readOnly={readOnly}
           availableToAdd={pool}
+          allowOverCap
         />
 
         <SimpleTotalsPanel totals={preview.totals ?? totals} />

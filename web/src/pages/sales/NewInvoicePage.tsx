@@ -48,7 +48,7 @@ import {
   uploadFile,
 } from '@/api/resources';
 import { getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
-import { trackInvoiceComplete } from '@/lib/telemetry';
+import { runInvoiceCompleteJourney } from '@/lib/telemetry';
 import { useAuth } from '@/auth/AuthContext';
 import {
   enqueueDraft,
@@ -66,9 +66,15 @@ import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { DocumentTaxSummary } from '@/components/DocumentTaxSummary';
 import { t } from '@/i18n';
 import { preferredInvoiceType, companyStepIncompleteNeedsGst } from '@/onboarding/taxHints';
+import {
+  firstCompleteDisabledReason,
+  previewAllowsComplete,
+  serialCountMatchesQty,
+} from '@/completeGates/completeBlockers';
 import type { InvoiceType, PaymentMode, PriceMode, Product, SalesInvoice } from '@/types/domain';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
 import { isCollectionHoldStatus } from '@/utils/collectionHold';
+import { hasLiveIrn } from '@/utils/einvoiceLock';
 import { CreditHoldChip } from '@/components/CreditHoldChip';
 import { resolveListUnitPrice } from '@/utils/priceList';
 import {
@@ -96,6 +102,7 @@ import {
   type DraftLine,
 } from '@/components/billing';
 import { InvoicePartyPanel } from '@/pages/sales/invoice/InvoicePartyPanel';
+import { FieldHelpTip } from '@/contextHelp';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { HelpHint } from '@/pages/help/HelpHint';
 import { makeInvoiceLine } from '@/pages/sales/invoice/makeInvoiceLine';
@@ -112,10 +119,9 @@ async function completeInvoiceWithConfirms(
   // hand-nested try/catch that only recovered one confirm code per level —
   // GSTIN_TOTAL_CHANGED then place_of_supply_unresolved (or a third code) at
   // the second retry used to rethrow instead of prompting.
-  const started = Date.now();
-  const invoice = await completeWithConfirms((extra) => completeSalesInvoice(id, { ...base, ...extra }));
-  trackInvoiceComplete(Date.now() - started);
-  return invoice;
+  return runInvoiceCompleteJourney(() =>
+    completeWithConfirms((extra) => completeSalesInvoice(id, { ...base, ...extra })),
+  );
 }
 
 export function NewInvoicePage() {
@@ -643,16 +649,27 @@ export function NewInvoicePage() {
     );
   }, [selectedCustomer, totals.grandTotal]);
 
+  const creditHold = Boolean(
+    customerId &&
+      isCollectionHoldStatus(
+        (collectionRisk.data ?? []).find((r) => r.customerId === Number(customerId))?.status,
+      ),
+  );
+  const creditLimitExceeded = (() => {
+    if (!selectedCustomer) return false;
+    const limit = toNumber(selectedCustomer.creditLimit);
+    if (limit <= 0) return false;
+    const outstanding = toNumber(selectedCustomer.outstanding ?? 0);
+    return outstanding + totals.grandTotal > limit + 1e-9;
+  })();
   const collectionHoldBanner = useMemo(() => {
-    if (!customerId) return null;
-    const row = (collectionRisk.data ?? []).find((r) => r.customerId === Number(customerId));
-    if (!isCollectionHoldStatus(row?.status)) return null;
+    if (!creditHold) return null;
     return (
       <Alert severity="error">
         <CreditHoldChip /> {t('phase1.creditHoldBanner')}
       </Alert>
     );
-  }, [customerId, collectionRisk.data]);
+  }, [creditHold]);
 
   const resetForm = () => {
     // BUG-500 / P0-311: do NOT call clearFeedback here — Save & New sets the
@@ -787,6 +804,23 @@ export function NewInvoicePage() {
       if (shouldComplete && isReverseCharge && !confirmSalesRcm) {
         throw new Error(t('billing.confirmSalesRcmRequired'));
       }
+      if (shouldComplete && creditHold) {
+        throw new Error(t('phase1.creditHoldBanner'));
+      }
+      if (shouldComplete && creditLimitExceeded) {
+        throw new Error(t('billing.completeDisabledCreditLimit'));
+      }
+      if (shouldComplete && lines.some((l) => toNumber(l.quantity) <= 0)) {
+        throw new Error(t('billing.completeDisabledZeroQty'));
+      }
+      const missingSerial = lines.find(
+        (l) => l.trackSerial && !serialCountMatchesQty(l.serialNumbersText, l.quantity),
+      );
+      if (shouldComplete && missingSerial) {
+        throw new Error(
+          t('billing.completeDisabledMissingSerial', { name: missingSerial.productName }),
+        );
+      }
       const payload = buildPayload();
       // PD-01: one fresh Idempotency-Key per user gesture. Network auto-retry
       // reuses the request header; an offline queue+flush reuses draft.idempotencyKey.
@@ -800,7 +834,9 @@ export function NewInvoicePage() {
           payload: {
             ...(payload as Record<string, unknown>),
             ...(editingStatus ? { status: editingStatus } : {}),
-            ...(editingStatus === 'COMPLETED' ? { confirmAmend: true } : {}),
+            ...(editingStatus === 'COMPLETED'
+              ? { confirmAmend: true, expectedAmendRevision: existingInvoice.data?.amendRevision ?? 0 }
+              : {}),
             _completeIntent: shouldComplete,
             _confirmSalesRcm: isReverseCharge && confirmSalesRcm,
             _amountReceived: amountReceived,
@@ -827,7 +863,14 @@ export function NewInvoicePage() {
             if (!window.confirm(t('billing.confirmAmendCompleted'))) {
               throw new Error('Amend cancelled');
             }
-            invoice = await updateSalesInvoice(editId, { ...payload, confirmAmend: true });
+            if (hasLiveIrn(existingInvoice.data ?? {})) {
+              throw new Error(t('einvoice.lineAmendBlocked'));
+            }
+            invoice = await updateSalesInvoice(editId, {
+              ...payload,
+              confirmAmend: true,
+              expectedAmendRevision: existingInvoice.data?.amendRevision ?? 0,
+            });
           } else {
             invoice = await updateSalesInvoice(editId, payload);
           }
@@ -1073,12 +1116,41 @@ export function NewInvoicePage() {
   const previewFellBack = previewOnline && !preview.ready && preview.error != null;
   const gstinRequiredForGst =
     invoiceType !== 'NON_GST' && companyStepIncompleteNeedsGst(company.data);
+  const missingSerialLine =
+    lines.find((l) => l.trackSerial && !serialCountMatchesQty(l.serialNumbersText, l.quantity)) ??
+    null;
+  const zeroQty = lines.some((l) => l.product && toNumber(l.quantity) <= 0);
+  const rcmUnconfirmed = isReverseCharge && invoiceType !== 'NON_GST' && !confirmSalesRcm;
+  const stockBlocked = !isCompletedEdit && stockShortfalls.length > 0;
+  const previewPending = previewOnline && !preview.ready && preview.error == null;
+  const liveIrnLock = Boolean(
+    isCompletedEdit && existingInvoice.data && hasLiveIrn(existingInvoice.data),
+  );
+  const completeDisabledReason = firstCompleteDisabledReason({
+    canSave,
+    partyRole: 'customer',
+    posKnown,
+    gstinRequired: gstinRequiredForGst,
+    missingSerialName: missingSerialLine?.productName ?? null,
+    stockBlocked,
+    creditHold,
+    creditLimitExceeded,
+    rcmUnconfirmed,
+    zeroQty,
+    previewPending,
+    irnLocked: liveIrnLock,
+  });
   const canComplete =
     canSave &&
     posKnown &&
-    (isCompletedEdit || stockShortfalls.length === 0) &&
-    (!previewOnline || preview.ready || previewFellBack) &&
-    !gstinRequiredForGst;
+    !gstinRequiredForGst &&
+    !missingSerialLine &&
+    !stockBlocked &&
+    !creditHold &&
+    !creditLimitExceeded &&
+    !rcmUnconfirmed &&
+    !zeroQty &&
+    previewAllowsComplete(previewOnline, preview.ready, preview.error);
   const shownTotals = preview.totals
     ? {
         ...totals,
@@ -1123,7 +1195,7 @@ export function NewInvoicePage() {
     if (markFullyPaid) setAmountReceived(shownAmountDue ?? shownTotals.grandTotal);
   }, [markFullyPaid, shownAmountDue, shownTotals.grandTotal]);
   const primarySave = primarySaveAction({ isEdit, editingStatus });
-  const canAmendMoney = isCompletedEdit && isOwner;
+  const canAmendMoney = isCompletedEdit && isOwner && !liveIrnLock;
 
   // F2-050: keep the shortcut handler's inputs in a ref so the keydown listener
   // is registered exactly once (no per-render add/remove churn), and add a
@@ -1250,7 +1322,8 @@ export function NewInvoicePage() {
       primarySave={primarySave}
       canSave={canSave}
       canComplete={canComplete}
-      primaryDisabledExtra={isCompletedEdit && !isOwner}
+      primaryDisabledExtra={isCompletedEdit && (!isOwner || liveIrnLock)}
+      primaryDisabledReason={completeDisabledReason}
       isEdit={isEdit}
       showDraftButton={!isEdit || editingStatus === 'DRAFT'}
       backTo={isEdit ? `/sales/history/${editId}` : null}
@@ -1260,7 +1333,9 @@ export function NewInvoicePage() {
       documentId={isEdit ? editId ?? undefined : undefined}
       multiGodown={(warehouses.data?.length ?? 0) > 1}
       warning={
-        previewFellBack
+        liveIrnLock
+          ? t('einvoice.lineAmendBlocked')
+          : previewFellBack
           ? t('billing.previewUnavailableClientTotals')
           : fromBillUpload
           ? t('billUpload.reviewOnEditDisclaimerSales')
@@ -1270,7 +1345,13 @@ export function NewInvoicePage() {
             ? t('billing.editingCompletedWarning')
             : null
       }
-      infoBanner={collectionHoldBanner ?? creditLimitBanner}
+      infoBanner={
+        collectionHoldBanner ??
+        creditLimitBanner ??
+        (canSave && !canComplete && completeDisabledReason && !gstinRequiredForGst ? (
+          <Alert severity="warning">{completeDisabledReason}</Alert>
+        ) : null)
+      }
       saving={saveMutation.isPending}
       onPrimarySave={() => saveMutation.mutate(primarySave.mode)}
       onSaveAndNew={() => saveMutation.mutate('complete_new')}
@@ -1404,12 +1485,13 @@ export function NewInvoicePage() {
                   </CompactField>
                 </HelpHint>
               ) : null}
+              <Stack direction="row" alignItems="center" spacing={0.25} sx={{ minWidth: 140 }}>
               <CompactField
                 select
                 label={t('nav.warehouses')}
                 value={warehouseId}
                 onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : '')}
-                sx={{ minWidth: 140 }}
+                sx={{ minWidth: 140, flex: 1 }}
               >
                 {(warehouses.data ?? []).filter((warehouse) => warehouse.isActive !== false).map((warehouse) => (
                   <MenuItem key={warehouse.id} value={warehouse.id}>
@@ -1417,6 +1499,8 @@ export function NewInvoicePage() {
                   </MenuItem>
                 ))}
               </CompactField>
+              <FieldHelpTip slot="godown" title={t('help.godownTip')} />
+              </Stack>
             </Stack>
 
             <Link
@@ -1648,21 +1732,32 @@ export function NewInvoicePage() {
               </TableCell>
             </>
           )}
-          renderSerialSlot={(line) => (
+          renderSerialSlot={(line) => {
+            const serialMismatch =
+              Boolean(line.trackSerial) &&
+              !serialCountMatchesQty(line.serialNumbersText, line.quantity);
+            return (
             <TableCell>
               {line.trackSerial ? (
                 <CompactField
                   multiline
                   minRows={1}
                   maxRows={3}
+                  required
+                  error={serialMismatch}
                   placeholder="SN-001, SN-002"
                   value={line.serialNumbersText ?? ''}
                   onChange={(e) => updateLine(line.key, { serialNumbersText: e.target.value })}
-                  helperText={`${parseSerialNumbersText(line.serialNumbersText ?? '').length} serial(s)`}
+                  helperText={
+                    serialMismatch
+                      ? t('billing.completeDisabledMissingSerial', { name: line.productName })
+                      : `${parseSerialNumbersText(line.serialNumbersText ?? '').length} serial(s)`
+                  }
                 />
               ) : null}
             </TableCell>
-          )}
+            );
+          }}
         />
 
 

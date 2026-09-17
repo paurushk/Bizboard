@@ -33,6 +33,7 @@ import {
   type HistoryFilters,
 } from '@/components/HistoryFilterBar';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Customer } from '@/types/domain';
 import { isValidGstin, isValidIndianPhone } from '@/utils/gst';
@@ -181,7 +182,7 @@ export function CustomersPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.customers')}</Typography>
+        <PageTitle>{t('nav.customers')}</PageTitle>
         {canMutate ? (
           <Button variant="contained" onClick={openCreate}>
             {t('common.add')}

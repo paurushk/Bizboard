@@ -39,12 +39,36 @@ from .serializers import (
 from .services import SalesService, _tax_enabled
 from .tasks import generate_invoice_pdf
 
+
+def _convert_line_quantities(request):
+    """Optional CFT-115 payload: items: [{id, quantity}, ...]. None = convert remaining."""
+    items = request.data.get("items") if hasattr(request.data, "get") else None
+    if not items:
+        return None
+    if not isinstance(items, list):
+        raise BusinessRuleError("items must be a list of {id, quantity}.")
+    out = []
+    for row in items:
+        if not isinstance(row, dict) or "id" not in row or "quantity" not in row:
+            raise BusinessRuleError("Each convert item needs id and quantity.")
+        out.append({"id": row["id"], "quantity": row["quantity"]})
+    return out
+
 _INVOICE_IDEMPOTENCY_TTL = 60 * 60 * 24  # 24h
 
 
 class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet):
     queryset = SalesInvoice.objects.select_related("customer").prefetch_related("items__product")
     serializer_class = SalesInvoiceSerializer
+
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        if getattr(self, "action", None) == "complete":
+            from core.throttles import CompanyRateThrottle
+
+            self.throttle_scope = "sales_complete"
+            throttles.append(CompanyRateThrottle())
+        return throttles
 
     def create(self, request, *args, **kwargs):
         """BB-000610 / BB-000730: durable Idempotency-Key with begin-of-request placeholder."""
@@ -439,6 +463,9 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         invoice.pdf_status = SalesInvoice.PdfStatus.QUEUED
         invoice.save(update_fields=["pdf_status"])
         safe_delay(generate_invoice_pdf, invoice.pk, company_id=invoice.company_id)
+        from insights.telemetry import record_pdf_started
+
+        record_pdf_started(invoice.company, user=request.user)
         invoice.refresh_from_db()
         return Response({"pdf_status": invoice.pdf_status, "pdf_file": invoice.pdf_file_id})
 
@@ -653,6 +680,7 @@ class QuotationViewSet(CompanyScopedViewSet):
         )
         invoice = SalesService.convert_quotation(
             self.get_object(), request.user, confirm_expired=confirm_expired,
+            line_quantities=_convert_line_quantities(request),
         )
         return Response(SalesInvoiceSerializer(invoice, context=self.get_serializer_context()).data)
 
@@ -665,6 +693,7 @@ class QuotationViewSet(CompanyScopedViewSet):
         )
         order = SalesService.convert_quotation_to_order(
             self.get_object(), request.user, confirm_expired=confirm_expired,
+            line_quantities=_convert_line_quantities(request),
         )
         return Response(SalesOrderSerializer(order, context=self.get_serializer_context()).data)
 

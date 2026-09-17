@@ -5,10 +5,10 @@ import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
-import Typography from '@mui/material/Typography';
 import KeyboardIcon from '@mui/icons-material/Keyboard';
 import SettingsIcon from '@mui/icons-material/Settings';
 import { Link as RouterLink } from 'react-router-dom';
+import { FieldHelpTip, PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { PreventionNote } from '@/pages/help/PreventionNote';
@@ -23,6 +23,8 @@ export interface DocumentEditorShellProps {
   canComplete: boolean;
   /** When editing a completed doc, primary "save" may require owner. */
   primaryDisabledExtra?: boolean;
+  /** Page-specific reason when Complete / Save & New is disabled. */
+  primaryDisabledReason?: string;
   isEdit: boolean;
   showDraftButton?: boolean;
   backTo?: string | null;
@@ -44,6 +46,8 @@ export interface DocumentEditorShellProps {
   hideShortcuts?: boolean;
   extraActions?: ReactNode;
   children: ReactNode;
+  /** Catalog id; omit to resolve from the current route. */
+  helpPage?: string;
 }
 
 /**
@@ -56,6 +60,7 @@ export function DocumentEditorShell({
   canSave,
   canComplete,
   primaryDisabledExtra = false,
+  primaryDisabledReason,
   isEdit,
   showDraftButton = true,
   backTo,
@@ -77,6 +82,7 @@ export function DocumentEditorShell({
   hideShortcuts = false,
   extraActions,
   children,
+  helpPage,
 }: DocumentEditorShellProps) {
   const { writesBlocked } = useSubscriptionGate();
   const primaryDisabled =
@@ -85,6 +91,18 @@ export function DocumentEditorShell({
     (primarySave.mode === 'save'
       ? !canSave || primaryDisabledExtra
       : !canComplete);
+  const completeTooltip = writesBlocked
+    ? t('billing.writesBlocked')
+    : saving
+      ? t('billing.completeDisabledSaving')
+      : primaryDisabledExtra && primarySave.mode === 'save'
+        ? primaryDisabledReason || t('billing.saveDisabledReason')
+        : primaryDisabledReason || t('billing.completeDisabledReason');
+  const saveTooltip = writesBlocked
+    ? t('billing.writesBlocked')
+    : saving
+      ? t('billing.completeDisabledSaving')
+      : primaryDisabledReason || t('billing.saveDisabledReason');
 
   return (
     <Stack
@@ -105,7 +123,7 @@ export function DocumentEditorShell({
         flexWrap="wrap"
         gap={1}
       >
-        <Typography variant="h4">{title}</Typography>
+        <PageTitle page={helpPage}>{title}</PageTitle>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           {!hideShortcuts && onOpenShortcuts ? (
             <Tooltip title={t('billing.shortcuts')}>
@@ -124,12 +142,15 @@ export function DocumentEditorShell({
               {t('billing.settings')}
             </Button>
           ) : null}
+          {primarySave.mode === 'complete' ? (
+            <FieldHelpTip slot="complete" title={t('help.completeTip')} />
+          ) : null}
           <Tooltip
             title={
               primaryDisabled
                 ? primarySave.mode === 'save'
-                  ? t('billing.saveDisabledReason')
-                  : t('billing.completeDisabledReason')
+                  ? saveTooltip
+                  : completeTooltip
                 : ''
             }
           >
@@ -140,6 +161,14 @@ export function DocumentEditorShell({
             </span>
           </Tooltip>
           {!hideSaveAndNew && onSaveAndNew ? (
+            <Tooltip
+              title={
+                writesBlocked || !canComplete
+                  ? completeTooltip
+                  : ''
+              }
+            >
+            <span>
             <Button
               variant="outlined"
               disabled={writesBlocked || !canComplete || isEdit || saving}
@@ -147,6 +176,8 @@ export function DocumentEditorShell({
             >
               {t('billing.saveAndNew')}
             </Button>
+            </span>
+            </Tooltip>
           ) : null}
           {showDraftButton && onDraft ? (
             <Button size="small" disabled={writesBlocked || !canSave || saving} onClick={onDraft}>

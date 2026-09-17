@@ -102,6 +102,8 @@ export async function flushInvoiceDraft(draft: OutboxDraft): Promise<void> {
       invoice = await updateSalesInvoice(draft.invoiceId, {
         ...meta.payload,
         confirmAmend: true,
+        expectedAmendRevision:
+          (meta.payload as { expectedAmendRevision?: number }).expectedAmendRevision ?? 0,
       } as never);
     } else {
       invoice = await updateSalesInvoice(draft.invoiceId, meta.payload as never);

@@ -46,6 +46,7 @@ import {
   type HistoryFilters,
 } from '@/components/HistoryFilterBar';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
@@ -178,7 +179,7 @@ export function SalesHistoryPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.salesHistory')}</Typography>
+        <PageTitle>{t('nav.salesHistory')}</PageTitle>
         {allowCreate ? (
           <Button component={RouterLink} to="/sales/new" variant="contained">
             {t('nav.newInvoice')}

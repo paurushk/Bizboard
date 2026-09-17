@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -11,6 +12,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createCustomer, listCustomersPage, updateCustomer } from '@/api/resources';
 import { getErrorMessage } from '@/api/client';
 import { HelpHint } from '@/pages/help/HelpHint';
+import { FieldHelpTip } from '@/contextHelp';
 import { PartySelectPanel } from '@/components/PartySelectPanel';
 import { StateSelect } from '@/components/StateSelect';
 import { t } from '@/i18n';
@@ -187,29 +189,34 @@ export function InvoicePartyPanel({
   return (
     <>
       <Stack spacing={1} sx={{ flex: 1.2, minWidth: 0 }}>
-        <PartySelectPanel
-          label={t('billing.billTo')}
-          selectedParty={selectedCustomer}
-          editingStatus={editingStatus}
-          onClear={() => {
-            setManualName('');
-            onSelect(undefined);
-          }}
-          options={options}
-          query={query}
-          onQueryChange={onQueryChange}
-          onSelect={(v) => {
-            setManualName('');
-            onSelect(v);
-          }}
-          loading={loading}
-          onCreatePartyClick={() => setPartyDialogOpen(true)}
-          onQuickCashClick={handleQuickWalkIn}
-          manualName={manualName}
-          onManualNameChange={setManualName}
-          onUseManualName={() => void handleUseManualName()}
-          sx={{ flex: 'none', width: '100%' }}
-        />
+        <Stack direction="row" alignItems="flex-start" spacing={0.25}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <PartySelectPanel
+              label={t('billing.billTo')}
+              selectedParty={selectedCustomer}
+              editingStatus={editingStatus}
+              onClear={() => {
+                setManualName('');
+                onSelect(undefined);
+              }}
+              options={options}
+              query={query}
+              onQueryChange={onQueryChange}
+              onSelect={(v) => {
+                setManualName('');
+                onSelect(v);
+              }}
+              loading={loading}
+              onCreatePartyClick={() => setPartyDialogOpen(true)}
+              onQuickCashClick={handleQuickWalkIn}
+              manualName={manualName}
+              onManualNameChange={setManualName}
+              onUseManualName={() => void handleUseManualName()}
+              sx={{ flex: 'none', width: '100%' }}
+            />
+          </Box>
+          <FieldHelpTip slot="place-of-supply" title={t('help.placeOfSupplyTip')} />
+        </Stack>
 
         {needsPosEditor ? (
           <Stack
@@ -224,12 +231,17 @@ export function InvoicePartyPanel({
             <Alert severity="warning" sx={{ py: 0 }}>
               {t('billing.placeOfSupplyRequired')}
             </Alert>
-            <HelpHint intent="cannot-complete-invoice" slot="place-of-supply">
-              <StateSelect
-                value={posForm.state}
-                onChange={(state) => setPosForm((f) => ({ ...f, state }))}
-              />
-            </HelpHint>
+            <Stack direction="row" alignItems="flex-start" spacing={0.25}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <HelpHint intent="cannot-complete-invoice" slot="place-of-supply">
+                  <StateSelect
+                    value={posForm.state}
+                    onChange={(state) => setPosForm((f) => ({ ...f, state }))}
+                  />
+                </HelpHint>
+              </Box>
+              <FieldHelpTip slot="place-of-supply" title={t('help.placeOfSupplyTip')} />
+            </Stack>
             <HelpHint intent="add-gstin" slot="gstin">
               <TextField
                 label="GSTIN"
@@ -279,12 +291,17 @@ export function InvoicePartyPanel({
                 onChange={(e) => setPartyForm((f) => ({ ...f, gstin: e.target.value }))}
               />
             </HelpHint>
-            <HelpHint intent="cannot-complete-invoice" slot="place-of-supply">
-              <StateSelect
-                value={partyForm.state}
-                onChange={(state) => setPartyForm((f) => ({ ...f, state }))}
-              />
-            </HelpHint>
+            <Stack direction="row" alignItems="flex-start" spacing={0.25}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <HelpHint intent="cannot-complete-invoice" slot="place-of-supply">
+                  <StateSelect
+                    value={partyForm.state}
+                    onChange={(state) => setPartyForm((f) => ({ ...f, state }))}
+                  />
+                </HelpHint>
+              </Box>
+              <FieldHelpTip slot="place-of-supply" title={t('help.placeOfSupplyTip')} />
+            </Stack>
           </Stack>
         </DialogContent>
         <DialogActions>

@@ -20,10 +20,13 @@ function baseInvoice(overrides: Partial<SalesInvoice>): SalesInvoice {
     customerName: 'Cash',
     invoiceDate: '2026-09-12',
     grandTotal: '104.00',
+    subtotal: '104.00',
+    discountTotal: '0',
     taxableTotal: '104.00',
     cgstTotal: '0',
     sgstTotal: '0',
     igstTotal: '0',
+    roundOff: '0',
     balance: '0',
     received: '104.00',
     paymentState: 'PAID',
@@ -58,8 +61,15 @@ const LINKED_RETURN: SalesReturn = {
   salesInvoice: 2,
   returnDate: '2026-09-12',
   items: [],
+  subtotal: '150.00',
+  discountTotal: '0',
+  taxableTotal: '150.00',
+  cgstTotal: '0',
+  sgstTotal: '0',
+  igstTotal: '0',
+  roundOff: '0',
   grandTotal: '150.00',
-} as SalesReturn;
+};
 
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({
@@ -67,9 +77,20 @@ vi.mock('@/auth/AuthContext', () => ({
   }),
 }));
 
-const getSalesInvoice = vi.fn(async (id: number | string) =>
-  String(id) === '2' ? PARTIAL_INVOICE : RETURNED_INVOICE,
-);
+const LIVE_IRN_INVOICE = baseInvoice({
+  id: 3,
+  number: 'INV-0003',
+  status: 'COMPLETED',
+  invoiceType: 'GST',
+  einvoiceStatus: 'GENERATED',
+  irn: 'IRN-LIVE',
+});
+
+const getSalesInvoice = vi.fn(async (id: number | string) => {
+  if (String(id) === '2') return PARTIAL_INVOICE;
+  if (String(id) === '3') return LIVE_IRN_INVOICE;
+  return RETURNED_INVOICE;
+});
 
 vi.mock('@/api/resources', () => ({
   getSalesInvoice: (id: number | string) => getSalesInvoice(id),
@@ -93,6 +114,14 @@ vi.mock('@/api/resources', () => ({
   sharePaymentLink: vi.fn(),
   unallocatePayment: vi.fn(),
   updateSalesInvoice: vi.fn(),
+  cancelInvoiceEinvoice: vi.fn(),
+  cancelInvoiceEway: vi.fn(),
+  markInvoiceEinvoiceGenerated: vi.fn(),
+  markInvoiceEwayGenerated: vi.fn(),
+  prepareInvoiceEinvoice: vi.fn(),
+  prepareInvoiceEway: vi.fn(),
+  submitInvoiceEinvoice: vi.fn(),
+  submitInvoiceEway: vi.fn(),
 }));
 
 function wrap(ui: ReactElement, path: string) {
@@ -122,4 +151,15 @@ describe('InvoiceDetailPage status — G-17', () => {
     expect(screen.getByText(/partially returned/i)).toBeTruthy();
     expect(await screen.findByText('SRN-0001')).toBeTruthy();
   });
+
+  it('CFT-116 — Edit is disabled on the same screen as a live IRN', async () => {
+    wrap(<InvoiceDetailPage />, '/sales/history/3');
+    expect(await screen.findByText('INV-0003')).toBeTruthy();
+    const edit = await screen.findByRole('button', { name: /^edit$/i });
+    expect(edit).toBeDisabled();
+    expect(screen.queryByRole('link', { name: /^edit$/i })).toBeNull();
+    expect(
+      await screen.findByText(/Line edits are blocked while this IRN is live/i),
+    ).toBeTruthy();
+  }, 15_000);
 });

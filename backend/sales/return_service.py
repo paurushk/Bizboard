@@ -175,6 +175,9 @@ class ReturnService:
         if fully_returned and invoice.status != SalesInvoice.Status.RETURNED:
             invoice.status = SalesInvoice.Status.RETURNED
             invoice.save(update_fields=["status"])
+            from reporting.invoice_profit_service import InvoiceProfitService
+
+            InvoiceProfitService.sync_status(invoice)
 
         existing_linked = SalesCreditNote.objects.filter(
             sales_return=sales_return,
@@ -429,6 +432,9 @@ class ReturnService:
                 if not other_open and invoice.status == SI.Status.RETURNED:
                     invoice.status = SI.Status.COMPLETED
                     invoice.save(update_fields=["status"])
+                    from reporting.invoice_profit_service import InvoiceProfitService
+
+                    InvoiceProfitService.sync_status(invoice)
             # Mark the return CANCELLED first so `cancel_credit_note`'s
             # "cancel the sales return instead" guard (active only while the
             # return is COMPLETED) does not block this flow.

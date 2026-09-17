@@ -10,7 +10,9 @@ import {
   unique,
 } from './helpers/documents';
 
-test('B14: Regular empty GSTIN blocks GST Complete until GSTIN is saved', async ({ page }) => {
+/** CG-02 — Regular + empty company GSTIN blocks GST Complete until GSTIN is saved (B14). */
+
+test('CG-02 / B14: Regular empty GSTIN blocks GST Complete until GSTIN is saved', async ({ page }) => {
   test.setTimeout(150_000);
   const id = unique();
   const sku = `GSTIN-${id}`;

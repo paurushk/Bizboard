@@ -39,11 +39,17 @@ class CogsService:
         return list(si.order_by("id")) + list(dc.order_by("id"))
 
     @staticmethod
-    def post_sale_stock_and_cogs(invoice, items, user, *, stock_from_challan: bool, warnings=None) -> Decimal:
+    def post_sale_stock_and_cogs(
+        invoice, items, user, *, stock_from_challan: bool, warnings=None, cost_basis_counts: dict | None = None
+    ) -> Decimal:
         """Issue stock on invoice complete; return total COGS.
 
         R2-007: appends a warning to `warnings` (if given) for any line whose
         cost basis resolves to zero, so a ₹0-COGS sale is never silent.
+
+        `cost_basis_counts` (if given) is incremented at each of the tiers
+        below — purely additive bookkeeping for reporting.InvoiceProfitService,
+        no effect on the COGS total or the FIFO/valuation resolution itself.
         """
         cogs_total = Decimal("0")
         zero_cost_products: list[str] = []
@@ -79,6 +85,8 @@ class CogsService:
                         reference_id=invoice.pk,
                         user=user,
                     )
+                    if cost_basis_counts is not None:
+                        cost_basis_counts["lines"] = cost_basis_counts.get("lines", 0) + 1
                     unit_cost = Decimal(str(move.unit_cost or 0))
                     if unit_cost == 0:
                         unit_cost = InventoryValuationService.unit_cost(
@@ -89,6 +97,10 @@ class CogsService:
                             # row-locked exception to append-only.
                             StockMovement.stamp_cost(move.pk, unit_cost=unit_cost)
                             move.unit_cost = unit_cost
+                            if cost_basis_counts is not None:
+                                cost_basis_counts["valuation_fallback"] = (
+                                    cost_basis_counts.get("valuation_fallback", 0) + 1
+                                )
                         else:
                             # R2-007: last resort — the product master purchase
                             # price, so a sale with no layer history doesn't book
@@ -98,8 +110,17 @@ class CogsService:
                                 unit_cost = fallback
                                 StockMovement.stamp_cost(move.pk, unit_cost=unit_cost)
                                 move.unit_cost = unit_cost
-                            elif item.product.name not in zero_cost_products:
-                                zero_cost_products.append(item.product.name)
+                                if cost_basis_counts is not None:
+                                    cost_basis_counts["purchase_price_fallback"] = (
+                                        cost_basis_counts.get("purchase_price_fallback", 0) + 1
+                                    )
+                            else:
+                                if item.product.name not in zero_cost_products:
+                                    zero_cost_products.append(item.product.name)
+                                if cost_basis_counts is not None:
+                                    cost_basis_counts["zero_cost"] = cost_basis_counts.get("zero_cost", 0) + 1
+                    elif cost_basis_counts is not None:
+                        cost_basis_counts["fifo"] = cost_basis_counts.get("fifo", 0) + 1
                     cogs_total += Decimal(str(unit_cost or 0)) * quantity
         else:
             from sales.models import DeliveryChallan
@@ -115,6 +136,12 @@ class CogsService:
                     movement_type=MovementType.SALE,
                 ):
                     cogs_total += Decimal(str(move.unit_cost or 0)) * abs(Decimal(str(move.quantity)))
+                    if cost_basis_counts is not None:
+                        cost_basis_counts["lines"] = cost_basis_counts.get("lines", 0) + 1
+                        # Already resolved when the challan's stock was posted —
+                        # treat a non-zero stamped cost as FIFO-reliable here.
+                        key = "fifo" if move.unit_cost else "zero_cost"
+                        cost_basis_counts[key] = cost_basis_counts.get(key, 0) + 1
             if cogs_total == 0:
                 for item in items:
                     unit_cost = InventoryValuationService.unit_cost(
@@ -123,10 +150,25 @@ class CogsService:
                         invoice.warehouse,
                         batch=getattr(item, "batch", None),
                     )
-                    if not unit_cost:
+                    if cost_basis_counts is not None:
+                        cost_basis_counts["lines"] = cost_basis_counts.get("lines", 0) + 1
+                    if unit_cost:
+                        if cost_basis_counts is not None:
+                            cost_basis_counts["valuation_fallback"] = (
+                                cost_basis_counts.get("valuation_fallback", 0) + 1
+                            )
+                    else:
                         unit_cost = Decimal(str(getattr(item.product, "purchase_price", 0) or 0))
-                    if not unit_cost and item.product.name not in zero_cost_products:
-                        zero_cost_products.append(item.product.name)
+                        if unit_cost:
+                            if cost_basis_counts is not None:
+                                cost_basis_counts["purchase_price_fallback"] = (
+                                    cost_basis_counts.get("purchase_price_fallback", 0) + 1
+                                )
+                        else:
+                            if item.product.name not in zero_cost_products:
+                                zero_cost_products.append(item.product.name)
+                            if cost_basis_counts is not None:
+                                cost_basis_counts["zero_cost"] = cost_basis_counts.get("zero_cost", 0) + 1
                     cogs_total += Decimal(str(unit_cost or 0)) * item.quantity
         if zero_cost_products and warnings is not None:
             warnings.append(

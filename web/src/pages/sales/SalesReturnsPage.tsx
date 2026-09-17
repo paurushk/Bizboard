@@ -14,6 +14,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
@@ -39,6 +40,7 @@ import {
 } from '@/components/billing';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
@@ -46,7 +48,7 @@ import { canCancelDocuments, canCreateSales } from '@/utils/permissions';
 import { useAuth } from '@/auth/AuthContext';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
-import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { returnCompleteDisabledReason } from '@/completeGates/completeBlockers';
 
 const PAGE_SIZE = 50;
 
@@ -177,7 +179,7 @@ export function SalesReturnsPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.salesReturns')}</Typography>
+        <PageTitle>{t('nav.salesReturns')}</PageTitle>
         {canWrite ? (
         <Button
           variant="contained"
@@ -321,18 +323,32 @@ export function SalesReturnsPage() {
           >
             {t('common.cancel')}
           </Button>
-          <Button
-            variant="contained"
-            disabled={
-              !canCompleteReturn ||
-              !invoice ||
-              activeSourceLines(lines).length === 0 ||
-              createMutation.isPending
+          <Tooltip
+            title={
+              returnCompleteDisabledReason({
+                writesBlocked,
+                permissionDenied: !canCompleteReturn,
+                pending: createMutation.isPending,
+                missingSource: !invoice,
+                noLines: Boolean(invoice) && activeSourceLines(lines).length === 0,
+              }) ?? ''
             }
-            onClick={() => createMutation.mutate()}
           >
-            {t('common.complete')}
-          </Button>
+            <span>
+              <Button
+                variant="contained"
+                disabled={
+                  !canCompleteReturn ||
+                  !invoice ||
+                  activeSourceLines(lines).length === 0 ||
+                  createMutation.isPending
+                }
+                onClick={() => createMutation.mutate()}
+              >
+                {t('common.complete')}
+              </Button>
+            </span>
+          </Tooltip>
         </DialogActions>
       </Dialog>
     </Stack>

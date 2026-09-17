@@ -33,6 +33,7 @@ import {
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useAuth } from '@/auth/AuthContext';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { todayIso } from '@/components/billing';
 import type { Customer, PaymentMode, SalesInvoice } from '@/types/domain';
@@ -173,7 +174,7 @@ export function ReceiptsPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.receipts')}</Typography>
+        <PageTitle>{t('nav.receipts')}</PageTitle>
         {canWrite ? (
           <Button
             variant="contained"
@@ -318,7 +319,7 @@ export function ReceiptsPage() {
               filterOptions={(opts) => opts}
               inputValue={customerQuery}
               onInputChange={(_, v, reason) => {
-                if (reason === 'input' || reason === 'clear') setCustomerQuery(v);
+                if (reason === 'input' || reason === 'clear' || reason === 'reset') setCustomerQuery(v);
               }}
               value={customer}
               onChange={(_, v) => {
@@ -359,7 +360,7 @@ export function ReceiptsPage() {
               }
               value={invoice}
               onInputChange={(_, v, reason) => {
-                if (reason === 'input' || reason === 'clear') setInvoiceQuery(v);
+                if (reason === 'input' || reason === 'clear' || reason === 'reset') setInvoiceQuery(v);
               }}
               onChange={(_, v) => {
                 setInvoice(v);

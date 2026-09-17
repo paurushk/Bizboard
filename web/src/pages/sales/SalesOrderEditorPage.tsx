@@ -47,7 +47,7 @@ import { preferredInvoiceType } from '@/onboarding/taxHints';
 import type { Customer, InvoiceType, Product } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
-import { toNumber } from '@/utils/money';
+import { firstCompleteDisabledReason } from '@/completeGates/completeBlockers';
 
 export function SalesOrderEditorPage() {
   const { id: editIdParam } = useParams();
@@ -198,7 +198,10 @@ export function SalesOrderEditorPage() {
     [lineTaxes, lines, intraState, invoiceType],
   );
 
-  const canSave = Boolean(customerId) && lines.length > 0;
+  const zeroQty = lines.some((l) => Number(l.quantity) <= 0);
+  const canSaveBase = Boolean(customerId) && lines.length > 0;
+  const canSave = canSaveBase && !zeroQty;
+  const completeDisabledReason = firstCompleteDisabledReason({ canSave: canSaveBase, zeroQty });
 
   const addLine = () => {
     if (!pendingProduct) return;
@@ -295,6 +298,8 @@ export function SalesOrderEditorPage() {
       primarySave={{ mode: 'save', labelKey: 'common.save' }}
       canSave={canSave}
       canComplete={canSave}
+      primaryDisabledReason={completeDisabledReason}
+      warning={completeDisabledReason && canSaveBase && !canSave ? completeDisabledReason : null}
       isEdit={isEdit}
       backTo="/sales/orders"
       message={message}
@@ -400,14 +405,15 @@ export function SalesOrderEditorPage() {
                           setLines((prev) =>
                             prev.map((x) =>
                               x.key === l.key
-                                ? recomputeLine({ ...x, quantity: Math.max(1, n || 1) }, intraState)
+                                ? recomputeLine({ ...x, quantity: Math.max(0, n || 0) }, intraState)
                                 : x,
                             ),
                           )
                         }
-                        min={1}
-                        emptyAs={1}
+                        min={0}
+                        emptyAs={0}
                         size="small"
+                        inputProps={{ 'aria-label': t('billing.qty') }}
                         sx={{ width: 80 }}
                       />
                     )}
@@ -480,7 +486,7 @@ export function SalesOrderEditorPage() {
               filterOptions={(opts) => opts}
               inputValue={productSearch.productQuery}
               onInputChange={(_, v, reason) => {
-                if (reason === 'input' || reason === 'clear') productSearch.setProductQuery(v);
+                if (reason === 'input' || reason === 'clear' || reason === 'reset') productSearch.setProductQuery(v);
               }}
               getOptionLabel={(o) => `${o.name} · ${o.sku}`}
               value={pendingProduct}

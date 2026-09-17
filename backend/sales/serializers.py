@@ -124,7 +124,8 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "ecommerce_operator_gstin",
             "tcs_section", "tcs_rate", "tcs_amount", "tcs_amount_manual",
             "received", "balance", "is_opening_balance",
-            "completed_at", "cancelled_at", "created_at", "updated_at",
+            "completed_at", "cancelled_at", "amend_revision",
+            "created_at", "updated_at",
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
             "whatsapp_sent_at", "whatsapp_offer",
             "payment_state", "return_state",
@@ -133,7 +134,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "number", "status", "pdf_status", "pdf_file", "received", "balance",
             "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
             "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
-            "completed_at", "cancelled_at", "is_opening_balance",
+            "completed_at", "cancelled_at", "amend_revision", "is_opening_balance",
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
             "whatsapp_sent_at", "whatsapp_offer",
             "payment_state", "return_state",
@@ -278,6 +279,17 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         from core.exceptions import BusinessRuleError
         from core.permissions import get_company_user
 
+        # CFT-120: hold the row for the whole amend so a second tab cannot
+        # clobber / double-post; expected_amend_revision is the OCC token.
+        if not getattr(self, "_cft120_locked", False):
+            with transaction.atomic():
+                self._cft120_locked = True
+                try:
+                    instance = SalesInvoice.objects.select_for_update().get(pk=instance.pk)
+                    return self.update(instance, validated_data)
+                finally:
+                    self._cft120_locked = False
+
         if instance.status in (SalesInvoice.Status.CANCELLED, SalesInvoice.Status.RETURNED):
             raise BusinessRuleError("Cancelled/returned invoice cannot be edited.")
         if instance.status == SalesInvoice.Status.COMPLETED and "customer" in validated_data:
@@ -326,7 +338,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             # CR-025: unify amend/cancel predicates via assert_no_live_irn (treat FAILED as non-live)
             from sales.irn_guard import assert_no_live_irn
 
-            assert_no_live_irn(instance, kind="invoice")
+            assert_no_live_irn(instance, kind="invoice", action="amend")
             cu = get_company_user(request)
             is_owner = cu is not None and cu.role == "OWNER"
             if not confirm_amend or not is_owner:
@@ -334,24 +346,46 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
                     "Completed invoices require Owner confirm_amend to change "
                     "prices, discounts, or additional charges."
                 )
+            expected_rev = raw.get("expected_amend_revision") if hasattr(raw, "get") else None
+            if expected_rev in (None, ""):
+                conflict = BusinessRuleError(
+                    "This invoice was changed in another tab. Reload and retry.",
+                    code="concurrent_edit",
+                )
+                conflict.status_code = 409
+                raise conflict
+            try:
+                expected_i = int(expected_rev)
+            except (TypeError, ValueError) as exc:
+                raise BusinessRuleError("Invalid expected_amend_revision.") from exc
+            current = int(getattr(instance, "amend_revision", 0) or 0)
+            if expected_i != current:
+                conflict = BusinessRuleError(
+                    "This invoice was changed in another tab. Reload and retry.",
+                    code="concurrent_edit",
+                )
+                conflict.status_code = 409
+                raise conflict
+            instance.amend_revision = current + 1
 
         if items_data is serializers.empty:
             items_data = None
 
-        # Wave 17A: money field audit trail before save.
-        from core.models import log_money_change
+        from core.models import log_money_field_diff, money_field_snapshot
 
-        for fld in ("additional_charges", "invoice_discount", "grand_total", "taxable_total"):
-            if fld in validated_data:
-                log_money_change(
-                    company=instance.company,
-                    entity_type="salesinvoice",
-                    entity_id=instance.pk,
-                    field=fld,
-                    old_value=getattr(instance, fld, ""),
-                    new_value=validated_data[fld],
-                    user=request.user,
-                )
+        before_money = money_field_snapshot(instance)
+
+        def _flush_money_audit(inv):
+            inv.refresh_from_db()
+            log_money_field_diff(
+                company=inv.company,
+                entity_type="salesinvoice",
+                entity_id=inv.pk,
+                before=before_money,
+                instance=inv,
+                user=request.user,
+            )
+            return inv
 
         # TCS: an operator-supplied tcs_amount (including explicit 0) overrides the
         # rate at Complete. A rate-only edit (tcs_rate present, tcs_amount absent)
@@ -418,14 +452,14 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
                     from reporting.gst_periods import mark_period_dirty_if_snapshotted
 
                     mark_period_dirty_if_snapshotted(instance.company, instance.invoice_date)
-                return instance
-            return instance
+                return _flush_money_audit(instance)
+            return _flush_money_audit(instance)
 
         if items_data is not None:
             SalesService.set_items(instance, [dict(l) for l in items_data], user)
         else:
             SalesService.set_items(instance, existing_lines_as_items_data(instance.items), user)
-        return instance
+        return _flush_money_audit(instance)
 
 
 class QuotationItemSerializer(_BaseLineSerializer):
@@ -434,9 +468,9 @@ class QuotationItemSerializer(_BaseLineSerializer):
         fields = [
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
-            "hsn_code", "supply_nature", "unit_price_inclusive",
+            "hsn_code", "supply_nature", "unit_price_inclusive", "converted_quantity",
         ] + LINE_READONLY
-        read_only_fields = LINE_READONLY
+        read_only_fields = ["converted_quantity"] + LINE_READONLY
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
 
 
