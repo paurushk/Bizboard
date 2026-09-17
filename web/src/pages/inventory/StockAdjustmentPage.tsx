@@ -16,6 +16,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { useProductSearch } from '@/hooks/useProductSearch';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Product } from '@/types/domain';
 import { canAdjustInventory } from '@/utils/permissions';
@@ -164,7 +165,7 @@ export function StockAdjustmentPage() {
         mutation.mutate(values);
       })}
     >
-      <Typography variant="h4">{t('nav.stockAdjustment')}</Typography>
+      <PageTitle>{t('nav.stockAdjustment')}</PageTitle>
       {message ? <Alert severity="success">{message}</Alert> : null}
       {error ? <HelpErrorAlert message={error} /> : null}
       <Paper sx={{ p: 2.5, maxWidth: 540 }}>
@@ -182,7 +183,7 @@ export function StockAdjustmentPage() {
                 filterOptions={(opts) => opts}
                 inputValue={productSearch.productQuery}
                 onInputChange={(_, v, reason) => {
-                  if (reason === 'input' || reason === 'clear') productSearch.setProductQuery(v);
+                  if (reason === 'input' || reason === 'clear' || reason === 'reset') productSearch.setProductQuery(v);
                 }}
                 getOptionLabel={(o) => `${o.name} (${o.sku})`}
                 value={selectedProduct}

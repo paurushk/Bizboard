@@ -10625,6 +10625,7 @@ export interface components {
             readonly completedAt?: string | null;
             /** Format: date-time */
             readonly cancelledAt?: string | null;
+            readonly amendRevision?: number;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -11593,6 +11594,8 @@ export interface components {
             /** Format: decimal */
             unitPriceInclusive?: string | null;
             /** Format: decimal */
+            readonly convertedQuantity: string;
+            /** Format: decimal */
             readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
@@ -11938,6 +11941,7 @@ export interface components {
             readonly completedAt: string | null;
             /** Format: date-time */
             readonly cancelledAt: string | null;
+            readonly amendRevision: number;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */

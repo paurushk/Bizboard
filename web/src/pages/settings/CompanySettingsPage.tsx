@@ -15,6 +15,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { getCompany, updateCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { LoadingState, ErrorState } from '@/components/PageState';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import type { Company } from '@/types/domain';
@@ -156,7 +157,7 @@ export function CompanySettingsPage() {
       })}
     >
       <UnsavedChangesGuard when={isDirty} />
-      <Typography variant="h4">{t('nav.company')}</Typography>
+      <PageTitle>{t('nav.company')}</PageTitle>
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
         <Chip
           component={RouterLink}

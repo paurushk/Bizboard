@@ -2,6 +2,16 @@ import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ErrorBoundary } from './ErrorBoundary';
 
+const lastId = { value: null as string | null };
+
+vi.mock('@/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/client')>();
+  return {
+    ...actual,
+    getLastRequestId: () => lastId.value,
+  };
+});
+
 function Bomb(): never {
   throw new Error('boom');
 }
@@ -11,6 +21,9 @@ function ThrowsMessage({ message }: { message: string }): never {
 }
 
 describe('ErrorBoundary', () => {
+  afterEach(() => {
+    lastId.value = null;
+  });
   it('BUG-409: renders a fallback instead of a blank screen when a child throws', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     render(
@@ -19,6 +32,18 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>,
     );
     expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
+  });
+
+  it('shows a copy-friendly Support ID when a request id is known', () => {
+    lastId.value = 'rid-boundary';
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <ErrorBoundary>
+        <Bomb />
+      </ErrorBoundary>,
+    );
+    expect(screen.getByText(/support id: rid-boundary/i)).toBeInTheDocument();
+    lastId.value = null;
   });
 
   it('renders children normally when nothing throws', () => {

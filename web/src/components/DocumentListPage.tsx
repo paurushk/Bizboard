@@ -12,6 +12,7 @@ import Typography from '@mui/material/Typography';
 import { getErrorMessage } from '@/api/client';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
@@ -77,7 +78,7 @@ export function DocumentListPage({
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t(titleKey)}</Typography>
+        <PageTitle>{t(titleKey)}</PageTitle>
         {showCreate ? (
           <Button variant="contained" component={RouterLink} to={newPath}>
             {t(createLabelKey ?? 'common.create')}

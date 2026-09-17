@@ -22,7 +22,9 @@
     "confirm_additional_debit",
     "confirm_cn_on_paid_invoice",
     "confirm_cn_price_override",
-    "confirm_non_gst_bill"
+    "confirm_non_gst_bill",
+    "confirm_missing_licence",
+    "plan_quota_exceeded"
   ],
   "errorCodeToIntent": {
     "insufficient_stock": "stock-in-another-godown",
@@ -47,7 +49,9 @@
     "confirm_additional_debit": "cannot-complete-invoice",
     "confirm_cn_on_paid_invoice": "cannot-complete-invoice",
     "confirm_cn_price_override": "cannot-complete-invoice",
-    "confirm_non_gst_bill": "cannot-complete-invoice"
+    "confirm_non_gst_bill": "cannot-complete-invoice",
+    "confirm_missing_licence": "cannot-complete-invoice",
+    "plan_quota_exceeded": "cannot-complete-invoice"
   },
   "errorCodeToLeaf": {
     "inactive_product": "inactive",
@@ -61,6 +65,7 @@
     "allocation_exceeds_unallocated": "amount",
     "allocation_party_mismatch": "party",
     "import_invalid_rows": "one-bad-row",
-    "GSTIN_TOTAL_CHANGED": "gstin"
+    "GSTIN_TOTAL_CHANGED": "gstin",
+    "plan_quota_exceeded": "quota"
   }
 }

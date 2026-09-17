@@ -8,6 +8,7 @@ import { getErrorMessage } from '@/api/client';
 import { exportReport, getSalesRegister } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { canExport } from '@/utils/permissions';
 import { downloadReportUrl, formatColumnHeader, isMoneyColumn } from '@/utils/reportFormat';
@@ -45,7 +46,7 @@ export function SalesReportPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <Typography variant="h4">{t('nav.salesReports')}</Typography>
+        <PageTitle>{t('nav.salesReports')}</PageTitle>
         <Stack direction="row" spacing={1} alignItems="center">
           <TextField
             type="date"

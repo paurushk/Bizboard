@@ -144,6 +144,8 @@ export async function updateSalesInvoice(
     signature?: number | null;
     /** H9-A: required for Owner amend of completed invoice money fields */
     confirmAmend?: boolean;
+    /** CFT-120: OCC token from GET amendRevision */
+    expectedAmendRevision?: number;
     priceMode?: string;
     vehicleNumber?: string;
     transporterName?: string;
@@ -223,9 +225,43 @@ export function mapPreviewTotals(raw: Record<string, unknown>): PreviewTotals {
   };
 }
 
+/** Client-side totals used when mocks are on (POS tender + editor preview). */
+export function clientPreviewTotals(payload: Record<string, unknown>): PreviewTotals {
+  const items = (Array.isArray(payload.items) ? payload.items : []) as Record<string, unknown>[];
+  let subtotal = 0;
+  let taxTotal = 0;
+  for (const item of items) {
+    const qty = Number(item.quantity ?? 0) || 0;
+    const price = Number(item.unit_price ?? item.unitPrice ?? 0) || 0;
+    const gst = Number(item.gst_rate ?? item.gstRate ?? 0) || 0;
+    const line = qty * price;
+    subtotal += line;
+    taxTotal += (line * gst) / 100;
+  }
+  subtotal = Math.round(subtotal * 100) / 100;
+  taxTotal = Math.round(taxTotal * 100) / 100;
+  const half = Math.round((taxTotal / 2) * 100) / 100;
+  return {
+    subtotal,
+    discountTotal: 0,
+    taxableTotal: subtotal,
+    cgstTotal: half,
+    sgstTotal: half,
+    igstTotal: 0,
+    cessTotal: 0,
+    taxTotal,
+    roundOff: 0,
+    grandTotal: Math.round((subtotal + taxTotal) * 100) / 100,
+    invoiceDiscountMode: 'AFTER_TAX',
+    intraState: true,
+  };
+}
+
 export async function previewSalesTotals(payload: Record<string, unknown>): Promise<PreviewTotals> {
-  const { data } = await apiClient.post('/sales/invoices/preview-totals/', payload);
-  return mapPreviewTotals(unwrapData<Record<string, unknown>>(data));
+  return withMocks(async () => {
+    const { data } = await apiClient.post('/sales/invoices/preview-totals/', payload);
+    return mapPreviewTotals(unwrapData<Record<string, unknown>>(data));
+  }, () => clientPreviewTotals(payload));
 }
 
 export async function completeSalesInvoice(
@@ -565,17 +601,27 @@ export async function createQuotation(payload: {
   }, { ...mockQuotations[0], id: Date.now(), status: 'DRAFT', items: payload.items as LineItem[] });
 }
 
-export async function convertQuotation(id: number): Promise<SalesInvoice> {
+export async function convertQuotation(
+  id: number,
+  opts?: { confirmExpired?: boolean; items?: Array<{ id: number; quantity: string | number }> },
+): Promise<SalesInvoice> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/sales/quotations/${id}/convert/`);
+    const { data } = await apiClient.post(`/sales/quotations/${id}/convert/`, {
+      confirm_expired: opts?.confirmExpired ?? false,
+      ...(opts?.items?.length ? { items: opts.items } : {}),
+    });
     return unwrapData<SalesInvoice>(data);
   }, { ...mockInvoices[0], id: Date.now(), status: 'DRAFT' });
 }
 
-export async function convertQuotationToOrder(id: number, confirmExpired = false): Promise<SalesOrder> {
+export async function convertQuotationToOrder(
+  id: number,
+  opts?: { confirmExpired?: boolean; items?: Array<{ id: number; quantity: string | number }> },
+): Promise<SalesOrder> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/quotations/${id}/convert-to-order/`, {
-      confirm_expired: confirmExpired,
+      confirm_expired: opts?.confirmExpired ?? false,
+      ...(opts?.items?.length ? { items: opts.items } : {}),
     });
     return unwrapData<SalesOrder>(data);
   }, { id: Date.now(), status: 'DRAFT' } as unknown as SalesOrder);

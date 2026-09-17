@@ -34,9 +34,11 @@ import {
   updateCompany,
 } from '@/api/resources';
 import { getErrorMessage } from '@/api/client';
+import { classifyCompleteFailure, trackJourneyFailed, trackJourneyStarted } from '@/lib/telemetry';
 import { todayIso } from '@/components/billing';
 import { useAuth } from '@/auth/AuthContext';
 import { isSetupWizardEnabled } from '@/config/features';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { trackOnboardingEvent } from '@/onboarding/analytics';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
@@ -154,17 +156,27 @@ export function SetupWizardPage() {
   };
 
   const saveTax = () => {
+    // Fire once per submit attempt, not once per branch -- a user who hits
+    // the validation error once before eventually succeeding must not have
+    // "signup" journey_started double-counted.
+    trackJourneyStarted('signup');
     if (registrationType === 'REGULAR' && !gstin.trim()) {
+      trackJourneyFailed('signup', 'validation');
       setError(t('setup.errors.gstinRequired'));
       return;
     }
     void finishStep('tax', async () => {
-      await updateCompany({
-        registrationType,
-        gstin: gstin.trim(),
-        confirmTaxProfile: true,
-        markOnboardingStarted: true,
-      });
+      try {
+        await updateCompany({
+          registrationType,
+          gstin: gstin.trim(),
+          confirmTaxProfile: true,
+          markOnboardingStarted: true,
+        });
+      } catch (err) {
+        trackJourneyFailed('signup', classifyCompleteFailure(err));
+        throw err;
+      }
     });
   };
 
@@ -322,7 +334,7 @@ export function SetupWizardPage() {
         <Typography variant="overline" color="primary">{t('setup.progress', { current: activeStep + 1, total: 5 })}</Typography>
         <Paper sx={{ p: { xs: 2.5, sm: 4 }, mt: 1 }}>
           <Stack spacing={2.5}>
-            <Typography variant="h4">{labels[activeStep]}</Typography>
+            <PageTitle>{labels[activeStep]}</PageTitle>
             <Typography color="text.secondary">{t(`setup.descriptions.${STEP_KEYS[activeStep]}`)}</Typography>
             {error ? <HelpErrorAlert message={error} /> : null}
 

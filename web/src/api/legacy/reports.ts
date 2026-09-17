@@ -1,6 +1,6 @@
 import { apiClient, unwrapData } from '../client';
 import { mockCompany, mockPaymentHealth } from '@/mocks/data';
-import type { Company, LedgerStatement, ReportResponse, BusinessHealth, BusinessHealthSnapshot } from '@/types/domain';
+import type { Company, LedgerStatement, ReportResponse, ReportRow, BusinessHealth, BusinessHealthSnapshot, DiscountReportResponse } from '@/types/domain';
 import { withMocks } from './common';
 
 export async function getCustomerLedger(
@@ -309,6 +309,16 @@ export const getPaymentHealth = () =>
     mockPaymentHealth,
   );
 export const getCashBook = (params?: Record<string, string>) => apiClient.get('/reports/cash-book/', { params }).then(({ data }) => unwrapData<Record<string, unknown>>(data));
+export const getSalesDiscountReport = (params?: Record<string, string>) =>
+  apiClient.get('/reports/sales-discounts/', { params }).then(({ data }) => unwrapData<DiscountReportResponse>(data));
+export const getPurchaseDiscountReport = (params?: Record<string, string>) =>
+  apiClient.get('/reports/purchase-discounts/', { params }).then(({ data }) => unwrapData<DiscountReportResponse>(data));
+export const getInvoiceProfitReport = (params?: Record<string, string>) =>
+  apiClient.get('/reports/invoice-profit/', { params }).then(({ data }) => unwrapData<ReportResponse>(data));
+export const getInvoiceProfitRollup = (groupBy: string, params?: Record<string, string>) =>
+  apiClient
+    .get('/reports/invoice-profit/rollup/', { params: { ...params, group_by: groupBy } })
+    .then(({ data }) => unwrapData<{ rows: ReportRow[] }>(data));
 export const getAccountingReport = (report: 'trial-balance' | 'profit-and-loss' | 'balance-sheet' | 'books-health', params?: Record<string, string>) =>
   apiClient.get(`/accounting/${report}/`, { params }).then(({ data }) => unwrapData<Record<string, unknown>>(data));
 

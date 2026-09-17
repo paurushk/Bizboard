@@ -35,6 +35,7 @@ import {
 import { StatusChip } from '@/components/StatusChip';
 import { useCustomerSearch, useSupplierSearch } from '@/hooks/usePartySearch';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type {
   Customer,
@@ -342,7 +343,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">{t(isSales ? 'billUpload.titleSales' : 'billUpload.title')}</Typography>
+      <PageTitle>{t(isSales ? 'billUpload.titleSales' : 'billUpload.title')}</PageTitle>
       <Typography color="text.secondary">
         {t(isSales ? 'billUpload.subtitleSales' : 'billUpload.subtitle')}
       </Typography>

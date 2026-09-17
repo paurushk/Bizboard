@@ -13,6 +13,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { HonestyBanner } from '@/components/HonestyBanner';
 import { EmptyState } from '@/components/PageState';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import {
   flushOutbox,
@@ -155,7 +156,7 @@ export function OfflineOutboxPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('offlineOutbox.title')}</Typography>
+        <PageTitle>{t('offlineOutbox.title')}</PageTitle>
         <Button
           variant="contained"
           disabled={busy || !online}

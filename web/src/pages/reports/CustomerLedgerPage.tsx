@@ -17,6 +17,7 @@ import { useSearchParams } from 'react-router-dom';
 import { getCustomer, getCustomerLedger } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useCustomerSearch } from '@/hooks/usePartySearch';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Customer } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
@@ -73,7 +74,7 @@ export function CustomerLedgerPage() {
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">{t('nav.customerLedger')}</Typography>
+      <PageTitle>{t('nav.customerLedger')}</PageTitle>
       <Stack
         className="no-print"
         direction={{ xs: 'column', md: 'row' }}

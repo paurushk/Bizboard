@@ -18,6 +18,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, getErrorMessage } from '@/api/client';
 import { LoadingState, ErrorState } from '@/components/PageState';
+import { PageTitle } from '@/contextHelp';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { useAuth } from '@/auth/AuthContext';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -139,9 +140,9 @@ export function SeriesSettingsPage() {
   return (
     <Stack spacing={3}>
       <Box>
-        <Typography variant="h5" fontWeight={600}>
+        <PageTitle variant="h5" sx={{ fontWeight: 600 }}>
           Document Number Series
-        </Typography>
+        </PageTitle>
         <Typography variant="body2" color="text.secondary">
           Configure independent, concurrency-safe sequential prefixes, padding, and next numbers for all commercial and statutory documents.
         </Typography>

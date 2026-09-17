@@ -24,6 +24,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useCfFilters } from '@/hooks/useCfFilters';
 import { useColumnPrefs, type ColumnSpec } from '@/hooks/useColumnPrefs';
 import { isItemCustomFieldsV2Enabled } from '@/config/features';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { StockBalance } from '@/types/domain';
 import { toNumber } from '@/utils/money';
@@ -174,7 +175,7 @@ export function CurrentStockPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <Typography variant="h4">{t('nav.currentStock')}</Typography>
+        <PageTitle>{t('nav.currentStock')}</PageTitle>
         <TextField
           size="small"
           placeholder={t('customFields.searchHint')}

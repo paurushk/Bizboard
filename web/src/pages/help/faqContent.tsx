@@ -385,7 +385,7 @@ const MORE_FAQ: FaqItem[] = [
     ['complete failed', 'cannot complete', 'greyed', 'blocked complete', 'invoice error'],
     [
       '**t:common.complete** needs at least one line, quantity greater than 0, a resolved place of supply, an allowed invoice type for your registration, stock in the bill’s **t:inventory.godown**, an active product and an unblocked customer.',
-      'Credit limit, a closed period, missing company GSTIN (when you have more than one), unconfirmed sales reverse charge, or an after-tax discount on a B2B GST bill can also stop it. Read the error — it names the rule.',
+      'Credit limit, collection hold, a closed period, missing company GSTIN (Regular GST sales and purchases), unconfirmed sales reverse charge, a purchase batch number, serials that do not match quantity, or an after-tax discount on a B2B GST bill can also stop it. Read the error — it names the rule.',
     ],
   ),
   faq(

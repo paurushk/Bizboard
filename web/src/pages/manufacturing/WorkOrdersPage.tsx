@@ -14,6 +14,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
@@ -31,10 +32,12 @@ import { listWarehouses } from '@/api/resources';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 
 const PAGE_SIZE = 50;
 
@@ -98,6 +101,7 @@ export function WorkOrdersPage() {
 
 function WorkOrdersPageInner() {
   const qc = useQueryClient();
+  const { writesBlocked } = useSubscriptionGate();
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<WorkOrder | null>(null);
@@ -211,7 +215,7 @@ function WorkOrdersPageInner() {
       <MvpModuleBanner module="manufacturing" />
       <Alert severity="warning">{t('erp.serialsRequiredBeforeRelease')}</Alert>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.workOrders')}</Typography>
+        <PageTitle>{t('nav.workOrders')}</PageTitle>
         <Button variant="contained" onClick={openCreate}>
           {t('common.add')}
         </Button>
@@ -273,16 +277,20 @@ function WorkOrdersPageInner() {
                     ) : null}
                     {wo.status === 'RELEASED' ? (
                       <>
-                        <Button
-                          size="small"
-                          disabled={completeMutation.isPending}
-                          onClick={() => {
-                            setSerialText('');
-                            setConfirm({ action: 'complete', id: wo.id });
-                          }}
-                        >
-                          {t('common.complete')}
-                        </Button>
+                        <Tooltip title={writesBlocked ? t('billing.writesBlocked') : ''}>
+                          <span>
+                            <Button
+                              size="small"
+                              disabled={writesBlocked || completeMutation.isPending}
+                              onClick={() => {
+                                setSerialText('');
+                                setConfirm({ action: 'complete', id: wo.id });
+                              }}
+                            >
+                              {t('common.complete')}
+                            </Button>
+                          </span>
+                        </Tooltip>
                         <Button
                           size="small"
                           color="warning"

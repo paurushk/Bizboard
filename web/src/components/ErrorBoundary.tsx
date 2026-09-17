@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
+import { getLastRequestId } from '@/api/client';
 import { t } from '@/i18n';
 
 interface Props {
@@ -43,11 +44,13 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Unhandled render error', error, info.componentStack);
+    const lastId = getLastRequestId();
     // BB-000752: report to Sentry when available (dynamic import keeps bundle optional).
     void import('@sentry/react')
       .then((Sentry) => {
         Sentry.captureException(error, {
           extra: { componentStack: info.componentStack },
+          tags: lastId ? { request_id: lastId } : undefined,
         });
       })
       .catch(() => {
@@ -84,10 +87,19 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      const supportId = getLastRequestId();
       return (
         <Stack spacing={2} sx={{ p: 4, alignItems: 'flex-start' }}>
           <Typography variant="h5">{t('errorBoundary.title')}</Typography>
           <Typography color="text.secondary">{t('errorBoundary.body')}</Typography>
+          {supportId ? (
+            <Typography
+              component="p"
+              sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', userSelect: 'all' }}
+            >
+              {t('errorBoundary.supportId', { id: supportId })}
+            </Typography>
+          ) : null}
           <Button variant="contained" onClick={() => window.location.reload()}>
             {t('errorBoundary.reload')}
           </Button>

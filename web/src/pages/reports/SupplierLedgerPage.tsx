@@ -15,6 +15,7 @@ import PrintIcon from '@mui/icons-material/Print';
 import { useQuery } from '@tanstack/react-query';
 import { getSupplierLedger, listSuppliers } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Supplier } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
@@ -53,7 +54,7 @@ export function SupplierLedgerPage() {
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">{t('nav.supplierLedger')}</Typography>
+      <PageTitle>{t('nav.supplierLedger')}</PageTitle>
       <Stack
         className="no-print"
         direction={{ xs: 'column', md: 'row' }}

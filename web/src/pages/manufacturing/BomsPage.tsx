@@ -29,6 +29,7 @@ import {
 import { getProduct } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
@@ -173,7 +174,7 @@ function BomsPageInner() {
     <Stack spacing={2}>
       <MvpModuleBanner module="manufacturing" />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.boms')}</Typography>
+        <PageTitle>{t('nav.boms')}</PageTitle>
         <Button variant="contained" onClick={openCreate} disabled={writesBlocked}>
           {t('common.add')}
         </Button>

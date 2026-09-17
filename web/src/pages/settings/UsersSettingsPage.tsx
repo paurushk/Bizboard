@@ -24,6 +24,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -83,6 +84,32 @@ function capsForRole(role: string): RoleCaps {
   }
   if (role === 'VIEWER') {
     return off;
+  }
+  if (role === 'INVENTORY_STAFF') {
+    return {
+      ...off,
+      canManageInventory: true,
+      canCreatePurchases: true,
+    };
+  }
+  if (role === 'AUDITOR') {
+    return {
+      ...off,
+      canViewFinancialReports: true,
+      canExport: true,
+    };
+  }
+  if (role === 'MANAGER') {
+    return {
+      canCreateSales: true,
+      canCreatePurchases: true,
+      canCreatePayments: true,
+      canViewFinancialReports: true,
+      canExport: true,
+      canManageInventory: true,
+      canImport: true,
+      canCancelDocuments: true,
+    };
   }
   return { ...off, canCreateSales: true, canCreatePayments: true };
 }
@@ -187,7 +214,7 @@ export function UsersSettingsPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.users')}</Typography>
+        <PageTitle>{t('nav.users')}</PageTitle>
         <Button
           variant="contained"
           onClick={() => {
@@ -364,7 +391,10 @@ export function UsersSettingsPage() {
               }}
             >
               <MenuItem value="SALES_STAFF">Sales staff</MenuItem>
+              <MenuItem value="INVENTORY_STAFF">Inventory staff</MenuItem>
               <MenuItem value="ACCOUNTANT">Accountant</MenuItem>
+              <MenuItem value="MANAGER">Manager</MenuItem>
+              <MenuItem value="AUDITOR">Auditor</MenuItem>
               <MenuItem value="VIEWER">Viewer</MenuItem>
             </TextField>
             <FormControlLabel

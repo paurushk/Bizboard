@@ -8,6 +8,7 @@ import { useRef, useState } from 'react';
 import { apiClient } from '@/api/client';
 import { exportReport, exportTenantBackup, restoreTenantSandbox } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { canExport, canManageUsers } from '@/utils/permissions';
@@ -86,7 +87,7 @@ export function BackupExportPage() {
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">{t('nav.backupExport')}</Typography>
+      <PageTitle>{t('nav.backupExport')}</PageTitle>
 
       {isOwner ? (
         <Paper sx={{ p: 3 }}>

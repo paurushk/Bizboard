@@ -1,5 +1,7 @@
 import { apiClient, idempotencyHeaders, LONG_TIMEOUT_MS, unwrapData } from '../client';
 import { mockCompany, mockDashboard, mockUsers } from '@/mocks/data';
+import { mockUserForEmail } from '../auth';
+import { getStoredUser } from '@/auth/session';
 import type { Company, CompanyUser, DashboardKpis } from '@/types/domain';
 import { withMocks, fetchAllPagesMasters } from './common';
 
@@ -14,7 +16,11 @@ export async function getCompany(): Promise<Company> {
   return withMocks(async () => {
     const { data } = await apiClient.get('/company/');
     return unwrapData<Company>(data);
-  }, mockCompany);
+  }, () => {
+    const stored = getStoredUser();
+    if (stored?.email) return mockUserForEmail(stored.email).company ?? mockCompany;
+    return mockCompany;
+  });
 }
 
 export async function updateCompany(payload: Partial<Company> & {

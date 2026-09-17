@@ -21,6 +21,7 @@ import { createUnit, listUnits, updateUnit } from '@/api/resources';
 import { GSTN_UQC_CODES } from '@/constants/uqcCodes';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Unit } from '@/types/domain';
 import { useAuth } from '@/auth/AuthContext';
@@ -78,7 +79,7 @@ export function UnitsSettingsPage() {
     <Stack spacing={2}>
       <UnsavedChangesGuard when={dirty} />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">Units</Typography>
+        <PageTitle>Units</PageTitle>
         <Button
           variant="contained"
           onClick={() => {

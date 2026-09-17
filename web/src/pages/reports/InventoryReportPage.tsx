@@ -8,6 +8,7 @@ import { getErrorMessage } from '@/api/client';
 import { exportReport, getInventorySummary } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { canExport } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -105,7 +106,7 @@ export function InventoryReportPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.inventoryReports')}</Typography>
+        <PageTitle>{t('nav.inventoryReports')}</PageTitle>
         {canExport(user) ? (
           <Button
             variant="outlined"

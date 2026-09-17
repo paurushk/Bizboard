@@ -4,6 +4,8 @@ import {
   apiClient,
   getErrorCode,
   getErrorMessage,
+  getErrorRequestId,
+  getLastRequestId,
   isNetworkError,
   resetApiClientTestState,
   userGestureIdempotencyKey,
@@ -502,5 +504,67 @@ describe('PD-01 user-gesture idempotency keys', () => {
     const b = userGestureIdempotencyKey();
     expect(a).not.toBe(b);
     expect(a.length).toBeGreaterThan(8);
+  });
+});
+
+describe('OG2 request_id', () => {
+  afterEach(() => {
+    resetApiClientTestState();
+  });
+
+  it('sends X-Request-ID on each request and remembers the last id', async () => {
+    const seen: string[] = [];
+    const prev = apiClient.defaults.adapter;
+    apiClient.defaults.adapter = (async (config) => {
+      const headers = config.headers as {
+        get?: (name: string) => string;
+        ['X-Request-ID']?: string;
+      };
+      const rid =
+        (typeof headers.get === 'function' ? headers.get('X-Request-ID') : headers['X-Request-ID']) ||
+        '';
+      seen.push(String(rid));
+      return {
+        data: {},
+        status: 200,
+        statusText: 'OK',
+        headers: { 'x-request-id': rid },
+        config,
+      };
+    }) as typeof apiClient.defaults.adapter;
+    try {
+      await apiClient.get('/health/');
+      expect(seen[0]).toMatch(/^[0-9a-f-]{8,}/i);
+      expect(getLastRequestId()).toBe(seen[0]);
+    } finally {
+      apiClient.defaults.adapter = prev;
+    }
+  });
+
+  it('reads Support ID from a 500 envelope', () => {
+    const err = new AxiosError('Request failed with status code 500');
+    err.response = {
+      status: 500,
+      data: {
+        success: false,
+        error: { code: 'server_error', message: 'An unexpected error occurred.', request_id: 'rid-500' },
+      },
+      headers: {},
+      config: {} as never,
+      statusText: 'Error',
+    };
+    expect(getErrorRequestId(err)).toBe('rid-500');
+  });
+
+  it('does not surface a Support ID on a 400', () => {
+    const err = new AxiosError('Request failed with status code 400');
+    err.response = {
+      status: 400,
+      data: { error: { code: 'validation_error', message: 'Validation failed.' } },
+      headers: { 'x-request-id': 'rid-400' },
+      config: {} as never,
+      statusText: 'Bad',
+    };
+    expect(getErrorRequestId(err)).toBeNull();
   });
 });

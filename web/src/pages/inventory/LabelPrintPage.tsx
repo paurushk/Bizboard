@@ -15,6 +15,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import JsBarcode from 'jsbarcode';
 import { EmptyState } from '@/components/PageState';
 import { useProductSearch } from '@/hooks/useProductSearch';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Product } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
@@ -102,7 +103,7 @@ export function LabelPrintPage() {
   return (
     <Stack spacing={2}>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1}>
-        <Typography variant="h4">{t('labels.pageTitle')}</Typography>
+        <PageTitle>{t('labels.pageTitle')}</PageTitle>
         <Button
           className="no-print"
           variant="contained"

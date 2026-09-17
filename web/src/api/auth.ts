@@ -4,6 +4,10 @@ import {
   mockAccountantAccountingUser,
   mockAccountantUser,
   mockOwnerAccountingUser,
+  mockOwnerEmptyGstinUser,
+  mockOwnerStockBlockUser,
+  mockOwnerWritesBlockedUser,
+  mockInventoryUser,
   mockSalesUser,
   mockUser,
   mockViewerUser,
@@ -15,13 +19,17 @@ import type { AuthTokens, User } from '@/types/domain';
  * instead of always defaulting to OWNER. A "books-on" email opts into the
  * accountingEnabled:true company variant (see mocks/data.ts) instead of the
  * shared books-off default every other persona uses. */
-function mockUserForEmail(email: string): User {
+export function mockUserForEmail(email: string): User {
   const lower = email.toLowerCase();
   if (lower.includes('books-on')) {
     return lower.includes('accountant') ? mockAccountantAccountingUser : mockOwnerAccountingUser;
   }
+  if (lower.includes('empty-gstin')) return mockOwnerEmptyGstinUser;
+  if (lower.includes('stock-block')) return mockOwnerStockBlockUser;
+  if (lower.includes('writes-blocked')) return mockOwnerWritesBlockedUser;
   if (lower.includes('viewer')) return mockViewerUser;
   if (lower.includes('sales')) return mockSalesUser;
+  if (lower.includes('warehouse') || lower.includes('inventory')) return mockInventoryUser;
   if (lower.includes('accountant')) return mockAccountantUser;
   return mockUser;
 }

@@ -77,4 +77,30 @@ describe('HelpErrorAlert — BE error → user message', () => {
     );
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
+
+  it('shows Support ID on a 500 envelope and not on a 400', () => {
+    const five = envelopeError('server_error', 'An unexpected error occurred.');
+    five.response = {
+      ...five.response!,
+      status: 500,
+      statusText: 'Error',
+      data: {
+        success: false,
+        error: {
+          code: 'server_error',
+          message: 'An unexpected error occurred.',
+          request_id: 'rid-help',
+        },
+      },
+    };
+    renderAlert(five);
+    expect(screen.getByRole('alert')).toHaveTextContent('Support ID: rid-help');
+
+    renderAlert(envelopeError('validation_error', 'GSTIN is required.'));
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts.some((el) => el.textContent?.includes('GSTIN is required'))).toBe(true);
+    expect(alerts.filter((el) => el.textContent?.includes('GSTIN is required'))[0].textContent).not.toContain(
+      'Support ID',
+    );
+  });
 });

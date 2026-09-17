@@ -28,6 +28,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { StateSelect } from '@/components/StateSelect';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { NegativeStockPolicy, RegistrationType } from '@/types/domain';
 import { isValidGstin } from '@/utils/gst';
@@ -230,7 +231,7 @@ export function GstSettingsPage() {
       })}
     >
       <UnsavedChangesGuard when={formState.isDirty} />
-      <Typography variant="h4">{t('nav.gst')}</Typography>
+      <PageTitle>{t('nav.gst')}</PageTitle>
       {mutation.isSuccess && mutation.submittedAt !== savedAck ? (
         <Alert severity="success" onClose={() => setSavedAck(mutation.submittedAt)}>
           GST settings saved

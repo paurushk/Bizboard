@@ -2,7 +2,7 @@ import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockPurchases } from '@/mocks/data';
 import type { BillOfEntry, LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchaseReturn, ReportResponse } from '@/types/domain';
 import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
-import { mapPreviewTotals, type PreviewTotals } from './sales';
+import { clientPreviewTotals, mapPreviewTotals, type PreviewTotals } from './sales';
 
 function emptyNoteTotals() {
   return {
@@ -143,8 +143,10 @@ export async function deletePurchase(id: number): Promise<void> {
 }
 
 export async function previewPurchaseTotals(payload: Record<string, unknown>): Promise<PreviewTotals> {
-  const { data } = await apiClient.post('/purchases/invoices/preview-totals/', payload);
-  return mapPreviewTotals(unwrapData<Record<string, unknown>>(data));
+  return withMocks(async () => {
+    const { data } = await apiClient.post('/purchases/invoices/preview-totals/', payload);
+    return mapPreviewTotals(unwrapData<Record<string, unknown>>(data));
+  }, () => clientPreviewTotals(payload));
 }
 
 export async function getPurchaseNumberSeries(): Promise<InvoiceNumberSeries> {

@@ -305,7 +305,7 @@ export function StockTransferPage() {
               filterOptions={(opts) => opts}
               inputValue={productSearch.productQuery}
               onInputChange={(_, v, reason) => {
-                if (reason === 'input' || reason === 'clear') productSearch.setProductQuery(v);
+                if (reason === 'input' || reason === 'clear' || reason === 'reset') productSearch.setProductQuery(v);
               }}
               getOptionLabel={(o) => `${o.name} · ${o.sku}`}
               value={selectedProduct}

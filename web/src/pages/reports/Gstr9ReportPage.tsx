@@ -12,6 +12,7 @@ import { downloadGstr9, getGstr9 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { GstHonestyHeader } from '@/components/GstHonestyHeader';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
 import { canExport } from '@/utils/permissions';
@@ -59,7 +60,7 @@ export function Gstr9ReportPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <Typography variant="h4">{t('nav.gstr9')}</Typography>
+        <PageTitle>{t('nav.gstr9')}</PageTitle>
         <Stack direction="row" spacing={1}>
           <TextField
             size="small"

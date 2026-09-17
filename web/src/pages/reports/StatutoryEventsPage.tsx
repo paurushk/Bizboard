@@ -15,6 +15,7 @@ import { getErrorMessage } from '@/api/client';
 import { listStatutoryEventsPage } from '@/api/statutory';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 
 const PAGE_SIZE = 50;
@@ -54,7 +55,7 @@ export function StatutoryEventsPage() {
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">{t('nav.statutoryEvents')}</Typography>
+      <PageTitle>{t('nav.statutoryEvents')}</PageTitle>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
         <TextField
           label={t('reports.entityType')}

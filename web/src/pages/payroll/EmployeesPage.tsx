@@ -26,6 +26,7 @@ import {
 } from '@/api/payroll';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
 import { formatMoney } from '@/utils/money';
@@ -135,7 +136,7 @@ function EmployeesPageInner() {
     <Stack spacing={2}>
       <MvpModuleBanner module="payroll" />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.employees')}</Typography>
+        <PageTitle>{t('nav.employees')}</PageTitle>
         <Button variant="contained" onClick={openCreate}>
           {t('common.add')}
         </Button>

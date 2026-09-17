@@ -135,6 +135,10 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
       delete (config.headers as Record<string, unknown>)['content-type'];
     }
   }
+  const existingRid = headerGet(config.headers, 'X-Request-ID');
+  const rid = existingRid || newRequestId();
+  lastRequestId = rid;
+  headerSet(config.headers, 'X-Request-ID', rid);
   return config;
 });
 
@@ -178,13 +182,47 @@ function isAuthCredentialUrl(url?: string): boolean {
 let lastRefreshSuccessTime = 0;
 const MIN_REFRESH_INTERVAL_MS = 5000;
 
-/** Test-only: drop in-memory CSRF / refresh bookkeeping between cases. */
+let lastRequestId: string | null = null;
+
+export function getLastRequestId(): string | null {
+  return lastRequestId;
+}
+
+function newRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function headerGet(headers: InternalAxiosRequestConfig['headers'], name: string): string | undefined {
+  if (!headers) return undefined;
+  if (typeof headers.get === 'function') {
+    const value = headers.get(name);
+    return typeof value === 'string' && value ? value : undefined;
+  }
+  const rec = headers as unknown as Record<string, unknown>;
+  const value = rec[name];
+  return typeof value === 'string' && value ? value : undefined;
+}
+
+function headerSet(headers: InternalAxiosRequestConfig['headers'], name: string, value: string): void {
+  if (!headers) return;
+  if (typeof headers.set === 'function') {
+    headers.set(name, value);
+    return;
+  }
+  (headers as unknown as Record<string, unknown>)[name] = value;
+}
+
+/** Test-only: drop in-memory CSRF / refresh / request-id bookkeeping between cases. */
 export function resetApiClientTestState(): void {
   csrfTokenFromBody = null;
   csrfPromise = null;
   refreshPromise = null;
   lastRefreshSuccessTime = 0;
   activeRefreshNotifyOnFailure = false;
+  lastRequestId = null;
 }
 
 function refreshFailureStatus(err: unknown): number | undefined {
@@ -439,6 +477,25 @@ export function getErrorCode(error: unknown): string | null {
     if (error.response?.status === 403) return 'permission_denied';
   }
   return null;
+}
+
+/** Support ID for 5xx screens — envelope first, then response header, then last outbound id. */
+export function getErrorRequestId(error: unknown): string | null {
+  if (!axios.isAxiosError(error)) return null;
+  const status = error.response?.status ?? 0;
+  if (status < 500) return null;
+  const data = error.response?.data as Record<string, unknown> | undefined;
+  const nested = data?.error;
+  if (nested && typeof nested === 'object' && nested !== null) {
+    const rid = (nested as { request_id?: unknown }).request_id;
+    if (typeof rid === 'string' && rid.trim()) return rid.trim();
+  }
+  const headers = error.response?.headers as Record<string, unknown> | undefined;
+  const header =
+    (typeof headers?.['x-request-id'] === 'string' && headers['x-request-id']) ||
+    (typeof headers?.['X-Request-ID'] === 'string' && headers['X-Request-ID']);
+  if (header && header.trim()) return header.trim();
+  return getLastRequestId();
 }
 
 export function getErrorMessage(error: unknown): string {

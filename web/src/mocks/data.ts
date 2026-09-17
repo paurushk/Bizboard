@@ -55,7 +55,7 @@ export const mockSalesUser: User = {
   canManageInventory: false,
   canImport: false,
   canCancelDocuments: false,
-  canViewFinancialReports: true,
+  canViewFinancialReports: false,
   canExport: false,
   // Matches accounts/models.py CompanyUser.capability_defaults_for_role's
   // SALES_STAFF row (can_create_sales/can_create_payments both True) —
@@ -63,7 +63,9 @@ export const mockSalesUser: User = {
   // && canCreatePayments) were unreachable for the mock Sales persona,
   // even though role-boundaries.spec.ts asserts they should be.
   canCreateSales: true,
+  canCreatePurchases: false,
   canCreatePayments: true,
+  canPostJournals: false,
 };
 
 export const mockAccountantUser: User = {
@@ -77,6 +79,27 @@ export const mockAccountantUser: User = {
   canCancelDocuments: false,
   canViewFinancialReports: true,
   canExport: true,
+  canCreateSales: false,
+  canCreatePurchases: true,
+  canCreatePayments: true,
+  canPostJournals: true,
+};
+
+export const mockInventoryUser: User = {
+  id: 4,
+  email: 'warehouse@bizboard.local',
+  fullName: 'Demo Inventory',
+  role: 'INVENTORY_STAFF',
+  companyId: 1,
+  canManageInventory: true,
+  canImport: false,
+  canCancelDocuments: false,
+  canViewFinancialReports: false,
+  canExport: false,
+  canCreateSales: false,
+  canCreatePurchases: true,
+  canCreatePayments: false,
+  canPostJournals: false,
 };
 
 export const mockUsers: CompanyUser[] = [
@@ -161,6 +184,7 @@ mockUser.company = mockCompany;
 mockSalesUser.company = mockCompany;
 mockViewerUser.company = mockCompany;
 mockAccountantUser.company = mockCompany;
+mockInventoryUser.company = mockCompany;
 
 // Opt-in "books on" variants — every other mock persona shares mockCompany,
 // which deliberately leaves accountingEnabled unset (mirrors a real
@@ -187,6 +211,31 @@ export const mockAccountantAccountingUser: User = {
   ...mockAccountantUser,
   email: 'accountant-books-on@bizboard.local',
   company: mockCompanyAccountingEnabled,
+};
+
+export const mockCompanyEmptyGstin: Company = {
+  ...mockCompany,
+  gstin: '',
+};
+export const mockOwnerEmptyGstinUser: User = {
+  ...mockUser,
+  email: 'owner-empty-gstin@bizboard.local',
+  company: mockCompanyEmptyGstin,
+};
+
+export const mockCompanyStockBlock: Company = {
+  ...mockCompany,
+  negativeStockPolicy: 'BLOCK',
+};
+export const mockOwnerStockBlockUser: User = {
+  ...mockUser,
+  email: 'owner-stock-block@bizboard.local',
+  company: mockCompanyStockBlock,
+};
+
+export const mockOwnerWritesBlockedUser: User = {
+  ...mockUser,
+  email: 'owner-writes-blocked@bizboard.local',
 };
 
 export const mockJournalEntries: JournalEntry[] = [
@@ -231,6 +280,32 @@ export const mockCustomers: Customer[] = [
     status: 'BLOCKED',
     outstanding: 0,
   },
+  {
+    id: 3,
+    name: 'No-GST Retail',
+    phone: '9000000003',
+    status: 'ACTIVE',
+    outstanding: 0,
+  },
+  {
+    id: 4,
+    name: 'Held Traders',
+    phone: '9000000004',
+    status: 'ACTIVE',
+    outstanding: 8000,
+    gstin: '27AABCH5678C1Z3',
+    state: 'Maharashtra',
+  },
+  {
+    id: 5,
+    name: 'Tight Limit Co',
+    phone: '9000000005',
+    status: 'ACTIVE',
+    outstanding: 0,
+    creditLimit: 50,
+    gstin: '27AABCL9012D1Z1',
+    state: 'Maharashtra',
+  },
 ];
 
 export const mockSuppliers: Supplier[] = [
@@ -242,6 +317,13 @@ export const mockSuppliers: Supplier[] = [
     outstanding: 12000,
     isActive: true,
     state: 'Maharashtra',
+  },
+  {
+    id: 2,
+    name: 'Cash Vendor',
+    phone: '9222222222',
+    outstanding: 0,
+    isActive: true,
   },
 ];
 
@@ -286,6 +368,34 @@ export const mockProducts: Product[] = [
     gstRate: 18,
     reorderLevel: 5,
     status: 'ACTIVE',
+  },
+  {
+    id: 4,
+    name: 'Batch Syrup 50ml',
+    sku: 'SYR-50',
+    barcode: '8901234567893',
+    hsnCode: '3004',
+    unitName: 'PCS',
+    sellingPrice: 119,
+    purchasePrice: 90,
+    gstRate: 5,
+    reorderLevel: 8,
+    status: 'ACTIVE',
+    trackBatch: true,
+  },
+  {
+    id: 5,
+    name: 'Serial Ampoule',
+    sku: 'AMP-01',
+    barcode: '8901234567894',
+    hsnCode: '3004',
+    unitName: 'PCS',
+    sellingPrice: 89,
+    purchasePrice: 60,
+    gstRate: 5,
+    reorderLevel: 4,
+    status: 'ACTIVE',
+    trackSerial: true,
   },
 ];
 
@@ -359,7 +469,22 @@ export const mockPurchases: PurchaseInvoice[] = [
     supplier: 1,
     supplierName: 'Western Distributors',
     invoiceDate: '2026-07-15',
-    items: [],
+    items: [
+      {
+        id: 1,
+        product: 1,
+        productName: 'Premium Tea 500g',
+        quantity: 5,
+        unitPrice: 200,
+        discountPercent: 0,
+        gstRate: 5,
+        taxableAmount: 1000,
+        cgst: 25,
+        sgst: 25,
+        igst: 0,
+        lineTotal: 1050,
+      },
+    ],
     ...zeroTotals,
     grandTotal: 15000,
     outstanding: 12000,
@@ -395,14 +520,24 @@ export const mockSupplierPayments: SupplierPayment[] = [
   },
 ];
 
+export const mockCollectionRisk = [
+  {
+    customerId: 4,
+    customerName: 'Held Traders',
+    outstanding: 8000,
+    overdueAmount: 8000,
+    status: 'stop_credit',
+  },
+];
+
 export const mockStock: StockBalance[] = mockProducts.map((p, i) => ({
   id: i + 1,
   product: p.id,
   productName: p.name,
   sku: p.sku,
-  onHand: [40, 15, 3][i] ?? 0,
+  onHand: [40, 15, 3, 12, 8][i] ?? 0,
   reserved: 0,
-  available: [40, 15, 3][i] ?? 0,
+  available: [40, 15, 3, 12, 8][i] ?? 0,
   reorderLevel: Number(p.reorderLevel),
   customFields: p.customFields,
 }));

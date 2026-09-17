@@ -2,6 +2,7 @@ import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import {
   mockAccountingBankReconSessions,
   mockBankStatements,
+  mockCollectionRisk,
   mockPaymentLinks,
   mockReceipts,
   mockReconLines,
@@ -134,17 +135,19 @@ export interface CustomerRiskRow {
 
 // QOS-0038: company-wide collection risk, for the dashboard "needs attention" card.
 export async function listCollectionRisk(): Promise<CustomerRiskRow[]> {
-  const { data } = await apiClient.get('/payments/collection-risk/');
-  const body = unwrapData<{ results?: Record<string, unknown>[] } | Record<string, unknown>[]>(data);
-  const rows = Array.isArray(body) ? body : body?.results ?? [];
-  return rows.map((r) => ({
-    customerId: Number(r.customer_id ?? r.customerId ?? 0),
-    customerName: (r.customer_name ?? r.customerName) as string | undefined,
-    outstanding: (r.outstanding as number | string) ?? 0,
-    overdueAmount: (r.overdue_amount ?? r.overdueAmount) as number | string ?? 0,
-    status: String(r.collection_status ?? r.status ?? ''),
-    ageing: (r.ageing as Record<string, number | string> | undefined) ?? undefined,
-  }));
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/payments/collection-risk/');
+    const body = unwrapData<{ results?: Record<string, unknown>[] } | Record<string, unknown>[]>(data);
+    const rows = Array.isArray(body) ? body : body?.results ?? [];
+    return rows.map((r) => ({
+      customerId: Number(r.customer_id ?? r.customerId ?? 0),
+      customerName: (r.customer_name ?? r.customerName) as string | undefined,
+      outstanding: (r.outstanding as number | string) ?? 0,
+      overdueAmount: (r.overdue_amount ?? r.overdueAmount) as number | string ?? 0,
+      status: String(r.collection_status ?? r.status ?? ''),
+      ageing: (r.ageing as Record<string, number | string> | undefined) ?? undefined,
+    }));
+  }, mockCollectionRisk);
 }
 
 export async function listBankStatements(params?: Record<string, string>): Promise<Record<string, unknown>[]> {

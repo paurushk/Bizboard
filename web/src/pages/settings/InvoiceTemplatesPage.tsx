@@ -13,6 +13,7 @@ import { getErrorMessage } from '@/api/client';
 import { getCompany, updateCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { canManageUsers } from '@/utils/permissions';
@@ -70,7 +71,7 @@ export function InvoiceTemplatesPage() {
   return (
     <Stack spacing={2}>
       <UnsavedChangesGuard when={dirty} />
-      <Typography variant="h4">{t('nav.invoiceTemplates')}</Typography>
+      <PageTitle>{t('nav.invoiceTemplates')}</PageTitle>
       {message ? <Alert severity="success">{message}</Alert> : null}
       {error ? <HelpErrorAlert message={error} /> : null}
 

@@ -350,6 +350,7 @@ export interface LineItem {
   lineTotal?: string | number;
   supplyNature?: 'TAXABLE' | 'NIL' | 'EXEMPT' | 'NON_GST';
   appliedPriceListName?: string;
+  convertedQuantity?: string | number;
 }
 
 export interface DocumentTotals {
@@ -410,6 +411,8 @@ export interface SalesInvoice extends DocumentTotals {
   einvoiceQr?: string;
   einvoiceError?: string;
   ewayStatus?: EwayStatus;
+  amendRevision?: number;
+  updatedAt?: string;
   ewayBillNo?: string;
   ewayValidUpto?: string | null;
   ewayError?: string;
@@ -1009,6 +1012,21 @@ export interface ReportRow {
 export interface ReportResponse {
   rows: ReportRow[];
   totals?: Record<string, string | number>;
+}
+
+export interface DiscountReportResponse {
+  totals: {
+    invoice_count: number;
+    discounted_invoice_count: number;
+    line_discount_total: number | string;
+    header_discount_total: number | string;
+    total_discount: number | string;
+    pre_discount_revenue: number | string;
+    avg_discount_percent: number | string;
+  };
+  by_party: Array<{ id: number | null; name: string; line_discount: number | string; revenue: number | string; invoices: number }>;
+  by_product: Array<{ product_id: number | null; product: string; line_discount: number | string; revenue: number | string }>;
+  by_period: Array<{ period: string | null; line_discount: number | string; revenue: number | string }>;
 }
 
 export interface AuthTokens {

@@ -45,14 +45,30 @@ export async function createCustomer(payload: Partial<Customer>): Promise<Custom
   return withMocks(async () => {
     const { data } = await apiClient.post('/customers/', payload);
     return unwrapData<Customer>(data);
-  }, { id: Date.now(), name: payload.name ?? '', status: 'ACTIVE', ...payload } as Customer);
+  }, () => {
+    const created = {
+      id: Date.now(),
+      name: payload.name ?? '',
+      status: 'ACTIVE',
+      ...payload,
+    } as Customer;
+    mockCustomers.push(created);
+    return created;
+  });
 }
 
 export async function updateCustomer(id: number, payload: Partial<Customer>): Promise<Customer> {
   return withMocks(async () => {
     const { data } = await apiClient.patch(`/customers/${id}/`, payload);
     return unwrapData<Customer>(data);
-  }, { ...(mockCustomers[0] ?? { id, name: '', status: 'ACTIVE' }), ...payload, id } as Customer);
+  }, () => {
+    const idx = mockCustomers.findIndex((c) => c.id === id);
+    const base = mockCustomers[idx] ?? { id, name: '', status: 'ACTIVE' as const };
+    const updated = { ...base, ...payload, id } as Customer;
+    if (idx >= 0) mockCustomers[idx] = updated;
+    else mockCustomers.push(updated);
+    return updated;
+  });
 }
 
 export async function listSuppliers(): Promise<Supplier[]> {
@@ -97,14 +113,30 @@ export async function createSupplier(payload: Partial<Supplier>): Promise<Suppli
   return withMocks(async () => {
     const { data } = await apiClient.post('/suppliers/', payload);
     return unwrapData<Supplier>(data);
-  }, { id: Date.now(), name: payload.name ?? '', isActive: true, ...payload } as Supplier);
+  }, () => {
+    const created = {
+      id: Date.now(),
+      name: payload.name ?? '',
+      isActive: true,
+      ...payload,
+    } as Supplier;
+    mockSuppliers.push(created);
+    return created;
+  });
 }
 
 export async function updateSupplier(id: number, payload: Partial<Supplier>): Promise<Supplier> {
   return withMocks(async () => {
     const { data } = await apiClient.patch(`/suppliers/${id}/`, payload);
     return unwrapData<Supplier>(data);
-  }, { ...(mockSuppliers[0] ?? { id, name: '', isActive: true }), ...payload, id } as Supplier);
+  }, () => {
+    const idx = mockSuppliers.findIndex((s) => s.id === id);
+    const base = mockSuppliers[idx] ?? { id, name: '', isActive: true };
+    const updated = { ...base, ...payload, id } as Supplier;
+    if (idx >= 0) mockSuppliers[idx] = updated;
+    else mockSuppliers.push(updated);
+    return updated;
+  });
 }
 
 export async function listUnits(): Promise<Unit[]> {

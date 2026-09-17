@@ -10,9 +10,12 @@ import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import { PageTitle } from '@/contextHelp';
 import { EmptyState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
+import { t } from '@/i18n';
 import { formatMoney, toNumber } from '@/utils/money';
 
 export type Row = Record<string, unknown>;
@@ -39,20 +42,25 @@ export function PageShell({
   subtitle,
   actions,
   children,
+  helpPage,
 }: {
   title: string;
   subtitle?: string;
   actions?: ReactNode;
   children: ReactNode;
+  helpPage?: string;
 }) {
   return (
     <Fade in>
       <Stack spacing={2} sx={{ maxWidth: '100%', overflowX: 'hidden' }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1}>
           <Box>
-            <Typography variant="h4" sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' }, fontWeight: 700 }}>
+            <PageTitle
+              page={helpPage}
+              sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' }, fontWeight: 700 }}
+            >
               {title}
-            </Typography>
+            </PageTitle>
             {subtitle ? (
               <Typography variant="body2" color="text.secondary">
                 {subtitle}
@@ -200,5 +208,41 @@ export function DataTable({
         </TableBody>
       </Table>
     </Paper>
+  );
+}
+
+/** The from/to date-filter pair repeated across report pages (discount,
+ * invoice-profit, invoice-profit-rollup, and others) -- one place to change
+ * the label/format instead of N near-identical TextField pairs. */
+export function DateRangeFields({
+  from,
+  to,
+  onFromChange,
+  onToChange,
+}: {
+  from: string;
+  to: string;
+  onFromChange: (value: string) => void;
+  onToChange: (value: string) => void;
+}) {
+  return (
+    <>
+      <TextField
+        type="date"
+        size="small"
+        label={t('common.dateFrom')}
+        InputLabelProps={{ shrink: true }}
+        value={from}
+        onChange={(e) => onFromChange(e.target.value)}
+      />
+      <TextField
+        type="date"
+        size="small"
+        label={t('common.dateTo')}
+        InputLabelProps={{ shrink: true }}
+        value={to}
+        onChange={(e) => onToChange(e.target.value)}
+      />
+    </>
   );
 }

@@ -20,6 +20,7 @@ export interface InvoiceDraftLine {
   discountPercent?: number;
   discountAmount?: number;
   serials?: string[];
+  batchNo?: string;
   supplyType?: string;
   unitName?: string;
 }

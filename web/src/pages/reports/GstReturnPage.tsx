@@ -22,6 +22,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { GstHonestyHeader } from '@/components/GstHonestyHeader';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
+import { PageTitle } from '@/contextHelp';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canExport } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -165,7 +166,7 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <Typography variant="h4">{title}</Typography>
+        <PageTitle>{title}</PageTitle>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           <TextField
             type="month"
@@ -388,7 +389,7 @@ function GstStubPage({ kind }: { kind: 'gstr6' | 'gstr7' | 'gstr8' }) {
     kind === 'gstr6' ? t('nav.gstr6') : kind === 'gstr7' ? t('nav.gstr7') : t('nav.gstr8');
   return (
     <Stack spacing={2} alignItems="center" sx={{ textAlign: 'center', py: 8, maxWidth: 480, mx: 'auto' }}>
-      <Typography variant="h4">{title}</Typography>
+      <PageTitle>{title}</PageTitle>
       <GstHonestyHeader />
       <Alert severity="warning" sx={{ width: '100%', textAlign: 'left' }}>
         <Typography fontWeight={600}>{t('gstHonesty.stubTitle')}</Typography>
@@ -422,7 +423,7 @@ function Cmp08WorksheetPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <Typography variant="h4">{t('nav.cmp08')}</Typography>
+        <PageTitle>{t('nav.cmp08')}</PageTitle>
         <TextField
           type="month"
           size="small"
@@ -496,7 +497,7 @@ function Gstr4WorksheetPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <Typography variant="h4">{t('nav.gstr4')}</Typography>
+        <PageTitle>{t('nav.gstr4')}</PageTitle>
         <TextField
           size="small"
           label={t('reports.fy')}

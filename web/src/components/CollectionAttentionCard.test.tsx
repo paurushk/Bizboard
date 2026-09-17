@@ -84,4 +84,20 @@ describe('CollectionAttentionCard — QOS-0038', () => {
     await screen.findByText('Held Trader');
     expect(screen.getByText('Credit hold')).toBeTruthy();
   });
+
+  it('CFT-118 — chip is gone when collection_status is no longer a hold', async () => {
+    vi.mocked(listCollectionRisk).mockResolvedValue([
+      {
+        customerId: 9,
+        customerName: 'Held Trader',
+        outstanding: '500',
+        overdueAmount: '500',
+        status: 'open',
+        ageing: { current: '0', '1_30': '0', '31_60': '500', '61_90': '0', '90_plus': '0' },
+      },
+    ]);
+    wrap(<CollectionAttentionCard />);
+    await screen.findByText('Held Trader');
+    expect(screen.queryByText('Credit hold')).toBeNull();
+  });
 });

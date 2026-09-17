@@ -13,6 +13,7 @@ import { getErrorMessage } from '@/api/client';
 import { listLowStock } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { toNumber } from '@/utils/money';
 
@@ -21,7 +22,7 @@ export function LowStockPage() {
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">{t('nav.lowStock')}</Typography>
+      <PageTitle>{t('nav.lowStock')}</PageTitle>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />

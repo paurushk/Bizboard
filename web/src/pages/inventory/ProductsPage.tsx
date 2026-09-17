@@ -32,6 +32,7 @@ import { StatusChip } from '@/components/StatusChip';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { useCfFilters } from '@/hooks/useCfFilters';
 import { useColumnPrefs, type ColumnSpec } from '@/hooks/useColumnPrefs';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Product } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
@@ -176,7 +177,7 @@ export function ProductsPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <Typography variant="h4">{t('nav.products')}</Typography>
+        <PageTitle>{t('nav.products')}</PageTitle>
         <TextField
           size="small"
           placeholder={t('customFields.searchHint')}

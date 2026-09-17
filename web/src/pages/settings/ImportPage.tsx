@@ -29,6 +29,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { StatusChip } from '@/components/StatusChip';
 import { EmptyState } from '@/components/PageState';
 import { t, useLocale } from '@/i18n';
+import { PageTitle } from '@/contextHelp';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import type { ImportJob, ImportKind } from '@/types/domain';
 import { canImport } from '@/utils/permissions';
@@ -339,7 +340,7 @@ export function ImportPage() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap spacing={1}>
-        <Typography variant="h4">{t('import.title')}</Typography>
+        <PageTitle>{t('import.title')}</PageTitle>
         {returnPath?.startsWith('/') && !returnPath.startsWith('//') ? (
           <Button component={RouterLink} to={returnPath} variant="outlined">
             {t('import.backToSetup')}

@@ -402,7 +402,7 @@ export function PaymentLinksPage() {
               filterOptions={(opts) => opts}
               inputValue={invoiceQuery}
               onInputChange={(_, v, reason) => {
-                if (reason === 'input' || reason === 'clear') setInvoiceQuery(v);
+                if (reason === 'input' || reason === 'clear' || reason === 'reset') setInvoiceQuery(v);
               }}
               value={invoice}
               onChange={(_, v) => setInvoice(v)}
@@ -417,7 +417,7 @@ export function PaymentLinksPage() {
               filterOptions={(opts) => opts}
               inputValue={customerQuery}
               onInputChange={(_, v, reason) => {
-                if (reason === 'input' || reason === 'clear') setCustomerQuery(v);
+                if (reason === 'input' || reason === 'clear' || reason === 'reset') setCustomerQuery(v);
               }}
               value={customer}
               onChange={(_, v) => setCustomer(v)}

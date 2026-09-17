@@ -1,3 +1,4 @@
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
@@ -31,7 +32,11 @@ vi.mock('@/hooks/useProductSearch', () => ({
 
 function wrap(ui: ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
 describe('LabelPrintPage — QOS-0047', () => {
@@ -58,6 +63,9 @@ describe('LabelPrintPage — QOS-0047', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('.label-card')).toHaveLength(1);
     });
+    // Selecting adds the row immediately and clears the box for the next
+    // scan — guards against the picked label getting stuck in the box.
+    expect(input).toHaveValue('');
     // MRP is preferred over selling price on the label.
     expect(screen.getByText(/150/)).toBeTruthy();
     const printButton = screen.getByRole('button', { name: /print 1 label/i });

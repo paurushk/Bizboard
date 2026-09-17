@@ -23,6 +23,7 @@ import { getErrorMessage } from '@/api/client';
 import { getCompany, updateCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import {
   fieldDefRowErrors,
@@ -167,7 +168,7 @@ export function ItemSettingsPage() {
   return (
     <Stack spacing={2}>
       <UnsavedChangesGuard when={dirty} />
-      <Typography variant="h4">{t('nav.itemSettings')}</Typography>
+      <PageTitle>{t('nav.itemSettings')}</PageTitle>
       <Typography color="text.secondary">{t('customFields.settingsHint')}</Typography>
       {message ? <Alert severity="success">{message}</Alert> : null}
       {error ? <HelpErrorAlert message={error} /> : null}

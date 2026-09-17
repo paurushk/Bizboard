@@ -15,6 +15,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
@@ -30,6 +31,7 @@ import {
 } from '@/api/payroll';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
@@ -161,7 +163,7 @@ function PayRunsPageInner() {
     <Stack spacing={2}>
       <MvpModuleBanner module="payroll" />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.payRuns')}</Typography>
+        <PageTitle>{t('nav.payRuns')}</PageTitle>
         <Button variant="contained" onClick={openCreate} disabled={writesBlocked}>
           {t('common.add')}
         </Button>
@@ -217,16 +219,20 @@ function PayRunsPageInner() {
                           >
                             {t('payroll.lop')}
                           </Button>
-                          <Button
-                            size="small"
-                            disabled={writesBlocked || completeMutation.isPending}
-                            onClick={() => {
-                              if (!window.confirm(t('payroll.confirmComplete'))) return;
-                              completeMutation.mutate(run.id);
-                            }}
-                          >
-                            {t('common.complete')}
-                          </Button>
+                          <Tooltip title={writesBlocked ? t('billing.writesBlocked') : ''}>
+                            <span>
+                              <Button
+                                size="small"
+                                disabled={writesBlocked || completeMutation.isPending}
+                                onClick={() => {
+                                  if (!window.confirm(t('payroll.confirmComplete'))) return;
+                                  completeMutation.mutate(run.id);
+                                }}
+                              >
+                                {t('common.complete')}
+                              </Button>
+                            </span>
+                          </Tooltip>
                         </>
                       ) : null}
                       {run.status === 'COMPLETED' ? (

@@ -61,8 +61,17 @@ export async function createProduct(
   },
 ) {
   await page.goto('/inventory/products');
-  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  const heading = page.getByRole('heading', { name: /^Products$/i });
+  const toolbarAdd = page.getByRole('button', { name: 'Add', exact: true });
+  const emptyAdd = page.getByRole('button', { name: /Add Products/i });
+  // PageTitle is an h1, but empty-state + toolbar both expose an Add* button.
+  // Wait for either surface so a heading-role drift cannot stall the suite.
+  await expect(heading.or(toolbarAdd).or(emptyAdd)).toBeVisible({ timeout: 20_000 });
+  if (await toolbarAdd.count()) {
+    await toolbarAdd.first().click();
+  } else {
+    await emptyAdd.first().click();
+  }
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(opts.name);
   await page.getByRole('textbox', { name: 'SKU / Item Code', exact: true }).fill(opts.sku);
   if (opts.hsnCode) {
@@ -264,7 +273,10 @@ export async function createQuotationConvertedToOrder(
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByRole('button', { name: 'To Order' })).toBeVisible();
   await page.getByRole('button', { name: 'To Order' }).click();
-  await expect(page).toHaveURL(/\/sales\/orders/);
+  const convertDialog = page.getByRole('dialog');
+  await expect(convertDialog).toBeVisible();
+  await convertDialog.getByRole('button', { name: 'To Order' }).click();
+  await expect(page).toHaveURL(/\/sales\/orders/, { timeout: 20_000 });
 }
 
 export async function convertDraftOrderToCompletedInvoiceViaChallan(page: Page) {
@@ -389,7 +401,12 @@ export async function loginWithPassword(page: Page, email: string, password: str
 /** Invite a staff member with a known password (development invite token path). */
 export async function inviteStaff(
   page: Page,
-  opts: { email: string; password: string; fullName: string; role: 'SALES_STAFF' | 'ACCOUNTANT' },
+  opts: {
+    email: string;
+    password: string;
+    fullName: string;
+    role: 'SALES_STAFF' | 'ACCOUNTANT' | 'INVENTORY_STAFF';
+  },
 ) {
   await page.goto('/settings/users');
   await page.getByRole('button', { name: 'Invite user' }).click();
@@ -399,7 +416,13 @@ export async function inviteStaff(
   await dialog.getByLabel('Password', { exact: true }).fill(opts.password);
   await dialog.getByLabel('Full name').fill(opts.fullName);
   await dialog.getByLabel('Role').click();
-  await page.getByRole('option', { name: opts.role === 'ACCOUNTANT' ? 'Accountant' : 'Sales staff' }).click();
+  const roleLabel =
+    opts.role === 'ACCOUNTANT'
+      ? 'Accountant'
+      : opts.role === 'INVENTORY_STAFF'
+        ? 'Inventory staff'
+        : 'Sales staff';
+  await page.getByRole('option', { name: roleLabel }).click();
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(dialog.getByText(/Account created|They can sign in/i)).toBeVisible({ timeout: 20_000 });
   await dialog.getByRole('button', { name: 'Cancel' }).click();

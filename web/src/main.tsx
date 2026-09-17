@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { AuthProvider } from '@/auth/AuthContext';
 import { fetchFeatureFlags } from '@/config/featureFlags';
-import { shouldUseMocks } from '@/api/client';
+import { shouldUseMocks, getLastRequestId } from '@/api/client';
 import { hasStoredSession } from '@/auth/session';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { theme } from '@/theme';
@@ -29,6 +29,13 @@ if (typeof sentryDsn === 'string' && sentryDsn.trim()) {
         dsn: sentryDsn.trim(),
         environment: import.meta.env.MODE,
         tracesSampleRate: 0.1,
+        beforeSend(event) {
+          const rid = getLastRequestId();
+          if (rid) {
+            event.tags = { ...event.tags, request_id: rid };
+          }
+          return event;
+        },
       });
     })
     .catch(() => {

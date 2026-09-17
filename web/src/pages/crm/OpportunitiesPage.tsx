@@ -26,6 +26,7 @@ import {
 import { listCustomersPage } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
 import { formatMoney } from '@/utils/money';
@@ -130,7 +131,7 @@ function OpportunitiesPageInner() {
     <Stack spacing={2}>
       <MvpModuleBanner module="crm" />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.opportunities')}</Typography>
+        <PageTitle>{t('nav.opportunities')}</PageTitle>
         <Button variant="contained" onClick={openCreate}>
           {t('common.add')}
         </Button>

@@ -30,6 +30,7 @@ import {
 import { listCustomersPage } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
@@ -167,7 +168,7 @@ function LeadsPageInner() {
     <Stack spacing={2}>
       <MvpModuleBanner module="crm" />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography variant="h4">{t('nav.leads')}</Typography>
+        <PageTitle>{t('nav.leads')}</PageTitle>
         <Button variant="contained" onClick={openCreate} disabled={writesBlocked}>
           {t('common.add')}
         </Button>

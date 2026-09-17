@@ -1,17 +1,21 @@
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import type { ReactNode } from 'react';
+import { PageTitle } from '@/contextHelp';
 
 export function PageHeader({
   title,
   subtitle,
   actions,
   controls,
+  helpPage,
 }: {
   title: string;
   subtitle?: string;
   actions?: ReactNode;
   controls?: ReactNode;
+  /** Catalog id; omit to resolve from the current route. */
+  helpPage?: string;
 }) {
   return (
     <Stack
@@ -23,7 +27,7 @@ export function PageHeader({
       useFlexGap
     >
       <Stack spacing={0.25}>
-        <Typography variant="h4">{title}</Typography>
+        <PageTitle page={helpPage}>{title}</PageTitle>
         {subtitle ? (
           <Typography variant="body2" color="text.secondary">
             {subtitle}
