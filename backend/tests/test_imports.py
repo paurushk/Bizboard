@@ -500,3 +500,13 @@ def test_cr_016_duplicate_opening_stock_file_rejected(tenant_a):
     assert resp2.status_code == 400
     assert "already committed" in str(resp2.data)
 
+
+def test_customers_commit_twice_does_not_duplicate_rows(tenant_a):
+    job = _upload(tenant_a, "customers", CUSTOMERS_CSV).data
+    first = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert first.status_code == 200, first.data
+    created = Customer.objects.filter(company=tenant_a.company).count()
+    second = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert second.status_code in (200, 400)
+    assert Customer.objects.filter(company=tenant_a.company).count() == created
+

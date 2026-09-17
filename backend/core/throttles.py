@@ -37,3 +37,35 @@ class CompanyRateThrottle(SimpleRateThrottle):
         else:
             ident = self.get_ident(request) or "anon"
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class TenantPlanRateThrottle(SimpleRateThrottle):
+    """Optional per-tenant API cap from Plan.api_rate_per_minute (0 = off)."""
+
+    scope = "tenant_api"
+
+    def allow_request(self, request, view):
+        if getattr(view, "throttle_classes", None) == []:
+            return True
+        try:
+            cu = get_company_user(request)
+        except Exception:  # noqa: BLE001 — unauthenticated / no company
+            return True
+        if cu is None:
+            return True
+        from billing.quotas import api_rate_per_minute
+
+        limit = api_rate_per_minute(cu.company)
+        if limit <= 0:
+            return True
+        self.rate = f"{int(limit)}/min"
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+        return super().allow_request(request, view)
+
+    def get_cache_key(self, request, view):
+        try:
+            cu = get_company_user(request)
+        except Exception:  # noqa: BLE001 — unauthenticated / no company
+            cu = None
+        ident = cu.company_id if cu is not None else self.get_ident(request) or "anon"
+        return self.cache_format % {"scope": self.scope, "ident": ident}

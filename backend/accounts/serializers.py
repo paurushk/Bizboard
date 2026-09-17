@@ -329,7 +329,15 @@ class CompanySerializer(serializers.ModelSerializer):
             validated_data["tax_profile_confirmed_at"] = now
         if mark_onboarding_started and instance.onboarding_started_at is None:
             validated_data["onboarding_started_at"] = now
-        return super().update(instance, validated_data)
+        updated = super().update(instance, validated_data)
+        if confirm_tax_profile or dismiss_onboarding:
+            from insights.telemetry import record_event
+
+            request = self.context.get("request")
+            user = getattr(request, "user", None) if request is not None else None
+            event = "wizard_completed" if dismiss_onboarding else "wizard_tax_confirmed"
+            record_event(updated, event, user=user, journey="signup", success=True)
+        return updated
 
 
 class CompanySerializerStaff(serializers.ModelSerializer):

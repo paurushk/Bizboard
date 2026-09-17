@@ -16,7 +16,7 @@ from django.utils import timezone
 from inventory.models import StockBalance
 from ledgers.services import LedgerService
 from purchases.models import PurchaseInvoice
-from purchases.status_semantics import OPEN_PAYABLE_STATUSES
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES, OPERATIONAL_PURCHASE_STATUSES
 from reporting.services import ReportService
 from sales.models import SalesInvoice
 from sales.status_semantics import OPERATIONAL_SALE_STATUSES
@@ -692,7 +692,7 @@ def build_growth_hints(company, as_of: date | None = None) -> list[dict]:
             "title": "Review discounting pattern",
             "impact_estimate": None,
             "message": f"{high_disc} invoices this month carry discounts.",
-            "cta_path": "/sales/history",
+            "cta_path": "/reports/sales-discounts",
             "severity": "info",
         })
 
@@ -704,7 +704,7 @@ def build_growth_hints(company, as_of: date | None = None) -> list[dict]:
     for it in (
         PurchaseItem.objects.filter(
             invoice__company=company,
-            invoice__status=PurchaseInvoice.Status.COMPLETED,
+            invoice__status__in=OPERATIONAL_PURCHASE_STATUSES,
         )
         .select_related("product", "invoice")
         .order_by("product_id", "-invoice__invoice_date", "-id")[:800]
@@ -715,7 +715,7 @@ def build_growth_hints(company, as_of: date | None = None) -> list[dict]:
         prior = (
             PurchaseItem.objects.filter(
                 invoice__company=company,
-                invoice__status=PurchaseInvoice.Status.COMPLETED,
+                invoice__status__in=OPERATIONAL_PURCHASE_STATUSES,
                 product_id=it.product_id,
             )
             .exclude(id=it.id)

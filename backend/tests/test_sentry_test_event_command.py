@@ -28,3 +28,5 @@ def test_sends_a_test_event_when_dsn_is_configured(settings):
     assert capture.call_args.kwargs.get("level") == "info"
     flush.assert_called_once()
     assert "test-event-id" in out.getvalue()
+    assert "HYPERCARE.md" in out.getvalue()
+    assert "OGATE_HUMAN.md" in out.getvalue()

@@ -219,19 +219,23 @@ def api_exception_handler(exc, context):
         # Log it (with the traceback) so a production 500 is never silent.
         import logging
 
+        from core.observability import request_id_from_request
+
         _view = getattr(context.get("view", None), "__class__", None)
         logging.getLogger("django.request").exception(
             "Unhandled exception in %s", getattr(_view, "__name__", "API view")
         )
+        request = context.get("request")
+        rid = request_id_from_request(request) if request is not None else None
+        error = {
+            "code": "server_error",
+            "message": "An unexpected error occurred.",
+            "details": None,
+        }
+        if rid:
+            error["request_id"] = rid
         return Response(
-            {
-                "success": False,
-                "error": {
-                    "code": "server_error",
-                    "message": "An unexpected error occurred.",
-                    "details": None,
-                },
-            },
+            {"success": False, "error": error},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -263,4 +267,11 @@ def api_exception_handler(exc, context):
             "details": detail,
         },
     }
+    if response.status_code >= 500:
+        from core.observability import request_id_from_request
+
+        request = context.get("request")
+        rid = request_id_from_request(request) if request is not None else None
+        if rid:
+            response.data["error"]["request_id"] = rid
     return response

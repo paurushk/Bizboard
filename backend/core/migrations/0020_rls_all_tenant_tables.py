@@ -39,6 +39,13 @@ RLS_TABLES = [
     "accounting_journalline",
     "banking_aaconsent",
     "banking_aatransaction",
+    # 9.5 / 7.7: added to the codebase after this migration first ran, so
+    # their actual RLS policy on a live DB comes from
+    # core/migrations/0027_rls_billing_deadletter.py — same late-addition
+    # pattern as payments_processedwebhookevent below. These list entries
+    # only make tests/test_rls_coverage.py recognize the tables as covered.
+    "billing_deadletterevent",
+    "billing_subscription",
     "core_auditevent",
     "core_documentseries",
     "core_fileasset",
@@ -60,6 +67,11 @@ RLS_TABLES = [
     "insights_businesshealthsnapshot",
     "insights_cashflowforecastrun",
     "insights_dailybusinesssummary",
+    # A08 shop-floor telemetry: table created in insights/migrations/0004
+    # after this migration first ran, so its actual RLS policy on a live DB
+    # comes from core/migrations/0026_rls_shopfloorevent.py — same late-addition
+    # pattern as payments_processedwebhookevent below. This list entry only
+    # makes tests/test_rls_coverage.py recognize the table as covered.
     "insights_shopfloorevent",
     "integrations_integrationconnection",
     "integrations_integrationsyncrun",
@@ -141,6 +153,13 @@ RLS_TABLES = [
     "reporting_gstreturnperiod",
     "reporting_gstreturnsnapshot",
     "reporting_imsactionhistory",
+    # Invoice-level P&L/BI: table created in reporting/migrations/0014 after
+    # this migration first ran, so its actual RLS policy on a live DB comes
+    # from core/migrations/0028_rls_invoice_profit_snapshot.py — same
+    # late-addition pattern as payments_processedwebhookevent above. This
+    # list entry only makes tests/test_rls_coverage.py recognize the table
+    # as covered.
+    "reporting_invoiceprofitsnapshot",
     "sales_deliverychallan",
     "sales_deliverychallanitem",
     "sales_quotation",

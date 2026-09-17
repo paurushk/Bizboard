@@ -145,3 +145,31 @@ def prune_idempotency_records_task(days=30):
         inflight_deleted,
     )
     return done_deleted + inflight_deleted
+
+
+@shared_task
+def nightly_invariants_task():
+    """5.6 — recon report: sweep every company; log failures, do not retry-storm."""
+    from accounts.models import Company
+    from core.invariants import run_invariants
+    from core.rls import rls_bypass
+
+    failed = 0
+    checked = 0
+    with rls_bypass():
+        company_ids = list(Company.objects.values_list("id", flat=True))
+    for pk in company_ids:
+        with rls_bypass():
+            company = Company.objects.filter(pk=pk).first()
+            if company is None:
+                continue
+            checked += 1
+            failures = run_invariants(company)
+        if failures:
+            failed += 1
+            logger.error(
+                "nightly_invariants company=%s keys=%s",
+                pk,
+                sorted(failures.keys()),
+            )
+    return {"checked": checked, "failed": failed}

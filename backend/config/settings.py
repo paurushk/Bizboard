@@ -131,6 +131,11 @@ if DJANGO_ENV in ("production", "staging") or _env_bool("DJANGO_FAIL_FAST_SECRET
         )
 
 _non_local_hosts = any(not _is_local_allowed_host(h) for h in ALLOWED_HOSTS)
+# Local Compose staging is loopback HTTP (see docker-compose.staging.yml).
+# Keep production-like fail-fast (no DEBUG, no SQLite, dedicated secrets) but
+# allow localhost CORS/cookies so the SPA on 127.0.0.1 can sign in. A staging
+# host with any non-local ALLOWED_HOSTS is treated as remote and unchanged.
+_LOCAL_STAGING = DJANGO_ENV == "staging" and not _non_local_hosts
 if not DEBUG and _non_local_hosts and DJANGO_ENV not in ("test",):
     if (
         not os.environ.get("DJANGO_SECRET_KEY")
@@ -311,6 +316,7 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.ScopedRateThrottle",
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
+        "core.throttles.TenantPlanRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
         "anon": "120/min",
@@ -349,6 +355,9 @@ REST_FRAMEWORK = {
         "help_feedback": "20/min",
         "password_reset": "5/min",
         "password_reset_confirm": "20/min",
+        "tenant_api": "10000/min",
+        "sales_complete": "30/min",
+        "purchase_complete": "30/min",
     },
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "JSON_UNDERSCOREIZE": {
@@ -414,7 +423,7 @@ if DJANGO_ENV not in ("production", "staging"):
 if DJANGO_ENV in ("production", "staging"):
     if not _cors_env.strip():
         raise ImproperlyConfigured("CORS_ALLOWED_ORIGINS must be set in production/staging.")
-    if all("localhost" in o or "127.0.0.1" in o for o in CORS_ALLOWED_ORIGINS):
+    if not _LOCAL_STAGING and all("localhost" in o or "127.0.0.1" in o for o in CORS_ALLOWED_ORIGINS):
         raise ImproperlyConfigured(
             "CORS_ALLOWED_ORIGINS cannot be localhost-only in production/staging."
         )
@@ -559,9 +568,24 @@ CELERY_BEAT_SCHEDULE = {
         "task": "payments.tasks.run_ar_dunning_task",
         "schedule": crontab(minute=20),
     },
+    # 8.5 — SaaS PAST_DUE notices. Distinct from AR dunning above.
+    "billing-saas-dunning": {
+        "task": "billing.tasks.run_saas_dunning_task",
+        "schedule": crontab(hour=8, minute=10),
+    },
+    # 8.6 — Razorpay subscription GET vs local Subscription. Skips without keys.
+    "billing-saas-recon": {
+        "task": "billing.tasks.reconcile_saas_subscriptions_task",
+        "schedule": crontab(minute=25),
+    },
     "payments-gateway-holding-reconcile": {
         "task": "payments.tasks.reconcile_gateway_captures_task",
         "schedule": crontab(minute="*/5"),
+    },
+    # 5.6: owner/support recon — nightly invariant sweep (logs failures; command is the fail-closed gate).
+    "core-nightly-invariants": {
+        "task": "core.tasks.nightly_invariants_task",
+        "schedule": crontab(hour=2, minute=20),
     },
 }
 # Coverage Copilot is a real, billed LLM call — off by default so it never
@@ -654,7 +678,7 @@ CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_env.split(",") if o.strip()]
 if DJANGO_ENV in ("production", "staging") and not CSRF_TRUSTED_ORIGINS:
     raise ImproperlyConfigured("CSRF_TRUSTED_ORIGINS must be set in production/staging.")
 if DJANGO_ENV in ("production", "staging") and CSRF_TRUSTED_ORIGINS:
-    if all("localhost" in o or "127.0.0.1" in o for o in CSRF_TRUSTED_ORIGINS):
+    if not _LOCAL_STAGING and all("localhost" in o or "127.0.0.1" in o for o in CSRF_TRUSTED_ORIGINS):
         raise ImproperlyConfigured(
             "CSRF_TRUSTED_ORIGINS cannot be localhost-only in production/staging."
         )
@@ -707,6 +731,14 @@ if _use_tls or DJANGO_ENV in ("production", "staging"):
         SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     elif DJANGO_ENV == "staging":
         SECURE_HSTS_SECONDS = 3600
+
+if _LOCAL_STAGING and not _use_tls:
+    # Browsers drop Secure cookies on plain HTTP. Remote staging (real hostname
+    # or USE_TLS=1) still requires HTTPS cookies above.
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    SECURE_HSTS_SECONDS = 0
+    SECURE_SSL_REDIRECT = False
 
 # BB-000257: refresh token in httpOnly cookie
 JWT_REFRESH_COOKIE_NAME = os.environ.get("JWT_REFRESH_COOKIE_NAME", "bb_refresh")
@@ -829,6 +861,8 @@ if SENTRY_DSN:
         from sentry_sdk.integrations.celery import CeleryIntegration
         from sentry_sdk.integrations.django import DjangoIntegration
 
+        from core.observability import sentry_before_send
+
         sentry_sdk.init(
             dsn=SENTRY_DSN,
             integrations=[DjangoIntegration(), CeleryIntegration()],
@@ -836,6 +870,7 @@ if SENTRY_DSN:
             send_default_pii=False,
             environment=DJANGO_ENV,
             release=SENTRY_RELEASE,
+            before_send=sentry_before_send,
         )
     except ImportError as exc:
         raise ImproperlyConfigured(
@@ -907,11 +942,11 @@ ENABLE_GSTR = _env_bool("ENABLE_GSTR")
 ENABLE_TALLY = _env_bool("ENABLE_TALLY")
 ENABLE_GSTN_JSON = _env_bool("ENABLE_GSTN_JSON")
 # Scope revision 2026-09-09b: D6 (fixed assets + depreciation) and D10 (Bill of
-# Entry / import purchase + landed cost) are KNOWN LIMITATIONS for the pilot.
-# Default ON so existing deployments/tests are unaffected; the pilot profile
-# (backend/.env.pilot.example) sets both to 0 and a route guard 404s them.
-ENABLE_FIXED_ASSETS = _env_bool("ENABLE_FIXED_ASSETS", "1")
-ENABLE_BOE = _env_bool("ENABLE_BOE", "1")
+# Entry / import purchase + landed cost) are KNOWN LIMITATIONS. Default OFF so
+# a copied production/staging env cannot inherit the old ON default. Tests opt
+# in via settings_test; the pilot profile also pins 0. Route guards 404 them.
+ENABLE_FIXED_ASSETS = _env_bool("ENABLE_FIXED_ASSETS", "0")
+ENABLE_BOE = _env_bool("ENABLE_BOE", "0")
 # D13 automated right-to-erasure. Default OFF — the owner-initiated erasure
 # endpoint stays 404 until the founder signs off the statutory-retention
 # carve-out (plan item SR-40). The completeness invariant + `erase_company`

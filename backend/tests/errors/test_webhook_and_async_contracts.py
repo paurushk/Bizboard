@@ -173,3 +173,20 @@ def test_billing_webhook_rejects_bad_signature_and_dedups_replay():
     assert ProcessedWebhookEvent.objects.filter(
         provider__icontains="razorpay"
     ).count() <= 1
+
+
+@override_settings(RAZORPAY_WEBHOOK_SECRET=_SECRET)
+def test_billing_webhook_hmac_required_without_test_header():
+    c = APIClient()
+    body = b'{"event":"subscription.charged"}'
+    missing = c.post(
+        "/api/v1/billing/razorpay/webhook/", data=body, content_type="application/json"
+    )
+    assert missing.status_code == 400
+    unsigned_test_header = c.post(
+        "/api/v1/billing/razorpay/webhook/",
+        data=body,
+        content_type="application/json",
+        HTTP_X_BIZBOARD_TEST_WEBHOOK="1",
+    )
+    assert unsigned_test_header.status_code == 400

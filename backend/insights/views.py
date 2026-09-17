@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -334,7 +335,29 @@ _TELEMETRY_EVENTS = {
     "offline_flush_fail",
     "complete_duration_ms",
     "time_to_first_invoice_ms",
+    "signup_completed",
+    "wizard_tax_confirmed",
+    "wizard_completed",
+    "journey_started",
+    "journey_failed",
 }
+
+_ALLOWED_TELEMETRY_KEYS = {
+    "event",
+    "duration_ms",
+    "tap_count",
+    "journey",
+    "feature",
+    "role",
+    "session_id",
+    "request_id",
+    "success",
+    "failure_reason",
+}
+_IGNORED_TELEMETRY_KEYS = {"company_id", "company_hash", "companyId", "companyHash"}
+_JOURNEY_ALLOWLIST = {"signup", "invoice_complete", "pdf", "payment"}
+_FEATURE_ALLOWLIST = _JOURNEY_ALLOWLIST | {"pos", "offline"}
+_FAILURE_REASONS = {"validation", "help_code", "timeout", "5xx", "offline", "unknown"}
 
 
 def _percentile(sorted_vals, p):
@@ -342,6 +365,15 @@ def _percentile(sorted_vals, p):
         return None
     k = max(0, min(len(sorted_vals) - 1, int(round((p / 100) * (len(sorted_vals) - 1)))))
     return sorted_vals[k]
+
+
+def _clip(value, max_len: int) -> str:
+    text = str(value or "").strip()
+    return text[:max_len] if text else ""
+
+
+def _allowlisted(value: str, allowed: set[str]) -> str:
+    return value if value in allowed else ""
 
 
 class ShopFloorTelemetryView(APIView):
@@ -362,17 +394,22 @@ class ShopFloorTelemetryView(APIView):
         return [IsAuthenticated(), HasCompany()]
 
     def post(self, request):
+        from core.observability import current_request_id
+
         from .models import ShopFloorEvent
 
         payload = request.data if isinstance(request.data, dict) else {}
-        # B9-032: strict allowlist — reject any unknown key (old check only
-        # looked at top-level names against a PII denylist, so nested dicts and
-        # PII-in-values slipped through).
-        _ALLOWED_TELEMETRY_KEYS = {"event", "duration_ms", "tap_count"}
+        # B9-032 / OG2-E7: strict allowlist. company_id / company_hash are
+        # ignored (never stored); any other extra key is 400.
         for key in payload:
-            if str(key) not in _ALLOWED_TELEMETRY_KEYS:
+            name = str(key)
+            if name in _IGNORED_TELEMETRY_KEYS:
+                continue
+            if name not in _ALLOWED_TELEMETRY_KEYS:
                 raise BusinessRuleError(
-                    "Telemetry accepts only: event, duration_ms, tap_count."
+                    "Telemetry accepts only: event, duration_ms, tap_count, "
+                    "journey, feature, role, session_id, request_id, success, "
+                    "failure_reason."
                 )
         event = str(payload.get("event") or "").strip()
         if event not in _TELEMETRY_EVENTS:
@@ -389,13 +426,53 @@ class ShopFloorTelemetryView(APIView):
             tap_count = None
         if duration_ms is not None and duration_ms > 24 * 60 * 60 * 1000:
             duration_ms = None
+
+        journey = _allowlisted(_clip(payload.get("journey"), 40), _JOURNEY_ALLOWLIST)
+        feature = _allowlisted(_clip(payload.get("feature"), 40), _FEATURE_ALLOWLIST)
+        failure_reason = _clip(payload.get("failure_reason"), 16)
+        if failure_reason and failure_reason not in _FAILURE_REASONS:
+            raise BusinessRuleError("Unknown failure_reason.")
+        if event == "journey_failed":
+            if not journey:
+                raise BusinessRuleError("journey is required for journey_failed.")
+            if not failure_reason:
+                raise BusinessRuleError("failure_reason is required for journey_failed.")
+        if event == "journey_started" and not journey:
+            raise BusinessRuleError("journey is required for journey_started.")
+
         cu = get_company_user(request)
+        # Server stamps: never trust client role / success / invoice_complete journey.
+        role = (getattr(cu, "role", None) or "")[:16]
+        success = None
+        if event == "invoice_complete":
+            journey = "invoice_complete"
+            success = True
+        elif event == "journey_failed":
+            success = False
+        elif event == "journey_started":
+            success = None
+
+        request_id = _clip(payload.get("request_id"), 64)
+        if not request_id:
+            request_id = _clip(
+                getattr(request, "request_id", None) or current_request_id(),
+                64,
+            )
+        session_id = _clip(payload.get("session_id"), 36)
+
         ShopFloorEvent.objects.create(
             company=cu.company,
             event=event,
             duration_ms=duration_ms,
             tap_count=tap_count,
             occurred_on=timezone.localdate(),
+            journey=journey,
+            feature=feature,
+            role=role,
+            session_id=session_id,
+            request_id=request_id,
+            success=success,
+            failure_reason=failure_reason if event == "journey_failed" else "",
             created_by=request.user,
             updated_by=request.user,
         )
@@ -443,4 +520,53 @@ class ShopFloorTelemetryView(APIView):
             "offline_ok": flush_fail == 0,
             # cadence
             "periods_closed": qs.filter(event="period_closed").count(),
+            # 15.3 unaided-onboarding funnel (counts only; no PII)
+            "funnel": {
+                "signup_completed": qs.filter(event="signup_completed").count(),
+                "wizard_tax_confirmed": qs.filter(event="wizard_tax_confirmed").count(),
+                "wizard_completed": qs.filter(event="wizard_completed").count(),
+                # Read-side UNION: Gate 2 writers only emit invoice_complete.
+                "invoice_complete": qs.filter(
+                    Q(event="invoice_complete")
+                    | Q(event="journey_completed", journey="invoice_complete")
+                ).count(),
+                "invoice_complete_started": qs.filter(
+                    event="journey_started", journey="invoice_complete"
+                ).count(),
+                "invoice_complete_failed": qs.filter(
+                    event="journey_failed", journey="invoice_complete"
+                ).count(),
+                "invoice_complete_failed_by_reason": _failed_by_reason(qs, "invoice_complete"),
+                "signup_failed": qs.filter(
+                    event="journey_failed", journey="signup"
+                ).count(),
+                "signup_failed_by_reason": _failed_by_reason(qs, "signup"),
+                "pdf_started": qs.filter(event="journey_started", journey="pdf").count(),
+                "pdf_failed": qs.filter(event="journey_failed", journey="pdf").count(),
+                "pdf_failed_by_reason": _failed_by_reason(qs, "pdf"),
+                "payment_started": qs.filter(
+                    event="journey_started", journey="payment"
+                ).count(),
+                "payment_completed": qs.filter(event="allocation_reconciled").count(),
+                "payment_failed": qs.filter(
+                    event="journey_failed", journey="payment"
+                ).count(),
+                "payment_failed_by_reason": _failed_by_reason(qs, "payment"),
+            },
         })
+
+
+def _failed_by_reason(qs, journey: str) -> dict:
+    counts = {reason: 0 for reason in sorted(_FAILURE_REASONS)}
+    rows = (
+        qs.filter(event="journey_failed", journey=journey)
+        .values("failure_reason")
+        .annotate(n=Count("id"))
+    )
+    for row in rows:
+        key = row["failure_reason"] or "unknown"
+        if key in counts:
+            counts[key] += row["n"]
+        else:
+            counts["unknown"] += row["n"]
+    return counts

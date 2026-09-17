@@ -1,6 +1,5 @@
 """BB-000372 / BB-000443 / BB-000478: request-id + JSON access log with duration + hashed IDs."""
 
-import hashlib
 import io
 import json
 import logging
@@ -9,6 +8,17 @@ import time
 import uuid
 
 from django.conf import settings
+
+from core.observability import (
+    apply_sentry_tags,
+    bind_request_context,
+    clear_request_context,
+    hash_id,
+)
+
+# Same 12-char SHA as access logs / ShopFloorEvent.company_hash (derived, not stored).
+_hash_id = hash_id
+from core.ops_metrics import bump_request_count, record_http_result
 
 logger = logging.getLogger("bizboard.request")
 
@@ -21,17 +31,18 @@ _UUID_RE = re.compile(
     re.I,
 )
 
-
-def _hash_id(value) -> str:
-    if value is None:
-        return ""
-    return hashlib.sha256(str(value).encode()).hexdigest()[:12]
+_GSTIN_RE = re.compile(
+    r"\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]",
+    re.I,
+)
 
 
 def _redact_path(path: str) -> str:
-    """BB-000587: drop document numbers / UUIDs from access logs."""
+    """BB-000587: drop document numbers / UUIDs / GSTIN; never log query strings."""
+    path = (path or "").split("?", 1)[0]
     redacted = _DOC_NUMBER_RE.sub(":doc", path)
-    return _UUID_RE.sub(":id", redacted)
+    redacted = _UUID_RE.sub(":id", redacted)
+    return _GSTIN_RE.sub(":gstin", redacted)
 
 
 class MaxBodySizeMiddleware:
@@ -95,29 +106,45 @@ class RequestIdMiddleware:
         rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         request.request_id = rid
         started = time.monotonic()
+        bind_request_context(request_id=rid)
         try:
-            from core.views import bump_request_count
-
             bump_request_count()
         except Exception:  # noqa: BLE001 — metrics must not break requests
             pass
+        try:
+            apply_sentry_tags(request_id=rid)
+        except Exception:  # noqa: BLE001
+            pass
         response = self.get_response(request)
         response["X-Request-ID"] = rid
-        if getattr(settings, "JSON_REQUEST_LOGS", True):
-            user_id_h = ""
-            company_id_h = ""
-            user = getattr(request, "user", None)
-            if user is not None and getattr(user, "is_authenticated", False):
-                user_id_h = _hash_id(user.pk)
-                try:
-                    from core.permissions import get_company_user
+        # 12.5 — JSON APIs must not be CDN-cached (static-only CDN in front of SPA).
+        if (request.path or "").startswith("/api/"):
+            response["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+            response["Pragma"] = "no-cache"
+        user_id_h = ""
+        company_id_h = ""
+        user = getattr(request, "user", None)
+        if user is not None and getattr(user, "is_authenticated", False):
+            user_id_h = _hash_id(user.pk)
+            try:
+                from core.permissions import get_company_user
 
-                    cu = get_company_user(request)
-                    if cu is not None:
-                        company_id_h = _hash_id(cu.company_id)
-                except Exception:  # noqa: BLE001 — logging must not break requests
-                    pass
-            duration_ms = int((time.monotonic() - started) * 1000)
+                cu = get_company_user(request)
+                if cu is not None:
+                    company_id_h = _hash_id(cu.company_id)
+            except Exception:  # noqa: BLE001 — logging must not break requests
+                pass
+        bind_request_context(request_id=rid, company_hash=company_id_h or None)
+        try:
+            apply_sentry_tags(request_id=rid, company_hash=company_id_h or None)
+        except Exception:  # noqa: BLE001
+            pass
+        duration_ms = int((time.monotonic() - started) * 1000)
+        try:
+            record_http_result(status=response.status_code, duration_ms=duration_ms)
+        except Exception:  # noqa: BLE001
+            pass
+        if getattr(settings, "JSON_REQUEST_LOGS", True):
             logger.info(
                 json.dumps(
                     {
@@ -133,6 +160,7 @@ class RequestIdMiddleware:
                     separators=(",", ":"),
                 )
             )
+        clear_request_context()
         return response
 
 

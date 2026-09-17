@@ -33,4 +33,10 @@ class Command(BaseCommand):
             "Bizboard Sentry test event (manage.py sentry_test_event)", level="info"
         )
         sentry_sdk.flush(timeout=5)
-        self.stdout.write(self.style.SUCCESS(f"Sent Sentry test event {event_id}. Check the Sentry project now."))
+        self.stdout.write(self.style.SUCCESS(f"Sent Sentry test event {event_id}."))
+        self.stdout.write("Paste this id into:")
+        self.stdout.write("  docs/ops/HYPERCARE.md day-0")
+        self.stdout.write("  docs/pilot/ENV_CHECKLIST.md row 18")
+        self.stdout.write("  docs/pilot/GO_NO_GO.md Sentry Final Gate")
+        self.stdout.write("OG1-H4 also needs the on-call person to confirm they received the page.")
+        self.stdout.write("Playbook: docs/ops/OGATE_HUMAN.md")

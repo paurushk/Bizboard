@@ -269,6 +269,14 @@ class MoneyFieldAudit(CompanyScopedModel):
         ]
 
 
+MONEY_AUDIT_FIELDS = (
+    "additional_charges",
+    "invoice_discount",
+    "grand_total",
+    "taxable_total",
+)
+
+
 def log_money_change(*, company, entity_type, entity_id, field, old_value, new_value, user=None):
     if str(old_value) == str(new_value):
         return None
@@ -283,6 +291,31 @@ def log_money_change(*, company, entity_type, entity_id, field, old_value, new_v
         created_by=user,
         updated_by=user,
     )
+
+
+def money_field_snapshot(instance) -> dict:
+    """Capture header money fields before an update so a later diff can log."""
+    return {fld: getattr(instance, fld, "") for fld in MONEY_AUDIT_FIELDS}
+
+
+def log_money_field_diff(*, company, entity_type, entity_id, before: dict, instance, user=None):
+    """Log each money field that actually changed (line amends included).
+
+    Serializer `validated_data` does not carry recomputed `grand_total` /
+    `taxable_total` after `set_items`; callers must snapshot before the write
+    and diff afterwards so completed-doc money edits cannot silently skip
+    MoneyFieldAudit (FREEZE_SCOPE_COVERAGE money-field audit ⛔).
+    """
+    for fld, old in before.items():
+        log_money_change(
+            company=company,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            field=fld,
+            old_value=old,
+            new_value=getattr(instance, fld, ""),
+            user=user,
+        )
 
 
 class StatutoryDocumentEvent(models.Model):

@@ -144,7 +144,10 @@ class AiUsageLedger(CompanyScopedModel):
 
 
 class ShopFloorEvent(CompanyScopedModel):
-    """A-08: first-party shop-floor telemetry. No PII in event or props."""
+    """A-08 / O-Gate 2: first-party shop-floor telemetry. No PII in event or props.
+
+    ``company_hash`` is derived from the company FK at read/export — not stored.
+    """
 
     class Event(models.TextChoices):
         INVOICE_COMPLETE = "invoice_complete"
@@ -158,12 +161,53 @@ class ShopFloorEvent(CompanyScopedModel):
         # allocation_reconciled — see insights.telemetry.
         ALLOCATION_RECONCILED = "allocation_reconciled"
         PERIOD_CLOSED = "period_closed"
+        SIGNUP_COMPLETED = "signup_completed"
+        WIZARD_TAX_CONFIRMED = "wizard_tax_confirmed"
+        WIZARD_COMPLETED = "wizard_completed"
+        JOURNEY_STARTED = "journey_started"
+        JOURNEY_FAILED = "journey_failed"
+        # Reserved for a later FE migration; Gate 2 writers do not emit this.
+        JOURNEY_COMPLETED = "journey_completed"
+
+    class FailureReason(models.TextChoices):
+        VALIDATION = "validation"
+        HELP_CODE = "help_code"
+        TIMEOUT = "timeout"
+        HTTP_5XX = "5xx"
+        OFFLINE = "offline"
+        UNKNOWN = "unknown"
 
     event = models.CharField(max_length=40, choices=Event.choices, db_index=True)
     duration_ms = models.PositiveIntegerField(null=True, blank=True)
     tap_count = models.PositiveSmallIntegerField(null=True, blank=True)
     occurred_on = models.DateField(db_index=True)
+    journey = models.CharField(max_length=40, blank=True, default="")
+    feature = models.CharField(max_length=40, blank=True, default="")
+    role = models.CharField(max_length=16, blank=True, default="")
+    session_id = models.CharField(max_length=36, blank=True, default="")
+    request_id = models.CharField(max_length=64, blank=True, default="")
+    success = models.BooleanField(null=True, blank=True)
+    failure_reason = models.CharField(
+        max_length=16, blank=True, default="", choices=FailureReason.choices
+    )
 
     class Meta:
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["company", "event", "occurred_on"])]
+        indexes = [
+            models.Index(
+                fields=["company", "event", "occurred_on"],
+                name="insights_sh_company_da213a_idx",
+            ),
+            models.Index(fields=["request_id"], name="insights_sfe_request_id_idx"),
+            models.Index(
+                fields=["company", "journey", "occurred_on"],
+                name="insights_sfe_co_journey_on_idx",
+            ),
+        ]
+
+    @property
+    def company_hash(self) -> str:
+        """Derived 12-char SHA — never a stored column (OG2-E7)."""
+        from core.observability import hash_id
+
+        return hash_id(self.company_id)

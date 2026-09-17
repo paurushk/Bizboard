@@ -62,6 +62,8 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 MEDIA_ROOT = BASE_DIR / "test_media"  # noqa: F405
 
 OTP_DEBUG_ECHO = True
+# A26: keep DRF throttle classes from settings.py. OTP/login/register rate
+# limits are asserted in tests/test_auth.py and test_wf18_otp_login_and_ratelimit.
 ENABLE_API_DOCS = True
 ADMIN_ENABLED = True
 ENABLE_MANUFACTURING = True
@@ -70,6 +72,9 @@ ENABLE_CRM = True
 ENABLE_TDS = True
 ENABLE_GSTR = True
 ENABLE_TALLY = True
+# Opt-in D6/D10 surfaces for WF-53 / WF-57. Production Django default is OFF.
+ENABLE_FIXED_ASSETS = True
+ENABLE_BOE = True
 # Fixture tenants (owner+staff, no plan) still invite in tests; production default is 1.
 UNSUBSCRIBED_SEAT_LIMIT = 0
 OTP_PEPPER = os.environ.get("OTP_PEPPER", "test-otp-pepper-not-for-prod")

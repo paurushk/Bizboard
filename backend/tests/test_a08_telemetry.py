@@ -53,3 +53,51 @@ def test_telemetry_staff_can_post_owner_only_get(tenant_a):
     assert summary.data["complete_p95_ms"] in (900, 1000)
     assert summary.data["offline_flush_fail"] == 1
     assert summary.data["days"] == 7
+    assert "funnel" in summary.data
+    assert set(summary.data["funnel"]) >= {
+        "signup_completed",
+        "wizard_tax_confirmed",
+        "wizard_completed",
+        "invoice_complete",
+        "invoice_complete_started",
+        "invoice_complete_failed",
+        "invoice_complete_failed_by_reason",
+        "signup_failed",
+        "pdf_started",
+        "payment_started",
+        "payment_completed",
+        "payment_failed",
+    }
+
+
+def test_register_emits_signup_funnel_event():
+    from accounts.models import User
+    from rest_framework.test import APIClient
+
+    client = APIClient()
+    resp = client.post(
+        "/api/v1/auth/register/",
+        {
+            "company_name": "Funnel Mart",
+            "email": "funnel-owner@funnelmart.test",
+            "password": "StrongPass123!",
+            "state": "Karnataka",
+        },
+        format="json",
+    )
+    assert resp.status_code == 200
+    user = User.objects.get(email="funnel-owner@funnelmart.test")
+    company = user.company_memberships.get().company
+    assert ShopFloorEvent.objects.filter(company=company, event="signup_completed").exists()
+    signup = ShopFloorEvent.objects.get(company=company, event="signup_completed")
+    assert signup.journey == "signup"
+    assert signup.success is True
+    login = client.post(
+        "/api/v1/auth/login/",
+        {"email": "funnel-owner@funnelmart.test", "password": "StrongPass123!"},
+        format="json",
+    )
+    assert login.status_code == 200
+    summary = client.get("/api/v1/insights/telemetry/")
+    assert summary.status_code == 200, summary.data
+    assert summary.data["funnel"]["signup_completed"] >= 1

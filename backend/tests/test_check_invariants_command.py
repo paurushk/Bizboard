@@ -53,3 +53,20 @@ def test_check_invariants_raises_and_reports_a_broken_company(tenant_a):
     with pytest.raises(InvariantViolation):
         call_command("check_invariants", company=tenant_a.company.id, stdout=out)
     assert f"FAIL  company={tenant_a.company.id}" in out.getvalue()
+
+
+def test_nightly_invariants_beat_is_registered_and_dry_runs(tenant_a):
+    from django.conf import settings
+
+    from core.tasks import nightly_invariants_task
+
+    assert "core-nightly-invariants" in settings.CELERY_BEAT_SCHEDULE
+    assert (
+        settings.CELERY_BEAT_SCHEDULE["core-nightly-invariants"]["task"]
+        == "core.tasks.nightly_invariants_task"
+    )
+    result = nightly_invariants_task.apply()
+    assert result.successful(), result.result
+    payload = result.result
+    assert payload["failed"] == 0
+    assert payload["checked"] >= 1

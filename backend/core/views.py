@@ -28,18 +28,6 @@ _HEALTH_CACHE_KEY = "bizboard:healthcheck"
 # dedicated queue doesn't silently make the reported depth always 0.
 _CELERY_QUEUE = getattr(settings, "CELERY_TASK_DEFAULT_QUEUE", None) or "celery"
 
-# BB-000753: process-local request counter for /metrics (plain text; no prometheus_client dep).
-_REQUEST_COUNT = 0
-
-
-def bump_request_count() -> None:
-    global _REQUEST_COUNT
-    _REQUEST_COUNT += 1
-
-
-def get_request_count() -> int:
-    return _REQUEST_COUNT
-
 
 _READY_PROBE_CACHE_KEY = "bizboard:ready_probe"
 _READY_PROBE_TTL = 15
@@ -139,6 +127,54 @@ def _probe_celery_beat_ok():
         return False
 
 
+class IntegrationsInventoryView(APIView):
+    """Owner-only inventory of outbound integrations. Never returns secret values."""
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def get(self, request):
+        from core.integration_inventory import INTEGRATIONS
+
+        rows = []
+        for row in INTEGRATIONS:
+            present = {
+                key: bool(getattr(settings, key, None)) for key in row["settings_keys"]
+            }
+            rows.append(
+                {
+                    "name": row["name"],
+                    "sandbox": row["sandbox"],
+                    "fallback": row["fallback"],
+                    "money_path": row["money_path"],
+                    "settings_present": present,
+                }
+            )
+        return Response({"integrations": rows})
+
+
+class InvariantsCheckView(APIView):
+    """Owner/support surface for `check_invariants` against the active company."""
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def get(self, request):
+        return self._run(request)
+
+    def post(self, request):
+        return self._run(request)
+
+    def _run(self, request):
+        from core.invariants import run_invariants
+
+        company = get_company_user(request).company
+        failures = run_invariants(company)
+        ok = not failures
+        return Response(
+            {"ok": ok, "company_id": company.id, "failures": failures},
+            status=status.HTTP_200_OK if ok else status.HTTP_409_CONFLICT,
+        )
+
+
 class HealthView(APIView):
     permission_classes = [AllowAny]
     # QOS-0050: a liveness / readiness probe must never be rate-limited, and must
@@ -213,6 +249,7 @@ class HealthView(APIView):
             "celery_beat": beat_ok,
             "pdf_queue_depth": pdf_queue_depth,
             "rls_enabled": bool(getattr(settings, "POSTGRES_RLS_ENABLED", False)),
+            "sentry_configured": bool((getattr(settings, "SENTRY_DSN", "") or "").strip()),
             "version": "v1",
         }
         http_status = (
@@ -271,6 +308,9 @@ class FileAssetViewSet(
         # BB-000499: magic-byte sniff before persisting (PDF %PDF, image headers).
         FileService.validate_upload(uploaded_file=uploaded, kind=kind)
         company = get_company_user(self.request).company
+        from billing.quotas import assert_storage_allowed
+
+        assert_storage_allowed(company, additional_bytes=int(getattr(uploaded, "size", 0) or 0))
         serializer.instance = FileService.store_upload(
             company=company,
             uploaded_file=uploaded,
@@ -404,9 +444,9 @@ class MetricsView(APIView):
                 matched = False
             if not matched:
                 return HttpResponse(status=401)
-        body = (
-            "# HELP bizboard_http_requests_total Total HTTP requests handled by this process.\n"
-            "# TYPE bizboard_http_requests_total counter\n"
-            f"bizboard_http_requests_total {get_request_count()}\n"
+        from core.ops_metrics import render_prometheus
+
+        return HttpResponse(
+            render_prometheus(),
+            content_type="text/plain; version=0.0.4; charset=utf-8",
         )
-        return HttpResponse(body, content_type="text/plain; version=0.0.4; charset=utf-8")

@@ -101,6 +101,10 @@ def test_bb_000587_request_path_redacts_document_numbers():
     assert _redact_path("/api/v1/sales/invoices/INV-2026-0001/") == "/api/v1/sales/invoices/:doc/"
     assert _redact_path("/api/v1/sales/invoices/") == "/api/v1/sales/invoices/"
     assert ":id" in _redact_path("/api/v1/files/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/")
+    assert "?" not in _redact_path("/api/v1/sales/invoices/?search=9812345678")
+    assert "9812345678" not in _redact_path("/api/v1/sales/invoices/?search=9812345678")
+    assert ":gstin" in _redact_path("/api/v1/masters/customers/29ABCDE1234F1Z5/")
+    assert "29ABCDE1234F1Z5" not in _redact_path("/api/v1/masters/customers/29ABCDE1234F1Z5/")
 
     captured = {}
 

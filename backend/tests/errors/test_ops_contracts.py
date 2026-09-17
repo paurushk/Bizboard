@@ -56,6 +56,17 @@ def test_metrics_endpoint_is_token_gated_and_parses():
         ]
         assert data_lines and all(len(ln.split()) >= 2 for ln in data_lines), text[:400]
         assert data_lines[-1].split()[-1].replace(".", "").isdigit()
+        for name in (
+            "bizboard_http_requests_total",
+            "bizboard_http_5xx_total",
+            "bizboard_http_request_duration_ms_sum",
+            "bizboard_celery_task_failure_total",
+            "bizboard_pdf_queue_depth",
+            "bizboard_dead_letter_events",
+            "bizboard_circuit_open",
+            "bizboard_health_db",
+        ):
+            assert name in text, name
 
 
 # --- §H9 / P3: recompute command is idempotent ----------------------------
@@ -259,3 +270,25 @@ def test_every_beat_task_is_importable_and_registered():
         assert hasattr(mod, func), f"beat entry {name!r} -> {dotted} is not importable"
         assert callable(getattr(mod, func)), f"{dotted} is not callable"
         assert "schedule" in cfg, f"beat entry {name!r} has no schedule"
+
+
+def test_every_beat_task_dry_runs_eager(tenant_a):
+    """H3: invoke each CELERY_BEAT_SCHEDULE task once in eager mode.
+
+    Empty-tenant / no-op bodies are success. This does **not** prove real-broker
+    ordering or retry timing (G-10 / Phase 5). Retry → user-visible state is
+    ``test_async_task_state.test_failed_invoice_pdf_ends_FAILED_and_is_recoverable``.
+    """
+    from importlib import import_module
+
+    from django.conf import settings
+
+    _ = tenant_a
+    schedule = settings.CELERY_BEAT_SCHEDULE
+    assert schedule, "CELERY_BEAT_SCHEDULE is empty"
+    for name, cfg in schedule.items():
+        dotted = cfg["task"]
+        module_path, _, func = dotted.rpartition(".")
+        task = getattr(import_module(module_path), func)
+        result = task.apply()
+        assert result.successful(), f"beat {name!r} ({dotted}) failed: {result.result!r}"

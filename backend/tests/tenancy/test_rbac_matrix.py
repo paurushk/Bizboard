@@ -1,7 +1,7 @@
 """FG-2d — role x capability -> permission truth table.
 
 The EXPECTED table below IS the spec. Every permission class is exercised for
-all four roles with that role's invite-time capability defaults applied; drift
+all freeze invite roles with that role's invite-time capability defaults applied; drift
 between ``CompanyUser.capability_defaults_for_role`` and the permission classes
 fails here.
 
@@ -18,23 +18,23 @@ from core import permissions as perms
 
 pytestmark = pytest.mark.django_db
 
-ROLES = ["OWNER", "ACCOUNTANT", "SALES_STAFF", "VIEWER"]
+ROLES = ["OWNER", "ACCOUNTANT", "SALES_STAFF", "VIEWER", "INVENTORY_STAFF", "MANAGER", "AUDITOR"]
 
 # permission class -> {role: expected has_permission for a write (POST) request}
 EXPECTED = {
-    "IsOwner":                 {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False},
-    "CanManageInventory":      {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False},
-    "CanImport":               {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False},
-    "CanCancelDocuments":      {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False},
-    "CanViewFinancialReports": {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False},
-    "CanExport":               {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False},
-    "CanCreatePurchases":      {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False},
+    "IsOwner":                 {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": False, "AUDITOR": False},
+    "CanManageInventory":      {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": True,  "MANAGER": True,  "AUDITOR": False},
+    "CanImport":               {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False},
+    "CanCancelDocuments":      {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False},
+    "CanViewFinancialReports": {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": True},
+    "CanExport":               {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": True},
+    "CanCreatePurchases":      {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": True,  "MANAGER": True,  "AUDITOR": False},
     # SALES_STAFF can record payments (incl. supplier payments) by default —
     # capability_defaults_for_role("SALES_STAFF")["can_create_payments"] is True.
     # Intentional per the model; flagged for founder awareness.
-    "CanCreatePayments":       {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": True,  "VIEWER": False},
-    "CanPostJournals":         {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False},
-    "CanCreateSales":          {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": True,  "VIEWER": False},
+    "CanCreatePayments":       {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": True,  "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False},
+    "CanPostJournals":         {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False},
+    "CanCreateSales":          {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": True,  "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False},
 }
 
 

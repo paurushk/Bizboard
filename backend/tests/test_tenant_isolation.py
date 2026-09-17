@@ -71,8 +71,10 @@ def test_document_numbers_are_per_company(tenant_a, tenant_b):
             {"product": product.id, "quantity": "1", "unit_price": "100"}
         ])
         resp = tenant.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
-        # Both companies get INV-00001 — sequences are independent
-        assert resp.data["number"] == "INV-00001"
+        # Sequences are independent per company: each tenant's first complete
+        # is seq 00001 (prefix may include FY+GSTIN when the fixture has a GSTIN).
+        assert resp.status_code == 200, resp.data
+        assert str(resp.data["number"]).endswith("00001")
 
 
 def test_search_is_isolated(tenant_a, tenant_b):
@@ -319,4 +321,94 @@ def test_journal_and_allocation_viewsets_are_company_scoped(tenant_a, tenant_b):
     )
     assert tenant_b.client.get(f"/api/v1/payments/allocations/{allocation.id}/").status_code == 404
     assert PaymentAllocation.objects.filter(pk=allocation.id, company=tenant_a.company).exists()
+
+
+def test_sales_register_and_files_are_tenant_scoped(tenant_a, tenant_b):
+    """3.10 — reports and file downloads must not leak another tenant's rows."""
+
+    product = make_product(tenant_a.company, sku="IDOR-A")
+    add_stock(tenant_a, product, "5")
+    customer = make_customer(tenant_a.company, name="IDOR Customer Alpha")
+    invoice = create_draft_invoice(
+        tenant_a,
+        customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "18"}],
+    )
+    done = tenant_a.client.post(f"/api/v1/sales/invoices/{invoice['id']}/complete/")
+    assert done.status_code == 200, done.data
+    number = done.data.get("number") or invoice.get("number")
+
+    foreign_report = tenant_b.client.get("/api/v1/reports/sales-register/")
+    assert foreign_report.status_code == 200
+    assert "IDOR Customer Alpha" not in str(foreign_report.data)
+    if number:
+        assert number not in str(foreign_report.data)
+
+    own_report = tenant_a.client.get("/api/v1/reports/sales-register/")
+    assert own_report.status_code == 200
+    assert "IDOR Customer Alpha" in str(own_report.data)
+
+    from core.models import FileAsset
+    from django.core.files.base import ContentFile
+
+    asset = FileAsset.objects.create(
+        company=tenant_a.company,
+        kind=FileAsset.Kind.ATTACHMENT,
+        original_name="idor.txt",
+        content_type="text/plain",
+        size=8,
+    )
+    asset.file.save(f"{asset.pk}.txt", ContentFile(b"secret-a"), save=True)
+    assert tenant_b.client.get(f"/api/v1/files/{asset.pk}/").status_code == 404
+    assert tenant_b.client.get(f"/api/v1/files/{asset.pk}/download/").status_code == 404
+    assert tenant_a.client.get(f"/api/v1/files/{asset.pk}/").status_code == 200
+
+    def _export_body(resp):
+        return b"".join(resp.streaming_content) if getattr(resp, "streaming", False) else resp.content
+
+    foreign_csv = tenant_b.client.get("/api/v1/exports/sales-register/")
+    assert foreign_csv.status_code == 200
+    leaked = _export_body(foreign_csv)
+    assert b"IDOR Customer Alpha" not in leaked
+    if number:
+        assert str(number).encode() not in leaked
+
+    foreign_customers = tenant_b.client.get("/api/v1/exports/customers/")
+    assert foreign_customers.status_code == 200
+    assert b"IDOR Customer Alpha" not in _export_body(foreign_customers)
+
+
+def test_purchase_register_and_export_are_tenant_scoped(tenant_a, tenant_b):
+    """3.10 — purchase JSON + CSV must not leak another tenant's supplier/invoice."""
+
+    product = make_product(tenant_a.company, sku="IDOR-PUR-A", purchase_price="80")
+    supplier = make_supplier(tenant_a.company, name="IDOR Supplier Alpha")
+    pur = create_draft_purchase(
+        tenant_a,
+        supplier,
+        [{"product": product.id, "quantity": "1", "unit_price": "80.00", "gst_rate": "18"}],
+    )
+    done = tenant_a.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/")
+    assert done.status_code == 200, done.data
+    number = done.data.get("number") or pur.get("number")
+
+    foreign_report = tenant_b.client.get("/api/v1/reports/purchase-register/")
+    assert foreign_report.status_code == 200
+    assert "IDOR Supplier Alpha" not in str(foreign_report.data)
+    if number:
+        assert number not in str(foreign_report.data)
+
+    own_report = tenant_a.client.get("/api/v1/reports/purchase-register/")
+    assert own_report.status_code == 200
+    assert "IDOR Supplier Alpha" in str(own_report.data)
+
+    def _export_body(resp):
+        return b"".join(resp.streaming_content) if getattr(resp, "streaming", False) else resp.content
+
+    foreign_csv = tenant_b.client.get("/api/v1/exports/purchases/")
+    assert foreign_csv.status_code == 200
+    leaked = _export_body(foreign_csv)
+    assert b"IDOR Supplier Alpha" not in leaked
+    if number:
+        assert str(number).encode() not in leaked
 

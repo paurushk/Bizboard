@@ -8,10 +8,11 @@ ADR-A25 / ADR-A28 (Sprint 3 / BB-000646):
 """
 
 import re
-from datetime import date
+from datetime import date, datetime
 
 from django.db import transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 
 from core.models import DocumentSeries
 
@@ -36,16 +37,30 @@ DEFAULT_PREFIXES = {
 }
 
 
-def gst_fy_label_for(on_date: date | None = None) -> str:
+def _as_date(on_date: date | datetime | str | None) -> date:
+    """Coerce API/service dates (ISO strings, datetime) to ``date``."""
+    if on_date is None:
+        return timezone.localdate()
+    if isinstance(on_date, datetime):
+        return on_date.date()
+    if isinstance(on_date, date):
+        return on_date
+    parsed = parse_date(str(on_date).strip()[:10])
+    if parsed is None:
+        raise ValueError(f"Invalid date for GST FY label: {on_date!r}")
+    return parsed
+
+
+def gst_fy_label_for(on_date: date | datetime | str | None = None) -> str:
     """GST document series FY always starts in April (Rule 46(b))."""
-    on_date = on_date or timezone.localdate()
+    on_date = _as_date(on_date)
     year = on_date.year
     if on_date.month < 4:
         year -= 1
     return f"{year}-{str(year + 1)[-2:]}"
 
 
-def fy_label_for(company, on_date: date | None = None) -> str:
+def fy_label_for(company, on_date: date | datetime | str | None = None) -> str:
     # Rule 46(b): GST invoice numbering uses April–March FY regardless of
     # company.fy_start_month (books FY may differ; statutory series must not).
     return gst_fy_label_for(on_date)

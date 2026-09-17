@@ -1,5 +1,10 @@
 """§H3 — a failed async task surfaces as user-visible state, never a silent
 hang or a 500. (Celery runs eager in tests, so the task body executes inline.)
+
+``test_failed_invoice_pdf_ends_FAILED_and_is_recoverable`` is the retry →
+user-visible-state proof (FAILED on pdf-status, then regenerate → READY).
+Beat-schedule dry-run lives in ``test_ops_contracts.test_every_beat_task_dry_runs_eager``.
+Does not close G-10 (real broker).
 """
 
 from __future__ import annotations

@@ -464,16 +464,24 @@ def _http_json(method: str, url: str, payload: dict | None, headers: dict | None
         method=method,
         headers={"Content-Type": "application/json", **(headers or {})},
     )
+    from core.circuit_breaker import CircuitOpenError, call as circuit_call
+
+    def _do():
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = resp.read().decode() or "{}"
+                return json.loads(body)
+        except urllib.error.HTTPError as exc:
+            raise BusinessRuleError(f"GSP HTTP {exc.code}: {exc.reason}") from exc
+        except urllib.error.URLError as exc:
+            raise BusinessRuleError(f"GSP unreachable: {exc.reason}") from exc
+        except json.JSONDecodeError as exc:
+            raise BusinessRuleError("GSP response is not valid JSON.") from exc
+
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read().decode() or "{}"
-            return json.loads(body)
-    except urllib.error.HTTPError as exc:
-        raise BusinessRuleError(f"GSP HTTP {exc.code}: {exc.reason}") from exc
-    except urllib.error.URLError as exc:
-        raise BusinessRuleError(f"GSP unreachable: {exc.reason}") from exc
-    except json.JSONDecodeError as exc:
-        raise BusinessRuleError("GSP response is not valid JSON.") from exc
+        return circuit_call("gsp_einvoice", _do, failure_threshold=5, cooldown_seconds=30)
+    except CircuitOpenError as exc:
+        raise BusinessRuleError("GSP is temporarily unavailable. Try again shortly.") from exc
 
 
 class HttpSandboxIrpAdapter:

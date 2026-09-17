@@ -68,6 +68,10 @@ def test_api_response_carries_hardening_headers(tenant_a):
     csp = resp.headers.get("Content-Security-Policy", "")
     assert "default-src 'none'" in csp
     assert "frame-ancestors 'none'" in csp
+    # 12.5 — tenant JSON must not be shared-cacheable.
+    cache = resp.headers.get("Cache-Control", "")
+    assert "no-store" in cache
+    assert "private" in cache
 
 
 def test_admin_response_gets_a_form_and_static_compatible_csp(client, settings):
@@ -284,3 +288,77 @@ def test_crud_mutations_write_audit_events(tenant_a):
     dele = tenant_a.client.delete(f"/api/v1/customers/{cid}/")
     assert dele.status_code in (204, 200), dele.status_code
     assert _count("DELETE", cid) == 1
+
+
+def test_complete_cancel_allocate_amend_write_audit_events(tenant_a):
+    """Document actions are not CompanyScopedViewSet CRUD — complete / cancel /
+    allocate / amend must still leave an AuditEvent (core.handlers + payments
+    allocation view). Freeze map: every mutation writes AuditEvent."""
+    from core.models import AuditEvent
+    from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
+
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "20")
+    customer = make_customer(tenant_a.company, state="Karnataka")
+
+    def _si_events(entity_id):
+        return AuditEvent.objects.filter(
+            company=tenant_a.company,
+            entity_type="SalesInvoice",
+            entity_id=str(entity_id),
+        )
+
+    inv = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "2", "unit_price": "100"}],
+    )
+    iid = inv["id"]
+    done = tenant_a.client.post(f"/api/v1/sales/invoices/{iid}/complete/")
+    assert done.status_code == 200, done.data
+    assert _si_events(iid).filter(description="sales_invoice.completed").exists()
+
+    amend = tenant_a.client.patch(
+        f"/api/v1/sales/invoices/{iid}/",
+        {
+            "confirm_amend": True,
+            "expected_amend_revision": done.data.get("amend_revision", 0),
+            "items": [{"product": product.id, "quantity": "2", "unit_price": "90"}],
+        },
+        format="json",
+    )
+    assert amend.status_code == 200, amend.data
+    assert _si_events(iid).filter(description="Completed document edited").exists()
+
+    receipt = tenant_a.client.post(
+        "/api/v1/payments/receipts/",
+        {"customer": customer.id, "amount": "50", "mode": "UPI"},
+        format="json",
+    )
+    assert receipt.status_code == 201, receipt.data
+    alloc = tenant_a.client.post(
+        "/api/v1/payments/allocations/",
+        {"receipt": receipt.data["id"], "sales_invoice": iid, "amount": "50"},
+        format="json",
+    )
+    assert alloc.status_code == 201, alloc.data
+    assert AuditEvent.objects.filter(
+        company=tenant_a.company,
+        entity_type="PaymentAllocation",
+        entity_id=str(alloc.data["id"]),
+        action="CREATE",
+    ).exists()
+
+    inv2 = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+    )
+    iid2 = inv2["id"]
+    done2 = tenant_a.client.post(f"/api/v1/sales/invoices/{iid2}/complete/")
+    assert done2.status_code == 200, done2.data
+    cancel = tenant_a.client.post(
+        f"/api/v1/sales/invoices/{iid2}/cancel/",
+        {"reason": "audit-gate"},
+        format="json",
+    )
+    assert cancel.status_code == 200, cancel.data
+    assert _si_events(iid2).filter(description="sales_invoice.cancelled").exists()

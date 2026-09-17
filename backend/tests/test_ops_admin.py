@@ -51,3 +51,21 @@ def test_adding_a_run_via_admin_enqueues_the_task(admin_client):
 def test_health_page_requires_staff_login():
     resp = Client().get("/admin/ops/health/")
     assert resp.status_code in (302, 403)
+
+
+def test_staff_non_superuser_cannot_open_tenant_or_money_admin():
+    User.objects.create_user(
+        email="staff-only@bizboard.local",
+        password="test-pass-123",
+        is_staff=True,
+        is_superuser=False,
+    )
+    client = Client()
+    assert client.login(email="staff-only@bizboard.local", password="test-pass-123")
+    for path in (
+        "/admin/accounts/company/",
+        "/admin/billing/subscription/",
+        "/admin/payroll/payrun/",
+    ):
+        resp = client.get(path)
+        assert resp.status_code in (302, 403), f"{path} returned {resp.status_code}"

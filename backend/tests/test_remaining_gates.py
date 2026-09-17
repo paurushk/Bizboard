@@ -36,6 +36,9 @@ def test_w0_04_gstin_company_stray_caller_uses_fy_series(tenant_a):
 
 
 def test_w0_04_no_gstin_keeps_legacy_unscoped_series(tenant_a):
+    from tests.conftest import clear_company_gstin
+
+    clear_company_gstin(tenant_a.company)
     assert DocumentNumberService.next_number(tenant_a.company, "SALES_INVOICE") == "INV-00001"
 
 

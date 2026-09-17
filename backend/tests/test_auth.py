@@ -411,6 +411,24 @@ def test_otp_verify_locks_out_after_max_attempts(tenant_a, monkeypatch):
     assert "Too many attempts" in str(locked.data)
 
 
+def test_otp_request_throttle_scope_enforced_by_drf(tenant_a, monkeypatch):
+    """A26 / WF-18 — DRF ScopedRateThrottle on otp/request (5/min). Distinct from
+    OTP_MAX_ATTEMPTS lockout on verify. Fresh client per request so cookie JWT
+    does not switch the throttle cache key (same pattern as register).
+    """
+    monkeypatch.setattr("django.conf.settings.OTP_ENABLED", True)
+    monkeypatch.setattr("django.conf.settings.SMS_PROVIDER", "console")
+    monkeypatch.setattr("django.conf.settings.OTP_DEBUG_ECHO", False)
+
+    phone = tenant_a.owner.phone
+    for _ in range(5):
+        resp = APIClient().post("/api/v1/auth/otp/request/", {"phone": phone}, format="json")
+        assert resp.status_code == 200, resp.data
+
+    throttled = APIClient().post("/api/v1/auth/otp/request/", {"phone": phone}, format="json")
+    assert throttled.status_code == 429
+
+
 def test_login_locks_out_after_repeated_failures(tenant_a):
     client = APIClient()
     for _ in range(10):
@@ -822,3 +840,46 @@ def test_forgot_password_unaffected_for_user_with_existing_password(tenant_a):
     assert mail.outbox
     assert "reset" in mail.outbox[0].subject.lower()
     assert "/reset-password?token=" in mail.outbox[0].body
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_password_reset_unknown_identifier_matches_known_shape(tenant_a):
+    """4.2 — no enumeration oracle: unknown vs known identifier, same 200 + body."""
+    from django.core import mail
+
+    client = APIClient()
+    known = client.post(
+        "/api/v1/auth/password/reset/",
+        {"email": tenant_a.owner.email},
+        format="json",
+    )
+    unknown = client.post(
+        "/api/v1/auth/password/reset/",
+        {"email": "nobody-does-not-exist@example.test"},
+        format="json",
+    )
+    assert known.status_code == unknown.status_code == 200
+    assert known.data == unknown.data
+    assert "If an account exists" in known.data["detail"]
+    assert len(mail.outbox) == 1
+
+
+def test_register_view_does_not_call_seed_demo():
+    import inspect
+
+    from accounts.views import RegisterView
+
+    src = inspect.getsource(RegisterView)
+    assert "seed_demo" not in src
+
+
+def test_seed_demo_refuses_staging_and_non_debug():
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    with override_settings(DJANGO_ENV="staging", DEBUG=True):
+        with pytest.raises(CommandError, match="refuses"):
+            call_command("seed_demo")
+    with override_settings(DJANGO_ENV="development", DEBUG=False):
+        with pytest.raises(CommandError, match="refuses"):
+            call_command("seed_demo")

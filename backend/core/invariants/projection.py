@@ -103,7 +103,7 @@ def stock_available_is_on_hand_minus_reserved(company) -> list[str]:
 
 @invariant(
     "projection.operational_sales_not_collapsed_into_open_receivables",
-    consequence="OPERATIONAL_SALE_STATUSES collapsed into OPEN_RECEIVABLE_STATUSES — analytics would count reversed sales as standing revenue (G-17 class).",
+    consequence="OPERATIONAL_SALE_STATUSES collapsed into OPEN_RECEIVABLE_STATUSES — analytics would count reversed sales as standing revenue (G-17 class). Named non-identity CFT-NID-01 (same shape as B2 pdf_as_issued vs live_outstanding): reports/ledgers include RETURNED; insights exclude it. Do not unify.",
 )
 def operational_sales_not_collapsed_into_open_receivables(company) -> list[str]:
     from purchases.status_semantics import OPEN_PAYABLE_STATUSES, OPERATIONAL_PURCHASE_STATUSES

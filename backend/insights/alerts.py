@@ -14,7 +14,7 @@ from ledgers.services import LedgerService
 from masters.models import Customer
 from payments.models import CustomerReceipt
 from purchases.models import PurchaseInvoice
-from purchases.status_semantics import OPEN_PAYABLE_STATUSES
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES, OPERATIONAL_PURCHASE_STATUSES
 from reporting.gst_health import build_gst_health
 from reporting.services import ReportService
 from sales.models import SalesInvoice, SalesItem
@@ -416,7 +416,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
     for it in (
         PurchaseItem.objects.filter(
             invoice__company=company,
-            invoice__status=PurchaseInvoice.Status.COMPLETED,
+            invoice__status__in=OPERATIONAL_PURCHASE_STATUSES,
         )
         .select_related("product", "invoice")
         .order_by("product_id", "-invoice__invoice_date", "-id")[:800]
@@ -427,7 +427,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
         prior = (
             PurchaseItem.objects.filter(
                 invoice__company=company,
-                invoice__status=PurchaseInvoice.Status.COMPLETED,
+                invoice__status__in=OPERATIONAL_PURCHASE_STATUSES,
                 product_id=it.product_id,
             )
             .exclude(id=it.id)

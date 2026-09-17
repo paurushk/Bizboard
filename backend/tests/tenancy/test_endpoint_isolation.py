@@ -32,6 +32,13 @@ _ALLOWLIST_SUFFIXES = (
     "SpectacularSwaggerView",
     "GatedSchemaView",
     "GatedSwaggerView",
+    # core.views.IntegrationsInventoryView: reports which outbound-integration
+    # settings keys are PRESENT (booleans only, never secret values) for this
+    # deployment -- that is per-deployment, not per-company, so it is
+    # identical for every tenant by design. Gated to IsOwner + HasCompany
+    # (company membership required to call it at all) even though the
+    # response itself carries no tenant-scoped data to leak.
+    "IntegrationsInventoryView",
 )
 _ALLOWLIST_MODULES = (
     "accounts.urls_auth",  # login / register / token — pre-company

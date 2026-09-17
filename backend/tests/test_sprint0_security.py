@@ -80,6 +80,7 @@ def test_health_ready_authenticated_includes_details(tenant_a):
     assert "db" in resp.data
     assert "cache" in resp.data
     assert "celery" in resp.data
+    assert "sentry_configured" in resp.data
 
 
 @pytest.mark.django_db

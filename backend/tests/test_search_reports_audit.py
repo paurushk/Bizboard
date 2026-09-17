@@ -24,16 +24,17 @@ def _setup_documents(tenant):
     inv = create_draft_invoice(tenant, customer, [
         {"product": product.id, "quantity": "10", "unit_price": "100"}
     ])
-    tenant.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    completed = tenant.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    assert completed.status_code == 200, completed.data
     pur = create_draft_purchase(tenant, supplier, [
         {"product": product.id, "quantity": "20", "unit_price": "80"}
     ])
     tenant.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/")
-    return product, customer, supplier
+    return product, customer, supplier, completed.data["number"]
 
 
 def test_universal_search_by_name_sku_barcode_and_number(tenant_a):
-    product, customer, supplier = _setup_documents(tenant_a)
+    product, customer, supplier, invoice_number = _setup_documents(tenant_a)
 
     resp = tenant_a.client.get("/api/v1/search/", {"q": "Sharma"})
     assert len(resp.data["customers"]) == 1
@@ -44,7 +45,7 @@ def test_universal_search_by_name_sku_barcode_and_number(tenant_a):
     resp = tenant_a.client.get("/api/v1/search/", {"q": "890123"})
     assert len(resp.data["products"]) == 1
 
-    resp = tenant_a.client.get("/api/v1/search/", {"q": "INV-00001"})
+    resp = tenant_a.client.get("/api/v1/search/", {"q": invoice_number})
     assert len(resp.data["invoices"]) == 1
     assert resp.data["invoices"][0]["kind"] == "sales"
 
@@ -115,7 +116,8 @@ def test_inventory_summary_and_product_sales(tenant_a):
 
 
 def test_csv_export(tenant_a):
-    _setup_documents(tenant_a)
+    _product, _customer, _supplier, invoice_number = _setup_documents(tenant_a)
+    number_bytes = str(invoice_number).encode()
 
     def _body(r):
         return b"".join(r.streaming_content) if getattr(r, "streaming", False) else r.content
@@ -124,12 +126,12 @@ def test_csv_export(tenant_a):
     resp = tenant_a.client.get("/api/v1/exports/sales-register/")
     assert resp.status_code == 200
     assert resp["Content-Type"] == "text/csv"
-    assert b"INV-00001" in _body(resp)
+    assert number_bytes in _body(resp)
 
     # Sales alias and date filtering (CR-074: date span <= 366 days)
     resp_filtered = tenant_a.client.get("/api/v1/exports/sales/?date_from=2026-01-01&date_to=2026-12-31")
     assert resp_filtered.status_code == 200
-    assert b"INV-00001" in _body(resp_filtered)
+    assert number_bytes in _body(resp_filtered)
 
     # Customer export
     resp_cust = tenant_a.client.get("/api/v1/exports/customers/")

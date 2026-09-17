@@ -49,6 +49,7 @@ def test_completed_invoice_audited_edit_allows_line_change(tenant_a):
     before_stock = StockBalance.objects.get(product=product).on_hand
     resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{data['id']}/", {
         "confirm_amend": True,
+        "expected_amend_revision": data.get("amend_revision", 0),
         "notes": "audited amend",
         "items": [{"product": product.id, "quantity": "2", "unit_price": "90"}],
     }, format="json")
@@ -135,6 +136,7 @@ def test_completed_invoice_amend_allows_reordered_lines(tenant_a):
     # Reverse order — matcher must use id/product, not list position.
     resp = tenant_a.client.patch(f"/api/v1/sales/invoices/{inv['id']}/", {
         "confirm_amend": True,
+        "expected_amend_revision": detail.get("amend_revision", 0),
         "items": [
             {"id": items[1]["id"], "product": p2.id, "quantity": "1", "unit_price": "55"},
             {"id": items[0]["id"], "product": p1.id, "quantity": "1", "unit_price": "110"},

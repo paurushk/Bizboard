@@ -181,3 +181,35 @@ def test_sequences_intact_flags_a_gap(tenant_a):
     SalesInvoice.objects.filter(pk=ids[1]).delete()
     problems = sequences_intact(tenant_a.company)
     assert problems and "gap" in problems[0].lower(), problems
+
+
+def test_invariants_check_http_owner_ok_staff_forbidden(tenant_a):
+    """5.6 — Owner/support recon report is the HTTP wrapper around run_invariants."""
+    ok = tenant_a.client.get("/api/v1/invariants/check/")
+    assert ok.status_code == 200, ok.data
+    assert ok.data["ok"] is True
+    assert ok.data["company_id"] == tenant_a.company.id
+    assert ok.data["failures"] == {}
+
+    posted = tenant_a.client.post("/api/v1/invariants/check/")
+    assert posted.status_code == 200, posted.data
+
+    staff = tenant_a.staff_client.get("/api/v1/invariants/check/")
+    assert staff.status_code == 403
+
+
+@pytest.mark.no_invariant_check
+def test_invariants_check_http_conflict_when_broken(tenant_a):
+    from decimal import Decimal
+
+    from inventory.models import StockBalance
+
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "10")
+    balance = StockBalance.objects.get(company=tenant_a.company, product=product)
+    balance.on_hand = Decimal("999999")
+    balance.save(update_fields=["on_hand"])
+    resp = tenant_a.client.get("/api/v1/invariants/check/")
+    assert resp.status_code == 409, resp.data
+    assert resp.data["ok"] is False
+    assert resp.data["failures"]

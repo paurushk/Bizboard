@@ -73,5 +73,25 @@ if [ "$ELAPSED" -gt "$BUDGET_SECONDS" ]; then
   exit 1
 fi
 
+# G-11b leftover (95-plan V3): sweep after migrate+seed. Synthetic bulk_create is
+# not a prod dump and may violate some invariants (party subledger, GST tie-out,
+# numbering). Default: record the output and continue. Set
+# INVARIANTS_STRICT_REHEARSAL=1 to fail the script on any invariant miss.
+echo "migration-rehearsal: check_invariants after synthetic seed ..."
+set +e
+(cd backend && "$PY_BIN" manage.py check_invariants)
+INV_RC=$?
+set -e
+if [ "$INV_RC" -ne 0 ]; then
+  echo "migration-rehearsal: check_invariants exited ${INV_RC} on SYNTHETIC data (not a prod dump)."
+  if [ "${INVARIANTS_STRICT_REHEARSAL:-0}" = "1" ]; then
+    echo "migration-rehearsal: FAIL — INVARIANTS_STRICT_REHEARSAL=1" >&2
+    exit 1
+  fi
+  echo "migration-rehearsal: WARNING — not failing the rehearsal. A real anonymised dump + INVARIANTS_STRICT_REHEARSAL=1 is the 95 bar."
+else
+  echo "migration-rehearsal: check_invariants clean on the synthetic seed."
+fi
+
 echo "migration-rehearsal: PASS — the migration series applies cleanly and within budget at volume."
 echo "migration-rehearsal: reminder — this is a SYNTHETIC dataset; it does not replace a real anonymised production dump."

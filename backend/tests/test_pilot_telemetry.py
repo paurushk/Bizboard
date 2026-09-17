@@ -46,7 +46,10 @@ def test_allocation_emits_reconciled_telemetry_clean(tenant_a):
 
     ev = ShopFloorEvent.objects.filter(company=tenant_a.company, event="allocation_reconciled")
     assert ev.count() == 1
-    assert ev.first().tap_count == 0  # derived outstanding stayed in band → no discrepancy
+    row = ev.first()
+    assert row.tap_count == 0  # derived outstanding stayed in band → no discrepancy
+    assert row.journey == "payment"
+    assert row.success is True
 
 
 def test_soft_close_emits_period_closed_telemetry(tenant_a):

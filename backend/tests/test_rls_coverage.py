@@ -67,3 +67,22 @@ def test_rls_policy_present_and_forced_on_postgres():
     for tbl in _migration_tables():
         assert tbl in forced, f"{tbl} does not have FORCE ROW LEVEL SECURITY"
         assert tbl in with_policy, f"{tbl} is missing the bizboard_company_isolation policy"
+
+
+def test_payment_webhook_uses_rls_bypass_then_sets_company():
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1].joinpath("payments", "webhook_views.py").read_text(encoding="utf-8")
+    assert "rls_bypass" in src
+    assert "set_rls_company" in src
+    assert "def payment_webhook" in src
+
+
+def test_rls_bypass_clears_guc_in_finally():
+    import inspect
+
+    from core.rls import rls_bypass
+
+    src = inspect.getsource(rls_bypass)
+    assert "finally" in src
+    assert "set_rls_bypass(False)" in src

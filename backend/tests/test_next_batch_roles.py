@@ -95,6 +95,54 @@ def test_invite_accountant_applies_capability_defaults(tenant_a):
     assert resp.data["can_post_journals"] is True
 
 
+def test_invite_inventory_staff_applies_capability_defaults(tenant_a):
+    """4.4 / V5 — invite INVENTORY_STAFF uses capability_defaults_for_role, not the UI payload."""
+    resp = tenant_a.client.post(
+        "/api/v1/company/users/",
+        {
+            "email": "warehouse@alpha.test",
+            "password": "StrongPass123!",
+            "role": "INVENTORY_STAFF",
+            "can_create_sales": True,
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    assert resp.data["role"] == "INVENTORY_STAFF"
+    assert resp.data["can_manage_inventory"] is True
+    assert resp.data["can_create_purchases"] is True
+    assert resp.data["can_create_sales"] is False
+    assert resp.data["can_create_payments"] is False
+    assert resp.data["can_post_journals"] is False
+    assert resp.data["can_view_financial_reports"] is False
+
+
+def test_invite_auditor_applies_capability_defaults(tenant_a):
+    resp = tenant_a.client.post(
+        "/api/v1/company/users/",
+        {"email": "audit@alpha.test", "password": "StrongPass123!", "role": "AUDITOR"},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    assert resp.data["can_view_financial_reports"] is True
+    assert resp.data["can_export"] is True
+    assert resp.data["can_create_sales"] is False
+    assert resp.data["can_post_journals"] is False
+
+
+def test_invite_manager_applies_capability_defaults(tenant_a):
+    resp = tenant_a.client.post(
+        "/api/v1/company/users/",
+        {"email": "mgr@alpha.test", "password": "StrongPass123!", "role": "MANAGER"},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    assert resp.data["can_create_sales"] is True
+    assert resp.data["can_create_purchases"] is True
+    assert resp.data["can_post_journals"] is True
+    assert resp.data["can_manage_inventory"] is True
+
+
 # --- Wave 12B: RBAC surface gates -------------------------------------------------
 
 

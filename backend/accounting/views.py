@@ -372,7 +372,7 @@ class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         from django.conf import settings
         from django.http import Http404
 
-        if not getattr(settings, "ENABLE_FIXED_ASSETS", True):
+        if not getattr(settings, "ENABLE_FIXED_ASSETS", False):
             raise Http404()
         super().initial(request, *args, **kwargs)
 

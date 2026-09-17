@@ -43,7 +43,12 @@ def statutory_events_present(company) -> list[str]:
 
 def money_mutations_logged(company) -> list[str]:
     """Every append-only MoneyFieldAudit row points at a live entity and records
-    the from/to values — the change trail is not silently truncated."""
+    the from/to values — the change trail is not silently truncated.
+
+    Completed-doc money amends (line price / totals) are asserted to *write*
+    a row in tests/test_money_audit_completed.py — this callable only audits
+    the quality of rows that exist.
+    """
     from core.models import MoneyFieldAudit
 
     out: list[str] = []

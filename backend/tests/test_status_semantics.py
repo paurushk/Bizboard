@@ -56,3 +56,22 @@ def test_status_sets_have_no_surprise_members():
     # inclusion via `in ALL_STATUSES`-style iteration.
     assert OPEN_RECEIVABLE_STATUSES == (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
     assert OPERATIONAL_SALE_STATUSES == (SalesInvoice.Status.COMPLETED,)
+
+
+def test_reporting_includes_returned_insights_exclude():
+    """CFT-NID-01: import-site lock so a PR cannot unify reports vs insights.
+
+    The projection invariant already fails if the *tuples* collapse. This
+    extra pin fails if reporting or insights stop sourcing the intended
+    predicate (the actual 'unify the two OPEN_SALES' footgun).
+    """
+    from insights.alerts import OPEN_SALES as alerts_open
+    from insights.services import OPEN_SALES as insights_open
+    from reporting.services import OPEN_SALES as reporting_open
+
+    assert reporting_open == OPEN_RECEIVABLE_STATUSES
+    assert SalesInvoice.Status.RETURNED in reporting_open
+    assert insights_open == OPERATIONAL_SALE_STATUSES
+    assert alerts_open == OPERATIONAL_SALE_STATUSES
+    assert SalesInvoice.Status.RETURNED not in insights_open
+    assert reporting_open != insights_open

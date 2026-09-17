@@ -2072,7 +2072,9 @@ class BooksHealthService:
             alerts.append({"code": "AP_CONTROL_MISMATCH", "severity": "error", "message": "Accounts payable control balance differs from supplier ledger."})
         if AccountingPeriod.objects.filter(company=company, status=AccountingPeriod.Status.SOFT_CLOSED).exists():
             alerts.append({"code": "PERIOD_SOFT_CLOSED", "severity": "warning", "message": "One or more accounting periods are soft closed."})
+        from purchases.status_semantics import OPEN_PAYABLE_STATUSES
         from sales.models import SalesInvoice, SalesCreditNote, SalesDebitNote, SalesReturn
+        from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
         from purchases.models import (
             BillOfEntry,
             PurchaseCreditNote,
@@ -2099,7 +2101,7 @@ class BooksHealthService:
                 _has_missing(
                     SalesInvoice.objects.filter(
                         company=company,
-                        status=SalesInvoice.Status.COMPLETED,
+                        status__in=OPEN_RECEIVABLE_STATUSES,
                         is_opening_balance=False,
                     ),
                     "SALES_INVOICE",
@@ -2108,7 +2110,7 @@ class BooksHealthService:
                 or _has_missing(
                     PurchaseInvoice.objects.filter(
                         company=company,
-                        status=PurchaseInvoice.Status.COMPLETED,
+                        status__in=OPEN_PAYABLE_STATUSES,
                         is_opening_balance=False,
                     ),
                     "PURCHASE_INVOICE",

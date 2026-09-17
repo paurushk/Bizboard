@@ -350,6 +350,9 @@ class RegisterView(APIView):
         AuditService.log(company=company, user=user, action="CREATE",
                          entity_type="Company", entity_id=company.id,
                          description="Company registered")
+        from insights.telemetry import record_event
+
+        record_event(company, "signup_completed", user=user, journey="signup", success=True)
         # BB-000389: never set auth cookies on register (enumeration oracle).
         return Response(_register_payload(), status=status.HTTP_200_OK)
 

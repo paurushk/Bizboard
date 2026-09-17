@@ -76,3 +76,23 @@ def test_bb_000753_metrics_returns_counter():
     assert resp.status_code == 200
     body = resp.content.decode("utf-8")
     assert "bizboard_http_requests_total" in body
+    assert "bizboard_http_5xx_total" in body
+    assert "bizboard_circuit_open" in body
+
+
+def test_staging_compose_defaults_rls_on_for_soak():
+    staging = (ROOT / "docker-compose.staging.yml").read_text(encoding="utf-8")
+    assert "${POSTGRES_RLS_ENABLED:-1}" in staging
+    prod_env = (ROOT / ".env.production.example").read_text(encoding="utf-8")
+    assert "POSTGRES_RLS_ENABLED=0" in prod_env
+    staging_env = (ROOT / ".env.staging.example").read_text(encoding="utf-8")
+    assert "POSTGRES_RLS_ENABLED=1" in staging_env
+
+
+@pytest.mark.django_db
+def test_danger_flags_default_off():
+    from django.conf import settings as dj_settings
+
+    assert dj_settings.GSP_LIVE_ENABLED is False
+    assert dj_settings.ENABLE_TENANT_ERASURE is False
+    assert dj_settings.POSTGRES_RLS_ENABLED is False

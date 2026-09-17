@@ -21,6 +21,7 @@ def test_invoice_audit_endpoint_returns_amend_diff(tenant_a):
         f"/api/v1/sales/invoices/{inv['id']}/",
         {
             "confirm_amend": True,
+            "expected_amend_revision": completed.data.get("amend_revision", 0),
             "notes": "audited amend",
             "items": [{"product": product.id, "quantity": "2", "unit_price": "90"}],
         },

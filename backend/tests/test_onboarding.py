@@ -7,8 +7,9 @@ from pathlib import Path
 
 from accounts.models import Company
 from accounts.onboarding import derive_onboarding, should_force_setup
+from insights.models import ShopFloorEvent
 from sales.models import SalesInvoice
-from tests.conftest import add_stock, make_customer, make_product
+from tests.conftest import add_stock, clear_company_gstin, make_customer, make_product
 
 
 pytestmark = pytest.mark.django_db
@@ -62,9 +63,13 @@ def test_owner_can_dismiss_onboarding(tenant_a):
     assert response.data["onboarding"]["status"] == "DISMISSED"
     tenant_a.company.refresh_from_db()
     assert tenant_a.company.onboarding_dismissed_at is not None
+    assert ShopFloorEvent.objects.filter(
+        company=tenant_a.company, event="wizard_completed"
+    ).exists()
 
 
 def test_regular_tax_confirmation_requires_valid_gstin(tenant_a):
+    clear_company_gstin(tenant_a.company)
     rejected = tenant_a.client.patch(
         "/api/v1/company/",
         {
@@ -76,6 +81,9 @@ def test_regular_tax_confirmation_requires_valid_gstin(tenant_a):
     assert rejected.status_code == 400
     tenant_a.company.refresh_from_db()
     assert tenant_a.company.tax_profile_confirmed_at is None
+    assert not ShopFloorEvent.objects.filter(
+        company=tenant_a.company, event="wizard_tax_confirmed"
+    ).exists()
 
     confirmed = tenant_a.client.patch(
         "/api/v1/company/",
@@ -88,6 +96,14 @@ def test_regular_tax_confirmation_requires_valid_gstin(tenant_a):
     )
     assert confirmed.status_code == 200, confirmed.data
     assert confirmed.data["onboarding"]["tax_done"] is True
+    assert ShopFloorEvent.objects.filter(
+        company=tenant_a.company, event="wizard_tax_confirmed"
+    ).exists()
+    tax_row = ShopFloorEvent.objects.get(
+        company=tenant_a.company, event="wizard_tax_confirmed"
+    )
+    assert tax_row.journey == "signup"
+    assert tax_row.success is True
 
 
 def test_composition_cannot_complete_gst_tax_invoice(tenant_a):

@@ -2,7 +2,7 @@ import inspect
 import os
 
 from celery import Celery
-from celery.signals import task_postrun, task_prerun
+from celery.signals import before_task_publish, task_failure, task_postrun, task_prerun
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
@@ -137,10 +137,141 @@ def set_rls_company_for_task(sender=None, task_id=None, task=None, args=None, kw
     from core.rls import set_rls_company
 
     set_rls_company(company_id)
+    _bind_task_observability(task=task, task_id=task_id, company_id=company_id)
 
 
 @task_postrun.connect
-def clear_rls_company_for_task(sender=None, task_id=None, task=None, args=None, kwargs=None, retval=None, **_extras):
+def clear_rls_company_for_task(
+    sender=None, task_id=None, task=None, args=None, kwargs=None, retval=None, state=None, **_extras
+):
+    try:
+        # task_failure already emits the JSON line for FAILURE.
+        if (state or "").upper() not in ("FAILURE", "REJECTED"):
+            _log_celery_task(task=task, task_id=task_id, state=state, error=None)
+    except Exception:  # noqa: BLE001 — observability must not break tasks
+        pass
     from core.rls import set_rls_company
 
     set_rls_company(None)
+    try:
+        from core.observability import clear_request_context
+
+        clear_request_context()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@before_task_publish.connect
+def _inject_request_id_header(headers=None, **_kwargs):
+    if headers is None:
+        return
+    try:
+        from core.observability import current_company_hash, current_request_id
+
+        rid = current_request_id()
+        if rid:
+            headers.setdefault("request_id", rid)
+        ch = current_company_hash()
+        if ch:
+            headers.setdefault("company_hash", ch)
+    except Exception:  # noqa: BLE001
+        return
+
+
+@task_failure.connect
+def _on_celery_task_failure(sender=None, task_id=None, exception=None, **_kwargs):
+    try:
+        from core.ops_metrics import bump_celery_failure
+
+        bump_celery_failure()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        _log_celery_task(
+            task=sender,
+            task_id=task_id,
+            state="FAILURE",
+            error=type(exception).__name__ if exception is not None else "Exception",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _task_header(req, name: str):
+    if req is None:
+        return None
+    val = getattr(req, name, None)
+    if val:
+        return val
+    if hasattr(req, "get"):
+        try:
+            val = req.get(name)
+        except Exception:  # noqa: BLE001
+            val = None
+        if val:
+            return val
+    headers = getattr(req, "headers", None)
+    if isinstance(headers, dict):
+        return headers.get(name)
+    return None
+
+
+def _bind_task_observability(*, task, task_id, company_id):
+    import time
+
+    from core.observability import apply_sentry_tags, bind_request_context, hash_id
+
+    req = getattr(task, "request", None) if task is not None else None
+    rid = _task_header(req, "request_id")
+    ch = hash_id(company_id) if company_id is not None else None
+    header_hash = _task_header(req, "company_hash")
+    if header_hash and not ch:
+        ch = str(header_hash)
+    if req is not None:
+        try:
+            req._bizboard_started = time.monotonic()
+        except Exception:  # noqa: BLE001
+            pass
+    bind_request_context(request_id=str(rid) if rid else None, company_hash=ch)
+    apply_sentry_tags(request_id=str(rid) if rid else None, company_hash=ch, task_id=task_id)
+
+
+def _log_celery_task(*, task, task_id, state, error):
+    import json
+    import logging
+    import time
+
+    from core.observability import current_company_hash, current_request_id
+
+    req = getattr(task, "request", None) if task is not None else None
+    started = getattr(req, "_bizboard_started", None) if req is not None else None
+    duration_ms = None
+    if started is not None:
+        duration_ms = int((time.monotonic() - float(started)) * 1000)
+    retries = 0
+    if req is not None:
+        retries = int(getattr(req, "retries", 0) or 0)
+    name = getattr(task, "name", None) or getattr(getattr(task, "request", None), "task", None) or "unknown"
+    status = "success"
+    st = (state or "").upper()
+    if st in ("FAILURE", "REJECTED"):
+        status = "failure"
+    elif st == "RETRY":
+        status = "retry"
+    logging.getLogger("bizboard.celery").info(
+        json.dumps(
+            {
+                "event": "celery.task",
+                "task": name,
+                "task_id": str(task_id) if task_id else None,
+                "request_id": current_request_id(),
+                "company_hash": current_company_hash(),
+                "status": status,
+                "duration_ms": duration_ms,
+                "retry_count": retries,
+                "error": error,
+            },
+            separators=(",", ":"),
+        )
+    )
+

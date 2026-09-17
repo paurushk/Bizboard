@@ -494,3 +494,58 @@ def test_concurrent_invoice_numbering_no_duplicate(tenant_a):
     assert SalesInvoice.objects.filter(
         company=tenant_a.company, status=SalesInvoice.Status.COMPLETED
     ).count() == 2
+
+
+def test_cft_120_concurrent_same_invoice_amend_one_wins(tenant_a):
+    """CFT-120 — two concurrent completed-invoice amends: one 200, one 409, no double money write."""
+    _require_postgres()
+    product = make_product(tenant_a.company, sku="RACE-AMEND")
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(
+        tenant_a, customer, [{"product": product.id, "quantity": "1", "unit_price": "100"}]
+    )
+    done = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    assert done.status_code == 200, done.data
+    rev = done.data.get("amend_revision", 0)
+    invoice_id = inv["id"]
+    statuses: list[int] = []
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(2, timeout=10)
+
+    def amend(price: str):
+        connection.close()
+        try:
+            barrier.wait()
+            resp = tenant_a.client.patch(
+                f"/api/v1/sales/invoices/{invoice_id}/",
+                {
+                    "confirm_amend": True,
+                    "expected_amend_revision": rev,
+                    "items": [{"product": product.id, "quantity": "1", "unit_price": price}],
+                },
+                format="json",
+            )
+            statuses.append(resp.status_code)
+        except Exception as exc:  # pragma: no cover
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    threads = [
+        threading.Thread(target=amend, args=("90",)),
+        threading.Thread(target=amend, args=("80",)),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not errors, errors
+    assert sorted(statuses) == [200, 409], statuses
+    from sales.models import SalesInvoice
+
+    obj = SalesInvoice.objects.get(pk=invoice_id)
+    assert obj.amend_revision == int(rev) + 1
+    price = Decimal(str(obj.items.get().unit_price))
+    assert price in (Decimal("90.00"), Decimal("80.00"))

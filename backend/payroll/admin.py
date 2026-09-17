@@ -1,10 +1,12 @@
 from django.contrib import admin
 
+from core.admin import SuperuserOnlyAdminMixin
+
 from .models import Employee, PayRun, PaySlip
 
 
 @admin.register(Employee)
-class EmployeeAdmin(admin.ModelAdmin):
+class EmployeeAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("code", "name", "salary", "status", "company")
     list_filter = ("status",)
     search_fields = ("code", "name")
@@ -23,12 +25,12 @@ class EmployeeAdmin(admin.ModelAdmin):
 
 
 @admin.register(PayRun)
-class PayRunAdmin(admin.ModelAdmin):
+class PayRunAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("period", "status", "company")
     list_filter = ("status",)
 
 
 @admin.register(PaySlip)
-class PaySlipAdmin(admin.ModelAdmin):
+class PaySlipAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("id", "pay_run", "employee", "gross", "pf_employee", "esi_employee", "pt_amount", "net")
     search_fields = ("employee__name", "employee__code")

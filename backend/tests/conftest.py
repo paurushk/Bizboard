@@ -226,12 +226,25 @@ def add_stock(tenant, product, qty, unit_cost="80"):
     )
 
 
-def create_draft_invoice(tenant, customer, items, invoice_type="GST"):
+def clear_company_gstin(company):
+    """Force the legacy unscoped document series (W0-04 empty-GSTIN path)."""
+    company.gstin = ""
+    company.gstin_verification_status = "UNVERIFIED"
+    company.gstin_verified_at = None
+    company.save(update_fields=["gstin", "gstin_verification_status", "gstin_verified_at"])
+    return company
+
+
+def create_draft_invoice(tenant, customer, items, invoice_type="GST", **extra):
     payload = {
         "customer": customer.id,
         "invoice_type": invoice_type,
         "items": items,
+        **extra,
     }
+    invoice_date = payload.get("invoice_date")
+    if invoice_date is not None and hasattr(invoice_date, "isoformat") and not isinstance(invoice_date, str):
+        payload["invoice_date"] = invoice_date.isoformat()
     resp = tenant.client.post("/api/v1/sales/invoices/", payload, format="json")
     assert resp.status_code == 201, resp.data
     return resp.data

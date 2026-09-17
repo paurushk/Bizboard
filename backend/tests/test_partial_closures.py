@@ -397,6 +397,7 @@ def test_h9_price_amend_keeps_sale_peel_cogs(tenant_a):
         f"/api/v1/sales/invoices/{inv['id']}/",
         {
             "confirm_amend": True,
+            "expected_amend_revision": SalesInvoice.objects.get(pk=inv["id"]).amend_revision,
             "items": [{"product": product.id, "quantity": "2", "unit_price": "90", "gst_rate": "0"}],
         },
         format="json",

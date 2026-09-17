@@ -308,6 +308,7 @@ def test_cr053_import_void_compensating_movement_only(tenant_a):
         movement_type=MovementType.ADJUSTMENT,
     )
     assert reverse.quantity == Decimal("-10")
+    assert InventoryService.opening_is_voided(opening) is True
     bal = StockBalance.objects.get(company=tenant_a.company, product__sku="SKU-VOID-A12")
     assert bal.on_hand == Decimal("0")
 

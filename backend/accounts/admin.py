@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
+from core.admin import SuperuserOnlyAdminMixin
+
 from .models import Company, CompanyUser, User
 
 
@@ -25,6 +27,16 @@ class UserAdmin(DjangoUserAdmin):
     )
 
 
+@admin.register(Company)
+class CompanyAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ("name", "gstin", "state")
+    search_fields = ("name", "gstin")
+
+
+@admin.register(CompanyUser)
+class CompanyUserAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ("company", "user", "role")
+    search_fields = ("user__email",)
+
+
 admin.site.register(User, UserAdmin)
-admin.site.register(Company)
-admin.site.register(CompanyUser)

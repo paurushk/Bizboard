@@ -2,12 +2,19 @@
 
 import pytest
 
-from core.services.document_numbers import DocumentNumberService
+from core.services.document_numbers import DocumentNumberService, gst_fy_label_for
+from tests.conftest import clear_company_gstin
 
 pytestmark = pytest.mark.django_db
 
 
+def test_gst_fy_label_accepts_iso_date_strings():
+    assert gst_fy_label_for("2026-04-10") == "2026-27"
+    assert gst_fy_label_for("2026-03-31") == "2025-26"
+
+
 def test_sequences_are_sequential(tenant_a):
+    clear_company_gstin(tenant_a.company)
     n1 = DocumentNumberService.next_number(tenant_a.company, "SALES_INVOICE")
     n2 = DocumentNumberService.next_number(tenant_a.company, "SALES_INVOICE")
     assert n1 == "INV-00001"
@@ -15,6 +22,7 @@ def test_sequences_are_sequential(tenant_a):
 
 
 def test_sequences_are_independent_per_doc_type(tenant_a):
+    clear_company_gstin(tenant_a.company)
     DocumentNumberService.next_number(tenant_a.company, "SALES_INVOICE")
     assert DocumentNumberService.next_number(tenant_a.company, "PURCHASE_INVOICE") == "PUR-00001"
     assert DocumentNumberService.next_number(tenant_a.company, "QUOTATION") == "QTN-00001"
@@ -23,6 +31,8 @@ def test_sequences_are_independent_per_doc_type(tenant_a):
 
 
 def test_sequences_are_independent_per_company(tenant_a, tenant_b):
+    clear_company_gstin(tenant_a.company)
+    clear_company_gstin(tenant_b.company)
     DocumentNumberService.next_number(tenant_a.company, "SALES_INVOICE")
     assert DocumentNumberService.next_number(tenant_b.company, "SALES_INVOICE") == "INV-00001"
 
@@ -72,4 +82,5 @@ def test_deleting_draft_invoice_leaves_no_number_gap(tenant_a):
         {"product": product.id, "quantity": "1", "unit_price": "100"}
     ])
     complete_resp = tenant_a.client.post(f"/api/v1/sales/invoices/{second['id']}/complete/")
-    assert complete_resp.data["number"] == "INV-00001"
+    assert complete_resp.status_code == 200, complete_resp.data
+    assert str(complete_resp.data["number"]).endswith("00001")
