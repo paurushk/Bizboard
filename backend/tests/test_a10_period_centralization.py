@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
-from decimal import Decimal
 from io import StringIO
 from unittest.mock import patch
 

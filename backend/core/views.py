@@ -5,10 +5,13 @@ from django.core.cache import cache
 from django.db import connection
 from django.http import FileResponse, Http404, HttpResponse
 from rest_framework import mixins, status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view
+from rest_framework.decorators import permission_classes as drf_permission_classes
+from rest_framework.decorators import throttle_classes
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from core.exceptions import BusinessRuleError, CompanyRequired
@@ -450,3 +453,95 @@ class MetricsView(APIView):
             render_prometheus(),
             content_type="text/plain; version=0.0.4; charset=utf-8",
         )
+
+
+def _company_for_flags(request):
+    try:
+        return get_company_user(request).company
+    except CompanyRequired:
+        return None
+
+
+class TelegramStatusView(APIView):
+    """GET /api/v1/telegram/status/ — this user's Telegram link state."""
+
+    def get(self, request):
+        from core.services.feature_flags import build_feature_flags
+
+        flags = build_feature_flags(company=_company_for_flags(request), user=request.user)
+        return Response(
+            {
+                "enabled": bool(flags.get("ENABLE_TELEGRAM")),
+                "linked": bool(request.user.telegram_chat_id),
+            }
+        )
+
+
+class TelegramLinkView(APIView):
+    """POST /api/v1/telegram/link/ — issue a one-time /start deep link."""
+
+    def post(self, request):
+        from core.services.feature_flags import build_feature_flags
+        from core.services.telegram import LINK_CODE_TTL, bot_deep_link, generate_link_code
+
+        flags = build_feature_flags(company=_company_for_flags(request), user=request.user)
+        if not flags.get("ENABLE_TELEGRAM"):
+            raise BusinessRuleError("Telegram notifications are not enabled for this company.")
+        if not (getattr(settings, "TELEGRAM_BOT_USERNAME", "") or "").strip():
+            raise BusinessRuleError("Telegram bot is not configured (missing TELEGRAM_BOT_USERNAME).")
+
+        code = generate_link_code(request.user)
+        deep_link = bot_deep_link(code)
+        return Response({"deep_link": deep_link, "expires_in": int(LINK_CODE_TTL.total_seconds())})
+
+
+class TelegramUnlinkView(APIView):
+    """POST /api/v1/telegram/unlink/ — disconnect this user's Telegram account."""
+
+    def post(self, request):
+        request.user.telegram_chat_id = ""
+        request.user.telegram_link_code = ""
+        request.user.telegram_link_code_expires_at = None
+        request.user.save(
+            update_fields=["telegram_chat_id", "telegram_link_code", "telegram_link_code_expires_at"]
+        )
+        return Response({"linked": False})
+
+
+class TelegramWebhookThrottle(AnonRateThrottle):
+    rate = "60/min"
+
+
+@api_view(["POST"])
+@drf_permission_classes([AllowAny])
+@throttle_classes([TelegramWebhookThrottle])
+def telegram_webhook(request):
+    """POST /api/v1/telegram/webhook/ — /start <code> linking handshake only.
+
+    This is not a two-way command bot: any update that isn't a recognized
+    /start code is acknowledged and dropped.
+    """
+    secret = (getattr(settings, "TELEGRAM_WEBHOOK_SECRET", "") or "").strip()
+    provided = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not secret or not hmac.compare_digest(provided, secret):
+        return Response(status=status.HTTP_401_UNAUTHORIZED)
+
+    message = (request.data or {}).get("message") or {}
+    text = (message.get("text") or "").strip()
+    chat = message.get("chat") or {}
+    chat_id = chat.get("id")
+    if chat_id is None or not text.startswith("/start"):
+        return Response({"ok": True})
+
+    from core.services.telegram import link_chat_id, resolve_link_code, send_telegram_message
+
+    parts = text.split(maxsplit=1)
+    code = parts[1].strip() if len(parts) > 1 else ""
+    user = resolve_link_code(code)
+    if user is None:
+        send_telegram_message(str(chat_id), "This link has expired. Generate a new one from Bizboard settings.")
+        return Response({"ok": True})
+
+    link_chat_id(user, str(chat_id))
+    send_telegram_message(str(chat_id), "Bizboard is now connected. You'll receive alerts here.")
+    return Response({"ok": True})

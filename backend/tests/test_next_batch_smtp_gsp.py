@@ -7,7 +7,7 @@ from django.test import override_settings
 
 from core.exceptions import BusinessRuleError
 from core.models import Notification
-from core.services.gsp_adapters import LiveIrpAdapter, SandboxIrpAdapter, get_irp_adapter
+from core.services.gsp_adapters import SandboxIrpAdapter, get_irp_adapter
 from core.services.notifications import NotificationService
 from core.tasks import send_email_notification
 from purchases.models import PurchaseCreditNote

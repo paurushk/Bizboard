@@ -5,11 +5,10 @@ from decimal import Decimal
 
 import pytest
 
-from core.exceptions import BusinessRuleError
 from ledgers.services import LedgerService
 from purchases.models import PurchaseInvoice
 from reporting.services import ReportService
-from sales.models import DeliveryChallan, SalesInvoice, SalesOrder
+from sales.models import SalesInvoice, SalesOrder
 from sales.notes_services import SalesNotesService
 from tests.conftest import (
     add_stock,

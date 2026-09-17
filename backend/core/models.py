@@ -219,6 +219,7 @@ class Notification(CompanyScopedModel):
         WHATSAPP = "WHATSAPP"
         SMS = "SMS"
         PUSH = "PUSH"
+        TELEGRAM = "TELEGRAM"
 
     class Status(models.TextChoices):
         QUEUED = "QUEUED"

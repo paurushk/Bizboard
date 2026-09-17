@@ -457,6 +457,12 @@ export const navigation: NavItem[] = [
         path: '/settings/backup',
         visible: canExport,
       },
+      {
+        id: 'telegram',
+        labelKey: 'nav.telegram',
+        path: '/settings/telegram',
+        visible: (user) => Boolean(user),
+      },
     ],
   },
   {

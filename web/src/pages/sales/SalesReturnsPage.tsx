@@ -39,6 +39,7 @@ import {
   type InvoiceSourceLine,
 } from '@/components/billing';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { StatusChip } from '@/components/StatusChip';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';

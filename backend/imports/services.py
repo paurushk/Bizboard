@@ -518,7 +518,6 @@ def _validate_row(
                 if product is not None and unit_str:
                     current_short = (product.unit.short_name if product.unit_id else "").strip()
                     if current_short and current_short.casefold() != unit_str.casefold():
-                        from core.exceptions import BusinessRuleError
                         from inventory.item_stock import assert_unit_change_allowed
 
                         try:

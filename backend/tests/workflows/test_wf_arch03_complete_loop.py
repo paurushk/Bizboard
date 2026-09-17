@@ -17,7 +17,6 @@ import pytest
 from accounting.models import JournalEntry
 from accounting.services import seed_chart_of_accounts
 from tests.conftest import (
-    add_stock,
     create_draft_purchase,
     make_customer,
     make_product,

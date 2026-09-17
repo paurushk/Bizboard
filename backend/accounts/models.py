@@ -32,6 +32,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
     push_token = models.CharField(max_length=512, blank=True, default="")
+    telegram_chat_id = models.CharField(
+        max_length=64, blank=True, default="", db_default="", db_index=True
+    )
+    telegram_link_code = models.CharField(max_length=32, blank=True, default="", db_default="")
+    telegram_link_code_expires_at = models.DateTimeField(null=True, blank=True)
     active_company = models.ForeignKey(
         "Company",
         null=True,
@@ -47,6 +52,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     REQUIRED_FIELDS = []
 
     def save(self, *args, **kwargs):
+        if self.telegram_chat_id is None:
+            self.telegram_chat_id = ""
+        if self.telegram_link_code is None:
+            self.telegram_link_code = ""
         raw = (self.phone or "").strip()
         if raw:
             from accounts.otp_utils import canonicalize_user_phone

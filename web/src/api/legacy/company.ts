@@ -196,6 +196,29 @@ export async function exportTenantBackup(): Promise<{ url: string; filename: str
   };
 }
 
+export interface TelegramStatus {
+  enabled: boolean;
+  linked: boolean;
+}
+
+export async function getTelegramStatus(): Promise<TelegramStatus> {
+  const { data } = await apiClient.get('/telegram/status/');
+  return unwrapData<TelegramStatus>(data);
+}
+
+export async function requestTelegramLink(): Promise<{ deepLink: string; expiresIn: number }> {
+  const { data } = await apiClient.post('/telegram/link/', {});
+  const body = unwrapData<{ deep_link?: string; deepLink?: string; expires_in?: number; expiresIn?: number }>(data);
+  return {
+    deepLink: body.deep_link ?? body.deepLink ?? '',
+    expiresIn: Number(body.expires_in ?? body.expiresIn ?? 0),
+  };
+}
+
+export async function unlinkTelegram(): Promise<void> {
+  await apiClient.post('/telegram/unlink/', {});
+}
+
 export async function restoreTenantSandbox(file: File): Promise<{
   companyId: number;
   mode: string;

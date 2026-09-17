@@ -1,7 +1,8 @@
 import type { ElementType, ReactNode } from 'react';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import type { SxProps, Theme, TypographyProps } from '@mui/material/styles';
+import type { SxProps, Theme } from '@mui/material/styles';
+import type { TypographyProps } from '@mui/material/Typography';
 import { ContextHelp } from './ContextHelp';
 
 /**

@@ -16,7 +16,7 @@ import pytest
 from core.invariants import assert_all_invariants
 from inventory.models import MovementType, StockBalance
 from inventory.services import InventoryService
-from manufacturing.models import Bom, WorkOrder
+from manufacturing.models import Bom
 from tests.personas.fixtures import seed_archetype
 
 pytestmark = [pytest.mark.django_db, pytest.mark.dark_module]

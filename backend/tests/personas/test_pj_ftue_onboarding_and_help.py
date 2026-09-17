@@ -23,13 +23,11 @@ from rest_framework.test import APIClient
 
 from accounts.models import Company, CompanyUser, User
 from accounts.onboarding import derive_onboarding, should_force_setup
-from core.exceptions import BusinessRuleError, api_exception_handler
 from core.help_codes import ALL_HELP_CODES, ERROR_CODE_TO_INTENT, ERROR_CODE_TO_LEAF, HelpCode
 from core.invariants import assert_all_invariants
 from inventory.models import MovementType
 from inventory.services import InventoryService
 from masters.models import Customer, Product
-from sales.models import SalesInvoice
 from tests.personas.fixtures import seed_archetype
 
 pytestmark = pytest.mark.django_db

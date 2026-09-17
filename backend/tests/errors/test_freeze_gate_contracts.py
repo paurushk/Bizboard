@@ -182,6 +182,54 @@ def test_production_rejects_localhost_only_cors():
     assert "CORS" in combined and "localhost" in combined, combined
 
 
+def test_production_resend_smtp_relay_wires_up():
+    """Resend is integrated as a plain SMTP relay (docs/ops/SPF_DKIM.md) — no
+    vendor-specific code path. Confirms EMAIL_HOST=smtp.resend.com actually
+    produces Django's SMTP backend with Resend's documented host/user/port/TLS,
+    not just "any truthy EMAIL_HOST" as test_production_requires_email_host checks."""
+    import json
+    import os
+
+    from cryptography.fernet import Fernet
+
+    env = dict(os.environ)
+    env.pop("PYTEST_INMEMORY_DB", None)
+    env.update(
+        **_PROD_BASE,
+        CORS_ALLOWED_ORIGINS="https://app.example.com",
+        CSRF_TRUSTED_ORIGINS="https://app.example.com",
+        DJANGO_SETTINGS_MODULE="config.settings",
+        EMAIL_HOST="smtp.resend.com",
+        EMAIL_PORT="587",
+        EMAIL_HOST_USER="resend",
+        EMAIL_HOST_PASSWORD="re_test_key_not_real",
+        OTP_PEPPER="test-otp-pepper-not-real",
+        GSP_FERNET_KEY=Fernet.generate_key().decode(),
+    )
+    script = (
+        "import django; django.setup();"
+        "from django.conf import settings; import json;"
+        "print(json.dumps({"
+        "'backend': settings.EMAIL_BACKEND,"
+        "'host': settings.EMAIL_HOST,"
+        "'port': settings.EMAIL_PORT,"
+        "'user': settings.EMAIL_HOST_USER,"
+        "'tls': settings.EMAIL_USE_TLS,"
+        "}))"
+    )
+    proc = subprocess.run(  # noqa: S603 — trusted sys.executable, local script
+        [sys.executable, "-c", script],
+        env=env, capture_output=True, text=True, timeout=90,
+    )
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    data = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert data["backend"] == "django.core.mail.backends.smtp.EmailBackend"
+    assert data["host"] == "smtp.resend.com"
+    assert data["port"] == 587
+    assert data["user"] == "resend"
+    assert data["tls"] is True
+
+
 # --- §H4 / §G7: FileAsset download — tenant scoping + filename sanitisation ---
 
 def _upload_attachment(tenant, name="ok.pdf"):

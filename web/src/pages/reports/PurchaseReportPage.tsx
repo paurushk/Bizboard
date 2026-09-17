@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import { exportReport, getPurchaseRegister } from '@/api/resources';

@@ -25,7 +25,7 @@ from core.invariants import assert_all_invariants
 from inventory.models import MovementType
 from inventory.services import InventoryService
 from payments.models import CustomerReceipt, PaymentAllocation
-from sales.models import SalesCreditNote, SalesInvoice
+from sales.models import SalesInvoice
 from tests.personas.fixtures import seed_archetype
 
 pytestmark = pytest.mark.django_db

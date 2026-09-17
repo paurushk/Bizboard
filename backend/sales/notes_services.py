@@ -647,7 +647,10 @@ class SalesNotesService:
                 "cess_amount": getattr(item, "cess_amount", Decimal("0")),
                 "supply_nature": getattr(item, "supply_nature", None),
                 "hsn_code": getattr(item, "hsn_code", "") or "",
-                "rate_override": getattr(item, "rate_override", False),
+                "rate_override": True,
+                "rate_override_reason": (
+                    getattr(item, "rate_override_reason", "") or "Copied from sales order"
+                ),
                 # BB-000732: preserve lot/serial identity through conversion.
                 "batch": getattr(item, "batch", None),
                 "batch_no": getattr(item, "batch_no", "") or "",
@@ -980,6 +983,12 @@ class SalesNotesService:
                 "unit_price": item.unit_price,
                 "discount_percent": item.discount_percent,
                 "gst_rate": item.gst_rate,
+                # Keep the challan-stamped GST rate; HSN catalog must not re-rate
+                # at convert (persona + mixed-suite HSN seed otherwise diverge).
+                "rate_override": True,
+                "rate_override_reason": (
+                    getattr(item, "rate_override_reason", "") or "Copied from delivery challan"
+                ),
                 "cess_rate": getattr(item, "cess_rate", Decimal("0")),
                 "cess_amount": getattr(item, "cess_amount", Decimal("0")),
                 "supply_nature": getattr(item, "supply_nature", None),

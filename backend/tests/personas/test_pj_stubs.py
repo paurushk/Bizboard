@@ -146,7 +146,7 @@ def test_pj_trader_import_operator(boundary):
     from django.core.files.uploadedfile import SimpleUploadedFile
 
     from inventory.models import StockBalance
-    from masters.models import Customer, Product
+    from masters.models import Product
 
     ns = seed_archetype("trader")
     ic = ns.importer_client

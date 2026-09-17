@@ -125,6 +125,7 @@ const InvoiceTemplatesPage = lazy(() => import('@/pages/settings/InvoiceTemplate
 const UsersSettingsPage = lazy(() => import('@/pages/settings/UsersSettingsPage').then((m) => ({ default: m.UsersSettingsPage })));
 const ImportPage = lazy(() => import('@/pages/settings/ImportPage').then((m) => ({ default: m.ImportPage })));
 const BackupExportPage = lazy(() => import('@/pages/settings/BackupExportPage').then((m) => ({ default: m.BackupExportPage })));
+const TelegramSettingsPage = lazy(() => import('@/pages/settings/TelegramSettingsPage').then((m) => ({ default: m.TelegramSettingsPage })));
 const BillingPage = lazy(() => import('@/pages/settings/BillingPage').then((m) => ({ default: m.BillingPage })));
 const BankAccountsPage = lazy(() => import('@/pages/settings/BankAccountsPage').then((m) => ({ default: m.BankAccountsPage })));
 const PaymentGatewayPage = lazy(() => import('@/pages/settings/PaymentGatewayPage').then((m) => ({ default: m.PaymentGatewayPage })));
@@ -514,6 +515,7 @@ export function App() {
               <Route element={<RoleRoute allow={canExport} />}>
                 <Route path="settings/backup" element={<BackupExportPage />} />
               </Route>
+              <Route path="settings/telegram" element={<TelegramSettingsPage />} />
               <Route element={<RoleRoute allow={allowAiSettings} />}>
                 <Route path="settings/ai" element={<AiSettingsPage />} />
               </Route>

@@ -57,7 +57,10 @@ export function InvoiceProfitRollupPage() {
   const query = useQuery({
     queryKey: ['invoice-profit-rollup', groupBy, dateFrom, dateTo],
     queryFn: () =>
-      getInvoiceProfitRollup(groupBy, { date_from: dateFrom || undefined, date_to: dateTo || undefined }),
+      getInvoiceProfitRollup(groupBy, {
+        ...(dateFrom ? { date_from: dateFrom } : {}),
+        ...(dateTo ? { date_to: dateTo } : {}),
+      }),
   });
 
   const columns = useMemo(() => COLUMNS_BY_GROUP[groupBy], [groupBy]);

@@ -32,6 +32,7 @@ def _month_before(start: date) -> tuple[date, date]:
     return begin, end
 
 
+@pytest.mark.django_db(transaction=True)
 def test_v3_g11b_export_migrate_restore_invariants(tenant_a):
     """V3 G-11b — tenant dump, migrate, restore, then INVARIANTS_STRICT sweep."""
     from accounts.tenant_backup import build_export_payload, restore_destroy_in_place

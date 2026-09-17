@@ -106,6 +106,7 @@ export const en = {
     invoiceTemplates: 'Invoice terms & footer',
     users: 'Users',
     backupExport: 'Backup / Export',
+    telegram: 'Telegram Notifications',
     importData: 'Import Data',
     tallyMigration: 'Tally Migration',
     aiSettings: 'AI & Insights',

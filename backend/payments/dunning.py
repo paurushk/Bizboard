@@ -376,6 +376,19 @@ def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
         result = remind_invoice(invoice, sent_on=as_of, days_overdue=bucket, now=attempted_at)
         if result in ("whatsapp", "sms", "email"):
             sent += 1
+            try:
+                from core.services.telegram import notify_company_owners
+
+                notify_company_owners(
+                    company,
+                    subject="Overdue reminder sent",
+                    body=(
+                        f"Reminder sent to {customer.name} for invoice {invoice.number} "
+                        f"({bucket} days overdue, outstanding {_outstanding(invoice)})."
+                    ),
+                )
+            except Exception:
+                logger.exception("Overdue reminder Telegram notify failed for invoice %s", invoice.id)
         else:
             # B4-034: "duplicate" (a lost DunningReminder insert race) and
             # "failed" both count as skipped, not sent.

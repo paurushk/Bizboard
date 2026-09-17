@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
   inviteStaffViaToken,
-  loginWithPassword,
   registerTenant,
   signOut,
   unique,

@@ -527,6 +527,7 @@ export const mockCollectionRisk = [
     outstanding: 8000,
     overdueAmount: 8000,
     status: 'stop_credit',
+    ageing: {},
   },
 ];
 

@@ -9,7 +9,6 @@ import pytest
 from reporting.invoice_profit_service import InvoiceProfitService
 from reporting.models import InvoiceProfitSnapshot
 from sales.models import SalesInvoice
-from sales.services import SalesService
 from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
 
 pytestmark = pytest.mark.django_db

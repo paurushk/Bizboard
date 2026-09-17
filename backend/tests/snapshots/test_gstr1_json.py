@@ -72,8 +72,8 @@ def test_gstr1_hsn_summary_snapshot_mixed_rate(tenant_a, assert_snapshot):
     inv = create_draft_invoice(
         tenant_a, customer,
         [
-            {"product": p18.id, "quantity": "3", "unit_price": "100.00", "gst_rate": "18", "hsn_code": "3402"},
-            {"product": p5.id, "quantity": "4", "unit_price": "200.00", "gst_rate": "5", "hsn_code": "1006"},
+            {"product": p18.id, "quantity": "3", "unit_price": "100.00", "gst_rate": "18", "hsn_code": "3402", "rate_override": True, "rate_override_reason": "snapshot pins mixed 18% / 5% HSN rows"},
+            {"product": p5.id, "quantity": "4", "unit_price": "200.00", "gst_rate": "5", "hsn_code": "1006", "rate_override": True, "rate_override_reason": "snapshot pins branded rice at 5%"},
         ],
     )
     done = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")

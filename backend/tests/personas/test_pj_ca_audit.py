@@ -20,10 +20,10 @@ from decimal import Decimal
 import pytest
 
 from accounting.models import Account, JournalEntry
-from accounting.reports import balance_sheet, profit_and_loss, trial_balance
+from accounting.reports import trial_balance
 from core.invariants import assert_all_invariants
 from inventory.models import MovementType
-from inventory.services import InventoryService, InventoryValuationService
+from inventory.services import InventoryService
 from ledgers.services import LedgerService
 from reporting.services import ReportService
 from tests.personas.fixtures import seed_archetype
@@ -91,7 +91,7 @@ def test_pj_ca_statutory_and_accounting_integrity_audit():
             "customer": cust2.id,
             "invoice_type": "GST",
             "invoice_date": PERIOD_DATE,
-            "items": [{"product": p2.id, "quantity": "5", "unit_price": "100.00", "gst_rate": "12"}],
+            "items": [{"product": p2.id, "quantity": "5", "unit_price": "100.00", "gst_rate": "12", "rate_override": True, "rate_override_reason": "persona pins 12% line rate"}],
         },
         format="json",
     )

@@ -29,6 +29,9 @@ Status = SalesInvoice.Status
 
 OPEN_RECEIVABLE_STATUSES = (Status.COMPLETED, Status.RETURNED)
 OPERATIONAL_SALE_STATUSES = (Status.COMPLETED,)
+# Historical profit snapshots: completed, returned, and cancelled invoices
+# can still have stock movements from which COGS is derived.
+PROFIT_SNAPSHOT_STATUSES = (Status.COMPLETED, Status.CANCELLED, Status.RETURNED)
 
 # Back-compat alias — ledgers/services.py originated this name; keep it
 # importable from here too so callers can migrate one at a time.

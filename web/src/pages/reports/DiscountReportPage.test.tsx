@@ -35,12 +35,14 @@ const PURCHASE_REPORT = {
   by_period: [],
 };
 
-const getSalesDiscountReport = vi.fn(async () => SALES_REPORT);
-const getPurchaseDiscountReport = vi.fn(async () => PURCHASE_REPORT);
+const getSalesDiscountReport = vi.fn(async (_params?: Record<string, string>) => SALES_REPORT);
+const getPurchaseDiscountReport = vi.fn(async (_params?: Record<string, string>) => PURCHASE_REPORT);
 
 vi.mock('@/api/resources', () => ({
-  getSalesDiscountReport: (...args: unknown[]) => getSalesDiscountReport(...args),
-  getPurchaseDiscountReport: (...args: unknown[]) => getPurchaseDiscountReport(...args),
+  getSalesDiscountReport: (...args: unknown[]) =>
+    getSalesDiscountReport(...(args as [Record<string, string>?])),
+  getPurchaseDiscountReport: (...args: unknown[]) =>
+    getPurchaseDiscountReport(...(args as [Record<string, string>?])),
 }));
 
 // jsdom has no real layout engine, so @tanstack/react-virtual's ResizeObserver-based

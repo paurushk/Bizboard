@@ -23,7 +23,6 @@ from crm.services import convert_lead
 from inventory.models import MovementType, StockBalance
 from inventory.services import InventoryService
 from ledgers.services import LedgerService
-from sales.models import DeliveryChallan, SalesInvoice, SalesOrder
 from tests.personas.fixtures import seed_archetype
 
 pytestmark = [pytest.mark.django_db, pytest.mark.dark_module]
@@ -42,6 +41,10 @@ def test_pj_crm_lead_to_sales_order_and_challan_pipeline():
     wh = trader.warehouses[0]
     plain_prods = [p for p in trader.products if not p.track_batch and not p.track_serial]
     prod = plain_prods[0]
+
+    prod.gst_rate = Decimal("18")
+    prod.hsn_code = ""
+    prod.save(update_fields=["gst_rate", "hsn_code"])
 
     company.stock_on_delivery_challan = True
     company.save(update_fields=["stock_on_delivery_challan"])
@@ -96,7 +99,7 @@ def test_pj_crm_lead_to_sales_order_and_challan_pipeline():
         {
             "customer": customer.id,
             "sales_order": so_id,
-            "items": [{"product": prod.id, "quantity": "20", "unit_price": "150.00"}],
+            "items": [{"product": prod.id, "quantity": "20", "unit_price": "150.00", "gst_rate": "18"}],
         },
         format="json",
     )
@@ -123,8 +126,8 @@ def test_pj_crm_lead_to_sales_order_and_challan_pipeline():
     # Stock remains 30 (no double deduction)
     assert StockBalance.objects.get(company=company, product=prod, warehouse=wh).on_hand == Decimal("30")
 
-    # Customer AR is now debited: 20 * 150 * 1.12 = 3360.00
-    assert LedgerService.customer_outstanding(company, customer) == Decimal("3360.00")
+    # Customer AR is now debited: 20 * 150 * 1.18 = 3540.00
+    assert LedgerService.customer_outstanding(company, customer) == Decimal("3540.00")
 
     # 6. Boundary check: P3 Sales Booker cannot post manual accounting journals
     sales_journal = trader.sales_client.post(

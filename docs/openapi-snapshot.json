@@ -5800,6 +5800,25 @@
                 }
             }
         },
+        "/api/v1/integrations/inventory/": {
+            "get": {
+                "operationId": "integrations_inventory_retrieve",
+                "description": "Owner-only inventory of outbound integrations. Never returns secret values.",
+                "tags": [
+                    "integrations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/integrations/tally/commit/": {
             "post": {
                 "operationId": "integrations_tally_commit_create",
@@ -18103,6 +18122,42 @@
                 }
             }
         },
+        "/api/v1/reports/invoice-profit/": {
+            "get": {
+                "operationId": "reports_invoice_profit_retrieve",
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/reports/invoice-profit/rollup/": {
+            "get": {
+                "operationId": "reports_invoice_profit_rollup_retrieve",
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/reports/product-sales/": {
             "get": {
                 "operationId": "reports_product_sales_retrieve",
@@ -18121,9 +18176,45 @@
                 }
             }
         },
+        "/api/v1/reports/purchase-discounts/": {
+            "get": {
+                "operationId": "reports_purchase_discounts_retrieve",
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/reports/purchase-register/": {
             "get": {
                 "operationId": "reports_purchase_register_retrieve",
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/reports/sales-discounts/": {
+            "get": {
+                "operationId": "reports_sales_discounts_retrieve",
                 "tags": [
                     "reports"
                 ],
@@ -24171,6 +24262,83 @@
                 }
             }
         },
+        "/api/v1/telegram/link/": {
+            "post": {
+                "operationId": "telegram_link_create",
+                "description": "POST /api/v1/telegram/link/ — issue a one-time /start deep link.",
+                "tags": [
+                    "telegram"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/telegram/status/": {
+            "get": {
+                "operationId": "telegram_status_retrieve",
+                "description": "GET /api/v1/telegram/status/ — this user's Telegram link state.",
+                "tags": [
+                    "telegram"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/telegram/unlink/": {
+            "post": {
+                "operationId": "telegram_unlink_create",
+                "description": "POST /api/v1/telegram/unlink/ — disconnect this user's Telegram account.",
+                "tags": [
+                    "telegram"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/telegram/webhook/": {
+            "post": {
+                "operationId": "telegram_webhook_create",
+                "description": "POST /api/v1/telegram/webhook/ — /start <code> linking handshake only.\n\nThis is not a two-way command bot: any update that isn't a recognized\n/start code is acknowledged and dropped.",
+                "tags": [
+                    "telegram"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/webhooks/payments/{provider}/": {
             "post": {
                 "operationId": "webhooks_payments_create",
@@ -25078,10 +25246,11 @@
                     "EMAIL",
                     "WHATSAPP",
                     "SMS",
-                    "PUSH"
+                    "PUSH",
+                    "TELEGRAM"
                 ],
                 "type": "string",
-                "description": "* `EMAIL` - Email\n* `WHATSAPP` - Whatsapp\n* `SMS` - Sms\n* `PUSH` - Push"
+                "description": "* `EMAIL` - Email\n* `WHATSAPP` - Whatsapp\n* `SMS` - Sms\n* `PUSH` - Push\n* `TELEGRAM` - Telegram"
             },
             "CompanyGstin": {
                 "type": "object",
@@ -25203,9 +25372,8 @@
                     },
                     "fy_start_month": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 32767,
+                        "minimum": 0
                     },
                     "negative_stock_policy": {
                         "$ref": "#/components/schemas/NegativeStockPolicyEnum"
@@ -25526,9 +25694,8 @@
                     },
                     "credit_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "notes": {
                         "type": "string"
@@ -25772,9 +25939,8 @@
                     },
                     "transport_distance_km": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
+                        "maximum": 2147483647,
                         "minimum": 0,
-                        "format": "int64",
                         "nullable": true
                     },
                     "sub_supply_type": {
@@ -26297,9 +26463,8 @@
                     },
                     "useful_life_months": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "depreciated_amount": {
                         "type": "string",
@@ -29726,9 +29891,8 @@
                     },
                     "fy_start_month": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 32767,
+                        "minimum": 0
                     },
                     "negative_stock_policy": {
                         "$ref": "#/components/schemas/NegativeStockPolicyEnum"
@@ -29993,9 +30157,8 @@
                     },
                     "credit_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "notes": {
                         "type": "string"
@@ -30104,9 +30267,8 @@
                     },
                     "transport_distance_km": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
+                        "maximum": 2147483647,
                         "minimum": 0,
-                        "format": "int64",
                         "nullable": true
                     },
                     "sub_supply_type": {
@@ -30390,9 +30552,8 @@
                     },
                     "useful_life_months": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "depreciated_amount": {
                         "type": "string",
@@ -31434,9 +31595,8 @@
                     },
                     "payment_terms_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "additional_charges": {
                         "type": "string",
@@ -31679,9 +31839,8 @@
                     },
                     "payment_terms_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "additional_charges": {
                         "type": "string",
@@ -31950,9 +32109,8 @@
                     },
                     "payment_terms_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "additional_charges": {
                         "type": "string",
@@ -32607,9 +32765,8 @@
                     },
                     "payment_terms_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "additional_charges": {
                         "type": "string",
@@ -32751,9 +32908,8 @@
                     },
                     "transport_distance_km": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
+                        "maximum": 2147483647,
                         "minimum": 0,
-                        "format": "int64",
                         "nullable": true
                     },
                     "sub_supply_type": {
@@ -33005,9 +33161,8 @@
                     },
                     "payment_terms_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "additional_charges": {
                         "type": "string",
@@ -33753,9 +33908,8 @@
                     },
                     "period_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
+                        "maximum": 32767,
                         "minimum": 0,
-                        "format": "int64",
                         "nullable": true
                     },
                     "paid_days": {
@@ -34893,9 +35047,8 @@
                     },
                     "payment_terms_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "additional_charges": {
                         "type": "string",
@@ -35329,9 +35482,8 @@
                     },
                     "payment_terms_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "additional_charges": {
                         "type": "string",
@@ -35847,9 +35999,8 @@
                     },
                     "payment_terms_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "additional_charges": {
                         "type": "string",
@@ -36993,9 +37144,8 @@
                     },
                     "payment_terms_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "additional_charges": {
                         "type": "string",
@@ -37137,9 +37287,8 @@
                     },
                     "transport_distance_km": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
+                        "maximum": 2147483647,
                         "minimum": 0,
-                        "format": "int64",
                         "nullable": true
                     },
                     "sub_supply_type": {
@@ -37612,9 +37761,8 @@
                     },
                     "payment_terms_days": {
                         "type": "integer",
-                        "maximum": 9223372036854775807,
-                        "minimum": 0,
-                        "format": "int64"
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "additional_charges": {
                         "type": "string",

@@ -140,7 +140,7 @@ def test_wf31_financial_year_close(tenant_a, assert_consistent):
     company.gstin = "29AAAAA0000A1ZY"
     company.save(update_fields=["gstin"])
     from accounting.models import Account, JournalEntry
-    from accounting.reports import _balances, trial_balance
+    from accounting.reports import trial_balance
 
     cash = Account.objects.get(company=company, code="1100").id
     sales = Account.objects.get(company=company, code="4100").id
@@ -267,7 +267,6 @@ def test_wf33_bank_reconciliation(tenant_a, assert_consistent):
     an unmatched line stays open, and a second match attempt is rejected."""
     from datetime import date
 
-    from django.db.models import Sum
 
     from accounting.models import Account, JournalEntry, JournalLine
     from payments.models import BankAccount, BankStatement, BankStatementLine

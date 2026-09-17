@@ -28,7 +28,11 @@ export function InvoiceProfitReportPage() {
 
   const query = useQuery({
     queryKey: ['invoice-profit-report', dateFrom, dateTo],
-    queryFn: () => getInvoiceProfitReport({ date_from: dateFrom || undefined, date_to: dateTo || undefined }),
+    queryFn: () =>
+      getInvoiceProfitReport({
+        ...(dateFrom ? { date_from: dateFrom } : {}),
+        ...(dateTo ? { date_to: dateTo } : {}),
+      }),
   });
 
   const columns = useMemo(() => {

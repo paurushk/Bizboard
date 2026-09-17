@@ -18,8 +18,8 @@ from core.invariants import assert_all_invariants
 from inventory.models import MovementType, StockBalance
 from inventory.services import InventoryService
 from ledgers.services import LedgerService
-from purchases.models import PurchaseCreditNote, PurchaseInvoice
-from sales.models import SalesCreditNote, SalesInvoice
+from purchases.models import PurchaseCreditNote
+from sales.models import SalesCreditNote
 from tests.personas.fixtures import seed_archetype
 
 pytestmark = pytest.mark.django_db
@@ -130,7 +130,7 @@ def test_pj_returns_and_credit_debit_notes_lifecycle():
             "supplier": supp.id,
             "purchase_type": "GST",
             "items": [
-                {"product": prod2.id, "quantity": "10", "unit_price": "50.00", "gst_rate": "12", "hsn_code": "841590"}
+                {"product": prod2.id, "quantity": "10", "unit_price": "50.00", "gst_rate": "12", "hsn_code": "841590", "rate_override": True, "rate_override_reason": "persona pins 12% line rate"}
             ],
         },
         format="json",

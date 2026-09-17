@@ -37,12 +37,10 @@ from django.utils import timezone
 
 from core.invariants import assert_all_invariants
 from insights.alerts import build_business_alerts
-from inventory.models import BatchLot, MovementType, StockMovement
+from inventory.models import BatchLot, MovementType
 from inventory.services import InventoryService
-from masters.models import Customer, Product, Supplier
+from masters.models import Customer, Product
 from payments.services import PaymentService
-from purchases.models import PurchaseDebitNote, PurchaseInvoice
-from purchases.services import PurchaseService
 from tests.personas.fixtures import seed_archetype
 
 pytestmark = pytest.mark.django_db

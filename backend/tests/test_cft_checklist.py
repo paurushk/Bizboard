@@ -7,7 +7,7 @@ cross-flow assertions that were only loosely mapped to a sibling WF/PJ test
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 import pytest

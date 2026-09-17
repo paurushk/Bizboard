@@ -17,9 +17,9 @@ from django.core.management.base import BaseCommand, CommandError
 from accounts.models import Company
 from core.rls import rls_bypass
 from reporting.invoice_profit_service import InvoiceProfitService
-from reporting.models import InvoiceProfitSnapshot
 from sales.cogs_service import CogsService
 from sales.models import SalesInvoice
+from sales.status_semantics import PROFIT_SNAPSHOT_STATUSES
 
 CHUNK = 500
 
@@ -96,11 +96,7 @@ class Command(BaseCommand):
         created = skipped_has_snapshot = skipped_no_moves = 0
         qs = SalesInvoice.objects.filter(
             company=company,
-            status__in=(
-                SalesInvoice.Status.COMPLETED,
-                SalesInvoice.Status.CANCELLED,
-                SalesInvoice.Status.RETURNED,
-            ),
+            status__in=PROFIT_SNAPSHOT_STATUSES,
         )
         if not force:
             qs = qs.filter(profit_snapshot__isnull=True)

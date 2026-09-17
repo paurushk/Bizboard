@@ -8,7 +8,6 @@ import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
-import Typography from '@mui/material/Typography';
 import { useAuth } from '@/auth/AuthContext';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { HonestyBanner } from '@/components/HonestyBanner';

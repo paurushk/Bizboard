@@ -9,7 +9,7 @@ fills DPAs. This list is **not** a legal DPA.
 | razorpay_collections | Razorpay | yes | A25 sandbox |
 | cashfree_collections | Cashfree | yes | A25 sandbox |
 | payu_collections | PayU | yes | A25 sandbox |
-| smtp_email | Operator SMTP | no | password reset |
+| smtp_email | Resend (SMTP relay) | no | password reset |
 | sms_otp | MSG91 / Twilio | no | A26; off if unset |
 | sentry | Sentry | no | errors |
 | gsp_einvoice | GSP / NIC | yes | live submit dark (`GSP_LIVE_ENABLED=0`) |

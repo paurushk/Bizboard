@@ -15,7 +15,7 @@ from .base import invariant
     consequence="A stock movement/balance references a warehouse or product from another company — tenant data has leaked.",
 )
 def stock_rows_same_company(company) -> list[str]:
-    from django.db.models import F, Q
+    from django.db.models import Q
 
     from inventory.models import StockBalance, StockMovement
 

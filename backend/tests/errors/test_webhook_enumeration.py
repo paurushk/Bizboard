@@ -24,6 +24,7 @@ pytestmark = pytest.mark.django_db
 KNOWN_WEBHOOKS = {
     "v1:billing-razorpay-webhook": "/api/v1/billing/razorpay/webhook/",
     "v1:payment-webhook": "/api/v1/webhooks/payments/sandbox/",
+    "v1:telegram-webhook": "/api/v1/telegram/webhook/",
 }
 
 

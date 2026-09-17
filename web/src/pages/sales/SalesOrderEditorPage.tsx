@@ -45,6 +45,7 @@ import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
 import type { Customer, InvoiceType, Product } from '@/types/domain';
+import { toNumber } from '@/utils/money';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { firstCompleteDisabledReason } from '@/completeGates/completeBlockers';

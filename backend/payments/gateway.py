@@ -43,7 +43,9 @@ def _provider_post(circuit_name: str, *args, **kwargs):
     from core.circuit_breaker import CircuitOpenError, call as circuit_call
 
     def _do():
-        return requests.post(*args, **kwargs)
+        timeout = kwargs.get("timeout", 30)
+        extra = {k: v for k, v in kwargs.items() if k != "timeout"}
+        return requests.post(*args, timeout=timeout, **extra)
 
     try:
         return circuit_call(circuit_name, _do, failure_threshold=5, cooldown_seconds=30)

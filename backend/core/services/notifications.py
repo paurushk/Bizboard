@@ -88,6 +88,27 @@ class NotificationService:
                 else:
                     notification.error = ""
             notification.save(update_fields=["share_link", "status", "error"])
+        elif channel == Notification.Channel.TELEGRAM:
+            from core.services.telegram import send_telegram_message
+
+            result = send_telegram_message(recipient, body or subject)
+            if result.mode == "sent":
+                notification.status = Notification.Status.SENT
+                notification.error = ""
+            elif result.mode == "unlinked":
+                notification.status = Notification.Status.FAILED
+                notification.error = "Recipient has not linked their Telegram account."
+            else:
+                notification.status = Notification.Status.FAILED
+                raw = result.raw or {}
+                detail = str(raw.get("error") or "")[:500]
+                code = raw.get("status_code")
+                notification.error = (
+                    "Telegram delivery failed"
+                    + (f" (HTTP {code})" if code else "")
+                    + (f": {detail}" if detail else "")
+                )[:2000]
+            notification.save(update_fields=["status", "error"])
         elif channel == Notification.Channel.SMS:
             from core.services.sms import SmsProvider
 

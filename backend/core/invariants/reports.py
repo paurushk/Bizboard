@@ -26,7 +26,7 @@ _ZERO = Decimal("0")
 )
 def pnl_reconciles_to_trial_balance(company) -> list[str]:
     from accounting.models import Account
-    from accounting.reports import profit_and_loss, trial_balance
+    from accounting.reports import profit_and_loss
 
     if not getattr(company, "accounting_enabled", False):
         return []

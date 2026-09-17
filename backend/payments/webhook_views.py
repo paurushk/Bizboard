@@ -1,5 +1,6 @@
 """Public payment link + gateway webhook views (BB-000506)."""
 
+import logging
 
 from django.utils import timezone
 from rest_framework import status
@@ -12,6 +13,8 @@ from core.exceptions import BusinessRuleError
 
 from .models import PaymentLink, PaymentLinkStatus
 from .services import PaymentService
+
+logger = logging.getLogger(__name__)
 
 
 def public_frontend_base_url(request=None) -> str:
@@ -335,4 +338,14 @@ def payment_webhook(request, provider: str):
             {"ok": True, "parked": True, "dead_letter_id": parked.pk},
             status=status.HTTP_202_ACCEPTED,
         )
+    try:
+        from core.services.telegram import notify_company_owners
+
+        notify_company_owners(
+            company,
+            subject="Payment received",
+            body=f"Payment of {event.amount} captured via {provider} (gateway payment #{gp.id}).",
+        )
+    except Exception:
+        logger.exception("Payment-received Telegram notify failed for gateway payment %s", gp.id)
     return Response({"ok": True, "gateway_payment_id": gp.id, "status": gp.status})

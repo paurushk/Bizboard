@@ -43,10 +43,11 @@ const REPORT = {
   totals: {},
 };
 
-const getInvoiceProfitReport = vi.fn(async () => REPORT);
+const getInvoiceProfitReport = vi.fn(async (_params?: Record<string, string>) => REPORT);
 
 vi.mock('@/api/resources', () => ({
-  getInvoiceProfitReport: (...args: unknown[]) => getInvoiceProfitReport(...args),
+  getInvoiceProfitReport: (...args: unknown[]) =>
+    getInvoiceProfitReport(...(args as [Record<string, string>?])),
 }));
 
 vi.mock('@/components/VirtualizedTable', () => ({

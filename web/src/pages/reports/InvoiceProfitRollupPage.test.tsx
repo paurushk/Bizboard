@@ -8,12 +8,12 @@ import { InvoiceProfitRollupPage } from '@/pages/reports/InvoiceProfitRollupPage
 const BY_CUSTOMER = { rows: [{ id: 1, name: 'Ravi Kumar', invoices: 2, revenue: 4000, cogs: 3000, margin: 1000 }] };
 const BY_PRODUCT = { rows: [{ id: 5, name: 'Widget', revenue: 4000, cogs: 3000, margin: 1000 }] };
 
-const getInvoiceProfitRollup = vi.fn(async (groupBy: string) =>
+const getInvoiceProfitRollup = vi.fn(async (groupBy: string, _params?: unknown) =>
   groupBy === 'product' ? BY_PRODUCT : BY_CUSTOMER,
 );
 
 vi.mock('@/api/resources', () => ({
-  getInvoiceProfitRollup: (...args: [string, unknown?]) => getInvoiceProfitRollup(...args),
+  getInvoiceProfitRollup: (groupBy: string, params?: unknown) => getInvoiceProfitRollup(groupBy, params),
 }));
 
 vi.mock('@/components/VirtualizedTable', () => ({

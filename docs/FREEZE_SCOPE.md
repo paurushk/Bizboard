@@ -96,6 +96,7 @@ inaccessible with that profile.
 | Fixed assets + depreciation | `ENABLE_FIXED_ASSETS=0` | KNOWN LIMITATION (D6, revision 2026-09-09b) — route 404s in the pilot profile |
 | Bill of Entry / import purchase + landed cost | `ENABLE_BOE=0` | KNOWN LIMITATION (D10, revision 2026-09-09b) — route 404s in the pilot profile |
 | WhatsApp Cloud API | `ENABLE_WHATSAPP_CLOUD=0` | Share-link only in pilot |
+| Telegram Bot API | `ENABLE_TELEGRAM=0` | Opt-in staff alerts; off in freeze |
 | Account Aggregator banking | `ENABLE_ACCOUNT_AGGREGATOR=0`, `ENABLE_AA_CONSENT=off` | No AA integration in pilot |
 | Postgres RLS | `POSTGRES_RLS_ENABLED=0` | App-layer `company_id` scoping is the pilot isolation guarantee; RLS unproven |
 | Help v2 | `VITE_HELP_V2=false`, `helpV2=off` | Help v1 is the supported surface |
@@ -152,6 +153,7 @@ belongs to. Source: `backend/config/settings.py`,
 | `ENABLE_CRM` / `VITE_ENABLE_CRM` | both | OFF (dark) | B |
 | `ENABLE_TDS` / `VITE_ENABLE_TDS` | both | **ON** (D2) | A24 SUPPORTED |
 | `ENABLE_WHATSAPP_CLOUD` | backend | OFF | B |
+| `ENABLE_TELEGRAM` | backend | OFF | B |
 | `ENABLE_ACCOUNT_AGGREGATOR` / `ENABLE_AA_CONSENT` | backend | OFF | B |
 | `ENABLE_CASHFREE` / `ENABLE_PAYU` | backend | **ON, sandbox** (D3) — ≥1 provider configured | A25 SUPPORTED / C8 |
 | `VITE_ENABLE_EINVOICE_SUBMIT` | frontend | OFF | B (preview = C2) |

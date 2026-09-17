@@ -324,7 +324,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
     """
     from django.db.models import Count
     from inventory.models import MovementType, StockBalance, StockMovement
-    from purchases.models import PurchaseInvoice, PurchaseItem
+    from purchases.models import PurchaseItem
     from sales.models import SalesInvoice, SalesItem
 
     as_of = as_of or timezone.localdate()

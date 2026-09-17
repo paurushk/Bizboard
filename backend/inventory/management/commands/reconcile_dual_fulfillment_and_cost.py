@@ -5,7 +5,6 @@ Detects:
 2. CR-144 raw cost mutates: StockMovement cost drift without stamp_cost layer peel.
 """
 
-from decimal import Decimal
 import logging
 
 from django.core.management.base import BaseCommand

@@ -487,7 +487,7 @@ def test_b1_034_large_unexplained_residual_hard_stops(books):
 
     try:
         PostingService.post_purchase(invoice, user=books.owner)
-        assert False, "expected BusinessRuleError for large residual"
+        raise AssertionError("expected BusinessRuleError for large residual")
     except BusinessRuleError as exc:
         assert "TAX_LINE_DRIFT_MAX" in str(exc) or "residual" in str(exc).lower()
 

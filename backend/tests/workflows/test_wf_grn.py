@@ -90,7 +90,6 @@ def test_wf_grn_receive_complete_convert(tenant_a, assert_consistent):
 
 def test_wf_grn_cancel_reverses_received_stock(tenant_a, assert_consistent):
     from inventory.services import InventoryService
-    from purchases.models import GoodsReceipt
 
     company = tenant_a.company
     _books(company)

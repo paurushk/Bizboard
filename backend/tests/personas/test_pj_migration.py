@@ -46,7 +46,7 @@ def _post_journal(client, entry_date, lines):
 def test_pj_migration_trader_cutover_and_reconcile():
     ns = seed_archetype("migration")
     company, oc = ns.company, ns.owner_client
-    from accounting.models import Account, JournalEntry
+    from accounting.models import Account
     from inventory.models import MovementType
     from inventory.services import InventoryService
     from masters.models import Customer, Product, Supplier

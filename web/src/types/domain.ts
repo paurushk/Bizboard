@@ -1,4 +1,4 @@
-export type Role = 'OWNER' | 'SALES_STAFF' | 'ACCOUNTANT' | 'VIEWER';
+export type Role = 'OWNER' | 'MANAGER' | 'SALES_STAFF' | 'INVENTORY_STAFF' | 'ACCOUNTANT' | 'AUDITOR' | 'VIEWER';
 
 export interface BankAccount {
   id: number;

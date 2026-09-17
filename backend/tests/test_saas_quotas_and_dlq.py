@@ -424,8 +424,11 @@ def test_assert_complete_allowed_helpcode(tenant_a):
 def test_sales_complete_is_company_throttled(tenant_a):
     from unittest.mock import patch
 
+    from django.core.cache import cache
+
     from core.throttles import CompanyRateThrottle
 
+    cache.clear()
     product = make_product(tenant_a.company)
     add_stock(tenant_a, product, "10")
     customer = make_customer(tenant_a.company)

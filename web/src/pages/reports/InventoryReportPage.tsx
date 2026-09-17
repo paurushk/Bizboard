@@ -2,7 +2,6 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
-import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import { exportReport, getInventorySummary } from '@/api/resources';

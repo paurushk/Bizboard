@@ -115,14 +115,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await clearAllDrafts(companyId, userId);
       } catch {
-        // best-effort wipe
+        // best-effort wipe; storage may be unavailable
       }
     }
     // CR-007: Wipe shared counter IndexedDB outbox on explicit logout to prevent cross-tenant draft leaks
     if (typeof indexedDB !== 'undefined' && indexedDB.deleteDatabase) {
-      try {
-        indexedDB.deleteDatabase('bizboard-invoice-outbox');
-      } catch {}
+        try {
+          indexedDB.deleteDatabase('bizboard-invoice-outbox');
+        } catch {
+          // ignore IDB delete failures on session expiry
+        }
     }
     await clearBizboardPwaCaches();
     clearFeatureFlagsCache();
@@ -146,7 +148,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (typeof indexedDB !== 'undefined' && indexedDB.deleteDatabase) {
         try {
           indexedDB.deleteDatabase('bizboard-invoice-outbox');
-        } catch {}
+        } catch {
+          // ignore IDB delete failures on logout
+        }
       }
       void clearBizboardPwaCaches();
       clearSession();

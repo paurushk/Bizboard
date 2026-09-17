@@ -11,7 +11,7 @@ from django.utils import timezone
 from core.exceptions import BusinessRuleError
 
 from .models import Gstr2bIngest, ImsActionHistory
-from purchases.status_semantics import OPEN_PAYABLE_STATUSES  # noqa: F401 — CF-001 re-export
+from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 
 IMS_BULK_CHUNK = 500
 EXPIRING_DAYS = 30
@@ -45,7 +45,6 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
     """Extend 2B match with B-03 match_class + 16(4) flags. Does not auto-accept."""
     from .gstr2b import match_gstr2b_to_purchases
     from purchases.models import PurchaseInvoice
-    from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 
     result = match_gstr2b_to_purchases(company, period, persist=persist)
     as_of = timezone.localdate()
@@ -331,7 +330,6 @@ def credit_at_risk(company, period: str, *, as_of: date | None = None) -> dict:
 def supplier_scorecard(company, period: str) -> list[dict]:
     from masters.models import Supplier
     from purchases.models import PurchaseInvoice
-    from purchases.status_semantics import OPEN_PAYABLE_STATUSES
 
     year, month = period.split("-")
     y, m = int(year), int(month)

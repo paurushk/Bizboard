@@ -18,7 +18,6 @@ from decimal import Decimal
 import pytest
 from django.utils import timezone
 
-from accounts.models import CompanyUser
 from accounts.onboarding import derive_onboarding, should_force_setup
 from core.invariants import assert_all_invariants
 from insights.attention import FINANCIAL_CODES, GST_CODES, build_attention_rows, rupees_to_paise

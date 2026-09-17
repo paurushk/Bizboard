@@ -234,11 +234,15 @@ def test_compose_api_has_health_check_and_build_contexts_exist():
     reason="container smoke — set DOCKER_SMOKE=1 on a host with a Docker daemon",
 )
 def test_container_health_endpoint_responds():  # pragma: no cover - infra-gated
+    import shutil
     import subprocess
     import time
     import urllib.request
 
-    subprocess.run(["docker", "compose", "up", "-d", "api", "db", "redis"], check=True,
+    docker = shutil.which("docker")
+    if not docker:
+        raise AssertionError("docker executable not on PATH")
+    subprocess.run([docker, "compose", "up", "-d", "api", "db", "redis"], check=True,  # noqa: S603
                    cwd=str(__import__("pathlib").Path(__file__).resolve().parents[3]))
     try:
         for _ in range(30):
@@ -250,7 +254,7 @@ def test_container_health_endpoint_responds():  # pragma: no cover - infra-gated
                 time.sleep(2)
         raise AssertionError("container /api/v1/health/ never returned 200")
     finally:
-        subprocess.run(["docker", "compose", "down"], check=False,
+        subprocess.run([docker, "compose", "down"], check=False,  # noqa: S603
                        cwd=str(__import__("pathlib").Path(__file__).resolve().parents[3]))
 
 

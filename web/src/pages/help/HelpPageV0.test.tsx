@@ -1,5 +1,4 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { HelpPageV0 } from './HelpPageV0';
@@ -19,14 +18,13 @@ describe('HelpPageV0 FAQ catalog', () => {
     expect(screen.getByText('Does Bizboard file GSTR-1 or GSTR-3B on the GST portal?')).toBeInTheDocument();
   });
 
-  it('search matches a new keyword and hides unrelated questions', async () => {
-    const user = userEvent.setup();
+  it('search matches a new keyword and hides unrelated questions', () => {
     render(
       <MemoryRouter>
         <HelpPageV0 />
       </MemoryRouter>,
     );
-    await user.type(screen.getByLabelText(/search faqs/i), 'grn');
+    fireEvent.change(screen.getByLabelText(/search faqs/i), { target: { value: 'grn' } });
     expect(screen.getByText('Where is goods received (GRN)?')).toBeInTheDocument();
     expect(
       screen.queryByText(/How do I set the conversion rate between a base unit and an alternate unit/i),

@@ -29,11 +29,10 @@ from django.utils import timezone
 
 from accounting.models import Account, JournalEntry, JournalLine
 from core.invariants import assert_all_invariants
-from inventory.models import MovementType, StockBalance, StockMovement
+from inventory.models import MovementType
 from inventory.services import InventoryService
 from ledgers.services import LedgerService
 from reporting.services import ReportService
-from sales.models import SalesInvoice
 from tests.personas.fixtures import seed_archetype
 
 pytestmark = pytest.mark.django_db

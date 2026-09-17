@@ -38,8 +38,8 @@ export function DiscountReportPage() {
     queryKey: ['discount-report', docType, dateFrom, dateTo],
     queryFn: () =>
       (docType === 'sales' ? getSalesDiscountReport : getPurchaseDiscountReport)({
-        date_from: dateFrom || undefined,
-        date_to: dateTo || undefined,
+        ...(dateFrom ? { date_from: dateFrom } : {}),
+        ...(dateTo ? { date_to: dateTo } : {}),
       }) as Promise<DiscountReportResponse>,
   });
 

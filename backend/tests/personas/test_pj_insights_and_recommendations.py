@@ -23,7 +23,7 @@ from django.utils import timezone
 from core.invariants import assert_all_invariants
 from insights.alerts import build_business_alerts
 from insights.attention import build_attention_rows
-from inventory.models import MovementType, StockBalance
+from inventory.models import MovementType
 from inventory.services import InventoryService
 from masters.models import Customer, Product
 from payments.services import PaymentService

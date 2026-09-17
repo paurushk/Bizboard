@@ -48,6 +48,7 @@ import { PdfStatusPoller } from '@/components/PdfStatusPoller';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { Customer, Product, SalesOrder } from '@/types/domain';
+import { toNumber } from '@/utils/money';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { getCompany } from '@/api/resources';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';

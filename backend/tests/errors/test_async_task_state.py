@@ -9,7 +9,6 @@ Does not close G-10 (real broker).
 
 from __future__ import annotations
 
-from decimal import Decimal
 from unittest import mock
 
 import pytest

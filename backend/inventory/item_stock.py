@@ -418,25 +418,35 @@ def record_expiry_bands(company, rows, bands=(7, 30, 60, 90)):
         ExpiryAlertLog.objects.bulk_create(new_logs, ignore_conflicts=True)
 
     email = (getattr(company, "email", None) or "").strip()
-    if not email:
-        return
     for row, band in new_meta:
         horizon = "expired" if band == 0 else f"within {band} days"
+        subject = f"Expiry alert: {row['product_name']} ({horizon})"
+        body = (
+            f"Lot {row['batch_no']} of {row['product_name']} "
+            f"at godown {row['warehouse_name']} expires on {row['expiry_date']} "
+            f"({row['on_hand']} on hand)."
+        )
+        if email:
+            try:
+                NotificationService.send(
+                    company=company,
+                    channel=Notification.Channel.EMAIL,
+                    recipient=email,
+                    subject=subject,
+                    body=body,
+                )
+            except Exception:
+                logger.exception(
+                    "Expiry alert email failed for batch %s band %s",
+                    row["batch"], band,
+                )
         try:
-            NotificationService.send(
-                company=company,
-                channel=Notification.Channel.EMAIL,
-                recipient=email,
-                subject=f"Expiry alert: {row['product_name']} ({horizon})",
-                body=(
-                    f"Lot {row['batch_no']} of {row['product_name']} "
-                    f"at godown {row['warehouse_name']} expires on {row['expiry_date']} "
-                    f"({row['on_hand']} on hand)."
-                ),
-            )
+            from core.services.telegram import notify_company_owners
+
+            notify_company_owners(company, subject=subject, body=body)
         except Exception:
             logger.exception(
-                "Expiry alert email failed for batch %s band %s",
+                "Expiry alert telegram notify failed for batch %s band %s",
                 row["batch"], band,
             )
 

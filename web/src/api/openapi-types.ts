@@ -825,6 +825,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/billing/dlq/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["billing_dlq_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/dlq/{id}/replay/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["billing_dlq_replay_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/billing/plans/": {
         parameters: {
             query?: never;
@@ -1990,6 +2022,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations/inventory/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner-only inventory of outbound integrations. Never returns secret values. */
+        get: operations["integrations_inventory_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/tally/commit/": {
         parameters: {
             query?: never;
@@ -2101,6 +2150,24 @@ export interface paths {
         post?: never;
         /** @description Owner-only WhatsApp Cloud connection upsert/delete (BB-000678). */
         delete: operations["integrations_whatsapp_connection_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invariants/check/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner/support surface for `check_invariants` against the active company. */
+        get: operations["invariants_check_retrieve"];
+        put?: never;
+        /** @description Owner/support surface for `check_invariants` against the active company. */
+        post: operations["invariants_check_create"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -5807,6 +5874,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/invoice-profit/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_invoice_profit_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/invoice-profit/rollup/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_invoice_profit_rollup_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/product-sales/": {
         parameters: {
             query?: never;
@@ -5823,6 +5922,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/purchase-discounts/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_purchase_discounts_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/purchase-register/": {
         parameters: {
             query?: never;
@@ -5831,6 +5946,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["reports_purchase_register_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/sales-discounts/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_sales_discounts_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7517,6 +7648,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/telegram/link/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description POST /api/v1/telegram/link/ — issue a one-time /start deep link. */
+        post: operations["telegram_link_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/telegram/status/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /api/v1/telegram/status/ — this user's Telegram link state. */
+        get: operations["telegram_status_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/telegram/unlink/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description POST /api/v1/telegram/unlink/ — disconnect this user's Telegram account. */
+        post: operations["telegram_unlink_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/telegram/webhook/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/v1/telegram/webhook/ — /start <code> linking handshake only.
+         *
+         *     This is not a two-way command bot: any update that isn't a recognized
+         *     /start code is acknowledged and dropped.
+         */
+        post: operations["telegram_webhook_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/webhooks/payments/{provider}/": {
         parameters: {
             query?: never;
@@ -7841,9 +8045,10 @@ export interface components {
          *     * `WHATSAPP` - Whatsapp
          *     * `SMS` - Sms
          *     * `PUSH` - Push
+         *     * `TELEGRAM` - Telegram
          * @enum {string}
          */
-        ChannelEnum: "EMAIL" | "WHATSAPP" | "SMS" | "PUSH";
+        ChannelEnum: "EMAIL" | "WHATSAPP" | "SMS" | "PUSH" | "TELEGRAM";
         CompanyGstin: {
             readonly id: number;
             gstin: string;
@@ -7874,7 +8079,6 @@ export interface components {
             email?: string;
             logo?: number | null;
             signature?: number | null;
-            /** Format: int64 */
             fyStartMonth?: number;
             negativeStockPolicy?: components["schemas"]["NegativeStockPolicyEnum"];
             invoiceTerms?: string;
@@ -7972,7 +8176,6 @@ export interface components {
             status?: components["schemas"]["CustomerStatusEnum"];
             /** Format: decimal */
             creditLimit?: string;
-            /** Format: int64 */
             creditDays?: number;
             notes?: string;
             /** Format: date-time */
@@ -8045,7 +8248,6 @@ export interface components {
             vehicleNumber?: string;
             transporterName?: string;
             transporterId?: string;
-            /** Format: int64 */
             transportDistanceKm?: number | null;
             subSupplyType?: string;
             transMode?: string;
@@ -8221,7 +8423,6 @@ export interface components {
             acquisitionDate: string;
             /** Format: decimal */
             acquisitionCost: string;
-            /** Format: int64 */
             usefulLifeMonths: number;
             /** Format: decimal */
             readonly depreciatedAmount: string;
@@ -9667,7 +9868,6 @@ export interface components {
             email?: string;
             logo?: number | null;
             signature?: number | null;
-            /** Format: int64 */
             fyStartMonth?: number;
             negativeStockPolicy?: components["schemas"]["NegativeStockPolicyEnum"];
             invoiceTerms?: string;
@@ -9748,7 +9948,6 @@ export interface components {
             status?: components["schemas"]["CustomerStatusEnum"];
             /** Format: decimal */
             creditLimit?: string;
-            /** Format: int64 */
             creditDays?: number;
             notes?: string;
             /** Format: date-time */
@@ -9780,7 +9979,6 @@ export interface components {
             vehicleNumber?: string;
             transporterName?: string;
             transporterId?: string;
-            /** Format: int64 */
             transportDistanceKm?: number | null;
             subSupplyType?: string;
             transMode?: string;
@@ -9870,7 +10068,6 @@ export interface components {
             acquisitionDate?: string;
             /** Format: decimal */
             acquisitionCost?: string;
-            /** Format: int64 */
             usefulLifeMonths?: number;
             /** Format: decimal */
             readonly depreciatedAmount?: string;
@@ -10185,7 +10382,6 @@ export interface components {
             invoiceDate?: string;
             /** Format: date */
             dueDate?: string | null;
-            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -10270,7 +10466,6 @@ export interface components {
             orderDate?: string;
             /** Format: date */
             expectedDelivery?: string | null;
-            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -10356,7 +10551,6 @@ export interface components {
             validUntil?: string | null;
             notes?: string;
             termsText?: string;
-            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -10556,7 +10750,6 @@ export interface components {
             invoiceDate?: string;
             /** Format: date */
             dueDate?: string | null;
-            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -10594,7 +10787,6 @@ export interface components {
             transporterName?: string;
             transporterId?: string;
             vehicleNumber?: string;
-            /** Format: int64 */
             transportDistanceKm?: number | null;
             subSupplyType?: string;
             transMode?: string;
@@ -10669,7 +10861,6 @@ export interface components {
             orderDate?: string;
             /** Format: date */
             expectedDelivery?: string | null;
-            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -10896,7 +11087,6 @@ export interface components {
             readonly employeeName: string;
             /** Format: decimal */
             gross: string;
-            /** Format: int64 */
             periodDays?: number | null;
             /** Format: decimal */
             paidDays?: string | null;
@@ -11247,7 +11437,6 @@ export interface components {
             invoiceDate?: string;
             /** Format: date */
             dueDate?: string | null;
-            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -11381,7 +11570,6 @@ export interface components {
             orderDate?: string;
             /** Format: date */
             expectedDelivery?: string | null;
-            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -11533,7 +11721,6 @@ export interface components {
             validUntil?: string | null;
             notes?: string;
             termsText?: string;
-            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -11872,7 +12059,6 @@ export interface components {
             invoiceDate?: string;
             /** Format: date */
             dueDate?: string | null;
-            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -11910,7 +12096,6 @@ export interface components {
             transporterName?: string;
             transporterId?: string;
             vehicleNumber?: string;
-            /** Format: int64 */
             transportDistanceKm?: number | null;
             subSupplyType?: string;
             transMode?: string;
@@ -12036,7 +12221,6 @@ export interface components {
             orderDate?: string;
             /** Format: date */
             expectedDelivery?: string | null;
-            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -14008,6 +14192,44 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_dlq_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_dlq_replay_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -16166,6 +16388,24 @@ export interface operations {
             };
         };
     };
+    integrations_inventory_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     integrations_tally_commit_create: {
         parameters: {
             query?: never;
@@ -16323,6 +16563,42 @@ export interface operations {
         responses: {
             /** @description No response body */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    invariants_check_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    invariants_check_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23318,6 +23594,42 @@ export interface operations {
             };
         };
     };
+    reports_invoice_profit_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_invoice_profit_rollup_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     reports_product_sales_retrieve: {
         parameters: {
             query?: never;
@@ -23336,7 +23648,43 @@ export interface operations {
             };
         };
     };
+    reports_purchase_discounts_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     reports_purchase_register_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_sales_discounts_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -26636,6 +26984,78 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Supplier"];
                 };
+            };
+        };
+    };
+    telegram_link_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    telegram_status_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    telegram_unlink_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    telegram_webhook_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

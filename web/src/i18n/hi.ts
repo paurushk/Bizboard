@@ -103,6 +103,7 @@ export const hi = {
     invoiceTemplates: 'इनवॉइस शर्तें व फ़ुटर',
     users: 'उपयोगकर्ता',
     backupExport: 'बैकअप / निर्यात',
+    telegram: 'Telegram सूचनाएं',
     importData: 'डेटा आयात',
     tallyMigration: 'Tally माइग्रेशन',
     aiSettings: 'AI और इनसाइट्स',

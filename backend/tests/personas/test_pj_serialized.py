@@ -18,7 +18,6 @@ import pytest
 from core.invariants import assert_all_invariants
 from inventory.models import MovementType, SerialNumber
 from inventory.services import InventoryService
-from sales.models import SalesReturn
 from tests.personas.fixtures import seed_archetype
 
 pytestmark = pytest.mark.django_db
