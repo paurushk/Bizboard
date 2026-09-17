@@ -19,4 +19,10 @@ A management command may live later; this ticket only documents the fixture. If 
 
 ## After seed
 
-Run `load/k6_slo.js` and store JSON under `load/results/` (gitignored). Paste p95 numbers into `docs/roadmap/ticket-logs/X-01.md`. Pass **or** fail with numbers — never a claimed pass without a file.
+Before running the Complete scenario, also seed a pool of fresh DRAFT invoices — completing the same draft repeatedly measures 400-rejection latency, not real Complete work (see `docs/roadmap/ticket-logs/X-01.md`, 2026-09-12):
+
+```
+export DRAFT_INVOICE_IDS=$(python manage.py seed_draft_pool --count 700)
+```
+
+Size `--count` above the run's expected total "complete" iterations (VUs × duration ÷ ~1s per iteration). Then run `load/k6_slo.js` with `DRAFT_INVOICE_IDS` set, and store JSON under `load/results/` (gitignored). Paste p95 numbers into `docs/roadmap/ticket-logs/X-01.md`. Pass **or** fail with numbers — never a claimed pass without a file.

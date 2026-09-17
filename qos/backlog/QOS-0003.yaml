@@ -40,10 +40,10 @@ priority: P1
 priority_rationale: Impact Medium (36); a cheap executed smoke closes most of the risk now.
 effort: L
 recommendation: 'Large-tenant fixture: verified on Postgres. k6 smoke: proven green, no longer advisory-
-  on-faith. Remaining before this can be called fully verified: (a) run k6_slo.js against a real
-  staging-shaped host, not a dev laptop, (b) fix k6_slo.js''s completeDraft() to measure repeated real
-  Completes (pool of drafts or a per-iteration draft) instead of mostly measuring duplicate-completion
-  rejections.'
+  on-faith. (b) is code-complete as of 2026-09-17 (manage.py seed_draft_pool + k6_slo.js pool-based
+  completeDraft(), see docs/roadmap/ticket-logs/X-01.md) but not yet run against a live backend.
+  Remaining before this can be called fully verified: (a) run k6_slo.js against a real staging-shaped
+  host, not a dev laptop, and confirm the (b) fix behaves as expected on that run.'
 test_required: k6 smoke lane (advisory then blocking) + a large-tenant report/export timing test
 guard_ref:
   test: backend/tests/test_qos0003_large_tenant_reports.py::test_realistic_month_window_stays_flat_and_fast_on_a_50k_tenant
