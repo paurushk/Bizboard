@@ -13,6 +13,7 @@ from .views import (
     TelegramLinkView,
     TelegramStatusView,
     TelegramUnlinkView,
+    ops_alert_webhook,
     telegram_webhook,
 )
 
@@ -33,4 +34,5 @@ urlpatterns = router.urls + [
     path("telegram/link/", TelegramLinkView.as_view(), name="telegram-link"),
     path("telegram/unlink/", TelegramUnlinkView.as_view(), name="telegram-unlink"),
     path("telegram/webhook/", telegram_webhook, name="telegram-webhook"),
+    path("ops/alert/", ops_alert_webhook, name="ops-alert-webhook"),
 ]

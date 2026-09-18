@@ -18,6 +18,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TableCell from '@mui/material/TableCell';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import Alert from '@mui/material/Alert';
@@ -57,7 +58,7 @@ import {
 } from '@/offline/invoiceDraftCache';
 import { isValidHsnSac } from '@/utils/gst';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
-import { canCreateSales } from '@/utils/permissions';
+import { canCreateSales, canViewFinancialReports } from '@/utils/permissions';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
@@ -135,6 +136,7 @@ export function NewInvoicePage() {
   );
   const qc = useQueryClient();
   const { user } = useAuth();
+  const canSeeMargin = canViewFinancialReports(user);
   const isOwner = user?.role === 'OWNER';
   const companyId = user?.companyId ?? 0;
   const userId = user?.id ?? 0;
@@ -1863,6 +1865,23 @@ export function NewInvoicePage() {
           <Typography fontWeight={700}>
             {t('billing.totalAmount')} {formatMoney(shownTotals.grandTotal)}
           </Typography>
+          {canSeeMargin && preview.totals?.estimatedMargin != null ? (
+            <Tooltip
+              title={
+                preview.totals.marginEstimatePartial
+                  ? t('billing.estimatedMarginPartialHint')
+                  : t('billing.estimatedMarginHint')
+              }
+            >
+              <Typography color="text.secondary">
+                {preview.totals.marginEstimatePartial ? '~' : ''}
+                {t('billing.estimatedMargin')} {formatMoney(preview.totals.estimatedMargin)}
+                {preview.totals.estimatedMarginPercent != null
+                  ? ` (${preview.totals.estimatedMarginPercent.toFixed(1)}%)`
+                  : ''}
+              </Typography>
+            </Tooltip>
+          ) : null}
         </Box>
       </Paper>
 

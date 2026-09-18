@@ -4,6 +4,7 @@ from django.test import override_settings
 from rest_framework.test import APIClient
 
 from core.models import AuditEvent
+from tests.conftest import register_via_api
 
 pytestmark = pytest.mark.django_db
 
@@ -17,12 +18,12 @@ def _clear_cache():
 
 def test_register_creates_user_company_and_owner_membership():
     client = APIClient()
-    resp = client.post("/api/v1/auth/register/", {
+    resp = register_via_api(client, {
         "company_name": "Fresh Mart",
         "email": "boss@freshmart.test",
         "password": "StrongPass123!",
         "state": "Karnataka",
-    }, format="json")
+    })
     assert resp.status_code == 200
     # BB-000349 / BB-000389: body never exposes tokens/ids; register sets no cookies.
     assert resp.data["access"] is None
@@ -54,26 +55,26 @@ def test_register_explicit_regular_requires_gstin():
     only a silently-defaulted REGULAR (no registration_type in the request)
     skips this, to be completed later in the Setup Wizard's tax step."""
     client = APIClient()
-    resp = client.post("/api/v1/auth/register/", {
+    resp = register_via_api(client, {
         "company_name": "No Gstin Mart",
         "email": "nogstin@mart.test",
         "password": "StrongPass123!",
         "state": "Karnataka",
         "registration_type": "REGULAR",
-    }, format="json")
+    })
     assert resp.status_code == 400
     assert "gstin" in resp.data["error"]["details"]
 
 
 def test_register_explicit_composition_requires_gstin():
     client = APIClient()
-    resp = client.post("/api/v1/auth/register/", {
+    resp = register_via_api(client, {
         "company_name": "No Gstin Composition",
         "email": "nogstincomp@mart.test",
         "password": "StrongPass123!",
         "state": "Karnataka",
         "registration_type": "COMPOSITION",
-    }, format="json")
+    })
     assert resp.status_code == 400
     assert "gstin" in resp.data["error"]["details"]
 
@@ -82,14 +83,14 @@ def test_register_explicit_regular_with_valid_gstin_succeeds():
     from accounts.models import Company
 
     client = APIClient()
-    resp = client.post("/api/v1/auth/register/", {
+    resp = register_via_api(client, {
         "company_name": "Gstin Mart",
         "email": "hasgstin@mart.test",
         "password": "StrongPass123!",
         "state": "Karnataka",
         "registration_type": "REGULAR",
         "gstin": "29AAAAA0000A1ZY",
-    }, format="json")
+    })
     assert resp.status_code == 200
     company = Company.objects.get(name="Gstin Mart")
     assert company.registration_type == "REGULAR"
@@ -98,14 +99,14 @@ def test_register_explicit_regular_with_valid_gstin_succeeds():
 
 def test_register_explicit_regular_rejects_malformed_gstin():
     client = APIClient()
-    resp = client.post("/api/v1/auth/register/", {
+    resp = register_via_api(client, {
         "company_name": "Bad Gstin Mart",
         "email": "badgstin@mart.test",
         "password": "StrongPass123!",
         "state": "Karnataka",
         "registration_type": "REGULAR",
         "gstin": "NOT-A-GSTIN",
-    }, format="json")
+    })
     assert resp.status_code == 400
     assert "gstin" in resp.data["error"]["details"]
 
@@ -116,13 +117,13 @@ def test_register_explicit_unregistered_without_gstin_still_allowed():
     from accounts.models import Company
 
     client = APIClient()
-    resp = client.post("/api/v1/auth/register/", {
+    resp = register_via_api(client, {
         "company_name": "Opt Out Mart",
         "email": "optout@mart.test",
         "password": "StrongPass123!",
         "state": "Karnataka",
         "registration_type": "UNREGISTERED",
-    }, format="json")
+    })
     assert resp.status_code == 200
     company = Company.objects.get(name="Opt Out Mart")
     assert company.registration_type == "UNREGISTERED"
@@ -133,13 +134,13 @@ def test_register_gstin_without_explicit_registration_type_is_validated():
     """A GSTIN supplied without an explicit registration_type still gets
     validated against the REGULAR default rather than silently accepted."""
     client = APIClient()
-    resp = client.post("/api/v1/auth/register/", {
+    resp = register_via_api(client, {
         "company_name": "Gstin No Type Mart",
         "email": "gstinnotype@mart.test",
         "password": "StrongPass123!",
         "state": "Karnataka",
         "gstin": "BAD",
-    }, format="json")
+    })
     assert resp.status_code == 400
     assert "gstin" in resp.data["error"]["details"]
 
@@ -149,13 +150,13 @@ def test_register_copies_phone_to_company():
     from accounts.models import Company, User
 
     client = APIClient()
-    resp = client.post("/api/v1/auth/register/", {
+    resp = register_via_api(client, {
         "company_name": "Phone Mart",
         "email": "phoneboss@phonemart.test",
         "password": "StrongPass123!",
         "state": "Maharashtra",
         "phone": "9876543210",
-    }, format="json")
+    })
     assert resp.status_code == 200
     user = User.objects.get(email="phoneboss@phonemart.test")
     company = Company.objects.get(memberships__user=user)
@@ -165,20 +166,25 @@ def test_register_copies_phone_to_company():
 def test_register_existing_email_same_shape_no_tokens():
     """BB-000349 — duplicate and new share identical body shape (all null tokens/ids)."""
     client = APIClient()
-    first = client.post("/api/v1/auth/register/", {
+    first = register_via_api(client, {
         "company_name": "Fresh Mart",
         "email": "dup@freshmart.test",
         "password": "StrongPass123!",
         "state": "Karnataka",
-    }, format="json")
+    })
     assert first.status_code == 200
     assert first.data["access"] is None
 
+    # Email is already registered now — RequestRegisterOtpView won't send/echo
+    # a code (BB-000251-style non-enumeration), and RegisterView's own
+    # existing-email early return happens before the OTP is ever checked, so
+    # any well-formed placeholder code reaches the same generic response.
     again = client.post("/api/v1/auth/register/", {
         "company_name": "Other Co",
         "email": "dup@freshmart.test",
         "password": "StrongPass123!",
         "state": "Karnataka",
+        "otp_code": "000000",
     }, format="json")
     assert again.status_code == 200
     assert set(again.data.keys()) == set(first.data.keys())
@@ -186,6 +192,137 @@ def test_register_existing_email_same_shape_no_tokens():
     assert again.data["user_id"] is None
     assert again.data["company_id"] is None
     assert again.data["detail"] == first.data["detail"]
+
+
+def test_register_otp_request_uniform_response_for_new_and_existing_email(tenant_a):
+    """Same shape as BUG-113's phone-OTP non-enumeration guarantee: a code is
+    only actually emailed for a free address, but the response never says so."""
+    client = APIClient()
+    new = client.post(
+        "/api/v1/auth/register/otp/request/", {"email": "brandnew@signup.test"}, format="json",
+    )
+    existing = client.post(
+        "/api/v1/auth/register/otp/request/", {"email": tenant_a.owner.email}, format="json",
+    )
+    assert new.status_code == existing.status_code == 200
+    assert new.data["detail"] == existing.data["detail"]
+    assert "debug_code" in new.data
+    assert "debug_code" not in existing.data
+
+
+def test_register_rejects_missing_otp_code():
+    client = APIClient()
+    resp = client.post("/api/v1/auth/register/", {
+        "company_name": "No Code Mart",
+        "email": "nocode@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+    }, format="json")
+    assert resp.status_code == 400
+    assert "otp_code" in resp.data["error"]["details"]
+
+
+def test_register_rejects_invalid_otp_code():
+    client = APIClient()
+    client.post(
+        "/api/v1/auth/register/otp/request/", {"email": "wrongcode@mart.test"}, format="json",
+    )
+    resp = client.post("/api/v1/auth/register/", {
+        "company_name": "Wrong Code Mart",
+        "email": "wrongcode@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+        "otp_code": "000000",
+    }, format="json")
+    assert resp.status_code == 400
+    from accounts.models import User
+
+    assert not User.objects.filter(email__iexact="wrongcode@mart.test").exists()
+
+
+def test_register_rejects_expired_otp_code():
+    from django.utils import timezone
+
+    from accounts.models import OtpChallenge
+
+    client = APIClient()
+    otp_resp = client.post(
+        "/api/v1/auth/register/otp/request/", {"email": "expired@mart.test"}, format="json",
+    )
+    code = otp_resp.data["debug_code"]
+    OtpChallenge.objects.filter(email="expired@mart.test").update(
+        expires_at=timezone.now() - timezone.timedelta(seconds=1),
+    )
+    resp = client.post("/api/v1/auth/register/", {
+        "company_name": "Expired Code Mart",
+        "email": "expired@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+        "otp_code": code,
+    }, format="json")
+    assert resp.status_code == 400
+
+
+def test_register_stale_otp_code_rejected_once_a_newer_one_is_requested():
+    """Register looks up the *latest* unconsumed challenge for the email —
+    an earlier code from a prior request-OTP call must stop working."""
+    client = APIClient()
+    first_resp = client.post(
+        "/api/v1/auth/register/otp/request/", {"email": "resend@mart.test"}, format="json",
+    )
+    stale_code = first_resp.data["debug_code"]
+    cache.clear()  # bypass the per-email resend cooldown so a second code is actually issued
+    second_resp = client.post(
+        "/api/v1/auth/register/otp/request/", {"email": "resend@mart.test"}, format="json",
+    )
+    fresh_code = second_resp.data["debug_code"]
+
+    payload = {
+        "company_name": "Resend Mart",
+        "email": "resend@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+    }
+    stale = client.post(
+        "/api/v1/auth/register/", {**payload, "otp_code": stale_code}, format="json",
+    )
+    assert stale.status_code == 400
+
+    fresh = client.post(
+        "/api/v1/auth/register/", {**payload, "otp_code": fresh_code}, format="json",
+    )
+    assert fresh.status_code == 200
+
+
+def test_register_otp_locks_out_after_max_attempts(monkeypatch):
+    monkeypatch.setattr("accounts.views.secrets.randbelow", lambda n: 111222)
+    # Keep total /auth/register/ calls below its own "register" throttle
+    # scope (5/min) so that budget doesn't shadow the OTP lockout being tested.
+    monkeypatch.setattr("django.conf.settings.OTP_MAX_ATTEMPTS", 2)
+    client = APIClient()
+    client.post(
+        "/api/v1/auth/register/otp/request/", {"email": "lockout@mart.test"}, format="json",
+    )
+    payload = {
+        "company_name": "Lockout Mart",
+        "email": "lockout@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+    }
+    for _ in range(2):
+        resp = client.post(
+            "/api/v1/auth/register/", {**payload, "otp_code": "000000"}, format="json",
+        )
+        assert resp.status_code == 400
+
+    locked = client.post(
+        "/api/v1/auth/register/", {**payload, "otp_code": "111222"}, format="json",
+    )
+    assert locked.status_code == 400
+    assert "Too many attempts" in str(locked.data)
+    from accounts.models import User
+
+    assert not User.objects.filter(email__iexact="lockout@mart.test").exists()
 
 
 def test_login_returns_tokens_and_audits(tenant_a):
@@ -452,12 +589,12 @@ def test_register_throttle_scope_enforced_by_drf():
     cache key from anon-IP to per-user (BB-000375 access cookie).
     """
     for i in range(5):
-        resp = APIClient().post("/api/v1/auth/register/", {
+        resp = register_via_api(APIClient(), {
             "company_name": f"Throttle Co {i}",
             "email": f"throttle{i}@example.test",
             "password": "StrongPass123!",
             "state": "Karnataka",
-        }, format="json")
+        })
         assert resp.status_code == 200
 
     throttled = APIClient().post("/api/v1/auth/register/", {

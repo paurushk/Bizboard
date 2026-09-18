@@ -285,6 +285,51 @@ def _unrecord_otp_phone_request(phone: str) -> None:
         cache.set(hour_key, 0, OTP_PHONE_HOUR_SECONDS)
 
 
+def _otp_email_cooldown_key(email: str) -> str:
+    return f"otp_email_cd:{(email or '').strip().lower()}"
+
+
+def _otp_email_hour_key(email: str) -> str:
+    return f"otp_email_hr:{(email or '').strip().lower()}"
+
+
+def _otp_email_rate_limited(email: str) -> bool:
+    """Per-email cooldown (1/min) and hourly cap (5/hour) — same shape as phone OTP."""
+    if cache.get(_otp_email_cooldown_key(email)):
+        return True
+    hour_key = _otp_email_hour_key(email)
+    try:
+        count = int(cache.get(hour_key) or 0)
+    except (TypeError, ValueError):
+        count = 0
+    return count >= OTP_PHONE_HOUR_LIMIT
+
+
+def _record_otp_email_request(email: str) -> None:
+    cache.set(_otp_email_cooldown_key(email), 1, OTP_PHONE_COOLDOWN_SECONDS)
+    hour_key = _otp_email_hour_key(email)
+    try:
+        cache.incr(hour_key)
+    except ValueError:
+        if not cache.add(hour_key, 1, OTP_PHONE_HOUR_SECONDS):
+            try:
+                cache.incr(hour_key)
+            except ValueError:
+                cache.set(hour_key, 1, OTP_PHONE_HOUR_SECONDS)
+
+
+def _unrecord_otp_email_request(email: str) -> None:
+    """Undo cooldown + hourly after a failed send so a real signer-upper can retry."""
+    cache.delete(_otp_email_cooldown_key(email))
+    hour_key = _otp_email_hour_key(email)
+    try:
+        new_val = int(cache.decr(hour_key))
+    except (ValueError, TypeError):
+        return
+    if new_val < 0:
+        cache.set(hour_key, 0, OTP_PHONE_HOUR_SECONDS)
+
+
 def _register_payload():
     """BB-000349: identical body for new and duplicate emails (no JWT/ids oracle)."""
     return {
@@ -295,13 +340,65 @@ def _register_payload():
     }
 
 
+class RequestRegisterOtpView(APIView):
+    """Sign-up step 1: mandatory email verification. Uniform response either
+    way (mirrors RegisterView's own BB-000251 non-enumeration rule) — a code
+    is only actually emailed when the address isn't already an account."""
+
+    permission_classes = [AllowAny]
+    throttle_scope = "register_otp"
+
+    def post(self, request):
+        email = (request.data.get("email") or "").strip().lower()
+        if not email or "@" not in email:
+            raise ValidationError({"email": "Enter a valid email."})
+        payload = {"detail": "If this email can be registered, a verification code has been sent."}
+        # Per-email cooldown/hourly cap before existence check — same response either way.
+        if _otp_email_rate_limited(email):
+            return Response(payload)
+        _record_otp_email_request(email)
+        if not User.objects.filter(email__iexact=email).exists():
+            code = f"{secrets.randbelow(10**6):06d}"
+            challenge = OtpChallenge.objects.create(
+                email=email,
+                code=hash_otp(code),
+                expires_at=timezone.now() + timezone.timedelta(minutes=settings.OTP_EXPIRY_MINUTES),
+            )
+            from django.core.mail import send_mail
+
+            try:
+                send_mail(
+                    subject="Your BizBoard verification code",
+                    message=(
+                        f"Use this code to finish creating your BizBoard account "
+                        f"(valid {settings.OTP_EXPIRY_MINUTES} minutes):\n\n{code}\n"
+                    ),
+                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@bizboard.local"),
+                    recipient_list=[email],
+                    fail_silently=False,
+                )
+            except Exception:  # noqa: BLE001 — uniform 200; never leak registration via provider errors
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Register OTP email send failed for challenge id=%s; challenge rolled back.",
+                    challenge.id, exc_info=True,
+                )
+                challenge.delete()
+                # Known-free emails only: send never left, so don't burn cooldown/hourly.
+                _unrecord_otp_email_request(email)
+            else:
+                if settings.OTP_DEBUG_ECHO:
+                    payload["debug_code"] = code
+        return Response(payload)
+
+
 class RegisterView(APIView):
     """Create owner user + company + owner membership in one shot (M0)."""
 
     permission_classes = [AllowAny]
     throttle_scope = "register"
 
-    @transaction.atomic
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -315,44 +412,77 @@ class RegisterView(APIView):
         # Same generic 200 as email collision — do not leak phone occupancy.
         if data.get("phone") and phone_taken(phone=data["phone"]):
             return Response(_register_payload(), status=status.HTTP_200_OK)
+        # Mandatory sign-up email verification: a valid, unexpired, unconsumed
+        # code for this email must exist before an account is created. Safe to
+        # check after the enumeration-sensitive early-returns above — an
+        # attacker who reaches this point already knows the email is free.
+        email_norm = data["email"].strip().lower()
+        # BB-000209-style: persist a failed attempt before raising — an
+        # exception raised inside this atomic() block would otherwise roll
+        # back the attempts increment along with it.
+        invalid = False
+        with transaction.atomic():
+            challenge = (
+                OtpChallenge.objects.select_for_update()
+                .filter(email=email_norm, consumed=False)
+                .order_by("-created_at")
+                .first()
+            )
+            if not challenge or challenge.is_expired:
+                raise OtpExpiredError()
+            if challenge.attempts >= settings.OTP_MAX_ATTEMPTS:
+                raise OtpTooManyAttemptsError()
+            if not verify_otp(challenge.code, data["otp_code"]):
+                challenge.attempts += 1
+                challenge.save(update_fields=["attempts"])
+                invalid = True
+            else:
+                challenge.consumed = True
+                challenge.save(update_fields=["consumed"])
+        if invalid:
+            raise OtpInvalidError()
+        # One atomic block for the whole creation (not a method-level
+        # decorator around all of post()) — the OTP attempts-increment above
+        # must survive a later IntegrityError/rollback here, not be undone
+        # by it (see the BB-000209-style note above).
         try:
             with transaction.atomic():
                 user = User.objects.create_user(
                     email=data["email"], password=data["password"],
                     full_name=data.get("full_name", ""), phone=data.get("phone", ""),
                 )
+                company = Company.objects.create(
+                    name=data["company_name"],
+                    state=data.get("state", ""),
+                    phone=data.get("phone", ""),
+                    email=data.get("email", ""),
+                    registration_type=data.get("registration_type", Company.RegistrationType.REGULAR),
+                    gstin=data.get("gstin", ""),
+                    valuation_business_date_order=True,
+                    recompute_tax_on_complete=True,
+                )
+                CompanyUser.objects.create(
+                    company=company, user=user, role=CompanyUser.Role.OWNER,
+                    can_manage_inventory=True, can_import=True,
+                    can_cancel_documents=True, can_view_financial_reports=True, can_export=True,
+                    can_create_sales=True, can_create_purchases=True, can_create_payments=True,
+                    can_post_journals=True,
+                )
+                from inventory.services import InventoryService
+
+                InventoryService.default_warehouse(company)
+                if getattr(settings, "REQUIRE_SUBSCRIPTION", False):
+                    from billing.services import ensure_register_trial
+
+                    ensure_register_trial(company)
+                AuditService.log(company=company, user=user, action="CREATE",
+                                 entity_type="Company", entity_id=company.id,
+                                 description="Company registered")
+                from insights.telemetry import record_event
+
+                record_event(company, "signup_completed", user=user, journey="signup", success=True)
         except IntegrityError:
             return Response(_register_payload(), status=status.HTTP_200_OK)
-        company = Company.objects.create(
-            name=data["company_name"],
-            state=data.get("state", ""),
-            phone=data.get("phone", ""),
-            email=data.get("email", ""),
-            registration_type=data.get("registration_type", Company.RegistrationType.REGULAR),
-            gstin=data.get("gstin", ""),
-            valuation_business_date_order=True,
-            recompute_tax_on_complete=True,
-        )
-        CompanyUser.objects.create(
-            company=company, user=user, role=CompanyUser.Role.OWNER,
-            can_manage_inventory=True, can_import=True,
-            can_cancel_documents=True, can_view_financial_reports=True, can_export=True,
-            can_create_sales=True, can_create_purchases=True, can_create_payments=True,
-            can_post_journals=True,
-        )
-        from inventory.services import InventoryService
-
-        InventoryService.default_warehouse(company)
-        if getattr(settings, "REQUIRE_SUBSCRIPTION", False):
-            from billing.services import ensure_register_trial
-
-            ensure_register_trial(company)
-        AuditService.log(company=company, user=user, action="CREATE",
-                         entity_type="Company", entity_id=company.id,
-                         description="Company registered")
-        from insights.telemetry import record_event
-
-        record_event(company, "signup_completed", user=user, journey="signup", success=True)
         # BB-000389: never set auth cookies on register (enumeration oracle).
         return Response(_register_payload(), status=status.HTTP_200_OK)
 

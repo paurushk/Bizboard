@@ -588,7 +588,10 @@ class PasswordResetJti(TimeStampedModel):
 
 
 class OtpChallenge(TimeStampedModel):
-    phone = models.CharField(max_length=20, db_index=True)
+    # Exactly one of phone/email is set per row: phone for OTP login,
+    # email for mandatory sign-up verification.
+    phone = models.CharField(max_length=20, blank=True, default="", db_index=True)
+    email = models.CharField(max_length=254, blank=True, default="", db_index=True)
     # Stores HMAC-SHA256 hex digest (see accounts.otp_utils.hash_otp), not plaintext.
     code = models.CharField(max_length=128)
     expires_at = models.DateTimeField()
@@ -596,7 +599,10 @@ class OtpChallenge(TimeStampedModel):
     attempts = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
-        indexes = [models.Index(fields=["phone", "consumed", "-created_at"])]
+        indexes = [
+            models.Index(fields=["phone", "consumed", "-created_at"]),
+            models.Index(fields=["email", "consumed", "-created_at"]),
+        ]
 
     @property
     def is_expired(self):

@@ -9,4 +9,9 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+.hypothesis/
+.pytest_local.db
+.pytest_local.db-shm
+.pytest_local.db-wal
+.pytest_local.db-journal
 .env

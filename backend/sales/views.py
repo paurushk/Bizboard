@@ -382,6 +382,17 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         products_by_id = {
             p.pk: p for p in Product.objects.filter(pk__in=product_ids, company=company)
         }
+        # Estimated margin is sales-only, read-only reference data for the
+        # draft editor -- gated server-side (not just hidden in the UI) so a
+        # role without financial-reports access can't read cost/margin off
+        # this response even though preview itself only needs CanViewSalesSurfaces.
+        include_margin = CanViewFinancialReports().has_permission(request, self)
+        warehouse = None
+        warehouse_id = request.data.get("warehouse")
+        if include_margin and warehouse_id:
+            from inventory.models import Warehouse
+
+            warehouse = Warehouse.objects.filter(pk=warehouse_id, company=company).first()
         return Response(build_totals_preview(
             company=company,
             party_state=customer.state or "",
@@ -392,6 +403,8 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             tax_enabled=tax_enabled,
             seller_state=seller_state,
             seller_gstin=seller_gstin,
+            include_margin=include_margin,
+            warehouse=warehouse,
         ))
 
     @action(detail=True, methods=["post"])

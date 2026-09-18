@@ -545,3 +545,75 @@ def telegram_webhook(request):
     link_chat_id(user, str(chat_id))
     send_telegram_message(str(chat_id), "Bizboard is now connected. You'll receive alerts here.")
     return Response({"ok": True})
+
+
+class OpsAlertWebhookThrottle(AnonRateThrottle):
+    rate = "30/min"
+
+
+def _ops_alert_text(payload: dict) -> str | None:
+    """Format an alert-source payload into a short page. None = nothing worth paging on.
+
+    Recognizes: Sentry's Internal Integration `event_alert` webhook shape,
+    a generic {"message"|"text": "..."} shape (Healthchecks.io / UptimeRobot /
+    any monitor that lets you template the POST body), and falls back to a
+    truncated raw dump so nothing is silently swallowed.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    event = ((payload.get("data") or {}).get("event") or {}) if isinstance(payload.get("data"), dict) else {}
+    if event:
+        title = (event.get("title") or event.get("message") or "Sentry alert").strip()
+        culprit = (event.get("culprit") or "").strip()
+        url = (event.get("web_url") or event.get("url") or "").strip()
+        rule = ((payload.get("data") or {}).get("triggered_rule") or "").strip()
+        lines = [f"🔴 {title}"]
+        if culprit:
+            lines.append(culprit)
+        if rule:
+            lines.append(f"Rule: {rule}")
+        if url:
+            lines.append(url)
+        return "\n".join(lines)[:4096]
+
+    # Sentry also pings this URL for non-alert resources (installation
+    # created/deleted) when the integration is first wired up — ack, don't page.
+    if payload.get("installation") is not None and not event:
+        return None
+
+    text = (payload.get("message") or payload.get("text") or "").strip()
+    if text:
+        return text[:4096]
+
+    if payload:
+        import json
+
+        return ("⚠️ Ops alert (unrecognized payload): " + json.dumps(payload)[:1500])
+    return None
+
+
+@api_view(["POST"])
+@drf_permission_classes([AllowAny])
+@throttle_classes([OpsAlertWebhookThrottle])
+def ops_alert_webhook(request):
+    """POST /api/v1/ops/alert/?token=... — generic no-infra paging relay.
+
+    Point a Sentry Internal Integration's alert-rule webhook, or any uptime
+    monitor (Healthchecks.io, UptimeRobot, ...) that lets you set the POST
+    URL, at this endpoint with OPS_ALERT_TOKEN in the query string or an
+    X-Ops-Alert-Token header. Relays a formatted message to the fixed
+    OPS_TELEGRAM_CHAT_ID — a free stand-in for a dedicated on-call product.
+    """
+    configured = (getattr(settings, "OPS_ALERT_TOKEN", "") or "").strip()
+    provided = request.query_params.get("token", "") or request.headers.get("X-Ops-Alert-Token", "")
+    if not configured or not hmac.compare_digest(provided, configured):
+        return Response(status=status.HTTP_401_UNAUTHORIZED)
+
+    payload = request.data if isinstance(request.data, dict) else {}
+    text = _ops_alert_text(payload)
+    if text:
+        from core.services.telegram import send_ops_alert
+
+        send_ops_alert(text)
+    return Response({"ok": True})

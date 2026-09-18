@@ -92,6 +92,25 @@ def link_chat_id(user, chat_id: str) -> None:
     user.save(update_fields=["telegram_chat_id", "telegram_link_code", "telegram_link_code_expires_at"])
 
 
+def send_ops_alert(text: str) -> TelegramSendResult:
+    """Best-effort page to the fixed ops/on-call chat (not a per-user recipient).
+
+    Used by the Sentry/health-check webhook relay — never raises, since a
+    failed page must not turn the alert source's webhook call into an error.
+    """
+    from django.conf import settings
+
+    chat_id = (getattr(settings, "OPS_TELEGRAM_CHAT_ID", "") or "").strip()
+    if not chat_id:
+        logger.warning("OPS_TELEGRAM_CHAT_ID is not configured; ops alert not sent.")
+        return TelegramSendResult(mode="unlinked")
+    try:
+        return send_telegram_message(chat_id, text)
+    except Exception:
+        logger.warning("Ops alert Telegram send failed", exc_info=True)
+        return TelegramSendResult(mode="failed", raw={"error": "send_telegram_message raised"})
+
+
 def notify_company_owners(company, *, subject: str, body: str) -> None:
     """Best-effort broadcast to every linked owner/staff user of a company.
 

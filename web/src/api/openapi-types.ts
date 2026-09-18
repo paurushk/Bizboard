@@ -758,6 +758,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/register/otp/request/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Sign-up step 1: mandatory email verification. Uniform response either
+         *     way (mirrors RegisterView's own BB-000251 non-enumeration rule) — a code
+         *     is only actually emailed when the address isn't already an account.
+         */
+        post: operations["auth_register_otp_request_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/switch-company/": {
         parameters: {
             query?: never;
@@ -14116,6 +14137,24 @@ export interface operations {
         };
     };
     auth_register_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_register_otp_request_create: {
         parameters: {
             query?: never;
             header?: never;

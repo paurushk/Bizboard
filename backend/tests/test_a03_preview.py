@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 
+from accounts.models import CompanyUser
 from sales.models import SalesInvoice
 from tests.conftest import add_stock, make_customer, make_product
 
@@ -184,3 +185,80 @@ def test_preview_and_complete_tcs_rate_without_amount_folds(tenant_a):
     inv = SalesInvoice.objects.get(pk=created.data["id"])
     assert inv.tcs_amount_manual is False
     assert Decimal(str(inv.tcs_amount)) > Decimal("0")
+
+
+def test_preview_totals_includes_margin_estimate_for_owner(tenant_a):
+    """Live estimated-margin fields (billing.build_totals_preview, include_margin=True) --
+    the draft editor's negotiation-room indicator."""
+    product = make_product(tenant_a.company, sku="A03-MARGIN", gst_rate="18")
+    add_stock(tenant_a, product, "20", unit_cost="80")
+    cust = make_customer(tenant_a.company)
+    payload = {
+        "customer": cust.id,
+        "invoice_type": "GST",
+        "items": [{"product": product.id, "quantity": "2", "unit_price": "1000", "gst_rate": "18"}],
+    }
+    preview = tenant_a.client.post("/api/v1/sales/invoices/preview-totals/", payload, format="json")
+    assert preview.status_code == 200, preview.data
+
+    assert Decimal(str(preview.data["estimated_cogs"])) == Decimal("160.00")
+    assert Decimal(str(preview.data["estimated_margin"])) == Decimal("1840.00")
+    assert Decimal(str(preview.data["estimated_margin_percent"])) == Decimal("92.00")
+    assert preview.data["margin_estimate_partial"] is False
+
+
+def test_preview_totals_excludes_service_lines_from_margin_cogs(tenant_a):
+    product = make_product(tenant_a.company, sku="A03-MARGIN-SVC", gst_rate="18", product_type="SERVICE")
+    cust = make_customer(tenant_a.company)
+    payload = {
+        "customer": cust.id,
+        "invoice_type": "GST",
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "500", "gst_rate": "18"}],
+    }
+    preview = tenant_a.client.post("/api/v1/sales/invoices/preview-totals/", payload, format="json")
+    assert preview.status_code == 200, preview.data
+
+    assert Decimal(str(preview.data["estimated_cogs"])) == Decimal("0")
+    assert Decimal(str(preview.data["estimated_margin"])) == Decimal("500.00")
+    assert preview.data["margin_estimate_partial"] is False
+
+
+def test_preview_totals_flags_partial_margin_estimate_when_no_cost_data(tenant_a):
+    # No add_stock() call -- product tracks inventory but has no running-cost
+    # row and no purchase history, so its cost can't be estimated at all.
+    product = make_product(tenant_a.company, sku="A03-MARGIN-NOCOST", gst_rate="18")
+    cust = make_customer(tenant_a.company)
+    payload = {
+        "customer": cust.id,
+        "invoice_type": "GST",
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "500", "gst_rate": "18"}],
+    }
+    preview = tenant_a.client.post("/api/v1/sales/invoices/preview-totals/", payload, format="json")
+    assert preview.status_code == 200, preview.data
+    assert preview.data["margin_estimate_partial"] is True
+
+
+def test_preview_totals_omits_margin_for_staff_without_financial_reports_permission(tenant_a):
+    """Margin/COGS is gated server-side -- a role that can preview totals but
+    lacks CanViewFinancialReports must not see cost data in the response at all."""
+    membership = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.staff)
+    # Keep sales-surface access (so the baseline preview still works for this
+    # role) but explicitly revoke the financial-reports flag that gates margin.
+    membership.can_create_sales = True
+    membership.can_view_financial_reports = False
+    membership.save(update_fields=["can_create_sales", "can_view_financial_reports"])
+    product = make_product(tenant_a.company, sku="A03-MARGIN-STAFF", gst_rate="18")
+    add_stock(tenant_a, product, "20", unit_cost="80")
+    cust = make_customer(tenant_a.company)
+    payload = {
+        "customer": cust.id,
+        "invoice_type": "GST",
+        "items": [{"product": product.id, "quantity": "2", "unit_price": "1000", "gst_rate": "18"}],
+    }
+    preview = tenant_a.staff_client.post("/api/v1/sales/invoices/preview-totals/", payload, format="json")
+    assert preview.status_code == 200, preview.data
+
+    assert "estimated_margin" not in preview.data
+    assert "estimated_cogs" not in preview.data
+    # The rest of the preview (tax/grand total) must still work for staff.
+    assert Decimal(str(preview.data["grand_total"])) > Decimal("0")

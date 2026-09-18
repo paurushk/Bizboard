@@ -796,6 +796,8 @@ def build_totals_preview(
     tax_enabled,
     seller_state="",
     seller_gstin="",
+    include_margin=False,
+    warehouse=None,
 ):
     """A-03: authoritative GST/grand totals without persisting a document."""
     from core.services.place_of_supply import party_intra_state
@@ -922,7 +924,42 @@ def build_totals_preview(
     amount_due = Decimal(str(doc.grand_total or 0)) + tcs_amount - tds_amount
     if amount_due < 0:
         amount_due = Decimal("0")
+
+    margin_fields = {}
+    if include_margin:
+        # Sales-only, read-only estimate for the draft editor's "how much
+        # negotiation room do I have" indicator -- never the authoritative
+        # figure (that's the FIFO-costed InvoiceProfitSnapshot written at
+        # invoice completion, which can land on a different cost layer).
+        from inventory.item_stock import tracks_inventory
+        from inventory.services import InventoryValuationService
+
+        cost_items = [i for i in items if tracks_inventory(i.product)]
+        estimated_cogs = Decimal("0")
+        margin_estimate_partial = False
+        if cost_items:
+            cost_map = InventoryValuationService.bulk_unit_cost(
+                company, [i.product for i in cost_items], warehouse=warehouse,
+            )
+            for i in cost_items:
+                unit_cost = cost_map.get(i.product.pk)
+                if not unit_cost:
+                    margin_estimate_partial = True
+                    continue
+                estimated_cogs += Decimal(str(unit_cost)) * Decimal(str(i.quantity or 0))
+        revenue_pre_discount = Decimal(str(doc.subtotal or 0))
+        estimated_margin = revenue_pre_discount - estimated_cogs
+        margin_fields = {
+            "estimated_cogs": q2(estimated_cogs),
+            "estimated_margin": q2(estimated_margin),
+            "estimated_margin_percent": (
+                q2(estimated_margin / revenue_pre_discount * 100) if revenue_pre_discount else None
+            ),
+            "margin_estimate_partial": margin_estimate_partial,
+        }
+
     return {
+        **margin_fields,
         "subtotal": doc.subtotal,
         "discount_total": doc.discount_total,
         "taxable_total": doc.taxable_total,

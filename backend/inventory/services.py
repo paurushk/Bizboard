@@ -1992,6 +1992,35 @@ class InventoryValuationService:
         return rows[0]["unit_cost"]
 
     @classmethod
+    def bulk_unit_cost(cls, company, products, warehouse=None) -> dict:
+        """WAVG-only bulk estimate keyed by product_id, for preview/estimate
+        contexts (e.g. a draft invoice's live margin) where calling unit_cost()
+        once per line would be N+1. A single InventoryRunningCost query covers
+        the common case; products missing from that cache (rare) fall back to
+        the full single-product unit_cost() resolution."""
+        products = list(products)
+        if not products:
+            return {}
+        product_by_id = {p.pk: p for p in products}
+        qs = InventoryRunningCost.objects.filter(company=company, product_id__in=product_by_id.keys())
+        if warehouse is not None:
+            qs = qs.filter(warehouse=warehouse)
+        totals: dict = {}
+        for row in qs:
+            qty = Decimal(str(row.qty or 0))
+            if qty <= 0:
+                continue
+            qty_acc, val_acc = totals.get(row.product_id, (Decimal("0"), Decimal("0")))
+            totals[row.product_id] = (qty_acc + qty, val_acc + Decimal(str(row.value or 0)))
+        costs: dict = {
+            pid: (val / qty) for pid, (qty, val) in totals.items() if qty > 0
+        }
+        for pid, product in product_by_id.items():
+            if pid not in costs:
+                costs[pid] = cls.unit_cost(company, product, warehouse=warehouse)
+        return costs
+
+    @classmethod
     def verify_fifo_layers(cls, company, *, tolerance=Decimal("1.00")):
         """B8-001: assert live InventoryCostLayer totals agree with an
         independent full-ledger FIFO replay, per (warehouse, product, batch)

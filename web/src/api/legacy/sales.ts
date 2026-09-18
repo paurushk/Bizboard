@@ -186,6 +186,13 @@ export type PreviewTotals = {
   amountDue?: number;
   intraState?: boolean | null;
   invoiceDiscountMode?: string;
+  /** Sales-only, read-only estimate (current avg. cost, not FIFO) for the draft
+   * editor's negotiation-room indicator. Undefined (not 0) when the backend
+   * omitted it -- e.g. the viewer lacks financial-reports permission. */
+  estimatedCogs?: number;
+  estimatedMargin?: number;
+  estimatedMarginPercent?: number;
+  marginEstimatePartial?: boolean;
 };
 
 export function mapPreviewTotals(raw: Record<string, unknown>): PreviewTotals {
@@ -222,6 +229,25 @@ export function mapPreviewTotals(raw: Record<string, unknown>): PreviewTotals {
     amountDue: n('amountDue', 'amount_due'),
     intraState: intra === true ? true : intra === false ? false : null,
     invoiceDiscountMode: String(raw.invoiceDiscountMode ?? raw.invoice_discount_mode ?? 'AFTER_TAX'),
+    ...mapMarginEstimate(raw),
+  };
+}
+
+/** Split out so a missing key stays `undefined` (no data) rather than the
+ * `n()` helper's 0-default, which would look like "zero margin" in the UI. */
+function mapMarginEstimate(raw: Record<string, unknown>): Pick<
+  PreviewTotals,
+  'estimatedCogs' | 'estimatedMargin' | 'estimatedMarginPercent' | 'marginEstimatePartial'
+> {
+  const cogs = raw.estimatedCogs ?? raw.estimated_cogs;
+  const margin = raw.estimatedMargin ?? raw.estimated_margin;
+  const marginPercent = raw.estimatedMarginPercent ?? raw.estimated_margin_percent;
+  if (margin == null && cogs == null) return {};
+  return {
+    estimatedCogs: cogs != null ? Number(cogs) : undefined,
+    estimatedMargin: margin != null ? Number(margin) : undefined,
+    estimatedMarginPercent: marginPercent != null ? Number(marginPercent) : undefined,
+    marginEstimatePartial: Boolean(raw.marginEstimatePartial ?? raw.margin_estimate_partial ?? false),
   };
 }
 

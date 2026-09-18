@@ -74,11 +74,17 @@ class RegisterSerializer(serializers.Serializer):
         default=Company.RegistrationType.REGULAR,
     )
     gstin = serializers.CharField(max_length=15, required=False, allow_blank=True, default="")
+    # Mandatory sign-up email verification — obtained from POST
+    # /auth/register/otp/request/ first; checked against OtpChallenge in the view.
+    otp_code = serializers.CharField(max_length=6, min_length=6)
 
     def validate_email(self, value):
         # BB-000251: do not raise on existing email (enumeration). View returns
         # a generic success message without creating a second account.
         return value
+
+    def validate_otp_code(self, value):
+        return (value or "").strip()
 
     def validate_gstin(self, value):
         return (value or "").strip().upper()

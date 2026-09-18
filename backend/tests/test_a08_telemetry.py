@@ -73,18 +73,15 @@ def test_telemetry_staff_can_post_owner_only_get(tenant_a):
 def test_register_emits_signup_funnel_event():
     from accounts.models import User
     from rest_framework.test import APIClient
+    from tests.conftest import register_via_api
 
     client = APIClient()
-    resp = client.post(
-        "/api/v1/auth/register/",
-        {
-            "company_name": "Funnel Mart",
-            "email": "funnel-owner@funnelmart.test",
-            "password": "StrongPass123!",
-            "state": "Karnataka",
-        },
-        format="json",
-    )
+    resp = register_via_api(client, {
+        "company_name": "Funnel Mart",
+        "email": "funnel-owner@funnelmart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+    })
     assert resp.status_code == 200
     user = User.objects.get(email="funnel-owner@funnelmart.test")
     company = user.company_memberships.get().company

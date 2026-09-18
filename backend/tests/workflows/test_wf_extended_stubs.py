@@ -924,6 +924,7 @@ def test_wf45_registration(db):
     from rest_framework.test import APIClient
 
     from accounts.models import Company, CompanyUser, User
+    from tests.conftest import register_via_api
 
     client = APIClient()
     payload = {
@@ -935,7 +936,7 @@ def test_wf45_registration(db):
         "state": "Karnataka",
         "registration_type": "UNREGISTERED",  # REGULAR/COMPOSITION would require a GSTIN
     }
-    r = client.post("/api/v1/auth/register/", payload, format="json")
+    r = register_via_api(client, payload)
     assert r.status_code in (200, 201), r.data
 
     user = User.objects.get(email__iexact="founder@fresh.test")

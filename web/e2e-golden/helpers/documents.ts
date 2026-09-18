@@ -24,6 +24,16 @@ export async function registerTenant(
   await page.getByLabel('Company name').fill(opts.companyName);
   await page.getByLabel('Full name').fill('E2E Tester');
   await page.getByLabel('Email').fill(opts.email);
+  // Mandatory sign-up email verification: request a code, then read it back
+  // from the dev-only "Dev OTP: ######" hint (same convenience LoginPage's
+  // mobile-OTP tab already relies on) instead of an inbox.
+  await page.getByRole('button', { name: 'Send code' }).click();
+  const otpHint = page.getByText(/Dev OTP:/i);
+  await expect(otpHint).toBeVisible({ timeout: 10_000 });
+  const hintText = (await otpHint.textContent()) ?? '';
+  const otpCode = hintText.match(/\d{6}/)?.[0];
+  if (!otpCode) throw new Error(`registerTenant: could not read dev OTP code from hint "${hintText}"`);
+  await page.getByLabel('Verification code').fill(otpCode);
   await page.getByLabel('Password', { exact: true }).fill(opts.password);
   await page.getByLabel('State').click();
   await page.getByRole('option', { name: opts.state ?? 'Karnataka' }).click();

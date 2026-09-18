@@ -154,6 +154,21 @@ def _stable_phone(slug: str) -> str:
     return f"9{zlib.crc32(slug.encode('utf-8')) % 10**9:09d}"
 
 
+def register_via_api(client, payload):
+    """POST /auth/register/ requires a verified email OTP code. Fetches one
+    via the debug-echo path (settings_test.py sets OTP_DEBUG_ECHO=True) and
+    submits it alongside the caller's register payload — same shape any real
+    call site would use for the two-step sign-up flow."""
+    otp_resp = client.post(
+        "/api/v1/auth/register/otp/request/", {"email": payload["email"]}, format="json",
+    )
+    code = otp_resp.data.get("debug_code")
+    assert code, f"expected debug_code in OTP response, got {otp_resp.data!r}"
+    return client.post(
+        "/api/v1/auth/register/", {**payload, "otp_code": code}, format="json",
+    )
+
+
 def make_tenant(slug, state="Karnataka"):
     owner = User.objects.create_user(
         email=f"owner@{slug}.test", password="StrongPass123!", full_name=f"{slug} owner",

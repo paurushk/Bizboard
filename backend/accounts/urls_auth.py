@@ -12,6 +12,7 @@ from .views import (
     MembershipsListView,
     RegisterView,
     RequestOtpView,
+    RequestRegisterOtpView,
     RequestPasswordResetView,
     ConfirmPasswordResetView,
     SwitchCompanyView,
@@ -20,6 +21,7 @@ from .views import (
 
 urlpatterns = [
     path("register/", RegisterView.as_view(), name="auth-register"),
+    path("register/otp/request/", RequestRegisterOtpView.as_view(), name="auth-register-otp-request"),
     path("login/", LoginView.as_view(), name="auth-login"),
     path("csrf/", CsrfCookieView.as_view(), name="auth-csrf"),
     path("refresh/", CookieTokenRefreshView.as_view(), name="auth-refresh"),

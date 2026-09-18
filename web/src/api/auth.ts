@@ -47,6 +47,7 @@ export interface RegisterPayload {
   phone?: string;
   state?: string;
   gstin?: string;
+  otpCode: string;
 }
 
 function tokensFromBody(body: { access?: string | null; refresh?: string }): AuthTokens {
@@ -104,6 +105,21 @@ export async function register(payload: RegisterPayload): Promise<RegisterResult
   return {
     kind: 'pending',
     detail: body.detail || 'If this email can be registered, an account has been prepared.',
+  };
+}
+
+/** Sign-up step 1: mandatory email verification, ahead of register(). */
+export async function requestRegisterOtp(email: string): Promise<{ detail: string; debugCode?: string }> {
+  if (shouldUseMocks()) {
+    return import.meta.env.DEV
+      ? { detail: 'Verification code sent.', debugCode: '123456' }
+      : { detail: 'Verification code sent.' };
+  }
+  const { data } = await apiClient.post('/auth/register/otp/request/', { email });
+  const body = unwrapData<{ detail: string; debugCode?: string; debug_code?: string }>(data);
+  return {
+    detail: body.detail,
+    debugCode: body.debugCode ?? body.debug_code,
   };
 }
 

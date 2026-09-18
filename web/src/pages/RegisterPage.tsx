@@ -11,12 +11,14 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm } from 'react-hook-form';
 import { Link as RouterLink, Navigate, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
+import { requestRegisterOtp } from '@/api/auth';
 import { getErrorMessage } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { PasswordField } from '@/components/PasswordField';
 import { StateSelect } from '@/components/StateSelect';
 import { getStateFromGstin } from '@/utils/indianStates';
 import { t } from '@/i18n';
+import { formatOtpHint } from '@/pages/loginOtp';
 
 const registerSchema = z.object({
   companyName: z.string().trim().min(1, 'Company name is required'),
@@ -27,6 +29,9 @@ const registerSchema = z.object({
   // invoice this company issues — it must not be silently skippable.
   state: z.string().trim().min(1, 'State is required'),
   gstin: z.string().trim().optional(),
+  // Mandatory sign-up email verification — sent via the "Send code" button,
+  // checked server-side against the OtpChallenge it created.
+  otpCode: z.string().trim().length(6, 'Enter the 6-digit code we emailed you'),
 });
 
 type RegisterForm = z.infer<typeof registerSchema>;
@@ -37,12 +42,15 @@ export function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpHint, setOtpHint] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
     control,
     setValue,
     watch,
+    trigger,
     formState: { errors },
   } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
@@ -53,6 +61,7 @@ export function RegisterPage() {
       phone: '',
       state: '',
       gstin: '',
+      otpCode: '',
     },
   });
 
@@ -69,6 +78,22 @@ export function RegisterPage() {
   }, [gstinValue, stateValue, setValue]);
 
   if (isAuthenticated) return <Navigate to="/" replace />;
+
+  const onSendCode = async () => {
+    setError(null);
+    const emailValid = await trigger('email');
+    if (!emailValid) return;
+    setOtpSending(true);
+    try {
+      const res = await requestRegisterOtp(watch('email'));
+      // Never surfaces "Dev OTP:" outside DEV builds — same helper LoginPage uses.
+      setOtpHint(formatOtpHint(res));
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setOtpSending(false);
+    }
+  };
 
   const submitRegister = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -126,6 +151,16 @@ export function RegisterPage() {
             error={Boolean(errors.email)}
             helperText={errors.email?.message}
             {...register('email')}
+          />
+          {otpHint ? <Alert severity="info">{otpHint}</Alert> : null}
+          <Button variant="outlined" disabled={otpSending} onClick={() => void onSendCode()}>
+            {t('auth.sendCode')}
+          </Button>
+          <TextField
+            label={t('auth.verificationCode')}
+            error={Boolean(errors.otpCode)}
+            helperText={errors.otpCode?.message}
+            {...register('otpCode')}
           />
           <PasswordField
             name="password"

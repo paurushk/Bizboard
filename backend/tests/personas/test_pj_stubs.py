@@ -365,16 +365,15 @@ def test_pj_newuser_register_to_first_invoice():
     from inventory.models import MovementType
     from inventory.services import InventoryService
     from masters.models import Customer, Product
+    from tests.conftest import register_via_api
 
     client = APIClient()
-    reg = client.post(
-        "/api/v1/auth/register/",
-        {"company_name": "Brand New Shop", "email": "newbie@brandnew.test",
-         "password": "StrongPass123!", "full_name": "New Bie", "phone": "9997776660",
-         "state": "Karnataka", "registration_type": "REGULAR",
-         "gstin": "29AAAAA0000A1ZY"},
-        format="json",
-    )
+    reg = register_via_api(client, {
+        "company_name": "Brand New Shop", "email": "newbie@brandnew.test",
+        "password": "StrongPass123!", "full_name": "New Bie", "phone": "9997776660",
+        "state": "Karnataka", "registration_type": "REGULAR",
+        "gstin": "29AAAAA0000A1ZY",
+    })
     assert reg.status_code in (200, 201), reg.data
 
     user = User.objects.get(email__iexact="newbie@brandnew.test")

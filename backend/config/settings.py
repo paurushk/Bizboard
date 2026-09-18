@@ -337,6 +337,8 @@ REST_FRAMEWORK = {
         # and get exhausted by the OTP_MAX_ATTEMPTS=5 lockout path itself.
         "otp_verify": "20/min",
         "register": "5/min",
+        # Sign-up email verification code — same shape as "otp" (send budget).
+        "register_otp": "5/min",
         # B6-012: tight budget for current-password verification (change-password
         # / delete-account) so a stolen short-lived access token can't brute-force it.
         "sensitive_action": "10/min",
@@ -921,6 +923,13 @@ WHATSAPP_PHONE_NUMBER_ID = _env_value("WHATSAPP_PHONE_NUMBER_ID")
 TELEGRAM_BOT_TOKEN = _env_value("TELEGRAM_BOT_TOKEN")
 TELEGRAM_BOT_USERNAME = _env_value("TELEGRAM_BOT_USERNAME")
 TELEGRAM_WEBHOOK_SECRET = _env_value("TELEGRAM_WEBHOOK_SECRET")
+
+# Ops paging (no-infra PagerDuty/Sentry alternative): a fixed Telegram chat
+# (e.g. a private on-call group) that Sentry alert rules / uptime monitors
+# page via POST /api/v1/ops/alert/?token=<OPS_ALERT_TOKEN>. Uses the same bot
+# as TELEGRAM_BOT_TOKEN above — this is not per-user, just one ops sink.
+OPS_ALERT_TOKEN = _env_value("OPS_ALERT_TOKEN")
+OPS_TELEGRAM_CHAT_ID = _env_value("OPS_TELEGRAM_CHAT_ID")
 
 # Wave 17F — payment gateway env credentials
 CASHFREE_APP_ID = _env_value("CASHFREE_APP_ID")

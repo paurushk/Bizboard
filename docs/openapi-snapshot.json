@@ -2285,6 +2285,26 @@
                 }
             }
         },
+        "/api/v1/auth/register/otp/request/": {
+            "post": {
+                "operationId": "auth_register_otp_request_create",
+                "description": "Sign-up step 1: mandatory email verification. Uniform response either\nway (mirrors RegisterView's own BB-000251 non-enumeration rule) — a code\nis only actually emailed when the address isn't already an account.",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/auth/switch-company/": {
             "post": {
                 "operationId": "auth_switch_company_create",
