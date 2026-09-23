@@ -6,6 +6,7 @@ from django.http import FileResponse
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from billing.permissions import SubscriptionWritesAllowed
 from core.exceptions import BusinessRuleError
@@ -16,6 +17,7 @@ from core.permissions import (
     CanViewPurchaseSurfaces,
     HasCompany,
     IsOwner,
+    get_company_user,
 )
 from core.services.billing import build_totals_preview
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
@@ -24,7 +26,7 @@ from masters.models import Product, Supplier
 from payments.models import PaymentAllocation
 
 from .boe_services import BillOfEntryService
-from .models import BillOfEntry, PurchaseInvoice, PurchaseReturn
+from .models import BillOfEntry, PurchaseInvoice, PurchaseItem, PurchaseOrder, PurchaseOrderItem, PurchaseReturn
 from .serializers import (
     BillOfEntrySerializer,
     PurchaseInvoiceSerializer,
@@ -42,8 +44,7 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
         if getattr(self, "action", None) == "complete":
             from core.throttles import CompanyRateThrottle
 
-            self.throttle_scope = "purchase_complete"
-            throttles.append(CompanyRateThrottle())
+            throttles.append(CompanyRateThrottle(scope="purchase_complete"))
         return throttles
 
     def create(self, request, *args, **kwargs):
@@ -423,3 +424,120 @@ class BillOfEntryViewSet(CompanyScopedViewSet):
     def cancel(self, request, pk=None):
         boe = BillOfEntryService.cancel(self.get_object(), request.user)
         return Response(self.get_serializer(boe).data)
+
+
+class SupplierPriceHistoryView(APIView):
+    """Dated unit prices for one supplier and product. No score or rank (COMP-007)."""
+
+    permission_classes = [IsAuthenticated, HasCompany, CanViewPurchaseSurfaces]
+
+    # F1-010: unbounded before this — a long-lived supplier+product pair with
+    # years of weekly reorders could return an unbounded payload. Capped to
+    # the most recent N rows (chronological order is still oldest-first for
+    # rendering; only the population is capped, from the recent end).
+    MAX_ROWS = 200
+
+    def get(self, request, supplier_id):
+        from datetime import date as _date
+
+        from core.services.feature_flags import flag_enabled
+        from rest_framework import status as http_status
+
+        company = get_company_user(request).company
+        if not flag_enabled(company, "ENABLE_SUPPLIER_PRICE_HISTORY"):
+            return Response({"detail": "Not found."}, status=http_status.HTTP_404_NOT_FOUND)
+        product_id = request.query_params.get("product")
+        if not product_id:
+            return Response({"detail": "product is required."}, status=http_status.HTTP_400_BAD_REQUEST)
+        supplier = Supplier.objects.filter(company=company, pk=supplier_id).first()
+        if supplier is None:
+            return Response({"detail": "Not found."}, status=http_status.HTTP_404_NOT_FOUND)
+        product = Product.objects.filter(company=company, pk=product_id).first()
+        if product is None:
+            return Response({"detail": "Not found."}, status=http_status.HTTP_404_NOT_FOUND)
+
+        date_from = date_to = None
+        try:
+            raw_from = request.query_params.get("date_from")
+            if raw_from:
+                date_from = _date.fromisoformat(str(raw_from)[:10])
+            raw_to = request.query_params.get("date_to")
+            if raw_to:
+                date_to = _date.fromisoformat(str(raw_to)[:10])
+        except ValueError:
+            return Response(
+                {"detail": "date_from/date_to must be an ISO date (YYYY-MM-DD)."},
+                status=http_status.HTTP_400_BAD_REQUEST,
+            )
+
+        invoice_items = (
+            PurchaseItem.objects.filter(
+                company=company,
+                product=product,
+                invoice__supplier=supplier,
+                invoice__status__in=(
+                    PurchaseInvoice.Status.COMPLETED,
+                    PurchaseInvoice.Status.RETURNED,
+                ),
+            )
+            .select_related("invoice")
+            .order_by("invoice__invoice_date", "id")
+        )
+        if date_from:
+            invoice_items = invoice_items.filter(invoice__invoice_date__gte=date_from)
+        if date_to:
+            invoice_items = invoice_items.filter(invoice__invoice_date__lte=date_to)
+
+        rows = []
+        for item in invoice_items:
+            rows.append({
+                "source": "PURCHASE_INVOICE",
+                "document_id": item.invoice_id,
+                "document_number": item.invoice.number,
+                "document_date": item.invoice.invoice_date,
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+            })
+        order_items = (
+            PurchaseOrderItem.objects.filter(
+                company=company,
+                product=product,
+                purchase_order__supplier=supplier,
+                purchase_order__status=PurchaseOrder.Status.CONVERTED,
+            )
+            .select_related("purchase_order")
+            .order_by("purchase_order__order_date", "id")
+        )
+        if date_from:
+            order_items = order_items.filter(purchase_order__order_date__gte=date_from)
+        if date_to:
+            order_items = order_items.filter(purchase_order__order_date__lte=date_to)
+        for item in order_items:
+            rows.append({
+                "source": "PURCHASE_ORDER",
+                "document_id": item.purchase_order_id,
+                "document_number": item.purchase_order.number,
+                "document_date": item.purchase_order.order_date,
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+            })
+        rows.sort(key=lambda row: (row["document_date"], row["source"], row["document_id"]))
+        total_count = len(rows)
+        truncated = total_count > self.MAX_ROWS
+        if truncated:
+            rows = rows[-self.MAX_ROWS:]
+        from core.services.flag_observability import log_flag_event
+        from purchases.reliability import supply_metrics
+
+        log_flag_event(company, "ENABLE_SUPPLIER_PRICE_HISTORY", "price_history_read")
+        metrics = supply_metrics(company, supplier, product)
+        return Response({
+            "supplier_id": supplier.id,
+            "product_id": product.id,
+            "rows": rows,
+            "total_count": total_count,
+            "truncated": truncated,
+            "lead_time_days": metrics["lead_time_days"],
+            "fill_rate": metrics["fill_rate"],
+            "over_receipt": metrics["over_receipt"],
+        })

@@ -106,6 +106,8 @@ class PurchaseInvoice(DocumentTotalsModel):
     price_mode = models.CharField(
         max_length=12, choices=PriceMode.choices, default=PriceMode.EXCLUSIVE
     )
+    ship_from = models.CharField(max_length=128, blank=True)
+    ship_from_address = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-invoice_date", "-id"]

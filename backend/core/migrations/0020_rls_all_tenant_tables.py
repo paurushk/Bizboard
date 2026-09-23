@@ -30,10 +30,16 @@ RLS_TABLES = [
     # tests/test_rls_coverage.py recognize the table as covered and documents
     # a from-scratch install's final state.
     "accounts_companystatutorylicence",
+    "accounts_companypackstate",
     "accounting_account",
     "accounting_accountingperiod",
     "accounting_bankreconsession",
     "accounting_costcenter",
+    # Expense bills: table created in accounting/migrations/0011 after this
+    # migration first ran. The live policy comes from
+    # core/migrations/0030_rls_sales_purchase_ux.py. This list entry only
+    # makes tests/test_rls_coverage.py recognize the table as covered.
+    "accounting_expense",
     "accounting_fixedasset",
     "accounting_journalentry",
     "accounting_journalline",
@@ -57,6 +63,7 @@ RLS_TABLES = [
     "core_statutorydocumentevent",
     "crm_lead",
     "crm_leadactivity",
+    "crm_leadingestjob",
     "crm_opportunity",
     "imports_importjob",
     "imports_supplierbilltemplate",
@@ -96,6 +103,9 @@ RLS_TABLES = [
     "masters_brand",
     "masters_category",
     "masters_customer",
+    # Ship-to addresses: created in masters/migrations/0019 after this
+    # migration first ran. Live policy: core/migrations/0030_rls_sales_purchase_ux.py.
+    "masters_customershippingaddress",
     "masters_expensecategory",
     "masters_paymentmode",
     "masters_pricelist",
@@ -162,6 +172,16 @@ RLS_TABLES = [
     "reporting_invoiceprofitsnapshot",
     "sales_deliverychallan",
     "sales_deliverychallanitem",
+    # Challan returns and delivery routes: created in sales/migrations/0051
+    # after this migration first ran. Live policy:
+    # core/migrations/0030_rls_sales_purchase_ux.py.
+    "sales_deliverychallanreturn",
+    "sales_deliverychallanreturnitem",
+    "sales_deliveryroute",
+    "sales_deliveryroutestop",
+    # Customer portal magic links: created in payments/migrations/0031 after
+    # this migration first ran. Live policy: core/migrations/0031_rls_customer_portal.py.
+    "payments_customerportaltoken",
     "sales_quotation",
     "sales_quotationitem",
     "sales_recurringinvoicerun",

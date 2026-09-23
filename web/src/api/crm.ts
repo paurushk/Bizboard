@@ -14,7 +14,13 @@ export type Lead = SchemaOr<
     createdAt: string;
     updatedAt: string;
   }
->;
+> & {
+  source?: string | null;
+  message?: string;
+  assignedTo?: number | null;
+  dedupeReview?: string;
+  dedupeCandidates?: { customers?: number[]; leads?: number[] };
+};
 
 export type LeadActivity = {
   id: number;
@@ -45,11 +51,17 @@ export type Opportunity = SchemaOr<
 
 const BASE = apiPath('/crm');
 
-export function listLeadsPage(params?: { page?: number; pageSize?: number }) {
+export function listLeadsPage(params?: {
+  page?: number;
+  pageSize?: number;
+  source?: string;
+  dedupe_review?: string;
+  mine?: boolean;
+}) {
   return fetchPage<Lead>(`${BASE}/leads/`, params);
 }
 
-export async function createLead(payload: Partial<Lead>): Promise<Lead> {
+export async function createLead(payload: Partial<Lead> & { dedupeDecision?: string }): Promise<Lead> {
   const { data } = await apiClient.post(`${BASE}/leads/`, payload, {
     headers: idempotencyHeaders(),
   });
@@ -106,4 +118,40 @@ export async function updateOpportunity(
 ): Promise<Opportunity> {
   const { data } = await apiClient.patch(`${BASE}/opportunities/${id}/`, payload);
   return unwrapData<Opportunity>(data);
+}
+
+export async function assignLead(id: number, assignedTo: number | null): Promise<Lead> {
+  const { data } = await apiClient.post(`${BASE}/leads/${id}/assign/`, { assignedTo });
+  return unwrapData<Lead>(data);
+}
+
+export async function importLeadsCsv(file: File): Promise<{ created: number; pendingReview: number; errors: Array<{ row: number; detail: string }>; accepted?: boolean }> {
+  const body = new FormData();
+  body.append('file', file);
+  const { data } = await apiClient.post(`${BASE}/leads/import-csv/`, body);
+  let job = unwrapData<{ id: number; status: string; result: { created: number; pendingReview: number; errors: Array<{ row: number; detail: string }> }; error: string }>(data);
+  for (let attempt = 0; attempt < 60 && (job.status === 'PENDING' || job.status === 'RUNNING'); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const next = await apiClient.get(`${BASE}/leads/ingest-jobs/${job.id}/`);
+    job = unwrapData(next.data);
+  }
+  if (job.status === 'FAILED') {
+    throw new Error(job.error || 'Import failed');
+  }
+  if (job.status !== 'DONE') {
+    return { created: 0, pendingReview: 0, errors: [], accepted: true };
+  }
+  return job.result;
+}
+
+export async function issueLeadFormToken(): Promise<{ token: string }> {
+  const { data } = await apiClient.post(`${BASE}/leads/form-token/`, {});
+  return unwrapData(data);
+}
+
+export async function createQuotationFromOpportunity(id: number): Promise<{ id: number; customer: number; opportunity: number }> {
+  const { data } = await apiClient.post(`${BASE}/opportunities/${id}/quotation/`, {}, {
+    headers: idempotencyHeaders(),
+  });
+  return unwrapData(data);
 }

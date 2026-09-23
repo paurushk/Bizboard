@@ -14,6 +14,7 @@ import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
 import Link from '@mui/material/Link';
 import MenuItem from '@mui/material/MenuItem';
+import ListItemText from '@mui/material/ListItemText';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TableCell from '@mui/material/TableCell';
@@ -105,6 +106,12 @@ import {
 import { InvoicePartyPanel } from '@/pages/sales/invoice/InvoicePartyPanel';
 import { FieldHelpTip } from '@/contextHelp';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { ChequePaymentFields, type ChequePaymentValues } from '@/components/ChequePaymentFields';
+import {
+  InvoiceQuickSettingsDialog,
+  SHOW_PURCHASE_PRICE_KEY,
+} from '@/components/InvoiceQuickSettingsDialog';
+import { activeCustomFieldDefs } from '@/pages/inventory/itemCustomFieldDefaults';
 import { HelpHint } from '@/pages/help/HelpHint';
 import { makeInvoiceLine } from '@/pages/sales/invoice/makeInvoiceLine';
 import { useInvoiceOffline } from '@/pages/sales/invoice/useInvoiceOffline';
@@ -222,6 +229,8 @@ export function NewInvoicePage() {
   const [autoRoundOff, setAutoRoundOff] = useState(true);
   const [amountReceived, setAmountReceived] = useState(0);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('CASH');
+  const [cheque, setCheque] = useState<ChequePaymentValues>({ chequeNumber: '', chequeBankName: '', chequeDate: '' });
+  const [invoiceCustomFields, setInvoiceCustomFields] = useState<Record<string, string>>({});
   const [markFullyPaid, setMarkFullyPaid] = useState(false);
 
   const [showBatchCols, setShowBatchCols] = useState(() => {
@@ -232,6 +241,13 @@ export function NewInvoicePage() {
     }
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showPurchasePrice, setShowPurchasePrice] = useState(() => {
+    try {
+      return localStorage.getItem(SHOW_PURCHASE_PRICE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [itemDialogError, setItemDialogError] = useState<string | null>(null);
   const [itemDialogErrorSource, setItemDialogErrorSource] = useState<unknown>(null);
@@ -401,6 +417,7 @@ export function NewInvoicePage() {
     setChargesGstRate(toNumber(inv.chargesGstRate));
     setInvoiceDiscount(toNumber(inv.invoiceDiscount));
     setInvoiceDiscountMode((inv.invoiceDiscountMode as InvoiceDiscountMode) || 'AFTER_TAX');
+    setInvoiceCustomFields((inv.customFields as Record<string, string> | undefined) ?? {});
     setTcsSection(inv.tcsSection ?? '');
     setTcsRate(toNumber(inv.tcsRate));
     setTcsAmount(toNumber(inv.tcsAmount));
@@ -630,8 +647,6 @@ export function NewInvoicePage() {
     }
   }, [blockAfterTaxDiscount, invoiceDiscountMode]);
 
-  const balance = roundMoney(Math.max(0, totals.grandTotal - amountReceived));
-
   const creditLimitBanner = useMemo(() => {
     if (!selectedCustomer) return null;
     const limit = toNumber(selectedCustomer.creditLimit);
@@ -740,6 +755,7 @@ export function NewInvoicePage() {
     includePaymentQr: showQr,
     includeTerms: showTerms,
     signature: signatureId,
+    customFields: invoiceCustomFields,
     tcsSection,
     tcsRate,
     ...(tcsAmountManual ? { tcsAmount } : {}),
@@ -922,6 +938,10 @@ export function NewInvoicePage() {
                 mode: paymentMode,
                 receiptDate: invoiceDate,
                 notes: `Against ${invoice.number ?? invoice.id}`,
+                chequeNumber: cheque.chequeNumber,
+                chequeBankName: cheque.chequeBankName,
+                chequeDate: cheque.chequeDate || undefined,
+                chequeImage: cheque.chequeImage || undefined,
               },
               { idempotencyKey: `${key}-receipt` },
             );
@@ -1192,6 +1212,7 @@ export function NewInvoicePage() {
   }, [isReverseCharge, invoiceType, preview.totals, shownTotals]);
 
   const shownAmountDue = 'amountDue' in shownTotals ? (shownTotals as { amountDue?: number }).amountDue : shownTotals.grandTotal;
+  const balance = roundMoney(Math.max(0, (shownAmountDue ?? shownTotals.grandTotal) - amountReceived));
 
   useEffect(() => {
     if (markFullyPaid) setAmountReceived(shownAmountDue ?? shownTotals.grandTotal);
@@ -1465,13 +1486,24 @@ export function NewInvoicePage() {
               >
                 {company.data?.registrationType === 'REGULAR'
                   ? [
-                      <MenuItem key="GST" value="GST">GST Invoice</MenuItem>,
-                      <MenuItem key="TAX" value="TAX">Tax Invoice</MenuItem>,
-                      <MenuItem key="RETAIL" value="RETAIL">Retail Invoice</MenuItem>,
+                      <MenuItem key="GST" value="GST">
+                        <ListItemText primary="GST Invoice" secondary={t('billing.invoiceTypeGst')} />
+                      </MenuItem>,
+                      <MenuItem key="TAX" value="TAX">
+                        <ListItemText primary="Tax Invoice" secondary={t('billing.invoiceTypeTax')} />
+                      </MenuItem>,
+                      <MenuItem key="RETAIL" value="RETAIL">
+                        <ListItemText primary="Retail Invoice" secondary={t('billing.invoiceTypeRetail')} />
+                      </MenuItem>,
                     ]
                   : null}
-                <MenuItem value="NON_GST">Non-GST Invoice</MenuItem>
+                <MenuItem value="NON_GST">
+                  <ListItemText primary="Non-GST Invoice" secondary={t('billing.invoiceTypeNonGst')} />
+                </MenuItem>
               </CompactField>
+              <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 280 }}>
+                {t('billing.invoiceTypeHelp')}
+              </Typography>
               {invoiceType !== 'NON_GST' ? (
                 <HelpHint intent="wrong-gst-on-invoice" slot="tax-inclusive">
                   <CompactField
@@ -1685,8 +1717,32 @@ export function NewInvoicePage() {
           </HelpErrorAlert>
         ) : null}
         <DraftLineTable
-          lines={lines}
-          taxes={lineTaxes}
+          lines={
+            preview.totals?.items && preview.totals.items.length === lines.length
+              ? lines.map((line, i) => ({
+                  ...line,
+                  gstRate: preview.totals!.items![i].gstRate ?? line.gstRate,
+                }))
+              : lines
+          }
+          taxes={
+            preview.totals?.items && preview.totals.items.length === lineTaxes.length
+              ? lineTaxes.map((tax, i) => {
+                  const item = preview.totals!.items![i];
+                  const gst = (item.cgst || 0) + (item.sgst || 0) + (item.igst || 0) + (item.cess || 0);
+                  return {
+                    ...tax,
+                    taxableAmount: item.taxableAmount,
+                    cgst: item.cgst,
+                    sgst: item.sgst,
+                    igst: item.igst,
+                    cess: item.cess,
+                    taxTotal: gst,
+                    lineTotal: item.lineTotal,
+                  };
+                })
+              : lineTaxes
+          }
           showCess={invoiceType !== 'NON_GST'}
           qtyDisabled={isCompletedEdit}
           moneyDisabled={isCompletedEdit && !canAmendMoney}
@@ -2002,6 +2058,18 @@ export function NewInvoicePage() {
           )}
         </Stack>
 
+        {activeCustomFieldDefs(company.data?.invoiceCustomFieldDefs).map((def) => (
+          <TextField
+            key={def.key}
+            size="small"
+            label={def.label}
+            value={invoiceCustomFields[def.key] ?? ''}
+            onChange={(e) =>
+              setInvoiceCustomFields((prev) => ({ ...prev, [def.key]: e.target.value }))
+            }
+          />
+        ))}
+
         <DocumentTaxSummary
           totals={shownTotals}
           additionalCharges={additionalCharges}
@@ -2074,8 +2142,10 @@ export function NewInvoicePage() {
                 <MenuItem value="BANK">Bank</MenuItem>
                 <MenuItem value="CARD">Card</MenuItem>
                 <MenuItem value="CREDIT">Credit</MenuItem>
+                <MenuItem value="CHEQUE">Cheque</MenuItem>
               </CompactField>
             </Stack>
+            {paymentMode === 'CHEQUE' ? <ChequePaymentFields value={cheque} onChange={setCheque} /> : null}
             <Typography
               fontWeight={700}
               color={balance <= 0 ? 'success.main' : 'text.primary'}
@@ -2137,34 +2207,21 @@ export function NewInvoicePage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>{t('billing.settings')}</DialogTitle>
-        <DialogContent>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={showBatchCols}
-                onChange={(e) => setShowBatchCols(e.target.checked)}
-              />
-            }
-            label={t('billing.showBatchColumns')}
-          />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            {t('billing.shortcuts')}
-          </Typography>
-          <Button
-            sx={{ mt: 2 }}
-            component={RouterLink}
-            to="/settings/templates"
-            onClick={() => setSettingsOpen(false)}
-          >
-            {t('nav.invoiceTemplates')}
-          </Button>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSettingsOpen(false)}>{t('common.close')}</Button>
-        </DialogActions>
-      </Dialog>
+      <InvoiceQuickSettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        showBatchCols={showBatchCols}
+        onShowBatchColsChange={setShowBatchCols}
+        showPurchasePrice={showPurchasePrice}
+        onShowPurchasePriceChange={(next) => {
+          setShowPurchasePrice(next);
+          try {
+            localStorage.setItem(SHOW_PURCHASE_PRICE_KEY, next ? '1' : '0');
+          } catch {
+            // ignore
+          }
+        }}
+      />
 
       <Dialog
         open={itemDialogOpen}

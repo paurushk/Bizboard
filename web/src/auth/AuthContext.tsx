@@ -260,7 +260,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           window.location.pathname.startsWith('/register') ||
           window.location.pathname.startsWith('/forgot-password') ||
           window.location.pathname.startsWith('/reset-password') ||
-          window.location.pathname.startsWith('/pay/');
+          window.location.pathname.startsWith('/pay/') ||
+          window.location.pathname === '/portal' ||
+          window.location.pathname.startsWith('/portal/');
         if (!getStoredUser() && isPublicPath) {
           clearSession();
           setUser(null);

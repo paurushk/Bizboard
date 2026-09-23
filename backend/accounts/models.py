@@ -3,7 +3,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
-from core.models import TimeStampedModel
+from core.models import CompanyScopedModel, TimeStampedModel
 from core.validators import validate_gstin, validate_pan, validate_udyam
 
 
@@ -117,6 +117,7 @@ class Company(TimeStampedModel):
     pincode = models.CharField(max_length=10, blank=True)
     phone = models.CharField(max_length=20, blank=True)
     email = models.EmailField(blank=True)
+    lead_form_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
     upi_id = models.CharField(max_length=100, blank=True)
     bank_name = models.CharField(max_length=100, blank=True)
     bank_account = models.CharField(max_length=32, blank=True)
@@ -265,6 +266,9 @@ class Company(TimeStampedModel):
     payroll_pt_slabs = models.JSONField(default=list, blank=True)
     # Extra keys shown on the item form Custom tab (Brand code / form by default).
     item_custom_field_defs = models.JSONField(default=list, blank=True)
+    invoice_custom_field_defs = models.JSONField(default=list, blank=True)
+    party_custom_field_defs = models.JSONField(default=list, blank=True)
+    show_empty_signature_box = models.BooleanField(default=False)
     # A-07 — AR dunning. Default off (DPDP / spam). Owner must opt in.
     dunning_enabled = models.BooleanField(default=False)
     dunning_days = models.JSONField(default=list, blank=True)
@@ -631,3 +635,18 @@ class TenantErasureLog(models.Model):
 
     def __str__(self):
         return f"erasure:{self.company_id}:{self.erased_at:%Y-%m-%d}"
+
+
+class CompanyPackState(CompanyScopedModel):
+    """Persona onboarding answers and the flag snapshot a pack last applied."""
+
+    answers = models.JSONField(default=dict, blank=True)
+    proposed_pack = models.CharField(max_length=32, blank=True)
+    applied_pack = models.CharField(max_length=32, blank=True)
+    applied_flags = models.JSONField(default=dict, blank=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["company"], name="uniq_pack_state_per_company"),
+        ]

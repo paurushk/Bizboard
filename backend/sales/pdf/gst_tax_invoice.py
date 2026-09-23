@@ -377,6 +377,35 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     story.append(items_table)
     story.append(Spacer(1, 4 * mm))
 
+    custom_defs = getattr(company, "invoice_custom_field_defs", None) or []
+    custom_vals = getattr(invoice, "custom_fields", None) or {}
+    if isinstance(custom_defs, list) and isinstance(custom_vals, dict):
+        shown = []
+        for defn in custom_defs:
+            if not isinstance(defn, dict) or defn.get("active") is False:
+                continue
+            key = defn.get("key")
+            if not key:
+                continue
+            val = custom_vals.get(key)
+            if val in (None, ""):
+                continue
+            shown.append(f"{defn.get('label') or key}: {val}")
+        if shown:
+            story.append(Paragraph("<b>Additional details</b>", styles["section_head"]))
+            for line in shown:
+                story.append(Paragraph(pdf_esc(str(line)), styles["meta"]))
+            story.append(Spacer(1, 3 * mm))
+
+    if show_tax and items:
+        from purchases.pdf import _build_hsn_summary_table
+
+        story.append(Paragraph("<b>HSN summary</b>", styles["section_head"]))
+        story.append(_build_hsn_summary_table(items, styles, intra_state=not any(
+            Decimal(str(getattr(it, "igst", 0) or 0)) > 0 for it in items
+        )))
+        story.append(Spacer(1, 3 * mm))
+
     # ---- Footer: QR + tax summary ----
     left_flow = []
     # e-Invoice signed QR (when IRN generated) takes precedence over UPI QR.
@@ -567,6 +596,13 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             sign_flow.append(Spacer(1, 1 * mm))
         except (OSError, ValueError, TypeError) as exc:
             logger.warning("Skipping invoice signature image: %s", exc)
+    elif getattr(company, "show_empty_signature_box", False):
+        box = Table([[Paragraph("", styles["body"])]], colWidths=[40 * mm], rowHeights=[18 * mm])
+        box.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.4, LINE),
+        ]))
+        sign_flow.append(box)
+        sign_flow.append(Spacer(1, 1 * mm))
     sign_flow.append(Paragraph("<b>Authorized Signatory</b>", styles["td_right"]))
     sign = Table(
         [[Paragraph("", styles["body"]), sign_flow]],

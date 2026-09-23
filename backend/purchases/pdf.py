@@ -329,6 +329,19 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
     story.append(parties)
     story.append(Spacer(1, 3 * mm))
 
+    ship_from = (getattr(invoice, "ship_from", None) or "").strip()
+    ship_from_address = (getattr(invoice, "ship_from_address", None) or "").strip()
+    if ship_from or ship_from_address:
+        story.append(_party_block(
+            styles,
+            "SHIP FROM",
+            ship_from or supplier.name,
+            ship_from_address,
+            "",
+            "",
+        ))
+        story.append(Spacer(1, 3 * mm))
+
     # ---- Line Items Table ----
     data = [[
         Paragraph("S.NO.", styles["th"]),

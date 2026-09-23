@@ -9,7 +9,8 @@ from django.utils import timezone
 from core.events import emit
 from core.exceptions import BusinessRuleError, raise_confirm_required
 from core.help_codes import HelpCode
-from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals
+from core.services.billing import apply_rcm_memo_after_tax
+from core.services.tax_engine.registry import get_tax_engine
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin, series_identity
 from core.services.place_of_supply import party_intra_state
 from masters.models import Product
@@ -178,7 +179,7 @@ class PurchaseNotesService:
         tax_enabled = True
         if note.purchase_invoice_id:
             tax_enabled = _tax_enabled(note.purchase_invoice.purchase_type)
-        compute_document_totals(
+        get_tax_engine(note.company).compute_document_totals(
             note,
             items,
             tax_enabled=tax_enabled,
@@ -408,7 +409,7 @@ class PurchaseNotesService:
         tax_enabled = True
         if note.purchase_invoice_id:
             tax_enabled = _tax_enabled(note.purchase_invoice.purchase_type)
-        compute_document_totals(
+        get_tax_engine(note.company).compute_document_totals(
             note,
             items,
             tax_enabled=tax_enabled,
@@ -603,7 +604,7 @@ class PurchaseNotesService:
         _validate_lines(items_data, order.company)
         order.items.all().delete()
         items = _build_note_items(PurchaseOrderItem, "purchase_order", order, items_data)
-        compute_document_totals(
+        get_tax_engine(order.company).compute_document_totals(
             order,
             items,
             tax_enabled=_tax_enabled(order.purchase_type),

@@ -29,12 +29,12 @@ export function useProductSearch(opts: UseProductSearchOptions = {}) {
   const [productQuery, setProductQuery] = useState('');
   const debounced = useDebouncedValue(productQuery, 300);
   const q = debounced.trim();
-  const hasCf = Boolean(opts.cf && Object.values(opts.cf).some((values) => values.length));
-  const enabled = q.length >= minChars || hasCf;
+  const usesTypedQuery = q.length >= minChars;
+  const enabled = true;
 
   const query = useQuery({
-    queryKey: ['product-search-page', q, pageSize, opts.cf],
-    queryFn: () => listProductsPage({ q: q || undefined, page: 1, pageSize, cf: opts.cf }),
+    queryKey: ['product-search-page', usesTypedQuery ? q : '', pageSize, opts.cf],
+    queryFn: () => listProductsPage({ q: usesTypedQuery ? q : undefined, page: 1, pageSize, cf: opts.cf }),
     enabled,
   });
 
@@ -53,13 +53,13 @@ export function useProductSearch(opts: UseProductSearchOptions = {}) {
   const truncated =
     enabled && ((query.data?.count ?? 0) > resultCount || Boolean(query.data?.next));
 
-  const helperText = !enabled
-    ? productQuery.trim().length > 0
-      ? t('productSearch.typeAtLeast', { count: minChars })
-      : t('productSearch.typeToSearch')
-    : truncated
+  const helperText = usesTypedQuery
+    ? truncated
       ? t('productSearch.showingFirst', { count: pageSize })
-      : undefined;
+      : undefined
+    : productQuery.trim().length > 0 && productQuery.trim().length < minChars
+      ? t('productSearch.typeAtLeast', { count: minChars })
+      : t('productSearch.recent');
 
   return {
     productQuery,

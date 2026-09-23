@@ -5,7 +5,7 @@ from rest_framework import serializers
 from core.serializers import CompanyPrimaryKeyRelatedField
 
 from .models import (
-    Brand, Category, Customer, ExpenseCategory, PaymentMode, PriceList, PriceListItem, Product, Supplier, TaxRate, Unit,
+    Brand, Category, Customer, CustomerShippingAddress, ExpenseCategory, PaymentMode, PriceList, PriceListItem, Product, Supplier, TaxRate, Unit,
 )
 
 
@@ -57,20 +57,30 @@ class ExpenseCategorySerializer(serializers.ModelSerializer):
         fields = ["id", "name", "code", "description", "is_active"]
 
 
+class CustomerShippingAddressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomerShippingAddress
+        fields = ["id", "label", "address", "is_default"]
+        read_only_fields = ["id"]
+
+
 class CustomerSerializer(serializers.ModelSerializer):
     price_list = CompanyPrimaryKeyRelatedField(
         queryset=PriceList.objects.all(), allow_null=True, required=False
     )
     outstanding = serializers.SerializerMethodField()
+    shipping_addresses = CustomerShippingAddressSerializer(many=True, required=False)
 
     class Meta:
         model = Customer
         fields = [
             "id", "name", "phone", "email", "gstin", "billing_address",
-            "shipping_address", "state", "status", "credit_limit",
+            "shipping_address", "state", "pincode", "status", "credit_limit",
             "credit_days", "notes", "created_at", "updated_at",
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "price_list", "taxpayer_type", "whatsapp_opt_in", "dunning_opt_out",
+            "custom_fields", "pan", "party_bank_name", "party_bank_account", "party_bank_ifsc",
+            "shipping_addresses",
             "outstanding",
         ]
         read_only_fields = [
@@ -84,6 +94,32 @@ class CustomerSerializer(serializers.ModelSerializer):
         if outstanding_by_id is not None:
             return str(outstanding_by_id.get(obj.id, 0))
         return str(LedgerService.customer_outstanding(obj.company, obj))
+
+    def create(self, validated_data):
+        addresses = validated_data.pop("shipping_addresses", None) or []
+        customer = super().create(validated_data)
+        self._replace_addresses(customer, addresses)
+        return customer
+
+    def update(self, instance, validated_data):
+        addresses = validated_data.pop("shipping_addresses", None)
+        customer = super().update(instance, validated_data)
+        if addresses is not None:
+            self._replace_addresses(customer, addresses)
+        return customer
+
+    def _replace_addresses(self, customer, addresses):
+        customer.shipping_addresses.all().delete()
+        for row in addresses:
+            CustomerShippingAddress.objects.create(
+                company=customer.company,
+                customer=customer,
+                label=row.get("label") or "",
+                address=row.get("address") or "",
+                is_default=bool(row.get("is_default")),
+                created_by=customer.updated_by,
+                updated_by=customer.updated_by,
+            )
 
 
 class SupplierSerializer(serializers.ModelSerializer):

@@ -90,6 +90,7 @@ class Customer(CompanyScopedModel):
     billing_address = models.TextField(blank=True)
     shipping_address = models.TextField(blank=True)
     state = models.CharField(max_length=64, blank=True)
+    pincode = models.CharField(max_length=10, blank=True)
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE)
     credit_limit = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     credit_days = models.PositiveIntegerField(default=0)
@@ -123,6 +124,11 @@ class Customer(CompanyScopedModel):
     price_list = models.ForeignKey(
         "PriceList", null=True, blank=True, on_delete=models.SET_NULL, related_name="customers"
     )
+    custom_fields = models.JSONField(default=dict, blank=True)
+    pan = models.CharField(max_length=10, blank=True)
+    party_bank_name = models.CharField(max_length=100, blank=True)
+    party_bank_account = models.CharField(max_length=32, blank=True)
+    party_bank_ifsc = models.CharField(max_length=16, blank=True)
 
     class Meta:
         ordering = ["name"]
@@ -153,6 +159,19 @@ class Customer(CompanyScopedModel):
             or self.receipts.exists()
             or self.payment_links.exists()
         )
+
+
+class CustomerShippingAddress(CompanyScopedModel):
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="shipping_addresses")
+    label = models.CharField(max_length=64, blank=True)
+    address = models.TextField()
+    is_default = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-is_default", "id"]
+
+    def __str__(self):
+        return self.label or (self.address[:40] if self.address else f"Address #{self.pk}")
 
 
 class Supplier(CompanyScopedModel):

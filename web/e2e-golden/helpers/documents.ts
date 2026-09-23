@@ -68,29 +68,41 @@ export async function createProduct(
     gstRate?: string;
     hsnCode?: string;
     serialNo?: string;
+    /** F1-013 (COMP-002 e2e): product-level reorder threshold, used as the
+     * fallback in `suggest_replenishment` when no per-warehouse
+     * WarehouseReorderLevel override exists — the common case a fresh e2e
+     * tenant is in, since there's no UI yet for the per-warehouse override. */
+    reorderLevel?: string;
   },
 ) {
   await page.goto('/inventory/products');
-  const heading = page.getByRole('heading', { name: /^Products$/i });
   const toolbarAdd = page.getByRole('button', { name: 'Add', exact: true });
-  const emptyAdd = page.getByRole('button', { name: /Add Products/i });
-  // PageTitle is an h1, but empty-state + toolbar both expose an Add* button.
-  // Wait for either surface so a heading-role drift cannot stall the suite.
-  await expect(heading.or(toolbarAdd).or(emptyAdd)).toBeVisible({ timeout: 20_000 });
-  if (await toolbarAdd.count()) {
-    await toolbarAdd.first().click();
-  } else {
-    await emptyAdd.first().click();
-  }
+  // F1-015: this page renders the toolbar "Add" button AND a separate
+  // "Add Products" empty-state prompt AT THE SAME TIME (confirmed from a
+  // real run's error output — they are not mutually exclusive by list
+  // state the way the original .or()-based wait assumed). Combining
+  // either of them with anything else in a single .or() chain hits
+  // Playwright's strict-mode "resolved to N elements" the moment more
+  // than one is simultaneously visible, which turned out to be the
+  // common case, not an edge case. toolbarAdd alone is present in every
+  // state observed, so it's the only thing this needs to wait for or
+  // click — no conditional branch needed.
+  await expect(toolbarAdd).toBeVisible({ timeout: 20_000 });
+  await toolbarAdd.first().click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(opts.name);
   await page.getByRole('textbox', { name: 'SKU / Item Code', exact: true }).fill(opts.sku);
   if (opts.hsnCode) {
     await page.getByLabel(/HSN code/i).fill(opts.hsnCode);
   }
-  if (opts.serialNo) {
+  if (opts.serialNo || opts.reorderLevel) {
     await page.getByRole('tab', { name: 'Stock details' }).click();
-    await page.getByRole('radio', { name: 'Serial' }).click();
-    await page.getByLabel('Serial no').fill(opts.serialNo);
+    if (opts.serialNo) {
+      await page.getByRole('radio', { name: 'Serial' }).click();
+      await page.getByLabel('Serial no').fill(opts.serialNo);
+    }
+    if (opts.reorderLevel) {
+      await page.getByLabel(/Reorder level/i).fill(opts.reorderLevel);
+    }
   }
   await page.getByRole('tab', { name: 'Pricing details' }).click();
   await page.getByLabel('Selling Price (₹)').fill(opts.sellingPrice);
@@ -101,6 +113,33 @@ export async function createProduct(
   }
   await page.getByRole('button', { name: 'Save item' }).click();
   await expect(page.getByText(opts.name)).toBeVisible();
+}
+
+/**
+ * COMP-007 e2e: raise and complete a purchase bill, optionally overriding
+ * the unit price (the price-history feature needs several different prices
+ * for the same supplier+product). The row's "Description (optional)" field
+ * is a multiline TextField, which MUI renders as a <textarea>, not an
+ * <input> — it does NOT count towards `row.locator('input')`. Confirmed live
+ * (DraftLineTable.tsx): the real <input> order in the row is [0] Quantity
+ * (has aria-label "QTY", used below), [1] Unit price, [2] Discount %.
+ */
+export async function completePurchaseInvoice(
+  page: Page,
+  opts: { supplierName: string; sku: string; productName: string; unitPrice?: string; quantity?: string },
+) {
+  await page.goto('/purchases/new');
+  await selectPartyOnDocument(page, opts.supplierName);
+  await addInvoiceItem(page, opts.sku);
+  const row = page.getByRole('row', { name: new RegExp(opts.productName) });
+  if (opts.quantity) {
+    await row.getByLabel('QTY').fill(opts.quantity);
+  }
+  if (opts.unitPrice) {
+    await row.locator('input').nth(1).fill(opts.unitPrice);
+  }
+  await page.getByRole('button', { name: 'Save & Complete' }).click();
+  await expect(page).toHaveURL(/\/purchases\/history/);
 }
 
 /**
@@ -279,7 +318,10 @@ export async function createQuotationConvertedToOrder(
   await page.getByRole('button', { name: 'New quotation' }).click();
   await fillNamedCombobox(page, 'Customer', opts.customerName);
   await fillNamedCombobox(page, 'Products', opts.sku, new RegExp(opts.sku));
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  // F1-017: the dialog also has a disabled "Add Party" quick-add button with
+  // the same exact accessible name "Add" — .last() is the real add-line
+  // button, which renders after the party section in DOM order.
+  await page.getByRole('button', { name: 'Add', exact: true }).last().click();
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByRole('button', { name: 'To Order' })).toBeVisible();
   await page.getByRole('button', { name: 'To Order' }).click();
@@ -289,7 +331,48 @@ export async function createQuotationConvertedToOrder(
   await expect(page).toHaveURL(/\/sales\/orders/, { timeout: 20_000 });
 }
 
-export async function convertDraftOrderToCompletedInvoiceViaChallan(page: Page) {
+/**
+ * Click "Save & Complete" on a sales invoice form and confirm the invoice
+ * actually reached COMPLETED — not just that the page navigated to
+ * /sales/history. Confirmed live (server log) twice: a transient SQLite
+ * "database is locked" error (CFG-06 in backend/config/settings.py — a known
+ * dev-only concurrency limitation; one confirmed case was the app's own
+ * async telemetry beacon racing the invoice-number row lock inside
+ * /complete/) makes the backend call fail in a way the frontend swallows
+ * into a warning banner instead of blocking navigation or throwing, so the
+ * page still lands on /sales/history with the document silently left DRAFT.
+ * `rowMatcher` must uniquely identify the invoice's row (e.g. the customer
+ * name) on the history list.
+ */
+export async function saveAndCompleteSalesInvoice(page: Page, rowMatcher: RegExp) {
+  await page.getByRole('button', { name: 'Save & Complete' }).click();
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
+  const row = page.getByRole('row', { name: rowMatcher }).first();
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  const completedNow = await row
+    .getByText('Completed')
+    .isVisible()
+    .catch(() => false);
+  if (!completedNow) {
+    // Only the invoice-number cell is a link (SalesHistoryPage.tsx) — the
+    // <tr> itself has no click handler, so row.click() lands on an inert
+    // cell and never navigates. The link goes to the read-only detail view,
+    // not the editor — "Edit" (InvoiceDetailPage.tsx) is what actually opens
+    // /sales/history/:id/edit, where "Save & Complete" lives.
+    await row.getByRole('link').first().click();
+    // InvoiceDetailPage's "Edit" Button uses component={RouterLink} — an
+    // <a>, whose implicit ARIA role is "link", not "button".
+    await page.getByRole('link', { name: 'Edit', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Save & Complete' })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Save & Complete' }).click();
+    await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
+  }
+  await expect(page.getByRole('row', { name: rowMatcher }).first().getByText('Completed')).toBeVisible({
+    timeout: 15_000,
+  });
+}
+
+export async function convertDraftOrderToCompletedInvoiceViaChallan(page: Page, customerName: string) {
   await expect(page.getByRole('button', { name: 'To Challan' })).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'To Challan' }).click();
   await expect(page).toHaveURL(/\/sales\/delivery-challans/);
@@ -300,8 +383,7 @@ export async function convertDraftOrderToCompletedInvoiceViaChallan(page: Page) 
   await expect(page.getByRole('button', { name: 'Convert to invoice' })).toBeVisible({ timeout: 20_000 });
   await page.getByRole('button', { name: 'Convert to invoice' }).click();
   await expect(page).toHaveURL(/\/sales\/history\/\d+\/edit/);
-  await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
+  await saveAndCompleteSalesInvoice(page, new RegExp(customerName));
 }
 
 export async function completeResidualSalesDebitNote(
@@ -383,6 +465,29 @@ export async function posCompleteCashSale(page: Page) {
 
 export function unique() {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+}
+
+/**
+ * Session-cookie auth also enforces CSRF on writes — mirrors the SPA
+ * (and personas-golden.spec.ts's own raw-API pattern) for any spec that
+ * needs to call the live API directly via `page.request` rather than
+ * through the UI (e.g. to arrange backend-only-reachable state a form's
+ * own client-side validation deliberately blocks).
+ */
+export async function getCsrfToken(page: Page): Promise<string> {
+  const res = await page.request.get('/api/v1/auth/csrf/');
+  try {
+    const body = await res.json();
+    // Responses are enveloped as {success, data} by core/renderers.py's
+    // EnvelopeJSONRenderer — fall back to the unwrapped shape too in case
+    // that ever changes for this endpoint specifically.
+    const token = String(body?.data?.csrfToken ?? body?.csrfToken ?? body?.token ?? '');
+    if (token) return token;
+  } catch {
+    /* token may only be in the cookie */
+  }
+  const cookies = await page.context().cookies();
+  return cookies.find((c) => c.name === 'csrftoken')?.value ?? '';
 }
 
 export async function signOut(page: Page) {

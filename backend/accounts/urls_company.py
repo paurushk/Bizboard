@@ -2,6 +2,7 @@ from django.urls import path
 from core.routers import DefaultRouter
 
 from .export_views import TenantExportView, TenantRestoreView
+from .pack_views import PackWizardView
 from .views import (
     CompanyDetailView,
     CompanyEraseView,
@@ -26,4 +27,5 @@ urlpatterns = [
     path("export/", TenantExportView.as_view(), name="company-tenant-export"),
     path("restore/", TenantRestoreView.as_view(), name="company-tenant-restore"),
     path("erase/", CompanyEraseView.as_view(), name="company-erase"),
+    path("packs/", PackWizardView.as_view(), name="company-packs"),
 ] + router.urls

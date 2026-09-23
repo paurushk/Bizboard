@@ -16,12 +16,15 @@ class CompanyRateThrottle(SimpleRateThrottle):
 
     scope_attr = "throttle_scope"
 
-    def __init__(self):
-        # Defer rate resolution until allow_request — scope comes from the view.
-        pass
+    def __init__(self, scope=None):
+        # Defer rate resolution until allow_request. An explicit scope avoids
+        # setting ``view.throttle_scope``, which ScopedRateThrottle (a default
+        # throttle) would also read and record under the same cache key when
+        # the user id and company id match.
+        self._explicit_scope = scope
 
     def allow_request(self, request, view):
-        self.scope = getattr(view, self.scope_attr, None)
+        self.scope = self._explicit_scope or getattr(view, self.scope_attr, None)
         if not self.scope:
             return True
         self.rate = self.get_rate()

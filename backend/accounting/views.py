@@ -11,8 +11,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils import timezone
 
+from billing.permissions import SubscriptionWritesAllowed
 from core.exceptions import BusinessRuleError
 from core.permissions import (
+    CanCreatePayments,
     CanExport,
     CanPostJournals,
     CanViewFinancialReports,
@@ -22,11 +24,11 @@ from core.permissions import (
 )
 from core.viewsets import CompanyScopedViewSet
 
-from .models import Account, AccountingPeriod, BankReconSession, CostCenter, FixedAsset, JournalEntry, JournalLine
+from .models import Account, AccountingPeriod, BankReconSession, CostCenter, Expense, FixedAsset, JournalEntry, JournalLine
 from .reports import balance_sheet, cash_flow, close_financial_year, profit_and_loss, trial_balance
 from .serializers import (
     AccountSerializer, AccountingPeriodSerializer, AccountingSettingsSerializer,
-    BankReconSessionSerializer, CostCenterSerializer,
+    BankReconSessionSerializer, CostCenterSerializer, ExpenseSerializer,
     FixedAssetSerializer, JournalEntrySerializer, UnreconciledGlLineSerializer,
 )
 from .services import BooksHealthService, PostingService, seed_chart_of_accounts
@@ -651,3 +653,41 @@ class AccountingReportView(AccountingEnabledMixin, APIView):
         )
         response["Content-Disposition"] = f'attachment; filename="{report}.xlsx"'
         return response
+
+
+class ExpenseViewSet(CompanyScopedViewSet):
+    queryset = Expense.objects.select_related("category")
+    serializer_class = ExpenseSerializer
+    audit_entity = "Expense"
+
+    def get_permissions(self):
+        action = getattr(self, "action", None)
+        if action in ("create", "update", "partial_update", "destroy"):
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePayments()]
+        return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.request.query_params.get("category"):
+            qs = qs.filter(category_id=self.request.query_params["category"])
+        if self.request.query_params.get("date_from"):
+            qs = qs.filter(expense_date__gte=self.request.query_params["date_from"])
+        if self.request.query_params.get("date_to"):
+            qs = qs.filter(expense_date__lte=self.request.query_params["date_to"])
+        return qs
+
+    def perform_create(self, serializer):
+        from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
+
+        instance = serializer.save(
+            company=self.company,
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
+        if not instance.number:
+            instance.number = DocumentNumberService.next_number(
+                self.company, "EXPENSE", gstin=resolve_series_gstin(self.company),
+                on_date=instance.expense_date,
+            )
+            instance.save(update_fields=["number"])
+        self._audit("CREATE", instance)

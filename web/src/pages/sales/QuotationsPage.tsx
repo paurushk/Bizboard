@@ -7,6 +7,7 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import IconButton from '@mui/material/IconButton';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -18,18 +19,31 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   convertQuotation,
+  convertQuotationChain,
   convertQuotationToOrder,
+  createCustomer,
   createQuotation,
+  downloadSalesDocumentPdf,
   getCompany,
+  getCustomer,
+  getQuotation,
   listQuotationsPage,
   listSalesInvoicesPage,
+  updateQuotation,
 } from '@/api/resources';
+import { listEmployeesPage } from '@/api/payroll';
 import { todayIso } from '@/components/billing';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import {
+  EMPTY_HISTORY_FILTERS,
+  HistoryFilterBar,
+  type HistoryFilters,
+} from '@/components/HistoryFilterBar';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { StatusChip } from '@/components/StatusChip';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
@@ -39,12 +53,13 @@ import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Customer, Product, Quotation } from '@/types/domain';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
-import { formatMoney, toNumber } from '@/utils/money';
+import { formatMoney, expectedProfitAmount, toNumber } from '@/utils/money';
 import { canCreateSales } from '@/utils/permissions';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { ConvertQuotationDialog } from '@/pages/sales/ConvertQuotationDialog';
 import { quotationHasRemainingAfterConvert, type ConvertLinePayload } from '@/utils/quotationConvert';
+import { triggerBlobDownload } from '@/utils/blob';
 
 interface DraftLine {
   key: string;
@@ -54,6 +69,7 @@ interface DraftLine {
   // to negotiate/volume-price a line — the primary purpose of a quotation.
   unitPrice: number;
   discountPercent: number;
+  expectedPrice: number;
 }
 
 const emptyForm = { customer: null as Customer | null, lines: [] as DraftLine[] };
@@ -65,13 +81,27 @@ export function QuotationsPage() {
   const { user } = useAuth();
   const canCreate = canCreateSales(user);
   const navigate = useNavigate();
+  const { id: editParam } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+  const debouncedQ = useDebouncedValue(filters.q, 300);
+  const statusParam =
+    filters.status === 'OPEN' ? 'DRAFT' : filters.status === 'CLOSED' ? 'CONVERTED' : filters.status || undefined;
   const query = useQuery({
-    queryKey: ['quotations', page],
-    queryFn: () => listQuotationsPage({ page, pageSize: PAGE_SIZE }),
+    queryKey: ['quotations', page, statusParam, debouncedQ, filters.dateFrom, filters.dateTo],
+    queryFn: () =>
+      listQuotationsPage({
+        page,
+        pageSize: PAGE_SIZE,
+        status: statusParam,
+        q: debouncedQ || undefined,
+        date_from: filters.dateFrom || undefined,
+        date_to: filters.dateTo || undefined,
+      }),
   });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  const employees = useQuery({ queryKey: ['employees-mini'], queryFn: async () => (await listEmployeesPage({ pageSize: 100 })).results });
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
@@ -86,6 +116,13 @@ export function QuotationsPage() {
   const [pendingQty, setPendingQty] = useState('1');
   const [pendingUnitPrice, setPendingUnitPrice] = useState('');
   const [pendingDiscountPercent, setPendingDiscountPercent] = useState('0');
+  const [validUntil, setValidUntil] = useState('');
+  const [salesman, setSalesman] = useState('');
+  const [salesChannel, setSalesChannel] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [expectedProfit, setExpectedProfit] = useState<unknown>(null);
+  const [newPartyName, setNewPartyName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -97,6 +134,53 @@ export function QuotationsPage() {
     setSearchParams(next, { replace: true });
   }, [canCreate, searchParams, setSearchParams]);
 
+  useEffect(() => {
+    const id = Number(editParam);
+    if (!Number.isFinite(id) || id <= 0) return;
+    let cancelled = false;
+    void getQuotation(id)
+      .then(async (q) => {
+        if (cancelled) return;
+        setEditingId(q.id);
+        setOpen(true);
+        setValidUntil(q.validUntil ?? '');
+        setExpectedProfit(q.expectedProfit);
+        setSalesman(q.salesman ? String(q.salesman) : '');
+        setSalesChannel((q as { salesChannel?: string }).salesChannel ?? '');
+        setDeliveryAddress((q as { deliveryAddress?: string }).deliveryAddress ?? '');
+        if (q.customer) {
+          try {
+            const c = await getCustomer(q.customer);
+            if (!cancelled) setCustomer(c);
+          } catch {
+            setCustomer({ id: q.customer, name: q.customerName ?? '', status: 'ACTIVE' });
+          }
+        }
+        setLines(
+          (q.items ?? []).map((item, idx) => ({
+            key: `edit-${item.id ?? idx}`,
+            product: {
+              id: item.product,
+              name: item.productName ?? '',
+              sku: '',
+              sellingPrice: item.unitPrice,
+              purchasePrice: (item as { expectedPrice?: string | number }).expectedPrice ?? 0,
+              gstRate: item.gstRate,
+              status: 'ACTIVE',
+            } as Product,
+            qty: toNumber(item.quantity),
+            unitPrice: toNumber(item.unitPrice),
+            discountPercent: toNumber(item.discountPercent),
+            expectedPrice: toNumber((item as { expectedPrice?: string | number }).expectedPrice),
+          })),
+        );
+      })
+      .catch((err) => setError(getErrorMessage(err)));
+    return () => {
+      cancelled = true;
+    };
+  }, [editParam]);
+
   const resetDialog = () => {
     setCustomer(null);
     setLines([]);
@@ -104,6 +188,13 @@ export function QuotationsPage() {
     setPendingQty('1');
     setPendingUnitPrice('');
     setPendingDiscountPercent('0');
+    setValidUntil('');
+    setSalesman('');
+    setSalesChannel('');
+    setDeliveryAddress('');
+    setEditingId(null);
+    setExpectedProfit(null);
+    setNewPartyName('');
     productSearch.setProductQuery('');
   };
 
@@ -115,7 +206,7 @@ export function QuotationsPage() {
     const discountPercent = Math.min(100, Math.max(0, toNumber(pendingDiscountPercent) || 0));
     setLines((prev) => [
       ...prev,
-      { key: `${pendingProduct.id}-${Date.now()}`, product: pendingProduct, qty, unitPrice, discountPercent },
+      { key: `${pendingProduct.id}-${Date.now()}`, product: pendingProduct, qty, unitPrice, discountPercent, expectedPrice: toNumber(pendingProduct.purchasePrice) },
     ]);
     setPendingProduct(null);
     setPendingQty('1');
@@ -123,7 +214,7 @@ export function QuotationsPage() {
     setPendingDiscountPercent('0');
   };
 
-  const updateLine = (key: string, patch: Partial<Pick<DraftLine, 'qty' | 'unitPrice' | 'discountPercent'>>) => {
+  const updateLine = (key: string, patch: Partial<Pick<DraftLine, 'qty' | 'unitPrice' | 'discountPercent' | 'expectedPrice'>>) => {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   };
 
@@ -132,22 +223,28 @@ export function QuotationsPage() {
   const createMutation = useMutation({
     mutationFn: async () => {
       if (lines.length === 0) throw new Error('Add at least one product');
-      return createQuotation({
+      const payload = {
         customer: customer?.id,
         quotationDate: todayIso(),
+        validUntil: validUntil || null,
+        salesman: salesman ? Number(salesman) : null,
+        salesChannel,
+        deliveryAddress,
         invoiceType: preferredInvoiceType(company.data?.registrationType),
         items: lines.map((l) => ({
           product: l.product.id,
           quantity: l.qty,
           unitPrice: l.unitPrice,
           discountPercent: l.discountPercent,
+          expectedPrice: l.expectedPrice,
           gstRate: toNumber(l.product.gstRate),
         })),
-      });
+      };
+      return editingId ? updateQuotation(editingId, payload) : createQuotation(payload);
     },
     onSuccess: () => {
       setOpen(false);
-      setMessage('Quotation created');
+      setMessage(editingId ? t('phase1.saved') : 'Quotation created');
       // BUG-524: previously the dialog state was never reset, so reopening
       // it showed the last quotation's customer/product/qty pre-filled.
       resetDialog();
@@ -235,6 +332,18 @@ export function QuotationsPage() {
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
       {error ? <HelpErrorAlert message={error} /> : null}
+      <HistoryFilterBar
+        value={filters}
+        onChange={(next) => {
+          setFilters(next);
+          setPage(1);
+        }}
+        dateRangePresets
+        statusOptions={[
+          { value: 'OPEN', label: t('status.OPEN') },
+          { value: 'CLOSED', label: t('status.converted') },
+        ]}
+      />
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
@@ -271,6 +380,24 @@ export function QuotationsPage() {
                       <Stack direction="row" spacing={1} justifyContent="flex-end">
                         <Button
                           size="small"
+                          variant="text"
+                          onClick={() => {
+                            void downloadSalesDocumentPdf('quotation', q.id)
+                              .then((blob) => triggerBlobDownload(blob, `${q.number || q.id}.pdf`))
+                              .catch((err) => setError(getErrorMessage(err)));
+                          }}
+                        >
+                          {t('common.download')}
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={() => navigate(`/sales/quotations/${q.id}`)}
+                        >
+                          {t('common.edit')}
+                        </Button>
+                        <Button
+                          size="small"
                           variant="outlined"
                           disabled={
                             (convertMutation.isPending || convertToOrderMutation.isPending) &&
@@ -298,8 +425,46 @@ export function QuotationsPage() {
                         >
                           {t('common.convert')}
                         </Button>
+                        <Button
+                          size="small"
+                          variant="text"
+                          disabled={
+                            (convertMutation.isPending || convertToOrderMutation.isPending) &&
+                            convertingId === q.id
+                          }
+                          onClick={() => {
+                            setError(null);
+                            setConvertingId(q.id);
+                            void convertQuotationChain(q.id, { stopStage: 'INVOICE' })
+                              .then((res) => {
+                                setConvertingId(null);
+                                const inv = res.invoice as { id?: number } | undefined;
+                                setMessage(inv?.id ? `Converted chain to draft invoice #${inv.id}` : 'Converted');
+                                void qc.invalidateQueries({ queryKey: ['quotations'] });
+                                if (inv?.id) void navigate('/sales/history', { state: { message: `Converted chain to draft invoice #${inv.id}` } });
+                              })
+                              .catch((err) => {
+                                setConvertingId(null);
+                                setError(getErrorMessage(err));
+                              });
+                          }}
+                        >
+                          {t('common.convert')} → SO → DC
+                        </Button>
                       </Stack>
-                    ) : null}
+                    ) : (
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => {
+                          void downloadSalesDocumentPdf('quotation', q.id)
+                            .then((blob) => triggerBlobDownload(blob, `${q.number || q.id}.pdf`))
+                            .catch((err) => setError(getErrorMessage(err)));
+                        }}
+                      >
+                        {t('common.download')}
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -335,7 +500,7 @@ export function QuotationsPage() {
         fullWidth
         maxWidth="sm"
       >
-        <DialogTitle>New quotation</DialogTitle>
+        <DialogTitle>{editingId ? t('common.edit') : t('phase1.newQuotation')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {error ? <HelpErrorAlert message={error} /> : null}
@@ -344,7 +509,12 @@ export function QuotationsPage() {
               getOptionLabel={(o) => o.name}
               filterOptions={(opts) => opts}
               value={customer}
-              onChange={(_, v) => setCustomer(v)}
+              onChange={(_, v) => {
+                setCustomer(v);
+                if (v && !deliveryAddress) {
+                  setDeliveryAddress((v as Customer & { shippingAddress?: string }).shippingAddress ?? '');
+                }
+              }}
               onInputChange={(_, v) => customerSearch.setQuery(v)}
               loading={customerSearch.isFetching}
               renderInput={(params) => (
@@ -355,6 +525,71 @@ export function QuotationsPage() {
                 />
               )}
             />
+            <Stack direction="row" spacing={1}>
+              <TextField
+                size="small"
+                label={t('billing.addParty')}
+                value={newPartyName}
+                onChange={(e) => setNewPartyName(e.target.value)}
+              />
+              <Button
+                size="small"
+                disabled={!newPartyName.trim()}
+                onClick={() => {
+                  void createCustomer({ name: newPartyName.trim(), status: 'ACTIVE' }).then((c) => {
+                    setCustomer(c);
+                    setNewPartyName('');
+                  }).catch((err) => setError(getErrorMessage(err)));
+                }}
+              >
+                {t('common.add')}
+              </Button>
+            </Stack>
+            <TextField
+              type="date"
+              size="small"
+              label={t('billing.validUntil')}
+              InputLabelProps={{ shrink: true }}
+              value={validUntil}
+              onChange={(e) => setValidUntil(e.target.value)}
+            />
+            <TextField
+              select
+              size="small"
+              label={t('billing.salesman')}
+              value={salesman}
+              onChange={(e) => setSalesman(e.target.value)}
+            >
+              <MenuItem value="">{t('common.all')}</MenuItem>
+              {(employees.data ?? []).map((emp) => (
+                <MenuItem key={emp.id} value={emp.id}>{emp.name}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label={t('billing.salesChannel')}
+              value={salesChannel}
+              onChange={(e) => setSalesChannel(e.target.value)}
+            >
+              <MenuItem value="">{t('common.all')}</MenuItem>
+              <MenuItem value="WALK_IN">{t('billing.channelWalkIn')}</MenuItem>
+              <MenuItem value="ONLINE">{t('billing.channelOnline')}</MenuItem>
+              <MenuItem value="DISTRIBUTOR">{t('billing.channelDistributor')}</MenuItem>
+            </TextField>
+            <TextField
+              size="small"
+              multiline
+              minRows={2}
+              label={t('billing.deliveryAddress')}
+              value={deliveryAddress}
+              onChange={(e) => setDeliveryAddress(e.target.value)}
+            />
+            {expectedProfitAmount(expectedProfit) != null ? (
+              <Typography variant="body2" color="text.secondary">
+                {t('billing.expectedProfit')}: {formatMoney(expectedProfitAmount(expectedProfit))}
+              </Typography>
+            ) : null}
 
             {lines.length > 0 ? (
               <Table size="small">
@@ -363,6 +598,7 @@ export function QuotationsPage() {
                     <TableCell>{t('nav.products')}</TableCell>
                     <TableCell align="right">{t('billing.qty')}</TableCell>
                     <TableCell align="right">{t('billing.unitPrice')}</TableCell>
+                    <TableCell align="right">{t('billing.expectedPrice')}</TableCell>
                     <TableCell align="right">{t('billing.discountPercent')}</TableCell>
                     <TableCell align="right">{t('common.total')}</TableCell>
                     <TableCell />
@@ -381,6 +617,16 @@ export function QuotationsPage() {
                           onChange={(e) => updateLine(l.key, { unitPrice: Math.max(0, toNumber(e.target.value) || 0) })}
                           sx={{ width: 100 }}
                           inputProps={{ min: 0, step: '0.01', 'aria-label': t('billing.unitPrice') }}
+                        />
+                      </TableCell>
+                      <TableCell align="right">
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={l.expectedPrice}
+                          onChange={(e) => updateLine(l.key, { expectedPrice: Math.max(0, toNumber(e.target.value) || 0) })}
+                          sx={{ width: 100 }}
+                          inputProps={{ min: 0, step: '0.01', 'aria-label': t('billing.expectedPrice') }}
                         />
                       </TableCell>
                       <TableCell align="right">

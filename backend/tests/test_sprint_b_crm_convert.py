@@ -212,3 +212,82 @@ def test_opportunity_open_to_lost_stamps_closed_at_once(tenant_a):
     opp.refresh_from_db()
     assert opp.stage == Opportunity.Stage.LOST
     assert opp.closed_at is not None
+
+
+def test_round_robin_uses_only_active_sales_staff(tenant_a):
+    from django.contrib.auth import get_user_model
+
+    from accounts.models import CompanyUser
+    from crm.pipeline import capture_lead, next_assignee
+
+    User = get_user_model()
+    staff = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.staff)
+    assert next_assignee(tenant_a.company).id == staff.id
+    quiet = User.objects.create_user(email="quiet@alpha.test", password="StrongPass123!", full_name="Quiet")
+    quiet_member = CompanyUser.objects.create(
+        company=tenant_a.company, user=quiet, role=CompanyUser.Role.SALES_STAFF,
+    )
+    for index in range(3):
+        Lead.objects.create(
+            company=tenant_a.company,
+            name=f"Held {index}",
+            email=f"held{index}@alpha.test",
+            assigned_to=staff,
+            source="phone",
+        )
+    assert next_assignee(tenant_a.company).id == quiet_member.id
+    quiet.is_active = False
+    quiet.save(update_fields=["is_active"])
+    assert next_assignee(tenant_a.company).id == staff.id
+    staff.role = CompanyUser.Role.VIEWER
+    staff.save(update_fields=["role"])
+    assert next_assignee(tenant_a.company) is None
+    created = capture_lead(
+        tenant_a.company, tenant_a.owner, name="Unassigned", email="free@alpha.test", source="phone",
+    )
+    assert created.assigned_to_id is None
+    assert created.status == Lead.Status.NEW
+
+
+def test_lead_ingest_job_finishes_csv_and_whatsapp_after_accept(tenant_a):
+    from crm.models import LeadIngestJob
+    from crm.tasks import process_lead_ingest
+
+    csv_job = LeadIngestJob.objects.create(
+        company=tenant_a.company,
+        kind=LeadIngestJob.Kind.CSV,
+        payload={"rows": [{"name": "Imported", "phone": "9876500099", "email": "", "message": "hi"}]},
+        created_by=tenant_a.owner,
+    )
+    process_lead_ingest(csv_job.id)
+    csv_job.refresh_from_db()
+    assert csv_job.status == LeadIngestJob.Status.DONE
+    assert csv_job.result["created"] == 1
+    assert Lead.objects.filter(company=tenant_a.company, source="import").count() == 1
+    message = {
+        "message_id": "wa-job-1",
+        "sender": "9876500088",
+        "text": "need stock",
+        "sent_at": "2026-09-23T10:00:00Z",
+    }
+    wa_job = LeadIngestJob.objects.create(
+        company=tenant_a.company,
+        kind=LeadIngestJob.Kind.WHATSAPP,
+        payload=message,
+    )
+    process_lead_ingest(wa_job.id)
+    wa_job.refresh_from_db()
+    assert wa_job.status == LeadIngestJob.Status.DONE
+    assert Lead.objects.filter(company=tenant_a.company, source="whatsapp").count() == 1
+    again = LeadIngestJob.objects.create(
+        company=tenant_a.company, kind=LeadIngestJob.Kind.WHATSAPP, payload=message,
+    )
+    process_lead_ingest(again.id)
+    assert Lead.objects.filter(company=tenant_a.company, source="whatsapp").count() == 1
+    process_lead_ingest(csv_job.id)
+    assert Lead.objects.filter(company=tenant_a.company, source="import").count() == 1
+    csv_job.refresh_from_db()
+    csv_job.status = LeadIngestJob.Status.RUNNING
+    csv_job.save(update_fields=["status", "updated_at"])
+    process_lead_ingest(csv_job.id)
+    assert Lead.objects.filter(company=tenant_a.company, source="import").count() == 1

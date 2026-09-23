@@ -2,7 +2,7 @@ import axios from 'axios';
 import { apiClient, idempotencyHeaders, shouldUseMocks, unwrapData } from '../client';
 import { mockInvoices, mockQuotations } from '@/mocks/data';
 import type { LineItem, Quotation, ReportResponse, SalesCreditNote, SalesDebitNote, SalesInvoice, SalesOrder, SalesReturn, DeliveryChallan, AdjustableInvoiceSummary, PdfStatus } from '@/types/domain';
-import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
+import { withMocks, fetchPage, fetchAllPagesMasters, flattenQueryParams, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
 
 export async function listSalesInvoices(params?: Record<string, string>): Promise<SalesInvoice[]> {
   return withMocks(async () => fetchAllPagesMasters<SalesInvoice>('/sales/invoices/', params), mockInvoices);
@@ -104,6 +104,12 @@ export async function posCheckout(
       notes?: string;
       reference?: string;
       bank_account?: number | null;
+      expected_total?: number | string;
+      confirm_totals_mismatch?: boolean;
+      cheque_number?: string;
+      cheque_bank_name?: string;
+      cheque_date?: string;
+      cheque_image?: number;
     };
   },
   options?: { idempotencyKey?: string },
@@ -193,6 +199,15 @@ export type PreviewTotals = {
   estimatedMargin?: number;
   estimatedMarginPercent?: number;
   marginEstimatePartial?: boolean;
+  items?: Array<{
+    taxableAmount: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+    cess: number;
+    lineTotal: number;
+    gstRate?: number;
+  }>;
 };
 
 export function mapPreviewTotals(raw: Record<string, unknown>): PreviewTotals {
@@ -230,7 +245,26 @@ export function mapPreviewTotals(raw: Record<string, unknown>): PreviewTotals {
     intraState: intra === true ? true : intra === false ? false : null,
     invoiceDiscountMode: String(raw.invoiceDiscountMode ?? raw.invoice_discount_mode ?? 'AFTER_TAX'),
     ...mapMarginEstimate(raw),
+    items: mapPreviewItems(raw),
   };
+}
+
+function mapPreviewItems(raw: Record<string, unknown>): PreviewTotals['items'] {
+  const rows = raw.items;
+  if (!Array.isArray(rows)) return undefined;
+  return rows.map((row) => {
+    const r = (row ?? {}) as Record<string, unknown>;
+    const n = (a: string, b: string) => Number(r[a] ?? r[b] ?? 0);
+    return {
+      taxableAmount: n('taxableAmount', 'taxable_amount'),
+      cgst: n('cgst', 'cgst'),
+      sgst: n('sgst', 'sgst'),
+      igst: n('igst', 'igst'),
+      cess: n('cess', 'cess'),
+      lineTotal: n('lineTotal', 'line_total'),
+      gstRate: n('gstRate', 'gst_rate'),
+    };
+  });
 }
 
 /** Split out so a missing key stays `undefined` (no data) rather than the
@@ -483,12 +517,13 @@ export async function downloadInvoicePdf(
   }
 }
 
-export type SalesPdfDocType = 'invoice' | 'credit-note' | 'debit-note' | 'delivery-challan';
+export type SalesPdfDocType = 'invoice' | 'credit-note' | 'debit-note' | 'delivery-challan' | 'quotation';
 
 const SALES_PDF_BASE: Record<Exclude<SalesPdfDocType, 'invoice'>, string> = {
   'credit-note': '/sales/credit-notes',
   'debit-note': '/sales/debit-notes',
   'delivery-challan': '/sales/delivery-challans',
+  quotation: '/sales/quotations',
 };
 
 async function downloadSalesDocPdfBlob(path: string): Promise<Blob> {
@@ -615,10 +650,36 @@ export async function listQuotationsPage(params?: PageParams): Promise<PageResul
   });
 }
 
+export async function getQuotation(id: number): Promise<Quotation> {
+  const { data } = await apiClient.get(`/sales/quotations/${id}/`);
+  return unwrapData<Quotation>(data);
+}
+
+export async function updateQuotation(id: number, payload: Record<string, unknown>): Promise<Quotation> {
+  const { data } = await apiClient.patch(`/sales/quotations/${id}/`, payload);
+  return unwrapData<Quotation>(data);
+}
+
+export async function convertQuotationChain(
+  id: number,
+  payload?: { stopStage?: string; confirmExpired?: boolean; items?: Array<{ id: number; quantity: string | number }> },
+): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.post(`/sales/quotations/${id}/convert-chain/`, {
+    stop_stage: payload?.stopStage,
+    confirm_expired: payload?.confirmExpired ?? false,
+    ...(payload?.items?.length ? { items: payload.items } : {}),
+  });
+  return unwrapData(data);
+}
+
 export async function createQuotation(payload: {
   customer?: number;
   invoiceType?: string;
   quotationDate?: string;
+  validUntil?: string | null;
+  salesman?: number | null;
+  salesChannel?: string;
+  deliveryAddress?: string;
   items: Array<Partial<LineItem>>;
 }): Promise<Quotation> {
   return withMocks(async () => {
@@ -1065,6 +1126,9 @@ export async function createSalesOrder(payload: {
   invoiceDiscount?: number | string;
   notes?: string;
   termsText?: string;
+  salesman?: number | null;
+  salesChannel?: string;
+  deliveryAddress?: string;
   items: Array<Partial<LineItem>>;
 }): Promise<SalesOrder> {
   return withMocks(async () => {
@@ -1237,6 +1301,91 @@ export async function updateRecurringSchedule(id: number, payload: Record<string
 
 export async function runRecurringScheduleNow(id: number) {
   const { data } = await apiClient.post(`/sales/recurring-schedules/${id}/run-now/`);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function getInvoicePaymentStats(params?: PageParams) {
+  const { data } = await apiClient.get('/sales/invoices/payment-stats/', { params: flattenQueryParams(params) });
+  return unwrapData<{
+    paid: { count: number; amount: string | number };
+    partial: { count: number; amount: string | number };
+    unpaid: { count: number; amount: string | number };
+  }>(data);
+}
+
+export async function getInvoiceHsnSummary(id: number) {
+  const { data } = await apiClient.get(`/sales/invoices/${id}/hsn-summary/`);
+  return unwrapData<{ invoiceId: number; rows: Record<string, unknown>[] }>(data);
+}
+
+export async function recordInvoicePayment(id: number, payload: Record<string, unknown>) {
+  const { data } = await apiClient.post(`/sales/invoices/${id}/record-payment/`, payload);
+  return unwrapData<SalesInvoice>(data);
+}
+
+export async function bulkInvoicePdfZip(ids: number[]) {
+  const { data } = await apiClient.post('/sales/invoices/bulk-pdf-zip/', { ids });
+  return unwrapData<{ url: string; fileId?: number; count: number }>(data);
+}
+
+export async function listDeliveryRoutesPage(params?: PageParams) {
+  return fetchPage<Record<string, unknown>>('/sales/delivery-routes/', params);
+}
+
+export async function getDeliveryRoute(id: number) {
+  const { data } = await apiClient.get(`/sales/delivery-routes/${id}/`);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function createDeliveryRoute(payload: Record<string, unknown>) {
+  const { data } = await apiClient.post('/sales/delivery-routes/', payload);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function addOrdersToDeliveryRoute(id: number, orderIds: number[]) {
+  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/add-orders/`, { orderIds });
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function removeDeliveryRouteStop(id: number, stopId: number) {
+  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/remove-stop/`, { stopId });
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function setDeliveryRouteStopStatus(id: number, stopId: number, status: string) {
+  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/set-stop-status/`, { stopId, status });
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function startDeliveryRoute(id: number) {
+  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/start/`);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function completeDeliveryRoute(id: number, payload?: { actualLogisticsCost?: number | string }) {
+  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/complete/`, payload ?? {});
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function downloadDeliveryRouteManifest(id: number): Promise<Blob> {
+  if (shouldUseMocks()) {
+    return new Blob(['mock-route-manifest'], { type: 'application/pdf' });
+  }
+  const { data } = await apiClient.get(`/sales/delivery-routes/${id}/manifest/`, { responseType: 'blob' });
+  return data as Blob;
+}
+
+export async function listDeliveryChallanReturnsPage(params?: PageParams) {
+  return fetchPage<Record<string, unknown>>('/sales/challan-returns/', params);
+}
+
+export async function createDeliveryChallanReturn(payload: Record<string, unknown>) {
+  const { data } = await apiClient.post('/sales/challan-returns/', payload);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function completeDeliveryChallanReturn(id: number) {
+  const { data } = await apiClient.post(`/sales/challan-returns/${id}/complete/`);
   return unwrapData<Record<string, unknown>>(data);
 }
 

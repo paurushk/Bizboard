@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
@@ -17,7 +18,10 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
-import { createSupplier, getCompany, listSuppliers, updateSupplier, verifySupplierGstin } from '@/api/resources';
+import { createSupplier, getCompany, getSupplierPriceHistory, listSuppliers, updateSupplier, verifySupplierGstin } from '@/api/resources';
+import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
+import { useProductSearch } from '@/hooks/useProductSearch';
+import type { Product } from '@/types/domain';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StateSelect } from '@/components/StateSelect';
 import { StatusChip } from '@/components/StatusChip';
@@ -50,6 +54,8 @@ function gstinStatusColor(status?: string): 'default' | 'success' | 'warning' | 
 }
 
 export function SuppliersPage() {
+  useFeatureFlagEpoch();
+  const showPrices = isRuntimeFlagEnabled('ENABLE_SUPPLIER_PRICE_HISTORY');
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
@@ -61,6 +67,14 @@ export function SuppliersPage() {
   // F2-033: this list loads every supplier at once (no server paging), so the
   // filter bar narrows the already-loaded set client-side.
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+  const [priceSupplier, setPriceSupplier] = useState<Supplier | null>(null);
+  const [priceProduct, setPriceProduct] = useState<Product | null>(null);
+  const productSearch = useProductSearch({ activeOnly: true, selected: priceProduct });
+  const priceHistory = useQuery({
+    queryKey: ['supplier-price-history', priceSupplier?.id, priceProduct?.id],
+    queryFn: () => getSupplierPriceHistory(priceSupplier!.id, priceProduct!.id),
+    enabled: Boolean(showPrices && priceSupplier && priceProduct),
+  });
   const visibleSuppliers = useMemo(() => {
     const all = query.data ?? [];
     const needle = filters.q.trim().toLowerCase();
@@ -258,6 +272,11 @@ export function SuppliersPage() {
                     >
                       {t('common.edit')}
                     </Button>
+                    {showPrices ? (
+                      <Button size="small" onClick={() => { setPriceSupplier(s); setPriceProduct(null); }}>
+                        {t('supplierPrices.title')}
+                      </Button>
+                    ) : null}
                     <Button
                       size="small"
                       disabled={toggleMutation.isPending}
@@ -353,6 +372,67 @@ export function SuppliersPage() {
               </Button>
             </span>
           </Tooltip>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={priceSupplier != null} onClose={() => setPriceSupplier(null)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('supplierPrices.title')} — {priceSupplier?.name}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Autocomplete
+              options={productSearch.options}
+              value={priceProduct}
+              onChange={(_e, value) => setPriceProduct(value)}
+              onInputChange={(_e, value) => productSearch.setProductQuery(value)}
+              getOptionLabel={(option) => option.name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              renderInput={(params) => <TextField {...params} label={t('supplierPrices.product')} />}
+            />
+            {priceHistory.data ? (
+              <Stack spacing={0.5}>
+                <Typography variant="body2">
+                  {t('supplierPrices.leadTime')}: {priceHistory.data.leadTimeDays ?? '—'}
+                </Typography>
+                <Typography variant="body2">
+                  {t('supplierPrices.fillRate')}: {priceHistory.data.fillRate ?? '—'}
+                </Typography>
+                {priceHistory.data.overReceipt ? (
+                  <Typography variant="body2">{t('supplierPrices.overReceipt')}</Typography>
+                ) : null}
+              </Stack>
+            ) : null}
+            {priceHistory.isLoading ? <LoadingState /> : null}
+            {priceProduct && priceHistory.data && priceHistory.data.rows.length === 0 ? (
+              <Typography>{t('supplierPrices.empty')}</Typography>
+            ) : null}
+            {priceHistory.data && priceHistory.data.rows.length > 0 ? (
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>{t('supplierPrices.date')}</TableCell>
+                    <TableCell>{t('supplierPrices.source')}</TableCell>
+                    <TableCell align="right">{t('supplierPrices.qty')}</TableCell>
+                    <TableCell align="right">{t('supplierPrices.price')}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {priceHistory.data.rows.map((row) => (
+                    <TableRow key={`${row.source}-${row.documentNumber}-${row.documentDate}`}>
+                      <TableCell>{row.documentDate}</TableCell>
+                      <TableCell>
+                        {row.source === 'PURCHASE_ORDER' ? t('supplierPrices.order') : t('supplierPrices.invoice')}
+                        {' '}{row.documentNumber}
+                      </TableCell>
+                      <TableCell align="right">{row.quantity}</TableCell>
+                      <TableCell align="right">{formatMoney(row.unitPrice)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPriceSupplier(null)}>{t('common.cancel')}</Button>
         </DialogActions>
       </Dialog>
     </Stack>

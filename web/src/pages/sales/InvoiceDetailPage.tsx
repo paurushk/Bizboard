@@ -32,18 +32,20 @@ import {
   downloadInvoiceThermalPdf,
   getCustomer,
   getInvoiceAudit,
+  getInvoiceHsnSummary,
+  getInvoiceProfitReport,
   getSalesInvoice,
   getUpiQr,
   listAllocationsPage,
   listPaymentLinksPage,
   listSalesReturns,
-  shareInvoice,
   sharePaymentLink,
   unallocatePayment,
   updateSalesInvoice,
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EinvoiceEwayPanel } from '@/components/EinvoiceEwayPanel';
+import { ShareInvoiceDialog } from '@/components/ShareInvoiceDialog';
 import { safePaymentHref } from '@/utils/safeUrl';
 import { DetailSkeleton, EmptyState, ErrorState } from '@/components/PageState';
 import { PdfStatusPoller } from '@/components/PdfStatusPoller';
@@ -66,9 +68,7 @@ export function InvoiceDetailPage() {
   const invoiceId = Number(id);
   const invoiceIdValid = Number.isFinite(invoiceId) && invoiceId > 0;
   const qc = useQueryClient();
-  const [sharePhone, setSharePhone] = useState('');
-  const [shareEmail, setShareEmail] = useState('');
-  const [prefilled, setPrefilled] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [amendOpen, setAmendOpen] = useState(false);
   const [amendGstin, setAmendGstin] = useState('');
   const [amendPos, setAmendPos] = useState('');
@@ -111,6 +111,20 @@ export function InvoiceDetailPage() {
     queryFn: () => getInvoiceAudit(invoiceId),
     enabled: invoiceIdValid && showAudit,
   });
+  const hsnQuery = useQuery({
+    queryKey: ['sales-invoice-hsn', invoiceId],
+    queryFn: () => getInvoiceHsnSummary(invoiceId),
+    enabled: invoiceIdValid,
+  });
+  const profitQuery = useQuery({
+    queryKey: ['sales-invoice-profit', invoiceId, query.data?.invoiceDate],
+    queryFn: () =>
+      getInvoiceProfitReport({
+        date_from: query.data!.invoiceDate,
+        date_to: query.data!.invoiceDate,
+      }),
+    enabled: invoiceIdValid && showAudit && Boolean(query.data?.invoiceDate),
+  });
 
   useEffect(() => {
     if (!query.data) return;
@@ -127,16 +141,6 @@ export function InvoiceDetailPage() {
     cancelBtnRef.current?.focus();
     cancelBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [helpCancel, query.data?.status]);
-
-  useEffect(() => {
-    if (prefilled || !query.data) return;
-    const fromOffer = query.data.whatsappOffer?.phone?.trim();
-    const customer = customerQuery.data;
-    if (fromOffer) setSharePhone(fromOffer);
-    else if (customer?.phone) setSharePhone(customer.phone);
-    if (customer?.email) setShareEmail(customer.email);
-    if (fromOffer || customer || customerQuery.isFetched) setPrefilled(true);
-  }, [query.data, customerQuery.data, customerQuery.isFetched, prefilled]);
 
   const completeMutation = useMutation({
     // F2-035: completeWithConfirms loops over known confirm codes in any
@@ -263,50 +267,6 @@ export function InvoiceDetailPage() {
       void qc.invalidateQueries({ queryKey: ['payment-links', invoiceId] });
     },
     onError: (err) => setPayLinkMsg(getErrorMessage(err)),
-  });
-
-  const shareMutation = useMutation({
-    mutationFn: (payload: { channel: 'EMAIL' | 'WHATSAPP'; recipient: string }) =>
-      shareInvoice(invoiceId, payload),
-    onSuccess: (res, variables) => {
-      setShareLink(res.shareLink ?? null);
-      if (variables.channel === 'WHATSAPP') {
-        const mode = res.mode ?? (res.status === 'SENT' ? 'cloud' : 'link');
-        if (mode === 'cloud' && res.status === 'SENT') {
-          setMessage(t('common.whatsappCloudSent'));
-          setError(null);
-          setErrorSource(null);
-        } else if (res.error) {
-          // BB-000743: Cloud attempted but fell back to wa.me — never silent.
-          setError(res.error || t('common.whatsappFallbackWarn'));
-          setMessage(t('common.whatsappFallbackWarn'));
-        } else {
-          setMessage(t('common.whatsappLinkHint'));
-          setError(null);
-          setErrorSource(null);
-        }
-      } else {
-        setMessage(res.shareLink ? `Share ready` : `Share ${res.status}`);
-      }
-      // BUG-519: window.open here is frequently blocked by popup blockers
-      // since it fires from an async callback, not directly from the click;
-      // the link is also rendered as a clickable fallback below.
-      if (res.shareLink) {
-        const mode =
-          variables.channel === 'WHATSAPP'
-            ? (res.mode ?? (res.status === 'SENT' ? 'cloud' : 'link'))
-            : 'link';
-        if (mode !== 'cloud') {
-          try {
-            openShareUrl(res.shareLink);
-          } catch {
-            setMessage('Share ready (blocked unsafe URL)');
-          }
-        }
-      }
-      void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
-    },
-    onError: (err) => captureError(err),
   });
 
   const whatsappButtonHint = query.data?.whatsappOffer && !query.data.whatsappOffer.optIn
@@ -582,6 +542,52 @@ export function InvoiceDetailPage() {
           </Stack>
         </Paper>
       </Stack>
+
+      {hsnQuery.data?.rows?.length ? (
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary">{t('history.hsnSummary')}</Typography>
+          <Divider sx={{ my: 1 }} />
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>HSN</TableCell>
+                <TableCell align="right">{t('billing.qty')}</TableCell>
+                <TableCell align="right">{t('billing.taxableAmount')}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {hsnQuery.data.rows.map((row, idx) => (
+                <TableRow key={`${row.hsn}-${idx}`}>
+                  <TableCell>{String(row.hsn ?? '—')}</TableCell>
+                  <TableCell align="right">{String(row.quantity ?? row.qty ?? '')}</TableCell>
+                  <TableCell align="right">{formatMoney(toNumber((row.taxableValue ?? row.taxable_value) as string | number))}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
+      ) : null}
+
+      {showAudit && profitQuery.data ? (
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary">{t('reports.invoiceProfit')}</Typography>
+          <Divider sx={{ my: 1 }} />
+          {(() => {
+            const row = (profitQuery.data.rows ?? []).find(
+              (r) => Number((r as { invoiceId?: number; invoice_id?: number }).invoiceId ?? (r as { invoice_id?: number }).invoice_id) === invoiceId,
+            ) as { grossMargin?: string; gross_margin?: string; marginPercent?: string; cogsTotal?: string } | undefined;
+            if (!row) {
+              return <Typography variant="body2" color="text.secondary">—</Typography>;
+            }
+            return (
+              <Stack spacing={0.5}>
+                <Typography variant="body2">{t('reports.cogs')}: {formatMoney(toNumber(row.cogsTotal))}</Typography>
+                <Typography variant="body2">{t('reports.grossMargin')}: {formatMoney(toNumber(row.grossMargin ?? row.gross_margin))}</Typography>
+              </Stack>
+            );
+          })()}
+        </Paper>
+      ) : null}
 
       {canAct ? (
         <Paper sx={{ p: 2 }}>
@@ -982,48 +988,11 @@ export function InvoiceDetailPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             {whatsappButtonHint}
           </Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField
-              label={t('common.whatsapp')}
-              value={sharePhone}
-              onChange={(e) => setSharePhone(e.target.value)}
-              placeholder="9198XXXXXXXX"
-              helperText={
-                isRuntimeFlagEnabled('ENABLE_WHATSAPP_CLOUD')
-                  ? undefined
-                  : t('common.whatsappLinkHint')
-              }
-              error={Boolean(sharePhone) && !/^\d{10,15}$/.test(sharePhone.replace(/\D/g, ''))}
-            />
-            <Button
-              variant="outlined"
-              disabled={
-                !/^\d{10,15}$/.test(sharePhone.replace(/\D/g, '')) || shareMutation.isPending
-              }
-              onClick={() =>
-                shareMutation.mutate({ channel: 'WHATSAPP', recipient: sharePhone })
-              }
-            >
-              {t('common.whatsappSendInvoice')}
-            </Button>
-            <TextField
-              label={t('common.email')}
-              value={shareEmail}
-              onChange={(e) => setShareEmail(e.target.value)}
-              error={Boolean(shareEmail) && !/^\S+@\S+\.\S+$/.test(shareEmail)}
-            />
-            <Button
-              variant="outlined"
-              disabled={!/^\S+@\S+\.\S+$/.test(shareEmail) || shareMutation.isPending}
-              onClick={() => shareMutation.mutate({ channel: 'EMAIL', recipient: shareEmail })}
-            >
-              {t('common.email')}
-            </Button>
-          </Stack>
+          <Button variant="outlined" onClick={() => setShareOpen(true)}>
+            {t('common.share')}
+          </Button>
           {shareLink && isAllowedShareUrl(shareLink) ? (
             <Typography variant="body2" sx={{ mt: 1 }}>
-              {/* BUG-519: a popup-blocked window.open left users with no way
-                  to recover the link — it's now always shown as clickable. */}
               <a href={shareLink} target="_blank" rel="noopener noreferrer">
                 {shareLink}
               </a>
@@ -1031,6 +1000,25 @@ export function InvoiceDetailPage() {
           ) : null}
         </Paper>
       ) : null}
+
+      <ShareInvoiceDialog
+        open={shareOpen}
+        invoiceId={invoiceIdValid ? invoiceId : null}
+        defaultPhone={inv.whatsappOffer?.phone || customerQuery.data?.phone || ''}
+        defaultEmail={customerQuery.data?.email || ''}
+        onClose={() => setShareOpen(false)}
+        onSuccess={(msg, res) => {
+          setMessage(msg);
+          setError(null);
+          setErrorSource(null);
+          if (res.shareLink) setShareLink(res.shareLink);
+          void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
+        }}
+        onError={(msg) => {
+          setError(msg);
+          setErrorSource(null);
+        }}
+      />
 
       <Dialog open={amendOpen} onClose={() => setAmendOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{t('einvoice.amendFilingIdentity')}</DialogTitle>

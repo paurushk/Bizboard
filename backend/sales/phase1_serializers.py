@@ -198,6 +198,7 @@ class SalesOrderItemSerializer(_BaseLineSerializer):
         fields = [
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
+            "expected_price",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
@@ -206,6 +207,14 @@ class SalesOrderItemSerializer(_BaseLineSerializer):
 class SalesOrderSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
     items = SalesOrderItemSerializer(many=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
+    expected_profit = serializers.SerializerMethodField()
+
+    def get_expected_profit(self, obj):
+        from .expected_profit import can_view_expected_profit, expected_profit_for_order
+
+        if not can_view_expected_profit(self.context.get("request")):
+            return None
+        return expected_profit_for_order(obj)
 
     class Meta:
         model = SalesOrder
@@ -216,9 +225,11 @@ class SalesOrderSerializer(CompanyScopedSerializerMixin, serializers.ModelSerial
             "invoice_discount", "invoice_discount_mode",
             "auto_round_off", "notes", "terms_text", "items",
             "supply_type", "company_gstin",
+            "salesman", "sales_channel", "delivery_address",
+            "expected_profit",
             "converted_invoice", "created_at", "updated_at",
         ] + TOTAL_READONLY
-        read_only_fields = ["number", "status", "converted_invoice"] + TOTAL_READONLY
+        read_only_fields = ["number", "status", "converted_invoice", "expected_profit"] + TOTAL_READONLY
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
@@ -273,7 +284,7 @@ class DeliveryChallanItemSerializer(_BaseLineSerializer):
         fields = [
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
-            "batch", "batch_no", "serial_numbers",
+            "batch", "batch_no", "serial_numbers", "expected_price",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY
         extra_kwargs = {
@@ -288,6 +299,14 @@ class DeliveryChallanItemSerializer(_BaseLineSerializer):
 class DeliveryChallanSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
     items = DeliveryChallanItemSerializer(many=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
+    expected_profit = serializers.SerializerMethodField()
+
+    def get_expected_profit(self, obj):
+        from .expected_profit import can_view_expected_profit, expected_profit_for_challan
+
+        if not can_view_expected_profit(self.context.get("request")):
+            return None
+        return expected_profit_for_challan(obj)
 
     class Meta:
         model = DeliveryChallan
@@ -296,7 +315,7 @@ class DeliveryChallanSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             "challan_date", "vehicle_number", "transporter_name", "transporter_id",
             "transport_distance_km", "sub_supply_type", "trans_mode", "notes",
             "items", "pdf_status", "completed_at", "cancelled_at",
-            "stock_posted", "converted_invoice",
+            "stock_posted", "converted_invoice", "delivery_address", "expected_profit",
             "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
             "created_at", "updated_at",
         ] + TOTAL_READONLY

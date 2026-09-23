@@ -157,6 +157,32 @@ def retry_pending_gateway_refunds():
     set_rls_company(None)
 
 
+@shared_task(bind=True, max_retries=0)
+def deliver_customer_portal_link(self, token_row_id, company_id=None):
+    """F1-007: off the request path so `_deliver`'s SMTP/WhatsApp Cloud round
+    trip can't be used to time whether a phone/email matched a real customer
+    (the response body is already identical either way; this closes the
+    timing side channel too). Runs eagerly/synchronously under
+    CELERY_TASK_ALWAYS_EAGER in tests, so test behavior is unchanged.
+    """
+    from core.rls import rls_bypass, set_rls_company
+    from payments.models import CustomerPortalToken
+    from payments.portal_views import _deliver
+
+    if company_id is not None:
+        set_rls_company(company_id)
+    try:
+        with rls_bypass():
+            row = CustomerPortalToken.objects.select_related("company", "customer").filter(
+                pk=token_row_id
+            ).first()
+        if row is None:
+            return
+        _deliver(row)
+    finally:
+        set_rls_company(None)
+
+
 @shared_task
 def run_ar_dunning_task():
     # B4-027: single implementation — the per-company loop, RLS handling and

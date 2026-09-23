@@ -1,8 +1,10 @@
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -16,7 +18,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { listAttentionRows, snoozeAttentionRow } from '@/api/resources';
+import { assignAttentionRow, listAttentionRows, listCompanyUsers, snoozeAttentionRow } from '@/api/resources';
+import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import { DisclaimerBanner, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
@@ -30,9 +33,23 @@ function rupeesFromPaise(paise: number): number {
 
 export function AttentionPage() {
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['attention-rows'], queryFn: listAttentionRows });
+  useFeatureFlagEpoch();
+  const assignmentOn = isRuntimeFlagEnabled('ENABLE_ACTION_ASSIGNMENT');
+  const [mine, setMine] = useState(false);
+  const query = useQuery({
+    queryKey: ['attention-rows', assignmentOn && mine],
+    queryFn: () => listAttentionRows({ mine: assignmentOn && mine }),
+  });
+  const members = useQuery({
+    queryKey: ['company-users'],
+    queryFn: listCompanyUsers,
+    enabled: assignmentOn,
+  });
   const [pending, setPending] = useState<AttentionRow | null>(null);
   const [reason, setReason] = useState('');
+  const [assigning, setAssigning] = useState<AttentionRow | null>(null);
+  const [assignee, setAssignee] = useState('');
+  const [dueDate, setDueDate] = useState('');
   const snooze = useMutation({
     mutationFn: ({ key, reason }: { key: string; reason: string }) => snoozeAttentionRow(key, reason, 7),
     onSuccess: () => {
@@ -41,10 +58,26 @@ export function AttentionPage() {
       void qc.invalidateQueries({ queryKey: ['attention-rows'] });
     },
   });
+  const assign = useMutation({
+    mutationFn: () => assignAttentionRow(
+      assigning!.dedupeKey,
+      assignee ? Number(assignee) : null,
+      dueDate || null,
+    ),
+    onSuccess: () => {
+      setAssigning(null);
+      void qc.invalidateQueries({ queryKey: ['attention-rows'] });
+    },
+  });
 
   return (
     <Stack spacing={2}>
       <PageHeader title={t('nav.attention')} />
+      {assignmentOn ? (
+        <Button variant={mine ? 'contained' : 'outlined'} onClick={() => setMine((value) => !value)}>
+          {t('osPlan.myActions')}
+        </Button>
+      ) : null}
       <DisclaimerBanner>{t('attention.disclaimer')}</DisclaimerBanner>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
@@ -72,7 +105,18 @@ export function AttentionPage() {
                     <SeverityChip severity={row.severity} />
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2">{row.title}</Typography>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography variant="body2">{row.title}</Typography>
+                      {row.overdue ? <Chip size="small" color="warning" label={t('osPlan.overdue')} /> : null}
+                    </Stack>
+                    {assignmentOn ? (
+                      <Typography variant="caption" color="text.secondary">
+                        {row.assignedTo
+                          ? (members.data ?? []).find((member) => member.id === row.assignedTo)?.fullName || row.assignedTo
+                          : t('osPlan.unassigned')}
+                        {row.dueDate ? ` · ${row.dueDate}` : ''}
+                      </Typography>
+                    ) : null}
                   </TableCell>
                   <TableCell align="right">
                     {row.moneyImpactPaise ? (
@@ -91,6 +135,15 @@ export function AttentionPage() {
                       <Button component={RouterLink} to={safeAppPath(row.actionHref, "/attention")} size="small" variant="contained">
                         {row.actionLabel || t('attention.fix')}
                       </Button>
+                      {assignmentOn ? (
+                        <Button size="small" onClick={() => {
+                          setAssigning(row);
+                          setAssignee(row.assignedTo ? String(row.assignedTo) : '');
+                          setDueDate(row.dueDate ?? '');
+                        }}>
+                          {t('osPlan.assign')}
+                        </Button>
+                      ) : null}
                       <Button size="small" onClick={() => { setPending(row); setReason(''); }}>
                         {t('insights.snooze')}
                       </Button>
@@ -127,7 +180,39 @@ export function AttentionPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <Dialog open={Boolean(assigning)} onClose={() => setAssigning(null)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('osPlan.assign')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              select
+              label={t('osPlan.assignee')}
+              value={assignee}
+              onChange={(e) => setAssignee(e.target.value)}
+            >
+              <MenuItem value="">{t('osPlan.unassigned')}</MenuItem>
+              {(members.data ?? []).filter((member) => member.user).map((member) => (
+                <MenuItem key={member.id} value={String(member.id)}>{member.fullName || member.email}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              type="date"
+              label={t('osPlan.dueDate')}
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAssigning(null)}>{t('common.cancel')}</Button>
+          <Button variant="contained" disabled={!assigning || assign.isPending} onClick={() => assign.mutate()}>
+            {t('osPlan.saveAssignment')}
+          </Button>
+        </DialogActions>
+      </Dialog>
       {snooze.isError ? <ErrorState message={getErrorMessage(snooze.error)} error={snooze.error} /> : null}
+      {assign.isError ? <ErrorState message={getErrorMessage(assign.error)} error={assign.error} /> : null}
     </Stack>
   );
 }

@@ -303,6 +303,8 @@ class WarehouseReorderLevel(CompanyScopedModel):
     warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name="reorder_levels")
     product = models.ForeignKey("masters.Product", on_delete=models.CASCADE, related_name="warehouse_reorder_levels")
     reorder_level = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
+    lead_time_days = models.PositiveIntegerField(default=0)
+    safety_stock_qty = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
 
     class Meta:
         constraints = [

@@ -360,6 +360,9 @@ REST_FRAMEWORK = {
         "tenant_api": "10000/min",
         "sales_complete": "30/min",
         "purchase_complete": "30/min",
+        "customer_portal_request": "5/min",
+        "customer_portal_read": "60/min",
+        "lead_form": "20/min",
     },
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "JSON_UNDERSCOREIZE": {
@@ -623,6 +626,13 @@ OTP_MAX_ATTEMPTS = 5
 OTP_DEBUG_ECHO = _env_bool("OTP_DEBUG_ECHO")
 # BB-000332: OTP enablement independent of debug echo (echo still forbidden in prod).
 OTP_ENABLED = _env_bool("OTP_ENABLED")
+# F1-011: same opt-in-debug-echo posture as OTP_DEBUG_ECHO, applied to the
+# customer portal (COMP-003) magic-link token — a dev/e2e run can read the
+# token straight from the request-link response instead of an inbox. Explicit
+# switch, never implied by DEBUG/DJANGO_ENV (so an operator who leaves it off
+# in a dev env is opting out of the leak, same rule as OTP). Hard-rejected in
+# production/staging below.
+PORTAL_DEBUG_ECHO = _env_bool("PORTAL_DEBUG_ECHO")
 # Pepper for HMAC-SHA256 OTP storage; falls back to SECRET_KEY when unset (local only).
 OTP_PEPPER = os.environ.get("OTP_PEPPER") or SECRET_KEY
 # Default console stub; set SMS_PROVIDER=off to disable OTP in locked-down deploys.
@@ -836,6 +846,10 @@ if DJANGO_ENV in ("production", "staging"):
         raise ImproperlyConfigured(
             f"OTP_DEBUG_ECHO must be disabled when DJANGO_ENV={DJANGO_ENV}."
         )
+    if PORTAL_DEBUG_ECHO:
+        raise ImproperlyConfigured(
+            f"PORTAL_DEBUG_ECHO must be disabled when DJANGO_ENV={DJANGO_ENV}."
+        )
 if _require_dedicated_secrets:
     # BB-000226 / BB-000248 / BB-000313: dedicated secrets outside local DEBUG.
     if not os.environ.get("OTP_PEPPER"):
@@ -943,6 +957,22 @@ ENABLE_MANUFACTURING = _env_bool("ENABLE_MANUFACTURING")
 ENABLE_PAYROLL = _env_bool("ENABLE_PAYROLL")
 ENABLE_CRM = _env_bool("ENABLE_CRM")
 ENABLE_TDS = _env_bool("ENABLE_TDS")
+ENABLE_REPLENISHMENT = _env_bool("ENABLE_REPLENISHMENT")
+ENABLE_GST_GUARD = _env_bool("ENABLE_GST_GUARD")
+ENABLE_ROUTE_PROFIT = _env_bool("ENABLE_ROUTE_PROFIT")
+ENABLE_SUPPLIER_PRICE_HISTORY = _env_bool("ENABLE_SUPPLIER_PRICE_HISTORY")
+ENABLE_CUSTOMER_PORTAL = _env_bool("ENABLE_CUSTOMER_PORTAL")
+ENABLE_ACTION_ASSIGNMENT = _env_bool("ENABLE_ACTION_ASSIGNMENT")
+ENABLE_PREDICTIVE_DUNNING = _env_bool("ENABLE_PREDICTIVE_DUNNING")
+ENABLE_CUSTOMER_360 = _env_bool("ENABLE_CUSTOMER_360")
+ENABLE_PURCHASE_PLANNING = _env_bool("ENABLE_PURCHASE_PLANNING")
+ENABLE_ORDER_GATES = _env_bool("ENABLE_ORDER_GATES")
+ENABLE_CUSTOMER_ACTIONS = _env_bool("ENABLE_CUSTOMER_ACTIONS")
+ENABLE_ROUTE_OPTIMIZATION = _env_bool("ENABLE_ROUTE_OPTIMIZATION")
+ENABLE_CRM_WHATSAPP_INBOUND = _env_bool("ENABLE_CRM_WHATSAPP_INBOUND")
+ENABLE_ARCHETYPE_PACKS = _env_bool("ENABLE_ARCHETYPE_PACKS")
+# Meta Cloud API app secret. Inbound webhooks are rejected when this is empty.
+WHATSAPP_APP_SECRET = _env_value("WHATSAPP_APP_SECRET")
 ENABLE_WHATSAPP_CLOUD = _env_bool("ENABLE_WHATSAPP_CLOUD")
 ENABLE_TELEGRAM = _env_bool("ENABLE_TELEGRAM")
 ENABLE_ACCOUNT_AGGREGATOR = _env_bool("ENABLE_ACCOUNT_AGGREGATOR")

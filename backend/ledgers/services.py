@@ -142,6 +142,53 @@ def _sum(qs, field="amount") -> Decimal:
     return qs.aggregate(total=Sum(field))["total"] or Decimal("0")
 
 
+def _settlement_discount_by_invoice(invoice_ids) -> dict[int, Decimal]:
+    """Prorated CustomerReceipt.settlement_discount per sales invoice.
+
+    settlement_discount lives on the receipt, not the allocation — a receipt
+    split across several invoices must not have its whole discount charged
+    against each one. Prorate by each allocation's share of the receipt's
+    total unreversed sales-side allocation.
+    """
+    from payments.models import CustomerReceipt
+
+    rows = list(
+        PaymentAllocation.objects.filter(
+            sales_invoice_id__in=invoice_ids,
+            receipt__isnull=False,
+            supplier_payment__isnull=True,
+            reversed_at__isnull=True,
+        ).values("sales_invoice_id", "receipt_id", "amount")
+    )
+    if not rows:
+        return {}
+    receipt_ids = {r["receipt_id"] for r in rows}
+    receipt_totals = dict(
+        PaymentAllocation.objects.filter(
+            receipt_id__in=receipt_ids,
+            receipt__isnull=False,
+            supplier_payment__isnull=True,
+            reversed_at__isnull=True,
+        )
+        .values("receipt_id")
+        .annotate(total=Sum("amount"))
+        .values_list("receipt_id", "total")
+    )
+    discount_by_receipt = dict(
+        CustomerReceipt.objects.filter(pk__in=receipt_ids).values_list("id", "settlement_discount")
+    )
+    out: dict[int, Decimal] = {}
+    for row in rows:
+        receipt_total = receipt_totals.get(row["receipt_id"]) or Decimal("0")
+        discount = discount_by_receipt.get(row["receipt_id"]) or Decimal("0")
+        if not discount or not receipt_total:
+            continue
+        share = (row["amount"] / receipt_total) * discount
+        inv_id = row["sales_invoice_id"]
+        out[inv_id] = out.get(inv_id, Decimal("0")) + share
+    return out
+
+
 class LedgerService:
     # ---------------- Per-invoice open outstanding ----------------
 
@@ -170,11 +217,12 @@ class LedgerService:
                 reversed_at__isnull=True,
             )
         )
+        settlement = _settlement_discount_by_invoice([invoice.id]).get(invoice.id, Decimal("0"))
         tcs = Decimal("0")
         if not getattr(invoice, "tcs_in_grand_total", False):
             tcs = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
         # BB-000097/288: never report negative open receivable (LED-03: but log it).
-        raw = invoice.grand_total + tcs - credit_notes + debit_notes - allocated
+        raw = invoice.grand_total + tcs - credit_notes + debit_notes - allocated - settlement
         return _floor_outstanding(raw, kind="sales invoice", ref=getattr(invoice, "number", invoice.pk))
 
     @staticmethod
@@ -560,6 +608,7 @@ class LedgerService:
                 "credit": allocated,
                 "is_advance": unallocated > 0,
                 "unallocated": unallocated,
+                "mode": receipt.mode,
             })
 
         entries.sort(key=_stmt_sort_key)
@@ -919,6 +968,7 @@ class LedgerService:
             .values("sales_invoice_id").annotate(total=Sum("amount"))
             .values_list("sales_invoice_id", "total")
         )
+        settlement_by_id = _settlement_discount_by_invoice(ids)
         out = {}
         for inv in invoices:
             tcs = Decimal("0")
@@ -930,6 +980,7 @@ class LedgerService:
                 - (cn_by_id.get(inv.id) or Decimal("0"))
                 + (dn_by_id.get(inv.id) or Decimal("0"))
                 - (allocated_by_id.get(inv.id) or Decimal("0"))
+                - (settlement_by_id.get(inv.id) or Decimal("0"))
             )
             out[inv.id] = _floor_outstanding(raw, kind="sales invoice", ref=inv.number or inv.id)
         return out

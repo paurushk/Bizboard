@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
@@ -7,9 +8,15 @@ import { getErrorMessage } from '@/api/client';
 import { exportReport, getInventorySummary } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import {
+  EMPTY_HISTORY_FILTERS,
+  HistoryFilterBar,
+  type HistoryFilters,
+} from '@/components/HistoryFilterBar';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { canExport } from '@/utils/permissions';
+import { formatMoney, toNumber } from '@/utils/money';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { DataTable } from '@/pages/phase/phaseShared';
 
@@ -82,39 +89,83 @@ const COLUMNS: {
 
 export function InventoryReportPage() {
   const { user } = useAuth();
+  const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
   const query = useQuery({ queryKey: ['inventory-summary'], queryFn: getInventorySummary });
   const exportMutation = useMutation({
     mutationFn: () => exportReport('inventory'),
     onSuccess: (r) => downloadBlobUrl(r.url, 'inventory-summary.csv'),
   });
 
-  const rows = ((query.data?.rows ?? []) as Record<string, unknown>[]).map((r) => ({
-    product: String(r.product ?? r.productName ?? r.product_name ?? '—'),
-    sku: String(r.sku ?? '—'),
-    warehouse: String(r.warehouse ?? r.warehouseName ?? r.warehouse_name ?? '—'),
-    onHand: (r.onHand ?? r.on_hand) as string | number,
-    reserved: (r.reserved) as string | number,
-    available: (r.available) as string | number,
-    reorderLevel: (r.reorderLevel ?? r.reorder_level) as string | number,
-    stockValue: (r.stockValue ?? r.stock_value) as string | number,
-    balanceDrift: Boolean(r.balanceDrift ?? r.balance_drift),
-    reservedDrift: Boolean(r.reservedDrift ?? r.reserved_drift),
-    balanceOnHand: (r.balanceOnHand ?? r.balance_on_hand) as string | number,
-  })) as InventoryRow[];
+  const rows = useMemo(() => {
+    const mapped = ((query.data?.rows ?? []) as Record<string, unknown>[]).map((r) => ({
+      product: String(r.product ?? r.productName ?? r.product_name ?? '—'),
+      sku: String(r.sku ?? '—'),
+      warehouse: String(r.warehouse ?? r.warehouseName ?? r.warehouse_name ?? '—'),
+      onHand: (r.onHand ?? r.on_hand) as string | number,
+      reserved: (r.reserved) as string | number,
+      available: (r.available) as string | number,
+      reorderLevel: (r.reorderLevel ?? r.reorder_level) as string | number,
+      stockValue: (r.stockValue ?? r.stock_value) as string | number,
+      balanceDrift: Boolean(r.balanceDrift ?? r.balance_drift),
+      reservedDrift: Boolean(r.reservedDrift ?? r.reserved_drift),
+      balanceOnHand: (r.balanceOnHand ?? r.balance_on_hand) as string | number,
+    })) as InventoryRow[];
+    const q = filters.q.trim().toLowerCase();
+    if (!q) return mapped;
+    return mapped.filter(
+      (row) =>
+        (row.product ?? '').toLowerCase().includes(q) ||
+        (row.sku ?? '').toLowerCase().includes(q) ||
+        String(row.warehouse ?? '').toLowerCase().includes(q),
+    );
+  }, [query.data?.rows, filters.q]);
+
+  const kpis = useMemo(() => {
+    let qty = 0;
+    let value = 0;
+    for (const row of rows) {
+      qty += toNumber(row.onHand);
+      value += toNumber(row.stockValue);
+    }
+    return { qty, value };
+  }, [rows]);
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
+      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
         <PageTitle>{t('nav.inventoryReports')}</PageTitle>
-        {canExport(user) ? (
+        <Stack direction="row" spacing={1}>
+          {canExport(user) ? (
+            <Button
+              variant="outlined"
+              disabled={exportMutation.isPending}
+              onClick={() => exportMutation.mutate()}
+            >
+              {t('common.download')}
+            </Button>
+          ) : null}
           <Button
             variant="outlined"
-            disabled={exportMutation.isPending}
-            onClick={() => exportMutation.mutate()}
+            onClick={() => {
+              const url = exportMutation.data?.url;
+              if (url) {
+                window.location.href = `mailto:?subject=${encodeURIComponent('Inventory')}&body=${encodeURIComponent(url)}`;
+              } else {
+                exportMutation.mutate();
+              }
+            }}
           >
-            {t('common.export')}
+            {t('reports.emailExcel')}
           </Button>
-        ) : null}
+          <Button variant="outlined" onClick={() => window.print()}>
+            {t('common.print')}
+          </Button>
+        </Stack>
+      </Stack>
+      <HistoryFilterBar value={filters} onChange={setFilters} showDateRange={false} />
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Chip label={`${t('reports.stockQty')}: ${kpis.qty}`} />
+        <Chip label={`${t('reports.stockValue')}: ${formatMoney(kpis.value)}`} />
       </Stack>
       {exportMutation.isError ? (
         <HelpErrorAlert error={exportMutation.error} />

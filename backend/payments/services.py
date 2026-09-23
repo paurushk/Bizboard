@@ -78,12 +78,14 @@ from .models import (
     BankLineMatchStatus,
     BankStatementLine,
     BankStatementStatus,
+    ChequeStatus,
     CustomerReceipt,
     GatewayPayment,
     GatewayPaymentStatus,
     PaymentAllocation,
     PaymentLink,
     PaymentLinkStatus,
+    PaymentMode,
     PaymentSource,
     ReceiptStatus,
     SupplierPayment,
@@ -221,6 +223,38 @@ def _assert_utr_unique(*, company, utr: str, exclude_receipt_id=None, exclude_pa
         raise BusinessRuleError(warn)
 
 
+def _require_cheque_details(*, mode, cheque_number, cheque_bank_name):
+    if str(mode).upper() != PaymentMode.CHEQUE:
+        return
+    if not str(cheque_number or "").strip() or not str(cheque_bank_name or "").strip():
+        raise BusinessRuleError("Cheque number and bank name are required for cheque payments.")
+
+
+def cheque_fields_from_payload(data, *, company=None):
+    """Normalize camelCase/snake_case cheque fields from a request dict."""
+    raw = (data or {}).get("cheque_image") or (data or {}).get("chequeImage")
+    image = None
+    if raw not in (None, ""):
+        pk = raw.get("id") if isinstance(raw, dict) else raw
+        try:
+            pk = int(pk)
+        except (TypeError, ValueError):
+            pk = None
+        if pk and company is not None:
+            from core.models import FileAsset
+
+            image = FileAsset.objects.filter(company=company, pk=pk).first()
+    date = (data or {}).get("cheque_date") or (data or {}).get("chequeDate")
+    if date in ("", None):
+        date = None
+    return {
+        "cheque_number": (data or {}).get("cheque_number") or (data or {}).get("chequeNumber") or "",
+        "cheque_bank_name": (data or {}).get("cheque_bank_name") or (data or {}).get("chequeBankName") or "",
+        "cheque_date": date,
+        "cheque_image": image,
+    }
+
+
 class PaymentService:
     @staticmethod
     @transaction.atomic
@@ -240,6 +274,11 @@ class PaymentService:
         gateway_payment=None,
         warn_utr_duplicate=False,
         bypass_period_gate=False,
+        cheque_number="",
+        cheque_bank_name="",
+        cheque_date=None,
+        cheque_image=None,
+        settlement_discount=Decimal("0"),
     ):
         # B4-035: normalise once — an internal caller may pass a float.
         amount = Decimal(str(amount)).quantize(Decimal("0.01"))
@@ -259,6 +298,7 @@ class PaymentService:
         utr_n = normalize_utr((utr or reference) if mode in ("UPI", "BANK") else utr)
         if getattr(company, "require_payment_reference", False) and mode in ("UPI", "BANK") and not utr_n:
             raise BusinessRuleError("UTR / payment reference is required for UPI and Bank receipts.")
+        _require_cheque_details(mode=mode, cheque_number=cheque_number, cheque_bank_name=cheque_bank_name)
         if bank_account and bank_account.company_id != company.id:
             raise BusinessRuleError("Invalid bank account.")
         if warn_utr_duplicate:
@@ -281,6 +321,12 @@ class PaymentService:
             gateway_payment=gateway_payment,
             created_by=user,
             updated_by=user,
+            cheque_number=str(cheque_number or "").strip(),
+            cheque_bank_name=str(cheque_bank_name or "").strip(),
+            cheque_date=cheque_date,
+            cheque_image=cheque_image,
+            cheque_status=ChequeStatus.PENDING_CLEARANCE if str(mode).upper() == PaymentMode.CHEQUE else "",
+            settlement_discount=Decimal(str(settlement_discount or 0)),
             number=DocumentNumberService.next_number(
                 company,
                 "CUSTOMER_RECEIPT",
@@ -317,6 +363,10 @@ class PaymentService:
         tds_section="",
         tds_rate=None,
         tds_amount=None,
+        cheque_number="",
+        cheque_bank_name="",
+        cheque_date=None,
+        cheque_image=None,
     ):
         # B4-035: normalise once — an internal caller may pass a float.
         amount = Decimal(str(amount)).quantize(Decimal("0.01"))
@@ -332,6 +382,7 @@ class PaymentService:
         utr_n = normalize_utr((utr or reference) if mode in ("UPI", "BANK") else utr)
         if getattr(company, "require_payment_reference", False) and mode in ("UPI", "BANK") and not utr_n:
             raise BusinessRuleError("UTR / payment reference is required for UPI and Bank payments.")
+        _require_cheque_details(mode=mode, cheque_number=cheque_number, cheque_bank_name=cheque_bank_name)
         if bank_account and bank_account.company_id != company.id:
             raise BusinessRuleError("Invalid bank account.")
         _assert_utr_unique(company=company, utr=utr_n)
@@ -374,6 +425,11 @@ class PaymentService:
             tds_section=(tds_section or "").strip(),
             tds_rate=tds_rt,
             tds_amount=tds_amt,
+            cheque_number=str(cheque_number or "").strip(),
+            cheque_bank_name=str(cheque_bank_name or "").strip(),
+            cheque_date=cheque_date,
+            cheque_image=cheque_image,
+            cheque_status=ChequeStatus.PENDING_CLEARANCE if str(mode).upper() == PaymentMode.CHEQUE else "",
             created_by=user,
             updated_by=user,
             number=DocumentNumberService.next_number(
@@ -569,6 +625,55 @@ class PaymentService:
         rec.save(update_fields=["notes", "status", "updated_by", "updated_at"])
         emit("document.voided", document=rec, user=user, event="customer_receipt.voided")
         return rec
+
+    @staticmethod
+    @transaction.atomic
+    def set_cheque_status(*, receipt, cheque_status, user=None):
+        rec = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
+        if rec.mode != PaymentMode.CHEQUE:
+            raise BusinessRuleError("Cheque status only applies to cheque receipts.")
+        if cheque_status == ChequeStatus.BOUNCED:
+            PaymentService.void_receipt(receipt=rec, user=user, reason="Cheque bounced")
+            rec = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
+            rec.cheque_status = ChequeStatus.BOUNCED
+            rec.updated_by = user
+            rec.save(update_fields=["cheque_status", "updated_by", "updated_at"])
+            return rec
+        if cheque_status not in (ChequeStatus.PENDING_CLEARANCE, ChequeStatus.CLEARED):
+            raise BusinessRuleError("Invalid cheque status.")
+        # A bounced cheque already voided the receipt and reversed its
+        # allocations — it is a terminal state and must not be reopened by
+        # flipping cheque_status back, which would otherwise look "cleared"
+        # while the money was never actually received.
+        if rec.cheque_status == ChequeStatus.BOUNCED:
+            raise BusinessRuleError("This cheque already bounced and cannot be re-cleared.")
+        rec.cheque_status = cheque_status
+        rec.updated_by = user
+        rec.save(update_fields=["cheque_status", "updated_by", "updated_at"])
+        return rec
+
+    @staticmethod
+    @transaction.atomic
+    def set_supplier_cheque_status(*, payment, cheque_status, user=None):
+        pay = SupplierPayment.objects.select_for_update().get(pk=payment.pk)
+        if pay.mode != PaymentMode.CHEQUE:
+            raise BusinessRuleError("Cheque status only applies to cheque payments.")
+        if cheque_status == ChequeStatus.BOUNCED:
+            PaymentService.void_supplier_payment(payment=pay, user=user, reason="Cheque bounced")
+            pay = SupplierPayment.objects.select_for_update().get(pk=payment.pk)
+            pay.cheque_status = ChequeStatus.BOUNCED
+            pay.updated_by = user
+            pay.save(update_fields=["cheque_status", "updated_by", "updated_at"])
+            return pay
+        if cheque_status not in (ChequeStatus.PENDING_CLEARANCE, ChequeStatus.CLEARED):
+            raise BusinessRuleError("Invalid cheque status.")
+        # Terminal state — see the matching guard in set_cheque_status.
+        if pay.cheque_status == ChequeStatus.BOUNCED:
+            raise BusinessRuleError("This cheque already bounced and cannot be re-cleared.")
+        pay.cheque_status = cheque_status
+        pay.updated_by = user
+        pay.save(update_fields=["cheque_status", "updated_by", "updated_at"])
+        return pay
 
     @staticmethod
     @transaction.atomic

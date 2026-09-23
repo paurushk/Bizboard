@@ -78,6 +78,9 @@ def low_stock_alert_payload(company):
         key = (row.product_id, row.warehouse_id)
         if key in override_keys:
             if row._available <= row._reorder:
+                # F1-002: a real, single warehouse's own shortage — safe to
+                # reason about "this warehouse" for a transfer suggestion.
+                row.is_warehouse_specific = True
                 items.append(row)
             continue
         if row.product_id in seen:
@@ -87,6 +90,13 @@ def low_stock_alert_payload(company):
         if totals[row.product_id] <= reorder:
             row.on_hand = totals[row.product_id]
             row.reserved = Decimal("0")
+            # F1-002: company-wide aggregate across warehouses with no
+            # override — `row.warehouse` is whichever StockBalance happened
+            # to be first in queryset order, not a meaningful "current
+            # warehouse". Callers must not treat it as one (e.g. must not
+            # exclude it from, or suggest a transfer into, this warehouse
+            # specifically — see inventory/services.py:suggest_replenishment).
+            row.is_warehouse_specific = False
             items.append(row)
     return items
 

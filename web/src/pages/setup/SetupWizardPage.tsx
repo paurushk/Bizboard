@@ -8,6 +8,7 @@ import {
   FormControlLabel,
   FormLabel,
   LinearProgress,
+  MenuItem,
   Paper,
   Radio,
   RadioGroup,
@@ -33,7 +34,9 @@ import {
   listProducts,
   updateCompany,
 } from '@/api/resources';
+import { confirmPack, proposePack } from '@/api/osPlan';
 import { getErrorMessage } from '@/api/client';
+import { fetchFeatureFlags, isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import { classifyCompleteFailure, trackJourneyFailed, trackJourneyStarted } from '@/lib/telemetry';
 import { todayIso } from '@/components/billing';
 import { useAuth } from '@/auth/AuthContext';
@@ -46,7 +49,7 @@ import type { RegistrationType } from '@/types/domain';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const STEP_KEYS = ['tax', 'shop', 'payments', 'catalog', 'first_bill'] as const;
-type StepKey = (typeof STEP_KEYS)[number];
+type StepKey = (typeof STEP_KEYS)[number] | 'pack';
 
 const SAMPLE_PRODUCTS = [
   { name: 'Sample Item', sku: 'SAMPLE-ITEM', sellingPrice: 100, gstRate: 18 },
@@ -54,22 +57,26 @@ const SAMPLE_PRODUCTS = [
   { name: 'Delivery Charge', sku: 'SAMPLE-DELIVERY', sellingPrice: 50, gstRate: 0 },
 ];
 
-function stepIndex(value: string | null | undefined, fallback = 0): number {
-  const index = STEP_KEYS.indexOf(value as StepKey);
-  return index >= 0 ? index : fallback;
-}
-
 export function SetupWizardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  useFeatureFlagEpoch();
   const requestedStep = searchParams.get('step');
+  const packOn = isRuntimeFlagEnabled('ENABLE_ARCHETYPE_PACKS');
+  const stepKeys = useMemo<StepKey[]>(
+    () => (packOn ? ['tax', 'shop', 'payments', 'catalog', 'pack', 'first_bill'] : [...STEP_KEYS]),
+    [packOn],
+  );
   const companyQuery = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const productsQuery = useQuery({ queryKey: ['setup-products'], queryFn: () => listProducts() });
   const lastCreatedProductId = useRef<number | null>(null);
   const startedRef = useRef(false);
-  const [activeStep, setActiveStep] = useState(() => stepIndex(requestedStep));
+  const [stepKey, setStepKey] = useState<StepKey>(() => (
+    (STEP_KEYS as readonly string[]).includes(requestedStep || '') ? (requestedStep as StepKey) : 'tax'
+  ));
+  const activeStep = Math.max(0, stepKeys.indexOf(stepKey === 'pack' && !packOn ? 'catalog' : stepKey));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [completedInvoiceId, setCompletedInvoiceId] = useState<number | null>(null);
@@ -87,7 +94,15 @@ export function SetupWizardPage() {
 
   const company = companyQuery.data;
   const products = productsQuery.data ?? [];
-  const labels = useMemo(() => STEP_KEYS.map((key) => t(`setup.steps.${key}`)), []);
+  const labels = useMemo(() => stepKeys.map((key) => t(`setup.steps.${key}`)), [stepKeys]);
+  const [packAnswers, setPackAnswers] = useState({
+    what_you_sell: '',
+    how_you_sell: '',
+    deliver: '',
+    gst_registered: '',
+  });
+  const [proposedPack, setProposedPack] = useState('');
+  const [packNote, setPackNote] = useState('');
 
   useEffect(() => {
     if (!company) return;
@@ -103,9 +118,10 @@ export function SetupWizardPage() {
       upiId: company.upiId ?? '',
     });
     if (!requestedStep) {
-      setActiveStep(stepIndex(company.onboarding?.uiStep ?? company.onboarding?.step));
+      const stored = company.onboarding?.uiStep ?? company.onboarding?.step;
+      if (stored && stepKeys.includes(stored as StepKey)) setStepKey(stored as StepKey);
     }
-  }, [company, requestedStep]);
+  }, [company, requestedStep, stepKeys]);
 
   useEffect(() => {
     if (!company || startedRef.current || company.onboarding?.started) return;
@@ -117,8 +133,14 @@ export function SetupWizardPage() {
   }, [company]);
 
   useEffect(() => {
-    trackOnboardingEvent('setup_step_view', { step: STEP_KEYS[activeStep] });
-  }, [activeStep]);
+    if (requestedStep && stepKeys.includes(requestedStep as StepKey) && requestedStep !== stepKey) {
+      setStepKey(requestedStep as StepKey);
+    }
+  }, [requestedStep, stepKeys, stepKey]);
+
+  useEffect(() => {
+    trackOnboardingEvent('setup_step_view', { step: stepKeys[activeStep] });
+  }, [activeStep, stepKeys]);
 
   if (!isSetupWizardEnabled() || user?.role !== 'OWNER') return <Navigate to="/" replace />;
   if (companyQuery.isLoading) {
@@ -130,8 +152,9 @@ export function SetupWizardPage() {
 
   const moveTo = (next: number) => {
     setError(null);
-    setActiveStep(next);
-    setSearchParams({ step: STEP_KEYS[next] }, { replace: true });
+    const nextKey = stepKeys[next] ?? 'tax';
+    setStepKey(nextKey);
+    setSearchParams({ step: nextKey }, { replace: true });
   };
 
   const run = async (work: () => Promise<void>) => {
@@ -151,7 +174,7 @@ export function SetupWizardPage() {
       await work?.();
       trackOnboardingEvent('setup_step_complete', { step: key });
       await queryClient.invalidateQueries({ queryKey: ['company'] });
-      if (activeStep < STEP_KEYS.length - 1) moveTo(activeStep + 1);
+      if (activeStep < stepKeys.length - 1) moveTo(activeStep + 1);
     });
   };
 
@@ -261,7 +284,7 @@ export function SetupWizardPage() {
       return;
     }
     trackOnboardingEvent('setup_step_complete', { step: 'catalog', existing: true });
-    moveTo(4);
+    moveTo(activeStep + 1);
   };
 
   const createFirstBill = () =>
@@ -299,20 +322,38 @@ export function SetupWizardPage() {
   const dismiss = () =>
     void run(async () => {
       await updateCompany({ dismissOnboarding: true });
-      trackOnboardingEvent('setup_skip', { step: STEP_KEYS[activeStep] });
+      trackOnboardingEvent('setup_skip', { step: stepKeys[activeStep] });
       await queryClient.invalidateQueries({ queryKey: ['company'] });
       navigate('/', { replace: true });
     });
 
-  const primary = activeStep === 0
+  const currentKey = stepKeys[activeStep] ?? 'tax';
+  const seePack = () => void run(async () => {
+    const result = await proposePack(packAnswers);
+    setProposedPack(result.proposedPack);
+  });
+  const applyPack = () => void run(async () => {
+    const result = await confirmPack(packAnswers);
+    setPackNote(result.skippedFlags?.length ? t('osPlan.packSkipped', { names: result.skippedFlags.join(', ') }) : '');
+    await fetchFeatureFlags(true);
+    trackOnboardingEvent('setup_step_complete', { step: 'pack' });
+    moveTo(activeStep + 1);
+  });
+  const skipPack = () => {
+    trackOnboardingEvent('setup_step_complete', { step: 'pack', skipped: true });
+    moveTo(activeStep + 1);
+  };
+  const primary = currentKey === 'tax'
     ? { label: t('setup.saveContinue'), action: saveTax }
-    : activeStep === 1
+    : currentKey === 'shop'
       ? { label: t('setup.saveContinue'), action: saveShop }
-      : activeStep === 2
+      : currentKey === 'payments'
         ? { label: t('setup.saveContinue'), action: savePayments }
-        : activeStep === 3
+        : currentKey === 'catalog'
           ? { label: products.length ? t('setup.continue') : t('setup.addProduct'), action: products.length ? continueCatalog : addProduct }
-          : { label: t('setup.createFirstBill'), action: createFirstBill };
+          : currentKey === 'pack'
+            ? { label: proposedPack ? t('osPlan.applyPack') : t('osPlan.seePack'), action: proposedPack ? applyPack : seePack }
+            : { label: t('setup.createFirstBill'), action: createFirstBill };
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', pb: { xs: 10, sm: 4 } }}>
@@ -325,20 +366,21 @@ export function SetupWizardPage() {
           <Button color="inherit" disabled={busy} onClick={dismiss}>{t('setup.skipForNow')}</Button>
         </Stack>
       </Box>
-      <LinearProgress variant="determinate" value={((activeStep + 1) / STEP_KEYS.length) * 100} />
+      <LinearProgress variant="determinate" value={((activeStep + 1) / stepKeys.length) * 100} />
 
       <Box sx={{ maxWidth: 960, mx: 'auto', p: { xs: 2, sm: 4 } }}>
         <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 4, display: { xs: 'none', sm: 'flex' } }}>
           {labels.map((label) => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}
         </Stepper>
-        <Typography variant="overline" color="primary">{t('setup.progress', { current: activeStep + 1, total: 5 })}</Typography>
+        <Typography variant="overline" color="primary">{t('setup.progress', { current: activeStep + 1, total: stepKeys.length })}</Typography>
         <Paper sx={{ p: { xs: 2.5, sm: 4 }, mt: 1 }}>
           <Stack spacing={2.5}>
             <PageTitle>{labels[activeStep]}</PageTitle>
-            <Typography color="text.secondary">{t(`setup.descriptions.${STEP_KEYS[activeStep]}`)}</Typography>
+            <Typography color="text.secondary">{t(`setup.descriptions.${currentKey}`)}</Typography>
             {error ? <HelpErrorAlert message={error} /> : null}
+            {packNote ? <Typography variant="body2">{packNote}</Typography> : null}
 
-            {activeStep === 0 ? (
+            {currentKey === 'tax' ? (
               <>
                 <FormControl>
                   <FormLabel>{t('setup.registrationType')}</FormLabel>
@@ -362,7 +404,7 @@ export function SetupWizardPage() {
               </>
             ) : null}
 
-            {activeStep === 1 ? (
+            {currentKey === 'shop' ? (
               <>
                 <TextField label={t('setup.address')} required multiline minRows={2} value={shop.address} onChange={(e) => setShop((v) => ({ ...v, address: e.target.value }))} />
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -373,7 +415,7 @@ export function SetupWizardPage() {
               </>
             ) : null}
 
-            {activeStep === 2 ? (
+            {currentKey === 'payments' ? (
               <>
                 <TextField label={t('setup.bankAccount')} value={payments.bankAccount} onChange={(e) => setPayments((v) => ({ ...v, bankAccount: e.target.value }))} />
                 <TextField label={t('setup.upiId')} value={payments.upiId} onChange={(e) => setPayments((v) => ({ ...v, upiId: e.target.value }))} />
@@ -381,7 +423,7 @@ export function SetupWizardPage() {
               </>
             ) : null}
 
-            {activeStep === 3 ? (
+            {currentKey === 'catalog' ? (
               <>
                 {products.length ? <Alert severity="success">{t('setup.productsReady', { count: products.length })}</Alert> : null}
                 <TextField label={t('setup.productName')} required value={product.name} onChange={(e) => setProduct((v) => ({ ...v, name: e.target.value }))} />
@@ -399,7 +441,26 @@ export function SetupWizardPage() {
               </>
             ) : null}
 
-            {activeStep === 4 ? (
+            {currentKey === 'pack' ? (
+              <Stack spacing={2}>
+                <TextField label={t('osPlan.whatYouSell')} value={packAnswers.what_you_sell} onChange={(event) => setPackAnswers((prev) => ({ ...prev, what_you_sell: event.target.value }))} />
+                <TextField select label={t('osPlan.howYouSell')} value={packAnswers.how_you_sell} onChange={(event) => setPackAnswers((prev) => ({ ...prev, how_you_sell: event.target.value }))}>
+                  <MenuItem value="counter">{t('osPlan.counter')}</MenuItem>
+                  <MenuItem value="field">{t('osPlan.field')}</MenuItem>
+                </TextField>
+                <TextField select label={t('osPlan.deliver')} value={packAnswers.deliver} onChange={(event) => setPackAnswers((prev) => ({ ...prev, deliver: event.target.value }))}>
+                  <MenuItem value="yes">{t('common.yes')}</MenuItem>
+                  <MenuItem value="no">{t('common.no')}</MenuItem>
+                </TextField>
+                <TextField select label={t('osPlan.gstRegistered')} value={packAnswers.gst_registered} onChange={(event) => setPackAnswers((prev) => ({ ...prev, gst_registered: event.target.value }))}>
+                  <MenuItem value="yes">{t('common.yes')}</MenuItem>
+                  <MenuItem value="no">{t('common.no')}</MenuItem>
+                </TextField>
+                {proposedPack ? <Typography>{t('osPlan.proposedPack', { name: proposedPack })}</Typography> : null}
+                <Button onClick={skipPack}>{t('setup.skipPack')}</Button>
+              </Stack>
+            ) : null}
+            {currentKey === 'first_bill' ? (
               completedInvoiceId ? (
                 <Stack alignItems="center" textAlign="center" spacing={2} sx={{ py: 3 }}>
                   <CheckCircleOutlineIcon color="success" sx={{ fontSize: 72 }} />

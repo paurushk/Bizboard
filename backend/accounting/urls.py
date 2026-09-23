@@ -3,7 +3,7 @@ from core.routers import DefaultRouter
 
 from .views import (
     AccountViewSet, AccountingReportView, AccountingSettingsView, BankReconSessionViewSet,
-    CostCenterViewSet, FinancialYearCloseView, FixedAssetViewSet, JournalViewSet, PeriodViewSet,
+    CostCenterViewSet, ExpenseViewSet, FinancialYearCloseView, FixedAssetViewSet, JournalViewSet, PeriodViewSet,
 )
 
 router = DefaultRouter()
@@ -13,6 +13,7 @@ router.register("cost-centers", CostCenterViewSet, basename="accounting-cost-cen
 router.register("journals", JournalViewSet, basename="accounting-journal")
 router.register("bank-recon-sessions", BankReconSessionViewSet, basename="accounting-bank-recon")
 router.register("fixed-assets", FixedAssetViewSet, basename="accounting-fixed-asset")
+router.register("expenses", ExpenseViewSet, basename="accounting-expense")
 
 urlpatterns = [
     path("", include(router.urls)),

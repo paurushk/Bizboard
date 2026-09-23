@@ -1,4 +1,4 @@
-from django.db.models import DecimalField, Exists, OuterRef, Subquery, Sum, Value
+from django.db.models import DecimalField, Exists, F, OuterRef, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import FileResponse
 from rest_framework import status
@@ -66,8 +66,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         if getattr(self, "action", None) == "complete":
             from core.throttles import CompanyRateThrottle
 
-            self.throttle_scope = "sales_complete"
-            throttles.append(CompanyRateThrottle())
+            throttles.append(CompanyRateThrottle(scope="sales_complete"))
         return throttles
 
     def create(self, request, *args, **kwargs):
@@ -119,13 +118,12 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             ]
         if action in (
             "create", "complete", "update", "partial_update", "destroy", "share",
+            "record_payment", "bulk_pdf_zip",
         ):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in (
             "list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "thermal_pdf",
-            # B2-018: a read-only quote/preview must not need write capability
-            # or an active subscription.
-            "preview_totals",
+            "preview_totals", "payment_stats", "hsn_summary",
         ):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         if action == "audit":
@@ -199,7 +197,36 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 except ValueError:
                     raise BusinessRuleError(f"{key} must be an ISO date (YYYY-MM-DD).")
         if params.get("q"):
-            qs = qs.filter(number__icontains=params["q"])
+            term = params["q"]
+            qs = qs.filter(
+                Q(number__icontains=term)
+                | Q(customer__name__icontains=term)
+                | Q(customer__phone__icontains=term)
+            )
+        payment_status = (params.get("payment_status") or "").upper()
+        if payment_status in ("PAID", "PARTIAL", "UNPAID"):
+            # paidAware: 0 balance = PAID, received>0 = PARTIAL, else UNPAID
+            qs = qs.annotate(
+                _received=Coalesce(
+                    Subquery(
+                        PaymentAllocation.objects.filter(
+                            sales_invoice_id=OuterRef("pk"),
+                            receipt__status="POSTED",
+                        )
+                        .values("sales_invoice_id")
+                        .annotate(s=Sum("amount"))
+                        .values("s")[:1],
+                        output_field=DecimalField(max_digits=14, decimal_places=2),
+                    ),
+                    Value(0, output_field=DecimalField(max_digits=14, decimal_places=2)),
+                )
+            )
+            if payment_status == "PAID":
+                qs = qs.filter(_received__gte=F("grand_total"), grand_total__gt=0)
+            elif payment_status == "UNPAID":
+                qs = qs.filter(_received=0)
+            else:
+                qs = qs.filter(_received__gt=0, _received__lt=F("grand_total"))
         return qs
 
     def get_serializer(self, *args, **kwargs):
@@ -284,11 +311,15 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                     from decimal import Decimal
                     from payments.models import BankAccount, PaymentMode
                     from payments.serializers import CustomerReceiptSerializer
-                    from payments.services import PaymentService
+                    from payments.services import PaymentService, cheque_fields_from_payload
 
                     tendered = payment_data.get("tendered_amount")
                     grand_total = Decimal(str(completed.grand_total or 0))
-                    requested = Decimal(str(payment_data.get("amount") or grand_total))
+                    raw_amount = payment_data.get("amount")
+                    # A short-collect of ₹0 is a deliberate choice (see the totals-
+                    # mismatch reconciliation dialog) and must not be upgraded to
+                    # the full total just because 0 is falsy.
+                    requested = Decimal(str(raw_amount)) if raw_amount is not None else grand_total
                     # CR-003: at a retail counter the recorded receipt is what is
                     # kept against the sale — never more than the invoice total.
                     # Anything the customer hands over beyond that is change given
@@ -297,12 +328,37 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                     # legitimate part-payment and is left as-is.
                     amount = min(requested, grand_total)
                     notes = payment_data.get("notes") or ""
-                    tendered_dec = Decimal(str(tendered)) if tendered else requested
+                    tendered_dec = Decimal(str(tendered)) if tendered is not None else requested
                     change = tendered_dec - grand_total
                     if change > 0:
                         notes = f"Tendered: ₹{tendered_dec}, Change: ₹{change}. {notes}".strip()
                     elif tendered and tendered_dec != amount:
                         notes = f"Tendered: ₹{tendered_dec}. {notes}".strip()
+
+                    client_total = payment_data.get("expected_total") or payment_data.get("client_total")
+                    confirm_mismatch = str(
+                        payment_data.get("confirm_totals_mismatch")
+                        or request.data.get("confirm_totals_mismatch")
+                        or ""
+                    ).lower() in ("1", "true", "yes")
+                    if client_total not in (None, ""):
+                        displayed = Decimal(str(client_total))
+                        if abs(displayed - grand_total) > Decimal("0.05") and not confirm_mismatch:
+                            exc = BusinessRuleError(
+                                {
+                                    "code": "pos_totals_mismatch",
+                                    "message": (
+                                        f"Till total changed from {displayed} to {grand_total}. "
+                                        "Re-confirm before completing."
+                                    ),
+                                    "confirm_codes": ["pos_totals_mismatch"],
+                                    "client_total": str(displayed),
+                                    "server_total": str(grand_total),
+                                },
+                                code="pos_totals_mismatch",
+                            )
+                            exc.status_code = status.HTTP_409_CONFLICT
+                            raise exc
 
                     bank_account = None
                     bank_acc_id = payment_data.get("bank_account")
@@ -317,24 +373,30 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                     except ValueError:
                         mode = PaymentMode.CASH
 
-                    receipt = PaymentService.create_receipt(
-                        company=self.company,
-                        customer=completed.customer,
-                        amount=amount,
-                        mode=mode,
-                        receipt_date=completed.invoice_date,
-                        reference=payment_data.get("reference", ""),
-                        notes=notes,
-                        user=request.user,
-                        bank_account=bank_account,
-                    )
-                    PaymentService.allocate_receipt(
-                        receipt=receipt,
-                        sales_invoice=completed,
-                        amount=min(amount, completed.grand_total),
-                        user=request.user,
-                    )
-                    receipt_data = CustomerReceiptSerializer(receipt).data
+                    # A short-collect of ₹0 is a deliberate "collect nothing
+                    # now" choice — leave the invoice fully unpaid rather than
+                    # creating a ₹0 receipt (which PaymentService itself
+                    # rejects: "Receipt amount must be greater than zero").
+                    if amount > 0:
+                        receipt = PaymentService.create_receipt(
+                            company=self.company,
+                            customer=completed.customer,
+                            amount=amount,
+                            mode=mode,
+                            receipt_date=completed.invoice_date,
+                            reference=payment_data.get("reference", ""),
+                            notes=notes,
+                            user=request.user,
+                            bank_account=bank_account,
+                            **cheque_fields_from_payload(payment_data, company=self.company),
+                        )
+                        PaymentService.allocate_receipt(
+                            receipt=receipt,
+                            sales_invoice=completed,
+                            amount=min(amount, completed.grand_total),
+                            user=request.user,
+                        )
+                        receipt_data = CustomerReceiptSerializer(receipt).data
 
                 return Response({
                     "invoice": self.get_serializer(completed).data,
@@ -353,12 +415,15 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         """Authoritative totals preview without persisting (Phase 1 / A-03)."""
         company = self.company
         customer_id = request.data.get("customer")
-        if not customer_id:
-            raise BusinessRuleError("customer is required")
-        try:
-            customer = Customer.objects.get(pk=customer_id, company=company)
-        except Customer.DoesNotExist as exc:
-            raise BusinessRuleError("Invalid customer.") from exc
+        party_state = company.state or ""
+        party_gstin = ""
+        if customer_id:
+            try:
+                customer = Customer.objects.get(pk=customer_id, company=company)
+            except Customer.DoesNotExist as exc:
+                raise BusinessRuleError("Invalid customer.") from exc
+            party_state = customer.state or party_state
+            party_gstin = customer.gstin or ""
 
         invoice_type = request.data.get("invoice_type") or SalesInvoice.InvoiceType.GST
         tax_enabled = _tax_enabled(invoice_type)
@@ -395,8 +460,8 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             warehouse = Warehouse.objects.filter(pk=warehouse_id, company=company).first()
         return Response(build_totals_preview(
             company=company,
-            party_state=customer.state or "",
-            party_gstin=customer.gstin or "",
+            party_state=party_state,
+            party_gstin=party_gstin,
             data=request.data,
             products_by_id=products_by_id,
             default_price_attr="selling_price",
@@ -481,6 +546,139 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         record_pdf_started(invoice.company, user=request.user)
         invoice.refresh_from_db()
         return Response({"pdf_status": invoice.pdf_status, "pdf_file": invoice.pdf_file_id})
+
+    @action(detail=False, methods=["get"], url_path="payment-stats")
+    def payment_stats(self, request):
+        from django.db.models import Count, DecimalField, F, OuterRef, Subquery, Sum, Value
+        from django.db.models.functions import Coalesce
+        from payments.models import PaymentAllocation
+
+        qs = self.filter_queryset(self.get_queryset())
+        annotated = qs.annotate(
+            _received=Coalesce(
+                Subquery(
+                    PaymentAllocation.objects.filter(
+                        sales_invoice_id=OuterRef("pk"),
+                        receipt__status="POSTED",
+                    )
+                    .values("sales_invoice_id")
+                    .annotate(s=Sum("amount"))
+                    .values("s")[:1],
+                    output_field=DecimalField(max_digits=14, decimal_places=2),
+                ),
+                Value(0, output_field=DecimalField(max_digits=14, decimal_places=2)),
+            )
+        )
+        paid = annotated.filter(_received__gte=F("grand_total"), grand_total__gt=0)
+        unpaid = annotated.filter(_received=0)
+        partial = annotated.filter(_received__gt=0, _received__lt=F("grand_total"))
+
+        def _agg(s):
+            data = s.aggregate(count=Count("id"), amount=Sum("grand_total"))
+            return {"count": data["count"] or 0, "amount": data["amount"] or 0}
+
+        return Response({
+            "paid": _agg(paid),
+            "partial": _agg(partial),
+            "unpaid": _agg(unpaid),
+        })
+
+    @action(detail=True, methods=["get"], url_path="hsn-summary")
+    def hsn_summary(self, request, pk=None):
+        from collections import defaultdict
+        from decimal import Decimal
+
+        from reporting.gst_returns_sections import accumulate_hsn_line
+
+        invoice = self.get_object()
+        buckets = defaultdict(lambda: {
+            "quantity": Decimal("0"), "taxable_value": Decimal("0"),
+            "cgst": Decimal("0"), "sgst": Decimal("0"), "igst": Decimal("0"), "cess": Decimal("0"),
+        })
+        for item in invoice.items.all():
+            accumulate_hsn_line(buckets, item)
+        rows = [
+            {"hsn": k[0], "gst_rate": k[1], "uqc": k[2], **v}
+            for k, v in sorted(buckets.items())
+        ]
+        return Response({"invoice_id": invoice.id, "rows": rows})
+
+    @action(detail=True, methods=["post"], url_path="record-payment")
+    def record_payment(self, request, pk=None):
+        from decimal import Decimal as D
+
+        from payments.services import PaymentService, cheque_fields_from_payload
+
+        invoice = self.get_object()
+        if invoice.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
+            raise BusinessRuleError("Record payment is only for completed invoices.")
+        amount = D(str(request.data.get("amount") or 0))
+        discount = D(str(request.data.get("discount") or request.data.get("settlement_discount") or 0))
+        if amount <= 0:
+            raise BusinessRuleError("Amount received must be greater than zero.")
+        receipt = PaymentService.create_receipt(
+            company=invoice.company,
+            customer=invoice.customer,
+            amount=amount,
+            mode=(request.data.get("mode") or "CASH"),
+            receipt_date=request.data.get("payment_date") or request.data.get("paymentDate") or invoice.invoice_date,
+            notes=request.data.get("notes") or f"Against {invoice.number or invoice.id}",
+            reference=request.data.get("reference") or "",
+            user=request.user,
+            settlement_discount=discount,
+            **cheque_fields_from_payload(request.data, company=invoice.company),
+        )
+        PaymentService.allocate_receipt(
+            receipt=receipt,
+            sales_invoice=invoice,
+            amount=amount,
+            user=request.user,
+        )
+        return Response(self.get_serializer(invoice).data)
+
+    @action(detail=False, methods=["post"], url_path="bulk-pdf-zip")
+    def bulk_pdf_zip(self, request):
+        import io
+        import zipfile
+
+        from django.core.files.base import ContentFile
+
+        from core.models import FileAsset
+        from sales.pdf import render_gst_tax_invoice
+
+        ids = request.data.get("ids") or request.data.get("invoice_ids") or []
+        try:
+            ids = [int(x) for x in ids]
+        except (TypeError, ValueError) as exc:
+            raise BusinessRuleError("ids must be a list of invoice ids.") from exc
+        if not ids:
+            raise BusinessRuleError("Select at least one invoice.")
+        if len(ids) > 100:
+            raise BusinessRuleError("Bulk download is capped at 100 invoices for the sync path.")
+        invoices = list(
+            SalesInvoice.objects.filter(company=self.company, pk__in=ids).select_related("customer", "company")
+        )
+        if len(invoices) != len(set(ids)):
+            raise BusinessRuleError("One or more invoices were not found in this company.")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for inv in invoices:
+                if inv.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
+                    continue
+                content = render_gst_tax_invoice(inv, copy="ORIGINAL")
+                zf.writestr(f"{inv.number or inv.pk}.pdf", content)
+        asset = FileAsset.objects.create(
+            company=self.company,
+            kind=FileAsset.Kind.EXPORT,
+            original_name="invoices.zip",
+            content_type="application/zip",
+            size=buf.tell(),
+            created_by=request.user,
+            updated_by=request.user,
+        )
+        asset.file.save("invoices.zip", ContentFile(buf.getvalue()), save=True)
+        url = request.build_absolute_uri(asset.file.url) if asset.file else ""
+        return Response({"url": url, "file_id": asset.id, "count": len(invoices)})
 
     @action(detail=True, methods=["get"], url_path="pdf-status")
     def pdf_status(self, request, pk=None):
@@ -657,9 +855,9 @@ class QuotationViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         if action == "cancel":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
-        if action in ("create", "update", "partial_update", "destroy", "convert", "convert_to_order"):
+        if action in ("create", "update", "partial_update", "destroy", "convert", "convert_to_order", "convert_chain"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
-        if action in ("list", "retrieve"):
+        if action in ("list", "retrieve", "pdf"):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         return super().get_permissions()
 
@@ -709,6 +907,60 @@ class QuotationViewSet(CompanyScopedViewSet):
             line_quantities=_convert_line_quantities(request),
         )
         return Response(SalesOrderSerializer(order, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=["post"], url_path="convert-chain")
+    def convert_chain(self, request, pk=None):
+        """Quote → SO → (optional draft DC) → (optional draft invoice)."""
+        from .notes_services import SalesNotesService
+        from .phase1_serializers import DeliveryChallanSerializer, SalesOrderSerializer
+
+        stop = (request.data.get("stop_stage") or request.data.get("stopStage") or "INVOICE").upper()
+        if stop not in ("SALES_ORDER", "DELIVERY_CHALLAN", "INVOICE"):
+            raise BusinessRuleError("stop_stage must be SALES_ORDER, DELIVERY_CHALLAN, or INVOICE.")
+        confirm_expired = str(request.data.get("confirm_expired") or "").lower() in (
+            "true", "1", "yes",
+        )
+        quotation = self.get_object()
+        order = SalesService.convert_quotation_to_order(
+            quotation, request.user, confirm_expired=confirm_expired,
+            line_quantities=_convert_line_quantities(request),
+        )
+        challan = None
+        invoice = None
+        if stop in ("DELIVERY_CHALLAN", "INVOICE"):
+            challan = SalesNotesService.convert_sales_order_to_challan(order, request.user)
+        if stop == "INVOICE":
+            challan = SalesNotesService.complete_challan(challan, request.user)
+            invoice = SalesNotesService.convert_delivery_challan(challan, request.user)
+        payload = {
+            "stop_stage": stop,
+            "quotation_id": quotation.id,
+            "sales_order": SalesOrderSerializer(order, context=self.get_serializer_context()).data,
+            "delivery_challan": (
+                DeliveryChallanSerializer(challan, context=self.get_serializer_context()).data
+                if challan is not None else None
+            ),
+            "invoice": (
+                SalesInvoiceSerializer(invoice, context=self.get_serializer_context()).data
+                if invoice is not None else None
+            ),
+        }
+        return Response(payload)
+
+    @action(detail=True, methods=["get"])
+    def pdf(self, request, pk=None):
+        import io
+
+        from .pdf import render_quotation
+
+        quotation = self.get_object()
+        content = render_quotation(quotation)
+        return FileResponse(
+            io.BytesIO(content),
+            as_attachment=True,
+            filename=f"{quotation.number or quotation.pk}.pdf",
+            content_type="application/pdf",
+        )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -819,10 +1071,20 @@ class RecurringInvoiceScheduleViewSet(CompanyScopedViewSet):
         run = generate_draft_for_schedule(schedule, run_date=timezone.localdate(), user=request.user)
         if run is None:
             raise BusinessRuleError("Schedule did not generate an invoice (inactive, locked period, or duplicate).")
+        status = None
+        if run.invoice_id:
+            status = run.invoice.status
+        elif run.delivery_challan_id:
+            status = run.delivery_challan.status
+        elif run.sales_order_id:
+            status = run.sales_order.status
         return Response({
             "ok": True,
             "run_id": run.id,
             "invoice_id": run.invoice_id,
+            "sales_order_id": run.sales_order_id,
+            "delivery_challan_id": run.delivery_challan_id,
+            "stop_stage": run.schedule.stop_stage,
             "period_key": run.period_key,
-            "status": run.invoice.status if run.invoice_id else None,
+            "status": status,
         })

@@ -61,6 +61,30 @@ describe('account aggregator nav (R-063 / R-087)', () => {
   });
 });
 
+describe('customer portal nav (COMP-003)', () => {
+  const sales = {
+    ...mockSalesUser,
+    canCreateSales: true,
+  } as User;
+
+  function portalVisible(user: User = sales): boolean {
+    const payments = filterNav(user).find((item) => item.id === 'payments');
+    return Boolean(payments?.children?.some((child) => child.id === 'customer-portal'));
+  }
+
+  it('stays hidden until ENABLE_CUSTOMER_PORTAL is on for someone who can create sales', () => {
+    (globalThis as { __ff?: Record<string, boolean> }).__ff = {};
+    expect(portalVisible()).toBe(false);
+    expect(isReallyReachable(sales, '/portal')).toBe(false);
+
+    (globalThis as { __ff?: Record<string, boolean> }).__ff = { ENABLE_CUSTOMER_PORTAL: true };
+    expect(portalVisible()).toBe(true);
+
+    const viewer = { id: 3, role: 'VIEWER', canCreateSales: true } as unknown as User;
+    expect(portalVisible(viewer)).toBe(false);
+  });
+});
+
 describe('POS nav gate (CR-003)', () => {
   it('pos_hidden_without_can_create_payments', () => {
     (globalThis as { __ff?: Record<string, boolean> }).__ff = { ENABLE_POS: true };
@@ -80,5 +104,30 @@ describe('POS nav gate (CR-003)', () => {
     } as User;
     expect(filterNav(both).some((i) => i.id === 'pos')).toBe(true);
     expect(isReallyReachable(both, '/pos')).toBe(true);
+  });
+});
+
+describe('vision plan nav', () => {
+  const owner = { id: 1, role: 'OWNER', canViewFinancialReports: true } as unknown as User;
+
+  it('shows collections, purchase planning, and the pack wizard only when their flags are on', () => {
+    (globalThis as { __ff?: Record<string, boolean> }).__ff = {};
+    const hidden = filterNav(owner);
+    expect(hidden.find((item) => item.id === 'payments')?.children?.some((child) => child.id === 'collections')).toBe(false);
+    expect(hidden.find((item) => item.id === 'inventory')?.children?.some((child) => child.id === 'purchase-planning')).toBe(false);
+    expect(hidden.find((item) => item.id === 'settings')?.children?.some((child) => child.id === 'pack-wizard')).toBe(false);
+
+    (globalThis as { __ff?: Record<string, boolean> }).__ff = {
+      ENABLE_PREDICTIVE_DUNNING: true,
+      ENABLE_PURCHASE_PLANNING: true,
+      ENABLE_ARCHETYPE_PACKS: true,
+    };
+    const shown = filterNav(owner);
+    expect(shown.find((item) => item.id === 'payments')?.children?.some((child) => child.id === 'collections')).toBe(true);
+    expect(shown.find((item) => item.id === 'inventory')?.children?.some((child) => child.id === 'purchase-planning')).toBe(true);
+    expect(shown.find((item) => item.id === 'settings')?.children?.some((child) => child.id === 'pack-wizard')).toBe(true);
+    expect(isReallyReachable(owner, '/payments/collections')).toBe(true);
+    expect(isReallyReachable(owner, '/inventory/purchase-planning')).toBe(true);
+    expect(isReallyReachable(owner, '/settings/packs')).toBe(true);
   });
 });

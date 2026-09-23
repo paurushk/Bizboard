@@ -179,6 +179,114 @@ class CogsService:
         return cogs_total
 
     @staticmethod
+    def challan_sale_moves(challan, *, product=None):
+        qs = StockMovement.objects.filter(
+            company=challan.company,
+            movement_type=MovementType.SALE,
+            reference_type="delivery_challan",
+            reference_id=str(challan.pk),
+        )
+        if product is not None:
+            qs = qs.filter(product=product)
+        return list(qs.order_by("id"))
+
+    @staticmethod
+    def restore_challan_return_stock_and_cogs(challan_return, challan, items, user) -> Decimal:
+        """Restore stock on a Delivery Challan return complete; return COGS reversal total.
+
+        Mirrors restore_return_stock_and_cogs (sales-invoice returns) — same
+        FIFO-peel-restore mechanics (BB-000720: restore the original sale
+        peels instead of inventing a fresh SALES_RETURN layer), scoped to a
+        challan's own SALE movements instead of an invoice's, since a
+        Delivery Challan Return can complete against a challan that was
+        never converted to an invoice.
+        """
+        from .models import DeliveryChallanReturn
+
+        cogs_rev = Decimal("0")
+        unit_names = {row.product_id: getattr(row, "unit_name", None) for row in challan.items.all()}
+        for item in items:
+            from inventory.item_stock import base_quantity, tracks_inventory
+
+            if not tracks_inventory(item.product):
+                continue
+            if getattr(item.product, "track_serial", False):
+                # DeliveryChallanReturnItem has no serial_numbers field (unlike
+                # SalesReturnItem) — there is nowhere to record which specific
+                # units come back, so SerialNumber status can't be transitioned
+                # SOLD -> AVAILABLE. Refuse rather than silently desyncing serial
+                # records from stock quantity.
+                raise BusinessRuleError(
+                    f"'{item.product.name}' is serial-tracked and cannot be returned via a "
+                    "Delivery Challan Return yet — convert the challan to an invoice first "
+                    "and use a Sales Return, which records serial numbers."
+                )
+            sale_moves = CogsService.challan_sale_moves(challan, product=item.product)
+            remaining = base_quantity(
+                item.product,
+                item.quantity,
+                getattr(item, "unit_name", None) or unit_names.get(item.product_id),
+            )
+            prior_return_ids = [
+                str(pk)
+                for pk in DeliveryChallanReturn.objects.filter(
+                    challan=challan,
+                    status=DeliveryChallanReturn.Status.COMPLETED,
+                )
+                .exclude(pk=challan_return.pk)
+                .values_list("id", flat=True)
+            ]
+            if sale_moves:
+                prior_returned = (
+                    StockMovement.objects.filter(
+                        company=challan_return.company,
+                        movement_type=MovementType.SALES_RETURN,
+                        product=item.product,
+                        reference_type="DeliveryChallanReturn",
+                        reference_id__in=prior_return_ids,
+                    ).aggregate(total=Sum("quantity"))["total"]
+                    or Decimal("0")
+                )
+                consumed_prior = Decimal(str(prior_returned))
+                for move in sale_moves:
+                    if remaining <= 0:
+                        break
+                    lot_qty = abs(Decimal(str(move.quantity)))
+                    move_unit_cost = Decimal(str(move.unit_cost or 0))
+                    already_this_move = min(consumed_prior, lot_qty)
+                    consumed_prior = max(Decimal("0"), consumed_prior - lot_qty)
+                    available_on_lot = lot_qty - already_this_move
+                    if available_on_lot <= 0:
+                        continue
+                    take = min(remaining, available_on_lot)
+                    inbound = InventoryService.post_movement(
+                        company=challan_return.company,
+                        warehouse=move.warehouse or challan.warehouse,
+                        product=item.product,
+                        batch=move.batch,
+                        movement_type=MovementType.SALES_RETURN,
+                        quantity=take,
+                        unit_cost=move_unit_cost,
+                        reference_type="DeliveryChallanReturn",
+                        reference_id=str(challan_return.pk),
+                        user=user,
+                    )
+                    InventoryService.restore_fifo_peels(move, inbound)
+                    cogs_rev += move_unit_cost * take
+                    remaining -= take
+            if remaining > 0:
+                # No matching original SALE lot covers this quantity — restoring
+                # at an invented cost (including 0) would desync FIFO layers /
+                # dilute weighted-average cost, exactly the bug this method
+                # exists to avoid. Fail loudly instead of guessing.
+                raise BusinessRuleError(
+                    f"Cannot restore stock for '{item.product.name}': no matching "
+                    "original sale movement found for the returned quantity on this "
+                    "delivery challan. Check the challan's stock history before retrying."
+                )
+        return cogs_rev
+
+    @staticmethod
     def restore_return_stock_and_cogs(sales_return: SalesReturn, invoice, items, user) -> Decimal:
         """Restore stock on return complete; return COGS reversal total."""
         cogs_rev = Decimal("0")

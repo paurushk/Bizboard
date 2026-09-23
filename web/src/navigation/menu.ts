@@ -102,6 +102,7 @@ export const navigation: NavItem[] = [
       { id: 'debit-notes', labelKey: 'nav.debitNotes', path: '/sales/debit-notes', visible: canViewSalesSurfaces },
       { id: 'sales-orders', labelKey: 'nav.salesOrders', path: '/sales/orders', visible: canViewSalesSurfaces },
       { id: 'delivery-challans', labelKey: 'nav.deliveryChallans', path: '/sales/delivery-challans', visible: canViewSalesSurfaces },
+      { id: 'delivery-routes', labelKey: 'nav.deliveryRoutes', path: '/sales/delivery-routes', visible: canViewSalesSurfaces },
       { id: 'recurring-invoices', labelKey: 'nav.recurringInvoices', path: '/sales/recurring', visible: canViewSalesSurfaces },
       { id: 'customers', labelKey: 'nav.customers', path: '/sales/customers', visible: canViewSalesSurfaces },
     ],
@@ -140,6 +141,18 @@ export const navigation: NavItem[] = [
     visible: canViewPaymentSurfaces,
     children: [
       { id: 'payment-links', labelKey: 'nav.paymentLinks', path: '/payments/links', visible: canCreatePayments },
+      {
+        id: 'customer-portal',
+        labelKey: 'nav.customerPortal',
+        path: '/portal',
+        visible: (user) => canCreateSales(user) && isRuntimeFlagEnabled('ENABLE_CUSTOMER_PORTAL'),
+      },
+      {
+        id: 'collections',
+        labelKey: 'nav.collections',
+        path: '/payments/collections',
+        visible: (user) => canViewFinancialReports(user) && isRuntimeFlagEnabled('ENABLE_PREDICTIVE_DUNNING'),
+      },
       { id: 'bank-statements', labelKey: 'nav.bankStatements', path: '/payments/statements', visible: canCreatePayments },
       { id: 'payment-recon', labelKey: 'nav.bankReconciliation', path: '/payments/reconciliation', visible: canViewBankRecon },
       {
@@ -170,6 +183,12 @@ export const navigation: NavItem[] = [
         visible: canAdjustInventory,
       },
       { id: 'low-stock', labelKey: 'nav.lowStock', path: '/inventory/low-stock', visible: canViewInventorySurfaces },
+      {
+        id: 'purchase-planning',
+        labelKey: 'nav.purchasePlanning',
+        path: '/inventory/purchase-planning',
+        visible: (user) => canViewInventorySurfaces(user) && isRuntimeFlagEnabled('ENABLE_PURCHASE_PLANNING'),
+      },
       { id: 'label-print', labelKey: 'nav.labelPrint', path: '/inventory/labels', visible: canAdjustInventory },
       { id: 'warehouses', labelKey: 'nav.warehouses', path: '/inventory/warehouses', visible: canAdjustInventory },
       { id: 'stock-counts', labelKey: 'nav.stockCounts', path: '/inventory/stock-counts', visible: canAdjustInventory },
@@ -310,6 +329,7 @@ export const navigation: NavItem[] = [
         visible: () => isTdsEnabled(),
       },
       { id: 'cash-book', labelKey: 'nav.cashBook', path: '/reports/cash-book' },
+      { id: 'day-book', labelKey: 'nav.dayBook', path: '/reports/day-book' },
       { id: 'stock-valuation', labelKey: 'nav.stockValuation', path: '/reports/stock-valuation' },
       {
         id: 'trial-balance',
@@ -363,6 +383,12 @@ export const navigation: NavItem[] = [
         labelKey: 'nav.billing',
         path: '/settings/billing',
         visible: canManageUsers,
+      },
+      {
+        id: 'pack-wizard',
+        labelKey: 'nav.packWizard',
+        path: '/settings/packs',
+        visible: (user) => user?.role === 'OWNER' && isRuntimeFlagEnabled('ENABLE_ARCHETYPE_PACKS'),
       },
       {
         id: 'price-lists',
@@ -479,6 +505,8 @@ export const navigation: NavItem[] = [
       { id: 'fixed-assets', labelKey: 'nav.fixedAssets', path: '/accounting/fixed-assets' },
       { id: 'accounting-periods', labelKey: 'nav.accountingPeriods', path: '/accounting/periods' },
       { id: 'accounting-recon', labelKey: 'nav.bankReconciliation', path: '/accounting/bank-reconciliation' },
+      { id: 'expenses', labelKey: 'nav.expenses', path: '/accounting/expenses' },
+      { id: 'day-book-accounting', labelKey: 'nav.dayBook', path: '/reports/day-book' },
     ],
   },
   { id: 'help', labelKey: 'nav.help', path: '/help' },

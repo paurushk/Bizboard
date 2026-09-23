@@ -572,6 +572,26 @@ export async function completeBillOfEntry(
   return unwrapData<BillOfEntry>(data);
 }
 
+export async function getSupplierPriceHistory(supplierId: number, productId: number) {
+  const { data } = await apiClient.get(`/purchases/suppliers/${supplierId}/price-history/`, {
+    params: { product: productId },
+  });
+  return unwrapData<{
+    supplierId: number;
+    productId: number;
+    leadTimeDays?: string | null;
+    fillRate?: string | null;
+    overReceipt?: boolean;
+    rows: Array<{
+      source: string;
+      documentNumber: string;
+      documentDate: string;
+      quantity: string;
+      unitPrice: string;
+    }>;
+  }>(data);
+}
+
 export async function cancelBillOfEntry(id: number): Promise<BillOfEntry> {
   const { data } = await apiClient.post(`/purchases/bills-of-entry/${id}/cancel/`);
   return unwrapData<BillOfEntry>(data);

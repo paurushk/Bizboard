@@ -1,3 +1,4 @@
+from django.urls import path
 from core.routers import DefaultRouter
 
 from .phase1_views import (
@@ -6,7 +7,7 @@ from .phase1_views import (
     PurchaseDebitNoteViewSet,
     PurchaseOrderViewSet,
 )
-from .views import BillOfEntryViewSet, PurchaseInvoiceViewSet, PurchaseReturnViewSet
+from .views import BillOfEntryViewSet, PurchaseInvoiceViewSet, PurchaseReturnViewSet, SupplierPriceHistoryView
 
 router = DefaultRouter()
 router.register("invoices", PurchaseInvoiceViewSet, basename="purchase-invoices")
@@ -17,4 +18,10 @@ router.register("debit-notes", PurchaseDebitNoteViewSet, basename="purchase-debi
 router.register("orders", PurchaseOrderViewSet, basename="purchase-orders")
 router.register("grns", GoodsReceiptViewSet, basename="goods-receipts")
 
-urlpatterns = router.urls
+urlpatterns = [
+    path(
+        "suppliers/<int:supplier_id>/price-history/",
+        SupplierPriceHistoryView.as_view(),
+        name="supplier-price-history",
+    ),
+] + router.urls

@@ -399,6 +399,24 @@ export const listCostCenters = () =>
   withMocks(() => fetchAllPagesMasters<Record<string, unknown>>('/accounting/cost-centers/'), mockCostCenters);
 export const createCostCenter = (payload: Record<string, unknown>) => apiClient.post('/accounting/cost-centers/', payload).then(({ data }) => unwrapData(data));
 
+export async function listExpensesPage(params?: PageParams) {
+  return fetchPage<Record<string, unknown>>('/accounting/expenses/', params);
+}
+
+export async function createExpense(payload: Record<string, unknown>) {
+  const { data } = await apiClient.post('/accounting/expenses/', payload);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function updateExpense(id: number, payload: Record<string, unknown>) {
+  const { data } = await apiClient.patch(`/accounting/expenses/${id}/`, payload);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function deleteExpense(id: number) {
+  await apiClient.delete(`/accounting/expenses/${id}/`);
+}
+
 export async function listFixedAssets(params?: Record<string, string>): Promise<Record<string, unknown>[]> {
   return withMocks(
     () => fetchAllPagesMasters<Record<string, unknown>>('/accounting/fixed-assets/', params),
@@ -470,10 +488,20 @@ export async function listGrowthHints(): Promise<GrowthHint[]> {
   return body.hints ?? [];
 }
 
-export async function listAttentionRows(): Promise<AttentionRow[]> {
-  const { data } = await apiClient.get('/insights/attention/');
+export async function listAttentionRows(options?: { mine?: boolean }): Promise<AttentionRow[]> {
+  const { data } = await apiClient.get('/insights/attention/', {
+    params: options?.mine ? { mine: 1 } : undefined,
+  });
   const body = unwrapData<{ rows: AttentionRow[]; count: number }>(data);
   return body.rows ?? [];
+}
+
+export async function assignAttentionRow(
+  dedupeKey: string,
+  assignedTo: number | null,
+  dueDate: string | null,
+): Promise<void> {
+  await apiClient.post('/insights/attention/assign/', { dedupeKey, assignedTo, dueDate });
 }
 
 export async function snoozeAttentionRow(dedupeKey: string, reason: string, days = 7): Promise<void> {

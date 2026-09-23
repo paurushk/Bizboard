@@ -92,6 +92,15 @@ def _invoice_datetime(invoice) -> str:
     return invoice.invoice_date.strftime("%d/%m/%Y")
 
 
+def _story_height(story, content_width) -> float:
+    """Sum wrapped heights so the page can shrink to the receipt instead of a fixed 800mm roll."""
+    total = 0.0
+    for flowable in story:
+        _w, h = flowable.wrap(content_width, 10**6)
+        total += float(h)
+    return total
+
+
 def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
     """Render a narrow thermal receipt PDF. `width_mm` is 58 or 80 (default 80)."""
     width_mm = _page_width_mm(width_mm)
@@ -100,23 +109,13 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
     content_width = page_width - 2 * margin
     narrow = width_mm == 58
     styles = _thermal_styles(narrow=narrow)
+    top_margin = 3 * mm
+    bottom_margin = 3 * mm
 
     company = invoice.company
     customer = invoice.customer
     items = list(invoice.items.select_related("product", "product__unit").all())
     show_tax = invoice.invoice_type != invoice.InvoiceType.NON_GST
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=(page_width, 800 * mm),
-        leftMargin=margin,
-        rightMargin=margin,
-        topMargin=3 * mm,
-        bottomMargin=3 * mm,
-        title=f"Receipt {invoice.number or invoice.pk}",
-        author=company.name,
-    )
 
     story = []
     story.append(Paragraph(pdf_esc(company.name), styles["center_bold"]))
@@ -149,6 +148,21 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
     ]]
     for item in items:
         name = item.description or item.product.name
+        extra = []
+        sku = getattr(item.product, "sku", None) or ""
+        hsn = getattr(item, "hsn_code", None) or getattr(item.product, "hsn_code", None) or ""
+        mrp = Decimal(getattr(item, "mrp", 0) or 0)
+        disc = Decimal(getattr(item, "discount_percent", 0) or 0)
+        if sku:
+            extra.append(str(sku))
+        if hsn:
+            extra.append(f"HSN {hsn}")
+        if mrp:
+            extra.append(f"MRP {format_money(mrp)}")
+        if disc:
+            extra.append(f"Disc {format_money(disc)}%")
+        if extra:
+            name = f"{name} ({', '.join(extra)})"
         unit = (item.unit_name or "PCS").upper()
         qty_label = f"{format_qty(item.quantity)} {unit}"
         line_rows.append([
@@ -262,5 +276,19 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
     story.append(Paragraph("Thank you!", styles["center"]))
     story.append(Spacer(1, 3 * mm))
 
+    measured = _story_height(story, content_width)
+    page_height = max(measured + top_margin + bottom_margin, 40 * mm)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=(page_width, page_height),
+        leftMargin=margin,
+        rightMargin=margin,
+        topMargin=top_margin,
+        bottomMargin=bottom_margin,
+        title=f"Receipt {invoice.number or invoice.pk}",
+        author=company.name,
+    )
     doc.build(story)
     return buffer.getvalue()

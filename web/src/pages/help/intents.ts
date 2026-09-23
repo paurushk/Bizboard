@@ -902,6 +902,47 @@ export const HELP_INTENTS: HelpIntent[] = [
     citedKeys: ['offlineOutbox.title', 'offlineOutbox.syncNow', 'nav.salesHistory'],
     lastReviewed: REVIEWED,
   },
+  {
+    intentId: 'einvoice-irp-not-live',
+    type: 1,
+    canonicalQuestion: 'Does this app file e-invoice with the government IRP?',
+    userQueries: [
+      'e-invoice irp',
+      'submit einvoice to gstn',
+      'irn generate nahi ho raha portal',
+      'e invoice government',
+      'einvoice payload only',
+      'prepare json not submit',
+      'nic irp json',
+      'will irp get json automatically',
+      'ई-इनवॉइस IRP',
+      'gst portal e invoice nahi jata',
+    ],
+    answer: {
+      en: '**t:einvoice.payloadOnlyHelp** Use Prepare payload on the invoice in **t:nav.salesHistory** to download JSON for the GST portal. This app does not call the live IRP.',
+      hi: '**t:einvoice.payloadOnlyHelp** **t:nav.salesHistory** में इनवॉइस पर Prepare payload से JSON डाउनलोड करें। यह ऐप लाइव IRP नहीं बुलाता।',
+    },
+    action: {
+      en: 'Open the completed invoice, use Prepare payload, then file on the GST portal if you are in the e-invoice scheme.',
+      hi: 'पूर्ण इनवॉइस खोलें, Prepare payload लें, और यदि आप ई-इनवॉइस स्कीम में हैं तो GST पोर्टल पर फाइल करें।',
+    },
+    resolution: {
+      en: 'You have a JSON file ready. Portal filing is outside this app.',
+      hi: 'JSON फ़ाइल तैयार है। पोर्टल फाइलिंग इस ऐप के बाहर है।',
+    },
+    errorCodes: [],
+    priority: 7,
+    category: 'GST & tax',
+    nextStep: {
+      label: 'Open sales history',
+      destination: '/sales/history',
+      permission: 'can_create_sales',
+      fallback: 'Open a completed invoice and use Prepare payload.',
+    },
+    relatedIntents: ['cannot-complete-invoice', 'pdf-or-share-unavailable'],
+    citedKeys: ['einvoice.payloadOnlyHelp', 'nav.salesHistory'],
+    lastReviewed: REVIEWED,
+  },
 ];
 
 export const HELP_CATEGORIES = [

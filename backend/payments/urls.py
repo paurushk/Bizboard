@@ -15,6 +15,12 @@ from .views import (
     SupplierPaymentViewSet,
     UpiQrView,
 )
+from .portal_views import (
+    CustomerPortalPayView,
+    CustomerPortalPdfView,
+    CustomerPortalRequestView,
+    CustomerPortalView,
+)
 from .webhook_views import payment_webhook, public_payment_link
 
 router = DefaultRouter()
@@ -42,5 +48,17 @@ urlpatterns = router.urls + [
 # Mounted from config/urls at api/v1/ for public + webhooks
 public_urlpatterns = [
     path("public/pay/<str:token>/", public_payment_link, name="public-pay"),
+    path("public/customer-portal/request-link/", CustomerPortalRequestView.as_view(), name="customer-portal-request"),
+    path("public/customer-portal/<str:token>/", CustomerPortalView.as_view(), name="customer-portal"),
+    path(
+        "public/customer-portal/<str:token>/invoices/<int:invoice_id>/pdf/",
+        CustomerPortalPdfView.as_view(),
+        name="customer-portal-pdf",
+    ),
+    path(
+        "public/customer-portal/<str:token>/invoices/<int:invoice_id>/pay/",
+        CustomerPortalPayView.as_view(),
+        name="customer-portal-pay",
+    ),
     path("webhooks/payments/<str:provider>/", payment_webhook, name="payment-webhook"),
 ]

@@ -14,13 +14,14 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   cancelPurchaseOrder,
   convertPurchaseOrder,
   createPurchaseOrder,
   getCompany,
+  getProduct,
   getPurchaseOrder,
   getSupplier,
   updatePurchaseOrder,
@@ -53,6 +54,8 @@ export function PurchaseOrderEditorPage() {
   const { id: editIdParam } = useParams();
   const editId = editIdParam ? Number(editIdParam) : null;
   const isEdit = Number.isFinite(editId) && (editId as number) > 0;
+  const [searchParams] = useSearchParams();
+  const prefilled = useRef(false);
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { message, error, clearFeedback, flashError, setMessage } = useBillingSaveFeedback();
@@ -106,6 +109,43 @@ export function PurchaseOrderEditorPage() {
     setLoaded(false);
     clearFeedback();
   }, [editId, clearFeedback]);
+
+  useEffect(() => {
+    if (isEdit || prefilled.current || !company.data) return;
+    const supplierParam = searchParams.get('supplier');
+    if (supplierParam) setSupplierId(Number(supplierParam));
+    const linesParam = searchParams.get('lines');
+    const productId = searchParams.get('product');
+    if (!linesParam && !productId) return;
+    prefilled.current = true;
+    const intra = isIntraState(
+      company.data?.gstin || company.data?.state,
+      selectedSupplier?.gstin || selectedSupplier?.state,
+    );
+    if (linesParam) {
+      let parsed: Array<{ productId: number; qty: string }> = [];
+      try {
+        parsed = JSON.parse(linesParam) as Array<{ productId: number; qty: string }>;
+      } catch {
+        prefilled.current = false;
+        return;
+      }
+      void Promise.all(parsed.map(async (line) => {
+        const product = await getProduct(line.productId);
+        const qty = Number(line.qty || '1');
+        return makeLine(product, intra, Number.isFinite(qty) && qty > 0 ? qty : 1, 'purchasePrice');
+      })).then((next) => setLines(next)).catch(() => {
+        prefilled.current = false;
+      });
+      return;
+    }
+    const qty = Number(searchParams.get('qty') || '1');
+    void getProduct(productId!).then((product) => {
+      setLines([makeLine(product, intra, Number.isFinite(qty) && qty > 0 ? qty : 1, 'purchasePrice')]);
+    }).catch(() => {
+      prefilled.current = false;
+    });
+  }, [company.data, isEdit, searchParams, selectedSupplier]);
 
   useEffect(() => {
     if (!existing.data || loaded) return;

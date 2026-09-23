@@ -53,6 +53,7 @@ def _render_note_like(
     notes: str = "",
     tax_enabled: bool = True,
     filing_gstin: str = "",
+    extra_meta: list[str] | None = None,
 ) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -76,6 +77,8 @@ def _render_note_like(
         meta.append(f"<b>{pdf_esc(reference_label)}:</b> {pdf_esc(reference_value)}")
     if reason:
         meta.append(f"<b>Reason:</b> {pdf_esc(reason)}")
+    if extra_meta:
+        meta.extend(extra_meta)
     story.append(Paragraph("<br/>".join(meta), styles["meta"]))
     story.append(Spacer(1, 4 * mm))
 
@@ -273,3 +276,93 @@ def render_delivery_challan(challan) -> bytes:
         notes=notes,
         tax_enabled=bool(challan.cgst_total or challan.sgst_total or challan.igst_total),
     )
+
+
+def render_quotation(quotation) -> bytes:
+    extra = []
+    if quotation.valid_until:
+        extra.append(f"<b>Valid until:</b> {pdf_esc(quotation.valid_until)}")
+    items = list(quotation.items.select_related("product").all())
+    notes = quotation.notes or ""
+    return _render_note_like(
+        company=quotation.company,
+        customer=quotation.customer,
+        number=quotation.number,
+        doc_date=quotation.quotation_date,
+        title="QUOTATION",
+        items=items,
+        totals={
+            "taxable": quotation.taxable_total or Decimal("0"),
+            "cgst": quotation.cgst_total or Decimal("0"),
+            "sgst": quotation.sgst_total or Decimal("0"),
+            "igst": quotation.igst_total or Decimal("0"),
+            "cess": getattr(quotation, "cess_total", 0) or 0,
+            "charges": getattr(quotation, "additional_charges", 0) or 0,
+            "tcs": getattr(quotation, "tcs_amount", 0) or 0,
+            "round_off": quotation.round_off or Decimal("0"),
+            "grand": quotation.grand_total or Decimal("0"),
+        },
+        notes=notes,
+        tax_enabled=bool(quotation.cgst_total or quotation.sgst_total or quotation.igst_total),
+        extra_meta=extra,
+    )
+
+
+def render_route_manifest(route) -> bytes:
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=15 * mm,
+        rightMargin=15 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
+    )
+    styles = build_styles()
+    story = [
+        Paragraph(pdf_esc(route.company.name or "Business"), styles["company_name"]),
+        Paragraph("DELIVERY ROUTE MANIFEST", styles["title"]),
+        Paragraph(
+            "<br/>".join(
+                [
+                    f"<b>Number:</b> {pdf_esc(route.number or route.pk)}",
+                    f"<b>Date:</b> {pdf_esc(route.route_date)}",
+                    f"<b>Vehicle:</b> {pdf_esc(route.vehicle_number or '—')}",
+                    f"<b>Driver:</b> {pdf_esc(route.driver_name or '—')}",
+                    f"<b>Status:</b> {pdf_esc(route.status)}",
+                ]
+            ),
+            styles["meta"],
+        ),
+        Spacer(1, 4 * mm),
+    ]
+    header = ["#", "Order", "Customer", "Address", "Status"]
+    rows = [header]
+    stops = list(route.stops.select_related("sales_order__customer").all())
+    for stop in stops:
+        order = stop.sales_order
+        rows.append([
+            str(stop.sequence),
+            pdf_esc(getattr(order, "number", None) or order.pk),
+            pdf_esc(getattr(getattr(order, "customer", None), "name", "") or ""),
+            pdf_esc(getattr(order, "delivery_address", "") or ""),
+            pdf_esc(stop.status),
+        ])
+    if len(rows) == 1:
+        rows.append(["—", "No stops", "", "", ""])
+    table = Table(rows, colWidths=[12 * mm, 32 * mm, 45 * mm, 65 * mm, 22 * mm])
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), GREY_HEADER),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ])
+    )
+    story.append(table)
+    if route.notes:
+        story.append(Spacer(1, 3 * mm))
+        story.append(Paragraph(f"<b>Notes:</b> {pdf_esc(route.notes)}", styles["body"]))
+    doc.build(story)
+    return buf.getvalue()

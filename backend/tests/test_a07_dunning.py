@@ -377,3 +377,118 @@ def test_g23_customer_risk_snapshot_sees_returned_invoice_with_residual_ar(tenan
     assert Decimal(snap["overdue_amount"]) == residual, (
         "RETURNED invoice's residual AR must be counted in overdue (feeds auto-credit-hold)"
     )
+
+
+def _enable_predictive(company):
+    flags = dict(company.feature_flags or {})
+    flags["ENABLE_PREDICTIVE_DUNNING"] = True
+    company.feature_flags = flags
+    company.save(update_fields=["feature_flags"])
+
+
+def _paid_invoice(tenant, customer, *, number, due, paid_on, total="40"):
+    from payments.models import CustomerReceipt, PaymentAllocation, ReceiptStatus
+
+    invoice = SalesInvoice.objects.create(
+        company=tenant.company,
+        customer=customer,
+        number=number,
+        status=SalesInvoice.Status.COMPLETED,
+        invoice_date=due,
+        due_date=due,
+        grand_total=Decimal(total),
+        taxable_total=Decimal(total),
+    )
+    receipt = CustomerReceipt.objects.create(
+        company=tenant.company,
+        customer=customer,
+        amount=Decimal(total),
+        receipt_date=paid_on,
+        status=ReceiptStatus.POSTED,
+        mode="CASH",
+        created_by=tenant.owner,
+    )
+    PaymentAllocation.objects.create(
+        company=tenant.company, receipt=receipt, sales_invoice=invoice, amount=Decimal(total),
+    )
+    return invoice
+
+
+def test_predictive_dunning_is_silent_until_three_paid_invoices(tenant_a):
+    from payments.predictive_dunning import collections_worklist, median_days_late, predicted_rows
+    from tests.conftest import make_customer
+
+    customer = make_customer(tenant_a.company, name="Late Co")
+    as_of = date(2026, 6, 1)
+    assert predicted_rows(tenant_a.company, as_of=as_of) == []
+    assert collections_worklist(tenant_a.company, as_of=as_of) == []
+    assert median_days_late(tenant_a.company, customer) is None
+    _paid_invoice(tenant_a, customer, number="PD-1", due=date(2026, 1, 1), paid_on=date(2026, 1, 5))
+    _paid_invoice(tenant_a, customer, number="PD-2", due=date(2026, 2, 1), paid_on=date(2026, 2, 7))
+    assert median_days_late(tenant_a.company, customer) is None
+    _enable_predictive(tenant_a.company)
+    SalesInvoice.objects.create(
+        company=tenant_a.company,
+        customer=customer,
+        number="PD-OPEN-EARLY",
+        status=SalesInvoice.Status.COMPLETED,
+        invoice_date=as_of,
+        due_date=as_of + timedelta(days=2),
+        grand_total=Decimal("80"),
+        taxable_total=Decimal("80"),
+    )
+    assert predicted_rows(tenant_a.company, as_of=as_of) == []
+    assert DunningReminder.objects.filter(company=tenant_a.company).count() == 0
+
+
+def test_predictive_row_opens_collections_only_inside_the_window(tenant_a):
+    from payments.predictive_dunning import collections_worklist, median_days_late, predicted_rows
+    from tests.conftest import make_customer
+
+    customer = make_customer(tenant_a.company, name="Pattern Co")
+    cold = make_customer(tenant_a.company, name="Cold Co", phone="9000011122")
+    as_of = date(2026, 6, 1)
+    _paid_invoice(tenant_a, customer, number="PD-A", due=date(2026, 1, 1), paid_on=date(2026, 1, 5))
+    _paid_invoice(tenant_a, customer, number="PD-B", due=date(2026, 2, 1), paid_on=date(2026, 2, 7))
+    _paid_invoice(tenant_a, customer, number="PD-C", due=date(2026, 3, 1), paid_on=date(2026, 3, 9))
+    assert median_days_late(tenant_a.company, customer) == 6
+    due_soon = SalesInvoice.objects.create(
+        company=tenant_a.company,
+        customer=customer,
+        number="PD-SOON",
+        status=SalesInvoice.Status.COMPLETED,
+        invoice_date=as_of,
+        due_date=as_of + timedelta(days=2),
+        grand_total=Decimal("200"),
+        taxable_total=Decimal("200"),
+    )
+    SalesInvoice.objects.create(
+        company=tenant_a.company,
+        customer=customer,
+        number="PD-LATER",
+        status=SalesInvoice.Status.COMPLETED,
+        invoice_date=as_of,
+        due_date=as_of + timedelta(days=10),
+        grand_total=Decimal("50"),
+        taxable_total=Decimal("50"),
+    )
+    SalesInvoice.objects.create(
+        company=tenant_a.company,
+        customer=cold,
+        number="PD-COLD",
+        status=SalesInvoice.Status.COMPLETED,
+        invoice_date=as_of,
+        due_date=as_of + timedelta(days=1),
+        grand_total=Decimal("30"),
+        taxable_total=Decimal("30"),
+    )
+    assert predicted_rows(tenant_a.company, as_of=as_of) == []
+    _enable_predictive(tenant_a.company)
+    rows = predicted_rows(tenant_a.company, as_of=as_of)
+    assert [row["dedupe_key"] for row in rows] == [f"PREDICTED_LATE_PAYMENT:{due_soon.id}"]
+    assert rows[0]["action_href"] == "/payments/collections"
+    assert rows[0]["code"] == "PREDICTED_LATE_PAYMENT"
+    worklist = collections_worklist(tenant_a.company, as_of=as_of)
+    assert [row["invoice_number"] for row in worklist] == ["PD-SOON"]
+    assert worklist[0]["confident"] is True
+    assert worklist[0]["predicted_days_late"] == 6

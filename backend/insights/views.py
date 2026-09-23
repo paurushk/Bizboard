@@ -282,6 +282,11 @@ class AttentionFeedView(APIView):
     def get(self, request):
         cu = get_company_user(request)
         rows = build_attention_rows(cu.company, company_user=cu)
+        mine = str(request.query_params.get("mine") or "").lower() in {"1", "true", "yes"}
+        if mine and rows and "assigned_to" in rows[0]:
+            rows = [row for row in rows if row.get("assigned_to") == cu.id]
+        elif mine and rows and "assigned_to" not in rows[0]:
+            pass
         return Response({"rows": rows, "count": len(rows)})
 
 
@@ -306,6 +311,62 @@ class AttentionSnoozeView(APIView):
         except (TypeError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(result)
+
+
+class AttentionAssignView(APIView):
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
+
+    def post(self, request):
+        from insights.attention import assign_attention_row
+
+        cu = get_company_user(request)
+        dedupe_key = (request.data.get("dedupe_key") or request.data.get("dedupeKey") or "").strip()
+        try:
+            result = assign_attention_row(
+                cu.company,
+                cu,
+                dedupe_key=dedupe_key,
+                assignee_id=request.data.get("assigned_to") or request.data.get("assignedTo"),
+                due_date=request.data.get("due_date") or request.data.get("dueDate"),
+            )
+        except BusinessRuleError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return Response({"detail": "due_date must be YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+
+
+class CollectionsWorklistView(APIView):
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
+
+    def get(self, request):
+        from core.services.feature_flags import flag_enabled
+        from payments.predictive_dunning import collections_worklist
+
+        company = get_company_user(request).company
+        if not flag_enabled(company, "ENABLE_PREDICTIVE_DUNNING"):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        rows = collections_worklist(company)
+        return Response({"rows": rows, "count": len(rows)})
+
+
+class Customer360View(APIView):
+    permission_classes = [IsAuthenticated, HasCompany]
+
+    def get(self, request, customer_id):
+        from core.services.feature_flags import flag_enabled
+        from insights.customer_360 import can_open_customer_360, customer_360
+        from masters.models import Customer
+
+        cu = get_company_user(request)
+        if not flag_enabled(cu.company, "ENABLE_CUSTOMER_360"):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not can_open_customer_360(cu):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        customer = Customer.objects.filter(company=cu.company, pk=customer_id).first()
+        if customer is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(customer_360(cu.company, customer, cu))
 
 
 class AiUsageView(APIView):

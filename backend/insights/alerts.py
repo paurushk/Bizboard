@@ -146,6 +146,8 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
         return rows
 
     def _low_stock():
+        from core.services.feature_flags import flag_enabled
+        from inventory.services import suggest_replenishment
         from inventory.views import low_stock_alert_payload
 
         rows = []
@@ -155,17 +157,85 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                 company=company, status__in=OPEN_SALES, invoice_date__gte=since,
             ).values_list("items__product_id", flat=True).distinct()
         )
-        for bal in low_stock_alert_payload(company):
+        replenish = flag_enabled(company, "ENABLE_REPLENISHMENT")
+        if replenish:
+            from core.services.flag_observability import log_flag_event
+
+            log_flag_event(company, "ENABLE_REPLENISHMENT", "replenishment_scan")
+        low_stock_rows = low_stock_alert_payload(company)
+        # F1-003: precompute once per company instead of per row (WarehouseReorderLevel
+        # + StockBalance would otherwise be re-queried up to twice per low-stock row).
+        reorder_row_by_key = {}
+        levels_by_product: dict = {}
+        balances_by_product: dict = {}
+        if replenish and low_stock_rows:
+            from inventory.models import StockBalance, WarehouseReorderLevel
+
+            product_ids = {row.product_id for row in low_stock_rows}
+            for level_row in WarehouseReorderLevel.objects.filter(
+                company=company, product_id__in=product_ids,
+            ):
+                reorder_row_by_key[(level_row.warehouse_id, level_row.product_id)] = level_row
+                levels_by_product.setdefault(level_row.product_id, {})[level_row.warehouse_id] = level_row
+            for bal_row in (
+                StockBalance.objects.filter(company=company, product_id__in=product_ids)
+                .select_related("warehouse")
+            ):
+                balances_by_product.setdefault(bal_row.product_id, []).append(bal_row)
+        for bal in low_stock_rows:
             if bal.product_id not in sold_ids:
                 continue
+            message = f"{bal.product.name} is below reorder and sold in the last 14 days."
+            extra = {}
+            cta = "/inventory/low-stock"
+            if replenish:
+                warehouse_id = bal.warehouse_id
+                suggestion = suggest_replenishment(
+                    company,
+                    bal.warehouse,
+                    bal.product,
+                    on_hand=bal.on_hand,
+                    reserved=bal.reserved,
+                    reorder_level=getattr(bal, "_reorder", None),
+                    since=since,
+                    warehouse_specific=getattr(bal, "is_warehouse_specific", True),
+                    reorder_level_row=reorder_row_by_key.get((warehouse_id, bal.product_id)),
+                    warehouse_levels=levels_by_product.get(bal.product_id, {}),
+                    product_balances=balances_by_product.get(bal.product_id, []),
+                )
+                qty = suggestion.suggested_qty
+                if suggestion.transfer_from_warehouse_id:
+                    message += (
+                        f" Suggested transfer {qty} from {suggestion.transfer_from_warehouse_name}."
+                    )
+                    cta = (
+                        f"/inventory/transfers?product={bal.product_id}&qty={qty}"
+                        f"&from={suggestion.transfer_from_warehouse_id}&to={bal.warehouse_id}"
+                    )
+                else:
+                    message += f" Suggested purchase {qty}."
+                    cta = (
+                        f"/purchases/orders/new?product={bal.product_id}"
+                        f"&qty={qty}&warehouse={bal.warehouse_id}"
+                    )
+                extra["payload"] = {
+                    "suggested_qty": str(suggestion.suggested_qty),
+                    "available": str(suggestion.available),
+                    "velocity_14d": str(suggestion.velocity_14d),
+                    "lead_time_days": suggestion.lead_time_days,
+                    "safety_stock_qty": str(suggestion.safety_stock_qty),
+                    "transfer_from_warehouse_id": suggestion.transfer_from_warehouse_id,
+                    "transfer_from_warehouse_name": suggestion.transfer_from_warehouse_name,
+                }
             rows.append(_alert(
                 "LOW_STOCK_FAST_MOVER",
                 "warning",
-                f"{bal.product.name} is below reorder and sold in the last 14 days.",
+                message,
                 subject_key=f"product:{bal.product_id}",
                 document_type="product",
                 document_id=bal.product_id,
-                cta_path="/inventory/low-stock",
+                cta_path=cta,
+                **extra,
             ))
         return rows
 

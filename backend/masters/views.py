@@ -174,6 +174,24 @@ class CustomerViewSet(CompanyScopedViewSet):
         q = self.request.query_params.get("search") or self.request.query_params.get("q")
         if q:
             qs = qs.filter(Q(name__icontains=q) | Q(phone__icontains=q) | Q(gstin__icontains=q))
+        sort = (self.request.query_params.get("sort") or self.request.query_params.get("ordering") or "name").lower()
+        if sort in ("recent", "recently_active", "-updated_at"):
+            qs = qs.order_by("-updated_at", "name")
+        elif sort in ("balance", "-balance"):
+            from django.db.models import Case, DecimalField, Value, When
+
+            from ledgers.services import LedgerService
+
+            outstanding = LedgerService.bulk_customer_outstanding(self.company)
+            whens = [
+                When(pk=pk, then=Value(amt, output_field=DecimalField(max_digits=14, decimal_places=2)))
+                for pk, amt in outstanding.items()
+            ]
+            qs = qs.annotate(
+                _bal=Case(*whens, default=Value(0, output_field=DecimalField(max_digits=14, decimal_places=2)))
+            ).order_by("-_bal", "name")
+        else:
+            qs = qs.order_by("name")
         return qs
 
     def get_serializer_context(self):

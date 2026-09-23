@@ -7,32 +7,32 @@ import { DiscountReportPage } from '@/pages/reports/DiscountReportPage';
 
 const SALES_REPORT = {
   totals: {
-    invoice_count: 2,
-    discounted_invoice_count: 1,
-    line_discount_total: 200,
-    header_discount_total: 0,
-    total_discount: 200,
-    pre_discount_revenue: 2000,
-    avg_discount_percent: 10,
+    invoiceCount: 2,
+    discountedInvoiceCount: 1,
+    lineDiscountTotal: 200,
+    headerDiscountTotal: 0,
+    totalDiscount: 200,
+    preDiscountRevenue: 2000,
+    avgDiscountPercent: 10,
   },
-  by_party: [{ id: 1, name: 'Ravi Kumar', line_discount: 200, revenue: 2000, invoices: 1 }],
-  by_product: [{ product_id: 5, product: 'Widget', line_discount: 200, revenue: 2000 }],
-  by_period: [{ period: '2026-09-01', line_discount: 200, revenue: 2000 }],
+  byParty: [{ id: 1, name: 'Ravi Kumar', lineDiscount: 200, revenue: 2000, invoices: 1 }],
+  byProduct: [{ productId: 5, product: 'Widget', lineDiscount: 200, revenue: 2000 }],
+  byPeriod: [{ period: '2026-09-01', lineDiscount: 200, revenue: 2000 }],
 };
 
 const PURCHASE_REPORT = {
   totals: {
-    invoice_count: 1,
-    discounted_invoice_count: 1,
-    line_discount_total: 50,
-    header_discount_total: 0,
-    total_discount: 50,
-    pre_discount_revenue: 1000,
-    avg_discount_percent: 5,
+    invoiceCount: 1,
+    discountedInvoiceCount: 1,
+    lineDiscountTotal: 50,
+    headerDiscountTotal: 0,
+    totalDiscount: 50,
+    preDiscountRevenue: 1000,
+    avgDiscountPercent: 5,
   },
-  by_party: [{ id: 9, name: 'Mega Suppliers', line_discount: 50, revenue: 1000, invoices: 1 }],
-  by_product: [],
-  by_period: [],
+  byParty: [{ id: 9, name: 'Mega Suppliers', lineDiscount: 50, revenue: 1000, invoices: 1 }],
+  byProduct: [],
+  byPeriod: [],
 };
 
 const getSalesDiscountReport = vi.fn(async (_params?: Record<string, string>) => SALES_REPORT);

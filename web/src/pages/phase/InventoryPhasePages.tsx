@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -14,6 +14,7 @@ import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { getErrorMessage, isNetworkError } from '@/api/client';
 import * as api from '@/api/resources';
 import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
@@ -152,6 +153,35 @@ export function StockTransferPage() {
   const [batch, setBatch] = useState('');
   const [serials, setSerials] = useState('');
   const [qty, setQty] = useState('1');
+  const [searchParams] = useSearchParams();
+  const [plannedLines, setPlannedLines] = useState<Array<{ product: number; quantity: string }> | null>(null);
+  useEffect(() => {
+    const productId = searchParams.get('product');
+    const from = searchParams.get('from');
+    const to = searchParams.get('to');
+    const presetQty = searchParams.get('qty');
+    const linesParam = searchParams.get('lines');
+    if (from) setFromWh(from);
+    if (to) setToWh(to);
+    if (presetQty) setQty(presetQty);
+    if (linesParam) {
+      try {
+        const parsed = JSON.parse(linesParam) as Array<{ productId: number; qty: string; warehouseId?: number }>;
+        if (parsed.length) {
+          setPlannedLines(parsed.map((line) => ({ product: Number(line.productId), quantity: String(line.qty) })));
+          if (parsed[0].warehouseId) setToWh(String(parsed[0].warehouseId));
+          void api.getProduct(parsed[0].productId).then((product) => setSelectedProduct(product));
+          setOpen(true);
+        }
+      } catch {
+        setPlannedLines(null);
+      }
+    }
+    if (productId) {
+      void api.getProduct(productId).then((product) => setSelectedProduct(product));
+    }
+    if (productId && from && to) setOpen(true);
+  }, [searchParams]);
   const trackSerial = Boolean(selectedProduct?.trackSerial);
   const [error, setError] = useState('');
   const create = useMutation({
@@ -159,17 +189,20 @@ export function StockTransferPage() {
       if (!fromWh || !toWh || fromWh === toWh) {
         throw new Error(t('phase.chooseDifferentGodown'));
       }
-      return api.createTransfer({
-        fromWarehouse: Number(fromWh),
-        toWarehouse: Number(toWh),
-        lines: [{
+      const lines = plannedLines?.length
+        ? plannedLines.map((line) => ({ product: line.product, batch: null, quantity: line.quantity }))
+        : [{
           product: Number(selectedProduct?.id),
           batch: batch ? Number(batch) : null,
           quantity: qty,
           ...(trackSerial && serials.trim()
             ? { serialNumbers: serials.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean) }
             : {}),
-        }],
+        }];
+      return api.createTransfer({
+        fromWarehouse: Number(fromWh),
+        toWarehouse: Number(toWh),
+        lines,
       });
     },
     onSuccess: () => {
@@ -274,6 +307,9 @@ export function StockTransferPage() {
         <DialogTitle>{t('phase.newStockTransfer')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            {plannedLines?.length ? (
+              <Typography variant="body2">{t('osPlan.plannedLines', { count: plannedLines.length })}</Typography>
+            ) : null}
             <TextField
               select
               label={t('phase.fromGodown')}
@@ -347,7 +383,7 @@ export function StockTransferPage() {
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={writesBlocked || !fromWh || !toWh || fromWh === toWh || !selectedProduct || create.isPending}
+            disabled={writesBlocked || !fromWh || !toWh || fromWh === toWh || (!selectedProduct && !plannedLines?.length) || create.isPending}
             onClick={() => create.mutate()}
           >
             {t('phase.createDraft')}

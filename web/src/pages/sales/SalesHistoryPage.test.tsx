@@ -1,10 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { SalesHistoryPage } from '@/pages/sales/SalesHistoryPage';
 import type { SalesInvoice } from '@/types/domain';
+
+const listSalesInvoicesPage = vi.hoisted(() => vi.fn());
 
 // G-17: the status badge on this list is computed client-side from three
 // backend fields (status, balance, paymentState/returnState) — it must show
@@ -54,6 +57,12 @@ const ROWS: SalesInvoice[] = [
 // payment) — so paymentState comes back PAID from the same invoice. The old
 // paidAwareStatus() checked paymentState first and rendered "Paid".
 ROWS[0].status = 'RETURNED';
+listSalesInvoicesPage.mockImplementation(async () => ({
+  results: ROWS,
+  count: ROWS.length,
+  next: null,
+  previous: null,
+}));
 
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({
@@ -62,8 +71,27 @@ vi.mock('@/auth/AuthContext', () => ({
 }));
 
 vi.mock('@/api/resources', () => ({
-  listSalesInvoicesPage: async () => ({ results: ROWS, count: ROWS.length, next: null, previous: null }),
+  listSalesInvoicesPage: (...args: unknown[]) => listSalesInvoicesPage(...(args as [])),
+  getInvoicePaymentStats: async () => ({
+    paid: { count: 1, amount: '250' },
+    partial: { count: 0, amount: '0' },
+    unpaid: { count: 2, amount: '604' },
+  }),
+  shareInvoice: vi.fn(async () => ({ status: 'QUEUED' })),
+  cancelSalesInvoice: vi.fn(),
+  completeSalesInvoice: vi.fn(),
+  deleteSalesInvoice: vi.fn(),
+  downloadInvoicePdf: vi.fn(),
+  downloadInvoiceThermalPdf: vi.fn(),
+  bulkInvoicePdfZip: vi.fn(),
+  recordInvoicePayment: vi.fn(),
 }));
+
+const navigate = vi.fn();
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>();
+  return { ...actual, useNavigate: () => navigate };
+});
 
 // jsdom has no real layout engine, so @tanstack/react-virtual's ResizeObserver-based
 // sizing never reports a non-zero viewport and getVirtualItems() stays empty — every
@@ -124,5 +152,44 @@ describe('SalesHistoryPage status badges — G-17', () => {
     expect(row).toBeTruthy();
     expect(within(row as HTMLElement).getByText(/^paid$/i)).toBeTruthy();
     expect(within(row as HTMLElement).queryByText(/returned/i)).toBeNull();
+  });
+});
+
+describe('SalesHistoryPage row actions', () => {
+  it('opens the shared share dialog from the row menu', async () => {
+    wrap(<SalesHistoryPage />);
+    const row = (await screen.findByText('INV-0003')).closest('tr') as HTMLElement;
+    await userEvent.click(within(row).getByRole('button', { name: /actions/i }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /^share$/i }));
+    expect(await screen.findByRole('dialog', { name: /share invoice/i })).toBeTruthy();
+  });
+
+  it('routes a completed invoice to sales return create with the invoice id', async () => {
+    navigate.mockClear();
+    wrap(<SalesHistoryPage />);
+    const row = (await screen.findByText('INV-0003')).closest('tr') as HTMLElement;
+    await userEvent.click(within(row).getByRole('button', { name: /actions/i }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /sales return/i }));
+    expect(navigate).toHaveBeenCalledWith('/sales/returns?create=1&invoice=3');
+  });
+
+  it('opens record payment from a row with an open balance', async () => {
+    wrap(<SalesHistoryPage />);
+    const row = (await screen.findByText('INV-0002')).closest('tr') as HTMLElement;
+    await userEvent.click(within(row).getByRole('button', { name: /actions/i }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /record payment/i }));
+    expect(await screen.findByRole('dialog', { name: /record payment/i })).toBeTruthy();
+  });
+});
+
+describe('SalesHistoryPage payment filter and stats', () => {
+  it('shows payment-status chips and stats, and filters unpaid', async () => {
+    listSalesInvoicesPage.mockClear();
+    wrap(<SalesHistoryPage />);
+    expect(await screen.findByText(/unpaid 2/i)).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: /^unpaid$/i }));
+    expect(listSalesInvoicesPage).toHaveBeenCalledWith(
+      expect.objectContaining({ payment_status: 'UNPAID' }),
+    );
   });
 });

@@ -48,9 +48,9 @@ export function DiscountReportPage() {
 
   const rows = useMemo(() => {
     if (!data) return [];
-    if (breakdown === 'party') return data.by_party;
-    if (breakdown === 'product') return data.by_product;
-    return data.by_period;
+    if (breakdown === 'party') return data.byParty;
+    if (breakdown === 'product') return data.byProduct;
+    return data.byPeriod;
   }, [data, breakdown]);
 
   const columns = useMemo(() => {
@@ -59,20 +59,20 @@ export function DiscountReportPage() {
         { key: 'name', label: partyLabel },
         { key: 'invoices', label: t('common.invoices') },
         { key: 'revenue', label: t('common.revenue'), money: true },
-        { key: 'line_discount', label: t('reports.lineDiscount'), money: true },
+        { key: 'lineDiscount', label: t('reports.lineDiscount'), money: true },
       ];
     }
     if (breakdown === 'product') {
       return [
         { key: 'product', label: t('common.product') },
         { key: 'revenue', label: t('common.revenue'), money: true },
-        { key: 'line_discount', label: t('reports.lineDiscount'), money: true },
+        { key: 'lineDiscount', label: t('reports.lineDiscount'), money: true },
       ];
     }
     return [
       { key: 'period', label: t('common.period') },
       { key: 'revenue', label: t('common.revenue'), money: true },
-      { key: 'line_discount', label: t('reports.lineDiscount'), money: true },
+      { key: 'lineDiscount', label: t('reports.lineDiscount'), money: true },
     ];
   }, [breakdown, partyLabel]);
 
@@ -102,12 +102,12 @@ export function DiscountReportPage() {
       {data ? (
         <>
           <Stack direction="row" flexWrap="wrap" gap={2}>
-            <StatCard label={t('common.invoices')} value={String(data.totals.invoice_count)} />
-            <StatCard label={t('reports.discountedInvoices')} value={String(data.totals.discounted_invoice_count)} />
-            <StatCard label={t('reports.lineDiscount')} value={formatMoney(data.totals.line_discount_total)} />
-            <StatCard label={t('reports.headerDiscount')} value={formatMoney(data.totals.header_discount_total)} />
-            <StatCard label={t('reports.totalDiscount')} value={formatMoney(data.totals.total_discount)} />
-            <StatCard label={t('reports.avgDiscountPercent')} value={`${formatMoney(data.totals.avg_discount_percent)}%`} />
+            <StatCard label={t('common.invoices')} value={String(data.totals.invoiceCount)} />
+            <StatCard label={t('reports.discountedInvoices')} value={String(data.totals.discountedInvoiceCount)} />
+            <StatCard label={t('reports.lineDiscount')} value={formatMoney(data.totals.lineDiscountTotal)} />
+            <StatCard label={t('reports.headerDiscount')} value={formatMoney(data.totals.headerDiscountTotal)} />
+            <StatCard label={t('reports.totalDiscount')} value={formatMoney(data.totals.totalDiscount)} />
+            <StatCard label={t('reports.avgDiscountPercent')} value={`${formatMoney(data.totals.avgDiscountPercent)}%`} />
           </Stack>
 
           <ToggleButtonGroup

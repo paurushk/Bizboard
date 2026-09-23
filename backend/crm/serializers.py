@@ -14,8 +14,16 @@ class LeadSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Lead
-        fields = ["id", "name", "phone", "email", "state", "gstin", "address", "status", "customer", "created_at", "updated_at"]
-        read_only_fields = ["created_at", "updated_at"]
+        fields = [
+            "id", "name", "phone", "email", "state", "gstin", "address", "status",
+            "source", "message", "assigned_to", "dedupe_matched_customer",
+            "dedupe_matched_lead", "dedupe_review", "dedupe_candidates",
+            "customer", "created_at", "updated_at",
+        ]
+        read_only_fields = [
+            "created_at", "updated_at", "assigned_to", "dedupe_matched_customer",
+            "dedupe_matched_lead", "dedupe_review", "dedupe_candidates",
+        ]
 
 
 class LeadActivitySerializer(serializers.ModelSerializer):

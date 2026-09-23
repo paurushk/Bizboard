@@ -5,7 +5,19 @@ from core.serializers import CompanyPrimaryKeyRelatedField
 from masters.models import Customer, Supplier
 from payments.models import BankAccount
 
-from .models import Account, AccountingPeriod, BankReconSession, CostCenter, FixedAsset, JournalEntry, JournalLine
+from .models import Account, AccountingPeriod, BankReconSession, CostCenter, Expense, FixedAsset, JournalEntry, JournalLine
+
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source="category.name", read_only=True)
+
+    class Meta:
+        model = Expense
+        fields = [
+            "id", "number", "expense_date", "category", "category_name",
+            "party_name", "amount", "notes", "attachment", "created_at", "updated_at",
+        ]
+        read_only_fields = ["number"]
 
 
 class AccountSerializer(serializers.ModelSerializer):

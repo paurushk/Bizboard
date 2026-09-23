@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import axios from 'axios';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
@@ -19,15 +20,18 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import {
+  assignLead,
   convertLead,
   createLead,
   createLeadActivity,
+  importLeadsCsv,
+  issueLeadFormToken,
   listLeadActivities,
   listLeadsPage,
   updateLead,
   type Lead,
 } from '@/api/crm';
-import { listCustomersPage } from '@/api/resources';
+import { listCompanyUsers, listCustomersPage } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { PageTitle } from '@/contextHelp';
@@ -39,6 +43,7 @@ import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const PAGE_SIZE = 50;
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'LOST'] as const;
+const LEAD_SOURCES = ['referral', 'website', 'whatsapp', 'walk_in', 'import', 'phone'] as const;
 const ACTIVITY_KINDS = ['NOTE', 'CALL', 'EMAIL'] as const;
 type LeadStatus = (typeof LEAD_STATUSES)[number];
 
@@ -47,6 +52,7 @@ const emptyForm = {
   phone: '',
   email: '',
   status: 'NEW' as LeadStatus,
+  source: '' as '' | (typeof LEAD_SOURCES)[number],
   customer: '' as number | '',
 };
 
@@ -78,11 +84,24 @@ function LeadsPageInner() {
   const [convertLeadRow, setConvertLeadRow] = useState<Lead | null>(null);
   const [convertAmount, setConvertAmount] = useState('0');
   const [convertWon, setConvertWon] = useState(true);
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [reviewOnly, setReviewOnly] = useState(false);
+  const [mineOnly, setMineOnly] = useState(false);
+  const [dedupe, setDedupe] = useState<{ customers?: number[]; leads?: number[] } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const query = useQuery({
-    queryKey: ['leads', page],
-    queryFn: () => listLeadsPage({ page, pageSize: PAGE_SIZE }),
+    queryKey: ['leads', page, sourceFilter, reviewOnly, mineOnly],
+    queryFn: () => listLeadsPage({
+      page,
+      pageSize: PAGE_SIZE,
+      source: sourceFilter || undefined,
+      dedupe_review: reviewOnly ? 'PENDING_REVIEW' : undefined,
+      mine: mineOnly || undefined,
+    }),
   });
+  const members = useQuery({ queryKey: ['company-users'], queryFn: listCompanyUsers });
   const customersQuery = useQuery({
     queryKey: ['customers', 'crm'],
     queryFn: () => listCustomersPage({ page: 1, pageSize: 200 }),
@@ -102,22 +121,48 @@ function LeadsPageInner() {
   const rows = query.data?.results ?? [];
 
   const saveMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (decision?: string) => {
       const payload = {
         name: form.name,
         phone: form.phone,
         email: form.email,
         status: form.status,
+        source: form.source || null,
         customer: form.customer ? Number(form.customer) : null,
       };
       if (editing) return updateLead(editing.id, payload);
-      return createLead(payload);
+      return createLead({ ...payload, dedupeDecision: decision });
     },
     onSuccess: () => {
       setOpen(false);
       setEditing(null);
+      setDedupe(null);
       setForm(emptyForm);
       void qc.invalidateQueries({ queryKey: ['leads'] });
+    },
+    onError: (err) => {
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        const body = err.response.data as { candidates?: { customers?: number[]; leads?: number[] }; data?: { candidates?: { customers?: number[]; leads?: number[] } } };
+        setDedupe(body.candidates ?? body.data?.candidates ?? { customers: [], leads: [] });
+        return;
+      }
+      setError(getErrorMessage(err));
+    },
+  });
+  const importCsv = useMutation({
+    mutationFn: (file: File) => importLeadsCsv(file),
+    onSuccess: (result) => {
+      setNotice(result.accepted ? t('osPlan.importStillRunning') : `${t('osPlan.importCsv')}: ${result.created}`);
+      void qc.invalidateQueries({ queryKey: ['leads'] });
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+  const formLink = useMutation({
+    mutationFn: issueLeadFormToken,
+    onSuccess: async (result) => {
+      const url = `${window.location.origin}/lead-form/${result.token}`;
+      await navigator.clipboard.writeText(url);
+      setNotice(t('osPlan.formLinkCopied'));
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -158,7 +203,8 @@ function LeadsPageInner() {
       name: lead.name,
       phone: lead.phone ?? '',
       email: lead.email ?? '',
-      status: lead.status ?? 'NEW',
+      status: (lead.status ?? 'NEW') as LeadStatus,
+      source: (lead.source ?? '') as typeof emptyForm.source,
       customer: lead.customer ?? '',
     });
     setOpen(true);
@@ -169,11 +215,39 @@ function LeadsPageInner() {
       <MvpModuleBanner module="crm" />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <PageTitle>{t('nav.leads')}</PageTitle>
-        <Button variant="contained" onClick={openCreate} disabled={writesBlocked}>
-          {t('common.add')}
-        </Button>
+        <Stack direction="row" spacing={1}>
+          <Button variant="outlined" disabled={writesBlocked || formLink.isPending} onClick={() => formLink.mutate()}>
+            {t('osPlan.formLink')}
+          </Button>
+          <Button variant="outlined" disabled={writesBlocked} onClick={() => fileRef.current?.click()}>
+            {t('osPlan.importCsv')}
+          </Button>
+          <input
+            ref={fileRef}
+            hidden
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) importCsv.mutate(file);
+              e.target.value = '';
+            }}
+          />
+          <Button variant="contained" onClick={openCreate} disabled={writesBlocked}>
+            {t('common.add')}
+          </Button>
+        </Stack>
       </Stack>
       {error ? <HelpErrorAlert message={error} /> : null}
+      {notice ? <Typography variant="body2">{notice}</Typography> : null}
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+        <TextField select label={t('osPlan.source')} value={sourceFilter} onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }} sx={{ minWidth: 160 }}>
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          {LEAD_SOURCES.map((source) => <MenuItem key={source} value={source}>{source}</MenuItem>)}
+        </TextField>
+        <FormControlLabel control={<Checkbox checked={reviewOnly} onChange={(e) => { setReviewOnly(e.target.checked); setPage(1); }} />} label={t('osPlan.pendingReview')} />
+        <FormControlLabel control={<Checkbox checked={mineOnly} onChange={(e) => { setMineOnly(e.target.checked); setPage(1); }} />} label={t('osPlan.myLeads')} />
+      </Stack>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
@@ -190,6 +264,8 @@ function LeadsPageInner() {
                 <TableCell>{t('common.phone')}</TableCell>
                 <TableCell>{t('common.email')}</TableCell>
                 <TableCell>{t('nav.customers')}</TableCell>
+                <TableCell>{t('osPlan.source')}</TableCell>
+                <TableCell>{t('osPlan.assignee')}</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
                 <TableCell align="right">{t('common.actions')}</TableCell>
               </TableRow>
@@ -202,6 +278,29 @@ function LeadsPageInner() {
                   <TableCell>{lead.email || '—'}</TableCell>
                   <TableCell>
                     {lead.customer ? customerMap.get(lead.customer) ?? lead.customer : '—'}
+                  </TableCell>
+                  <TableCell>{lead.source || '—'}</TableCell>
+                  <TableCell>
+                    <TextField
+                      select
+                      size="small"
+                      value={lead.assignedTo ?? ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        void assignLead(lead.id, value ? Number(value) : null).then(() => {
+                          void qc.invalidateQueries({ queryKey: ['leads'] });
+                        }).catch((err) => setError(getErrorMessage(err)));
+                      }}
+                      sx={{ minWidth: 140 }}
+                    >
+                      <MenuItem value="">{t('osPlan.unassigned')}</MenuItem>
+                      {(members.data ?? []).map((member) => (
+                        <MenuItem key={member.id} value={member.id}>{member.fullName || member.email}</MenuItem>
+                      ))}
+                    </TextField>
+                    {lead.dedupeReview === 'PENDING_REVIEW' ? (
+                      <Typography variant="caption" display="block">{t('osPlan.pendingReview')}</Typography>
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     <StatusChip
@@ -274,6 +373,17 @@ function LeadsPageInner() {
               value={form.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
             />
+            <TextField
+              select
+              label={t('osPlan.source')}
+              value={form.source}
+              onChange={(e) => setForm((f) => ({ ...f, source: e.target.value as typeof form.source }))}
+            >
+              <MenuItem value="">{t('osPlan.unassigned')}</MenuItem>
+              {LEAD_SOURCES.map((source) => (
+                <MenuItem key={source} value={source}>{source}</MenuItem>
+              ))}
+            </TextField>
             <TextField
               select
               label={t('common.status')}
@@ -413,6 +523,24 @@ function LeadsPageInner() {
           >
             {t('erp.convertLead')}
           </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={dedupe !== null} onClose={() => setDedupe(null)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('osPlan.dedupeTitle')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1} sx={{ mt: 1 }}>
+            {(dedupe?.customers ?? []).map((id) => (
+              <Typography key={`c-${id}`} variant="body2">{customerMap.get(id) ?? id}</Typography>
+            ))}
+            {(dedupe?.leads ?? []).map((id) => (
+              <Typography key={`l-${id}`} variant="body2">{rows.find((lead) => lead.id === id)?.name ?? id}</Typography>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDedupe(null)}>{t('common.cancel')}</Button>
+          <Button onClick={() => saveMutation.mutate('review')}>{t('osPlan.dedupeReview')}</Button>
+          <Button variant="contained" onClick={() => saveMutation.mutate('create')}>{t('osPlan.dedupeCreate')}</Button>
         </DialogActions>
       </Dialog>
     </Stack>

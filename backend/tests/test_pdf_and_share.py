@@ -28,6 +28,11 @@ def _pdf_page_width_pt(content: bytes) -> float:
     return float(reader.pages[0].mediabox.width)
 
 
+def _pdf_page_height_pt(content: bytes) -> float:
+    reader = PdfReader(BytesIO(content))
+    return float(reader.pages[0].mediabox.height)
+
+
 def _complete(tenant, *, product_kwargs=None, lines=None, customer_kwargs=None):
     product_kwargs = product_kwargs or {}
     customer_kwargs = customer_kwargs or {}
@@ -640,6 +645,57 @@ def test_thermal_receipt_pdf_width_and_content(tenant_a):
     assert "UPI" in text
 
 
+def test_thermal_receipt_prints_hsn_mrp_sku_and_discount(tenant_a):
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
+    tenant_a.company.save(update_fields=["gstin"])
+    product = make_product(
+        tenant_a.company, sku="TH-HSN", hsn_code="998811", gst_rate="18", selling_price="100",
+    )
+    customer = make_customer(tenant_a.company)
+    add_stock(tenant_a, product, "2")
+    inv = create_draft_invoice(
+        tenant_a,
+        customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "100", "mrp": "140", "discount_percent": "5", "hsn_code": "998811"}],
+    )
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+    invoice = SalesInvoice.objects.select_related("company", "customer").prefetch_related("items__product").get(
+        pk=inv["id"]
+    )
+    invoice.items.update(mrp=Decimal("140.00"), hsn_code="998811", discount_percent=Decimal("5"))
+    pdf = render_thermal_receipt(invoice, width_mm=80)
+    text = _pdf_text(pdf)
+    assert "HSN 998811" in text or "998811" in text
+    assert "TH-HSN" in text
+    assert "MRP" in text
+
+
+def test_thermal_receipt_height_scales_with_item_count(tenant_a):
+    """Receipt page height follows content; a 1-line sale must not be a fixed 800mm roll."""
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
+    tenant_a.company.save(update_fields=["gstin"])
+    data_one, product = _complete(tenant_a)
+    invoice_one = SalesInvoice.objects.select_related("company", "customer").prefetch_related(
+        "items__product"
+    ).get(pk=data_one["id"])
+    pdf_one = render_thermal_receipt(invoice_one, width_mm=80)
+    height_one = _pdf_page_height_pt(pdf_one)
+    assert height_one < 800 * mm - 10, height_one
+
+    extra = [{"product": product.id, "quantity": "1", "unit_price": "100"} for _ in range(9)]
+    customer = invoice_one.customer
+    inv = create_draft_invoice(tenant_a, customer, extra)
+    resp = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    assert resp.status_code == 200, resp.data
+    invoice_many = SalesInvoice.objects.select_related("company", "customer").prefetch_related(
+        "items__product"
+    ).get(pk=inv["id"])
+    pdf_many = render_thermal_receipt(invoice_many, width_mm=80)
+    height_many = _pdf_page_height_pt(pdf_many)
+    assert height_many > height_one
+    assert height_many < 800 * mm
+
+
 def test_thermal_pdf_endpoint_sync(tenant_a):
     data, _ = _complete(tenant_a)
 
@@ -696,3 +752,29 @@ def test_pdf_renders_with_ampersand_and_angle_bracket_in_customer_name(tenant_a)
     thermal = tenant_a.client.get(f"/api/v1/sales/invoices/{data['id']}/thermal-pdf/")
     assert thermal.status_code == 200
     assert b"".join(thermal.streaming_content).startswith(b"%PDF")
+
+
+def test_quotation_pdf_includes_valid_until(tenant_a):
+    from datetime import date
+
+    product = make_product(tenant_a.company, sku="QPDF-1")
+    customer = make_customer(tenant_a.company)
+    quote = tenant_a.client.post(
+        "/api/v1/sales/quotations/",
+        {
+            "customer": customer.id,
+            "valid_until": "2026-12-31",
+            "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+        },
+        format="json",
+    )
+    assert quote.status_code == 201, quote.data
+    pdf = tenant_a.client.get(f"/api/v1/sales/quotations/{quote.data['id']}/pdf/")
+    assert pdf.status_code == 200
+    content = b"".join(pdf.streaming_content)
+    assert content.startswith(b"%PDF")
+    text = _pdf_text(content)
+    assert "QUOTATION" in text
+    assert "Valid until" in text
+    assert "2026-12-31" in text or "31" in text
+    assert date(2026, 12, 31).isoformat()[:4] in text

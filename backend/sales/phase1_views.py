@@ -260,10 +260,35 @@ class SalesOrderViewSet(CompanyScopedViewSet):
             raise BusinessRuleError(str(exc)) from exc
         return Response(data)
 
+    @action(detail=True, methods=["post"], url_path="gate-check")
+    def gate_check(self, request, pk=None):
+        from core.services.feature_flags import flag_enabled
+        from sales.order_gates import margin_warnings, sales_order_exposure
+
+        order = self.get_object()
+        if not flag_enabled(order.company, "ENABLE_ORDER_GATES"):
+            return Response({"credit_blocked": False, "credit_message": "", "margin_warnings": []})
+        items = list(order.items.select_related("product"))
+        limit = order.customer.credit_limit or 0
+        blocked = False
+        message = ""
+        if limit and limit > 0:
+            exposure = sales_order_exposure(order.company, order.customer, order)
+            if exposure > limit:
+                blocked = True
+                message = f"Credit limit exceeded. Exposure {exposure} > limit {limit}."
+        return Response({
+            "credit_blocked": blocked,
+            "credit_message": message,
+            "margin_warnings": margin_warnings(order, items),
+        })
+
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
         order = SalesNotesService.confirm_sales_order(self.get_object(), request.user)
-        return Response(self.get_serializer(order).data)
+        data = self.get_serializer(order).data
+        data["margin_warnings"] = getattr(order, "_gate_warnings", [])
+        return Response(data)
 
     @action(detail=True, methods=["post"])
     def convert(self, request, pk=None):

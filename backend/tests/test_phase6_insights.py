@@ -478,3 +478,120 @@ def test_alerts_list_does_not_upsert(tenant_a):
     refresh = tenant_a.client.post("/api/v1/insights/alerts/refresh/", {}, format="json")
     assert refresh.status_code == 200
     assert BusinessAlertEvent.objects.filter(company=tenant_a.company).count() >= before
+
+
+def _enable_actions(company):
+    flags = dict(company.feature_flags or {})
+    flags["ENABLE_CUSTOMER_ACTIONS"] = True
+    company.feature_flags = flags
+    company.save(update_fields=["feature_flags"])
+
+
+def _confirmed_order(company, customer, product, when, *, total="1000", qty="2", price="50"):
+    from sales.models import SalesOrder, SalesOrderItem
+
+    order = SalesOrder.objects.create(
+        company=company,
+        customer=customer,
+        status=SalesOrder.Status.CONFIRMED,
+        order_date=when,
+        grand_total=Decimal(total),
+    )
+    SalesOrderItem.objects.create(
+        company=company,
+        sales_order=order,
+        product=product,
+        quantity=Decimal(qty),
+        unit_price=Decimal(price),
+    )
+    return order
+
+
+@pytest.mark.django_db
+def test_customer_actions_fire_churn_and_repeat_on_their_own_windows(tenant_a):
+    from datetime import date
+
+    from insights.customer_actions import build_customer_action_rows
+    from sales.models import SalesOrder
+    from tests.conftest import make_customer, make_product
+
+    customer = make_customer(tenant_a.company, name="Cadence Co")
+    product = make_product(tenant_a.company, sku="CAD-1", name="Repeat Soap")
+    assert build_customer_action_rows(tenant_a.company) == []
+    _enable_actions(tenant_a.company)
+    for when in (date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)):
+        _confirmed_order(tenant_a.company, customer, product, when)
+    assert build_customer_action_rows(tenant_a.company, as_of=date(2026, 2, 1)) == []
+    SalesOrder.objects.filter(company=tenant_a.company, customer=customer).delete()
+    for when in (date(2026, 1, 1), date(2026, 4, 1), date(2026, 7, 1)):
+        _confirmed_order(tenant_a.company, customer, product, when)
+    SalesOrder.objects.create(
+        company=tenant_a.company,
+        customer=customer,
+        status=SalesOrder.Status.CANCELLED,
+        order_date=date(2026, 2, 1),
+        grand_total=Decimal("9999"),
+    )
+    repeat = build_customer_action_rows(tenant_a.company, as_of=date(2026, 9, 20))
+    assert [row["code"] for row in repeat] == ["REPEAT_ORDER_DUE"]
+    assert repeat[0]["action_href"] == f"/sales/orders/new?customer={customer.id}&product={product.id}"
+    assert repeat[0]["money_impact_paise"] == 10000
+    churn = build_customer_action_rows(tenant_a.company, as_of=date(2026, 11, 13))
+    assert [row["code"] for row in churn] == ["CHURN_RISK"]
+    assert churn[0]["action_href"] == f"/sales/customers/{customer.id}"
+    assert "/360" not in churn[0]["action_href"]
+
+
+@pytest.mark.django_db
+def test_customer_360_hides_money_without_financial_permission(tenant_a):
+    from accounts.models import CompanyUser
+    from insights.customer_360 import customer_360
+    from tests.conftest import make_customer
+
+    customer = make_customer(tenant_a.company, name="View Co")
+    owner = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.owner)
+    staff = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.staff)
+    assert customer_360(tenant_a.company, customer, owner) is None
+    flags = dict(tenant_a.company.feature_flags or {})
+    flags["ENABLE_CUSTOMER_360"] = True
+    tenant_a.company.feature_flags = flags
+    tenant_a.company.save(update_fields=["feature_flags"])
+    seen = customer_360(tenant_a.company, customer, owner)
+    hidden = customer_360(tenant_a.company, customer, staff)
+    assert seen["profit"] is not None
+    assert seen["aging"] is not None
+    assert "current" in seen["aging"]
+    assert hidden["profit"] is None
+    assert hidden["outstanding"] is None
+    assert hidden["aging"] is None
+    assert hidden["products"] == []
+    assert "pattern" in hidden
+    from insights.customer_360 import can_open_customer_360
+
+    assert can_open_customer_360(owner) is True
+    assert can_open_customer_360(staff) is False
+    staff.can_create_sales = True
+    assert can_open_customer_360(staff) is True
+
+
+@pytest.mark.django_db
+def test_event_schema_covers_every_attention_and_action_code():
+    from insights.attention import FINANCIAL_CODES, GST_CODES, STOCK_CODES
+    from insights.event_schema import EVENT_SOURCES
+
+    required = (
+        FINANCIAL_CODES
+        | GST_CODES
+        | STOCK_CODES
+        | {
+            "PAID_PENDING_BOOKS",
+            "NO_SALES_TODAY",
+            "AR_OVERDUE_CUSTOMER",
+            "AR_COLLECTION_RISK",
+            "PREDICTED_LATE_PAYMENT",
+            "CHURN_RISK",
+            "REPEAT_ORDER_DUE",
+        }
+    )
+    missing = sorted(required - set(EVENT_SOURCES))
+    assert missing == []

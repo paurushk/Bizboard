@@ -25,8 +25,10 @@ import {
   listAllPurchases,
   listSupplierPaymentsPage,
   listSuppliers,
+  setSupplierPaymentChequeStatus,
   voidSupplierPayment,
 } from '@/api/resources';
+import { ChequePaymentFields, type ChequePaymentValues } from '@/components/ChequePaymentFields';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { todayIso } from '@/components/billing';
 import { PageTitle } from '@/contextHelp';
@@ -58,6 +60,11 @@ export function SupplierPaymentsPage() {
   const [mode, setMode] = useState<PaymentMode>('BANK');
   const [purchase, setPurchase] = useState<PurchaseInvoice | null>(null);
   const [allocAmount, setAllocAmount] = useState('');
+  const [cheque, setCheque] = useState<ChequePaymentValues>({
+    chequeNumber: '',
+    chequeBankName: '',
+    chequeDate: todayIso(),
+  });
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -83,6 +90,9 @@ export function SupplierPaymentsPage() {
       // let "-500" through since it's a non-empty string).
       const paymentAmount = Number(amount);
       if (!(paymentAmount > 0)) throw new Error('Amount must be greater than zero');
+      if (mode === 'CHEQUE' && (!cheque.chequeNumber.trim() || !cheque.chequeBankName.trim())) {
+        throw new Error(`${t('billing.chequeNumber')} / ${t('billing.chequeBank')}`);
+      }
       const key = userGestureIdempotencyKey();
       const payment = await createSupplierPayment(
         {
@@ -90,6 +100,10 @@ export function SupplierPaymentsPage() {
           amount: paymentAmount,
           mode,
           paymentDate: todayIso(),
+          chequeNumber: mode === 'CHEQUE' ? cheque.chequeNumber.trim() : undefined,
+          chequeBankName: mode === 'CHEQUE' ? cheque.chequeBankName.trim() : undefined,
+          chequeDate: mode === 'CHEQUE' ? cheque.chequeDate || undefined : undefined,
+          chequeImage: mode === 'CHEQUE' ? cheque.chequeImage || undefined : undefined,
         },
         { idempotencyKey: key },
       );
@@ -126,6 +140,7 @@ export function SupplierPaymentsPage() {
       setAmount('');
       setPurchase(null);
       setAllocAmount('');
+      setCheque({ chequeNumber: '', chequeBankName: '', chequeDate: todayIso() });
       void qc.invalidateQueries({ queryKey: ['supplier-payments'] });
       void qc.invalidateQueries({ queryKey: ['purchases'] });
       void qc.invalidateQueries({ queryKey: ['suppliers'] });
@@ -138,6 +153,19 @@ export function SupplierPaymentsPage() {
     mutationFn: (id: number) => voidSupplierPayment(id),
     onSuccess: () => {
       setMessage('Payment voided');
+      void qc.invalidateQueries({ queryKey: ['supplier-payments'] });
+      void qc.invalidateQueries({ queryKey: ['purchases'] });
+      void qc.invalidateQueries({ queryKey: ['suppliers'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const chequeStatusMutation = useMutation({
+    mutationFn: ({ id, chequeStatus }: { id: number; chequeStatus: string }) =>
+      setSupplierPaymentChequeStatus(id, chequeStatus),
+    onSuccess: () => {
+      setMessage(t('billing.chequeStatusUpdated'));
       void qc.invalidateQueries({ queryKey: ['supplier-payments'] });
       void qc.invalidateQueries({ queryKey: ['purchases'] });
       void qc.invalidateQueries({ queryKey: ['suppliers'] });
@@ -205,18 +233,46 @@ export function SupplierPaymentsPage() {
                     {p.status && p.status !== 'POSTED' ? (
                       <Chip size="small" label={p.status} />
                     ) : (
-                      <Button
-                        size="small"
-                        color="warning"
-                        disabled={voidMutation.isPending}
-                        onClick={() => {
-                          if (window.confirm(t('billing.confirmVoidPayment'))) {
-                            voidMutation.mutate(p.id);
-                          }
-                        }}
-                      >
-                        Void
-                      </Button>
+                      <Stack direction="row" spacing={0.5} justifyContent="flex-end" useFlexGap flexWrap="wrap">
+                        {p.mode === 'CHEQUE' && p.chequeStatus === 'PENDING_CLEARANCE' ? (
+                          <Button
+                            size="small"
+                            disabled={chequeStatusMutation.isPending}
+                            onClick={() =>
+                              chequeStatusMutation.mutate({ id: p.id, chequeStatus: 'CLEARED' })
+                            }
+                          >
+                            {t('billing.clearCheque')}
+                          </Button>
+                        ) : null}
+                        {p.mode === 'CHEQUE' &&
+                        (p.chequeStatus === 'PENDING_CLEARANCE' || p.chequeStatus === 'CLEARED') ? (
+                          <Button
+                            size="small"
+                            color="warning"
+                            disabled={chequeStatusMutation.isPending}
+                            onClick={() => {
+                              if (window.confirm(t('billing.confirmBounceCheque'))) {
+                                chequeStatusMutation.mutate({ id: p.id, chequeStatus: 'BOUNCED' });
+                              }
+                            }}
+                          >
+                            {t('billing.bounceCheque')}
+                          </Button>
+                        ) : null}
+                        <Button
+                          size="small"
+                          color="warning"
+                          disabled={voidMutation.isPending}
+                          onClick={() => {
+                            if (window.confirm(t('billing.confirmVoidPayment'))) {
+                              voidMutation.mutate(p.id);
+                            }
+                          }}
+                        >
+                          Void
+                        </Button>
+                      </Stack>
                     )}
                   </TableCell>
                 </TableRow>
@@ -262,12 +318,13 @@ export function SupplierPaymentsPage() {
               onChange={(e) => setAmount(e.target.value)}
             />
             <TextField select label="Mode" value={mode} onChange={(e) => setMode(e.target.value as PaymentMode)}>
-              {(['CASH', 'UPI', 'BANK', 'CARD', 'CREDIT'] as const).map((m) => (
+              {(['CASH', 'UPI', 'BANK', 'CARD', 'CREDIT', 'CHEQUE'] as const).map((m) => (
                 <MenuItem key={m} value={m}>
                   {m}
                 </MenuItem>
               ))}
             </TextField>
+            {mode === 'CHEQUE' ? <ChequePaymentFields value={cheque} onChange={setCheque} /> : null}
             <Autocomplete
               options={openPurchases}
               getOptionLabel={(o) => `${o.number ?? o.id} · ${formatMoney(o.grandTotal)}`}

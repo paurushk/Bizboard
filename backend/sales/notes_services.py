@@ -10,7 +10,8 @@ from django.utils import timezone
 from core.events import emit
 from core.exceptions import BusinessRuleError, raise_confirm_required
 from core.help_codes import HelpCode
-from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals
+from core.services.billing import apply_rcm_memo_after_tax
+from core.services.tax_engine.registry import get_tax_engine
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 from core.services.place_of_supply import assert_place_of_supply_for_gst, party_intra_state
 from masters.models import Customer, Product
@@ -118,7 +119,7 @@ class SalesNotesService:
             )
         else:
             inv = note.sales_invoice
-        compute_document_totals(
+        get_tax_engine(note.company).compute_document_totals(
             note,
             items,
             tax_enabled=_tax_enabled(inv.invoice_type),
@@ -367,7 +368,7 @@ class SalesNotesService:
             )
         else:
             inv = note.sales_invoice
-        compute_document_totals(
+        get_tax_engine(note.company).compute_document_totals(
             note,
             items,
             tax_enabled=_tax_enabled(inv.invoice_type),
@@ -541,7 +542,7 @@ class SalesNotesService:
         _validate_lines(items_data, order.company, check_active=True)
         order.items.all().delete()
         items = _build_items(SalesOrderItem, "sales_order", order, items_data)
-        compute_document_totals(
+        get_tax_engine(order.company).compute_document_totals(
             order,
             items,
             tax_enabled=_tax_enabled(order.invoice_type),
@@ -573,6 +574,9 @@ class SalesNotesService:
         items = list(order.items.select_related("product"))
         if not items:
             raise BusinessRuleError("Cannot confirm an order without line items.")
+        from sales.order_gates import apply_order_gates
+
+        apply_order_gates(order, items)
         warehouse = order.warehouse or InventoryService.default_warehouse(order.company)
         if order.warehouse_id is None:
             order.warehouse = warehouse
@@ -592,6 +596,17 @@ class SalesNotesService:
         return order
 
     @staticmethod
+    def _require_confirmation_when_gates_on(order: SalesOrder):
+        """Order gates run at confirmation. A draft must not skip them via convert."""
+        from core.services.feature_flags import flag_enabled
+
+        if flag_enabled(order.company, "ENABLE_ORDER_GATES") and order.status == SalesOrder.Status.DRAFT:
+            raise BusinessRuleError(
+                "Confirm this sales order before converting it.",
+                code="confirm_required",
+            )
+
+    @staticmethod
     @transaction.atomic
     def convert_sales_order(order: SalesOrder, user):
         from inventory.services import InventoryService
@@ -599,6 +614,7 @@ class SalesNotesService:
         order = SalesOrder.objects.select_for_update().get(pk=order.pk, company_id=order.company_id)
         if order.status not in (SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED):
             raise BusinessRuleError(f"Cannot convert an order in status {order.status}.")
+        SalesNotesService._require_confirmation_when_gates_on(order)
         if order.converted_invoice_id:
             raise BusinessRuleError("This sales order already has an invoice.")
         if DeliveryChallan.objects.filter(sales_order=order).exclude(
@@ -674,6 +690,7 @@ class SalesNotesService:
         order = SalesOrder.objects.select_for_update().get(pk=order.pk, company_id=order.company_id)
         if order.status not in (SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED):
             raise BusinessRuleError(f"Cannot convert an order in status {order.status}.")
+        SalesNotesService._require_confirmation_when_gates_on(order)
         if order.customer.status == Customer.Status.BLOCKED:
             raise BusinessRuleError("Cannot create a delivery challan for a blocked customer.")
         if not order.number:
@@ -708,6 +725,7 @@ class SalesNotesService:
             notes=order.notes,
             created_by=user,
             updated_by=user,
+            delivery_address=getattr(order, "delivery_address", "") or "",
         )
         items_data = [
             {
@@ -724,6 +742,7 @@ class SalesNotesService:
                 "batch": getattr(item, "batch", None),
                 "batch_no": getattr(item, "batch_no", "") or "",
                 "serial_numbers": getattr(item, "serial_numbers", None) or [],
+                "expected_price": getattr(item, "expected_price", None) or Decimal("0"),
             }
             for item in order.items.select_related("product")
         ]
@@ -788,7 +807,7 @@ class SalesNotesService:
             gstin = (getattr(active, "gstin", None) or "").strip() if active else ""
         reg = getattr(challan.company, "registration_type", None)
         tax_enabled = bool(gstin) and reg == Company.RegistrationType.REGULAR
-        compute_document_totals(
+        get_tax_engine(challan.company).compute_document_totals(
             challan,
             items,
             tax_enabled=tax_enabled,

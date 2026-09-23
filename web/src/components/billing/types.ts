@@ -26,6 +26,7 @@ export interface DraftLine {
   /** F2-012: upper bound from the source purchase line for credit/debit notes. */
   maxQty?: number;
   unitPrice: number;
+  expectedPrice?: number;
   /** F2-007: set once the user types a unit price directly — a later qty change
    *  must then NOT silently re-apply the price-list rate over their override. */
   priceEdited?: boolean;

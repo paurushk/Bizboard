@@ -134,7 +134,12 @@ export function DraftLineTable({
                 <Typography fontWeight={600} variant="body2">
                   {line.productName}
                 </Typography>
-                <CompactField
+                <TextField
+                  size="small"
+                  multiline
+                  minRows={2}
+                  maxRows={6}
+                  fullWidth
                   placeholder={t('billing.lineDescriptionPlaceholder')}
                   value={line.description}
                   onChange={(e) => onUpdate(line.key, { description: e.target.value })}

@@ -112,6 +112,10 @@ export const SALES_HELP: ContextHelpPage[] = [
         'A later receipt must be allocated to this bill before outstanding falls. A sales return or credit note is how you reverse quantity or tax after Complete.',
         'बकाया घटाने के लिए रसीद इस बिल पर आवंटित होनी चाहिए। Complete के बाद मात्रा/टैक्स बदलने के लिए रिटर्न या क्रेडिट नोट।',
       ],
+      [
+        'e-Invoice here is payload-prep only. **t:einvoice.payloadOnlyHelp** Prepare JSON from **t:nav.salesHistory**; this app does not submit to the government IRP.',
+        'यहाँ e-Invoice केवल पेलोड तैयारी है। **t:einvoice.payloadOnlyHelp** **t:nav.salesHistory** से JSON तैयार करें; यह ऐप सरकारी IRP पर सबमिट नहीं करता।',
+      ],
     ],
     keyRules: [
       [
@@ -594,6 +598,39 @@ export const SALES_HELP: ContextHelpPage[] = [
     ],
     nextActions: [
       ['Open the draft, fix lines, Complete.', 'ड्राफ्ट खोलें, लाइनें ठीक करें, Complete करें।'],
+    ],
+  }),
+
+  helpPage('delivery-routes', {
+    title: ['Delivery routes', 'डिलीवरी रूट'],
+    summary: [
+      'Plan a trip over existing sales orders: vehicle, driver, stop order, expected profit. Stock still posts only when you complete a delivery challan — this page does not dispatch goods.',
+      'मौजूदा सेल्स ऑर्डर पर यात्रा योजना: वाहन, ड्राइवर, स्टॉप क्रम, अनुमानित लाभ। स्टॉक तब लगता है जब डिलीवरी चालान Complete हो — यह पेज माल नहीं भेजता।',
+    ],
+    howItWorks: [
+      [
+        'Create a planned route, add open sales orders as stops, start the trip, then mark stops delivered, failed or returned. You can remove a stop only while the route is still planned.',
+        'योजनाबद्ध रूट बनाएँ, खुले सेल्स ऑर्डर स्टॉप जोड़ें, यात्रा शुरू करें, फिर डिलीवर/विफल/वापस चिह्नित करें। स्टॉप केवल योजना अवस्था में हटा सकते हैं।',
+      ],
+    ],
+    businessImpact: [
+      [
+        'Expected / estimated profit uses current purchase price, not later FIFO invoice profit. Logistics cost is manual until tied to an expense.',
+        'अनुमानित लाभ मौजूदा खरीद मूल्य से है, बाद के FIFO इनवॉइस लाभ से नहीं। लॉजिस्टिक्स लागत खर्च से जुड़ने तक मैनुअल है।',
+      ],
+    ],
+    keyRules: [
+      ['Sales-order stops only for v1. Completing a route does not complete challans or invoices.', 'v1 में केवल सेल्स-ऑर्डर स्टॉप। रूट Complete चालान या इनवॉइस Complete नहीं करता।'],
+    ],
+    commonMistakes: [
+      ['Treating a planned route as stock already out of the godown.', 'योजनाबद्ध रूट को गोदाम से निकला स्टॉक समझना।'],
+    ],
+    relatedPages: [
+      { path: '/sales/orders', labelKey: 'nav.salesOrders' },
+      { path: '/sales/delivery-challans', labelKey: 'nav.deliveryChallans' },
+    ],
+    nextActions: [
+      ['Add open orders while planned, start the trip, then complete or mark failed stops honestly.', 'योजना में खुले ऑर्डर जोड़ें, यात्रा शुरू करें, फिर स्टॉप Complete या विफल सही चिह्नित करें।'],
     ],
   }),
 ];

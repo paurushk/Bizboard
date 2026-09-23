@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -103,6 +104,8 @@ vi.mock('@/api/resources', () => ({
   downloadSalesDocumentPdf: vi.fn(),
   regenerateSalesDocumentPdf: vi.fn(),
   getUpiQr: vi.fn(),
+  getInvoiceHsnSummary: async () => ({ invoiceId: 1, rows: [] }),
+  getInvoiceProfitReport: async () => ({ rows: [] }),
   amendInvoiceFilingIdentity: vi.fn(),
   cancelSalesInvoice: vi.fn(),
   completeSalesInvoice: vi.fn(),
@@ -162,4 +165,11 @@ describe('InvoiceDetailPage status — G-17', () => {
       await screen.findByText(/Line edits are blocked while this IRN is live/i),
     ).toBeTruthy();
   }, 15_000);
+
+  it('opens the shared ShareInvoiceDialog from the detail share button', async () => {
+    wrap(<InvoiceDetailPage />, '/sales/history/1');
+    await screen.findByText('INV-0001');
+    await userEvent.click(screen.getByRole('button', { name: /^share$/i }));
+    expect(await screen.findByRole('dialog', { name: /share invoice/i })).toBeTruthy();
+  });
 });

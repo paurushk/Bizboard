@@ -28,8 +28,10 @@ import {
   listBankAccounts,
   listReceiptsPage,
   listSalesInvoicesPage,
+  setReceiptChequeStatus,
   voidReceipt,
 } from '@/api/resources';
+import { ChequePaymentFields, type ChequePaymentValues } from '@/components/ChequePaymentFields';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useAuth } from '@/auth/AuthContext';
@@ -58,6 +60,11 @@ export function ReceiptsPage() {
   const [allocAmount, setAllocAmount] = useState('');
   const [utr, setUtr] = useState('');
   const [bankAccount, setBankAccount] = useState('');
+  const [cheque, setCheque] = useState<ChequePaymentValues>({
+    chequeNumber: '',
+    chequeBankName: '',
+    chequeDate: todayIso(),
+  });
   const [error, setError] = useState<string | null>(null);
   const [errorSource, setErrorSource] = useState<unknown>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -93,6 +100,9 @@ export function ReceiptsPage() {
       // let a negative amount ("-500" is a non-empty string) through.
       const receiptAmount = Number(amount);
       if (!(receiptAmount > 0)) throw new Error('Amount must be greater than zero');
+      if (mode === 'CHEQUE' && (!cheque.chequeNumber.trim() || !cheque.chequeBankName.trim())) {
+        throw new Error(`${t('billing.chequeNumber')} / ${t('billing.chequeBank')}`);
+      }
       const key = userGestureIdempotencyKey();
       const receipt = await createReceipt(
         {
@@ -102,6 +112,10 @@ export function ReceiptsPage() {
           receiptDate: todayIso(),
           utr: utr || undefined,
           bankAccount: bankAccount ? Number(bankAccount) : undefined,
+          chequeNumber: mode === 'CHEQUE' ? cheque.chequeNumber.trim() : undefined,
+          chequeBankName: mode === 'CHEQUE' ? cheque.chequeBankName.trim() : undefined,
+          chequeDate: mode === 'CHEQUE' ? cheque.chequeDate || undefined : undefined,
+          chequeImage: mode === 'CHEQUE' ? cheque.chequeImage || undefined : undefined,
         },
         { idempotencyKey: key },
       );
@@ -138,6 +152,7 @@ export function ReceiptsPage() {
       setAllocAmount('');
       setUtr('');
       setBankAccount('');
+      setCheque({ chequeNumber: '', chequeBankName: '', chequeDate: todayIso() });
       setError(null);
       setErrorSource(null);
       void qc.invalidateQueries({ queryKey: ['receipts'] });
@@ -152,6 +167,22 @@ export function ReceiptsPage() {
     mutationFn: (id: number) => voidReceipt(id),
     onSuccess: () => {
       setMessage('Receipt voided');
+      void qc.invalidateQueries({ queryKey: ['receipts'] });
+      void qc.invalidateQueries({ queryKey: ['sales-invoices-open'] });
+    },
+    onError: (err) => {
+      setError(getErrorMessage(err));
+      setErrorSource(err);
+    },
+  });
+
+  const chequeStatusMutation = useMutation({
+    mutationFn: ({ id, chequeStatus }: { id: number; chequeStatus: string }) =>
+      setReceiptChequeStatus(id, chequeStatus),
+    onSuccess: (receipt) => {
+      setMessage(
+        receipt.chequeStatus === 'BOUNCED' ? t('billing.bounceCheque') : t('billing.clearCheque'),
+      );
       void qc.invalidateQueries({ queryKey: ['receipts'] });
       void qc.invalidateQueries({ queryKey: ['sales-invoices-open'] });
     },
@@ -242,7 +273,9 @@ export function ReceiptsPage() {
                       <Chip size="small" variant="outlined" label={r.source || 'MANUAL'} />
                     </TableCell>
                     <TableCell>
-                      {r.utr ?? r.bankAccountName ?? '—'}
+                      {r.mode === 'CHEQUE'
+                        ? [r.chequeNumber, r.chequeBankName, r.chequeStatus].filter(Boolean).join(' · ') || '—'
+                        : r.utr ?? r.bankAccountName ?? '—'}
                       {r.utrWarning ? (
                         <Chip size="small" color="warning" sx={{ ml: 1 }} label="UTR warn" title={r.utrWarning} />
                       ) : null}
@@ -263,18 +296,48 @@ export function ReceiptsPage() {
                       {r.status && r.status !== 'POSTED' ? (
                         <Chip size="small" label={r.status} />
                       ) : r.source === 'GATEWAY' ? null : canWrite ? (
-                        <Button
-                          size="small"
-                          color="warning"
-                          disabled={voidMutation.isPending}
-                          onClick={() => {
-                            if (window.confirm(t('billing.confirmVoidReceipt'))) {
-                              voidMutation.mutate(r.id);
-                            }
-                          }}
-                        >
-                          {t('billing.voidAction')}
-                        </Button>
+                        <Stack direction="row" spacing={0.5} justifyContent="flex-end" useFlexGap flexWrap="wrap">
+                          {r.mode === 'CHEQUE' && r.chequeStatus === 'PENDING_CLEARANCE' ? (
+                            <Button
+                              size="small"
+                              disabled={chequeStatusMutation.isPending}
+                              onClick={() =>
+                                chequeStatusMutation.mutate({ id: r.id, chequeStatus: 'CLEARED' })
+                              }
+                            >
+                              {t('billing.clearCheque')}
+                            </Button>
+                          ) : null}
+                          {r.mode === 'CHEQUE' &&
+                          (r.chequeStatus === 'PENDING_CLEARANCE' || r.chequeStatus === 'CLEARED') ? (
+                            <Button
+                              size="small"
+                              color="warning"
+                              disabled={chequeStatusMutation.isPending}
+                              onClick={() => {
+                                if (window.confirm(t('billing.confirmBounceCheque'))) {
+                                  chequeStatusMutation.mutate({ id: r.id, chequeStatus: 'BOUNCED' });
+                                }
+                              }}
+                            >
+                              {t('billing.bounceCheque')}
+                            </Button>
+                          ) : null}
+                          {r.source === 'GATEWAY' ? null : (
+                            <Button
+                              size="small"
+                              color="warning"
+                              disabled={voidMutation.isPending}
+                              onClick={() => {
+                                if (window.confirm(t('billing.confirmVoidReceipt'))) {
+                                  voidMutation.mutate(r.id);
+                                }
+                              }}
+                            >
+                              {t('billing.voidAction')}
+                            </Button>
+                          )}
+                        </Stack>
                       ) : null}
                     </TableCell>
                   </TableRow>
@@ -342,12 +405,13 @@ export function ReceiptsPage() {
               onChange={(e) => setAmount(e.target.value)}
             />
             <TextField select label="Payment Mode" value={mode} onChange={(e) => setMode(e.target.value as PaymentMode)}>
-              {(['CASH', 'UPI', 'BANK', 'CARD', 'CREDIT'] as const).map((m) => (
+              {(['CASH', 'UPI', 'BANK', 'CARD', 'CREDIT', 'CHEQUE'] as const).map((m) => (
                 <MenuItem key={m} value={m}>
                   {m}
                 </MenuItem>
               ))}
             </TextField>
+            {mode === 'CHEQUE' ? <ChequePaymentFields value={cheque} onChange={setCheque} /> : null}
             {(mode === 'BANK' || mode === 'UPI') ? <TextField label="UTR / Reference Number" value={utr} onChange={(e) => setUtr(e.target.value)} helperText="Duplicate UTRs in 90 days show a warning" /> : null}
             {(mode === 'BANK' || mode === 'UPI') ? <TextField select label="Deposit to Bank Account" value={bankAccount} onChange={(e) => setBankAccount(e.target.value)}>
               <MenuItem value="">Not specified / Cash Box</MenuItem>

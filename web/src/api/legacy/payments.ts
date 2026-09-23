@@ -7,7 +7,7 @@ import {
   mockReceipts,
   mockReconLines,
 } from '@/mocks/data';
-import type { CustomerReceipt, PaymentAllocation } from '@/types/domain';
+import type { CustomerReceipt, PaymentAllocation, SupplierPayment } from '@/types/domain';
 import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
 
 export async function listReceiptsPage(
@@ -31,6 +31,11 @@ export async function createReceipt(
     utr?: string;
     bankAccount?: number;
     notes?: string;
+    chequeNumber?: string;
+    chequeBankName?: string;
+    chequeDate?: string;
+    chequeImage?: number;
+    settlementDiscount?: number | string;
   },
   options?: { idempotencyKey?: string },
 ): Promise<CustomerReceipt> {
@@ -53,6 +58,16 @@ export async function createReceipt(
 export async function voidReceipt(id: number, reason = ''): Promise<CustomerReceipt> {
   const { data } = await apiClient.post(`/payments/receipts/${id}/void/`, reason ? { reason } : {});
   return unwrapData<CustomerReceipt>(data);
+}
+
+export async function setReceiptChequeStatus(id: number, chequeStatus: string): Promise<CustomerReceipt> {
+  const { data } = await apiClient.post(`/payments/receipts/${id}/set-cheque-status/`, { chequeStatus });
+  return unwrapData<CustomerReceipt>(data);
+}
+
+export async function setSupplierPaymentChequeStatus(id: number, chequeStatus: string): Promise<SupplierPayment> {
+  const { data } = await apiClient.post(`/payments/supplier-payments/${id}/set-cheque-status/`, { chequeStatus });
+  return unwrapData<SupplierPayment>(data);
 }
 
 export async function unallocatePayment(id: number): Promise<PaymentAllocation> {
@@ -187,6 +202,36 @@ export const createReceiptFromReconLine = (payload: Record<string, unknown>) => 
 export const getGatewaySettings = () => apiClient.get('/payments/gateway-settings/').then(({ data }) => unwrapData<Record<string, unknown>>(data));
 export const updateGatewaySettings = (payload: Record<string, unknown>) => apiClient.patch('/payments/gateway-settings/', payload).then(({ data }) => unwrapData(data));
 export const getPublicPaymentLink = (token: string) => apiClient.get(`/public/pay/${token}/`).then(({ data }) => unwrapData<Record<string, unknown>>(data));
+
+export function requestCustomerPortalLink(body: { email?: string; phone?: string }) {
+  return apiClient.post('/public/customer-portal/request-link/', body).then(({ data }) =>
+    unwrapData<{ detail: string; debugToken?: string }>(data),
+  );
+}
+
+export function getCustomerPortal(token: string) {
+  return apiClient.get(`/public/customer-portal/${token}/`).then(({ data }) => unwrapData<{
+    customerName: string;
+    expiresAt: string;
+    invoices: Array<{
+      id: number;
+      number: string;
+      invoiceDate: string;
+      status: string;
+      amount: string;
+      outstanding: string;
+      payPath: string | null;
+    }>;
+  }>(data));
+}
+
+export function downloadCustomerPortalInvoice(token: string, invoiceId: number) {
+  return apiClient.get(`/public/customer-portal/${token}/invoices/${invoiceId}/pdf/`, { responseType: 'blob' }).then(({ data }) => data as Blob);
+}
+
+export function startCustomerPortalPayment(token: string, invoiceId: number) {
+  return apiClient.post(`/public/customer-portal/${token}/invoices/${invoiceId}/pay/`).then(({ data }) => unwrapData<{ payPath: string }>(data));
+}
 export const listAccountingBankReconSessions = () =>
   withMocks(
     () => fetchAllPagesMasters<Record<string, unknown>>('/accounting/bank-recon-sessions/'),

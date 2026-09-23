@@ -164,6 +164,33 @@ export const REPORTS_HELP: ContextHelpPage[] = [
     ],
   }),
 
+  helpPage('day-book', {
+    title: ['Day book', 'डे बुक'],
+    summary: [
+      'One company-wide list of the day’s sales-side documents, receipts, returns, notes and expenses. It is not a Cash Book relabel: uncleared cheques do not count as cash until they clear.',
+      'कंपनी की उस दिन की बिक्री दस्तावेज़, रसीदें, रिटर्न, नोट और खर्च की एक सूची। यह कैश बुक का दूसरा नाम नहीं: अनक्लियर्ड चेक क्लियर होने तक नकद नहीं गिने जाते।',
+    ],
+    howItWorks: [
+      ['Pick a date. Rows come from the same transaction union used by the customer ledger, scoped to that day.', 'तारीख चुनें। पंक्तियाँ ग्राहक लेजर वाले लेन-देन संघ से, उसी दिन तक सीमित।'],
+    ],
+    businessImpact: [
+      ['Use this for day-end control. Bank and GST worksheets stay separate.', 'दिन के अंत नियंत्रण के लिए। बैंक और GST वर्कशीट अलग रहती हैं।'],
+    ],
+    keyRules: [
+      ['Cheque receipts appear in cash-position only with status CLEARED. A bounced cheque is un-marked paid.', 'चेक रसीद नकद स्थिति में केवल CLEARED पर। बाउंस चेक unpaid हो जाता है।'],
+    ],
+    commonMistakes: [
+      ['Expecting uncleared cheques or supplier payments in this sales-side day view.', 'अनक्लियर्ड चेक या सप्लायर भुगतान को इस बिक्री-पक्ष डे व्यू में ढूँढना।'],
+    ],
+    relatedPages: [
+      { path: '/reports/cash-book', labelKey: 'nav.cashBook' },
+      { path: '/accounting/expenses', labelKey: 'nav.expenses' },
+    ],
+    nextActions: [
+      ['Pick today, confirm cash and cleared-cheque totals, then record missing expenses or receipts.', 'आज चुनें, नकद और क्लियर्ड चेक मिलाएँ, छूटे खर्च या रसीदें दर्ज करें।'],
+    ],
+  }),
+
   helpPage('gst-return', {
     title: ['GST worksheets', 'GST वर्कशीट'],
     summary: [
@@ -719,6 +746,33 @@ export const SETTINGS_HELP: ContextHelpPage[] = [
     ],
     nextActions: [
       ['If the source is a bill, open the bill first. Use a journal only for true GL-only adjustments your CA asked for.', 'स्रोत बिल हो तो पहले बिल खोलें। जर्नल केवल CA वाले GL समायोजन के लिए।'],
+    ],
+  }),
+
+  helpPage('expenses', {
+    title: ['Expenses', 'खर्च प्रविष्टियाँ'],
+    summary: [
+      'Record a dated expense with category, amount, optional party and notes. This is not a purchase bill and does not post item stock or ITC.',
+      'तारीख, श्रेणी, राशि, वैकल्पिक पार्टी और नोट के साथ खर्च दर्ज करें। यह खरीद बिल नहीं है और आइटम स्टॉक या ITC नहीं लगाता।',
+    ],
+    howItWorks: [
+      ['Create from this list. Filter by category. Day Book includes these rows for the selected date.', 'इसी सूची से बनाएँ। श्रेणी से फ़िल्टर। डे बुक चुनी तारीख पर ये पंक्तियाँ दिखाता है।'],
+    ],
+    businessImpact: [
+      ['Expenses reduce cash-position on Day Book when paid in cash/cleared instruments. GST purchase ITC still needs a purchase bill.', 'नकद/क्लियर्ड साधन पर खर्च डे बुक की नकद स्थिति घटाते हैं। GST ITC के लिए खरीद बिल चाहिए।'],
+    ],
+    keyRules: [
+      ['Need create-sales-equivalent accounting write permission via this screen’s gate. Categories can be added inline.', 'इस स्क्रीन की लेखन अनुमति चाहिए। श्रेणियाँ इनलाइन जोड़ सकते हैं।'],
+    ],
+    commonMistakes: [
+      ['Booking inventory purchases here instead of a purchase invoice, then wondering why stock and ITC are missing.', 'स्टॉक खरीद यहाँ लिखना — स्टॉक और ITC छूट जाते हैं।'],
+    ],
+    relatedPages: [
+      { path: '/reports/day-book', labelKey: 'nav.dayBook' },
+      { path: '/purchases/new', labelKey: 'nav.newPurchase' },
+    ],
+    nextActions: [
+      ['Add today’s cash expenses, then open Day Book for the same date.', 'आज के नकद खर्च जोड़ें, उसी तारीख की डे बुक खोलें।'],
     ],
   }),
 

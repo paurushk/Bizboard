@@ -201,3 +201,35 @@ def test_g19_dead_stock_ignores_fully_reserved_stock(tenant_a):
     rows = build_attention_rows(tenant_a.company, company_user=cu)
     codes = {r["code"] for r in rows}
     assert "DEAD_STOCK" not in codes
+
+
+def test_assignment_overdue_is_a_marker_and_mine_keeps_the_owner(tenant_a):
+    from datetime import timedelta
+
+    from accounts.models import CompanyUser
+    from insights.attention import _attach_assignment, assign_attention_row
+
+    flags = dict(tenant_a.company.feature_flags or {})
+    flags["ENABLE_ACTION_ASSIGNMENT"] = True
+    tenant_a.company.feature_flags = flags
+    tenant_a.company.save(update_fields=["feature_flags"])
+    member = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.owner)
+    today = timezone.localdate()
+    assign_attention_row(
+        tenant_a.company,
+        member,
+        dedupe_key="MINE-1",
+        assignee_id=member.id,
+        due_date=(today - timedelta(days=1)).isoformat(),
+    )
+    raw = [{"dedupe_key": "MINE-1", "severity": "warning", "code": "LOW_STOCK_FAST_MOVER"}]
+    attached = _attach_assignment(tenant_a.company, raw)
+    assert attached[0]["overdue"] is True
+    assert attached[0]["severity"] == "warning"
+    mine = [row for row in attached if row.get("assigned_to") == member.id]
+    assert len(mine) == 1
+    tenant_a.company.feature_flags = {}
+    tenant_a.company.save(update_fields=["feature_flags"])
+    hidden = _attach_assignment(tenant_a.company, [{"dedupe_key": "MINE-1", "severity": "warning"}])
+    assert "assigned_to" not in hidden[0]
+    assert "overdue" not in hidden[0]

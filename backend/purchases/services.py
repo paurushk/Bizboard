@@ -12,10 +12,10 @@ from core.exceptions import BusinessRuleError, raise_confirm_required
 from core.help_codes import HelpCode
 from core.services.billing import (
     apply_rcm_memo_after_tax,
-    compute_document_totals,
     fold_tds_from_rate,
     recompute_totals_for_stamped_gstin,
 )
+from core.services.tax_engine.registry import get_tax_engine
 from core.services.place_of_supply import assert_place_of_supply_for_gst, party_intra_state
 from core.services.document_numbers import DocumentNumberService
 from core.services.uqc import snapshot_unit_fields
@@ -352,7 +352,7 @@ class PurchaseService:
             invoice.items.all().delete()
             items = _build_purchase_items(invoice, items_data)
 
-        compute_document_totals(
+        get_tax_engine(invoice.company).compute_document_totals(
             invoice, items,
             tax_enabled=invoice.purchase_type == PurchaseInvoice.PurchaseType.GST,
             intra_state=party_intra_state(
@@ -1038,7 +1038,7 @@ class PurchaseService:
         tax_enabled = source.purchase_type == PurchaseInvoice.PurchaseType.GST if source else True
         from .notes_services import _invoice_intra_state as _pi_intra
 
-        compute_document_totals(
+        get_tax_engine(purchase_return.company).compute_document_totals(
             purchase_return, items,
             tax_enabled=tax_enabled,
             intra_state=_pi_intra(source) if source else False,

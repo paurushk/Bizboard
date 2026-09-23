@@ -163,7 +163,13 @@ def _can_see(company_user, code: str) -> bool:
         )
     if code in {"PAID_PENDING_BOOKS", "DUPLICATE_PAYMENT"}:
         return bool(company_user.can_create_payments or company_user.can_view_financial_reports)
-    if code in {"NO_SALES_TODAY", "AR_OVERDUE_CUSTOMER"}:
+    if code in {
+        "NO_SALES_TODAY",
+        "AR_OVERDUE_CUSTOMER",
+        "CHURN_RISK",
+        "REPEAT_ORDER_DUE",
+        "PREDICTED_LATE_PAYMENT",
+    }:
         return bool(
             company_user.can_create_sales
             or company_user.can_create_payments
@@ -192,13 +198,17 @@ def _map_legacy_alerts(company, as_of: date) -> list[dict]:
         doc_type = raw.get("document_type") or "company"
         doc_id = raw.get("document_id") or company.id
         href = raw.get("cta_path") or "/"
+        action_label = "Fix"
+        payload = raw.get("payload") or {}
+        if code == "LOW_STOCK_FAST_MOVER" and payload.get("suggested_qty"):
+            action_label = "Transfer" if payload.get("transfer_from_warehouse_id") else "Purchase"
         out.append(_row(
             code=code,
             severity=raw.get("severity") or "info",
             title=raw.get("message") or code,
             money_impact_paise=_paise_from_legacy_alert(raw),
             reason=raw.get("message") or code,
-            action_label="Fix",
+            action_label=action_label,
             action_href=href,
             source_ticket="B-05",
             entity_type=doc_type,
@@ -580,6 +590,11 @@ def _build_raw_rows(company, as_of: date) -> list[dict]:
     raw.extend(_overdue_customer_rows(company, as_of))
     raw.extend(_residual_return_rows(company))
     raw.extend(_expiry_rows(company))
+    from insights.customer_actions import build_customer_action_rows
+    from payments.predictive_dunning import predicted_rows
+
+    raw.extend(predicted_rows(company, as_of))
+    raw.extend(build_customer_action_rows(company, as_of))
     return raw
 
 
@@ -601,7 +616,73 @@ def build_attention_rows(company, company_user=None, as_of: date | None = None) 
     visible = _apply_state(company, ranked)
     if company_user is not None:
         visible = [r for r in visible if _can_see(company_user, r["code"])]
-    return [_contract(r) for r in visible]
+    contracted = [_contract(r) for r in visible]
+    return _attach_assignment(company, contracted)
+
+
+def _attach_assignment(company, rows: list[dict]) -> list[dict]:
+    from core.services.feature_flags import flag_enabled
+
+    if not flag_enabled(company, "ENABLE_ACTION_ASSIGNMENT"):
+        return rows
+    keys = [row["dedupe_key"] for row in rows]
+    states = {
+        state.dedupe_key: state
+        for state in AttentionRowState.objects.filter(company=company, dedupe_key__in=keys)
+    }
+    today = timezone.localdate()
+    for row in rows:
+        state = states.get(row["dedupe_key"])
+        assigned_id = state.assigned_to_id if state is not None else None
+        due = state.due_date if state is not None else None
+        row["assigned_to"] = assigned_id
+        row["due_date"] = due.isoformat() if due else None
+        row["overdue"] = bool(due and due < today)
+    return rows
+
+
+def assign_attention_row(company, company_user, *, dedupe_key: str, assignee_id, due_date):
+    from datetime import date as date_cls
+
+    from accounts.models import CompanyUser
+    from core.exceptions import BusinessRuleError
+    from core.services.feature_flags import flag_enabled
+    from core.services.flag_observability import log_flag_event
+
+    if not flag_enabled(company, "ENABLE_ACTION_ASSIGNMENT"):
+        raise BusinessRuleError("Action assignment is off for this company.")
+    dedupe_key = (dedupe_key or "").strip()
+    if not dedupe_key:
+        raise BusinessRuleError("dedupe_key is required.")
+    assignee = None
+    if assignee_id not in (None, "", 0):
+        assignee = CompanyUser.objects.filter(
+            company=company, pk=assignee_id, user__is_active=True
+        ).first()
+        if assignee is None:
+            raise BusinessRuleError("Assignee must be an active member of this company.")
+    parsed_due = None
+    if due_date not in (None, ""):
+        if isinstance(due_date, date_cls):
+            parsed_due = due_date
+        else:
+            parsed_due = date_cls.fromisoformat(str(due_date)[:10])
+    now = timezone.now()
+    state, _created = AttentionRowState.objects.get_or_create(
+        company=company,
+        dedupe_key=dedupe_key,
+        defaults={"first_seen": now},
+    )
+    state.assigned_to = assignee
+    state.due_date = parsed_due
+    state.updated_by = getattr(company_user, "user", None)
+    state.save(update_fields=["assigned_to", "due_date", "updated_by", "updated_at"])
+    log_flag_event(company, "ENABLE_ACTION_ASSIGNMENT", "action_assigned", dedupe_key=dedupe_key)
+    return {
+        "dedupe_key": dedupe_key,
+        "assigned_to": assignee.id if assignee else None,
+        "due_date": parsed_due.isoformat() if parsed_due else None,
+    }
 
 
 def snooze_attention_row(company, company_user, *, dedupe_key: str, days: int, reason: str) -> dict:

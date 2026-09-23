@@ -63,4 +63,35 @@ describe('HistoryFilterBar', () => {
     renderWithTheme(<Harness showDateRange={false} />);
     expect(screen.queryByLabelText('From')).not.toBeInTheDocument();
   });
+
+  it('emits a date range when a preset is clicked', async () => {
+    const user = userEvent.setup();
+    function PresetHarness() {
+      const [value, setValue] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+      return (
+        <>
+          <HistoryFilterBar value={value} onChange={setValue} dateRangePresets />
+          <output data-testid="state">{JSON.stringify(value)}</output>
+        </>
+      );
+    }
+    renderWithTheme(<PresetHarness />);
+    await user.click(screen.getByText('Today'));
+    const parsed = JSON.parse(screen.getByTestId('state').textContent || '{}') as HistoryFilters;
+    expect(parsed.dateFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(parsed.dateFrom).toBe(parsed.dateTo);
+  });
+
+  it('shows bulk selection count and actions', () => {
+    renderWithTheme(
+      <HistoryFilterBar
+        value={EMPTY_HISTORY_FILTERS}
+        onChange={() => undefined}
+        bulkSelectedCount={3}
+        bulkActions={<button type="button">Download</button>}
+      />,
+    );
+    expect(screen.getByText(/3 selected/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
+  });
 });

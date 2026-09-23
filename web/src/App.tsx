@@ -114,6 +114,11 @@ const InsightsHealthPage = lazy(() => import('@/pages/insights/InsightsHealthPag
 const InsightsCashflowPage = lazy(() => import('@/pages/insights/InsightsCashflowPage').then((m) => ({ default: m.InsightsCashflowPage })));
 const InsightsAssistantPage = lazy(() => import('@/pages/insights/InsightsAssistantPage').then((m) => ({ default: m.InsightsAssistantPage })));
 const AttentionPage = lazy(() => import('@/pages/AttentionPage').then((m) => ({ default: m.AttentionPage })));
+const CollectionsWorklistPage = lazy(() => import('@/pages/CollectionsWorklistPage').then((m) => ({ default: m.CollectionsWorklistPage })));
+const PurchasePlanningPage = lazy(() => import('@/pages/purchases/PurchasePlanningPage').then((m) => ({ default: m.PurchasePlanningPage })));
+const Customer360Page = lazy(() => import('@/pages/sales/Customer360Page').then((m) => ({ default: m.Customer360Page })));
+const PackWizardPage = lazy(() => import('@/pages/settings/PackWizardPage').then((m) => ({ default: m.PackWizardPage })));
+const LeadFormPage = lazy(() => import('@/pages/public/LeadFormPage').then((m) => ({ default: m.LeadFormPage })));
 const TallyMigrationPage = lazy(() => import('@/pages/settings/TallyMigrationPage').then((m) => ({ default: m.TallyMigrationPage })));
 const AiSettingsPage = lazy(() => import('@/pages/settings/AiSettingsPage').then((m) => ({ default: m.AiSettingsPage })));
 const CompanySettingsPage = lazy(() => import('@/pages/settings/CompanySettingsPage').then((m) => ({ default: m.CompanySettingsPage })));
@@ -154,8 +159,13 @@ const CostCentersPage = lazy(() => import('@/pages/accounting/CostCentersPage').
 const FixedAssetsPage = lazy(() => import('@/pages/accounting/FixedAssetsPage').then((m) => ({ default: m.FixedAssetsPage })));
 const PeriodsPage = lazy(() => import('@/pages/accounting/PeriodsPage').then((m) => ({ default: m.PeriodsPage })));
 const RecurringInvoicesPage = lazy(() => import('@/pages/sales/RecurringInvoicesPage').then((m) => ({ default: m.RecurringInvoicesPage })));
+const DeliveryRoutesPage = lazy(() => import('@/pages/sales/DeliveryRoutesPage').then((m) => ({ default: m.DeliveryRoutesPage })));
+const DayBookPage = lazy(() => import('@/pages/reports/DayBookPage').then((m) => ({ default: m.DayBookPage })));
+const ExpensesPage = lazy(() => import('@/pages/accounting/ExpensesPage').then((m) => ({ default: m.ExpensesPage })));
 const TdsTcsReportsPage = lazy(() => import('@/pages/reports/TdsTcsReportsPage').then((m) => ({ default: m.TdsTcsReportsPage })));
 const PublicPayPage = lazy(() => import('@/pages/public/PublicPayPage').then((m) => ({ default: m.PublicPayPage })));
+const CustomerPortalRequestPage = lazy(() => import('@/pages/public/CustomerPortalRequestPage').then((m) => ({ default: m.CustomerPortalRequestPage })));
+const CustomerPortalPage = lazy(() => import('@/pages/public/CustomerPortalPage').then((m) => ({ default: m.CustomerPortalPage })));
 const BomsPage = lazy(() =>
   import('@/pages/manufacturing/BomsPage').then((m) => ({ default: m.BomsPage })),
 );
@@ -335,6 +345,9 @@ export function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/invite" element={<AcceptInvitePage />} />
         <Route path="/pay/:token" element={<PublicPayPage />} />
+        <Route path="/portal" element={<CustomerPortalRequestPage />} />
+        <Route path="/portal/:token" element={<CustomerPortalPage />} />
+        <Route path="/lead-form/:token" element={<LeadFormPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<RoleRoute allow={(user) => user?.role === 'OWNER'} />}>
             <Route path="setup" element={<SetupWizardPage />} />
@@ -387,12 +400,16 @@ export function App() {
               <Route path="sales/debit-notes" element={<DebitNotesPage />} />
               <Route path="sales/orders" element={<SalesOrdersPage />} />
               <Route path="sales/delivery-challans" element={<DeliveryChallansPage />} />
+              <Route path="sales/delivery-routes" element={<DeliveryRoutesPage />} />
+              <Route path="sales/delivery-routes/:id" element={<DeliveryRoutesPage />} />
               <Route path="sales/recurring" element={<RecurringInvoicesPage />} />
               <Route path="sales/customers" element={<CustomersPage />} />
+              <Route path="sales/customers/:id" element={<Customer360Page />} />
             </Route>
             {/* BB-000480: list & detail surfaces use view ACL; create stay on canCreateSales. */}
             <Route element={<RoleRoute allow={canViewSalesSurfaces} />}>
               <Route path="sales/quotations" element={<QuotationsPage />} />
+              <Route path="sales/quotations/:id" element={<QuotationsPage />} />
               <Route path="sales/returns" element={<SalesReturnsPage />} />
             </Route>
             <Route element={<RoleRoute allow={canCreateSales} />}>
@@ -448,6 +465,7 @@ export function App() {
               <Route path="inventory/products" element={<ProductsPage />} />
               <Route path="inventory/stock" element={<CurrentStockPage />} />
               <Route path="inventory/low-stock" element={<LowStockPage />} />
+              <Route path="inventory/purchase-planning" element={<PurchasePlanningPage />} />
               <Route path="inventory/expiry-alerts" element={<ExpiryAlertsPage />} />
               <Route path="inventory/expiry" element={<Navigate to="/inventory/expiry-alerts" replace />} />
             </Route>
@@ -462,6 +480,7 @@ export function App() {
             </Route>
             <Route element={<RoleRoute allow={canViewFinancialReports} />}>
               <Route path="attention" element={<AttentionPage />} />
+              <Route path="payments/collections" element={<CollectionsWorklistPage />} />
               <Route path="reports/sales" element={<SalesReportPage />} />
               <Route path="reports/purchases" element={<PurchaseReportPage />} />
               <Route path="reports/discounts" element={<DiscountReportPage />} />
@@ -470,9 +489,11 @@ export function App() {
               <Route path="reports/invoice-profit/rollup" element={<InvoiceProfitRollupPage />} />
               <Route path="reports/inventory" element={<InventoryReportPage />} />
               <Route path="reports/customer-ledger" element={<CustomerLedgerPage />} />
+              <Route path="accounting/expenses" element={<ExpensesPage />} />
               <Route path="reports/supplier-ledger" element={<SupplierLedgerPage />} />
               <Route path="reports/statutory-events" element={<StatutoryEventsPage />} />
               <Route path="reports/cash-book" element={<CashBookPage />} />
+              <Route path="reports/day-book" element={<DayBookPage />} />
               <Route path="reports/stock-valuation" element={<StockValuationPage />} />
             </Route>
             <Route element={<RoleRoute allow={allowTdsReports} />}>
@@ -500,6 +521,9 @@ export function App() {
               <Route path="reports/gst-rate-exposure" element={<GstRateExposurePage />} />
             </Route>
             <Route element={<RoleRoute allow={canAccessSettings} />}>
+              <Route element={<RoleRoute allow={(user) => user?.role === 'OWNER'} />}>
+                <Route path="settings/packs" element={<PackWizardPage />} />
+              </Route>
               <Route element={<RoleRoute allow={canManageUsers} />}>
                 <Route path="settings/company" element={<CompanySettingsPage />} />
                 <Route path="settings/series" element={<SeriesSettingsPage />} />
@@ -540,6 +564,7 @@ export function App() {
               <Route path="accounting/cost-centers" element={<CostCentersPage />} />
               <Route path="accounting/fixed-assets" element={<FixedAssetsPage />} />
               <Route path="accounting/periods" element={<PeriodsPage />} />
+              <Route path="accounting/expenses" element={<ExpensesPage />} />
             </Route>
             <Route element={<RoleRoute allow={allowManufacturing} />}>
               <Route path="manufacturing" element={<Navigate to="/manufacturing/boms" replace />} />

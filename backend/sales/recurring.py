@@ -123,32 +123,66 @@ def generate_draft_for_schedule(schedule: RecurringInvoiceSchedule, *, run_date:
     if period_is_locked(schedule.company, on_date):
         return None
 
-    invoice = SalesInvoice.objects.create(
-        company=schedule.company,
-        customer=schedule.customer,
-        company_gstin=schedule.company_gstin,
-        invoice_date=on_date,
-        notes=schedule.notes or "",
-        status=SalesInvoice.Status.DRAFT,
-        # B2-026: carry the schedule's header-level charges/discount/price-mode
-        # through to every generated draft, same as a one-off invoice would have.
-        additional_charges=schedule.additional_charges,
-        invoice_discount=schedule.invoice_discount,
-        invoice_discount_mode=schedule.invoice_discount_mode,
-        price_mode=schedule.price_mode,
-        created_by=user,
-        updated_by=user,
-    )
-    SalesService.set_items(invoice, _template_items(schedule.company, schedule.line_template), user)
-    invoice.refresh_from_db()
-    if invoice.status != SalesInvoice.Status.DRAFT:
-        raise BusinessRuleError("Recurring generator must leave invoices in DRAFT.")
+    items = _template_items(schedule.company, schedule.line_template)
+    invoice = None
+    sales_order = None
+    delivery_challan = None
+    stop = getattr(schedule, "stop_stage", None) or RecurringInvoiceSchedule.StopStage.INVOICE
+
+    if stop in (
+        RecurringInvoiceSchedule.StopStage.SALES_ORDER,
+        RecurringInvoiceSchedule.StopStage.DELIVERY_CHALLAN,
+    ):
+        from inventory.services import InventoryService
+        from sales.models import SalesOrder
+        from sales.notes_services import SalesNotesService
+
+        sales_order = SalesOrder.objects.create(
+            company=schedule.company,
+            customer=schedule.customer,
+            warehouse=InventoryService.default_warehouse(schedule.company),
+            company_gstin=schedule.company_gstin,
+            order_date=on_date,
+            notes=schedule.notes or "",
+            status=SalesOrder.Status.DRAFT,
+            additional_charges=schedule.additional_charges,
+            invoice_discount=schedule.invoice_discount,
+            invoice_discount_mode=schedule.invoice_discount_mode,
+            created_by=user,
+            updated_by=user,
+        )
+        SalesNotesService.set_order_items(sales_order, items, user)
+        if stop == RecurringInvoiceSchedule.StopStage.DELIVERY_CHALLAN:
+            delivery_challan = SalesNotesService.convert_sales_order_to_challan(sales_order, user)
+            if delivery_challan.status != delivery_challan.Status.DRAFT:
+                raise BusinessRuleError("Recurring generator must leave delivery challans in DRAFT.")
+    else:
+        invoice = SalesInvoice.objects.create(
+            company=schedule.company,
+            customer=schedule.customer,
+            company_gstin=schedule.company_gstin,
+            invoice_date=on_date,
+            notes=schedule.notes or "",
+            status=SalesInvoice.Status.DRAFT,
+            additional_charges=schedule.additional_charges,
+            invoice_discount=schedule.invoice_discount,
+            invoice_discount_mode=schedule.invoice_discount_mode,
+            price_mode=schedule.price_mode,
+            created_by=user,
+            updated_by=user,
+        )
+        SalesService.set_items(invoice, items, user)
+        invoice.refresh_from_db()
+        if invoice.status != SalesInvoice.Status.DRAFT:
+            raise BusinessRuleError("Recurring generator must leave invoices in DRAFT.")
 
     run = RecurringInvoiceRun.objects.create(
         company=schedule.company,
         schedule=schedule,
         period_key=key,
         invoice=invoice,
+        sales_order=sales_order,
+        delivery_challan=delivery_challan,
     )
     nxt = schedule.next_run_at
     if nxt.date() <= on_date:
@@ -226,18 +260,25 @@ def _process_one_schedule(schedule, *, now):
             break
         run = generate_draft_for_schedule(schedule, run_date=on_date)
         schedule.refresh_from_db()
-        if run is not None and run.invoice_id:
+        if run is not None and (run.invoice_id or run.sales_order_id or run.delivery_challan_id):
             if getattr(schedule, "last_error", None):
                 schedule.last_error = ""
                 schedule.save(update_fields=["last_error", "updated_at"])
-            inv = run.invoice
-            # M1-037/S101: was a bare `assert` — silently stripped under `python -O`,
-            # so this invariant would go unchecked in an optimized deployment. The
-            # per-schedule try/except in the caller already handles this raising.
-            if inv.status != SalesInvoice.Status.DRAFT:
-                raise AssertionError(
-                    f"Recurring-generated invoice {inv.pk} expected DRAFT, got {inv.status!r}"
-                )
+            if run.invoice_id:
+                inv = run.invoice
+                # M1-037/S101: was a bare `assert` — silently stripped under `python -O`,
+                # so this invariant would go unchecked in an optimized deployment. The
+                # per-schedule try/except in the caller already handles this raising.
+                if inv.status != SalesInvoice.Status.DRAFT:
+                    raise AssertionError(
+                        f"Recurring-generated invoice {inv.pk} expected DRAFT, got {inv.status!r}"
+                    )
+                doc_kind, doc_id = "invoice", inv.pk
+            elif run.delivery_challan_id:
+                doc_kind, doc_id = "delivery challan", run.delivery_challan_id
+            else:
+                doc_kind, doc_id = "sales order", run.sales_order_id
+
             from accounts.models import CompanyUser
             from core.models import Notification
             from core.services.notifications import NotificationService
@@ -255,10 +296,10 @@ def _process_one_schedule(schedule, *, now):
                     company=schedule.company,
                     channel=Notification.Channel.EMAIL,
                     recipient=recipient,
-                    subject="Recurring invoice draft ready",
+                    subject="Recurring draft ready",
                     body=(
-                        f"Draft invoice #{inv.pk} was generated from a recurring schedule. "
-                        "Complete it when ready — BizBoard never auto-completes recurring invoices."
+                        f"Draft {doc_kind} #{doc_id} was generated from a recurring schedule. "
+                        "Complete it when ready — BizBoard never auto-completes recurring documents."
                     ),
                 )
             total_created += 1

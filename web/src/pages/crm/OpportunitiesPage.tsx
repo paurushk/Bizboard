@@ -15,9 +15,11 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   createOpportunity,
+  createQuotationFromOpportunity,
   listLeadsPage,
   listOpportunitiesPage,
   updateOpportunity,
@@ -55,6 +57,7 @@ export function OpportunitiesPage() {
 
 function OpportunitiesPageInner() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Opportunity | null>(null);
@@ -176,6 +179,18 @@ function OpportunitiesPageInner() {
                     <Button size="small" onClick={() => openEdit(opp)}>
                       {t('common.edit')}
                     </Button>
+                    {opp.stage === 'WON' ? (
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          void createQuotationFromOpportunity(opp.id)
+                            .then((quotation) => navigate(`/sales/quotations/${quotation.id}`))
+                            .catch((err) => setError(getErrorMessage(err)));
+                        }}
+                      >
+                        {t('osPlan.createQuotation')}
+                      </Button>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               ))}

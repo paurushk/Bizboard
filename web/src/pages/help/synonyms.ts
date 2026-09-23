@@ -4,6 +4,7 @@ const GROUPS: string[][] = [
   ['godown', 'warehouse', 'store', 'stock location', 'gudam', 'store room'],
   ['bill', 'invoice', 'invioce', 'invoce'],
   ['gstin', 'gstn', 'gst number', 'gst no'],
+  ['einvoice', 'e-invoice', 'e invoice', 'irp', 'irn', 'nic'],
   ['complete', 'final', 'done', 'mark done'],
   ['stock', 'maal', 'inventory', 'qty'],
   ['customer', 'party', 'client'],

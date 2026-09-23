@@ -883,6 +883,270 @@
                 }
             }
         },
+        "/api/v1/accounting/expenses/": {
+            "get": {
+                "operationId": "accounting_expenses_list",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedExpenseList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "accounting_expenses_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Expense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/expenses/{id}/": {
+            "get": {
+                "operationId": "accounting_expenses_retrieve",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this expense.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Expense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "accounting_expenses_update",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this expense.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Expense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "accounting_expenses_partial_update",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this expense.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedExpense"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedExpense"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedExpense"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Expense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "accounting_expenses_destroy",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this expense.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/accounting/fixed-assets/": {
             "get": {
                 "operationId": "accounting_fixed_assets_list",
@@ -10891,6 +11155,26 @@
                 }
             }
         },
+        "/api/v1/ops/alert/": {
+            "post": {
+                "operationId": "ops_alert_create",
+                "description": "POST /api/v1/ops/alert/?token=... — generic no-infra paging relay.\n\nPoint a Sentry Internal Integration's alert-rule webhook, or any uptime\nmonitor (Healthchecks.io, UptimeRobot, ...) that lets you set the POST\nURL, at this endpoint with OPS_ALERT_TOKEN in the query string or an\nX-Ops-Alert-Token header. Relays a formatted message to the fixed\nOPS_TELEGRAM_CHAT_ID — a free stand-in for a dedicated on-call product.",
+                "tags": [
+                    "ops"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/payments/allocations/": {
             "get": {
                 "operationId": "payments_allocations_list",
@@ -12046,6 +12330,63 @@
                 }
             }
         },
+        "/api/v1/payments/receipts/{id}/set-cheque-status/": {
+            "post": {
+                "operationId": "payments_receipts_set_cheque_status_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this customer receipt.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CustomerReceipt"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CustomerReceipt"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CustomerReceipt"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CustomerReceipt"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/payments/receipts/{id}/void/": {
             "post": {
                 "operationId": "payments_receipts_void_create",
@@ -12610,6 +12951,63 @@
                 "tags": [
                     "payments"
                 ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SupplierPayment"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/supplier-payments/{id}/set-cheque-status/": {
+            "post": {
+                "operationId": "payments_supplier_payments_set_cheque_status_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this supplier payment.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SupplierPayment"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SupplierPayment"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SupplierPayment"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -17170,9 +17568,55 @@
                 }
             }
         },
+        "/api/v1/reports/customer-ledger/{customer_id}/": {
+            "get": {
+                "operationId": "reports_customer_ledger_retrieve",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "customer_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/reports/customer-sales/": {
             "get": {
                 "operationId": "reports_customer_sales_retrieve",
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/reports/day-book/": {
+            "get": {
+                "operationId": "reports_day_book_retrieve",
                 "tags": [
                     "reports"
                 ],
@@ -18268,6 +18712,24 @@
                 }
             }
         },
+        "/api/v1/reports/sales-summary/": {
+            "get": {
+                "operationId": "reports_sales_summary_retrieve",
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/reports/tcs-worksheet/": {
             "get": {
                 "operationId": "reports_tcs_worksheet_retrieve",
@@ -18302,6 +18764,327 @@
                 "responses": {
                     "200": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/challan-returns/": {
+            "get": {
+                "operationId": "sales_challan_returns_list",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedDeliveryChallanReturnList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "sales_challan_returns_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryChallanReturn"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryChallanReturn"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryChallanReturn"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryChallanReturn"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/challan-returns/{id}/": {
+            "get": {
+                "operationId": "sales_challan_returns_retrieve",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery challan return.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryChallanReturn"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "sales_challan_returns_update",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery challan return.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryChallanReturn"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryChallanReturn"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryChallanReturn"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryChallanReturn"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "sales_challan_returns_partial_update",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery challan return.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedDeliveryChallanReturn"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedDeliveryChallanReturn"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedDeliveryChallanReturn"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryChallanReturn"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "sales_challan_returns_destroy",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery challan return.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/challan-returns/{id}/complete/": {
+            "post": {
+                "operationId": "sales_challan_returns_complete_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery challan return.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryChallanReturn"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryChallanReturn"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryChallanReturn"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryChallanReturn"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -20693,6 +21476,585 @@
                 }
             }
         },
+        "/api/v1/sales/delivery-routes/": {
+            "get": {
+                "operationId": "sales_delivery_routes_list",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedDeliveryRouteList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "sales_delivery_routes_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/delivery-routes/{id}/": {
+            "get": {
+                "operationId": "sales_delivery_routes_retrieve",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "sales_delivery_routes_update",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "sales_delivery_routes_partial_update",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedDeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedDeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedDeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "sales_delivery_routes_destroy",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/delivery-routes/{id}/add-orders/": {
+            "post": {
+                "operationId": "sales_delivery_routes_add_orders_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/delivery-routes/{id}/complete/": {
+            "post": {
+                "operationId": "sales_delivery_routes_complete_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/delivery-routes/{id}/manifest/": {
+            "get": {
+                "operationId": "sales_delivery_routes_manifest_retrieve",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/delivery-routes/{id}/remove-stop/": {
+            "post": {
+                "operationId": "sales_delivery_routes_remove_stop_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/delivery-routes/{id}/set-stop-status/": {
+            "post": {
+                "operationId": "sales_delivery_routes_set_stop_status_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/delivery-routes/{id}/start/": {
+            "post": {
+                "operationId": "sales_delivery_routes_start_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sales/invoices/": {
             "get": {
                 "operationId": "sales_invoices_list",
@@ -21279,6 +22641,43 @@
                 }
             }
         },
+        "/api/v1/sales/invoices/{id}/hsn-summary/": {
+            "get": {
+                "operationId": "sales_invoices_hsn_summary_retrieve",
+                "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this sales invoice.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sales/invoices/{id}/mark-einvoice-generated/": {
             "post": {
                 "operationId": "sales_invoices_mark_einvoice_generated_create",
@@ -21527,6 +22926,63 @@
         "/api/v1/sales/invoices/{id}/prepare-eway/": {
             "post": {
                 "operationId": "sales_invoices_prepare_eway_create",
+                "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this sales invoice.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/invoices/{id}/record-payment/": {
+            "post": {
+                "operationId": "sales_invoices_record_payment_create",
                 "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
                 "parameters": [
                     {
@@ -21903,6 +23359,52 @@
                 }
             }
         },
+        "/api/v1/sales/invoices/bulk-pdf-zip/": {
+            "post": {
+                "operationId": "sales_invoices_bulk_pdf_zip_create",
+                "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sales/invoices/number-series/": {
             "get": {
                 "operationId": "sales_invoices_number_series_retrieve",
@@ -21953,6 +23455,32 @@
                         }
                     }
                 },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/invoices/payment-stats/": {
+            "get": {
+                "operationId": "sales_invoices_payment_stats_retrieve",
+                "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
+                "tags": [
+                    "sales"
+                ],
                 "security": [
                     {
                         "jwtAuth": []
@@ -23003,6 +24531,63 @@
                 }
             }
         },
+        "/api/v1/sales/quotations/{id}/convert-chain/": {
+            "post": {
+                "operationId": "sales_quotations_convert_chain_create",
+                "description": "Quote → SO → (optional draft DC) → (optional draft invoice).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sales/quotations/{id}/convert-to-order/": {
             "post": {
                 "operationId": "sales_quotations_convert_to_order_create",
@@ -23041,6 +24626,43 @@
                     },
                     "required": true
                 },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/pdf/": {
+            "get": {
+                "operationId": "sales_quotations_pdf_retrieve",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
                 "security": [
                     {
                         "jwtAuth": []
@@ -25272,6 +26894,15 @@
                 "type": "string",
                 "description": "* `EMAIL` - Email\n* `WHATSAPP` - Whatsapp\n* `SMS` - Sms\n* `PUSH` - Push\n* `TELEGRAM` - Telegram"
             },
+            "ChequeStatusEnum": {
+                "enum": [
+                    "PENDING_CLEARANCE",
+                    "CLEARED",
+                    "BOUNCED"
+                ],
+                "type": "string",
+                "description": "* `PENDING_CLEARANCE` - Pending Clearance\n* `CLEARED` - Cleared\n* `BOUNCED` - Bounced"
+            },
             "CompanyGstin": {
                 "type": "object",
                 "properties": {
@@ -25766,6 +27397,29 @@
                         "type": "boolean",
                         "description": "A-07: when True, skip automated AR reminders for this customer."
                     },
+                    "custom_fields": {},
+                    "pan": {
+                        "type": "string",
+                        "maxLength": 10
+                    },
+                    "party_bank_name": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "party_bank_account": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "party_bank_ifsc": {
+                        "type": "string",
+                        "maxLength": 16
+                    },
+                    "shipping_addresses": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CustomerShippingAddress"
+                        }
+                    },
                     "outstanding": {
                         "type": "string",
                         "readOnly": true
@@ -25871,6 +27525,38 @@
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true
+                    },
+                    "cheque_number": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "cheque_bank_name": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "cheque_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "cheque_status": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ChequeStatusEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "cheque_image": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "settlement_discount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
                     }
                 },
                 "required": [
@@ -25897,6 +27583,29 @@
                 ],
                 "type": "string",
                 "description": "* `POSTED` - Posted\n* `REFUNDED` - Refunded\n* `VOIDED` - Voided"
+            },
+            "CustomerShippingAddress": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "label": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "address": {
+                        "type": "string"
+                    },
+                    "is_default": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "address",
+                    "id"
+                ]
             },
             "CustomerStatusEnum": {
                 "enum": [
@@ -26009,6 +27718,13 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "delivery_address": {
+                        "type": "string"
+                    },
+                    "expected_profit": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "eway_status": {
                         "allOf": [
                             {
@@ -26110,6 +27826,7 @@
                     "eway_error",
                     "eway_status",
                     "eway_valid_upto",
+                    "expected_profit",
                     "grand_total",
                     "id",
                     "igst_total",
@@ -26182,6 +27899,11 @@
                         "maxLength": 64
                     },
                     "serial_numbers": {},
+                    "expected_price": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$"
+                    },
                     "taxable_amount": {
                         "type": "string",
                         "format": "decimal",
@@ -26231,6 +27953,372 @@
                     "sgst",
                     "taxable_amount"
                 ]
+            },
+            "DeliveryChallanReturn": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusD0fEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "customer": {
+                        "type": "integer"
+                    },
+                    "customer_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "challan": {
+                        "type": "integer"
+                    },
+                    "challan_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "return_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DeliveryChallanReturnItem"
+                        }
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "subtotal": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "discount_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "taxable_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "cgst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "sgst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "igst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "cess_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "round_off": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "grand_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "cess_total",
+                    "cgst_total",
+                    "challan",
+                    "challan_number",
+                    "completed_at",
+                    "created_at",
+                    "customer",
+                    "customer_name",
+                    "discount_total",
+                    "grand_total",
+                    "id",
+                    "igst_total",
+                    "items",
+                    "number",
+                    "round_off",
+                    "sgst_total",
+                    "status",
+                    "subtotal",
+                    "taxable_total",
+                    "updated_at"
+                ]
+            },
+            "DeliveryChallanReturnItem": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "product": {
+                        "type": "integer"
+                    },
+                    "product_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "quantity": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,9}(?:\\.\\d{0,3})?$"
+                    },
+                    "unit_price": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$"
+                    },
+                    "discount_percent": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,3}(?:\\.\\d{0,2})?$"
+                    },
+                    "gst_rate": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,3}(?:\\.\\d{0,2})?$"
+                    },
+                    "taxable_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "cgst": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "sgst": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "igst": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "cess": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "line_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    }
+                },
+                "required": [
+                    "id",
+                    "product",
+                    "product_name",
+                    "quantity"
+                ]
+            },
+            "DeliveryRoute": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "route_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "vehicle_number": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "driver_name": {
+                        "type": "string",
+                        "maxLength": 128
+                    },
+                    "driver": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DeliveryRouteStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "estimated_logistics_cost": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "actual_logistics_cost": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "stops": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DeliveryRouteStop"
+                        },
+                        "readOnly": true
+                    },
+                    "rollup": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "id",
+                    "number",
+                    "rollup",
+                    "status",
+                    "stops",
+                    "updated_at"
+                ]
+            },
+            "DeliveryRouteStatusEnum": {
+                "enum": [
+                    "PLANNED",
+                    "IN_TRANSIT",
+                    "COMPLETED",
+                    "CANCELLED"
+                ],
+                "type": "string",
+                "description": "* `PLANNED` - Planned\n* `IN_TRANSIT` - In Transit\n* `COMPLETED` - Completed\n* `CANCELLED` - Cancelled"
+            },
+            "DeliveryRouteStop": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "sales_order": {
+                        "type": "integer"
+                    },
+                    "order_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "customer_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "delivery_address": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "sequence": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/DeliveryRouteStopStatusEnum"
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "delivered_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "customer_name",
+                    "delivered_at",
+                    "delivery_address",
+                    "id",
+                    "order_number",
+                    "sales_order"
+                ]
+            },
+            "DeliveryRouteStopStatusEnum": {
+                "enum": [
+                    "PENDING",
+                    "DELIVERED",
+                    "FAILED",
+                    "RETURNED"
+                ],
+                "type": "string",
+                "description": "* `PENDING` - Pending\n* `DELIVERED` - Delivered\n* `FAILED` - Failed\n* `RETURNED` - Returned"
             },
             "EinvoiceStatusEnum": {
                 "enum": [
@@ -26344,6 +28432,65 @@
                 ],
                 "type": "string",
                 "description": "* `NONE` - None\n* `READY` - Ready\n* `QUEUED` - Queued\n* `GENERATED` - Generated\n* `MANUAL_EWB` - Manual Ewb\n* `FAILED` - Failed\n* `CANCELLED` - Cancelled"
+            },
+            "Expense": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "expense_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "category": {
+                        "type": "integer"
+                    },
+                    "category_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "party_name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "attachment": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "amount",
+                    "category",
+                    "category_name",
+                    "created_at",
+                    "id",
+                    "number",
+                    "updated_at"
+                ]
             },
             "ExpenseCategory": {
                 "type": "object",
@@ -27359,10 +29506,11 @@
                     "UPI",
                     "BANK",
                     "CARD",
-                    "CREDIT"
+                    "CREDIT",
+                    "CHEQUE"
                 ],
                 "type": "string",
-                "description": "* `CASH` - Cash\n* `UPI` - Upi\n* `BANK` - Bank\n* `CARD` - Card\n* `CREDIT` - Credit"
+                "description": "* `CASH` - Cash\n* `UPI` - Upi\n* `BANK` - Bank\n* `CARD` - Card\n* `CREDIT` - Credit\n* `CHEQUE` - Cheque"
             },
             "MovementTypeEnum": {
                 "enum": [
@@ -28114,6 +30262,68 @@
                     }
                 }
             },
+            "PaginatedDeliveryChallanReturnList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DeliveryChallanReturn"
+                        }
+                    }
+                }
+            },
+            "PaginatedDeliveryRouteList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DeliveryRoute"
+                        }
+                    }
+                }
+            },
             "PaginatedEmployeeList": {
                 "type": "object",
                 "required": [
@@ -28172,6 +30382,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/ExpenseCategory"
+                        }
+                    }
+                }
+            },
+            "PaginatedExpenseList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Expense"
                         }
                     }
                 }
@@ -30229,6 +32470,29 @@
                         "type": "boolean",
                         "description": "A-07: when True, skip automated AR reminders for this customer."
                     },
+                    "custom_fields": {},
+                    "pan": {
+                        "type": "string",
+                        "maxLength": 10
+                    },
+                    "party_bank_name": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "party_bank_account": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "party_bank_ifsc": {
+                        "type": "string",
+                        "maxLength": 16
+                    },
+                    "shipping_addresses": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CustomerShippingAddress"
+                        }
+                    },
                     "outstanding": {
                         "type": "string",
                         "readOnly": true
@@ -30337,6 +32601,13 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "delivery_address": {
+                        "type": "string"
+                    },
+                    "expected_profit": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "eway_status": {
                         "allOf": [
                             {
@@ -30425,6 +32696,196 @@
                     }
                 }
             },
+            "PatchedDeliveryChallanReturn": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusD0fEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "customer": {
+                        "type": "integer"
+                    },
+                    "customer_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "challan": {
+                        "type": "integer"
+                    },
+                    "challan_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "return_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DeliveryChallanReturnItem"
+                        }
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "subtotal": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "discount_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "taxable_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "cgst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "sgst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "igst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "cess_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "round_off": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "grand_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    }
+                }
+            },
+            "PatchedDeliveryRoute": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "route_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "vehicle_number": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "driver_name": {
+                        "type": "string",
+                        "maxLength": 128
+                    },
+                    "driver": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DeliveryRouteStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "estimated_logistics_cost": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "actual_logistics_cost": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "stops": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DeliveryRouteStop"
+                        },
+                        "readOnly": true
+                    },
+                    "rollup": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                }
+            },
             "PatchedEmployee": {
                 "type": "object",
                 "properties": {
@@ -30480,6 +32941,56 @@
                     },
                     "tax_regime": {
                         "$ref": "#/components/schemas/TaxRegimeEnum"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                }
+            },
+            "PatchedExpense": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "expense_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "category": {
+                        "type": "integer"
+                    },
+                    "category_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "party_name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "attachment": {
+                        "type": "integer",
+                        "nullable": true
                     },
                     "created_at": {
                         "type": "string",
@@ -31715,6 +34226,13 @@
                     "price_mode": {
                         "$ref": "#/components/schemas/PriceModeEnum"
                     },
+                    "ship_from": {
+                        "type": "string",
+                        "maxLength": 128
+                    },
+                    "ship_from_address": {
+                        "type": "string"
+                    },
                     "tds_section": {
                         "type": "string",
                         "maxLength": 16
@@ -32171,6 +34689,27 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "salesman": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "sales_channel": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/SalesChannelEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "delivery_address": {
+                        "type": "string"
+                    },
+                    "expected_profit": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "items": {
                         "type": "array",
                         "items": {
@@ -32284,6 +34823,14 @@
                     "line_template": {},
                     "notes": {
                         "type": "string"
+                    },
+                    "stop_stage": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StopStageEnum"
+                            }
+                        ],
+                        "description": "Where a generated run stops: draft invoice (default), sales order, or draft delivery challan.\n\n* `INVOICE` - Invoice\n* `SALES_ORDER` - Sales Order\n* `DELIVERY_CHALLAN` - Delivery Challan"
                     },
                     "additional_charges": {
                         "type": "string",
@@ -32832,6 +35379,7 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "custom_fields": {},
                     "items": {
                         "type": "array",
                         "items": {
@@ -33234,6 +35782,27 @@
                     "company_gstin": {
                         "type": "integer",
                         "nullable": true
+                    },
+                    "salesman": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "sales_channel": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/SalesChannelEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "delivery_address": {
+                        "type": "string"
+                    },
+                    "expected_profit": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "converted_invoice": {
                         "type": "integer",
@@ -35167,6 +37736,13 @@
                     "price_mode": {
                         "$ref": "#/components/schemas/PriceModeEnum"
                     },
+                    "ship_from": {
+                        "type": "string",
+                        "maxLength": 128
+                    },
+                    "ship_from_address": {
+                        "type": "string"
+                    },
                     "tds_section": {
                         "type": "string",
                         "maxLength": 16
@@ -36061,6 +38637,27 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "salesman": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "sales_channel": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/SalesChannelEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "delivery_address": {
+                        "type": "string"
+                    },
+                    "expected_profit": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "items": {
                         "type": "array",
                         "items": {
@@ -36151,6 +38748,7 @@
                     "customer",
                     "customer_name",
                     "discount_total",
+                    "expected_profit",
                     "grand_total",
                     "id",
                     "igst_total",
@@ -36231,6 +38829,11 @@
                         "format": "decimal",
                         "pattern": "^-?\\d{0,9}(?:\\.\\d{0,3})?$",
                         "readOnly": true
+                    },
+                    "expected_price": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$"
                     },
                     "taxable_amount": {
                         "type": "string",
@@ -36338,6 +38941,14 @@
                     "notes": {
                         "type": "string"
                     },
+                    "stop_stage": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StopStageEnum"
+                            }
+                        ],
+                        "description": "Where a generated run stops: draft invoice (default), sales order, or draft delivery challan.\n\n* `INVOICE` - Invoice\n* `SALES_ORDER` - Sales Order\n* `DELIVERY_CHALLAN` - Delivery Challan"
+                    },
                     "additional_charges": {
                         "type": "string",
                         "format": "decimal",
@@ -36391,6 +39002,15 @@
                 ],
                 "type": "string",
                 "description": "* `NONE` - Not regulated\n* `DRUG` - Drug / pharmaceutical\n* `FOOD` - Food (FSSAI)"
+            },
+            "SalesChannelEnum": {
+                "enum": [
+                    "WALK_IN",
+                    "ONLINE",
+                    "DISTRIBUTOR"
+                ],
+                "type": "string",
+                "description": "* `WALK_IN` - Walk-in\n* `ONLINE` - Online\n* `DISTRIBUTOR` - Distributor"
             },
             "SalesCreditNote": {
                 "type": "object",
@@ -37211,6 +39831,7 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "custom_fields": {},
                     "items": {
                         "type": "array",
                         "items": {
@@ -37835,6 +40456,27 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "salesman": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "sales_channel": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/SalesChannelEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "delivery_address": {
+                        "type": "string"
+                    },
+                    "expected_profit": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "converted_invoice": {
                         "type": "integer",
                         "readOnly": true,
@@ -37913,6 +40555,7 @@
                     "customer",
                     "customer_name",
                     "discount_total",
+                    "expected_profit",
                     "grand_total",
                     "id",
                     "igst_total",
@@ -37973,6 +40616,11 @@
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "expected_price": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$"
                     },
                     "taxable_amount": {
                         "type": "string",
@@ -38808,6 +41456,15 @@
                     "quantity"
                 ]
             },
+            "StopStageEnum": {
+                "enum": [
+                    "INVOICE",
+                    "SALES_ORDER",
+                    "DELIVERY_CHALLAN"
+                ],
+                "type": "string",
+                "description": "* `INVOICE` - Invoice\n* `SALES_ORDER` - Sales Order\n* `DELIVERY_CHALLAN` - Delivery Challan"
+            },
             "Supplier": {
                 "type": "object",
                 "properties": {
@@ -38997,6 +41654,33 @@
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true
+                    },
+                    "cheque_number": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "cheque_bank_name": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "cheque_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "cheque_status": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ChequeStatusEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "cheque_image": {
+                        "type": "integer",
+                        "nullable": true
                     }
                 },
                 "required": [

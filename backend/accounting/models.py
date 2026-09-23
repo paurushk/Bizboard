@@ -243,3 +243,33 @@ class FixedAsset(CompanyScopedModel):
         if not self.useful_life_months:
             return Decimal("0.00")
         return (self.depreciable_base / self.useful_life_months).quantize(Decimal("0.01"))
+
+
+class Expense(CompanyScopedModel):
+    """Cash/bank expense voucher — not a GST purchase invoice."""
+
+    number = models.CharField(max_length=32, blank=True, db_index=True)
+    expense_date = models.DateField(default=timezone.localdate)
+    category = models.ForeignKey(
+        "masters.ExpenseCategory", on_delete=models.PROTECT, related_name="expenses",
+    )
+    party_name = models.CharField(max_length=255, blank=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    notes = models.TextField(blank=True)
+    attachment = models.ForeignKey(
+        "core.FileAsset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+
+    class Meta:
+        ordering = ["-expense_date", "-id"]
+        indexes = [models.Index(fields=["company", "expense_date"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "number"],
+                condition=~models.Q(number=""),
+                name="uniq_expense_number_per_company",
+            )
+        ]
+
+    def __str__(self):
+        return self.number or f"Expense #{self.pk}"

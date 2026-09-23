@@ -33,6 +33,10 @@ export const PURCHASE_HELP: ContextHelpPage[] = [
         'New purchases start as Unreviewed ITC. Mark Claimable only after review. If GSTR-2B rows exist, Claimable also needs the 2B row matched.',
         'नई खरीद ITC Unreviewed से शुरू। समीक्षा बाद Claimable करें। 2B पंक्तियाँ हों तो मैच भी चाहिए।',
       ],
+      [
+        'Cost center is an optional reporting tag. It does not change GST, stock, or the supplier payable.',
+        'कॉस्ट सेंटर वैकल्पिक रिपोर्ट टैग है। GST, स्टॉक या सप्लायर देनदारी नहीं बदलता।',
+      ],
     ],
     commonMistakes: [
       [

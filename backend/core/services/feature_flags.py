@@ -33,6 +33,19 @@ ROLLOUT_GRANTABLE_KEYS = frozenset({
     "ENABLE_GSTN_JSON",
     "ENABLE_SETUP_WIZARD",
     "ENABLE_TDS",
+    "ENABLE_REPLENISHMENT",
+    "ENABLE_GST_GUARD",
+    "ENABLE_ROUTE_PROFIT",
+    "ENABLE_SUPPLIER_PRICE_HISTORY",
+    "ENABLE_CUSTOMER_PORTAL",
+    "ENABLE_ACTION_ASSIGNMENT",
+    "ENABLE_PREDICTIVE_DUNNING",
+    "ENABLE_CUSTOMER_360",
+    "ENABLE_PURCHASE_PLANNING",
+    "ENABLE_ORDER_GATES",
+    "ENABLE_CUSTOMER_ACTIONS",
+    "ENABLE_ROUTE_OPTIMIZATION",
+    "ENABLE_ARCHETYPE_PACKS",
 })
 
 ENV_FLAG_KEYS = (
@@ -53,6 +66,20 @@ ENV_FLAG_KEYS = (
     "ENABLE_FIXED_ASSETS",
     "ENABLE_BOE",
     "ENABLE_ARCH05_STATUTORY_FORMS",
+    "ENABLE_REPLENISHMENT",
+    "ENABLE_GST_GUARD",
+    "ENABLE_ROUTE_PROFIT",
+    "ENABLE_SUPPLIER_PRICE_HISTORY",
+    "ENABLE_CUSTOMER_PORTAL",
+    "ENABLE_ACTION_ASSIGNMENT",
+    "ENABLE_PREDICTIVE_DUNNING",
+    "ENABLE_CUSTOMER_360",
+    "ENABLE_PURCHASE_PLANNING",
+    "ENABLE_ORDER_GATES",
+    "ENABLE_CUSTOMER_ACTIONS",
+    "ENABLE_ROUTE_OPTIMIZATION",
+    "ENABLE_CRM_WHATSAPP_INBOUND",
+    "ENABLE_ARCHETYPE_PACKS",
 )
 
 
@@ -215,3 +242,10 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
         flags["ENABLE_AI"] = False
         flags["ENABLE_AA_CONSENT"] = False
     return flags
+
+
+def flag_enabled(company, key: str) -> bool:
+    """Company rollout flag. Missing company or missing key is off."""
+    if company is None:
+        return False
+    return bool(build_feature_flags(company=company).get(key))

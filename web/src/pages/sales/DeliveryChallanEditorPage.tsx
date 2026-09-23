@@ -48,7 +48,7 @@ import { PdfStatusPoller } from '@/components/PdfStatusPoller';
 import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import type { Customer, Product, SalesOrder } from '@/types/domain';
-import { toNumber } from '@/utils/money';
+import { expectedProfitAmount, formatMoney, toNumber } from '@/utils/money';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { getCompany } from '@/api/resources';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
@@ -277,6 +277,7 @@ export function DeliveryChallanEditorPage() {
       unitPrice: l.unitPrice,
       gstRate: l.gstRate,
       cessRate: l.cessRate ?? 0,
+      expectedPrice: l.expectedPrice ?? 0,
     })),
   });
 
@@ -504,6 +505,11 @@ export function DeliveryChallanEditorPage() {
           </Stack>
         ) : null}
         <SimpleTotalsPanel totals={totals} />
+        {expectedProfitAmount(existing.data?.expectedProfit) != null ? (
+          <Typography variant="body2" color="text.secondary">
+            {t('billing.expectedProfit')}: {formatMoney(expectedProfitAmount(existing.data?.expectedProfit))}
+          </Typography>
+        ) : null}
         {readOnly && editingStatus === 'COMPLETED' && existing.data ? (
           <ChallanEwayPanel
             challan={existing.data}

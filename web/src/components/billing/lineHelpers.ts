@@ -123,6 +123,7 @@ export function makeLine(
     mrp: toNumber(product.mrp),
     quantity,
     unitPrice,
+    expectedPrice: toNumber(product.purchasePrice),
     gstRate: toNumber(product.gstRate),
     cessRate,
     supplyNature: 'TAXABLE',

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import Decimal
+import logging
 
 from django.utils import timezone
 
@@ -23,6 +24,8 @@ from .gst_returns import (
     parse_period,
 )
 from .models import GstReturnPeriod, GstReturnSnapshot
+
+logger = logging.getLogger(__name__)
 
 
 # Alias kept for callers/tests — same ₹5cr AATO as e-Invoice (GSTR-14).
@@ -52,6 +55,83 @@ def _alert(code, severity, message, **extra):
     row = {"code": code, "severity": severity, "message": message}
     row.update(extra)
     return row
+
+
+def _buyer_gstin_guard(company, inv, party_gstin, lookup_cache: dict) -> list[dict]:
+    """COMP-006: buyer GSTIN format/checksum and live status. Flag-gated.
+
+    Blank GSTIN is skipped. ``UNVERIFIED`` and a null provider skip and log.
+    Only ``INVALID`` / ``CANCELLED`` / ``SUSPENDED`` alert. Does not write
+    ``Customer.gstin_verification_status`` — this runs on a read.
+    """
+    from django.core.exceptions import ValidationError
+
+    from core.services.feature_flags import flag_enabled
+    from core.services.gstin_verify import NullGstinProvider, get_gstin_provider
+    from core.validators import validate_gstin
+
+    if not flag_enabled(company, "ENABLE_GST_GUARD"):
+        return []
+    from core.services.flag_observability import log_flag_event
+
+    gstin = (party_gstin or "").strip().upper()
+    if not gstin:
+        return []
+    try:
+        validate_gstin(gstin)
+    except ValidationError:
+        log_flag_event(
+            company,
+            "ENABLE_GST_GUARD",
+            "gst_guard_scan",
+            check="format",
+            active_status="not_applicable",
+            result="invalid",
+        )
+        return [_alert(
+            "GSTIN_FORMAT_INVALID",
+            "critical",
+            f"Invoice {inv.number}: buyer GSTIN '{gstin}' fails format or checksum.",
+            document_type="sales_invoice",
+            document_id=inv.id,
+            number=inv.number,
+        )]
+    if "provider" not in lookup_cache:
+        lookup_cache["provider"] = get_gstin_provider()
+    provider = lookup_cache["provider"]
+    active_status = "skipped" if isinstance(provider, NullGstinProvider) else "checked"
+    log_flag_event(
+        company,
+        "ENABLE_GST_GUARD",
+        "gst_guard_scan",
+        check="format",
+        active_status=active_status,
+    )
+    if isinstance(provider, NullGstinProvider):
+        logger.info(
+            "GST guard skipped active-GSTIN check for invoice %s: no live provider",
+            inv.id,
+        )
+        return []
+    if gstin not in lookup_cache:
+        lookup_cache[gstin] = provider.lookup(gstin)
+    status = (getattr(lookup_cache[gstin], "status", "") or "").upper()
+    if status == "UNVERIFIED":
+        logger.info(
+            "GST guard skipped active-GSTIN check for invoice %s: provider returned UNVERIFIED",
+            inv.id,
+        )
+        return []
+    if status in {"INVALID", "CANCELLED", "SUSPENDED"}:
+        return [_alert(
+            "GSTIN_INACTIVE",
+            "critical",
+            f"Invoice {inv.number}: buyer GSTIN '{gstin}' status is {status}.",
+            document_type="sales_invoice",
+            document_id=inv.id,
+            number=inv.number,
+        )]
+    return []
 
 
 def build_gst_health(company, period: str | None = None) -> dict:
@@ -140,6 +220,7 @@ def build_gst_health(company, period: str | None = None) -> dict:
             f"AATO {aato} exceeds e-Invoice threshold but einvoice_enabled is false.",
         ))
 
+    buyer_gstin_cache: dict = {}
     invoices = list(
         SalesInvoice.objects.filter(
             company=company,
@@ -229,6 +310,8 @@ def build_gst_health(company, period: str | None = None) -> dict:
                 f"Invoice {inv.number}: GST invoice ≥ ₹{party_gstin_threshold} without party GSTIN.",
                 document_type="sales_invoice", document_id=inv.id, number=inv.number,
             ))
+
+        alerts.extend(_buyer_gstin_guard(company, inv, party_gstin, buyer_gstin_cache))
 
         if (
             company.einvoice_enabled

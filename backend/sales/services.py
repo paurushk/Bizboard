@@ -9,7 +9,8 @@ from django.utils import timezone
 from core.events import emit
 from core.exceptions import BusinessRuleError
 from core.help_codes import HelpCode
-from core.services.billing import apply_rcm_memo_after_tax, compute_document_totals, recompute_totals_for_stamped_gstin
+from core.services.billing import apply_rcm_memo_after_tax, recompute_totals_for_stamped_gstin
+from core.services.tax_engine.registry import get_tax_engine
 from core.services.place_of_supply import (
     assert_place_of_supply_for_gst,
     is_export_or_sez_supply,
@@ -317,6 +318,9 @@ def _build_items(model_cls, parent_field, parent, items_data):
             kwargs["serial_numbers"] = line.get("serial_numbers") or []
             kwargs["batch"] = line.get("batch")
             kwargs["batch_no"] = line.get("batch_no") or ""
+        if hasattr(model_cls, "expected_price"):
+            exp = line.get("expected_price")
+            kwargs["expected_price"] = Decimal(str(exp)) if exp not in (None, "") else Decimal("0")
         # BB-000340: SalesReturnItem is not in the GST snapshot tuple — serials must still persist.
         if model_cls is SalesReturnItem:
             kwargs["serial_numbers"] = line.get("serial_numbers") or []
@@ -514,6 +518,7 @@ def _quotation_items_data_from_plan(plan):
             "supply_nature": getattr(item, "supply_nature", None),
             "hsn_code": getattr(item, "hsn_code", "") or "",
             "unit_price_inclusive": getattr(item, "unit_price_inclusive", None),
+            "expected_price": getattr(item, "expected_price", None) or Decimal("0"),
             "rate_override": getattr(item, "rate_override", False),
             "rate_override_reason": getattr(item, "rate_override_reason", "") or "",
         }
@@ -718,7 +723,7 @@ class SalesService:
             invoice.items.all().delete()
             items = _build_items(SalesItem, "invoice", invoice, items_data)
 
-        compute_document_totals(
+        get_tax_engine(invoice.company).compute_document_totals(
             invoice, items,
             tax_enabled=_tax_enabled(invoice.invoice_type),
             intra_state=party_intra_state(
@@ -1456,7 +1461,7 @@ class SalesService:
         _validate_lines(items_data, quotation.company)
         quotation.items.all().delete()
         items = _build_items(QuotationItem, "quotation", quotation, items_data)
-        compute_document_totals(
+        get_tax_engine(quotation.company).compute_document_totals(
             quotation, items,
             tax_enabled=_tax_enabled(quotation.invoice_type),
             intra_state=party_intra_state(
@@ -1572,6 +1577,13 @@ class SalesService:
             auto_round_off=getattr(quotation, "auto_round_off", True),
             notes=quotation.notes,
             terms_text=getattr(quotation, "terms_text", "") or "",
+            salesman_id=getattr(quotation, "salesman_id", None),
+            sales_channel=getattr(quotation, "sales_channel", "") or "",
+            delivery_address=(
+                getattr(quotation, "delivery_address", "")
+                or getattr(quotation.customer, "shipping_address", "")
+                or ""
+            ),
             created_by=user,
             updated_by=user,
         )

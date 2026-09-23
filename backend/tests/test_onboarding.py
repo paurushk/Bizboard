@@ -174,3 +174,49 @@ def test_backfill_dismisses_existing_progress_companies(tenant_a):
     assert should_force_setup(
         company=tenant_a.company, is_owner=True, wizard_enabled=True
     ) is False
+
+
+def test_archetype_pack_follows_how_you_sell_and_skips_a_denied_flag(tenant_a, monkeypatch):
+    from accounts.packs import HELD_PACKS, PACKS, apply_pack, propose_pack
+    from core.exceptions import BusinessRuleError
+
+    assert propose_pack({"how_you_sell": "counter"}) == "retail"
+    assert propose_pack({"how_you_sell": "field"}) == "trade"
+    assert "ENABLE_PAYROLL" not in PACKS["retail"]
+    assert "ENABLE_PAYROLL" not in PACKS["trade"]
+    assert "distribution" in HELD_PACKS
+    monkeypatch.setattr(
+        "accounts.packs.plan_modules_for_company",
+        lambda company: {"ENABLE_POS": False},
+    )
+    apply_pack(
+        tenant_a.company,
+        "retail",
+        {"what_you_sell": "goods", "how_you_sell": "counter", "deliver": "no", "gst_registered": "yes"},
+        tenant_a.owner,
+    )
+    tenant_a.company.refresh_from_db()
+    assert tenant_a.company.feature_flags.get("ENABLE_POS") is not True
+    assert tenant_a.company.feature_flags["ENABLE_GST_GUARD"] is True
+    with pytest.raises(BusinessRuleError):
+        apply_pack(tenant_a.company, "distribution", {}, tenant_a.owner)
+
+
+def test_trade_pack_does_not_turn_on_crm_when_the_plan_omits_it(tenant_a, monkeypatch):
+    from accounts.packs import apply_pack
+
+    monkeypatch.setattr(
+        "accounts.packs.plan_modules_for_company",
+        lambda company: {"ENABLE_POS": True},
+    )
+    state = apply_pack(
+        tenant_a.company,
+        "trade",
+        {"what_you_sell": "goods", "how_you_sell": "field", "deliver": "yes", "gst_registered": "yes"},
+        tenant_a.owner,
+    )
+    tenant_a.company.refresh_from_db()
+    assert "ENABLE_CRM" not in (state.applied_flags or {})
+    assert tenant_a.company.feature_flags.get("ENABLE_CRM") is not True
+    assert state.skipped_flags == ["ENABLE_CRM"]
+    assert state.applied_flags.get("ENABLE_GST_GUARD") is True

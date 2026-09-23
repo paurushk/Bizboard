@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from core.events import emit
 from core.exceptions import BusinessRuleError
-from core.services.billing import compute_document_totals
+from core.services.tax_engine.registry import get_tax_engine
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 from .notes_services import _invoice_intra_state
 from inventory.models import MovementType, StockMovement
@@ -49,7 +49,7 @@ class ReturnService:
             SalesInvoice.objects.select_for_update().get(
                 pk=sales_return.sales_invoice_id, company_id=sales_return.company_id
             )
-        compute_document_totals(
+        get_tax_engine(sales_return.company).compute_document_totals(
             sales_return,
             items,
             tax_enabled=_tax_enabled(sales_return.sales_invoice.invoice_type),

@@ -88,6 +88,8 @@ class SalesItemSerializer(_BaseLineSerializer):
         extra_kwargs = {
             "unit_price": {"required": False},
             "gst_rate": {"required": False},
+            "cess_rate": {"required": False},
+            "cess_amount": {"required": False},
             "batch_no": {"required": False, "allow_blank": True},
             "exp_date": {"required": False, "allow_null": True},
             "mfg_date": {"required": False, "allow_null": True},
@@ -113,6 +115,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "notes", "terms_text",
             "include_bank_details", "include_payment_qr", "include_terms",
             "signature",
+            "custom_fields",
             "items", "pdf_status", "pdf_file",
             "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
             "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
@@ -469,6 +472,7 @@ class QuotationItemSerializer(_BaseLineSerializer):
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate", "cess_rate", "cess_amount",
             "hsn_code", "supply_nature", "unit_price_inclusive", "converted_quantity",
+            "expected_price",
         ] + LINE_READONLY
         read_only_fields = ["converted_quantity"] + LINE_READONLY
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
@@ -477,6 +481,14 @@ class QuotationItemSerializer(_BaseLineSerializer):
 class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
     items = QuotationItemSerializer(many=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
+    expected_profit = serializers.SerializerMethodField()
+
+    def get_expected_profit(self, obj):
+        from .expected_profit import can_view_expected_profit, expected_profit_for_quotation
+
+        if not can_view_expected_profit(self.context.get("request")):
+            return None
+        return expected_profit_for_quotation(obj)
 
     class Meta:
         model = Quotation
@@ -486,10 +498,12 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
             "payment_terms_days", "additional_charges", "charges_hsn", "charges_gst_rate",
             "invoice_discount", "invoice_discount_mode", "auto_round_off",
             "supply_type", "company_gstin",
+            "salesman", "sales_channel", "delivery_address",
+            "expected_profit",
             "items", "converted_invoice",
             "converted_order", "created_at", "updated_at",
         ] + TOTAL_READONLY
-        read_only_fields = ["number", "status", "converted_invoice", "converted_order"] + TOTAL_READONLY
+        read_only_fields = ["number", "status", "converted_invoice", "converted_order", "expected_profit"] + TOTAL_READONLY
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
@@ -506,6 +520,9 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
         from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 
         items_data = validated_data.pop("items")
+        customer = validated_data.get("customer")
+        if customer is not None and not (validated_data.get("delivery_address") or "").strip():
+            validated_data["delivery_address"] = customer.shipping_address or ""
         with transaction.atomic():
             quotation = Quotation.objects.create(**validated_data)
             if not quotation.number:
@@ -598,6 +615,7 @@ class RecurringInvoiceScheduleSerializer(CompanyScopedSerializerMixin, serialize
         fields = [
             "id", "customer", "customer_name", "company_gstin", "cadence",
             "next_run_at", "is_active", "line_template", "notes",
+            "stop_stage",
             # B2-026: header-level charges/discount/price-mode.
             "additional_charges", "invoice_discount", "invoice_discount_mode", "price_mode",
             "created_at", "updated_at",

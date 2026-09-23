@@ -377,6 +377,252 @@ class CashBookView(BaseReportView):
         raise BusinessRuleError("Unsupported format. Use export=json or export=xlsx.")
 
 
+class DayBookView(BaseReportView):
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "heavy_reports"
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+
+    def get(self, request):
+        from .transactions import day_book
+
+        raw = request.query_params.get("date") or request.query_params.get("on_date")
+        on_date = _parse_date(raw) or date.today()
+        return Response(day_book(self.company, on_date))
+
+
+class SalesSummaryView(BaseReportView):
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "heavy_reports"
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+
+    def get(self, request):
+        from django.db.models import Count, Sum
+
+        from sales.models import SalesInvoice
+
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        qs = SalesInvoice.objects.filter(
+            company=self.company, status=SalesInvoice.Status.COMPLETED,
+        )
+        if date_from:
+            qs = qs.filter(invoice_date__gte=date_from)
+        if date_to:
+            qs = qs.filter(invoice_date__lte=date_to)
+        totals = qs.aggregate(
+            invoice_count=Count("id"),
+            revenue=Sum("grand_total"),
+            taxable=Sum("taxable_total"),
+        )
+        # Reuse the existing, CN/DN-netted reports (CR-066/CR-150) rather than
+        # a fresh unnetted aggregation, so "top customers/products" here can't
+        # disagree with the dedicated Customer Sales / Product Sales reports.
+        top_customers = ReportService.customer_sales(self.company, date_from, date_to)["rows"][:10]
+        top_products = ReportService.product_sales(self.company, date_from, date_to)["rows"][:10]
+        by_date = list(
+            qs.values("invoice_date")
+            .annotate(revenue=Sum("grand_total"), count=Count("id"))
+            .order_by("invoice_date")
+        )
+        from decimal import Decimal
+
+        from ledgers.services import LedgerService
+
+        # Same outstanding calculation Day Book / the invoice list use (and
+        # the one that correctly accounts for settlement_discount), so this
+        # breakdown can't drift from what those screens show for the same
+        # invoices.
+        balances = LedgerService.bulk_sales_invoice_outstanding(self.company, list(qs.values_list("id", flat=True)))
+        paid = unpaid = partial = 0
+        paid_amt = unpaid_amt = partial_amt = Decimal("0")
+        for inv in qs.values("id", "grand_total"):
+            bal = balances.get(inv["id"]) or Decimal("0")
+            grand = inv["grand_total"] or Decimal("0")
+            if bal <= Decimal("0.05"):
+                paid += 1
+                paid_amt += grand
+            elif bal + Decimal("0.05") >= grand:
+                unpaid += 1
+                unpaid_amt += grand
+            else:
+                partial += 1
+                partial_amt += grand
+        return Response({
+            "date_from": date_from,
+            "date_to": date_to,
+            "totals": totals,
+            "top_customers": top_customers,
+            "top_products": top_products,
+            "by_date": by_date,
+            "payment_breakdown": {
+                "paid": {"count": paid, "amount": paid_amt},
+                "partial": {"count": partial, "amount": partial_amt},
+                "unpaid": {"count": unpaid, "amount": unpaid_amt},
+            },
+        })
+
+
+class CustomerLedgerTabsView(BaseReportView):
+    def get_permissions(self):
+        return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+
+    def get(self, request, customer_id):
+        from decimal import Decimal
+
+        from ledgers.services import LedgerService
+        from masters.models import Customer
+        from rest_framework.generics import get_object_or_404
+        from sales.models import SalesInvoice
+
+        from .transactions import customer_item_wise, customer_overdue_amount, sales_side_transactions
+
+        customer = get_object_or_404(Customer, pk=customer_id, company=self.company)
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        txn_type = request.query_params.get("txn_type") or request.query_params.get("type")
+        types = [txn_type] if txn_type else None
+        status_filter = request.query_params.get("status")
+        transactions = sales_side_transactions(
+            self.company, date_from=date_from, date_to=date_to,
+            customer_id=customer.id, txn_types=types, status_filter=status_filter,
+        )
+        outstanding = LedgerService.customer_outstanding(self.company, customer)
+        sales_qs = SalesInvoice.objects.filter(
+            company=self.company, customer=customer, status=SalesInvoice.Status.COMPLETED,
+        )
+        if date_from:
+            sales_qs = sales_qs.filter(invoice_date__gte=date_from)
+        if date_to:
+            sales_qs = sales_qs.filter(invoice_date__lte=date_to)
+        from django.db.models import Sum
+        from payments.models import CustomerReceipt, ReceiptStatus
+
+        total_sales = sales_qs.aggregate(t=Sum("grand_total"))["t"] or Decimal("0")
+        receipts = CustomerReceipt.objects.filter(
+            company=self.company, customer=customer, status=ReceiptStatus.POSTED,
+        )
+        if date_from:
+            receipts = receipts.filter(receipt_date__gte=date_from)
+        if date_to:
+            receipts = receipts.filter(receipt_date__lte=date_to)
+        total_received = receipts.aggregate(t=Sum("amount"))["t"] or Decimal("0")
+        overdue = customer_overdue_amount(
+            self.company, customer, date_from=date_from, date_to=date_to,
+        )
+        statement = LedgerService.customer_statement(
+            self.company, customer, date_from=date_from, date_to=date_to,
+        )
+        if isinstance(statement, list):
+            raw_entries = statement
+        else:
+            raw_entries = (statement or {}).get("entries") or []
+        numbered = []
+        for i, entry in enumerate(raw_entries, start=1):
+            row = dict(entry)
+            row["sr_no"] = i
+            row.setdefault("mode", "")
+            numbered.append(row)
+        statement = {"outstanding": outstanding, "entries": numbered}
+        item_wise = customer_item_wise(
+            self.company, customer.id, date_from=date_from, date_to=date_to,
+        )
+        payload = {
+            "customer_id": customer.id,
+            "customer_name": customer.name,
+            "profile": {
+                "name": customer.name,
+                "phone": customer.phone,
+                "email": customer.email,
+                "gstin": customer.gstin,
+                "pan": getattr(customer, "pan", ""),
+                "billing_address": customer.billing_address,
+                "shipping_address": customer.shipping_address,
+                "shipping_addresses": [
+                    {"id": a.id, "label": a.label, "address": a.address, "is_default": a.is_default}
+                    for a in customer.shipping_addresses.all()
+                ],
+                "credit_limit": customer.credit_limit,
+                "credit_days": customer.credit_days,
+                "custom_fields": customer.custom_fields,
+                "party_bank_name": getattr(customer, "party_bank_name", ""),
+                "party_bank_account": getattr(customer, "party_bank_account", ""),
+                "party_bank_ifsc": getattr(customer, "party_bank_ifsc", ""),
+            },
+            "kpis": {
+                "total_receivable": outstanding,
+                "overdue_amount": overdue,
+                "total_sales_amount": total_sales,
+                "total_received_amount": total_received,
+            },
+            "transactions": transactions,
+            "statement": statement,
+            "item_wise": item_wise,
+        }
+        export_format = (request.query_params.get("export") or "json").lower()
+        if export_format in ("json", "api", ""):
+            return Response(payload)
+        if export_format == "xlsx":
+            from io import BytesIO
+
+            from openpyxl import Workbook
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Transactions"
+            txn_headers = [
+                "date", "txn_type", "number", "party", "debit", "credit", "balance",
+                "mode", "reference",
+            ]
+            ws.append(txn_headers)
+            for row in payload.get("transactions") or []:
+                ws.append([row.get(h) for h in txn_headers])
+            ws2 = wb.create_sheet("Statement")
+            ws2.append(["sr_no", "date", "type", "number", "debit", "credit", "balance", "mode"])
+            raw_statement = payload.get("statement")
+            if isinstance(raw_statement, list):
+                entries = raw_statement
+            else:
+                entries = (raw_statement or {}).get("entries") or []
+            for entry in entries:
+                ws2.append([
+                    entry.get("sr_no"),
+                    entry.get("date"),
+                    entry.get("type") or entry.get("particulars") or entry.get("description"),
+                    entry.get("number"),
+                    entry.get("debit"),
+                    entry.get("credit"),
+                    entry.get("balance"),
+                    entry.get("mode"),
+                ])
+            ws3 = wb.create_sheet("Item-wise")
+            item_headers = ["product", "product_name", "qty", "amount"]
+            ws3.append(item_headers)
+            for row in payload.get("item_wise") or []:
+                ws3.append([
+                    row.get("product_id") or row.get("product"),
+                    row.get("product_name") or row.get("name"),
+                    row.get("qty") or row.get("quantity"),
+                    row.get("amount") or row.get("line_total"),
+                ])
+            ws4 = wb.create_sheet("KPIs")
+            for key, val in (payload.get("kpis") or {}).items():
+                ws4.append([key, val])
+            buf = BytesIO()
+            wb.save(buf)
+            response = HttpResponse(
+                buf.getvalue(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in (customer.name or "customer"))
+            response["Content-Disposition"] = f'attachment; filename="{safe_name}-ledger.xlsx"'
+            return response
+        raise BusinessRuleError("Unsupported format. Use export=json or export=xlsx.")
+
+
 def _customer_export(company, params):
     qs = Customer.objects.filter(company=company).order_by("name")
     status = params.get("status")

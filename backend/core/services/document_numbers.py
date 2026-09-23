@@ -34,6 +34,9 @@ DEFAULT_PREFIXES = {
     "JOURNAL_ENTRY": "JV",
     "STOCK_TRANSFER": "TRF",
     "GOODS_RECEIPT": "GRN",
+    "EXPENSE": "EXP",
+    "DELIVERY_ROUTE": "DR",
+    "DELIVERY_CHALLAN_RETURN": "DCR",
 }
 
 
@@ -156,7 +159,7 @@ class DocumentNumberService:
         # R1-025: plain lazy imports (module-level would be circular). The two
         # accounting/inventory models get the same treatment as the rest — no
         # __import__() special-casing.
-        from accounting.models import JournalEntry
+        from accounting.models import Expense, JournalEntry
         from inventory.models import StockTransfer
         from payments.models import CustomerReceipt, SupplierPayment
         from purchases.models import (
@@ -168,6 +171,8 @@ class DocumentNumberService:
         )
         from sales.models import (
             DeliveryChallan,
+            DeliveryChallanReturn,
+            DeliveryRoute,
             Quotation,
             SalesCreditNote,
             SalesDebitNote,
@@ -193,6 +198,9 @@ class DocumentNumberService:
             "DELIVERY_CHALLAN": DeliveryChallan.objects.filter(company=company).exclude(number=""),
             "JOURNAL_ENTRY": JournalEntry.objects.filter(company=company).exclude(number=""),
             "STOCK_TRANSFER": StockTransfer.objects.filter(company=company).exclude(number=""),
+            "EXPENSE": Expense.objects.filter(company=company).exclude(number=""),
+            "DELIVERY_ROUTE": DeliveryRoute.objects.filter(company=company).exclude(number=""),
+            "DELIVERY_CHALLAN_RETURN": DeliveryChallanReturn.objects.filter(company=company).exclude(number=""),
         }
         return mapping.get(doc_type)
 

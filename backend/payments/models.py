@@ -12,6 +12,13 @@ class PaymentMode(models.TextChoices):
     BANK = "BANK"
     CARD = "CARD"
     CREDIT = "CREDIT"
+    CHEQUE = "CHEQUE"
+
+
+class ChequeStatus(models.TextChoices):
+    PENDING_CLEARANCE = "PENDING_CLEARANCE"
+    CLEARED = "CLEARED"
+    BOUNCED = "BOUNCED"
 
 
 class PaymentSource(models.TextChoices):
@@ -99,6 +106,22 @@ class CustomerReceipt(CompanyScopedModel):
         on_delete=models.SET_NULL,
         related_name="receipts",
     )
+    cheque_number = models.CharField(max_length=32, blank=True)
+    cheque_bank_name = models.CharField(max_length=100, blank=True)
+    cheque_date = models.DateField(null=True, blank=True)
+    cheque_status = models.CharField(
+        max_length=20,
+        choices=ChequeStatus.choices,
+        blank=True,
+        default="",
+    )
+    cheque_image = models.ForeignKey(
+        "core.FileAsset",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="cheque_receipts",
+    )
+    settlement_discount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
 
     class Meta:
         ordering = ["-receipt_date", "-id"]
@@ -143,6 +166,22 @@ class SupplierPayment(CompanyScopedModel):
     tds_section = models.CharField(max_length=16, blank=True)
     tds_rate = models.DecimalField(max_digits=6, decimal_places=3, default=0)
     tds_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    cheque_number = models.CharField(max_length=32, blank=True)
+    cheque_bank_name = models.CharField(max_length=100, blank=True)
+    cheque_date = models.DateField(null=True, blank=True)
+    cheque_status = models.CharField(
+        max_length=20,
+        choices=ChequeStatus.choices,
+        blank=True,
+        default="",
+    )
+    cheque_image = models.ForeignKey(
+        "core.FileAsset",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="cheque_supplier_payments",
+    )
 
     class Meta:
         ordering = ["-payment_date", "-id"]
@@ -546,3 +585,22 @@ class ProcessedWebhookEvent(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["created_at"])]
+
+
+class CustomerPortalToken(CompanyScopedModel):
+    """Short-lived magic link for the customer invoice portal (COMP-003).
+
+    Reusable until ``expires_at`` (15 minutes). Not a password session.
+    """
+
+    class Channel(models.TextChoices):
+        EMAIL = "EMAIL", "Email"
+        WHATSAPP = "WHATSAPP", "WhatsApp"
+
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    customer = models.ForeignKey(
+        "masters.Customer", on_delete=models.CASCADE, related_name="portal_tokens"
+    )
+    requested_via = models.CharField(max_length=16, choices=Channel.choices)
+    expires_at = models.DateTimeField()
+    last_used_at = models.DateTimeField(null=True, blank=True)

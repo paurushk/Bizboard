@@ -13,6 +13,7 @@ export async function listCustomersPage(params?: {
   q?: string;
   gstin?: string;
   status?: string;
+  sort?: string;
 }): Promise<PageResult<Customer>> {
   return withMocks(
     async () => fetchPage<Customer>('/customers/', params),
@@ -358,6 +359,10 @@ export async function createSupplierPayment(
     paymentDate?: string;
     reference?: string;
     notes?: string;
+    chequeNumber?: string;
+    chequeBankName?: string;
+    chequeDate?: string;
+    chequeImage?: number;
   },
   options?: { idempotencyKey?: string },
 ): Promise<SupplierPayment> {
@@ -405,4 +410,13 @@ export const listPriceLists = () => fetchAllPagesMasters<import('@/utils/priceLi
 export const createPriceList = (payload: Record<string, unknown>) => apiClient.post('/masters/price-lists/', payload).then(({ data }) => unwrapData(data));
 export const updatePriceList = (id: number, payload: Record<string, unknown>) =>
   apiClient.patch(`/masters/price-lists/${id}/`, payload).then(({ data }) => unwrapData(data));
+
+export async function listExpenseCategoriesPage(params?: PageParams) {
+  return fetchPage<Record<string, unknown>>('/masters/expense-categories/', params);
+}
+
+export async function createExpenseCategory(payload: { name: string; code?: string; description?: string }) {
+  const { data } = await apiClient.post('/masters/expense-categories/', payload);
+  return unwrapData<Record<string, unknown>>(data);
+}
 

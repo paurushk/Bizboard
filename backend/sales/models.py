@@ -3,7 +3,13 @@ from decimal import Decimal
 from django.db import models
 from django.utils import timezone
 
-from core.models import DocumentLineModel, DocumentTotalsModel
+from core.models import CompanyScopedModel, DocumentLineModel, DocumentTotalsModel
+
+
+class SalesChannel(models.TextChoices):
+    WALK_IN = "WALK_IN", "Walk-in"
+    ONLINE = "ONLINE", "Online"
+    DISTRIBUTOR = "DISTRIBUTOR", "Distributor"
 
 
 class SalesInvoice(DocumentTotalsModel):
@@ -171,6 +177,7 @@ class SalesInvoice(DocumentTotalsModel):
     whatsapp_message_id = models.CharField(max_length=128, blank=True, default="")
     whatsapp_share_link = models.TextField(blank=True, default="")
     whatsapp_sent_at = models.DateTimeField(null=True, blank=True)
+    custom_fields = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["-invoice_date", "-id"]
@@ -261,6 +268,18 @@ class Quotation(DocumentTotalsModel):
     converted_order = models.ForeignKey(
         "SalesOrder", null=True, blank=True, on_delete=models.SET_NULL, related_name="source_quotations"
     )
+    opportunity = models.ForeignKey(
+        "crm.Opportunity",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="quotations",
+    )
+    salesman = models.ForeignKey(
+        "payroll.Employee", null=True, blank=True, on_delete=models.SET_NULL, related_name="quotations",
+    )
+    sales_channel = models.CharField(max_length=16, choices=SalesChannel.choices, blank=True, default="")
+    delivery_address = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-quotation_date", "-id"]
@@ -285,6 +304,7 @@ class QuotationItem(DocumentLineModel):
     unit_price_inclusive = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     # CFT-115: qty already converted to an SO/invoice; remainder stays convertible.
     converted_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
+    expected_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
 
 
 class SalesReturn(DocumentTotalsModel):
@@ -558,6 +578,11 @@ class SalesOrder(DocumentTotalsModel):
     converted_invoice = models.ForeignKey(
         SalesInvoice, null=True, blank=True, on_delete=models.SET_NULL, related_name="source_orders"
     )
+    salesman = models.ForeignKey(
+        "payroll.Employee", null=True, blank=True, on_delete=models.SET_NULL, related_name="sales_orders",
+    )
+    sales_channel = models.CharField(max_length=16, choices=SalesChannel.choices, blank=True, default="")
+    delivery_address = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-order_date", "-id"]
@@ -574,6 +599,7 @@ class SalesOrder(DocumentTotalsModel):
 class SalesOrderItem(DocumentLineModel):
     sales_order = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="sales_order_items")
+    expected_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
 
 
 class DeliveryChallan(DocumentTotalsModel):
@@ -614,6 +640,7 @@ class DeliveryChallan(DocumentTotalsModel):
     converted_invoice = models.ForeignKey(
         SalesInvoice, null=True, blank=True, on_delete=models.SET_NULL, related_name="source_challans"
     )
+    delivery_address = models.TextField(blank=True)
     eway_status = models.CharField(
         max_length=12, choices=SalesInvoice.EwayStatus.choices, default=SalesInvoice.EwayStatus.NONE
     )
@@ -645,6 +672,7 @@ class DeliveryChallanItem(DocumentLineModel):
     batch_no = models.CharField(max_length=64, blank=True)
     # BB-000402: serial tracking on challan stock path.
     serial_numbers = models.JSONField(default=list, blank=True)
+    expected_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
 
 
 class RecurringInvoiceSchedule(models.Model):
@@ -653,6 +681,11 @@ class RecurringInvoiceSchedule(models.Model):
     class Cadence(models.TextChoices):
         MONTHLY = "MONTHLY"
         WEEKLY = "WEEKLY"
+
+    class StopStage(models.TextChoices):
+        INVOICE = "INVOICE"
+        SALES_ORDER = "SALES_ORDER"
+        DELIVERY_CHALLAN = "DELIVERY_CHALLAN"
 
     company = models.ForeignKey(
         "accounts.Company", on_delete=models.CASCADE, related_name="recurring_invoice_schedules",
@@ -674,6 +707,12 @@ class RecurringInvoiceSchedule(models.Model):
     notes = models.TextField(blank=True)
     # CR-121: last generation failure text (optional; absent until migration).
     last_error = models.TextField(blank=True, default="")
+    stop_stage = models.CharField(
+        max_length=20,
+        choices=StopStage.choices,
+        default=StopStage.INVOICE,
+        help_text="Where a generated run stops: draft invoice (default), sales order, or draft delivery challan.",
+    )
     # B2-026: header-level charges/discount/price-mode a recurring template
     # previously had no way to express at all -- every generated draft was
     # silently exclusive-priced with no charges/invoice discount, regardless
@@ -715,6 +754,12 @@ class RecurringInvoiceRun(models.Model):
     invoice = models.ForeignKey(
         SalesInvoice, null=True, blank=True, on_delete=models.SET_NULL, related_name="recurring_runs",
     )
+    sales_order = models.ForeignKey(
+        "sales.SalesOrder", null=True, blank=True, on_delete=models.SET_NULL, related_name="recurring_runs",
+    )
+    delivery_challan = models.ForeignKey(
+        "sales.DeliveryChallan", null=True, blank=True, on_delete=models.SET_NULL, related_name="recurring_runs",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -724,3 +769,96 @@ class RecurringInvoiceRun(models.Model):
             ),
         ]
         indexes = [models.Index(fields=["company", "period_key"], name="sales_recurrun_co_period_idx")]
+
+
+class DeliveryRoute(CompanyScopedModel):
+    """SO-only planning overlay for a van/driver day (Phase 8)."""
+
+    class Status(models.TextChoices):
+        PLANNED = "PLANNED"
+        IN_TRANSIT = "IN_TRANSIT"
+        COMPLETED = "COMPLETED"
+        CANCELLED = "CANCELLED"
+
+    number = models.CharField(max_length=32, blank=True, db_index=True)
+    route_date = models.DateField(default=timezone.localdate)
+    vehicle_number = models.CharField(max_length=32, blank=True)
+    driver_name = models.CharField(max_length=128, blank=True)
+    driver = models.ForeignKey(
+        "payroll.Employee", null=True, blank=True, on_delete=models.SET_NULL, related_name="delivery_routes",
+    )
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PLANNED)
+    estimated_logistics_cost = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    actual_logistics_cost = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    realized_revenue = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    realized_cogs = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    realized_profit = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    invoiced_stop_count = models.PositiveIntegerField(null=True, blank=True)
+    stop_count = models.PositiveIntegerField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-route_date", "-id"]
+        indexes = [models.Index(fields=["company", "status", "route_date"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "number"],
+                condition=~models.Q(number=""),
+                name="uniq_delivery_route_number_per_company",
+            )
+        ]
+
+
+class DeliveryRouteStop(CompanyScopedModel):
+    class StopStatus(models.TextChoices):
+        PENDING = "PENDING"
+        DELIVERED = "DELIVERED"
+        FAILED = "FAILED"
+        RETURNED = "RETURNED"
+
+    route = models.ForeignKey(DeliveryRoute, on_delete=models.CASCADE, related_name="stops")
+    sales_order = models.ForeignKey(SalesOrder, on_delete=models.PROTECT, related_name="route_stops")
+    sequence = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=12, choices=StopStatus.choices, default=StopStatus.PENDING)
+    notes = models.TextField(blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["sequence", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["route", "sales_order"], name="uniq_route_stop_order"),
+        ]
+
+
+class DeliveryChallanReturn(DocumentTotalsModel):
+    """Partial/full return against a completed delivery challan."""
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT"
+        COMPLETED = "COMPLETED"
+        CANCELLED = "CANCELLED"
+
+    customer = models.ForeignKey("masters.Customer", on_delete=models.PROTECT, related_name="delivery_challan_returns")
+    challan = models.ForeignKey(DeliveryChallan, on_delete=models.PROTECT, related_name="returns")
+    number = models.CharField(max_length=32, blank=True, db_index=True)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    return_date = models.DateField(default=timezone.localdate)
+    reason = models.CharField(max_length=255, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-return_date", "-id"]
+        indexes = [models.Index(fields=["company", "status", "return_date"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "number"],
+                condition=~models.Q(number=""),
+                name="uniq_dc_return_number_per_company",
+            )
+        ]
+
+
+class DeliveryChallanReturnItem(DocumentLineModel):
+    challan_return = models.ForeignKey(DeliveryChallanReturn, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="delivery_challan_return_items")

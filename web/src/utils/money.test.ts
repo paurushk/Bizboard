@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { formatMoney, formatNumber, roundMoney, toNumber } from '@/utils/money';
+import {
+  formatMoney,
+  formatNumber,
+  headerDiscountForEditedGrandTotal,
+  expectedProfitAmount,
+  roundMoney,
+  toNumber,
+} from '@/utils/money';
 
 describe('money utils', () => {
   it('rounds half-up to two decimal places', () => {
@@ -35,5 +42,20 @@ describe('money utils', () => {
     expect(toNumber('abc')).toBe(0);
     expect(toNumber(null)).toBe(0);
     expect(toNumber(undefined)).toBe(0);
+  });
+
+  it('maps an edited-down grand total to extra after-tax header discount', () => {
+    expect(headerDiscountForEditedGrandTotal(1180, 0, 1000)).toBe(180);
+    expect(headerDiscountForEditedGrandTotal(1180.01, 0, 1180)).toBe(0.01);
+    expect(headerDiscountForEditedGrandTotal(100, 25, 90)).toBe(35);
+    expect(headerDiscountForEditedGrandTotal(100, 0, 100.004)).toBe(0);
+  });
+
+  it('reads nested expected-profit payloads from quote/SO/DC serializers', () => {
+    expect(expectedProfitAmount({ expectedProfit: '40.00' })).toBe(40);
+    expect(expectedProfitAmount({ expected_profit: 12.5 })).toBe(12.5);
+    expect(expectedProfitAmount('18')).toBe(18);
+    expect(expectedProfitAmount(null)).toBeNull();
+    expect(expectedProfitAmount({})).toBeNull();
   });
 });

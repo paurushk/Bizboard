@@ -81,6 +81,7 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             "is_reverse_charge", "itc_eligibility", "rcm_taxable", "rcm_cgst", "rcm_sgst", "rcm_igst",
             "rcm_cess",
             "company_gstin", "price_mode",
+            "ship_from", "ship_from_address",
             "tds_section", "tds_rate", "tds_amount",
             "bill_of_entry",
             "paid", "balance",

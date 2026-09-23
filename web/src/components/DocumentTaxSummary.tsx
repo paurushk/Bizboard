@@ -11,7 +11,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { CompactField, NumericField } from '@/components/billing';
 import { t } from '@/i18n';
-import { formatMoney } from '@/utils/money';
+import { formatMoney, headerDiscountForEditedGrandTotal } from '@/utils/money';
 import type { InvoiceDiscountMode } from '@/utils/tax';
 
 export type DocumentTotals = {
@@ -221,6 +221,30 @@ export function DocumentTaxSummary({
           <Typography variant="body2">{formatMoney(totals.roundOff)}</Typography>
         </Stack>
         <Divider />
+        <SummaryRow
+          label={t('billing.collectAs')}
+          value={
+            <NumericField
+              value={grand}
+              onValueChange={(n) => {
+                if (blockAfterTaxDiscount) return;
+                const extra = headerDiscountForEditedGrandTotal(grand, invoiceDiscount, n);
+                onInvoiceDiscountModeChange('AFTER_TAX');
+                onInvoiceDiscountChange(extra);
+              }}
+              min={0}
+              decimals={2}
+              fullWidth={false}
+              disabled={(isCompletedEdit && !canAmendMoney) || blockAfterTaxDiscount}
+              helperText={t('billing.editableGrandTotalHelp')}
+              InputProps={{
+                startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+              }}
+              sx={{ maxWidth: 160 }}
+            />
+          }
+          bold
+        />
         <SummaryRow label={totalLabel ?? t('billing.totalAmount')} value={formatMoney(grand)} bold />
         {children}
       </Stack>

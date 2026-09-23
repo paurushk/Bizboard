@@ -923,6 +923,7 @@ class ReportService:
     def cash_book(company, date_from=None, date_to=None, bank_account_id=None):
         """Actual cash/bank movements from receipts and supplier payments (Phase 3.3)."""
         from payments.models import CustomerReceipt, ReceiptStatus, SupplierPayment, SupplierPaymentStatus
+        from reporting.transactions import _cheque_counts_as_cash
 
         receipts = CustomerReceipt.objects.filter(
             company=company, status=ReceiptStatus.POSTED
@@ -950,6 +951,8 @@ class ReportService:
         for r in receipts.order_by("receipt_date", "id"):
             if r.mode == "CREDIT":
                 continue
+            if not _cheque_counts_as_cash(r):
+                continue
             inflow += r.amount
             rows.append(
                 {
@@ -968,6 +971,8 @@ class ReportService:
             )
         for p in payments.order_by("payment_date", "id"):
             if p.mode == "CREDIT":
+                continue
+            if not _cheque_counts_as_cash(p):
                 continue
             outflow += p.amount
             rows.append(
@@ -1025,9 +1030,11 @@ class ReportService:
         if not date_from:
             return initial_opening
 
+        from django.db.models import Q
+
         pre_receipts = CustomerReceipt.objects.filter(
             company=company, status=ReceiptStatus.POSTED, receipt_date__lt=date_from
-        ).exclude(mode="CREDIT")
+        ).exclude(mode="CREDIT").filter(~Q(mode="CHEQUE") | Q(cheque_status="CLEARED"))
         pre_payments = SupplierPayment.objects.filter(
             company=company, status=SupplierPaymentStatus.POSTED, payment_date__lt=date_from
         ).exclude(mode="CREDIT")

@@ -28,6 +28,14 @@ class AttentionRowState(CompanyScopedModel):
     snooze_until = models.DateTimeField(null=True, blank=True)
     snooze_reason = models.TextField(blank=True, default="")
     dismissed = models.BooleanField(default=False)
+    assigned_to = models.ForeignKey(
+        "accounts.CompanyUser",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_attention_rows",
+    )
+    due_date = models.DateField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -38,6 +46,7 @@ class AttentionRowState(CompanyScopedModel):
         ]
         indexes = [
             models.Index(fields=["company", "snooze_until"]),
+            models.Index(fields=["company", "assigned_to"], name="attn_company_assignee_idx"),
         ]
 
 

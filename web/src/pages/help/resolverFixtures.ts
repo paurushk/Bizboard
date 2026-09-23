@@ -155,6 +155,8 @@ export const RESOLVER_FIXTURES: { query: string; intentId: string }[] = [
   { query: 'gstin field empty on company', intentId: 'add-gstin' },
   { query: 'complete stays disabled missing party state', intentId: 'cannot-complete-invoice' },
   { query: 'igst on a local customer', intentId: 'wrong-gst-on-invoice' },
+  { query: 'will this push irn to nic automatically', intentId: 'einvoice-irp-not-live' },
+  { query: 'e invoice sirf json banata hai kya', intentId: 'einvoice-irp-not-live' },
 ];
 
 /** Unseen phrasings (not copied from userQueries) — field-test gate HR-2.1. */
@@ -172,6 +174,7 @@ export const FIELD_TEST_FIXTURES: { query: string; intentId: string }[] = [
   { query: 'purchase bill button grey supplier', intentId: 'purchase-bill-blocked' },
   { query: 'turn on books to post journal', intentId: 'books-journal-blocked' },
   { query: 'trial over workspace locked', intentId: 'trial-ended-readonly' },
+  { query: 'does nic irp get this json automatically', intentId: 'einvoice-irp-not-live' },
   { query: 'offline drafts sitting on this phone', intentId: 'offline-outbox-stuck' },
 ];
 

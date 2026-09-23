@@ -1,6 +1,7 @@
 """Inventory Service — balances, typed movements, adjustments (E2)."""
 
 from calendar import monthrange
+from dataclasses import dataclass
 from datetime import date as date_cls, timedelta
 from decimal import Decimal
 
@@ -2084,3 +2085,126 @@ class InventoryValuationService:
             "batch_no",
             "id",
         ).distinct()
+
+
+@dataclass
+class ReplenishmentSuggestion:
+    available: Decimal
+    velocity_14d: Decimal
+    lead_time_days: int
+    safety_stock_qty: Decimal
+    suggested_qty: Decimal
+    reorder_level: Decimal
+    transfer_from_warehouse_id: int | None
+    transfer_from_warehouse_name: str | None
+
+
+_UNSET = object()
+
+
+def suggest_replenishment(
+    company, warehouse, product, *, on_hand, reserved, reorder_level, since,
+    warehouse_specific: bool = True,
+    reorder_level_row=_UNSET,
+    warehouse_levels=_UNSET,
+    product_balances=_UNSET,
+):
+    """Suggested buy or transfer qty for one low-stock row.
+
+    ``since`` is the same window ``_low_stock()`` already uses (trailing 14 days).
+    Lead time and safety stock live on ``WarehouseReorderLevel``. When lead time
+    is unset, the quantity falls back to ``reorder_level - available``.
+
+    ``warehouse_specific`` must be False when ``warehouse`` is not a real
+    "this specific warehouse is short" row — e.g. the company-wide aggregate
+    row `low_stock_alert_payload` returns when no per-warehouse
+    `WarehouseReorderLevel` override exists (F1-002). In that case `warehouse`
+    is an arbitrary stand-in, not a meaningful current location, so no
+    transfer suggestion is computed against it — only the purchase-fallback
+    quantity is offered.
+
+    ``reorder_level_row``, ``warehouse_levels``, ``product_balances`` let a
+    caller iterating many rows for the same company (e.g. `_low_stock()`)
+    precompute these once instead of per-row (F1-003, N+1 avoidance). Left
+    unset, each is queried individually so this function still works as a
+    standalone call (e.g. from tests) without precomputed maps.
+    """
+    from .models import StockBalance, StockMovement, WarehouseReorderLevel
+
+    available = Decimal(str(on_hand or 0)) - Decimal(str(reserved or 0))
+    if reorder_level_row is not _UNSET:
+        level = reorder_level_row
+    elif warehouse is not None and product is not None:
+        level = WarehouseReorderLevel.objects.filter(
+            company=company, warehouse=warehouse, product=product
+        ).first()
+    else:
+        level = None
+    lead = int(level.lead_time_days) if level is not None else 0
+    safety = Decimal(str(level.safety_stock_qty if level is not None else 0))
+    reorder = Decimal(str(reorder_level or 0))
+    velocity = Decimal("0")
+    if warehouse is not None and product is not None and since is not None:
+        sold = StockMovement.objects.filter(
+            company=company,
+            warehouse=warehouse,
+            product=product,
+            movement_type=MovementType.SALE,
+            movement_date__gte=since,
+        ).aggregate(q=Sum("quantity"))["q"]
+        velocity = abs(Decimal(str(sold or 0)))
+    if lead > 0:
+        suggested = safety + (velocity / Decimal(14)) * Decimal(lead) - available
+    else:
+        suggested = reorder - available
+    if suggested < 0:
+        suggested = Decimal("0")
+    suggested = suggested.quantize(Decimal("0.001"))
+
+    transfer_id = None
+    transfer_name = None
+    if warehouse_specific and warehouse is not None and product is not None:
+        if warehouse_levels is not _UNSET:
+            levels = warehouse_levels
+        else:
+            levels = {
+                row.warehouse_id: row
+                for row in WarehouseReorderLevel.objects.filter(company=company, product=product)
+            }
+        product_reorder = Decimal(str(getattr(product, "reorder_level", 0) or 0))
+        best_surplus = None
+        best_warehouse = None
+        if product_balances is not _UNSET:
+            balances = [b for b in product_balances if b.warehouse_id != warehouse.id]
+        else:
+            balances = (
+                StockBalance.objects.filter(company=company, product=product)
+                .exclude(warehouse_id=warehouse.id)
+                .select_related("warehouse")
+            )
+        for bal in balances:
+            other_available = Decimal(str(bal.on_hand or 0)) - Decimal(str(bal.reserved or 0))
+            other_level = levels.get(bal.warehouse_id)
+            other_reorder = Decimal(str(other_level.reorder_level)) if other_level is not None else product_reorder
+            if other_available <= other_reorder:
+                continue
+            surplus = other_available - other_reorder
+            if best_surplus is None or surplus > best_surplus or (
+                surplus == best_surplus and bal.warehouse_id < best_warehouse.id
+            ):
+                best_surplus = surplus
+                best_warehouse = bal.warehouse
+        if best_warehouse is not None:
+            transfer_id = best_warehouse.id
+            transfer_name = best_warehouse.name
+
+    return ReplenishmentSuggestion(
+        available=available,
+        velocity_14d=velocity,
+        lead_time_days=lead,
+        safety_stock_qty=safety,
+        suggested_qty=suggested,
+        reorder_level=reorder,
+        transfer_from_warehouse_id=transfer_id,
+        transfer_from_warehouse_name=transfer_name,
+    )

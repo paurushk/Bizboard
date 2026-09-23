@@ -95,14 +95,6 @@ export function SalesReturnsPage() {
     staleTime: 60_000,
   });
 
-  useEffect(() => {
-    if (searchParams.get('create') !== '1') return;
-    setOpen(true);
-    const next = new URLSearchParams(searchParams);
-    next.delete('create');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
-
   const onInvoicePick = async (inv: SalesInvoice | null) => {
     setInvoice(inv);
     if (!inv) {
@@ -132,6 +124,24 @@ export function SalesReturnsPage() {
     const byId = new Map(catalog.map((p) => [p.id, p]));
     setLines(invoiceItemsToSourceLines(full.items, returnedByProduct, byId));
   };
+
+  useEffect(() => {
+    const wantsCreate = searchParams.get('create') === '1';
+    const invoiceIdRaw = searchParams.get('invoice');
+    if (!wantsCreate && !invoiceIdRaw) return;
+    setOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('create');
+    next.delete('invoice');
+    setSearchParams(next, { replace: true });
+    const id = Number(invoiceIdRaw);
+    if (!Number.isFinite(id) || id <= 0) return;
+    void getSalesInvoice(id)
+      .then((inv) => onInvoicePick(inv))
+      .catch((err) => setError(getErrorMessage(err)));
+    // Prefill once from the inbound query string; onInvoicePick is recreated each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, setSearchParams]);
 
   const resetDialog = () => {
     setInvoice(null);

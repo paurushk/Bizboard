@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
 import IconButton from '@mui/material/IconButton';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
@@ -14,7 +18,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   cancelSalesOrder,
@@ -23,9 +27,13 @@ import {
   createSalesOrder,
   getCompany,
   getCustomer,
+  getProduct,
   getSalesOrder,
   updateSalesOrder,
 } from '@/api/resources';
+import { checkSalesOrderGate, confirmSalesOrder, type GateCheck } from '@/api/osPlan';
+import { listEmployeesPage } from '@/api/payroll';
+import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import {
   DocumentEditorShell,
   NumericField,
@@ -45,12 +53,14 @@ import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
 import type { Customer, InvoiceType, Product } from '@/types/domain';
-import { toNumber } from '@/utils/money';
+import { formatMoney, expectedProfitAmount, toNumber } from '@/utils/money';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { firstCompleteDisabledReason } from '@/completeGates/completeBlockers';
 
 export function SalesOrderEditorPage() {
+  useFeatureFlagEpoch();
+  const [searchParams] = useSearchParams();
   const { id: editIdParam } = useParams();
   const editId = editIdParam ? Number(editIdParam) : null;
   const isEdit = Number.isFinite(editId) && (editId as number) > 0;
@@ -62,12 +72,17 @@ export function SalesOrderEditorPage() {
   // F2-038: suppress UnsavedChangesGuard for the programmatic navigate() after
   // a deliberate save/convert/cancel — those aren't "discarding" anything.
   const skipLeaveGuard = useRef(false);
+  const prefillDone = useRef(false);
+  const [gate, setGate] = useState<GateCheck | null>(null);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<number | ''>('');
   const [invoiceType, setInvoiceType] = useState<InvoiceType>('NON_GST');
   const [invoiceTypeTouched, setInvoiceTypeTouched] = useState(false);
   const [orderDate, setOrderDate] = useState(todayIso());
   const [expectedDelivery, setExpectedDelivery] = useState('');
+  const [salesman, setSalesman] = useState<number | ''>('');
+  const [salesChannel, setSalesChannel] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
   const [paymentTermsDays, setPaymentTermsDays] = useState(0);
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([]);
@@ -75,6 +90,7 @@ export function SalesOrderEditorPage() {
   const [pendingQty, setPendingQty] = useState('1');
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
+  const employees = useQuery({ queryKey: ['employees-mini'], queryFn: async () => (await listEmployeesPage({ pageSize: 100 })).results });
   useEffect(() => {
     if (isEdit || invoiceTypeTouched || !company.data) return;
     setInvoiceType(preferredInvoiceType(company.data.registrationType));
@@ -110,6 +126,42 @@ export function SalesOrderEditorPage() {
   }, [editId, clearFeedback]);
 
   useEffect(() => {
+    if (isEdit || prefillDone.current || !company.data) return;
+    const customerParam = Number(searchParams.get('customer') || '');
+    const productParam = Number(searchParams.get('product') || '');
+    const wantsCustomer = Number.isFinite(customerParam) && customerParam > 0;
+    const wantsProduct = Number.isFinite(productParam) && productParam > 0;
+    if (!wantsCustomer && !wantsProduct) {
+      prefillDone.current = true;
+      return;
+    }
+    if (wantsCustomer && customerId !== customerParam) {
+      setCustomerId(customerParam);
+      return;
+    }
+    if (wantsCustomer && !selectedCustomer) return;
+    if (!wantsProduct || lines.length > 0) {
+      prefillDone.current = true;
+      return;
+    }
+    let cancelled = false;
+    void getProduct(productParam).then((product) => {
+      if (cancelled || prefillDone.current) return;
+      const intra = isIntraState(
+        company.data?.gstin || company.data?.state,
+        selectedCustomer?.gstin || selectedCustomer?.state,
+      );
+      setLines([makeLine(product, intra, 1, 'sellingPrice')]);
+      prefillDone.current = true;
+    }).catch(() => {
+      prefillDone.current = true;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit, company.data, searchParams, customerId, selectedCustomer, lines.length]);
+
+  useEffect(() => {
     if (!existing.data || loaded) return;
     const o = existing.data;
     setEditingStatus(o.status);
@@ -119,6 +171,9 @@ export function SalesOrderEditorPage() {
     setExpectedDelivery(o.expectedDelivery ?? '');
     setPaymentTermsDays(o.paymentTermsDays ?? 0);
     setNotes(o.notes ?? '');
+    setSalesman((o as { salesman?: number }).salesman ?? '');
+    setSalesChannel((o as { salesChannel?: string }).salesChannel ?? '');
+    setDeliveryAddress((o as { deliveryAddress?: string }).deliveryAddress ?? '');
     setLines(
       (o.items ?? []).map((item, idx) => {
         const qty = toNumber(item.quantity);
@@ -147,6 +202,7 @@ export function SalesOrderEditorPage() {
           mrp: 0,
           quantity: qty,
           unitPrice,
+          expectedPrice: toNumber((item as { expectedPrice?: string | number }).expectedPrice),
           gstRate: toNumber(item.gstRate),
           cessRate,
           ...tax,
@@ -219,6 +275,9 @@ export function SalesOrderEditorPage() {
     expectedDelivery: expectedDelivery || null,
     paymentTermsDays,
     notes,
+    salesman: salesman || null,
+    salesChannel,
+    deliveryAddress,
     items: lines.map((l) => ({
       ...(l.lineId != null ? { id: l.lineId } : {}),
       product: l.product,
@@ -227,6 +286,7 @@ export function SalesOrderEditorPage() {
       discountPercent: l.discountPercent,
       gstRate: invoiceType === 'NON_GST' ? 0 : l.gstRate,
       cessRate: invoiceType === 'NON_GST' ? 0 : l.cessRate ?? 0,
+      expectedPrice: l.expectedPrice ?? 0,
     })),
   });
 
@@ -244,6 +304,18 @@ export function SalesOrderEditorPage() {
       } else {
         setEditingStatus(order.status);
       }
+    },
+    onError: (err) => flashError(getErrorMessage(err)),
+  });
+
+  const confirmMutation = useMutation({
+    mutationFn: () => confirmSalesOrder(editId as number),
+    onSuccess: () => {
+      setGate(null);
+      setEditingStatus('CONFIRMED');
+      setMessage(t('osPlan.confirmOrder'));
+      void qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      void qc.invalidateQueries({ queryKey: ['sales-order', editId] });
     },
     onError: (err) => flashError(getErrorMessage(err)),
   });
@@ -311,7 +383,23 @@ export function SalesOrderEditorPage() {
       onPrimarySave={() => saveMutation.mutate()}
       extraActions={
         <>
-          {editingStatus === 'DRAFT' && isEdit ? (
+          {isEdit && editingStatus === 'DRAFT' && isRuntimeFlagEnabled('ENABLE_ORDER_GATES') ? (
+            <Button
+              size="small"
+              variant="contained"
+              disabled={confirmMutation.isPending || saveMutation.isPending}
+              onClick={() => {
+                saveMutation.mutate(undefined, {
+                  onSuccess: () => {
+                    void checkSalesOrderGate(editId as number).then(setGate).catch((err) => flashError(getErrorMessage(err)));
+                  },
+                });
+              }}
+            >
+              {t('osPlan.confirmOrder')}
+            </Button>
+          ) : null}
+          {isEdit && (isRuntimeFlagEnabled('ENABLE_ORDER_GATES') ? editingStatus === 'CONFIRMED' : editingStatus === 'DRAFT') ? (
             <Button
               size="small"
               variant="outlined"
@@ -321,7 +409,7 @@ export function SalesOrderEditorPage() {
               {t('phase1.toChallan')}
             </Button>
           ) : null}
-          {editingStatus === 'DRAFT' && isEdit ? (
+          {isEdit && (isRuntimeFlagEnabled('ENABLE_ORDER_GATES') ? editingStatus === 'CONFIRMED' : editingStatus === 'DRAFT') ? (
             <Button size="small" disabled={convertMutation.isPending || convertToChallanMutation.isPending} onClick={() => convertMutation.mutate()}>
               {t('common.convert')}
             </Button>
@@ -340,13 +428,36 @@ export function SalesOrderEditorPage() {
       {/* F2-038: same coarse "any line or party selected" heuristic NewInvoicePage/
           NewPurchasePage already use — deliberately fires on opening an existing
           order too, not just fresh edits (matches that established behavior). */}
+      <Dialog open={gate !== null} onClose={() => setGate(null)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('osPlan.confirmOrderTitle')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1}>
+            <Typography variant="body2">{t('osPlan.confirmOrderBody')}</Typography>
+            {gate?.creditBlocked ? <Typography color="error">{gate.creditMessage || t('osPlan.creditBlocked')}</Typography> : null}
+            {(gate?.marginWarnings ?? []).map((warning) => (
+              <Typography key={warning.productId} variant="body2">
+                {t('osPlan.marginWarning', { name: warning.productName, margin: warning.margin })}
+              </Typography>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGate(null)}>{t('common.cancel')}</Button>
+          <Button variant="contained" disabled={!gate || gate.creditBlocked || confirmMutation.isPending} onClick={() => confirmMutation.mutate()}>
+            {t('osPlan.continueConfirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(customerId))} />
       <Stack spacing={2}>
         <Autocomplete
           options={customerSearch.options}
           getOptionLabel={(o: Customer) => o.name}
           value={selectedCustomer ?? null}
-          onChange={(_, v) => setCustomerId(v?.id ?? '')}
+          onChange={(_, v) => {
+            setCustomerId(v?.id ?? '');
+            if (v && !deliveryAddress) setDeliveryAddress(v.shippingAddress ?? '');
+          }}
           onInputChange={(_, v) => customerSearch.setQuery(v)}
           filterOptions={(opts) => opts}
           loading={customerSearch.isFetching}
@@ -378,6 +489,43 @@ export function SalesOrderEditorPage() {
           <TextField type="date" label={t('common.date')} value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={readOnly} InputLabelProps={{ shrink: true }} />
           <TextField type="date" label={t('phase1.expectedDelivery')} value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} disabled={readOnly} InputLabelProps={{ shrink: true }} />
         </Stack>
+        <TextField
+          select
+          label={t('billing.salesman')}
+          value={salesman}
+          onChange={(e) => setSalesman(e.target.value ? Number(e.target.value) : '')}
+          disabled={readOnly}
+        >
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          {(employees.data ?? []).map((emp) => (
+            <MenuItem key={emp.id} value={emp.id}>{emp.name}</MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          label={t('billing.salesChannel')}
+          value={salesChannel}
+          onChange={(e) => setSalesChannel(e.target.value)}
+          disabled={readOnly}
+        >
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          <MenuItem value="WALK_IN">{t('billing.channelWalkIn')}</MenuItem>
+          <MenuItem value="ONLINE">{t('billing.channelOnline')}</MenuItem>
+          <MenuItem value="DISTRIBUTOR">{t('billing.channelDistributor')}</MenuItem>
+        </TextField>
+        <TextField
+          label={t('billing.deliveryAddress')}
+          value={deliveryAddress}
+          onChange={(e) => setDeliveryAddress(e.target.value)}
+          disabled={readOnly}
+          multiline
+          minRows={2}
+        />
+        {expectedProfitAmount(existing.data?.expectedProfit) != null ? (
+          <Typography variant="body2" color="text.secondary">
+            {t('billing.expectedProfit')}: {formatMoney(expectedProfitAmount(existing.data?.expectedProfit))}
+          </Typography>
+        ) : null}
         <TextField label={t('billing.addNotes')} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={readOnly} multiline minRows={2} fullWidth />
 
         <Typography variant="subtitle1">{t('billing.lines')}</Typography>
@@ -388,6 +536,7 @@ export function SalesOrderEditorPage() {
                 <TableCell>{t('nav.products')}</TableCell>
                 <TableCell align="right">{t('billing.qty')}</TableCell>
                 <TableCell align="right">{t('billing.priceShort')}</TableCell>
+                <TableCell align="right">{t('billing.expectedPrice')}</TableCell>
                 <TableCell align="right">{t('billing.cess')}</TableCell>
                 {!readOnly ? <TableCell /> : null}
               </TableRow>
@@ -432,6 +581,25 @@ export function SalesOrderEditorPage() {
                                 ? recomputeLine({ ...x, unitPrice: Math.max(0, n) }, intraState)
                                 : x,
                             ),
+                          )
+                        }
+                        min={0}
+                        emptyAs={0}
+                        decimals={2}
+                        size="small"
+                        sx={{ width: 96 }}
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell align="right" sx={{ minWidth: 100 }}>
+                    {readOnly ? (
+                      l.expectedPrice ?? 0
+                    ) : (
+                      <NumericField
+                        value={l.expectedPrice ?? 0}
+                        onValueChange={(n) =>
+                          setLines((prev) =>
+                            prev.map((x) => (x.key === l.key ? { ...x, expectedPrice: Math.max(0, n) } : x)),
                           )
                         }
                         min={0}

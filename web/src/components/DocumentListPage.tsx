@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -48,6 +49,12 @@ interface Props {
   hasNext?: boolean;
   hasPrevious?: boolean;
   onPageChange?: (page: number) => void;
+  /** Optional filter bar rendered under the page title. */
+  filters?: ReactNode;
+  selectedIds?: number[];
+  onToggleSelect?: (id: number) => void;
+  onToggleSelectAll?: () => void;
+  bulkBar?: ReactNode;
 }
 
 export function DocumentListPage({
@@ -69,8 +76,14 @@ export function DocumentListPage({
   hasNext,
   hasPrevious,
   onPageChange,
+  filters,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
+  bulkBar,
 }: Props) {
   const showActions = Boolean(rowActions || extraColumn);
+  const showSelect = Boolean(onToggleSelect);
   const showPager = Boolean(onPageChange) && (hasNext || hasPrevious || (typeof count === 'number' && count > pageSize));
   const totalPages =
     typeof count === 'number' && pageSize > 0 ? Math.max(1, Math.ceil(count / pageSize)) : null;
@@ -85,6 +98,8 @@ export function DocumentListPage({
           </Button>
         ) : null}
       </Stack>
+      {filters}
+      {bulkBar}
       {loading ? <ListSkeleton /> : null}
       {error ? <ErrorState message={getErrorMessage(error)} error={error} onRetry={onRetry} /> : null}
       {!loading && !error && rows?.length === 0 ? <EmptyState /> : null}
@@ -93,6 +108,16 @@ export function DocumentListPage({
           <Table size="small">
             <TableHead>
               <TableRow>
+                {showSelect ? (
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      size="small"
+                      checked={Boolean(rows?.length && rows.every((r) => selectedIds?.includes(r.id)))}
+                      indeterminate={Boolean(selectedIds?.length && rows?.some((r) => !selectedIds.includes(r.id)))}
+                      onChange={onToggleSelectAll}
+                    />
+                  </TableCell>
+                ) : null}
                 <TableCell>{t('common.number')}</TableCell>
                 <TableCell>{t('common.date')}</TableCell>
                 <TableCell>{t(partyLabelKey)}</TableCell>
@@ -104,6 +129,15 @@ export function DocumentListPage({
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.id} hover>
+                  {showSelect ? (
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={Boolean(selectedIds?.includes(r.id))}
+                        onChange={() => onToggleSelect?.(r.id)}
+                      />
+                    </TableCell>
+                  ) : null}
                   <TableCell>
                     <Button component={RouterLink} to={detailPath(r.id)} size="small">
                       {r.number ?? r.id}

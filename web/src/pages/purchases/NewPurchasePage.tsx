@@ -69,6 +69,8 @@ import { DocumentTaxSummary } from '@/components/DocumentTaxSummary';
 import { PartySelectPanel } from '@/components/PartySelectPanel';
 import { StateSelect } from '@/components/StateSelect';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { ChequePaymentFields, type ChequePaymentValues } from '@/components/ChequePaymentFields';
+import { HelpHint } from '@/pages/help/HelpHint';
 import { t } from '@/i18n';
 import { FieldHelpTip } from '@/contextHelp';
 import { preferredInvoiceType, companyStepIncompleteNeedsGst } from '@/onboarding/taxHints';
@@ -215,6 +217,9 @@ export function NewPurchasePage() {
   const [autoRoundOff, setAutoRoundOff] = useState(true);
   const [amountPaid, setAmountPaid] = useState(0);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('CASH');
+  const [cheque, setCheque] = useState<ChequePaymentValues>({ chequeNumber: '', chequeBankName: '', chequeDate: '' });
+  const [shipFrom, setShipFrom] = useState('');
+  const [shipFromAddress, setShipFromAddress] = useState('');
   const [markFullyPaid, setMarkFullyPaid] = useState(false);
 
   const [showBatchCols, setShowBatchCols] = useState(() => {
@@ -727,6 +732,8 @@ export function NewPurchasePage() {
     invoiceDiscountMode,
     autoRoundOff,
     supplierBillNumber,
+    shipFrom,
+    shipFromAddress,
     notes,
     termsText: showTerms ? termsText : '',
     includeBankDetails: showBank,
@@ -760,6 +767,7 @@ export function NewPurchasePage() {
     invoiceDiscount, invoiceDiscountMode, isReverseCharge, itcEligibility, lines, notes,
     paymentTermsDays, priceMode, purchaseType, billOfEntryId, showBank, showQr, showTerms, signatureId,
     supplierBillNumber, supplierId, tdsAmount, tdsAmountManual, tdsRate, tdsSection, termsText, warehouseId,
+    shipFrom, shipFromAddress,
   ]);
 
   const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
@@ -886,6 +894,10 @@ export function NewPurchasePage() {
                 mode: paymentMode,
                 paymentDate: invoiceDate,
                 notes: `Against ${invoice.number ?? invoice.id}`,
+                chequeNumber: cheque.chequeNumber,
+                chequeBankName: cheque.chequeBankName,
+                chequeDate: cheque.chequeDate || undefined,
+                chequeImage: cheque.chequeImage || undefined,
               },
               { idempotencyKey: `${key}-payment` },
             );
@@ -1402,6 +1414,20 @@ export function NewPurchasePage() {
               setPartyDialogOpen(true);
             }}
           />
+          <TextField
+            size="small"
+            label={t('billing.shipFrom')}
+            value={shipFrom}
+            onChange={(e) => setShipFrom(e.target.value)}
+          />
+          <TextField
+            size="small"
+            multiline
+            minRows={2}
+            label={t('billing.shipFromAddress')}
+            value={shipFromAddress}
+            onChange={(e) => setShipFromAddress(e.target.value)}
+          />
 
           <Stack spacing={1.5} sx={{ flex: 1, minWidth: 280 }}>
             <Stack direction="row" spacing={1}>
@@ -1460,6 +1486,8 @@ export function NewPurchasePage() {
                   ))}
               </CompactField>
             ) : null}
+            <HelpHint intent="purchase-bill-blocked" slot="cost-center">
+            <Stack direction="row" alignItems="center" spacing={0.25}>
             <CompactField
               select
               label="Cost center"
@@ -1473,6 +1501,9 @@ export function NewPurchasePage() {
                 </MenuItem>
               ))}
             </CompactField>
+            <FieldHelpTip slot="cost-center" title={t('help.costCenterTip')} />
+            </Stack>
+            </HelpHint>
             <Stack direction="row" spacing={1}>
               <CompactField
                 label={t('billing.purchaseInvDate')}
@@ -1495,6 +1526,8 @@ export function NewPurchasePage() {
                 ) : null}
                 <MenuItem value="NON_GST">Non-GST</MenuItem>
               </CompactField>
+              <HelpHint intent="purchase-bill-blocked" slot="boe">
+              <Stack direction="row" alignItems="center" spacing={0.25}>
               <CompactField
                 select
                 label={t('boe.linkOnPurchase')}
@@ -1509,6 +1542,9 @@ export function NewPurchasePage() {
                   </MenuItem>
                 ))}
               </CompactField>
+              <FieldHelpTip slot="boe" title={t('help.boeTip')} />
+              </Stack>
+              </HelpHint>
               {purchaseType === 'GST' ? (
                 <CompactField
                   select
@@ -1523,6 +1559,8 @@ export function NewPurchasePage() {
               ) : null}
             </Stack>
             {purchaseType === 'GST' ? (
+              <HelpHint intent="purchase-bill-blocked" slot="rcm">
+              <Stack direction="row" alignItems="center" spacing={0.25}>
               <FormControlLabel
                 control={
                   <Checkbox
@@ -1533,8 +1571,13 @@ export function NewPurchasePage() {
                 }
                 label="Reverse charge (RCM)"
               />
+              <FieldHelpTip slot="rcm" title={t('help.rcmTip')} />
+              </Stack>
+              </HelpHint>
             ) : null}
             {purchaseType === 'GST' ? (
+              <HelpHint intent="purchase-bill-blocked" slot="itc">
+              <Stack direction="row" alignItems="center" spacing={0.25}>
               <CompactField
                 select
                 label={t('billing.itcEligibility')}
@@ -1548,6 +1591,9 @@ export function NewPurchasePage() {
                 <MenuItem value="INELIGIBLE">Ineligible</MenuItem>
                 <MenuItem value="REVERSED">Reversed</MenuItem>
               </CompactField>
+              <FieldHelpTip slot="itc" title={t('help.itcTip')} />
+              </Stack>
+              </HelpHint>
             ) : null}
             <CompactField
               label={t('billing.originalInvNo')}
@@ -2025,8 +2071,10 @@ export function NewPurchasePage() {
                 <MenuItem value="BANK">Bank</MenuItem>
                 <MenuItem value="CARD">Card</MenuItem>
                 <MenuItem value="CREDIT">Credit</MenuItem>
+                <MenuItem value="CHEQUE">Cheque</MenuItem>
               </CompactField>
             </Stack>
+            {paymentMode === 'CHEQUE' ? <ChequePaymentFields value={cheque} onChange={setCheque} /> : null}
             <Typography
               fontWeight={700}
               color={balance <= 0 ? 'success.main' : 'text.primary'}

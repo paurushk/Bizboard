@@ -22,6 +22,7 @@ export const CONTEXT_HELP_ROUTES: Array<{ test: RegExp; id: string; example: str
   { test: /^\/sales\/debit-notes\/(?:new|[^/]+)$/, id: 'sales-debit-note-editor', example: '/sales/debit-notes/new' },
   { test: /^\/sales\/debit-notes$/, id: 'sales-debit-notes', example: '/sales/debit-notes' },
   { test: /^\/sales\/recurring$/, id: 'recurring-invoices', example: '/sales/recurring' },
+  { test: /^\/sales\/delivery-routes/, id: 'delivery-routes', example: '/sales/delivery-routes' },
 
   { test: /^\/purchases\/history\/[^/]+\/edit$/, id: 'purchase-invoice', example: '/purchases/history/12/edit' },
   { test: /^\/purchases\/history\/[^/]+$/, id: 'purchase-invoice-detail', example: '/purchases/history/12' },
@@ -64,6 +65,7 @@ export const CONTEXT_HELP_ROUTES: Array<{ test: RegExp; id: string; example: str
   { test: /^\/reports\/customer-ledger$/, id: 'customer-ledger', example: '/reports/customer-ledger' },
   { test: /^\/reports\/supplier-ledger$/, id: 'supplier-ledger', example: '/reports/supplier-ledger' },
   { test: /^\/reports\/cash-book$/, id: 'cash-book', example: '/reports/cash-book' },
+  { test: /^\/reports\/day-book$/, id: 'day-book', example: '/reports/day-book' },
   { test: /^\/reports\/gstr2b$/, id: 'gstr-2b', example: '/reports/gstr2b' },
   { test: /^\/reports\/missing-documents$/, id: 'missing-documents', example: '/reports/missing-documents' },
   { test: /^\/ca-needs$/, id: 'ca-needs', example: '/ca-needs' },
@@ -111,6 +113,7 @@ export const CONTEXT_HELP_ROUTES: Array<{ test: RegExp; id: string; example: str
   { test: /^\/settings\/ai$/, id: 'ai-settings', example: '/settings/ai' },
 
   { test: /^\/accounting\/journals$/, id: 'journals', example: '/accounting/journals' },
+  { test: /^\/accounting\/expenses$/, id: 'expenses', example: '/accounting/expenses' },
   { test: /^\/accounting\/periods$/, id: 'accounting-periods', example: '/accounting/periods' },
   { test: /^\/accounting\/accounts$/, id: 'chart-of-accounts', example: '/accounting/accounts' },
   { test: /^\/accounting\/cost-centers$/, id: 'cost-centers', example: '/accounting/cost-centers' },

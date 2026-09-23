@@ -19,6 +19,31 @@ class Lead(CompanyScopedModel):
     gstin = models.CharField(max_length=15, blank=True)
     address = models.TextField(blank=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.NEW)
+    source = models.CharField(max_length=16, null=True, blank=True)
+    message = models.TextField(blank=True)
+    assigned_to = models.ForeignKey(
+        "accounts.CompanyUser",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_leads",
+    )
+    dedupe_matched_customer = models.ForeignKey(
+        "masters.Customer",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="deduped_leads",
+    )
+    dedupe_matched_lead = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="dedupe_matches",
+    )
+    dedupe_review = models.CharField(max_length=16, blank=True, default="")
+    dedupe_candidates = models.JSONField(default=dict, blank=True)
     customer = models.ForeignKey(
         "masters.Customer", null=True, blank=True, on_delete=models.SET_NULL, related_name="leads",
     )
@@ -49,6 +74,11 @@ class Lead(CompanyScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["company", "source"], name="crm_lead_company_source_idx"),
+            models.Index(fields=["company", "assigned_to"], name="crm_lead_company_assignee_idx"),
+            models.Index(fields=["company", "dedupe_review"], name="crm_lead_company_review_idx"),
+        ]
 
 
 class LeadActivity(CompanyScopedModel):
@@ -85,3 +115,26 @@ class Opportunity(CompanyScopedModel):
     class Meta:
         ordering = ["-created_at"]
         verbose_name_plural = "opportunities"
+
+
+class LeadIngestJob(CompanyScopedModel):
+    """Accepted lead capture that finishes after the HTTP response is queued."""
+
+    class Kind(models.TextChoices):
+        CSV = "csv", "CSV"
+        WHATSAPP = "whatsapp", "WhatsApp"
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        RUNNING = "RUNNING", "Running"
+        DONE = "DONE", "Done"
+        FAILED = "FAILED", "Failed"
+
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    payload = models.JSONField(default=dict, blank=True)
+    result = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]

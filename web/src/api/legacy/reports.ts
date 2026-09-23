@@ -371,3 +371,32 @@ export async function getBusinessHealthHistory(): Promise<BusinessHealthSnapshot
   return unwrapData<BusinessHealthSnapshot[]>(data);
 }
 
+export async function getDayBook(params?: { date?: string }) {
+  const { data } = await apiClient.get('/reports/day-book/', { params });
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function getSalesSummary(params?: { date_from?: string; date_to?: string }) {
+  const { data } = await apiClient.get('/reports/sales-summary/', { params });
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function getCustomerLedgerTabs(
+  customerId: number | string,
+  params?: { date_from?: string; date_to?: string; txn_type?: string; status?: string },
+) {
+  const { data } = await apiClient.get(`/reports/customer-ledger/${customerId}/`, { params });
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function downloadCustomerLedgerXlsx(
+  customerId: number | string,
+  params?: { date_from?: string; date_to?: string; txn_type?: string; status?: string },
+): Promise<Blob> {
+  const { data } = await apiClient.get(`/reports/customer-ledger/${customerId}/`, {
+    params: { ...params, export: 'xlsx' },
+    responseType: 'blob',
+  });
+  return data as Blob;
+}
+

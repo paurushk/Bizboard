@@ -1,3 +1,4 @@
+import Chip from '@mui/material/Chip';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -10,13 +11,18 @@ import TableRow from '@mui/material/TableRow';
 import Tooltip from '@mui/material/Tooltip';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import TextField from '@mui/material/TextField';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { getErrorMessage } from '@/api/client';
-import { listStock, listWarehouses } from '@/api/resources';
+import { exportReport, getInventorySummary, listStock, listWarehouses } from '@/api/resources';
 import { ColumnPicker } from '@/components/ColumnPicker';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import {
+  EMPTY_HISTORY_FILTERS,
+  HistoryFilterBar,
+  type HistoryFilters,
+} from '@/components/HistoryFilterBar';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { useAuth } from '@/auth/AuthContext';
@@ -26,8 +32,10 @@ import { isItemCustomFieldsV2Enabled } from '@/config/features';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { StockBalance } from '@/types/domain';
-import { toNumber } from '@/utils/money';
+import { formatMoney, toNumber } from '@/utils/money';
+import { canExport } from '@/utils/permissions';
 import { customFieldCell } from '@/pages/inventory/itemCustomFieldDefaults';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 type StockRow = StockBalance & {
   warehouseLabel: string;
@@ -47,7 +55,7 @@ function earlierDate(a?: string | null, b?: string | null): string | null {
 
 export function CurrentStockPage() {
   const { user } = useAuth();
-  const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
   const customDefs = useVisibleCustomFieldDefs();
   const { value: cfFilters, onChange: setCfFilters } = useCfFilters();
   const columns = useMemo<ColumnSpec[]>(
@@ -65,12 +73,24 @@ export function CurrentStockPage() {
   );
   const prefs = useColumnPrefs('stock', columns, user?.companyId, user?.id);
   const query = useQuery({
-    queryKey: ['stock', search, cfFilters],
+    queryKey: ['stock', filters.q, cfFilters],
     queryFn: () =>
       listStock({
-        q: search || undefined,
+        q: filters.q || undefined,
         cf: isItemCustomFieldsV2Enabled() ? cfFilters : undefined,
       }),
+  });
+  const summary = useQuery({ queryKey: ['inventory-summary'], queryFn: getInventorySummary });
+  const exportMutation = useMutation({
+    mutationFn: () => exportReport('inventory'),
+    onSuccess: (r) => {
+      const a = document.createElement('a');
+      a.href = r.url;
+      a.download = 'inventory-summary.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    },
   });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
   const [warehouse, setWarehouse] = useState('');
@@ -171,21 +191,68 @@ export function CurrentStockPage() {
     return out;
   }, [rows, expanded]);
 
+  const stockKpis = useMemo(() => {
+    let qty = 0;
+    for (const r of rows) qty += r.onHandNum;
+    const payload = summary.data as
+      | {
+          totalStockValue?: string | number;
+          total_stock_value?: string | number;
+          rows?: Array<{ stockValue?: string | number; stock_value?: string | number }>;
+        }
+      | undefined;
+    let value = toNumber(payload?.totalStockValue ?? payload?.total_stock_value);
+    if (!value) {
+      for (const row of payload?.rows ?? []) {
+        value += toNumber(row.stockValue ?? row.stock_value);
+      }
+    }
+    return { qty, value };
+  }, [rows, summary.data]);
+
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
         <PageTitle>{t('nav.currentStock')}</PageTitle>
-        <TextField
-          size="small"
-          placeholder={t('customFields.searchHint')}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          sx={{ minWidth: 220, flex: 1, maxWidth: 360 }}
-        />
-        {isItemCustomFieldsV2Enabled() ? (
-          <ColumnPicker columns={columns} isVisible={prefs.isVisible} toggle={prefs.toggle} reset={prefs.reset} />
-        ) : null}
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          {isItemCustomFieldsV2Enabled() ? (
+            <ColumnPicker columns={columns} isVisible={prefs.isVisible} toggle={prefs.toggle} reset={prefs.reset} />
+          ) : null}
+          {canExport(user) ? (
+            <Button size="small" variant="outlined" disabled={exportMutation.isPending} onClick={() => exportMutation.mutate()}>
+              {t('common.download')}
+            </Button>
+          ) : null}
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => {
+              const url = exportMutation.data?.url;
+              if (url) {
+                window.location.href = `mailto:?subject=${encodeURIComponent('Stock')}&body=${encodeURIComponent(url)}`;
+              } else {
+                exportMutation.mutate();
+              }
+            }}
+          >
+            {t('reports.emailExcel')}
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => window.print()}>
+            {t('common.print')}
+          </Button>
+        </Stack>
       </Stack>
+      <HistoryFilterBar
+        value={filters}
+        onChange={setFilters}
+        showDateRange={false}
+        searchPlaceholder={t('customFields.searchHint')}
+      />
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Chip size="small" label={`${t('reports.stockQty')}: ${stockKpis.qty}`} />
+        <Chip size="small" label={`${t('reports.stockValue')}: ${formatMoney(stockKpis.value)}`} />
+      </Stack>
+      {exportMutation.isError ? <HelpErrorAlert error={exportMutation.error} /> : null}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} flexWrap="wrap" useFlexGap>
         <TextField
           select

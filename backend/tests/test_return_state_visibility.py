@@ -55,6 +55,25 @@ def test_partial_return_keeps_completed_status_but_flags_return_state(tenant_a):
     assert len(linked.data["results"]) == 1
 
 
+def test_multiple_partial_returns_against_one_invoice(tenant_a):
+    product = make_product(tenant_a.company, sku="RSV-MULTI")
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(
+        tenant_a, customer, [{"product": product.id, "quantity": "10", "unit_price": "50"}]
+    )
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+    _complete_return(tenant_a, customer, inv["id"], product, "3")
+    _complete_return(tenant_a, customer, inv["id"], product, "2")
+    detail = tenant_a.client.get(f"/api/v1/sales/invoices/{inv['id']}/")
+    assert detail.status_code == 200
+    assert detail.data["status"] == "COMPLETED"
+    assert detail.data["return_state"] == "PARTIAL"
+    linked = tenant_a.client.get(f"/api/v1/sales/returns/?sales_invoice={inv['id']}")
+    assert linked.status_code == 200
+    assert len(linked.data["results"]) == 2
+
+
 def test_full_return_flips_status_and_return_state(tenant_a):
     product = make_product(tenant_a.company, sku="RSV-2")
     add_stock(tenant_a, product, "5")

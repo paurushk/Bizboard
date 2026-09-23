@@ -101,7 +101,7 @@ export type InvoiceType = 'GST' | 'TAX' | 'RETAIL' | 'NON_GST';
 export type SupplyType = 'B2B' | 'SEZWP' | 'SEZWOP' | 'EXPWP' | 'EXPWOP' | 'DEXP';
 export type PurchaseType = 'GST' | 'NON_GST';
 
-export type PaymentMode = 'CASH' | 'UPI' | 'BANK' | 'CARD' | 'CREDIT';
+export type PaymentMode = 'CASH' | 'UPI' | 'BANK' | 'CARD' | 'CREDIT' | 'CHEQUE';
 
 export type PdfStatus = 'NONE' | 'QUEUED' | 'READY' | 'FAILED';
 
@@ -228,6 +228,9 @@ export interface Company {
     started: boolean;
   };
   itemCustomFieldDefs?: ItemCustomFieldDef[];
+  invoiceCustomFieldDefs?: ItemCustomFieldDef[];
+  partyCustomFieldDefs?: ItemCustomFieldDef[];
+  showEmptySignatureBox?: boolean;
   dunningEnabled?: boolean;
   dunningDays?: number[];
   dunningMaxReminders?: number;
@@ -238,6 +241,13 @@ export interface Company {
   autoCreditHoldOnSevereOverdue?: boolean;
 }
 
+export interface ShippingAddress {
+  id?: number;
+  label?: string;
+  address: string;
+  isDefault?: boolean;
+}
+
 export interface Customer {
   id: number;
   name: string;
@@ -246,7 +256,9 @@ export interface Customer {
   gstin?: string;
   billingAddress?: string;
   shippingAddress?: string;
+  shippingAddresses?: ShippingAddress[];
   state?: string;
+  pincode?: string;
   status: CustomerStatus;
   creditLimit?: string | number;
   creditDays?: number;
@@ -257,6 +269,11 @@ export interface Customer {
   priceList?: number | null;
   whatsappOptIn?: boolean;
   dunningOptOut?: boolean;
+  customFields?: Record<string, string>;
+  pan?: string;
+  partyBankName?: string;
+  partyBankAccount?: string;
+  partyBankIfsc?: string;
 }
 
 export interface Supplier {
@@ -326,6 +343,7 @@ export interface LineItem {
   unitPrice: string | number;
   unitPriceInclusive?: string | number | null;
   discountPercent?: string | number;
+  expectedPrice?: string | number;
   gstRate?: string | number;
   cessRate?: string | number;
   cessAmount?: string | number;
@@ -394,6 +412,7 @@ export interface SalesInvoice extends DocumentTotals {
   includeTerms?: boolean;
   signature?: number | null;
   items: LineItem[];
+  customFields?: Record<string, string>;
   pdfStatus?: PdfStatus;
   pdfFile?: number | null;
   received?: string | number;
@@ -452,6 +471,10 @@ export interface Quotation extends DocumentTotals {
   quotationDate: string;
   validUntil?: string | null;
   notes?: string;
+  salesman?: number | null;
+  salesChannel?: string;
+  deliveryAddress?: string;
+  expectedProfit?: string | number;
   items: LineItem[];
   convertedInvoice?: number | null;
 }
@@ -538,6 +561,10 @@ export interface SalesOrder extends DocumentTotals {
   autoRoundOff?: boolean;
   notes?: string;
   termsText?: string;
+  salesman?: number | null;
+  salesChannel?: string;
+  deliveryAddress?: string;
+  expectedProfit?: string | number;
   items: LineItem[];
   convertedInvoice?: number | null;
 }
@@ -554,6 +581,7 @@ export interface DeliveryChallan extends DocumentTotals {
   vehicleNumber?: string;
   transporterName?: string;
   notes?: string;
+  expectedProfit?: string | number | { expectedProfit?: string | number };
   items: LineItem[];
   pdfStatus?: PdfStatus;
   completedAt?: string | null;
@@ -728,6 +756,10 @@ export interface CustomerReceipt {
   source?: string;
   status?: string;
   unallocated: string | number;
+  chequeNumber?: string;
+  chequeBankName?: string;
+  chequeDate?: string;
+  chequeStatus?: string;
 }
 
 export interface SupplierPayment {
@@ -743,6 +775,10 @@ export interface SupplierPayment {
   allocated: string | number;
   unallocated: string | number;
   status?: string;
+  chequeNumber?: string;
+  chequeBankName?: string;
+  chequeDate?: string;
+  chequeStatus?: string;
 }
 
 export interface PaymentAllocation {
@@ -1016,17 +1052,17 @@ export interface ReportResponse {
 
 export interface DiscountReportResponse {
   totals: {
-    invoice_count: number;
-    discounted_invoice_count: number;
-    line_discount_total: number | string;
-    header_discount_total: number | string;
-    total_discount: number | string;
-    pre_discount_revenue: number | string;
-    avg_discount_percent: number | string;
+    invoiceCount: number;
+    discountedInvoiceCount: number;
+    lineDiscountTotal: number | string;
+    headerDiscountTotal: number | string;
+    totalDiscount: number | string;
+    preDiscountRevenue: number | string;
+    avgDiscountPercent: number | string;
   };
-  by_party: Array<{ id: number | null; name: string; line_discount: number | string; revenue: number | string; invoices: number }>;
-  by_product: Array<{ product_id: number | null; product: string; line_discount: number | string; revenue: number | string }>;
-  by_period: Array<{ period: string | null; line_discount: number | string; revenue: number | string }>;
+  byParty: Array<{ id: number | null; name: string; lineDiscount: number | string; revenue: number | string; invoices: number }>;
+  byProduct: Array<{ productId: number | null; product: string; lineDiscount: number | string; revenue: number | string }>;
+  byPeriod: Array<{ period: string | null; lineDiscount: number | string; revenue: number | string }>;
 }
 
 export interface AuthTokens {
@@ -1076,6 +1112,9 @@ export interface AttentionRow {
   dedupeKey: string;
   firstSeen: string | null;
   snoozeUntil: string | null;
+  assignedTo?: number | null;
+  dueDate?: string | null;
+  overdue?: boolean;
 }
 
 export interface DailyBusinessSummary {

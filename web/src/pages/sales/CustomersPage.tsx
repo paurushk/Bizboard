@@ -33,6 +33,7 @@ import {
   type HistoryFilters,
 } from '@/components/HistoryFilterBar';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Customer } from '@/types/domain';
@@ -53,6 +54,7 @@ const emptyForm = {
   gstin: '',
   state: '',
   billingAddress: '',
+  pincode: '',
   whatsappOptIn: false,
   dunningOptOut: false,
   priceList: '' as number | '',
@@ -73,18 +75,22 @@ function gstinStatusColor(status?: string): 'default' | 'success' | 'warning' | 
 
 export function CustomersPage() {
   const { user } = useAuth();
+  useFeatureFlagEpoch();
+  const show360 = isRuntimeFlagEnabled('ENABLE_CUSTOMER_360');
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
   const debouncedQ = useDebouncedValue(filters.q, 300);
+  const [sort, setSort] = useState('name');
   const query = useQuery({
-    queryKey: ['customers', page, filters.status, debouncedQ],
+    queryKey: ['customers', page, filters.status, debouncedQ, sort],
     queryFn: () =>
       listCustomersPage({
         page,
         pageSize: PAGE_SIZE,
         status: filters.status || undefined,
         q: debouncedQ || undefined,
+        sort,
       }),
   });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
@@ -171,6 +177,7 @@ export function CustomersPage() {
       gstin: c.gstin ?? '',
       state: c.state ?? '',
       billingAddress: c.billingAddress ?? '',
+      pincode: c.pincode ?? '',
       whatsappOptIn: Boolean(c.whatsappOptIn),
       dunningOptOut: Boolean(c.dunningOptOut),
       priceList: c.priceList ?? '',
@@ -191,6 +198,7 @@ export function CustomersPage() {
       </Stack>
       {error ? <HelpErrorAlert message={error} /> : null}
       {!query.isError ? (
+        <Stack spacing={1}>
         <HistoryFilterBar
           value={filters}
           onChange={(next) => {
@@ -204,6 +212,22 @@ export function CustomersPage() {
             { value: 'INACTIVE', label: t('status.inactive') },
           ]}
         />
+        <TextField
+          select
+          size="small"
+          label={t('common.filter')}
+          value={sort}
+          onChange={(e) => {
+            setSort(e.target.value);
+            setPage(1);
+          }}
+          sx={{ minWidth: 180 }}
+        >
+          <MenuItem value="name">{t('common.name')}</MenuItem>
+          <MenuItem value="recent">{t('ledger.recent')}</MenuItem>
+          <MenuItem value="balance">{t('reports.dueBalance')}</MenuItem>
+        </TextField>
+        </Stack>
       ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
@@ -301,6 +325,11 @@ export function CustomersPage() {
                   <TableCell align="right">{formatMoney(c.outstanding ?? 0)}</TableCell>
                   <TableCell align="right">
                     <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                      {show360 ? (
+                        <Button size="small" component={RouterLink} to={`/sales/customers/${c.id}`}>
+                          {t('nav.customer360')}
+                        </Button>
+                      ) : null}
                       <Button
                         size="small"
                         component={RouterLink}
@@ -447,6 +476,18 @@ export function CustomersPage() {
                   ? 'State or GSTIN is required for GST invoices'
                   : undefined
               }
+            />
+            <TextField
+              label={t('osPlan.pincode')}
+              value={form.pincode}
+              onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value }))}
+              inputProps={{ maxLength: 10 }}
+            />
+            <TextField
+              label={t('osPlan.pincode')}
+              value={form.pincode}
+              onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value }))}
+              inputProps={{ maxLength: 10 }}
             />
             <TextField
               label="Billing address"

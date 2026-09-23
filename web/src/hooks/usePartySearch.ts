@@ -29,12 +29,13 @@ function usePartySearchBase<T extends { id: number }>(
   const pageSize = opts.pageSize ?? PARTY_SEARCH_PAGE_SIZE;
   const [query, setQuery] = useState('');
   const debounced = useDebouncedValue(query, 300);
+  const enabled = true;
   const q = debounced.trim();
-  const enabled = q.length >= minChars;
+  const usesTypedQuery = q.length >= minChars;
 
   const result = useQuery({
-    queryKey: [queryKeyPrefix, q, pageSize],
-    queryFn: () => fetchPage({ q: q || undefined, page: 1, pageSize }),
+    queryKey: [queryKeyPrefix, usesTypedQuery ? q : '', pageSize],
+    queryFn: () => fetchPage({ q: usesTypedQuery ? q : undefined, page: 1, pageSize }),
     enabled,
   });
 

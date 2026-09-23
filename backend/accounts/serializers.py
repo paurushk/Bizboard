@@ -162,6 +162,9 @@ class CompanySerializer(serializers.ModelSerializer):
             "doc_number_scope",
             "payroll_pt_slabs",
             "item_custom_field_defs",
+            "invoice_custom_field_defs",
+            "party_custom_field_defs",
+            "show_empty_signature_box",
             "dunning_enabled", "dunning_days", "dunning_max_reminders",
             "dunning_quiet_hours_start", "dunning_quiet_hours_end",
             "dunning_channel_whatsapp", "dunning_channel_sms",
@@ -202,6 +205,8 @@ class CompanySerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["item_custom_field_defs"] = _item_custom_field_defs(data.get("item_custom_field_defs"))
+        data["invoice_custom_field_defs"] = _item_custom_field_defs(data.get("invoice_custom_field_defs"))
+        data["party_custom_field_defs"] = _item_custom_field_defs(data.get("party_custom_field_defs"))
         return data
 
     def _check_file_asset_company(self, asset):
@@ -264,6 +269,26 @@ class CompanySerializer(serializers.ModelSerializer):
         existing = []
         if self.instance is not None:
             existing = self.instance.item_custom_field_defs or []
+        return validate_definitions(existing, value)
+
+    def validate_invoice_custom_field_defs(self, value):
+        from masters.custom_fields import validate_definitions
+
+        if value is not None and not isinstance(value, list):
+            raise serializers.ValidationError("Must be a list of key/label objects.")
+        existing = []
+        if self.instance is not None:
+            existing = self.instance.invoice_custom_field_defs or []
+        return validate_definitions(existing, value)
+
+    def validate_party_custom_field_defs(self, value):
+        from masters.custom_fields import validate_definitions
+
+        if value is not None and not isinstance(value, list):
+            raise serializers.ValidationError("Must be a list of key/label objects.")
+        existing = []
+        if self.instance is not None:
+            existing = self.instance.party_custom_field_defs or []
         return validate_definitions(existing, value)
 
     def validate(self, attrs):
@@ -374,6 +399,8 @@ class CompanySerializerStaff(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["item_custom_field_defs"] = _item_custom_field_defs(data.get("item_custom_field_defs"))
+        data["invoice_custom_field_defs"] = _item_custom_field_defs(data.get("invoice_custom_field_defs"))
+        data["party_custom_field_defs"] = _item_custom_field_defs(data.get("party_custom_field_defs"))
         return data
 
 

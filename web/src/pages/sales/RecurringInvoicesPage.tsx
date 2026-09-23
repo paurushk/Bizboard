@@ -33,9 +33,8 @@ export function RecurringInvoicesPage() {
   const [customer, setCustomer] = useState('');
   const [cadence, setCadence] = useState('MONTHLY');
   const [nextRunAt, setNextRunAt] = useState('');
-  const [productId, setProductId] = useState('');
-  const [qty, setQty] = useState('1');
-  const [price, setPrice] = useState('');
+  const [stopStage, setStopStage] = useState('INVOICE');
+  const [lines, setLines] = useState([{ productId: '', qty: '1', price: '' }]);
   const [error, setError] = useState<string | null>(null);
   const [confirmRun, setConfirmRun] = useState<number | null>(null);
   // F2-043: remember which schedule's "Run now" is in flight so only that row's
@@ -49,18 +48,19 @@ export function RecurringInvoicesPage() {
         nextRunAt,
         isActive: true,
         lineTemplate: {
-          items: [
-            {
-              product: Number(productId),
-              quantity: Number(qty),
-              unitPrice: price === '' ? undefined : Number(price),
-            },
-          ],
+          items: lines
+            .filter((l) => l.productId && Number(l.qty) > 0)
+            .map((l) => ({
+              product: Number(l.productId),
+              quantity: Number(l.qty),
+              unitPrice: l.price === '' ? undefined : Number(l.price),
+            })),
         },
+        stopStage,
       }),
     onSuccess: () => {
       setCustomer('');
-      setProductId('');
+      setLines([{ productId: '', qty: '1', price: '' }]);
       setError(null);
       void qc.invalidateQueries({ queryKey: ['recurring-schedules'] });
     },
@@ -102,8 +102,15 @@ export function RecurringInvoicesPage() {
             <MenuItem value="WEEKLY">{t('recurring.weekly')}</MenuItem>
           </TextField>
           <TextField size="small" type="datetime-local" label={t('recurring.nextRun')} InputLabelProps={{ shrink: true }} value={nextRunAt} onChange={(e) => setNextRunAt(e.target.value)} />
+          <TextField select size="small" label={t('recurring.stopStage')} value={stopStage} onChange={(e) => setStopStage(e.target.value)} sx={{ minWidth: 180 }}>
+            <MenuItem value="INVOICE">{t('recurring.stopInvoice')}</MenuItem>
+            <MenuItem value="SALES_ORDER">{t('recurring.stopSalesOrder')}</MenuItem>
+            <MenuItem value="DELIVERY_CHALLAN">{t('recurring.stopDeliveryChallan')}</MenuItem>
+          </TextField>
           {cf.filterBar}
-          <TextField select size="small" label={t('common.product')} value={productId} onChange={(e) => setProductId(e.target.value)} sx={{ minWidth: 180 }}>
+          {lines.map((line, idx) => (
+            <Stack key={idx} direction="row" spacing={1} alignItems="center">
+          <TextField select size="small" label={t('common.product')} value={line.productId} onChange={(e) => setLines((prev) => prev.map((row, i) => i === idx ? { ...row, productId: e.target.value } : row))} sx={{ minWidth: 180 }}>
             {(products.data ?? []).slice(0, 50).map((p) => (
               <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
             ))}
@@ -112,30 +119,36 @@ export function RecurringInvoicesPage() {
             size="small"
             type="number"
             label={t('common.qty')}
-            value={qty}
-            onChange={(e) => setQty(e.target.value)}
+            value={line.qty}
+            onChange={(e) => setLines((prev) => prev.map((row, i) => i === idx ? { ...row, qty: e.target.value } : row))}
             inputProps={{ min: 0.001, step: 'any', inputMode: 'decimal' }}
-            error={qty !== '' && !(Number(qty) > 0)}
+            error={line.qty !== '' && !(Number(line.qty) > 0)}
             sx={{ width: 90 }}
           />
           <TextField
             size="small"
             type="number"
             label={t('billing.priceShort')}
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
+            value={line.price}
+            onChange={(e) => setLines((prev) => prev.map((row, i) => i === idx ? { ...row, price: e.target.value } : row))}
             inputProps={{ min: 0, step: 'any', inputMode: 'decimal' }}
-            error={price !== '' && Number(price) < 0}
+            error={line.price !== '' && Number(line.price) < 0}
             sx={{ width: 110 }}
           />
+            {idx === 0 ? (
+              <Button size="small" onClick={() => setLines((prev) => [...prev, { productId: '', qty: '1', price: '' }])}>{t('common.add')}</Button>
+            ) : (
+              <Button size="small" color="inherit" onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))}>{t('common.remove')}</Button>
+            )}
+            </Stack>
+          ))}
           <Button
             variant="contained"
             disabled={
               !customer ||
-              !productId ||
               !nextRunAt ||
-              !(Number(qty) > 0) ||
-              (price !== '' && Number(price) < 0) ||
+              !lines.some((l) => l.productId && Number(l.qty) > 0) ||
+              lines.some((l) => l.price !== '' && Number(l.price) < 0) ||
               create.isPending
             }
             onClick={() => create.mutate()}
@@ -152,6 +165,7 @@ export function RecurringInvoicesPage() {
         columns={[
           { key: 'customerName', label: t('billing.customer') },
           { key: 'cadence', label: t('recurring.cadence') },
+          { key: 'stopStage', label: t('recurring.stopStage') },
           { key: 'nextRunAt', label: t('recurring.nextRun') },
           { key: 'isActive', label: t('status.ACTIVE') },
         ]}

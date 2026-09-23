@@ -208,6 +208,62 @@ export interface paths {
         patch: operations["accounting_cost_centers_partial_update"];
         trace?: never;
     };
+    "/api/v1/accounting/expenses/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["accounting_expenses_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["accounting_expenses_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/expenses/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["accounting_expenses_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["accounting_expenses_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["accounting_expenses_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["accounting_expenses_partial_update"];
+        trace?: never;
+    };
     "/api/v1/accounting/fixed-assets/": {
         parameters: {
             query?: never;
@@ -3441,6 +3497,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ops/alert/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description POST /api/v1/ops/alert/?token=... — generic no-infra paging relay.
+         *
+         *     Point a Sentry Internal Integration's alert-rule webhook, or any uptime
+         *     monitor (Healthchecks.io, UptimeRobot, ...) that lets you set the POST
+         *     URL, at this endpoint with OPS_ALERT_TOKEN in the query string or an
+         *     X-Ops-Alert-Token header. Relays a formatted message to the fixed
+         *     OPS_TELEGRAM_CHAT_ID — a free stand-in for a dedicated on-call product.
+         */
+        post: operations["ops_alert_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/payments/allocations/": {
         parameters: {
             query?: never;
@@ -3836,6 +3917,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/payments/receipts/{id}/set-cheque-status/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["payments_receipts_set_cheque_status_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/payments/receipts/{id}/void/": {
         parameters: {
             query?: never;
@@ -4113,6 +4214,26 @@ export interface paths {
         get: operations["payments_supplier_payments_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/supplier-payments/{id}/set-cheque-status/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["payments_supplier_payments_set_cheque_status_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5406,6 +5527,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/customer-ledger/{customer_id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_customer_ledger_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/customer-sales/": {
         parameters: {
             query?: never;
@@ -5414,6 +5551,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["reports_customer_sales_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/day-book/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_day_book_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6007,6 +6160,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/sales-summary/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports_sales_summary_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/tcs-worksheet/": {
         parameters: {
             query?: never;
@@ -6035,6 +6204,82 @@ export interface paths {
         get: operations["reports_tds_worksheet_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/challan-returns/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_challan_returns_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_challan_returns_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/challan-returns/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_challan_returns_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["sales_challan_returns_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["sales_challan_returns_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["sales_challan_returns_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/sales/challan-returns/{id}/complete/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_challan_returns_complete_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6668,6 +6913,182 @@ export interface paths {
         patch: operations["sales_delivery_challans_number_series_partial_update"];
         trace?: never;
     };
+    "/api/v1/sales/delivery-routes/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_delivery_routes_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_delivery_routes_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_delivery_routes_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["sales_delivery_routes_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["sales_delivery_routes_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["sales_delivery_routes_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/{id}/add-orders/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_delivery_routes_add_orders_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/{id}/complete/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_delivery_routes_complete_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/{id}/manifest/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_delivery_routes_manifest_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/{id}/remove-stop/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_delivery_routes_remove_stop_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/{id}/set-stop-status/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_delivery_routes_set_stop_status_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/{id}/start/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_delivery_routes_start_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/invoices/": {
         parameters: {
             query?: never;
@@ -6808,6 +7229,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/invoices/{id}/hsn-summary/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way. */
+        get: operations["sales_invoices_hsn_summary_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/invoices/{id}/mark-einvoice-generated/": {
         parameters: {
             query?: never;
@@ -6904,6 +7342,23 @@ export interface paths {
         put?: never;
         /** @description Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way. */
         post: operations["sales_invoices_prepare_eway_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/invoices/{id}/record-payment/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way. */
+        post: operations["sales_invoices_record_payment_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7012,6 +7467,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/invoices/bulk-pdf-zip/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way. */
+        post: operations["sales_invoices_bulk_pdf_zip_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/invoices/number-series/": {
         parameters: {
             query?: never;
@@ -7028,6 +7500,23 @@ export interface paths {
         head?: never;
         /** @description Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way. */
         patch: operations["sales_invoices_number_series_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/sales/invoices/payment-stats/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way. */
+        get: operations["sales_invoices_payment_stats_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/sales/invoices/pos-checkout/": {
@@ -7323,6 +7812,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/quotations/{id}/convert-chain/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Quote → SO → (optional draft DC) → (optional draft invoice). */
+        post: operations["sales_quotations_convert_chain_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/quotations/{id}/convert-to-order/": {
         parameters: {
             query?: never;
@@ -7337,6 +7843,26 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["sales_quotations_convert_to_order_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/pdf/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_quotations_pdf_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8070,6 +8596,13 @@ export interface components {
          * @enum {string}
          */
         ChannelEnum: "EMAIL" | "WHATSAPP" | "SMS" | "PUSH" | "TELEGRAM";
+        /**
+         * @description * `PENDING_CLEARANCE` - Pending Clearance
+         *     * `CLEARED` - Cleared
+         *     * `BOUNCED` - Bounced
+         * @enum {string}
+         */
+        ChequeStatusEnum: "PENDING_CLEARANCE" | "CLEARED" | "BOUNCED";
         CompanyGstin: {
             readonly id: number;
             gstin: string;
@@ -8213,6 +8746,12 @@ export interface components {
             whatsappOptIn?: boolean;
             /** @description A-07: when True, skip automated AR reminders for this customer. */
             dunningOptOut?: boolean;
+            customFields?: unknown;
+            pan?: string;
+            partyBankName?: string;
+            partyBankAccount?: string;
+            partyBankIfsc?: string;
+            shippingAddresses?: components["schemas"]["CustomerShippingAddress"][];
             readonly outstanding: string;
         };
         CustomerReceipt: {
@@ -8241,6 +8780,14 @@ export interface components {
             readonly utrWarning: string;
             /** Format: date-time */
             readonly createdAt: string;
+            chequeNumber?: string;
+            chequeBankName?: string;
+            /** Format: date */
+            chequeDate?: string | null;
+            chequeStatus?: components["schemas"]["ChequeStatusEnum"] | components["schemas"]["BlankEnum"];
+            chequeImage?: number | null;
+            /** Format: decimal */
+            settlementDiscount?: string;
         };
         /**
          * @description * `POSTED` - Posted
@@ -8249,6 +8796,12 @@ export interface components {
          * @enum {string}
          */
         CustomerReceiptStatusEnum: "POSTED" | "REFUNDED" | "VOIDED";
+        CustomerShippingAddress: {
+            readonly id: number;
+            label?: string;
+            address: string;
+            isDefault?: boolean;
+        };
         /**
          * @description * `ACTIVE` - Active
          *     * `BLOCKED` - Blocked
@@ -8281,6 +8834,8 @@ export interface components {
             readonly cancelledAt: string | null;
             readonly stockPosted: boolean;
             readonly convertedInvoice: number | null;
+            deliveryAddress?: string;
+            readonly expectedProfit: string;
             readonly ewayStatus: components["schemas"]["EwayStatusEnum"];
             readonly ewayBillNo: string;
             /** Format: date-time */
@@ -8330,6 +8885,8 @@ export interface components {
             batchNo?: string;
             serialNumbers?: unknown;
             /** Format: decimal */
+            expectedPrice?: string;
+            /** Format: decimal */
             readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
@@ -8342,6 +8899,118 @@ export interface components {
             /** Format: decimal */
             readonly lineTotal: string;
         };
+        DeliveryChallanReturn: {
+            readonly id: number;
+            readonly number: string;
+            readonly status: components["schemas"]["StatusD0fEnum"];
+            customer: number;
+            readonly customerName: string;
+            challan: number;
+            readonly challanNumber: string;
+            /** Format: date */
+            returnDate?: string;
+            reason?: string;
+            items: components["schemas"]["DeliveryChallanReturnItem"][];
+            /** Format: date-time */
+            readonly completedAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+            /** Format: decimal */
+            readonly subtotal: string;
+            /** Format: decimal */
+            readonly discountTotal: string;
+            /** Format: decimal */
+            readonly taxableTotal: string;
+            /** Format: decimal */
+            readonly cgstTotal: string;
+            /** Format: decimal */
+            readonly sgstTotal: string;
+            /** Format: decimal */
+            readonly igstTotal: string;
+            /** Format: decimal */
+            readonly cessTotal: string;
+            /** Format: decimal */
+            readonly roundOff: string;
+            /** Format: decimal */
+            readonly grandTotal: string;
+        };
+        DeliveryChallanReturnItem: {
+            readonly id: number;
+            product: number;
+            readonly productName: string;
+            description?: string;
+            /** Format: decimal */
+            quantity: string;
+            /** Format: decimal */
+            unitPrice?: string;
+            /** Format: decimal */
+            discountPercent?: string;
+            /** Format: decimal */
+            gstRate?: string;
+            /** Format: decimal */
+            taxableAmount?: string;
+            /** Format: decimal */
+            cgst?: string;
+            /** Format: decimal */
+            sgst?: string;
+            /** Format: decimal */
+            igst?: string;
+            /** Format: decimal */
+            cess?: string;
+            /** Format: decimal */
+            lineTotal?: string;
+        };
+        DeliveryRoute: {
+            readonly id: number;
+            readonly number: string;
+            /** Format: date */
+            routeDate?: string;
+            vehicleNumber?: string;
+            driverName?: string;
+            driver?: number | null;
+            readonly status: components["schemas"]["DeliveryRouteStatusEnum"];
+            /** Format: decimal */
+            estimatedLogisticsCost?: string;
+            /** Format: decimal */
+            actualLogisticsCost?: string;
+            notes?: string;
+            readonly stops: components["schemas"]["DeliveryRouteStop"][];
+            readonly rollup: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        /**
+         * @description * `PLANNED` - Planned
+         *     * `IN_TRANSIT` - In Transit
+         *     * `COMPLETED` - Completed
+         *     * `CANCELLED` - Cancelled
+         * @enum {string}
+         */
+        DeliveryRouteStatusEnum: "PLANNED" | "IN_TRANSIT" | "COMPLETED" | "CANCELLED";
+        DeliveryRouteStop: {
+            readonly id: number;
+            salesOrder: number;
+            readonly orderNumber: string;
+            readonly customerName: string;
+            readonly deliveryAddress: string;
+            sequence?: number;
+            status?: components["schemas"]["DeliveryRouteStopStatusEnum"];
+            notes?: string;
+            /** Format: date-time */
+            readonly deliveredAt: string | null;
+        };
+        /**
+         * @description * `PENDING` - Pending
+         *     * `DELIVERED` - Delivered
+         *     * `FAILED` - Failed
+         *     * `RETURNED` - Returned
+         * @enum {string}
+         */
+        DeliveryRouteStopStatusEnum: "PENDING" | "DELIVERED" | "FAILED" | "RETURNED";
         /**
          * @description * `NONE` - None
          *     * `READY` - Ready
@@ -8397,6 +9066,23 @@ export interface components {
          * @enum {string}
          */
         EwayStatusEnum: "NONE" | "READY" | "QUEUED" | "GENERATED" | "MANUAL_EWB" | "FAILED" | "CANCELLED";
+        Expense: {
+            readonly id: number;
+            readonly number: string;
+            /** Format: date */
+            expenseDate?: string;
+            category: number;
+            readonly categoryName: string;
+            partyName?: string;
+            /** Format: decimal */
+            amount: string;
+            notes?: string;
+            attachment?: number | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
         ExpenseCategory: {
             readonly id: number;
             name: string;
@@ -8743,9 +9429,10 @@ export interface components {
          *     * `BANK` - Bank
          *     * `CARD` - Card
          *     * `CREDIT` - Credit
+         *     * `CHEQUE` - Cheque
          * @enum {string}
          */
-        ModeEnum: "CASH" | "UPI" | "BANK" | "CARD" | "CREDIT";
+        ModeEnum: "CASH" | "UPI" | "BANK" | "CARD" | "CREDIT" | "CHEQUE";
         /**
          * @description * `OPENING_STOCK` - Opening Stock
          *     * `PURCHASE` - Purchase
@@ -9101,6 +9788,36 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["DeliveryChallan"][];
         };
+        PaginatedDeliveryChallanReturnList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["DeliveryChallanReturn"][];
+        };
+        PaginatedDeliveryRouteList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["DeliveryRoute"][];
+        };
         PaginatedEmployeeList: {
             /** @example 123 */
             count: number;
@@ -9130,6 +9847,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["ExpenseCategory"][];
+        };
+        PaginatedExpenseList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Expense"][];
         };
         PaginatedFileAssetList: {
             /** @example 123 */
@@ -9985,6 +10717,12 @@ export interface components {
             whatsappOptIn?: boolean;
             /** @description A-07: when True, skip automated AR reminders for this customer. */
             dunningOptOut?: boolean;
+            customFields?: unknown;
+            pan?: string;
+            partyBankName?: string;
+            partyBankAccount?: string;
+            partyBankIfsc?: string;
+            shippingAddresses?: components["schemas"]["CustomerShippingAddress"][];
             readonly outstanding?: string;
         };
         PatchedDeliveryChallan: {
@@ -10012,6 +10750,8 @@ export interface components {
             readonly cancelledAt?: string | null;
             readonly stockPosted?: boolean;
             readonly convertedInvoice?: number | null;
+            deliveryAddress?: string;
+            readonly expectedProfit?: string;
             readonly ewayStatus?: components["schemas"]["EwayStatusEnum"];
             readonly ewayBillNo?: string;
             /** Format: date-time */
@@ -10040,6 +10780,64 @@ export interface components {
             /** Format: decimal */
             readonly grandTotal?: string;
         };
+        PatchedDeliveryChallanReturn: {
+            readonly id?: number;
+            readonly number?: string;
+            readonly status?: components["schemas"]["StatusD0fEnum"];
+            customer?: number;
+            readonly customerName?: string;
+            challan?: number;
+            readonly challanNumber?: string;
+            /** Format: date */
+            returnDate?: string;
+            reason?: string;
+            items?: components["schemas"]["DeliveryChallanReturnItem"][];
+            /** Format: date-time */
+            readonly completedAt?: string | null;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+            /** Format: decimal */
+            readonly subtotal?: string;
+            /** Format: decimal */
+            readonly discountTotal?: string;
+            /** Format: decimal */
+            readonly taxableTotal?: string;
+            /** Format: decimal */
+            readonly cgstTotal?: string;
+            /** Format: decimal */
+            readonly sgstTotal?: string;
+            /** Format: decimal */
+            readonly igstTotal?: string;
+            /** Format: decimal */
+            readonly cessTotal?: string;
+            /** Format: decimal */
+            readonly roundOff?: string;
+            /** Format: decimal */
+            readonly grandTotal?: string;
+        };
+        PatchedDeliveryRoute: {
+            readonly id?: number;
+            readonly number?: string;
+            /** Format: date */
+            routeDate?: string;
+            vehicleNumber?: string;
+            driverName?: string;
+            driver?: number | null;
+            readonly status?: components["schemas"]["DeliveryRouteStatusEnum"];
+            /** Format: decimal */
+            estimatedLogisticsCost?: string;
+            /** Format: decimal */
+            actualLogisticsCost?: string;
+            notes?: string;
+            readonly stops?: components["schemas"]["DeliveryRouteStop"][];
+            readonly rollup?: string;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
         PatchedEmployee: {
             readonly id?: number;
             name?: string;
@@ -10059,6 +10857,23 @@ export interface components {
             /** Format: decimal */
             tdsRate?: string;
             taxRegime?: components["schemas"]["TaxRegimeEnum"];
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
+        PatchedExpense: {
+            readonly id?: number;
+            readonly number?: string;
+            /** Format: date */
+            expenseDate?: string;
+            category?: number;
+            readonly categoryName?: string;
+            partyName?: string;
+            /** Format: decimal */
+            amount?: string;
+            notes?: string;
+            attachment?: number | null;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -10441,6 +11256,8 @@ export interface components {
             readonly rcmCess?: string;
             companyGstin?: number | null;
             priceMode?: components["schemas"]["PriceModeEnum"];
+            shipFrom?: string;
+            shipFromAddress?: string;
             tdsSection?: string;
             /** Format: decimal */
             tdsRate?: string;
@@ -10584,6 +11401,10 @@ export interface components {
             autoRoundOff?: boolean;
             supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
             companyGstin?: number | null;
+            salesman?: number | null;
+            salesChannel?: components["schemas"]["SalesChannelEnum"] | components["schemas"]["BlankEnum"];
+            deliveryAddress?: string;
+            readonly expectedProfit?: string;
             items?: components["schemas"]["QuotationItem"][];
             readonly convertedInvoice?: number | null;
             readonly convertedOrder?: number | null;
@@ -10621,6 +11442,14 @@ export interface components {
             isActive?: boolean;
             lineTemplate?: unknown;
             notes?: string;
+            /**
+             * @description Where a generated run stops: draft invoice (default), sales order, or draft delivery challan.
+             *
+             *     * `INVOICE` - Invoice
+             *     * `SALES_ORDER` - Sales Order
+             *     * `DELIVERY_CHALLAN` - Delivery Challan
+             */
+            stopStage?: components["schemas"]["StopStageEnum"];
             /** Format: decimal */
             additionalCharges?: string;
             /** Format: decimal */
@@ -10787,6 +11616,7 @@ export interface components {
             includePaymentQr?: boolean;
             includeTerms?: boolean;
             signature?: number | null;
+            customFields?: unknown;
             items?: components["schemas"]["SalesItem"][];
             readonly pdfStatus?: components["schemas"]["PdfStatusEnum"];
             readonly pdfFile?: number | null;
@@ -10897,6 +11727,10 @@ export interface components {
             items?: components["schemas"]["SalesOrderItem"][];
             supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
             companyGstin?: number | null;
+            salesman?: number | null;
+            salesChannel?: components["schemas"]["SalesChannelEnum"] | components["schemas"]["BlankEnum"];
+            deliveryAddress?: string;
+            readonly expectedProfit?: string;
             readonly convertedInvoice?: number | null;
             /** Format: date-time */
             readonly createdAt?: string;
@@ -11496,6 +12330,8 @@ export interface components {
             readonly rcmCess: string;
             companyGstin?: number | null;
             priceMode?: components["schemas"]["PriceModeEnum"];
+            shipFrom?: string;
+            shipFromAddress?: string;
             tdsSection?: string;
             /** Format: decimal */
             tdsRate?: string;
@@ -11754,6 +12590,10 @@ export interface components {
             autoRoundOff?: boolean;
             supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
             companyGstin?: number | null;
+            salesman?: number | null;
+            salesChannel?: components["schemas"]["SalesChannelEnum"] | components["schemas"]["BlankEnum"];
+            deliveryAddress?: string;
+            readonly expectedProfit: string;
             items: components["schemas"]["QuotationItem"][];
             readonly convertedInvoice: number | null;
             readonly convertedOrder: number | null;
@@ -11804,6 +12644,8 @@ export interface components {
             /** Format: decimal */
             readonly convertedQuantity: string;
             /** Format: decimal */
+            expectedPrice?: string;
+            /** Format: decimal */
             readonly taxableAmount: string;
             /** Format: decimal */
             readonly cgst: string;
@@ -11846,6 +12688,14 @@ export interface components {
             isActive?: boolean;
             lineTemplate?: unknown;
             notes?: string;
+            /**
+             * @description Where a generated run stops: draft invoice (default), sales order, or draft delivery challan.
+             *
+             *     * `INVOICE` - Invoice
+             *     * `SALES_ORDER` - Sales Order
+             *     * `DELIVERY_CHALLAN` - Delivery Challan
+             */
+            stopStage?: components["schemas"]["StopStageEnum"];
             /** Format: decimal */
             additionalCharges?: string;
             /** Format: decimal */
@@ -11871,6 +12721,13 @@ export interface components {
          * @enum {string}
          */
         RegulatedCategoryEnum: "NONE" | "DRUG" | "FOOD";
+        /**
+         * @description * `WALK_IN` - Walk-in
+         *     * `ONLINE` - Online
+         *     * `DISTRIBUTOR` - Distributor
+         * @enum {string}
+         */
+        SalesChannelEnum: "WALK_IN" | "ONLINE" | "DISTRIBUTOR";
         SalesCreditNote: {
             readonly id: number;
             readonly number: string;
@@ -12096,6 +12953,7 @@ export interface components {
             includePaymentQr?: boolean;
             includeTerms?: boolean;
             signature?: number | null;
+            customFields?: unknown;
             items: components["schemas"]["SalesItem"][];
             readonly pdfStatus: components["schemas"]["PdfStatusEnum"];
             readonly pdfFile: number | null;
@@ -12257,6 +13115,10 @@ export interface components {
             items: components["schemas"]["SalesOrderItem"][];
             supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
             companyGstin?: number | null;
+            salesman?: number | null;
+            salesChannel?: components["schemas"]["SalesChannelEnum"] | components["schemas"]["BlankEnum"];
+            deliveryAddress?: string;
+            readonly expectedProfit: string;
             readonly convertedInvoice: number | null;
             /** Format: date-time */
             readonly createdAt: string;
@@ -12298,6 +13160,8 @@ export interface components {
             cessRate?: string;
             /** Format: decimal */
             cessAmount?: string;
+            /** Format: decimal */
+            expectedPrice?: string;
             /** Format: decimal */
             readonly taxableAmount: string;
             /** Format: decimal */
@@ -12571,6 +13435,13 @@ export interface components {
             quantity: string;
             serialNumbers?: unknown;
         };
+        /**
+         * @description * `INVOICE` - Invoice
+         *     * `SALES_ORDER` - Sales Order
+         *     * `DELIVERY_CHALLAN` - Delivery Challan
+         * @enum {string}
+         */
+        StopStageEnum: "INVOICE" | "SALES_ORDER" | "DELIVERY_CHALLAN";
         Supplier: {
             readonly id: number;
             name: string;
@@ -12621,6 +13492,12 @@ export interface components {
             readonly unallocated: number;
             /** Format: date-time */
             readonly createdAt: string;
+            chequeNumber?: string;
+            chequeBankName?: string;
+            /** Format: date */
+            chequeDate?: string | null;
+            chequeStatus?: components["schemas"]["ChequeStatusEnum"] | components["schemas"]["BlankEnum"];
+            chequeImage?: number | null;
         };
         /**
          * @description * `POSTED` - Posted
@@ -13261,6 +14138,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CostCenter"];
+                };
+            };
+        };
+    };
+    accounting_expenses_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedExpenseList"];
+                };
+            };
+        };
+    };
+    accounting_expenses_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Expense"];
+                "multipart/form-data": components["schemas"]["Expense"];
+                "application/x-www-form-urlencoded": components["schemas"]["Expense"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+        };
+    };
+    accounting_expenses_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this expense. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+        };
+    };
+    accounting_expenses_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this expense. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Expense"];
+                "multipart/form-data": components["schemas"]["Expense"];
+                "application/x-www-form-urlencoded": components["schemas"]["Expense"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+        };
+    };
+    accounting_expenses_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this expense. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    accounting_expenses_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this expense. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedExpense"];
+                "multipart/form-data": components["schemas"]["PatchedExpense"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedExpense"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
                 };
             };
         };
@@ -19407,6 +20432,24 @@ export interface operations {
             };
         };
     };
+    ops_alert_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     payments_allocations_list: {
         parameters: {
             query?: {
@@ -20071,6 +21114,34 @@ export interface operations {
             };
         };
     };
+    payments_receipts_set_cheque_status_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this customer receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerReceipt"];
+                "multipart/form-data": components["schemas"]["CustomerReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["CustomerReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerReceipt"];
+                };
+            };
+        };
+    };
     payments_receipts_void_create: {
         parameters: {
             query?: never;
@@ -20419,6 +21490,34 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierPayment"];
+                };
+            };
+        };
+    };
+    payments_supplier_payments_set_cheque_status_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier payment. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierPayment"];
+                "multipart/form-data": components["schemas"]["SupplierPayment"];
+                "application/x-www-form-urlencoded": components["schemas"]["SupplierPayment"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -22977,7 +24076,45 @@ export interface operations {
             };
         };
     };
+    reports_customer_ledger_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     reports_customer_sales_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_day_book_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -23759,6 +24896,24 @@ export interface operations {
             };
         };
     };
+    reports_sales_summary_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     reports_tcs_worksheet_retrieve: {
         parameters: {
             query?: never;
@@ -23792,6 +24947,182 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    sales_challan_returns_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedDeliveryChallanReturnList"];
+                };
+            };
+        };
+    };
+    sales_challan_returns_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryChallanReturn"];
+                "multipart/form-data": components["schemas"]["DeliveryChallanReturn"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryChallanReturn"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryChallanReturn"];
+                };
+            };
+        };
+    };
+    sales_challan_returns_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery challan return. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryChallanReturn"];
+                };
+            };
+        };
+    };
+    sales_challan_returns_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery challan return. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryChallanReturn"];
+                "multipart/form-data": components["schemas"]["DeliveryChallanReturn"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryChallanReturn"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryChallanReturn"];
+                };
+            };
+        };
+    };
+    sales_challan_returns_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery challan return. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sales_challan_returns_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery challan return. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedDeliveryChallanReturn"];
+                "multipart/form-data": components["schemas"]["PatchedDeliveryChallanReturn"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedDeliveryChallanReturn"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryChallanReturn"];
+                };
+            };
+        };
+    };
+    sales_challan_returns_complete_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery challan return. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryChallanReturn"];
+                "multipart/form-data": components["schemas"]["DeliveryChallanReturn"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryChallanReturn"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryChallanReturn"];
+                };
             };
         };
     };
@@ -25082,6 +26413,316 @@ export interface operations {
             };
         };
     };
+    sales_delivery_routes_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedDeliveryRouteList"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRoute"];
+                "multipart/form-data": components["schemas"]["DeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRoute"];
+                "multipart/form-data": components["schemas"]["DeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sales_delivery_routes_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedDeliveryRoute"];
+                "multipart/form-data": components["schemas"]["PatchedDeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedDeliveryRoute"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_add_orders_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRoute"];
+                "multipart/form-data": components["schemas"]["DeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_complete_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRoute"];
+                "multipart/form-data": components["schemas"]["DeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_manifest_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_remove_stop_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRoute"];
+                "multipart/form-data": components["schemas"]["DeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_set_stop_status_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRoute"];
+                "multipart/form-data": components["schemas"]["DeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_start_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRoute"];
+                "multipart/form-data": components["schemas"]["DeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
     sales_invoices_list: {
         parameters: {
             query?: {
@@ -25392,6 +27033,28 @@ export interface operations {
             };
         };
     };
+    sales_invoices_hsn_summary_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
     sales_invoices_mark_einvoice_generated_create: {
         parameters: {
             query?: never;
@@ -25521,6 +27184,34 @@ export interface operations {
         };
     };
     sales_invoices_prepare_eway_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesInvoice"];
+                "multipart/form-data": components["schemas"]["SalesInvoice"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesInvoice"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
+    sales_invoices_record_payment_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -25710,6 +27401,31 @@ export interface operations {
             };
         };
     };
+    sales_invoices_bulk_pdf_zip_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesInvoice"];
+                "multipart/form-data": components["schemas"]["SalesInvoice"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesInvoice"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
     sales_invoices_number_series_retrieve: {
         parameters: {
             query?: never;
@@ -25743,6 +27459,25 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["PatchedSalesInvoice"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
+    sales_invoices_payment_stats_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -26312,6 +28047,34 @@ export interface operations {
             };
         };
     };
+    sales_quotations_convert_chain_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
     sales_quotations_convert_to_order_create: {
         parameters: {
             query?: never;
@@ -26329,6 +28092,28 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_pdf_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

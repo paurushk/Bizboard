@@ -216,9 +216,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
         e-Invoice / e-Way
       </Typography>
       <Alert severity="info" sx={{ mb: 2 }}>
-        {t('common.sandboxGstnBanner')}. Sandbox submit is available for testing.
-        Use Prepare to download JSON for manual portal filing, or Submit (sandbox)
-        to simulate IRN / e-Way generation.
+        {t('einvoice.payloadOnlyHelp')}
       </Alert>
 
       <Stack spacing={2}>

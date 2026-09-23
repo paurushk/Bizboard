@@ -67,6 +67,12 @@ class CustomerReceiptSerializer(serializers.ModelSerializer):
             "unallocated",
             "utr_warning",
             "created_at",
+            "cheque_number",
+            "cheque_bank_name",
+            "cheque_date",
+            "cheque_status",
+            "cheque_image",
+            "settlement_discount",
         ]
         read_only_fields = ["number", "source", "gateway_payment", "status"]
 
@@ -154,6 +160,11 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
             "allocated",
             "unallocated",
             "created_at",
+            "cheque_number",
+            "cheque_bank_name",
+            "cheque_date",
+            "cheque_status",
+            "cheque_image",
         ]
         read_only_fields = ["number", "source", "status"]
 

@@ -29,10 +29,34 @@ export function roundMoney(value: number): number {
   return (sign * Number(cents)) / 100;
 }
 
+/** Option A: editing the bill total down becomes extra after-tax header discount. */
+export function headerDiscountForEditedGrandTotal(
+  displayedGrand: number,
+  currentHeaderDiscount: number,
+  editedGrand: number,
+): number {
+  const extra = roundMoney(displayedGrand + currentHeaderDiscount - editedGrand);
+  return extra > 0 ? extra : 0;
+}
+
 export function toNumber(value: string | number | null | undefined): number {
   if (value == null || value === '') return 0;
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Nested expected-profit payloads from Quote/SO/DC serializers. */
+export function expectedProfitAmount(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  if (typeof value === 'object') {
+    const rec = value as Record<string, unknown>;
+    const nested = rec.expectedProfit ?? rec.expected_profit;
+    if (nested == null || nested === '') return null;
+    const n = toNumber(nested as string | number);
+    return Number.isFinite(n) ? n : null;
+  }
+  const n = toNumber(value as string | number);
+  return Number.isFinite(n) ? n : null;
 }
 
 export function formatMoney(value: string | number | null | undefined, currency = 'INR'): string {

@@ -24,6 +24,8 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TableContainer from '@mui/material/TableContainer';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
@@ -32,6 +34,7 @@ import RemoveIcon from '@mui/icons-material/Remove';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
+import { ChequePaymentFields, type ChequePaymentValues } from '@/components/ChequePaymentFields';
 import { HonestyBanner } from '@/components/HonestyBanner';
 import {
   clearCashPendingStorage,
@@ -124,6 +127,12 @@ interface CartLine {
   priceAlreadyConverted?: boolean;
 }
 
+const EMPTY_CHEQUE: ChequePaymentValues = { chequeNumber: '', chequeBankName: '', chequeDate: '' };
+
+function newPosSessionId() {
+  return `bill-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
 function posLineUnitPrice(
   product: Product,
   qty: number,
@@ -142,6 +151,22 @@ function posLineUnitPrice(
 type UpiPending = PosUpiPendingSnapshot;
 
 type CashPending = PosCashPendingSnapshot;
+
+type PosBillSession = {
+  id: string;
+  cart: CartLine[];
+  customerId: number | '';
+  warehouseId: number | '';
+  cashTendered: number | '';
+  idempotencyKey: string | null;
+  upiPending: UpiPending | null;
+  cashPending: CashPending | null;
+  walkInName: string;
+  serverTenderTotal: number | null;
+  cheque: ChequePaymentValues;
+  invoiceDiscount: number;
+  additionalCharges: number;
+};
 
 function posEnabled(): boolean {
   return isPosEnabled() || isRuntimeFlagEnabled('ENABLE_POS');
@@ -173,6 +198,42 @@ function draftLinesFromCart(
   }));
 }
 
+async function fetchPosPreviewGrandTotal(args: {
+  customerId?: number | '';
+  invoiceType: string;
+  priceModeInclusive: boolean;
+  taxEnabled: boolean;
+  cart: CartLine[];
+  unitPriceFor: (productId: number, qty: number) => number;
+  invoiceDiscount?: number;
+  additionalCharges?: number;
+}): Promise<number> {
+  const { previewSalesTotals } = await import('@/api/legacy/sales');
+  const previewLines = draftLinesFromCart(args.cart, args.taxEnabled, args.unitPriceFor);
+  const preview = await previewSalesTotals({
+    ...(args.customerId ? { customer: Number(args.customerId) } : {}),
+    invoice_type: args.invoiceType,
+    price_mode: args.priceModeInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
+    items: previewLines.map((l) => ({
+      product: l.productId,
+      quantity: l.quantity,
+      unit_price: l.unitPrice,
+      ...(args.priceModeInclusive ? { unit_price_inclusive: l.unitPrice } : {}),
+      gst_rate: l.gstRate,
+      cess_rate: l.cessRate,
+      discount_percent: l.discountPercent,
+      unit_name: l.unitName,
+    })),
+    auto_round_off: true,
+    invoice_discount: args.invoiceDiscount ?? 0,
+    additional_charges: args.additionalCharges ?? 0,
+  });
+  if (typeof preview.grandTotal !== 'number' || !Number.isFinite(preview.grandTotal)) {
+    throw new Error('Invalid preview total');
+  }
+  return preview.grandTotal;
+}
+
 export function PosPage() {
   useLocale();
   const { user } = useAuth();
@@ -186,14 +247,18 @@ export function PosPage() {
   // that is ~all UPI, or ~all cash) does not re-pick it every sale. Emphasis +
   // autofocus move to the remembered button; it stays a one-key change.
   const POS_LAST_METHOD_KEY = 'bizboard:pos-last-method';
-  const [lastMethod, setLastMethod] = useState<'CASH' | 'UPI'>(() => {
+  const [lastMethod, setLastMethod] = useState<PaymentMode>(() => {
     try {
-      return localStorage.getItem(`${POS_LAST_METHOD_KEY}:${companyId}`) === 'UPI' ? 'UPI' : 'CASH';
+      const saved = localStorage.getItem(`${POS_LAST_METHOD_KEY}:${companyId}`);
+      if (saved === 'UPI' || saved === 'BANK' || saved === 'CARD' || saved === 'CREDIT' || saved === 'CHEQUE') {
+        return saved;
+      }
+      return 'CASH';
     } catch {
       return 'CASH';
     }
   });
-  const rememberMethod = (m: 'CASH' | 'UPI') => {
+  const rememberMethod = (m: PaymentMode) => {
     setLastMethod(m);
     try {
       localStorage.setItem(`${POS_LAST_METHOD_KEY}:${companyId}`, m);
@@ -248,6 +313,12 @@ export function PosPage() {
   );
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [cashTendered, setCashTendered] = useState<number | ''>('');
+  const [cheque, setCheque] = useState<ChequePaymentValues>(EMPTY_CHEQUE);
+  const [invoiceDiscount, setInvoiceDiscount] = useState(0);
+  const [additionalCharges, setAdditionalCharges] = useState(0);
+  const [sessionIds, setSessionIds] = useState<string[]>(['primary']);
+  const [activeSessionId, setActiveSessionId] = useState('primary');
+  const sessionStore = useRef<Record<string, PosBillSession>>({});
   const [upiPending, setUpiPending] = useState<UpiPending | null>(null);
   const [cashPending, setCashPending] = useState<CashPending | null>(null);
   const [waOffer, setWaOffer] = useState<{ invoiceId: number; phone: string } | null>(null);
@@ -271,6 +342,11 @@ export function PosPage() {
   /** CR-111: last successful server preview grand total for tender UI. */
   const [serverTenderTotal, setServerTenderTotal] = useState<number | null>(null);
   const [tenderPreviewFailed, setTenderPreviewFailed] = useState(false);
+  const [totalsReconcile, setTotalsReconcile] = useState<{
+    shown: number;
+    billed: number;
+    mode: PaymentMode;
+  } | null>(null);
   const [thermalWarn, setThermalWarn] = useState<{ invoiceId: number; number: string } | null>(null);
   const [isFlushing, setIsFlushing] = useState(false);
 
@@ -300,6 +376,44 @@ export function PosPage() {
     },
     [priceLists.data, selectedCustomer.data?.priceList],
   );
+  const cartPreviewKey = useDebouncedValue(
+    JSON.stringify({
+      cart: cart.map((l) => [l.key, l.quantity, l.discountPercent, l.unitName]),
+      customerId,
+      invoiceDiscount,
+      additionalCharges,
+    }),
+    400,
+  );
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    if (cart.length === 0) return;
+    let cancelled = false;
+    void fetchPosPreviewGrandTotal({
+      customerId: customerId ? Number(customerId) : undefined,
+      invoiceType: posInvoiceType,
+      priceModeInclusive: company.data?.priceMode === 'INCLUSIVE',
+      taxEnabled,
+      cart,
+      unitPriceFor: (id, qty) =>
+        unitPriceFor(id, qty, cart.find((l) => l.product.id === id)?.product.sellingPrice),
+      invoiceDiscount,
+      additionalCharges,
+    })
+      .then((total) => {
+        if (cancelled) return;
+        setServerTenderTotal(total);
+        setTenderPreviewFailed(false);
+      })
+      .catch(() => {
+        if (!cancelled) setTenderPreviewFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // cartPreviewKey is the debounce trigger; cart is read inside.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartPreviewKey, posInvoiceType, taxEnabled, company.data?.priceMode, unitPriceFor]);
   const hasCf = Object.values(cfFilters).some((values) => values.length);
   const products = useQuery({
     queryKey: ['pos-product-search', debouncedQuery, cfFilters],
@@ -460,15 +574,116 @@ export function PosPage() {
           gstRate: taxEnabled ? toNumber(cart[i]?.product.gstRate) : 0,
           intraState,
         })),
-        { applyRoundOff: true },
+        { applyRoundOff: true, invoiceDiscount, additionalCharges, invoiceDiscountMode: 'AFTER_TAX' },
       ),
-    [lineTaxes, cart, intraState, taxEnabled],
+    [lineTaxes, cart, intraState, taxEnabled, invoiceDiscount, additionalCharges],
   );
 
   const tenderedAmount =
     cashTendered === '' ? (serverTenderTotal ?? totals.grandTotal) : toNumber(cashTendered);
   // CR-111: drive change/labels from server gate total when available.
   const gateTotal = serverTenderTotal ?? totals.grandTotal;
+
+  const captureSession = useCallback((): PosBillSession => ({
+    id: activeSessionId,
+    cart,
+    customerId,
+    warehouseId,
+    cashTendered,
+    idempotencyKey,
+    upiPending,
+    cashPending,
+    walkInName,
+    serverTenderTotal,
+    cheque,
+    invoiceDiscount,
+    additionalCharges,
+  }), [
+    activeSessionId, additionalCharges, cart, cashPending, cashTendered, cheque, customerId,
+    idempotencyKey, invoiceDiscount, serverTenderTotal, upiPending, walkInName, warehouseId,
+  ]);
+
+  const restoreSession = useCallback((snap: PosBillSession) => {
+    setCart(snap.cart);
+    setCustomerId(snap.customerId);
+    setWarehouseId(snap.warehouseId);
+    setCashTendered(snap.cashTendered);
+    setIdempotencyKey(snap.idempotencyKey);
+    setUpiPending(snap.upiPending);
+    setCashPending(snap.cashPending);
+    setWalkInName(snap.walkInName);
+    setServerTenderTotal(snap.serverTenderTotal);
+    setCheque(snap.cheque);
+    setInvoiceDiscount(snap.invoiceDiscount);
+    setAdditionalCharges(snap.additionalCharges);
+  }, []);
+
+  const switchSession = useCallback((id: string) => {
+    if (id === activeSessionId) return;
+    sessionStore.current[activeSessionId] = captureSession();
+    const next = sessionStore.current[id] ?? {
+      id,
+      cart: [],
+      customerId: '',
+      warehouseId: '',
+      cashTendered: '',
+      idempotencyKey: null,
+      upiPending: null,
+      cashPending: null,
+      walkInName: '',
+      serverTenderTotal: null,
+      cheque: EMPTY_CHEQUE,
+      invoiceDiscount: 0,
+      additionalCharges: 0,
+    };
+    restoreSession(next);
+    setActiveSessionId(id);
+  }, [activeSessionId, captureSession, restoreSession]);
+
+  const holdAndCreateSession = useCallback(() => {
+    sessionStore.current[activeSessionId] = captureSession();
+    const id = newPosSessionId();
+    const empty: PosBillSession = {
+      id,
+      cart: [],
+      customerId: '',
+      warehouseId,
+      cashTendered: '',
+      idempotencyKey: null,
+      upiPending: null,
+      cashPending: null,
+      walkInName: '',
+      serverTenderTotal: null,
+      cheque: EMPTY_CHEQUE,
+      invoiceDiscount: 0,
+      additionalCharges: 0,
+    };
+    sessionStore.current[id] = empty;
+    restoreSession(empty);
+    setSessionIds((prev) => [...prev, id]);
+    setActiveSessionId(id);
+  }, [activeSessionId, captureSession, restoreSession, warehouseId]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        holdAndCreateSession();
+        return;
+      }
+      const n = Number(e.key);
+      if (n >= 1 && n <= 9) {
+        const id = sessionIds[n - 1];
+        if (id) {
+          e.preventDefault();
+          switchSession(id);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [holdAndCreateSession, sessionIds, switchSession]);
 
   // CR-091 / CR-106 / CR-108 / CR-109: restore mid-settlement after reload.
   useEffect(() => {
@@ -793,7 +1008,19 @@ export function PosPage() {
   );
 
   const performCashCheckout = useCallback(
-    async (lines: InvoiceDraftLine[], customer: number, key?: string, confirmBlankPos = false) => {
+    async (
+      lines: InvoiceDraftLine[],
+      customer: number,
+      key?: string,
+      confirmBlankPos = false,
+      extras?: {
+        confirmTotalsMismatch?: boolean;
+        shortCollectAmount?: number;
+        expectedTotal?: number;
+        paymentMode?: PaymentMode;
+        cheque?: ChequePaymentValues;
+      },
+    ) => {
       setBusy(true);
       setError(null);
       setMessage(null);
@@ -810,7 +1037,12 @@ export function PosPage() {
         } else if (isAtomicPosCheckoutEnabled()) {
           const invoiceDate = todayIso();
           const isInclusive = company.data?.priceMode === 'INCLUSIVE';
-          const tenderedVal = cashTendered ? Number(cashTendered) : undefined;
+          const tenderedVal =
+            extras?.shortCollectAmount != null
+              ? extras.shortCollectAmount
+              : cashTendered !== ''
+                ? Number(cashTendered)
+                : undefined;
           const started = Date.now();
           trackJourneyStarted('invoice_complete', 'pos');
           try {
@@ -825,6 +1057,8 @@ export function PosPage() {
                   payment_terms_days: 0,
                   auto_round_off: true,
                   warehouse: warehouseId ? Number(warehouseId) : undefined,
+                  invoice_discount: invoiceDiscount || undefined,
+                  additional_charges: additionalCharges || undefined,
                   items: lines.map((line) => ({
                     product: line.productId,
                     description: line.productName,
@@ -839,8 +1073,15 @@ export function PosPage() {
                   })),
                 },
                 payment: {
-                  mode: 'CASH',
+                  mode: extras?.paymentMode ?? 'CASH',
                   tendered_amount: tenderedVal,
+                  amount: extras?.shortCollectAmount,
+                  expected_total: extras?.expectedTotal,
+                  confirm_totals_mismatch: Boolean(extras?.confirmTotalsMismatch),
+                  cheque_number: extras?.cheque?.chequeNumber || undefined,
+                  cheque_bank_name: extras?.cheque?.chequeBankName || undefined,
+                  cheque_date: extras?.cheque?.chequeDate || undefined,
+                  cheque_image: extras?.cheque?.chequeImage || undefined,
                 },
               },
               { idempotencyKey: key },
@@ -1013,6 +1254,10 @@ export function PosPage() {
               payment: {
                 mode: 'UPI',
                 amount: upiPending.amount,
+                // CR-111: re-verify the amount quoted when the QR was shown
+                // against the server's authoritative total at confirm time —
+                // UPI previously skipped this gate entirely (cash-only bug).
+                expected_total: upiPending.amount,
               },
             },
             { idempotencyKey: upiPending.key },
@@ -1120,7 +1365,12 @@ export function PosPage() {
   }, [flushPendingDraft]);
 
   const checkout = useCallback(
-    async (mode: PaymentMode, opts?: { confirmBlankPos?: boolean; confirmWalkIn?: boolean }) => {
+    async (mode: PaymentMode, opts?: {
+      confirmBlankPos?: boolean;
+      confirmWalkIn?: boolean;
+      confirmTotalsMismatch?: boolean;
+      shortCollectAmount?: number;
+    }) => {
       if (writesBlocked) {
         setError(t('billing.writesBlocked'));
         return;
@@ -1225,45 +1475,58 @@ export function PosPage() {
         setError(t('pos.cartEmpty'));
         return;
       }
-      // CR-111: online cash uses server preview as till gate (and label source).
+      // CR-111: online cash/UPI use server preview as till gate (and display source).
+      // Walk-in customer id is resolved above before this gate so the first-pass skip
+      // cannot bypass a known-customer-id requirement.
       let tenderGateTotal = gateTotal;
-      if (mode === 'CASH' && navigator.onLine && effectiveCustomerId) {
+      const shownTotal = totals.grandTotal;
+      if (navigator.onLine && effectiveCustomerId) {
         try {
-          const { previewSalesTotals } = await import('@/api/legacy/sales');
-          const isInclusive = company.data?.priceMode === 'INCLUSIVE';
-          const previewLines = draftLinesFromCart(cart, taxEnabled, (id, qty) =>
-            unitPriceFor(id, qty, cart.find((l) => l.product.id === id)?.product.sellingPrice),
-          );
-          const preview = await previewSalesTotals({
-            customer: Number(effectiveCustomerId),
-            invoice_type: posInvoiceType,
-            price_mode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
-            items: previewLines.map((l) => ({
-              product: l.productId,
-              quantity: l.quantity,
-              unit_price: l.unitPrice,
-              ...(isInclusive ? { unit_price_inclusive: l.unitPrice } : {}),
-              gst_rate: l.gstRate,
-              cess_rate: l.cessRate,
-              discount_percent: l.discountPercent,
-              unit_name: l.unitName,
-            })),
-            auto_round_off: true,
+          const previewTotal = await fetchPosPreviewGrandTotal({
+            customerId: Number(effectiveCustomerId),
+            invoiceType: posInvoiceType,
+            priceModeInclusive: company.data?.priceMode === 'INCLUSIVE',
+            taxEnabled,
+            cart,
+            unitPriceFor: (id, qty) =>
+              unitPriceFor(id, qty, cart.find((l) => l.product.id === id)?.product.sellingPrice),
+            invoiceDiscount,
+            additionalCharges,
           });
-          if (typeof preview.grandTotal === 'number' && Number.isFinite(preview.grandTotal)) {
-            tenderGateTotal = preview.grandTotal;
-            setServerTenderTotal(preview.grandTotal);
-            setTenderPreviewFailed(false);
+          tenderGateTotal = previewTotal;
+          setServerTenderTotal(previewTotal);
+          setTenderPreviewFailed(false);
+          if (
+            Math.abs(previewTotal - shownTotal) > 0.05 &&
+            !opts?.confirmTotalsMismatch
+          ) {
+            setTotalsReconcile({ shown: shownTotal, billed: previewTotal, mode });
+            checkoutGuard.current = false;
+            setBusy(false);
+            return;
           }
         } catch {
           setTenderPreviewFailed(true);
-          setError('Could not confirm till total from server. Retry pay.');
+          setError(t('pos.tenderPreviewRetry'));
           return;
         }
       }
-      const exactTender = cashTendered === '' ? tenderGateTotal : tenderedAmount;
-      if (mode === 'CASH' && exactTender + 1e-9 < tenderGateTotal) {
+      const exactTender =
+        opts?.shortCollectAmount != null
+          ? opts.shortCollectAmount
+          : cashTendered === ''
+            ? tenderGateTotal
+            : tenderedAmount;
+      if (
+        mode === 'CASH' &&
+        exactTender + 1e-9 < tenderGateTotal &&
+        opts?.shortCollectAmount == null
+      ) {
         setError(t('pos.tenderTooLow'));
+        return;
+      }
+      if (mode === 'CHEQUE' && (!cheque.chequeNumber.trim() || !cheque.chequeBankName.trim())) {
+        setError(t('billing.chequeNumber'));
         return;
       }
       if (mode === 'UPI' && !navigator.onLine) {
@@ -1338,7 +1601,19 @@ export function PosPage() {
         await startUpiCheckout(lines, Number(effectiveCustomerId), key, Boolean(opts?.confirmBlankPos));
         return;
       }
-      await performCashCheckout(lines, Number(effectiveCustomerId), key, Boolean(opts?.confirmBlankPos));
+      await performCashCheckout(
+        lines,
+        Number(effectiveCustomerId),
+        key,
+        Boolean(opts?.confirmBlankPos),
+        {
+          confirmTotalsMismatch: Boolean(opts?.confirmTotalsMismatch),
+          shortCollectAmount: opts?.shortCollectAmount,
+          expectedTotal: tenderGateTotal,
+          paymentMode: mode,
+          cheque,
+        },
+      );
       } catch (err) {
         const msg = getErrorMessage(err);
         setError(msg);
@@ -1374,6 +1649,10 @@ export function PosPage() {
       activeCustomers,
       selectedCustomer.data,
       warehouseId,
+      cheque,
+      invoiceDiscount,
+      additionalCharges,
+      totals.grandTotal,
     ],
   );
 
@@ -1431,6 +1710,21 @@ export function PosPage() {
   return (
     <PageShell title={t('pos.title')} subtitle={t('pos.subtitle')}>
       <HonestyBanner messageKey="honesty.posCounter" />
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
+        <Tabs
+          value={activeSessionId}
+          onChange={(_, id) => switchSession(String(id))}
+          variant="scrollable"
+          scrollButtons="auto"
+        >
+          {sessionIds.map((id, idx) => (
+            <Tab key={id} value={id} label={t('pos.billN', { n: idx + 1 })} />
+          ))}
+        </Tabs>
+        <Button size="small" variant="outlined" onClick={holdAndCreateSession}>
+          {t('pos.holdBill')}
+        </Button>
+      </Stack>
       {offline || hasOutboxItems ? (
         !hideOutboxWarn || offline ? (
           <Alert
@@ -1692,6 +1986,9 @@ export function PosPage() {
               <TableHead>
                 <TableRow>
                   <TableCell>{t('pos.item')}</TableCell>
+                  <TableCell>{t('pos.itemCode')}</TableCell>
+                  <TableCell>{t('billing.hsn')}</TableCell>
+                  <TableCell align="right">{t('billing.mrp')}</TableCell>
                   <TableCell align="right">{t('pos.qty')}</TableCell>
                   <TableCell align="right">{t('pos.discPercent')}</TableCell>
                   <TableCell align="right">{t('pos.price')}</TableCell>
@@ -1702,7 +1999,7 @@ export function PosPage() {
               <TableBody>
                 {cart.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6}>
+                    <TableCell colSpan={9}>
                       <Typography variant="body2" color="text.secondary">
                         {t('pos.addItemsHint')}
                       </Typography>
@@ -1780,6 +2077,9 @@ export function PosPage() {
                             />
                           ) : null}
                         </TableCell>
+                        <TableCell>{line.product.sku || '—'}</TableCell>
+                        <TableCell>{line.product.hsnCode || '—'}</TableCell>
+                        <TableCell align="right">{formatMoney(line.product.mrp ?? 0)}</TableCell>
                         <TableCell align="right">
                           <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
                             <IconButton
@@ -1903,6 +2203,24 @@ export function PosPage() {
               <Typography variant="h6">{formatMoney(gateTotal)}</Typography>
             </Stack>
             <NumericField
+              label={t('pos.billDiscount')}
+              value={invoiceDiscount}
+              onValueChange={(n) => setInvoiceDiscount(Math.max(0, n))}
+              min={0}
+              emptyAs={0}
+              size="small"
+              fullWidth
+            />
+            <NumericField
+              label={t('pos.addCharge')}
+              value={additionalCharges}
+              onValueChange={(n) => setAdditionalCharges(Math.max(0, n))}
+              min={0}
+              emptyAs={0}
+              size="small"
+              fullWidth
+            />
+            <NumericField
               label={t('pos.cashTendered')}
               value={cashTendered === '' ? gateTotal : cashTendered}
               onValueChange={(n) => setCashTendered(n)}
@@ -1983,6 +2301,27 @@ export function PosPage() {
             </Button>
               </span>
             </Tooltip>
+            {lastMethod === 'CHEQUE' ? <ChequePaymentFields value={cheque} onChange={setCheque} /> : null}
+            {(['BANK', 'CARD', 'CREDIT', 'CHEQUE'] as PaymentMode[]).map((mode) => (
+              <Button
+                key={mode}
+                variant={lastMethod === mode ? 'contained' : 'outlined'}
+                size="large"
+                disabled={cashPayDisabled}
+                onClick={() => {
+                  rememberMethod(mode);
+                  void checkout(mode);
+                }}
+              >
+                {mode === 'BANK'
+                  ? t('pos.bankPay', { amount: formatMoney(gateTotal) })
+                  : mode === 'CARD'
+                    ? t('pos.cardPay', { amount: formatMoney(gateTotal) })
+                    : mode === 'CREDIT'
+                      ? t('pos.creditPay', { amount: formatMoney(gateTotal) })
+                      : t('pos.chequePay', { amount: formatMoney(gateTotal) })}
+              </Button>
+            ))}
             <Button
               variant="text"
               color="inherit"
@@ -2019,6 +2358,58 @@ export function PosPage() {
             }}
           >
             {t('pos.confirmSerialBatchAction')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={Boolean(totalsReconcile)}
+        onClose={() => setTotalsReconcile(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>{t('pos.totalsChangedTitle')}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            {totalsReconcile
+              ? t('pos.totalsChangedBody', {
+                  shown: formatMoney(totalsReconcile.shown),
+                  billed: formatMoney(totalsReconcile.billed),
+                })
+              : null}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
+          <Button onClick={() => setTotalsReconcile(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              const rec = totalsReconcile;
+              setTotalsReconcile(null);
+              if (!rec) return;
+              setCashTendered('');
+              void checkout(rec.mode, { confirmWalkIn: true, confirmTotalsMismatch: true });
+            }}
+          >
+            {totalsReconcile
+              ? t('pos.totalsReCollect', { amount: formatMoney(totalsReconcile.billed) })
+              : null}
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              const rec = totalsReconcile;
+              setTotalsReconcile(null);
+              if (!rec) return;
+              void checkout(rec.mode, {
+                confirmWalkIn: true,
+                confirmTotalsMismatch: true,
+                shortCollectAmount: rec.shown,
+              });
+            }}
+          >
+            {totalsReconcile
+              ? t('pos.totalsShortCollect', { amount: formatMoney(totalsReconcile.shown) })
+              : null}
           </Button>
         </DialogActions>
       </Dialog>

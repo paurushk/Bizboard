@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
+import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
@@ -23,6 +25,9 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
+import ShareOutlinedIcon from '@mui/icons-material/ShareOutlined';
+import { ShareInvoiceDialog } from '@/components/ShareInvoiceDialog';
+import { RecordInvoicePaymentDialog } from '@/components/RecordInvoicePaymentDialog';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
@@ -34,6 +39,8 @@ import {
   downloadInvoicePdf,
   downloadInvoiceThermalPdf,
   listSalesInvoicesPage,
+  getInvoicePaymentStats,
+  bulkInvoicePdfZip,
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -50,7 +57,7 @@ import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
-import { formatMoney } from '@/utils/money';
+import { formatMoney, toNumber } from '@/utils/money';
 import { canCreateSales, canCancelDocuments } from '@/utils/permissions';
 import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
 import { isSetupWizardEnabled } from '@/config/features';
@@ -72,6 +79,9 @@ export function SalesHistoryPage() {
   const debouncedQ = useDebouncedValue(filters.q, 300);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [active, setActive] = useState<SalesInvoice | null>(null);
+  const [shareTarget, setShareTarget] = useState<SalesInvoice | null>(null);
+  const [payTarget, setPayTarget] = useState<SalesInvoice | null>(null);
+  const [selected, setSelected] = useState<number[]>([]);
   const [message, setMessage] = useState<string | null>(() => {
     const flash = location.state as { message?: unknown } | null;
     return typeof flash?.message === 'string' ? flash.message : null;
@@ -82,7 +92,7 @@ export function SalesHistoryPage() {
   });
 
   const query = useQuery({
-    queryKey: ['sales-invoices', page, filters.status, debouncedQ, filters.dateFrom, filters.dateTo],
+    queryKey: ['sales-invoices', page, filters.status, filters.paymentStatus, debouncedQ, filters.dateFrom, filters.dateTo],
     queryFn: () =>
       listSalesInvoicesPage({
         page,
@@ -91,9 +101,21 @@ export function SalesHistoryPage() {
         q: debouncedQ || undefined,
         date_from: filters.dateFrom || undefined,
         date_to: filters.dateTo || undefined,
+        payment_status: filters.paymentStatus || undefined,
       }),
     staleTime: 0,
     refetchOnMount: 'always',
+  });
+  const stats = useQuery({
+    queryKey: ['sales-invoice-payment-stats', filters.status, filters.paymentStatus, debouncedQ, filters.dateFrom, filters.dateTo],
+    queryFn: () =>
+      getInvoicePaymentStats({
+        status: filters.status || undefined,
+        q: debouncedQ || undefined,
+        date_from: filters.dateFrom || undefined,
+        date_to: filters.dateTo || undefined,
+        payment_status: filters.paymentStatus || undefined,
+      }),
   });
 
   const closeMenu = () => {
@@ -197,6 +219,7 @@ export function SalesHistoryPage() {
       ) : null}
 
       {!query.isError ? (
+        <>
         <HistoryFilterBar
           value={filters}
           onChange={(next) => {
@@ -209,7 +232,58 @@ export function SalesHistoryPage() {
             { value: 'CANCELLED', label: t('status.cancelled') },
             { value: 'RETURNED', label: t('status.returned') },
           ]}
+          dateRangePresets
+          bulkSelectedCount={selected.length}
+          bulkActions={
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={selected.length === 0}
+              onClick={async () => {
+                try {
+                  const res = await bulkInvoicePdfZip(selected);
+                  if (res.url) window.open(res.url, '_blank', 'noopener,noreferrer');
+                  setMessage(t('history.bulkDownload'));
+                } catch (err) {
+                  setError(getErrorMessage(err));
+                }
+              }}
+            >
+              {t('history.bulkDownload')}
+            </Button>
+          }
+          onClearBulk={() => setSelected([])}
         />
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {[
+            { value: 'PAID', label: t('status.PAID') },
+            { value: 'PARTIAL', label: t('status.PARTIAL') },
+            { value: 'UNPAID', label: t('status.UNPAID') },
+          ].map((opt) => (
+            <Chip
+              key={opt.value}
+              size="small"
+              label={opt.label}
+              color={filters.paymentStatus === opt.value ? 'primary' : 'default'}
+              variant={filters.paymentStatus === opt.value ? 'filled' : 'outlined'}
+              onClick={() => {
+                setFilters((prev) => ({
+                  ...prev,
+                  paymentStatus: prev.paymentStatus === opt.value ? '' : opt.value,
+                }));
+                setPage(1);
+              }}
+            />
+          ))}
+        </Stack>
+        {stats.data ? (
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Chip size="small" label={t('history.paymentStatsPaid', { count: stats.data.paid.count, amount: formatMoney(stats.data.paid.amount) })} />
+            <Chip size="small" label={t('history.paymentStatsPartial', { count: stats.data.partial.count, amount: formatMoney(stats.data.partial.amount) })} />
+            <Chip size="small" label={t('history.paymentStatsUnpaid', { count: stats.data.unpaid.count, amount: formatMoney(stats.data.unpaid.amount) })} />
+          </Stack>
+        ) : null}
+        </>
       ) : null}
 
       {showLoading ? <LoadingState /> : null}
@@ -251,6 +325,16 @@ export function SalesHistoryPage() {
           <Table size="small">
             <TableHead>
               <TableRow>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    size="small"
+                    checked={rows.length > 0 && rows.every((r) => selected.includes(r.id))}
+                    indeterminate={selected.length > 0 && rows.some((r) => !selected.includes(r.id))}
+                    onChange={() =>
+                      setSelected((prev) => (prev.length === rows.length ? [] : rows.map((r) => r.id)))
+                    }
+                  />
+                </TableCell>
                 <TableCell>{t('common.date')}</TableCell>
                 <TableCell>{t('common.number')}</TableCell>
                 <TableCell>{t('billing.customer')}</TableCell>
@@ -275,7 +359,7 @@ export function SalesHistoryPage() {
                   aria-hidden
                   role="presentation"
                 >
-                  <TableCell style={{ padding: 0, border: 0 }} colSpan={6} />
+                  <TableCell style={{ padding: 0, border: 0 }} colSpan={7} />
                 </TableRow>
               ) : null}
               {virtualRows.map((vRow) => {
@@ -289,6 +373,17 @@ export function SalesHistoryPage() {
                   ref={measureElement}
                   style={{ height: vRow.size }}
                 >
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      size="small"
+                      checked={selected.includes(inv.id)}
+                      onChange={() =>
+                        setSelected((prev) =>
+                          prev.includes(inv.id) ? prev.filter((id) => id !== inv.id) : [...prev, inv.id],
+                        )
+                      }
+                    />
+                  </TableCell>
                   <TableCell>{inv.invoiceDate}</TableCell>
                   <TableCell>
                     <Typography
@@ -340,7 +435,7 @@ export function SalesHistoryPage() {
                   aria-hidden
                   role="presentation"
                 >
-                  <TableCell style={{ padding: 0, border: 0 }} colSpan={6} />
+                  <TableCell style={{ padding: 0, border: 0 }} colSpan={7} />
                 </TableRow>
               ) : null}
             </TableBody>
@@ -444,6 +539,37 @@ export function SalesHistoryPage() {
               </ListItemIcon>
               <ListItemText>Print receipt (58mm)</ListItemText>
             </MenuItem>
+            <MenuItem
+              onClick={() => {
+                if (active) setShareTarget(active);
+                closeMenu();
+              }}
+            >
+              <ListItemIcon>
+                <ShareOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>{t('common.share')}</ListItemText>
+            </MenuItem>
+            {allowCreate && toNumber(active?.balance) > 0 ? (
+              <MenuItem
+                onClick={() => {
+                  if (active) setPayTarget(active);
+                  closeMenu();
+                }}
+              >
+                <ListItemText>{t('history.recordPayment')}</ListItemText>
+              </MenuItem>
+            ) : null}
+            {allowCreate && active?.status === 'COMPLETED' ? (
+              <MenuItem
+                onClick={() => {
+                  if (active) navigate(`/sales/returns?create=1&invoice=${active.id}`);
+                  closeMenu();
+                }}
+              >
+                <ListItemText>{t('history.salesReturn')}</ListItemText>
+              </MenuItem>
+            ) : null}
           </>
         ) : null}
 
@@ -487,6 +613,28 @@ export function SalesHistoryPage() {
           </MenuItem>
         ) : null}
       </Menu>
+      <ShareInvoiceDialog
+        open={Boolean(shareTarget)}
+        invoiceId={shareTarget?.id ?? null}
+        defaultPhone={shareTarget?.whatsappOffer?.phone || ''}
+        defaultEmail=""
+        onClose={() => setShareTarget(null)}
+        onSuccess={(msg) => {
+          setMessage(msg);
+          setError(null);
+        }}
+        onError={(msg) => setError(msg)}
+      />
+      <RecordInvoicePaymentDialog
+        open={Boolean(payTarget)}
+        invoice={payTarget}
+        onClose={() => setPayTarget(null)}
+        onSuccess={() => {
+          setPayTarget(null);
+          setMessage(t('history.recordPayment'));
+          invalidate();
+        }}
+      />
     </Stack>
   );
 }

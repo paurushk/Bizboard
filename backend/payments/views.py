@@ -127,6 +127,8 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
         if self.action == "void":
             return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        if self.action == "set_cheque_status":
+            return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPaymentSurfaces()]
         return super().get_permissions()
@@ -165,6 +167,11 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
                 notes=serializer.validated_data.get("notes", ""),
                 bank_account=bank_account,
                 user=request.user,
+                cheque_number=serializer.validated_data.get("cheque_number", ""),
+                cheque_bank_name=serializer.validated_data.get("cheque_bank_name", ""),
+                cheque_date=serializer.validated_data.get("cheque_date"),
+                cheque_image=serializer.validated_data.get("cheque_image"),
+                settlement_discount=serializer.validated_data.get("settlement_discount") or 0,
             )
         except Exception:
             if raw_key:
@@ -195,6 +202,16 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
         self._audit("VOID", receipt)
         return Response(self.get_serializer(receipt).data)
 
+    @action(detail=True, methods=["post"], url_path="set-cheque-status")
+    def set_cheque_status(self, request, pk=None):
+        receipt = PaymentService.set_cheque_status(
+            receipt=self.get_object(),
+            cheque_status=request.data.get("cheque_status") or request.data.get("chequeStatus") or "",
+            user=request.user,
+        )
+        self._audit("CHEQUE_STATUS", receipt)
+        return Response(self.get_serializer(receipt).data)
+
 
 class SupplierPaymentViewSet(CompanyScopedViewSet):
     queryset = SupplierPayment.objects.select_related("supplier", "bank_account").prefetch_related(
@@ -208,6 +225,8 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
         if self.action == "void":
             return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        if self.action == "set_cheque_status":
+            return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPaymentSurfaces()]
         return super().get_permissions()
@@ -250,6 +269,10 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
                 tds_rate=serializer.validated_data.get("tds_rate"),
                 tds_amount=serializer.validated_data.get("tds_amount"),
                 user=request.user,
+                cheque_number=serializer.validated_data.get("cheque_number", ""),
+                cheque_bank_name=serializer.validated_data.get("cheque_bank_name", ""),
+                cheque_date=serializer.validated_data.get("cheque_date"),
+                cheque_image=serializer.validated_data.get("cheque_image"),
             )
         except Exception:
             if raw_key:
@@ -278,6 +301,16 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
             reason=(request.data.get("reason") or "").strip(),
         )
         self._audit("VOID", payment)
+        return Response(self.get_serializer(payment).data)
+
+    @action(detail=True, methods=["post"], url_path="set-cheque-status")
+    def set_cheque_status(self, request, pk=None):
+        payment = PaymentService.set_supplier_cheque_status(
+            payment=self.get_object(),
+            cheque_status=request.data.get("cheque_status") or request.data.get("chequeStatus") or "",
+            user=request.user,
+        )
+        self._audit("CHEQUE_STATUS", payment)
         return Response(self.get_serializer(payment).data)
 
 

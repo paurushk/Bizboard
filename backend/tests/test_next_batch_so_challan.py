@@ -150,3 +150,58 @@ def test_convert_confirmed_order_releases_reservation(tenant_a):
     assert balance.reserved == Decimal("0")
     order.refresh_from_db()
     assert order.status == SalesOrder.Status.CONVERTED
+
+
+def test_order_gates_block_draft_convert_and_ignore_a_five_percent_margin(tenant_a):
+    from core.exceptions import BusinessRuleError
+    from sales.models import SalesOrderItem
+    from sales.order_gates import apply_order_gates
+
+    customer = make_customer(tenant_a.company, name="Gate Co", credit_limit=Decimal("100"))
+    product = make_product(tenant_a.company, sku="GATE-EDGE", purchase_price="95", selling_price="100")
+    order = SalesOrder.objects.create(
+        company=tenant_a.company,
+        customer=customer,
+        grand_total=Decimal("30"),
+        created_by=tenant_a.owner,
+    )
+    SalesNotesService._require_confirmation_when_gates_on(order)
+    flags = dict(tenant_a.company.feature_flags or {})
+    flags["ENABLE_ORDER_GATES"] = True
+    tenant_a.company.feature_flags = flags
+    tenant_a.company.save(update_fields=["feature_flags"])
+    with pytest.raises(BusinessRuleError, match="Confirm this sales order"):
+        SalesNotesService.convert_sales_order(order, tenant_a.owner)
+    with pytest.raises(BusinessRuleError, match="Confirm this sales order"):
+        SalesNotesService.convert_sales_order_to_challan(order, tenant_a.owner)
+    order.status = SalesOrder.Status.CONFIRMED
+    order.save(update_fields=["status"])
+    SalesNotesService._require_confirmation_when_gates_on(order)
+    item = SalesOrderItem.objects.create(
+        company=tenant_a.company,
+        sales_order=order,
+        product=product,
+        quantity=Decimal("1"),
+        unit_price=Decimal("100"),
+    )
+    assert apply_order_gates(order, [item]) == []
+    item.unit_price = Decimal("96")
+    item.save(update_fields=["unit_price"])
+    product.purchase_price = Decimal("96")
+    product.save(update_fields=["purchase_price"])
+    warnings = apply_order_gates(order, [item])
+    assert warnings and warnings[0]["product_id"] == product.id
+    other = SalesOrder.objects.create(
+        company=tenant_a.company,
+        customer=customer,
+        grand_total=Decimal("80"),
+        status=SalesOrder.Status.DRAFT,
+        created_by=tenant_a.owner,
+    )
+    order.grand_total = Decimal("30")
+    order.save(update_fields=["grand_total"])
+    with pytest.raises(BusinessRuleError, match="Credit limit"):
+        apply_order_gates(order, [item])
+    other.status = SalesOrder.Status.CANCELLED
+    other.save(update_fields=["status"])
+    assert apply_order_gates(order, [item]) == warnings
