@@ -342,6 +342,7 @@ class StockCountLine(models.Model):
     batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
     system_qty = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
     counted_qty = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
+    held_for_review = models.BooleanField(default=False)
 
     class Meta:
         constraints = [

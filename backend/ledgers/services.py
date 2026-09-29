@@ -331,10 +331,18 @@ class LedgerService:
 
     @staticmethod
     def _use_gl_outstanding(company) -> bool:
-        """Honor outstanding_basis when accounting is enabled (CR-059)."""
+        """GL outstanding only when books are on, the basis says so, and back-fill is complete.
+
+        Until the trial balance ties, the document figure is the one number
+        every surface shows. A deploy applies this without rewriting company rows.
+        """
         if not getattr(company, "accounting_enabled", False):
             return False
-        return getattr(company, "outstanding_basis", None) == "GL_WHEN_BOOKS"
+        if getattr(company, "outstanding_basis", None) != "GL_WHEN_BOOKS":
+            return False
+        from accounting.services import BooksHealthService
+
+        return BooksHealthService.gl_basis_ready(company)
 
     @staticmethod
     def customer_exposure_for_credit_limit(company, customer) -> Decimal:

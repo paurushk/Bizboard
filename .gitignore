@@ -9,6 +9,7 @@ __pycache__/
 backend/_tmp_*
 backend/_pytest_fail_extract.txt
 backend/db.sqlite3
+backend/.e2e_vendor_id
 backend/media/
 backend/test_media/
 backend/staticfiles/
@@ -24,6 +25,7 @@ mobile/ios/
 # Environment and editor
 .env
 .env.dev
+.env.e2e
 .env.staging
 .idea/
 .vscode/

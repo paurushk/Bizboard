@@ -79,6 +79,18 @@ class SalesInvoice(DocumentTotalsModel):
     auto_round_off = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
     terms_text = models.TextField(blank=True)
+    credit_override_reason = models.CharField(max_length=500, blank=True, default="")
+    credit_overridden_by = models.ForeignKey(
+        "accounts.CompanyUser", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    credit_overridden_at = models.DateTimeField(null=True, blank=True)
+    # GST Guard: OWNER/MANAGER override of a blocking pre-submission issue —
+    # mirrors the credit_override_* shape above (reporting.gst_guard).
+    gst_guard_override_reason = models.CharField(max_length=500, blank=True, default="")
+    gst_guard_overridden_by = models.ForeignKey(
+        "accounts.CompanyUser", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    gst_guard_overridden_at = models.DateTimeField(null=True, blank=True)
     # BB-000264: set only by Tally adapter — never trust notes==TALLY_OPENING.
     is_opening_balance = models.BooleanField(default=False)
     include_bank_details = models.BooleanField(default=False)
@@ -401,6 +413,13 @@ class SalesCreditNote(DocumentTotalsModel):
         related_name="sales_credit_notes",
     )
     notes = models.TextField(blank=True)
+    # GST Guard: OWNER/MANAGER override of a blocking pre-submission issue —
+    # mirrors SalesInvoice.gst_guard_override_* (reporting.gst_guard).
+    gst_guard_override_reason = models.CharField(max_length=500, blank=True, default="")
+    gst_guard_overridden_by = models.ForeignKey(
+        "accounts.CompanyUser", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    gst_guard_overridden_at = models.DateTimeField(null=True, blank=True)
     pdf_status = models.CharField(
         max_length=8, choices=SalesInvoice.PdfStatus.choices, default=SalesInvoice.PdfStatus.NONE
     )
@@ -485,6 +504,11 @@ class SalesDebitNote(DocumentTotalsModel):
         related_name="sales_debit_notes",
     )
     notes = models.TextField(blank=True)
+    gst_guard_override_reason = models.CharField(max_length=500, blank=True, default="")
+    gst_guard_overridden_by = models.ForeignKey(
+        "accounts.CompanyUser", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    gst_guard_overridden_at = models.DateTimeField(null=True, blank=True)
     pdf_status = models.CharField(
         max_length=8, choices=SalesInvoice.PdfStatus.choices, default=SalesInvoice.PdfStatus.NONE
     )
@@ -575,6 +599,11 @@ class SalesOrder(DocumentTotalsModel):
     )
     notes = models.TextField(blank=True)
     terms_text = models.TextField(blank=True)
+    credit_override_reason = models.CharField(max_length=500, blank=True, default="")
+    credit_overridden_by = models.ForeignKey(
+        "accounts.CompanyUser", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    credit_overridden_at = models.DateTimeField(null=True, blank=True)
     converted_invoice = models.ForeignKey(
         SalesInvoice, null=True, blank=True, on_delete=models.SET_NULL, related_name="source_orders"
     )
@@ -713,6 +742,10 @@ class RecurringInvoiceSchedule(models.Model):
         default=StopStage.INVOICE,
         help_text="Where a generated run stops: draft invoice (default), sales order, or draft delivery challan.",
     )
+    auto_complete = models.BooleanField(
+        default=False,
+        help_text="When true, an INVOICE run is completed unedited. Default stays a draft for review.",
+    )
     # B2-026: header-level charges/discount/price-mode a recurring template
     # previously had no way to express at all -- every generated draft was
     # silently exclusive-priced with no charges/invoice discount, regardless
@@ -796,6 +829,7 @@ class DeliveryRoute(CompanyScopedModel):
     invoiced_stop_count = models.PositiveIntegerField(null=True, blank=True)
     stop_count = models.PositiveIntegerField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    completion_source = models.CharField(max_length=8, blank=True, default="")
 
     class Meta:
         ordering = ["-route_date", "-id"]
@@ -822,6 +856,16 @@ class DeliveryRouteStop(CompanyScopedModel):
     status = models.CharField(max_length=12, choices=StopStatus.choices, default=StopStatus.PENDING)
     notes = models.TextField(blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
+    completion_source = models.CharField(max_length=8, blank=True, default="")
+    otp_code = models.CharField(max_length=8, blank=True, default="")
+    pod_note = models.TextField(blank=True, default="")
+    received_by_name = models.CharField(max_length=128, blank=True, default="")
+    pod_photo = models.ForeignKey(
+        "core.FileAsset", null=True, blank=True, on_delete=models.SET_NULL, related_name="pod_stops",
+    )
+    customer_receipt = models.ForeignKey(
+        "payments.CustomerReceipt", null=True, blank=True, on_delete=models.SET_NULL, related_name="pod_stops",
+    )
 
     class Meta:
         ordering = ["sequence", "id"]

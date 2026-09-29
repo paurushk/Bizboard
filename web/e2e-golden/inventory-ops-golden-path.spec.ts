@@ -33,16 +33,19 @@ test('inventory ops: stock count session + transfer between godowns', async ({ p
 
   await page.goto('/inventory/transfers');
   await page.getByRole('button', { name: 'New transfer' }).click();
-  await page.getByLabel('From godown').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('From godown').click();
   await page.getByRole('option', { name: /Default Godown/ }).click();
-  await page.getByLabel('To godown').click();
+  await dialog.getByLabel('To godown').click();
   await page.getByRole('option', { name: branch }).click();
-  const productBox = page.getByLabel(/product/i).first();
+  await expect(page.getByRole('listbox')).toBeHidden();
+  const productBox = dialog.getByRole('combobox', { name: /product/i });
   await productBox.click();
   await productBox.fill(sku);
   await page.getByRole('option', { name: new RegExp(sku) }).click();
-  await page.getByLabel(/quantity/i).fill('1');
-  await page.getByRole('button', { name: /create draft|save/i }).click();
+  await dialog.getByLabel(/quantity/i).fill('1');
+  await dialog.getByRole('button', { name: /create draft/i }).click();
   await expect(page.getByRole('button', { name: 'Complete' }).first()).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Complete' }).first().click();
 

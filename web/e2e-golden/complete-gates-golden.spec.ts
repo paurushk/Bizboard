@@ -40,7 +40,7 @@ test.describe('Complete-gate goldens (live Django)', () => {
     await selectPartyOnDocument(page, supplierName);
     await addInvoiceItem(page, sku);
     await expect(
-      page.getByText('Save the company GSTIN in GST settings before completing a GST invoice.'),
+      page.getByText('Save the company GSTIN in GST settings before completing a GST invoice.').first(),
     ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Save & Complete' })).toBeDisabled();
 
@@ -81,11 +81,11 @@ test.describe('Complete-gate goldens (live Django)', () => {
     await page.goto('/sales/new');
     await selectPartyOnDocument(page, customerName);
     await addInvoiceItem(page, sku);
-    await page.getByRole('spinbutton').first().fill('5');
+    await page.getByLabel('QTY').first().fill('5');
     await expect(page.getByRole('button', { name: 'Save & Complete' })).toBeDisabled();
-    await expect(page.getByText(/Insufficient stock/i)).toBeVisible();
+    await expect(page.getByText(/Insufficient stock/i).first()).toBeVisible();
 
-    await page.getByRole('spinbutton').first().fill('1');
+    await page.getByLabel('QTY').first().fill('1');
     await expect(page.getByRole('button', { name: 'Save & Complete' })).toBeEnabled();
   });
 
@@ -148,7 +148,7 @@ test.describe('Complete-gate goldens (live Django)', () => {
     await page.goto('/purchases/new');
     await selectPartyOnDocument(page, supplierName);
     await addInvoiceItem(page, sku);
-    await page.getByLabel(/supplier bill/i).fill(billNo);
+    await page.getByLabel(/Original Inv No|supplier bill/i).fill(billNo);
     page.once('dialog', async (dialog) => {
       await dialog.accept();
     });
@@ -158,7 +158,7 @@ test.describe('Complete-gate goldens (live Django)', () => {
     await page.goto('/purchases/new');
     await selectPartyOnDocument(page, supplierName);
     await addInvoiceItem(page, sku);
-    await page.getByLabel(/supplier bill/i).fill(billNo);
+    await page.getByLabel(/Original Inv No|supplier bill/i).fill(billNo);
     page.once('dialog', async (dialog) => {
       expect(dialog.message()).toMatch(/already exists|duplicate/i);
       await dialog.dismiss();
@@ -182,6 +182,17 @@ test.describe('Complete-gate goldens (live Django)', () => {
       password: 'GoldenPath123!',
     });
     await enableAccounting(page);
+    await createProduct(page, {
+      name: `CG11 Widget ${id}`,
+      sku,
+      sellingPrice: '100',
+      purchasePrice: '80',
+      hsnCode: '7318',
+    });
+    await addStockAdjustment(page, { sku, quantity: '5' });
+    await createCustomer(page, { name: customerName });
+    await createSupplier(page, { name: supplierName });
+
     const now = new Date();
     const start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const endDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -199,17 +210,6 @@ test.describe('Complete-gate goldens (live Django)', () => {
     await page.getByRole('button', { name: /^Close$/i }).click();
     await expect(page.getByText(/CLOSED/i).first()).toBeVisible({ timeout: 15_000 });
 
-    await createProduct(page, {
-      name: `CG11 Widget ${id}`,
-      sku,
-      sellingPrice: '100',
-      purchasePrice: '80',
-      hsnCode: '7318',
-    });
-    await addStockAdjustment(page, { sku, quantity: '5' });
-    await createCustomer(page, { name: customerName });
-    await createSupplier(page, { name: supplierName });
-
     await page.goto('/sales/new');
     await selectPartyOnDocument(page, customerName);
     await addInvoiceItem(page, sku);
@@ -220,6 +220,9 @@ test.describe('Complete-gate goldens (live Django)', () => {
     await page.goto('/purchases/new');
     await selectPartyOnDocument(page, supplierName);
     await addInvoiceItem(page, sku);
+    page.on('dialog', async (d) => {
+      await d.accept().catch(() => {});
+    });
     await expect(page.getByRole('button', { name: 'Save & Complete' })).toBeEnabled();
     await page.getByRole('button', { name: 'Save & Complete' }).click();
     await expect(page.getByText(/closed|period/i).first()).toBeVisible({ timeout: 20_000 });

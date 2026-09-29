@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
@@ -6,6 +8,8 @@ from core.permissions import get_company_user
 from core.validators import validate_upi_vpa
 
 from .models import Company, CompanyGstin, CompanyStatutoryLicence, CompanyUser
+
+logger = logging.getLogger(__name__)
 
 def _item_custom_field_defs(value):
     from masters.custom_fields import normalize_stored_defs
@@ -39,6 +43,21 @@ _ACCOUNTANT_FORBIDDEN_CAPS = (
 _SALES_STAFF_FORBIDDEN_CAPS = (
     "can_post_journals",
 )
+
+
+def _assert_policy_desk_grant(role, caps: dict, request) -> None:
+    """can_manage_policies is true only on POLICY_DESK, and only an owner may set it."""
+    if caps.get("can_manage_policies") is not True:
+        return
+    if role != CompanyUser.Role.POLICY_DESK:
+        raise serializers.ValidationError(
+            {"can_manage_policies": "Only a policy desk membership can manage policies."}
+        )
+    cu = get_company_user(request) if request is not None else None
+    if cu is None or cu.role != CompanyUser.Role.OWNER:
+        raise serializers.ValidationError(
+            {"can_manage_policies": "Only an owner can grant the policy desk."}
+        )
 
 
 def _assert_role_capability_invariants(role, caps: dict) -> None:
@@ -368,6 +387,16 @@ class CompanySerializer(serializers.ModelSerializer):
             user = getattr(request, "user", None) if request is not None else None
             event = "wizard_completed" if dismiss_onboarding else "wizard_tax_confirmed"
             record_event(updated, event, user=user, journey="signup", success=True)
+            if dismiss_onboarding:
+                from billing.ops import note_setup_completed
+
+                # Best-effort vendor analytics — must never fail the customer's
+                # own dismiss-onboarding action (misconfigured vendor company,
+                # transient DB error, etc.).
+                try:
+                    note_setup_completed(updated)
+                except Exception:
+                    logger.exception("note_setup_completed failed for company %s", updated.pk)
         return updated
 
 
@@ -419,7 +448,7 @@ class CompanyUserSerializer(serializers.ModelSerializer):
             "can_cancel_documents", "can_view_financial_reports", "can_export",
             "can_view_ai_insights", "can_use_ai_assistant",
             "can_create_sales", "can_create_purchases", "can_create_payments",
-            "can_post_journals",
+            "can_post_journals", "can_manage_policies",
             "is_active",
         ]
         read_only_fields = ["company", "user"]
@@ -444,7 +473,7 @@ class CompanyUserSerializer(serializers.ModelSerializer):
             "can_view_financial_reports", "can_export",
             "can_view_ai_insights", "can_use_ai_assistant",
             "can_create_sales", "can_create_purchases", "can_create_payments",
-            "can_post_journals",
+            "can_post_journals", "can_manage_policies",
         )
         # ACCT-01: on a role change, re-apply that role's capability preset for
         # any cap the request did not set explicitly — otherwise a promoted user
@@ -467,6 +496,7 @@ class CompanyUserSerializer(serializers.ModelSerializer):
             elif instance is not None:
                 caps[field] = getattr(instance, field)
         _assert_role_capability_invariants(role, caps)
+        _assert_policy_desk_grant(role, caps, self.context.get("request"))
         return attrs
 
 
@@ -489,6 +519,7 @@ class InviteUserSerializer(serializers.Serializer):
     can_create_purchases = serializers.BooleanField(required=False, allow_null=True, default=None)
     can_create_payments = serializers.BooleanField(required=False, allow_null=True, default=None)
     can_post_journals = serializers.BooleanField(default=False)
+    can_manage_policies = serializers.BooleanField(required=False, allow_null=True, default=None)
 
     def validate_password(self, value):
         if value:
@@ -520,6 +551,7 @@ class InviteUserSerializer(serializers.Serializer):
     def validate(self, attrs):
         caps = {k: v for k, v in attrs.items() if v is not None}
         _assert_role_capability_invariants(attrs.get("role"), caps)
+        _assert_policy_desk_grant(attrs.get("role"), caps, self.context.get("request"))
         return attrs
 
 
@@ -540,6 +572,7 @@ class MeSerializer(serializers.Serializer):
     can_create_purchases = serializers.BooleanField()
     can_create_payments = serializers.BooleanField()
     can_post_journals = serializers.BooleanField()
+    can_manage_policies = serializers.BooleanField()
     is_staff = serializers.BooleanField(source="user.is_staff", read_only=True)
     push_token = serializers.CharField(source="user.push_token", read_only=True, allow_blank=True)
     company_id = serializers.IntegerField(source="company.id")
@@ -623,8 +656,19 @@ class CompanyStatutoryLicenceSerializer(serializers.ModelSerializer):
         try:
             if licence_type == CompanyStatutoryLicence.LicenceType.FSSAI:
                 validate_fssai(licence_number)
-            else:
+            elif licence_type in (
+                CompanyStatutoryLicence.LicenceType.DRUG_20B,
+                CompanyStatutoryLicence.LicenceType.DRUG_21B,
+            ):
                 validate_drug_licence(licence_number)
+            elif licence_type in (
+                CompanyStatutoryLicence.LicenceType.POSP,
+                CompanyStatutoryLicence.LicenceType.AGENCY,
+            ):
+                if not (licence_number or "").strip():
+                    raise serializers.ValidationError({"licence_number": "Licence number is required."})
+            else:
+                raise serializers.ValidationError({"licence_type": "Unknown licence type."})
         except DjangoValidationError as exc:
             raise serializers.ValidationError({"licence_number": list(exc.messages)}) from exc
         return attrs

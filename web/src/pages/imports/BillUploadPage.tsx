@@ -139,6 +139,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [confirmNonGst, setConfirmNonGst] = useState(false);
+  const [lowConfidenceAccepted, setLowConfidenceAccepted] = useState(false);
 
   const jobQuery = useQuery({
     queryKey: ['import-job', jobId],
@@ -159,6 +160,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     setLines(toPreviewLines(job.preview));
     setBillNumber(job.preview.billNumber ?? '');
     setBillDate(job.preview.billDate ?? '');
+    setLowConfidenceAccepted(Boolean(job.preview.lowConfidenceAccepted));
     if ('confirm_non_gst' in job.preview) {
       setConfirmNonGst(Boolean(job.preview.confirm_non_gst));
     }
@@ -233,6 +235,8 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
         billNumber,
         billDate,
         lines: payloadLines,
+        lowConfidenceAccepted,
+        low_confidence_accepted: lowConfidenceAccepted,
         confirmNonGst: !isSales ? confirmNonGst : undefined,
         confirm_non_gst: !isSales ? confirmNonGst : undefined,
       });
@@ -279,6 +283,9 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     [uploadMutation.isPending, job?.status, jobId, jobQuery.isLoading],
   );
 
+  const billPreview = job && isBillPreview(job.preview) ? job.preview : null;
+  const extractionConfidence = Number(billPreview?.extractionConfidence ?? 1);
+  const lowConfidence = billPreview != null && Number.isFinite(extractionConfidence) && extractionConfidence < 0.7;
   const includedLines = lines.filter((l) => l.include !== false);
   const includedCount = includedLines.length;
   // F2-021: every included line must have a name, a positive qty and a
@@ -887,12 +894,32 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                   />
                 </Box>
               ) : null}
+              {lowConfidence ? (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <Typography variant="body2">
+                    {t('billUpload.lowConfidence', { confidence: extractionConfidence.toFixed(2) })}
+                  </Typography>
+                  <Typography variant="caption" display="block">
+                    {t('billUpload.lineReviewHint')}
+                  </Typography>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={lowConfidenceAccepted}
+                        onChange={(e) => setLowConfidenceAccepted(e.target.checked)}
+                      />
+                    }
+                    label={t('billUpload.acceptReviewed')}
+                  />
+                </Alert>
+              ) : null}
               <Button
                 variant="contained"
                 color="secondary"
                 disabled={
                   includedCount === 0 ||
                   invalidIncludedCount > 0 ||
+                  (lowConfidence && !lowConfidenceAccepted) ||
                   commitMutation.isPending
                 }
                 onClick={() => commitMutation.mutate()}

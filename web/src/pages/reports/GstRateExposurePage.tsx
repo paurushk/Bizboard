@@ -10,6 +10,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient, getErrorMessage, unwrapData } from '@/api/client';
+import { GstHonestyHeader } from '@/components/GstHonestyHeader';
 import { DisclaimerBanner, KpiStat, PageHeader } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
@@ -68,6 +69,7 @@ export function GstRateExposurePage() {
   return (
     <Stack spacing={2}>
       <PageHeader title={t('nav.gstRateExposure')} />
+      <GstHonestyHeader />
       <DisclaimerBanner>{query.data?.disclaimer || t('ims.rateDisclaimer')}</DisclaimerBanner>
       <Stack direction="row" spacing={2}>
         <TextField

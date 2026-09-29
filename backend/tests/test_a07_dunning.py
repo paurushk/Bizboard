@@ -441,6 +441,23 @@ def test_predictive_dunning_is_silent_until_three_paid_invoices(tenant_a):
     assert DunningReminder.objects.filter(company=tenant_a.company).count() == 0
 
 
+def test_median_days_late_rounds_half_up_not_truncated(tenant_a):
+    """statistics.median() on an even-length sample averages the two middle
+    values (1.5 here); int() truncation used to floor that to 1, silently
+    falling below MIN_PREDICTED_LATE_DAYS=2 and suppressing a real
+    prediction for a customer who is genuinely trending late."""
+    from payments.predictive_dunning import median_days_late
+    from tests.conftest import make_customer
+
+    customer = make_customer(tenant_a.company, name="Boundary Co")
+    _paid_invoice(tenant_a, customer, number="PD-R1", due=date(2026, 1, 1), paid_on=date(2026, 1, 2))
+    _paid_invoice(tenant_a, customer, number="PD-R2", due=date(2026, 2, 1), paid_on=date(2026, 2, 2))
+    _paid_invoice(tenant_a, customer, number="PD-R3", due=date(2026, 3, 1), paid_on=date(2026, 3, 3))
+    _paid_invoice(tenant_a, customer, number="PD-R4", due=date(2026, 4, 1), paid_on=date(2026, 4, 3))
+    # Gaps: 1, 1, 2, 2 -> median 1.5 -> rounds to 2, not truncates to 1.
+    assert median_days_late(tenant_a.company, customer) == 2
+
+
 def test_predictive_row_opens_collections_only_inside_the_window(tenant_a):
     from payments.predictive_dunning import collections_worklist, median_days_late, predicted_rows
     from tests.conftest import make_customer
@@ -492,3 +509,130 @@ def test_predictive_row_opens_collections_only_inside_the_window(tenant_a):
     assert [row["invoice_number"] for row in worklist] == ["PD-SOON"]
     assert worklist[0]["confident"] is True
     assert worklist[0]["predicted_days_late"] == 6
+
+
+def _open_invoice(tenant, customer, *, number, due, total="200"):
+    return SalesInvoice.objects.create(
+        company=tenant.company,
+        customer=customer,
+        number=number,
+        status=SalesInvoice.Status.COMPLETED,
+        invoice_date=due,
+        due_date=due,
+        grand_total=Decimal(total),
+        taxable_total=Decimal(total),
+    )
+
+
+def test_predictive_screen_jumps_a_confidently_late_customer_to_an_earlier_rung(tenant_a):
+    """Wiring: a customer whose paid-invoice history is confidently ~10 days
+    late is walked forward on the *existing* fixed-day ladder (3/7/14) so a
+    3-day-overdue invoice reaches the day-7 rung today, instead of waiting
+    for the calendar to actually reach day 7."""
+    from tests.conftest import make_customer
+
+    customer = make_customer(tenant_a.company, name="Reliably Late Co", phone="9000000001")
+    _paid_invoice(tenant_a, customer, number="RL-1", due=date(2026, 1, 1), paid_on=date(2026, 1, 11))
+    _paid_invoice(tenant_a, customer, number="RL-2", due=date(2026, 2, 1), paid_on=date(2026, 2, 12))
+    _paid_invoice(tenant_a, customer, number="RL-3", due=date(2026, 3, 1), paid_on=date(2026, 3, 10))
+    from payments.predictive_dunning import median_days_late
+
+    assert median_days_late(tenant_a.company, customer) == 10
+
+    as_of = date(2026, 8, 31)
+    invoice = _open_invoice(tenant_a, customer, number="RL-OPEN", due=as_of - timedelta(days=3))
+    _enable_dunning(tenant_a.company)
+    _enable_predictive(tenant_a.company)
+    midday = datetime(2026, 8, 31, 12, 0, tzinfo=IST)
+    result = run_dunning_for_company(invoice.company, now=midday)
+    assert result["sent"] == 1
+    reminder = DunningReminder.objects.get(invoice=invoice, status="SENT")
+    # Fixed-day-only would have picked bucket 3 (3 <= 3 days overdue < 7).
+    # The predictive screen (confident, median 10 >= PREDICTIVE_ESCALATION_MIN_LATE_DAYS)
+    # moves it straight to the day-7 rung instead.
+    assert reminder.days_overdue == 7
+
+
+def test_predictive_screen_leaves_unconfident_customer_on_fixed_schedule(tenant_a):
+    """Fewer than CONFIDENT_MIN_INVOICES paid invoices -> median_days_late is
+    None -> the fixed-day ladder is used exactly as before."""
+    from tests.conftest import make_customer
+
+    customer = make_customer(tenant_a.company, name="Too New Co", phone="9000000002")
+    _paid_invoice(tenant_a, customer, number="TN-1", due=date(2026, 1, 1), paid_on=date(2026, 1, 11))
+    _paid_invoice(tenant_a, customer, number="TN-2", due=date(2026, 2, 1), paid_on=date(2026, 2, 12))
+    from payments.predictive_dunning import median_days_late
+
+    assert median_days_late(tenant_a.company, customer) is None
+
+    as_of = date(2026, 8, 31)
+    invoice = _open_invoice(tenant_a, customer, number="TN-OPEN", due=as_of - timedelta(days=3))
+    _enable_dunning(tenant_a.company)
+    _enable_predictive(tenant_a.company)
+    midday = datetime(2026, 8, 31, 12, 0, tzinfo=IST)
+    result = run_dunning_for_company(invoice.company, now=midday)
+    assert result["sent"] == 1
+    reminder = DunningReminder.objects.get(invoice=invoice, status="SENT")
+    assert reminder.days_overdue == 3
+
+
+def test_predictive_screen_off_without_the_feature_flag(tenant_a):
+    """Even a confidently-late customer is left on the fixed schedule unless
+    ENABLE_PREDICTIVE_DUNNING is granted to the company (opt-in rollout, same
+    as the rest of the predictive-dunning screen)."""
+    from tests.conftest import make_customer
+
+    customer = make_customer(tenant_a.company, name="Not Rolled Out Co", phone="9000000003")
+    _paid_invoice(tenant_a, customer, number="NR-1", due=date(2026, 1, 1), paid_on=date(2026, 1, 11))
+    _paid_invoice(tenant_a, customer, number="NR-2", due=date(2026, 2, 1), paid_on=date(2026, 2, 12))
+    _paid_invoice(tenant_a, customer, number="NR-3", due=date(2026, 3, 1), paid_on=date(2026, 3, 10))
+    as_of = date(2026, 8, 31)
+    invoice = _open_invoice(tenant_a, customer, number="NR-OPEN", due=as_of - timedelta(days=3))
+    _enable_dunning(tenant_a.company)
+    # ENABLE_PREDICTIVE_DUNNING intentionally left off.
+    midday = datetime(2026, 8, 31, 12, 0, tzinfo=IST)
+    result = run_dunning_for_company(invoice.company, now=midday)
+    reminder = DunningReminder.objects.get(invoice=invoice, status="SENT")
+    assert reminder.days_overdue == 3
+
+
+def test_predictive_screen_still_respects_quiet_hours(tenant_a):
+    """A confidently-late customer jumping rungs must still be skipped during
+    the company's configured quiet hours — the screen composes with the
+    existing guard, it does not bypass it."""
+    from tests.conftest import make_customer
+
+    customer = make_customer(tenant_a.company, name="Quiet Hours Co", phone="9000000004")
+    _paid_invoice(tenant_a, customer, number="QH-1", due=date(2026, 1, 1), paid_on=date(2026, 1, 11))
+    _paid_invoice(tenant_a, customer, number="QH-2", due=date(2026, 2, 1), paid_on=date(2026, 2, 12))
+    _paid_invoice(tenant_a, customer, number="QH-3", due=date(2026, 3, 1), paid_on=date(2026, 3, 10))
+    as_of = date(2026, 8, 31)
+    invoice = _open_invoice(tenant_a, customer, number="QH-OPEN", due=as_of - timedelta(days=3))
+    _enable_dunning(tenant_a.company, quiet_start=6, quiet_end=18)
+    _enable_predictive(tenant_a.company)
+    midday = datetime(2026, 8, 31, 12, 0, tzinfo=IST)
+    result = run_dunning_for_company(invoice.company, now=midday)
+    assert result["sent"] == 0
+    assert result["reason"] == "quiet_hours"
+    assert not DunningReminder.objects.filter(invoice=invoice, status="SENT").exists()
+
+
+def test_predictive_screen_still_respects_opt_out(tenant_a):
+    """A confidently-late customer who has opted out of dunning is still
+    skipped entirely — the predictive rung selection never overrides opt-in."""
+    from tests.conftest import make_customer
+
+    customer = make_customer(
+        tenant_a.company, name="Opted Out Co", phone="9000000005", dunning_opt_out=True,
+    )
+    _paid_invoice(tenant_a, customer, number="OO-1", due=date(2026, 1, 1), paid_on=date(2026, 1, 11))
+    _paid_invoice(tenant_a, customer, number="OO-2", due=date(2026, 2, 1), paid_on=date(2026, 2, 12))
+    _paid_invoice(tenant_a, customer, number="OO-3", due=date(2026, 3, 1), paid_on=date(2026, 3, 10))
+    as_of = date(2026, 8, 31)
+    invoice = _open_invoice(tenant_a, customer, number="OO-OPEN", due=as_of - timedelta(days=3))
+    _enable_dunning(tenant_a.company)
+    _enable_predictive(tenant_a.company)
+    midday = datetime(2026, 8, 31, 12, 0, tzinfo=IST)
+    result = run_dunning_for_company(invoice.company, now=midday)
+    assert result["sent"] == 0
+    assert not DunningReminder.objects.filter(invoice=invoice).exists()

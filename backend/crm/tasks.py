@@ -10,7 +10,7 @@ STALE_AFTER = timedelta(minutes=15)
 
 
 @shared_task
-def process_lead_ingest(job_id: int) -> None:
+def process_lead_ingest(job_id: int, company_id: int | None = None) -> None:
     from django.core.exceptions import ValidationError
 
     from core.exceptions import BusinessRuleError
@@ -64,3 +64,51 @@ def process_lead_ingest(job_id: int) -> None:
         error="",
         updated_at=timezone.now(),
     )
+
+
+@shared_task
+def remind_due_lead_activities() -> dict:
+    """One in-app reminder per due lead activity. Quiet hours leave reminded_at empty."""
+    from accounts.models import CompanyUser
+    from core.models import Notification
+    from core.services.notifications import NotificationService
+    from crm.models import LeadActivity
+    from payments.dunning import in_quiet_hours
+
+    now = timezone.now()
+    sent = 0
+    quiet = 0
+    due = (
+        LeadActivity.objects.filter(due_at__isnull=False, reminded_at__isnull=True, due_at__lte=now)
+        .select_related("lead", "lead__assigned_to__user", "company")
+        .order_by("id")
+    )
+    for activity in due.iterator():
+        if in_quiet_hours(activity.company, now):
+            quiet += 1
+            continue
+        assignee = activity.lead.assigned_to
+        recipient = ""
+        if assignee is not None and getattr(assignee, "user", None) is not None:
+            recipient = (assignee.user.email or "").strip()
+        if not recipient:
+            owner = (
+                CompanyUser.objects.filter(
+                    company=activity.company, role=CompanyUser.Role.OWNER, is_active=True,
+                )
+                .select_related("user")
+                .order_by("id")
+                .first()
+            )
+            recipient = (owner.user.email if owner else "") or "in-app"
+        NotificationService.send(
+            company=activity.company,
+            channel=Notification.Channel.IN_APP,
+            recipient=recipient,
+            subject=f"Lead follow-up due — {activity.lead.name}",
+            body=activity.body,
+        )
+        activity.reminded_at = now
+        activity.save(update_fields=["reminded_at", "updated_at"])
+        sent += 1
+    return {"sent": sent, "quiet": quiet}

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import secrets
 from datetime import timedelta
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.mail import send_mail
@@ -22,9 +23,9 @@ from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from core.exceptions import BusinessRuleError
+from core.idempotency import wrap_idempotent
 from core.rls import rls_bypass, set_rls_company
 from core.services.feature_flags import flag_enabled
-from core.throttles import CompanyRateThrottle
 from ledgers.services import LedgerService
 from masters.models import Customer
 
@@ -43,8 +44,8 @@ OPEN_LINK_STATUSES = (
 
 class CustomerPortalReadThrottle(AnonRateThrottle):
     # F1-007b: read from settings' DEFAULT_THROTTLE_RATES["customer_portal_read"]
-    # via `scope`, matching CompanyRateThrottle's pattern below — a hardcoded
-    # `rate` here would make the settings entry dead configuration.
+    # via `scope`, matching core.throttles.CompanyRateThrottle's pattern — a
+    # hardcoded `rate` here would make the settings entry dead configuration.
     scope = "customer_portal_read"
 
 
@@ -77,10 +78,25 @@ def _touch(row):
     row.save(update_fields=["last_used_at", "updated_at"])
 
 
+class CustomerPortalRequestAnonThrottle(AnonRateThrottle):
+    scope = "customer_portal_request"
+
+
+class CustomerPortalComplaintThrottle(AnonRateThrottle):
+    scope = "customer_portal_complaint"
+
+
 class CustomerPortalRequestView(APIView):
     permission_classes = [AllowAny]
-    throttle_classes = [CompanyRateThrottle]
-    throttle_scope = "customer_portal_request"
+    # This endpoint is AllowAny (no company context), so CompanyRateThrottle
+    # would always fall back to the same IP-keyed bucket as the anon throttle
+    # below. Bare CompanyRateThrottle also reads `view.throttle_scope`, which
+    # the globally-applied ScopedRateThrottle reads too — setting it here would
+    # have three throttles incrementing the same cache key per request and
+    # roughly triple-charge the configured 5/min budget. Only the anon
+    # throttle (its own hardcoded `scope`, unrelated to `throttle_scope`) is
+    # needed for a public endpoint.
+    throttle_classes = [CustomerPortalRequestAnonThrottle]
 
     def post(self, request):
         email = (request.data.get("email") or "").strip().lower()
@@ -185,7 +201,7 @@ class CustomerPortalView(APIView):
         from sales.models import SalesInvoice
         from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
-        invoices = (
+        invoices = list(
             SalesInvoice.objects.filter(
                 company=row.company,
                 customer=row.customer,
@@ -193,18 +209,26 @@ class CustomerPortalView(APIView):
             )
             .order_by("-invoice_date", "-id")[:50]
         )
+        # This endpoint is unauthenticated (magic-link-gated) — the
+        # per-invoice outstanding calc alone was ~4 queries each, so an
+        # unauth caller with 50 open invoices could trigger 150-200+ queries
+        # per page load. Bulk both lookups instead.
+        invoice_ids = [inv.id for inv in invoices]
+        outstanding_by_id = LedgerService.bulk_sales_invoice_outstanding(row.company, invoice_ids)
+        link_by_invoice_id = {}
+        for link in (
+            PaymentLink.objects.filter(
+                company=row.company,
+                sales_invoice_id__in=invoice_ids,
+                status__in=OPEN_LINK_STATUSES,
+            )
+            .order_by("sales_invoice_id", "-id")
+        ):
+            link_by_invoice_id.setdefault(link.sales_invoice_id, link)
         payload = []
         for inv in invoices:
-            outstanding = LedgerService.sales_invoice_outstanding(inv)
-            link = (
-                PaymentLink.objects.filter(
-                    company=row.company,
-                    sales_invoice=inv,
-                    status__in=OPEN_LINK_STATUSES,
-                )
-                .order_by("-id")
-                .first()
-            )
+            outstanding = outstanding_by_id.get(inv.id, Decimal("0"))
+            link = link_by_invoice_id.get(inv.id)
             payload.append({
                 "id": inv.id,
                 "number": inv.number,
@@ -217,6 +241,7 @@ class CustomerPortalView(APIView):
         return Response({
             "customer_name": row.customer.name,
             "expires_at": row.expires_at,
+            "complaints_enabled": flag_enabled(row.company, "ENABLE_COMPLAINTS"),
             "invoices": payload,
         })
 
@@ -285,3 +310,81 @@ class CustomerPortalPayView(APIView):
             except BusinessRuleError as exc:
                 return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"pay_path": f"/pay/{link.token}"})
+
+
+_COMPLAINT_DESCRIPTION_MAX = 2000
+
+
+class CustomerPortalComplaintView(APIView):
+    """The magic-link customer files one complaint. No company role."""
+
+    permission_classes = [AllowAny]
+    throttle_classes = [CustomerPortalComplaintThrottle]
+
+    def get(self, request, token):
+        row = _load_token(token)
+        if row is None or not flag_enabled(row.company, "ENABLE_COMPLAINTS"):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        _touch(row)
+        from complaints.models import Complaint
+
+        rows = Complaint.objects.filter(company=row.company, customer=row.customer).order_by("-id")
+        return Response({
+            "complaints": [
+                {
+                    "id": item.id,
+                    "number": item.number,
+                    "status": item.status,
+                    "category": item.category,
+                    "description": item.description,
+                }
+                for item in rows
+            ],
+        })
+
+    def post(self, request, token):
+        row = _load_token(token)
+        if row is None or not flag_enabled(row.company, "ENABLE_COMPLAINTS"):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        _touch(row)
+
+        def _build():
+            from complaints.models import Complaint
+            from complaints.services import create_complaint
+
+            description = str(request.data.get("description") or "").strip()
+            if not description:
+                return Response({"detail": "Description is required."}, status=status.HTTP_400_BAD_REQUEST)
+            if len(description) > _COMPLAINT_DESCRIPTION_MAX:
+                return Response(
+                    {"detail": "Description must be at most 2000 characters."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            category = str(request.data.get("category") or "").strip()
+            allowed = {choice for choice, _label in Complaint.Category.choices}
+            if category not in allowed:
+                return Response({"detail": "Choose a complaint category."}, status=status.HTTP_400_BAD_REQUEST)
+            complaint = create_complaint(
+                row.company,
+                None,
+                customer=row.customer,
+                category=category,
+                description=description,
+            )
+            return Response(
+                {
+                    "id": complaint.id,
+                    "number": complaint.number,
+                    "status": complaint.status,
+                    "category": complaint.category,
+                    "customer": complaint.customer_id,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        return wrap_idempotent(
+            request=request,
+            company=row.company,
+            scope="portal_complaint_create",
+            build=_build,
+        )

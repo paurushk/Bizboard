@@ -52,7 +52,12 @@ def test_pj_trader_sales_staff_boundary(boundary):
     )
     assert inv.status_code == 201, inv.data
     iid = inv.data["id"]
-    assert sc.post(f"/api/v1/sales/invoices/{iid}/complete/").status_code == 200
+    comp = sc.post(f"/api/v1/sales/invoices/{iid}/complete/")
+    assert comp.status_code == 200, comp.data
+    from sales.models import SalesInvoice
+    inv_obj = SalesInvoice.objects.get(pk=iid)
+    assert inv_obj.status == SalesInvoice.Status.COMPLETED
+    assert inv_obj.grand_total == Decimal("236.00")
     rc = sc.post(
         "/api/v1/payments/receipts/",
         {"customer": cust.id, "amount": "100.00", "method": "CASH"}, format="json",
@@ -571,8 +576,14 @@ def test_pj_wholesale_godown_custodian():
     assert InventoryService.available_quantity(ns.company, p0) == Decimal("60.000")
 
     # --- in role: read stock balances / warehouses ---
-    assert gc.get("/api/v1/inventory/balances/").status_code == 200
-    assert gc.get("/api/v1/inventory/warehouses/").status_code == 200
+    bal_res = gc.get("/api/v1/inventory/balances/")
+    assert bal_res.status_code == 200, bal_res.data
+    assert len(bal_res.data.get("results", bal_res.data)) > 0
+    wh_res = gc.get("/api/v1/inventory/warehouses/")
+    assert wh_res.status_code == 200, wh_res.data
+    wh_list = wh_res.data.get("results", wh_res.data)
+    assert len(wh_list) >= 3
+    assert {w["id"] for w in wh_list}.issuperset({wh_main.id, wh_n.id, wh_s.id})
 
     # --- out of role: financial reports, journals, export are denied ---
     assert gc.get("/api/v1/reports/profit-and-loss/").status_code in (403, 404), \
@@ -584,4 +595,41 @@ def test_pj_wholesale_godown_custodian():
     ).status_code in (403, 404), "custodian must not post journals"
     assert gc.get("/api/v1/reports/trial-balance/export/").status_code in (403, 404, 405)
 
+    assert_all_invariants(ns.company)
+
+
+def test_j_svc_p1_recurring_owner_day():
+    """J-SVC-P1-RECURRING: the owner runs a retainer once.
+
+    A second run in the same period returns the same draft. It does not
+    create a second invoice. WF-11 is the chain; this is the owner day.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from sales.models import RecurringInvoiceRun, RecurringInvoiceSchedule, SalesInvoice
+
+    ns = seed_archetype("service")
+    product = ns.products[0]
+    customer = ns.customers[0]
+    sched = RecurringInvoiceSchedule.objects.create(
+        company=ns.company,
+        customer=customer,
+        cadence=RecurringInvoiceSchedule.Cadence.MONTHLY,
+        next_run_at=timezone.now() - timedelta(minutes=5),
+        is_active=True,
+        line_template={"items": [{"product": product.id, "quantity": "1", "unit_price": "1000"}]},
+        notes="Monthly retainer",
+        created_by=ns.owner,
+        updated_by=ns.owner,
+    )
+    first = ns.owner_client.post(f"/api/v1/sales/recurring-schedules/{sched.id}/run-now/")
+    assert first.status_code == 200, first.data
+    assert SalesInvoice.objects.filter(company=ns.company).count() == 1
+    second = ns.owner_client.post(f"/api/v1/sales/recurring-schedules/{sched.id}/run-now/")
+    assert second.status_code == 200, second.data
+    assert second.data["invoice_id"] == first.data["invoice_id"]
+    assert SalesInvoice.objects.filter(company=ns.company).count() == 1
+    assert RecurringInvoiceRun.objects.filter(schedule=sched).count() == 1
     assert_all_invariants(ns.company)

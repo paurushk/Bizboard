@@ -75,7 +75,7 @@ class ReturnService:
 
     @staticmethod
     @transaction.atomic
-    def complete_return(sales_return: SalesReturn, user):
+    def complete_return(sales_return: SalesReturn, user, *, gst_guard_override_reason=None):
         from .cogs_service import CogsService
 
         sales_return = SalesReturn.objects.select_for_update().get(pk=sales_return.pk)
@@ -286,13 +286,28 @@ class ReturnService:
                 note.tcs_in_grand_total = True
                 note.grand_total = (Decimal(str(note.grand_total or 0)) + tcs_share).quantize(Decimal("0.01"))
                 note.save(update_fields=["grand_total", "tcs_amount", "tcs_in_grand_total"])
+            if fully_returned:
+                # A full return must relieve the same rupees the invoice charged.
+                # Fold TCS in first. Recomputing tax can still leave the note
+                # up to ₹1 off the rounded invoice; that remainder goes into round-off.
+                target = Decimal(str(invoice.grand_total or 0))
+                current = Decimal(str(note.grand_total or 0))
+                gap = (target - current).quantize(Decimal("0.01"))
+                if gap != 0 and abs(gap) <= Decimal("1.00"):
+                    note.round_off = (Decimal(str(note.round_off or 0)) + gap).quantize(Decimal("0.01"))
+                    note.grand_total = target
+                    note.save(update_fields=["round_off", "grand_total", "updated_at"])
             # CR-124: a return against a paid invoice must not silently override
             # payment allocations. confirm_paid_invoice=True routes through
             # complete_credit_note's single auto-unallocate pass (receipt money
             # up to the CN amount → unallocated customer advance), instead of
             # duplicating that logic here or hard-failing the whole return.
             SalesNotesService.complete_credit_note(
-                note, user, confirm_paid_invoice=True, confirm_price_override=True
+                note,
+                user,
+                confirm_paid_invoice=True,
+                confirm_price_override=True,
+                gst_guard_override_reason=gst_guard_override_reason,
             )
 
         if sales_return.company.accounting_enabled:

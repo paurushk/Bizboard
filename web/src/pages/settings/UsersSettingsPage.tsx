@@ -19,7 +19,9 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
+import { issueReferralCode } from '@/api/growth';
 import { inviteCompanyUser, listCompanyUsers, updateCompanyUser } from '@/api/resources';
+import { isReferralsEnabled } from '@/config/features';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
@@ -42,6 +44,7 @@ const emptyInviteForm = {
   canCreateSales: true,
   canCreatePurchases: false,
   canCreatePayments: true,
+  canManagePolicies: false,
 };
 
 type InviteForm = typeof emptyInviteForm;
@@ -60,6 +63,7 @@ type RoleCaps = Pick<
   | 'canManageInventory'
   | 'canImport'
   | 'canCancelDocuments'
+  | 'canManagePolicies'
 >;
 
 function capsForRole(role: string): RoleCaps {
@@ -72,6 +76,7 @@ function capsForRole(role: string): RoleCaps {
     canManageInventory: false,
     canImport: false,
     canCancelDocuments: false,
+    canManagePolicies: false,
   };
   if (role === 'ACCOUNTANT') {
     return {
@@ -99,6 +104,12 @@ function capsForRole(role: string): RoleCaps {
       canExport: true,
     };
   }
+  if (role === 'POLICY_DESK') {
+    return {
+      ...off,
+      canManagePolicies: true,
+    };
+  }
   if (role === 'MANAGER') {
     return {
       canCreateSales: true,
@@ -109,6 +120,7 @@ function capsForRole(role: string): RoleCaps {
       canManageInventory: true,
       canImport: true,
       canCancelDocuments: true,
+      canManagePolicies: false,
     };
   }
   return { ...off, canCreateSales: true, canCreatePayments: true };
@@ -137,6 +149,11 @@ export function UsersSettingsPage() {
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [createdWithPassword, setCreatedWithPassword] = useState(false);
+  const [issuedCodes, setIssuedCodes] = useState<Record<number, string>>({});
+  const [codeFor, setCodeFor] = useState<number | null>(null);
+  const [rewardType, setRewardType] = useState('FLAT');
+  const [rewardValue, setRewardValue] = useState('0');
+  const [issuingCode, setIssuingCode] = useState(false);
 
   const inviteMutation = useMutation({
     mutationFn: () => inviteCompanyUser(form),
@@ -340,6 +357,22 @@ export function UsersSettingsPage() {
                     {u.isActive ? t('status.ACTIVE') : t('status.INACTIVE')}
                   </TableCell>
                   <TableCell align="right">
+                    {isReferralsEnabled() ? (
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setCodeFor(u.id);
+                          setRewardType('FLAT');
+                          setRewardValue('0');
+                          setError(null);
+                        }}
+                      >
+                        {t('growth.issueCode')}
+                      </Button>
+                    ) : null}
+                    {issuedCodes[u.id] ? (
+                      <Typography variant="caption" display="block">{t('growth.issuedFor')}: {issuedCodes[u.id]}</Typography>
+                    ) : null}
                     {isOwner ? null : (
                       <Button
                         size="small"
@@ -358,6 +391,43 @@ export function UsersSettingsPage() {
           </Table>
         </Paper>
       ) : null}
+
+      <Dialog open={codeFor != null} onClose={() => setCodeFor(null)} fullWidth maxWidth="xs">
+        <DialogTitle>{t('growth.issueCode')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField select label={t('growth.rewardType')} value={rewardType} onChange={(e) => setRewardType(e.target.value)}>
+              <MenuItem value="FLAT">FLAT</MenuItem>
+              <MenuItem value="PERCENT">PERCENT</MenuItem>
+            </TextField>
+            <TextField label={t('growth.rewardValue')} value={rewardValue} onChange={(e) => setRewardValue(e.target.value)} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCodeFor(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={issuingCode || codeFor == null}
+            onClick={() => {
+              if (codeFor == null) return;
+              const userId = codeFor;
+              setIssuingCode(true);
+              void issueReferralCode({
+                referrer_user: userId,
+                reward_type: rewardType,
+                reward_value: rewardValue || '0',
+              }).then((row) => {
+                setIssuedCodes((current) => ({ ...current, [userId]: row.code }));
+                setCodeFor(null);
+                setError(null);
+              }).catch((err) => setError(getErrorMessage(err)))
+                .finally(() => setIssuingCode(false));
+            }}
+          >
+            {t('growth.issueCode')}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{t('common.invite')}</DialogTitle>
@@ -396,6 +466,7 @@ export function UsersSettingsPage() {
               <MenuItem value="MANAGER">Manager</MenuItem>
               <MenuItem value="AUDITOR">Auditor</MenuItem>
               <MenuItem value="VIEWER">Viewer</MenuItem>
+              <MenuItem value="POLICY_DESK">Policy desk</MenuItem>
             </TextField>
             <FormControlLabel
               control={

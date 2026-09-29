@@ -2,7 +2,9 @@
 
 ## Wave 22 (2026-08-06)
 
-No GRN vs Zoho/Tally (735); SaaS seat/entitlement non-enforcing vs Zoho Billing (725–727); multi-GSTIN 3B bug vs Tally multi-firm (697).
+Goods receipts exist (`purchases.GoodsReceipt` / `GoodsReceiptService`); the old “no GRN” line was wrong. Seat limits are enforced (`accounts/views.py` `_enforce_plan_seat_limit`; BB-000725–727 are not an open gap). The multi-GSTIN GSTR-3B stamp bug (BB-000697) is fixed in `reporting/gst_returns.py`; branch GSTIN CRUD and the settings screen exist.
+
+Sections below this one are dated wave notes. Where they say payroll, manufacturing, CRM, or branch GSTIN are absent, or that invites hard-fail and CompanyGstin has no UI, the 2026-09-28 correction above and `docs/roadmap/PAYROLL_AND_MANUFACTURING_CAPABILITY_2026-09-28.md` supersede them.
 
 ## Sprint 6 honesty (2026-08-05)
 

@@ -3,6 +3,7 @@
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
+from django.utils import timezone
 
 from accounts.otp_utils import canonicalize_user_phone, phone_lookup_values
 from core.exceptions import BusinessRuleError
@@ -65,16 +66,25 @@ def convert_lead(
             "This lead is marked LOST. Change its status before converting it."
         )
     if existing is not None:
+        if existing.stage == Opportunity.Stage.LOST:
+            raise BusinessRuleError(
+                "This opportunity is LOST. Change its stage before converting the lead as won."
+            )
         updates = []
         if won and existing.stage != Opportunity.Stage.WON:
             existing.stage = Opportunity.Stage.WON
-            updates.append("stage")
-        if amount is not None:
+            existing.closed_at = timezone.now()
+            updates.extend(["stage", "closed_at"])
+        if amount is not None and not existing.lines.exists():
             existing.amount = Decimal(str(amount))
             updates.append("amount")
         if updates:
             existing.updated_by = user
             existing.save(update_fields=updates + ["updated_by", "updated_at"])
+            if won and "stage" in updates:
+                from .referrals import evaluate_referral_reward
+
+                evaluate_referral_reward(existing)
         customer = lead.customer
         if customer is None:
             customer = existing.customer
@@ -141,7 +151,12 @@ def convert_lead(
         title=f"{lead.name} opportunity",
         amount=Decimal(str(amount or 0)),
         stage=Opportunity.Stage.WON if won else Opportunity.Stage.OPEN,
+        closed_at=timezone.now() if won else None,
         created_by=user,
         updated_by=user,
     )
+    if won:
+        from .referrals import evaluate_referral_reward
+
+        evaluate_referral_reward(opportunity)
     return lead, opportunity, customer

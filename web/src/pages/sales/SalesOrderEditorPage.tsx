@@ -32,6 +32,7 @@ import {
   updateSalesOrder,
 } from '@/api/resources';
 import { checkSalesOrderGate, confirmSalesOrder, type GateCheck } from '@/api/osPlan';
+import { useAuth } from '@/auth/AuthContext';
 import { listEmployeesPage } from '@/api/payroll';
 import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import {
@@ -74,6 +75,9 @@ export function SalesOrderEditorPage() {
   const skipLeaveGuard = useRef(false);
   const prefillDone = useRef(false);
   const [gate, setGate] = useState<GateCheck | null>(null);
+  const [overrideReason, setOverrideReason] = useState('');
+  const { user } = useAuth();
+  const isOwner = user?.role === 'OWNER';
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<number | ''>('');
   const [invoiceType, setInvoiceType] = useState<InvoiceType>('NON_GST');
@@ -174,6 +178,8 @@ export function SalesOrderEditorPage() {
     setSalesman((o as { salesman?: number }).salesman ?? '');
     setSalesChannel((o as { salesChannel?: string }).salesChannel ?? '');
     setDeliveryAddress((o as { deliveryAddress?: string }).deliveryAddress ?? '');
+    setGate(null);
+    setOverrideReason('');
     setLines(
       (o.items ?? []).map((item, idx) => {
         const qty = toNumber(item.quantity);
@@ -309,9 +315,10 @@ export function SalesOrderEditorPage() {
   });
 
   const confirmMutation = useMutation({
-    mutationFn: () => confirmSalesOrder(editId as number),
+    mutationFn: () => confirmSalesOrder(editId as number, overrideReason.trim() || undefined),
     onSuccess: () => {
       setGate(null);
+      setOverrideReason('');
       setEditingStatus('CONFIRMED');
       setMessage(t('osPlan.confirmOrder'));
       void qc.invalidateQueries({ queryKey: ['sales-orders'] });
@@ -428,12 +435,32 @@ export function SalesOrderEditorPage() {
       {/* F2-038: same coarse "any line or party selected" heuristic NewInvoicePage/
           NewPurchasePage already use — deliberately fires on opening an existing
           order too, not just fresh edits (matches that established behavior). */}
-      <Dialog open={gate !== null} onClose={() => setGate(null)} fullWidth maxWidth="sm">
+      <Dialog
+        open={gate !== null}
+        onClose={() => {
+          setGate(null);
+          setOverrideReason('');
+        }}
+        fullWidth
+        maxWidth="sm"
+      >
         <DialogTitle>{t('osPlan.confirmOrderTitle')}</DialogTitle>
         <DialogContent>
           <Stack spacing={1}>
             <Typography variant="body2">{t('osPlan.confirmOrderBody')}</Typography>
             {gate?.creditBlocked ? <Typography color="error">{gate.creditMessage || t('osPlan.creditBlocked')}</Typography> : null}
+            {gate?.creditBlocked && isOwner ? (
+              <TextField
+                label={t('osPlan.creditOverrideReason')}
+                helperText={t('osPlan.creditOverrideHint')}
+                value={overrideReason}
+                onChange={(event) => setOverrideReason(event.target.value.slice(0, 500))}
+                inputProps={{ maxLength: 500 }}
+                multiline
+                minRows={2}
+                fullWidth
+              />
+            ) : null}
             {(gate?.marginWarnings ?? []).map((warning) => (
               <Typography key={warning.productId} variant="body2">
                 {t('osPlan.marginWarning', { name: warning.productName, margin: warning.margin })}
@@ -442,8 +469,23 @@ export function SalesOrderEditorPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setGate(null)}>{t('common.cancel')}</Button>
-          <Button variant="contained" disabled={!gate || gate.creditBlocked || confirmMutation.isPending} onClick={() => confirmMutation.mutate()}>
+          <Button
+            onClick={() => {
+              setGate(null);
+              setOverrideReason('');
+            }}
+          >
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant="contained"
+            disabled={
+              !gate
+              || confirmMutation.isPending
+              || (gate.creditBlocked && (!isOwner || !overrideReason.trim()))
+            }
+            onClick={() => confirmMutation.mutate()}
+          >
             {t('osPlan.continueConfirm')}
           </Button>
         </DialogActions>

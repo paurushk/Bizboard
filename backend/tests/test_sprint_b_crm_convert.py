@@ -249,6 +249,15 @@ def test_round_robin_uses_only_active_sales_staff(tenant_a):
     assert created.status == Lead.Status.NEW
 
 
+def test_next_assignee_locks_the_sales_staff_rows():
+    import inspect
+
+    from crm import pipeline
+
+    assert "select_for_update" in inspect.getsource(pipeline._next_assignee_locked)
+    assert "transaction.atomic" in inspect.getsource(pipeline.next_assignee)
+
+
 def test_lead_ingest_job_finishes_csv_and_whatsapp_after_accept(tenant_a):
     from crm.models import LeadIngestJob
     from crm.tasks import process_lead_ingest

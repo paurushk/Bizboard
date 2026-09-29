@@ -252,6 +252,35 @@ def test_critical_buyer_gstin_becomes_a_named_attention_row(tenant_a):
 
 
 @pytest.mark.django_db
+def test_attention_gst_cap_filters_critical_before_capping(tenant_a, monkeypatch):
+    """The raw alert list used to be capped at 25 BEFORE filtering to
+    critical severity, so a company with 25+ alerts of any severity could
+    silently drop a real critical one anywhere after that cutoff from the
+    Attention feed, even though the separate summary count still showed the
+    true total."""
+    from insights.attention import _itc_and_gst_rows
+
+    _enable(tenant_a.company)
+    noisy = [
+        {
+            "code": "UQC_UNMAPPED", "severity": "warning", "message": f"noise {i}",
+            "document_type": "sales_invoice", "document_id": i,
+        }
+        for i in range(1, 31)
+    ]
+    critical = {
+        "code": "GSTIN_FORMAT_INVALID", "severity": "critical", "message": "buyer gstin bad",
+        "document_type": "sales_invoice", "document_id": 999,
+    }
+    monkeypatch.setattr(
+        "reporting.gst_health.build_gst_health",
+        lambda company: {"alerts": noisy + [critical], "summary": {"critical": 1}},
+    )
+    rows = _itc_and_gst_rows(tenant_a.company, timezone.localdate())
+    assert any(row["code"] == "GST_GUARDRAIL" and row["entity_ref"]["id"] == 999 for row in rows)
+
+
+@pytest.mark.django_db
 def test_gst_guard_log_records_format_check_and_skipped_active_status(tenant_a, caplog):
     import logging
 

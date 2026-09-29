@@ -1,0 +1,29 @@
+id: QOS-0084
+category: BUSINESS_GAP
+title: Books close numbers are split across report screens
+persona:
+- P6
+journey: Period close
+problem: Trial balance, profit and loss, customer outstanding, and the period lock are not on one screen.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  detail: L2. The API walk already ties. The click path does not.
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: The equation exists. The CA still hunts for it.
+effort: S
+recommendation: One section using the existing reports and the existing owner-only close action.
+test_required: The section shows debit, credit, and whether they match.
+guard_ref:
+  test: web/src/pages/phase/BooksCloseSection.test.tsx::renders debit, credit, and whether they match
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

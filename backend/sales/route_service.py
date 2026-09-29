@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django.db import transaction
 from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
+from core.services.feature_flags import flag_enabled
 
 from .expected_profit import expected_profit_for_order
 from .models import DeliveryRoute, DeliveryRouteStop, SalesOrder
+from .route_optimization import SequencedStop, StopInput, get_route_optimizer
 
 
 class RouteService:
@@ -117,7 +119,19 @@ class RouteService:
 
     @staticmethod
     @transaction.atomic
-    def set_stop_status(route: DeliveryRoute, stop: DeliveryRouteStop, status: str, user):
+    def set_stop_status(
+        route: DeliveryRoute,
+        stop: DeliveryRouteStop,
+        status: str,
+        user,
+        *,
+        completion_source: str = "",
+        otp_code: str = "",
+        pod_note: str = "",
+        received_by_name: str = "",
+        pod_photo=None,
+        customer_receipt=None,
+    ):
         route = DeliveryRoute.objects.select_for_update().get(pk=route.pk)
         stop = DeliveryRouteStop.objects.select_for_update().get(pk=stop.pk, route=route)
         status = (status or "").upper()
@@ -129,11 +143,38 @@ class RouteService:
             raise BusinessRuleError("Cannot revert an in-transit stop to PENDING.")
         if route.status in (DeliveryRoute.Status.COMPLETED, DeliveryRoute.Status.CANCELLED):
             raise BusinessRuleError("Cannot update stops on a completed or cancelled route.")
+        source = (completion_source or "").upper()
+        if source and source not in ("PHONE", "OFFICE"):
+            raise BusinessRuleError("completion_source must be PHONE or OFFICE.")
+        # FAILED leaves stock reserved. A return is a separate document.
         stop.status = status
         stop.updated_by = user
+        if source:
+            stop.completion_source = source
+        if otp_code:
+            stop.otp_code = str(otp_code)[:8]
+        if pod_note:
+            stop.pod_note = pod_note
         if status == DeliveryRouteStop.StopStatus.DELIVERED:
+            name = (received_by_name or "").strip()
+            if not name:
+                raise BusinessRuleError("Who received the goods is required when a stop is delivered.")
+            stop.received_by_name = name[:128]
             stop.delivered_at = timezone.now()
+            if pod_photo is not None:
+                if pod_photo.company_id != stop.company_id:
+                    raise BusinessRuleError("Proof photo is not in this company.")
+                stop.pod_photo = pod_photo
+            if customer_receipt is not None:
+                if customer_receipt.company_id != stop.company_id:
+                    raise BusinessRuleError("Receipt is not in this company.")
+                if customer_receipt.customer_id != stop.sales_order.customer_id:
+                    raise BusinessRuleError("Receipt customer does not match this stop.")
+                stop.customer_receipt = customer_receipt
         stop.save()
+        if source == "PHONE" and route.completion_source != "PHONE":
+            route.completion_source = "PHONE"
+            route.save(update_fields=["completion_source", "updated_at"])
         return stop
 
     @staticmethod
@@ -158,12 +199,13 @@ class RouteService:
             raise BusinessRuleError("Only an IN_TRANSIT route can be completed.")
         if actual_logistics_cost is not None:
             try:
-                route.actual_logistics_cost = Decimal(str(actual_logistics_cost)).quantize(Decimal("0.01"))
+                route.actual_logistics_cost = Decimal(str(actual_logistics_cost)).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
             except (InvalidOperation, ValueError) as exc:
                 raise BusinessRuleError("Invalid actual logistics cost.") from exc
         route.status = DeliveryRoute.Status.COMPLETED
         route.updated_by = user
-        from core.services.feature_flags import flag_enabled
 
         if flag_enabled(route.company, "ENABLE_ROUTE_PROFIT"):
             from core.services.flag_observability import log_flag_event
@@ -179,3 +221,75 @@ class RouteService:
             route.stop_count = financials.stop_count
         route.save()
         return route
+
+    @staticmethod
+    def suggest_stop_sequence(route: DeliveryRoute, strategy_name: str | None = None) -> list[SequencedStop]:
+        """Suggest a stop order for `route` using the pluggable
+        RouteOptimizer registry (see `route_optimization.py`).
+
+        Pure read: does not persist anything, so a dispatcher can preview a
+        suggestion (from exactly one strategy at a time -- pass
+        `strategy_name` to pick a fallback, otherwise the default
+        NearestNeighborTwoOptStrategy is used) before applying it with
+        `apply_stop_sequence`.
+
+        Gated behind the existing ENABLE_ROUTE_OPTIMIZATION flag, same as
+        `route_combine.combine_suggestions()` -- returns [] when the flag
+        is off rather than raising, so callers can treat "no suggestion"
+        uniformly.
+
+        PERF: elapsed time is stored per company. The suggest-sequence view
+        stays synchronous (HTTP 200) unless the caller sends defer=1 after a
+        previous run on this company took longer than 1.5s. That path queues
+        suggest_route_sequence_task.
+        """
+        if not flag_enabled(route.company, "ENABLE_ROUTE_OPTIMIZATION"):
+            return []
+        import time
+
+        from django.core.cache import cache
+
+        started = time.perf_counter()
+        stops = list(route.stops.select_related("sales_order__customer").all())
+        stop_inputs = []
+        for stop in stops:
+            customer = stop.sales_order.customer
+            lat = getattr(customer, "latitude", None)
+            lon = getattr(customer, "longitude", None)
+            stop_inputs.append(StopInput(
+                stop_id=stop.id,
+                pincode=(getattr(customer, "pincode", "") or "").strip(),
+                delivery_address=stop.sales_order.delivery_address or "",
+                sales_order_id=stop.sales_order_id,
+                latitude=float(lat) if lat is not None else None,
+                longitude=float(lon) if lon is not None else None,
+            ))
+        optimizer = get_route_optimizer(strategy_name)
+        sequenced = optimizer.sequence(stop_inputs)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        cache.set(f"route-seq-ms:{route.company_id}", elapsed_ms, 60 * 60 * 24)
+        return sequenced
+
+    @staticmethod
+    @transaction.atomic
+    def apply_stop_sequence(route: DeliveryRoute, sequenced_stops: list[SequencedStop], user):
+        """Persist a previously-suggested sequence (from
+        `suggest_stop_sequence`) onto each DeliveryRouteStop.sequence.
+
+        Stops omitted from `sequenced_stops` are left untouched.
+        """
+        route = DeliveryRoute.objects.select_for_update().get(pk=route.pk)
+        if route.status != DeliveryRoute.Status.PLANNED:
+            raise BusinessRuleError("Stop sequence can only be changed while the route is PLANNED.")
+        stops_by_id = {stop.id: stop for stop in route.stops.all()}
+        updated = []
+        for seq_stop in sequenced_stops:
+            stop = stops_by_id.get(seq_stop.stop_id)
+            if stop is None:
+                continue
+            stop.sequence = seq_stop.sequence
+            stop.save(update_fields=["sequence"])
+            updated.append(stop)
+        route.updated_by = user
+        route.save(update_fields=["updated_by", "updated_at"])
+        return updated

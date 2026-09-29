@@ -241,3 +241,83 @@ def test_pj_insights_leakage_detector_sale_below_cost():
     assert leak["action_href"] == "/inventory/products"
 
     assert_all_invariants(company)
+
+
+def test_pj_promise_to_pay_acct_creates_scoped_and_surfaces_on_attention_feed():
+    """Promise-to-pay (payments.promise_to_pay): P-ACCT logs a customer's
+    commitment to pay against an outstanding invoice; it is scoped strictly to
+    this tenant, and once its due date arrives it surfaces on the Attention
+    feed via insights.attention._promise_to_pay_rows."""
+    ns = seed_archetype("trader")
+    company = ns.company
+    acct = ns.acct_client
+    cust = ns.customers[0]
+    product = next(p for p in ns.products if not p.track_batch)
+    today = timezone.localdate()
+    today_str = today.isoformat()
+
+    InventoryService.post_movement(
+        company=company, product=product, movement_type=MovementType.OPENING_STOCK,
+        quantity=Decimal("50.000"), unit_cost=Decimal("60.00"), user=ns.owner,
+    )
+
+    inv_resp = ns.owner_client.post(
+        "/api/v1/sales/invoices/",
+        {
+            "customer": cust.id,
+            "invoice_type": "GST",
+            "invoice_date": today_str,
+            "items": [{"product": product.id, "quantity": "10.000", "unit_price": "100.00", "gst_rate": "18.00"}],
+        },
+        format="json",
+    )
+    assert inv_resp.status_code == 201, inv_resp.data
+    invoice_id = inv_resp.data["id"]
+    comp = ns.owner_client.post(f"/api/v1/sales/invoices/{invoice_id}/complete/")
+    assert comp.status_code == 200, comp.data
+
+    # 1. P-ACCT creates a promise-to-pay against the outstanding invoice, due today.
+    promise_resp = acct.post(
+        "/api/v1/payments/promises/",
+        {"customer": cust.id, "invoice": invoice_id, "promised_date": today_str,
+         "promised_amount": "1180.00",
+         "note": "Customer confirmed payment by end of day"},
+        format="json",
+    )
+    assert promise_resp.status_code == 201, promise_resp.data
+    promise_id = promise_resp.data["id"]
+    assert promise_resp.data["resolved"] is False
+
+    # 2. Scoped strictly to this tenant -- a second company can neither see nor
+    #    list it (standard tenant_a/tenant_b-style cross-tenant probe).
+    other = seed_archetype("wholesale")
+    cross_probe = other.owner_client.get(f"/api/v1/payments/promises/{promise_id}/")
+    assert cross_probe.status_code == 404
+
+    own_list = acct.get("/api/v1/payments/promises/")
+    assert own_list.status_code == 200
+    own_ids = [row["id"] for row in own_list.data.get("results", own_list.data)]
+    assert promise_id in own_ids
+
+    other_list = other.owner_client.get("/api/v1/payments/promises/")
+    assert other_list.status_code == 200
+    other_ids = [row["id"] for row in other_list.data.get("results", other_list.data)]
+    assert promise_id not in other_ids
+
+    # 3. Once its due date arrives (today), it surfaces on the Attention feed.
+    from django.core.cache import cache
+
+    cache.clear()
+    attention_rows = build_attention_rows(company)
+    promise_rows = [r for r in attention_rows if r.get("dedupe_key") == f"PROMISE_TO_PAY_DUE:{promise_id}"]
+    assert len(promise_rows) == 1, "Promise due today must surface on the Attention feed"
+    row = promise_rows[0]
+    assert row["code"] == "PROMISE_TO_PAY_DUE"
+    assert cust.name in row["title"]
+
+    # It must never leak into the other tenant's own feed.
+    other_attention = build_attention_rows(other.company)
+    assert not any(r.get("dedupe_key") == f"PROMISE_TO_PAY_DUE:{promise_id}" for r in other_attention)
+
+    assert_all_invariants(company)
+    assert_all_invariants(other.company)

@@ -41,7 +41,7 @@ recommendation: Keep one match_status field as the identity. Do not add a third
 test_required: test_accounting_bank_recon_match asserts MATCHED; projection.bank_recon_match_status_identity
 guard_ref:
   test: backend/tests/test_phase5_accounting.py
-lifecycle: in_progress
+lifecycle: verified
 owner: qa
 opened: "2026-09-13"
-closed: null
+closed: "2026-09-26"

@@ -54,6 +54,10 @@ def test_gstr3b_snapshot(tenant_a, assert_snapshot):
 
     g1 = build_gstr1(company, inv["invoice_date"][:7])
     g3b = build_gstr3b(company, inv["invoice_date"][:7], gstr1=g1)
+    tie = g3b["register_tie"]
+    assert tie["sales"] is True, tie
+    assert tie["purchase"] is True, tie
+    assert tie["label"] == "Not filed — worksheet for your CA"
 
     assert_snapshot(
         "gstr3b",

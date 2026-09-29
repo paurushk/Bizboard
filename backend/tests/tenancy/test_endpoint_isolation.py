@@ -211,3 +211,112 @@ def test_tenant_a_cannot_mutate_tenant_b_row(tenant_a, tenant_b, label, list_url
     assert resp.status_code in (403, 404), f"{label}: tenant A PATCHed tenant B's row ({resp.status_code})"
     obj_b.refresh_from_db()
     assert obj_b.name != "hijacked"
+
+
+def _enable(tenant, flag):
+    flags = dict(tenant.company.feature_flags or {})
+    flags[flag] = True
+    tenant.company.feature_flags = flags
+    tenant.company.save(update_fields=["feature_flags"])
+
+
+def _ids(payload):
+    rows = payload.get("results", payload) if isinstance(payload, dict) else payload
+    return {row.get("id") for row in rows} if isinstance(rows, list) else set()
+
+
+def test_job_card_is_not_readable_across_tenants(tenant_a, tenant_b):
+    from tests.conftest import make_customer
+    from workshop.models import JobCard
+
+    _enable(tenant_a, "ENABLE_WORKSHOP")
+    _enable(tenant_b, "ENABLE_WORKSHOP")
+    job = JobCard.objects.create(
+        company=tenant_b.company, customer=make_customer(tenant_b.company), complaint="secret", number="JOB-ISO",
+    )
+    assert tenant_a.client.get(f"/api/v1/workshop/job-cards/{job.pk}/").status_code == 404
+    listing = tenant_a.client.get("/api/v1/workshop/job-cards/")
+    assert listing.status_code == 200, listing.data
+    assert job.pk not in _ids(listing.data)
+    patched = tenant_a.client.patch(f"/api/v1/workshop/job-cards/{job.pk}/", {"complaint": "hijack"}, format="json")
+    assert patched.status_code in (403, 404, 405)
+    job.refresh_from_db()
+    assert job.complaint == "secret"
+
+
+def test_project_is_not_readable_across_tenants(tenant_a, tenant_b):
+    from tests.conftest import make_customer
+    from projects.models import Project
+
+    _enable(tenant_a, "ENABLE_PROJECTS")
+    _enable(tenant_b, "ENABLE_PROJECTS")
+    project = Project.objects.create(
+        company=tenant_b.company, customer=make_customer(tenant_b.company), name="Secret site", number="PRJ-ISO",
+    )
+    assert tenant_a.client.get(f"/api/v1/projects/{project.pk}/").status_code == 404
+    listing = tenant_a.client.get("/api/v1/projects/")
+    assert listing.status_code == 200, listing.data
+    assert project.pk not in _ids(listing.data)
+    patched = tenant_a.client.patch(f"/api/v1/projects/{project.pk}/", {"name": "hijack"}, format="json")
+    assert patched.status_code in (403, 404, 405)
+    project.refresh_from_db()
+    assert project.name == "Secret site"
+
+
+def test_policy_is_not_readable_across_tenants(tenant_a, tenant_b):
+    from django.utils import timezone
+
+    from insurance.models import Policy, PolicyProduct
+    from tests.conftest import make_customer
+
+    _enable(tenant_a, "ENABLE_INSURANCE")
+    _enable(tenant_b, "ENABLE_INSURANCE")
+    from accounts.models import CompanyUser
+
+    CompanyUser.objects.filter(company=tenant_a.company, user=tenant_a.owner).update(can_manage_policies=True)
+    CompanyUser.objects.filter(company=tenant_b.company, user=tenant_b.owner).update(can_manage_policies=True)
+    product = PolicyProduct.objects.create(
+        company=tenant_b.company, name="Cover", insurer_name="Insurer", line="OTHER",
+        tenure_months=1, sum_insured=1, premium=1,
+    )
+    today = timezone.localdate()
+    policy = Policy.objects.create(
+        company=tenant_b.company, customer=make_customer(tenant_b.company), product=product,
+        nominee="Secret", start_date=today, end_date=today, premium=1, number="POL-ISO",
+    )
+    assert tenant_a.client.get(f"/api/v1/insurance/policies/{policy.pk}/").status_code == 404
+    listing = tenant_a.client.get("/api/v1/insurance/policies/")
+    assert listing.status_code == 200, listing.data
+    assert policy.pk not in _ids(listing.data)
+    patched = tenant_a.client.patch(
+        f"/api/v1/insurance/policies/{policy.pk}/", {"nominee": "hijack"}, format="json",
+    )
+    assert patched.status_code in (403, 404, 405)
+    policy.refresh_from_db()
+    assert policy.nominee == "Secret"
+
+
+def test_shared_ticket_is_not_readable_across_tenants(tenant_a, tenant_b):
+    from django.utils import timezone
+
+    from support.models import VendorTicketShare
+
+    _enable(tenant_a, "ENABLE_SUPPORT_TICKETS")
+    _enable(tenant_b, "ENABLE_SUPPORT_TICKETS")
+    share = VendorTicketShare.objects.create(
+        company=tenant_b.company,
+        vendor_company=tenant_b.company,
+        source_company=tenant_a.company,
+        source_ticket_id=1,
+        subject="Secret",
+        status="OPEN",
+        shared_at=timezone.now(),
+    )
+    assert tenant_a.client.get(f"/api/v1/support/shared/{share.pk}/").status_code == 404
+    listing = tenant_a.client.get("/api/v1/support/shared/")
+    assert listing.status_code == 200, listing.data
+    assert share.pk not in _ids(listing.data)
+    posted = tenant_a.client.post("/api/v1/support/shared/", {"subject": "hijack"}, format="json")
+    assert posted.status_code in (403, 405)
+    share.refresh_from_db()
+    assert share.subject == "Secret"

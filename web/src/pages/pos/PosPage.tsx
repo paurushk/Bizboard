@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
+import AlertTitle from '@mui/material/AlertTitle';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -73,6 +74,8 @@ import {
   shareInvoice,
 } from '@/api/resources';
 import {
+  getErrorCode,
+  getErrorDetails,
   getErrorMessage,
   newIdempotencyKey,
   userGestureIdempotencyKey,
@@ -302,6 +305,15 @@ export function PosPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Dedicated credit-limit-exceeded banner (not the generic error toast) —
+   * SalesService.complete() raises this for a POS checkout that would push a
+   * customer's exposure over their credit_limit. */
+  const [creditLimitBanner, setCreditLimitBanner] = useState<{
+    customerName?: string;
+    creditLimit?: string;
+    currentExposure?: string;
+    invoiceTotal?: string;
+  } | null>(null);
   const [offline, setOffline] = useState(() =>
     typeof navigator !== 'undefined' ? !navigator.onLine : false,
   );
@@ -313,6 +325,7 @@ export function PosPage() {
   );
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [cashTendered, setCashTendered] = useState<number | ''>('');
+  const [splitCash, setSplitCash] = useState(0);
   const [cheque, setCheque] = useState<ChequePaymentValues>(EMPTY_CHEQUE);
   const [invoiceDiscount, setInvoiceDiscount] = useState(0);
   const [additionalCharges, setAdditionalCharges] = useState(0);
@@ -346,7 +359,10 @@ export function PosPage() {
     shown: number;
     billed: number;
     mode: PaymentMode;
+    splitPayments?: Array<{ mode: string; amount: string }>;
   } | null>(null);
+  /** Split tender must survive the totals / blank-POS confirm dialogs. */
+  const splitHold = useRef<Array<{ mode: string; amount: string }> | undefined>(undefined);
   const [thermalWarn, setThermalWarn] = useState<{ invoiceId: number; number: string } | null>(null);
   const [isFlushing, setIsFlushing] = useState(false);
 
@@ -443,6 +459,7 @@ export function PosPage() {
 
   const posStockBlocked = useMemo(() => {
     if (company.data?.negativeStockPolicy !== 'BLOCK') return false;
+    if (!stockBalances.data || stockBalances.isError) return false;
     const needed = new Map<number, number>();
     for (const line of cart) {
       needed.set(line.product.id, (needed.get(line.product.id) ?? 0) + toNumber(line.quantity));
@@ -451,7 +468,7 @@ export function PosPage() {
       if (qty > (availableByProduct.get(id) ?? 0) + 1e-9) return true;
     }
     return false;
-  }, [cart, availableByProduct, company.data?.negativeStockPolicy]);
+  }, [cart, availableByProduct, company.data?.negativeStockPolicy, stockBalances.data, stockBalances.isError]);
   const posMissingBatch = cart.some((l) => l.product.trackBatch && !String(l.batchNo ?? '').trim());
   const posMissingSerial = cart.some(
     (l) => l.product.trackSerial && (l.serialNumbers ?? []).length !== Math.trunc(l.quantity),
@@ -846,6 +863,9 @@ export function PosPage() {
     if (idempotencyKey) void removeDraft(companyId, userId, idempotencyKey);
     setIdempotencyKey(null);
     setCashTendered('');
+    // A split entered for the last bill must not pre-fill the next customer's.
+    setSplitCash(0);
+    splitHold.current = undefined;
     setCashPending(null);
     clearCashPendingStorage(companyId, userId);
     setUpiPending(null);
@@ -854,9 +874,51 @@ export function PosPage() {
     setThermalWarn(null);
     setMessage(null);
     setError(null);
+    setCreditLimitBanner(null);
     setWaOffer(null);
     searchRef.current?.focus();
   };
+
+  /** Route a checkout failure to the dedicated credit-limit banner instead of
+   * the generic error toast when that's what it is; otherwise unchanged. */
+  const lastPayMode = useRef<PaymentMode>('CASH');
+
+  const handleCheckoutError = useCallback((err: unknown) => {
+    if (getErrorCode(err) === 'pos_totals_mismatch') {
+      const details = getErrorDetails(err) ?? {};
+      const shown = Number(details.clientTotal ?? details.client_total);
+      const billed = Number(details.serverTotal ?? details.server_total);
+      if (Number.isFinite(shown) && Number.isFinite(billed)) {
+        setTotalsReconcile({
+          shown,
+          billed,
+          mode: lastPayMode.current,
+          splitPayments: splitHold.current,
+        });
+        setError(null);
+        return;
+      }
+    }
+    if (getErrorCode(err) === 'credit_limit_exceeded') {
+      const details = (getErrorDetails(err) ?? {}) as Record<string, unknown>;
+      // The API renderer camelCases every response body, so the error extra
+      // (built server-side as customer_name/credit_limit/...) arrives here as
+      // customerName/creditLimit/... — check both camelCase and snake_case.
+      const customerName = details.customerName ?? details.customer_name;
+      const creditLimit = details.creditLimit ?? details.credit_limit;
+      const currentExposure = details.currentExposure ?? details.current_exposure;
+      const invoiceTotal = details.invoiceTotal ?? details.invoice_total;
+      setCreditLimitBanner({
+        customerName: typeof customerName === 'string' ? customerName : undefined,
+        creditLimit: typeof creditLimit === 'string' ? creditLimit : undefined,
+        currentExposure:
+          typeof currentExposure === 'string' ? currentExposure : undefined,
+        invoiceTotal: typeof invoiceTotal === 'string' ? invoiceTotal : undefined,
+      });
+      return;
+    }
+    setError(getErrorMessage(err));
+  }, []);
 
   const finishSale = useCallback(
     async (completed: { id: number; number?: string | null; whatsappOffer?: { phone?: string } }, key?: string) => {
@@ -1019,10 +1081,12 @@ export function PosPage() {
         expectedTotal?: number;
         paymentMode?: PaymentMode;
         cheque?: ChequePaymentValues;
+        payments?: Array<{ mode: string; amount: string }>;
       },
     ) => {
       setBusy(true);
       setError(null);
+      setCreditLimitBanner(null);
       setMessage(null);
       let settlement: CashPending | null =
         posCashSettlementPhase(cashPending) === 'receipt_alloc' ? cashPending : null;
@@ -1083,6 +1147,9 @@ export function PosPage() {
                   cheque_date: extras?.cheque?.chequeDate || undefined,
                   cheque_image: extras?.cheque?.chequeImage || undefined,
                 },
+                ...(extras?.payments && extras.payments.length >= 2
+                  ? { payments: extras.payments }
+                  : {}),
               },
               { idempotencyKey: key },
             );
@@ -1145,13 +1212,27 @@ export function PosPage() {
           const recovered = unpaidRecoverFromAbort(settlement);
           if (recovered) setUnpaidRecover(recovered);
         }
-        setError(getErrorMessage(err));
+        handleCheckoutError(err);
         throw err;
       } finally {
         setBusy(false);
       }
     },
-    [cashPending, companyId, createCompletedInvoice, finishSale, userId],
+    [
+      additionalCharges,
+      cashPending,
+      cashTendered,
+      company.data?.priceMode,
+      companyId,
+      createCompletedInvoice,
+      finishSale,
+      handleCheckoutError,
+      invoiceDiscount,
+      posInvoiceType,
+      taxEnabled,
+      userId,
+      warehouseId,
+    ],
   );
 
   const startUpiCheckout = useCallback(
@@ -1184,13 +1265,14 @@ export function PosPage() {
         setBusy(false);
       }
     },
-    [companyId, gateTotal, t, userId],
+    [companyId, gateTotal, userId],
   );
 
   const confirmUpiPayment = useCallback(async () => {
     if (!upiPending) return;
     setBusy(true);
     setError(null);
+    setCreditLimitBanner(null);
     try {
       if (upiPending.invoiceId) {
         const receiptKey = upiPending.key ? `${upiPending.key}-receipt` : newIdempotencyKey();
@@ -1276,7 +1358,7 @@ export function PosPage() {
       setUpiPending(null);
       clearUpiPendingStorage(companyId, userId);
     } catch (err) {
-      setError(getErrorMessage(err));
+      handleCheckoutError(err);
     } finally {
       setBusy(false);
     }
@@ -1285,6 +1367,7 @@ export function PosPage() {
     company.data?.priceMode,
     companyId,
     finishSale,
+    handleCheckoutError,
     posInvoiceType,
     taxEnabled,
     unitPriceFor,
@@ -1370,7 +1453,15 @@ export function PosPage() {
       confirmWalkIn?: boolean;
       confirmTotalsMismatch?: boolean;
       shortCollectAmount?: number;
+      splitPayments?: Array<{ mode: string; amount: string }>;
     }) => {
+      lastPayMode.current = mode;
+      if (opts?.splitPayments) {
+        splitHold.current = opts.splitPayments;
+      } else if (!opts?.confirmBlankPos && !opts?.confirmTotalsMismatch && !opts?.confirmWalkIn) {
+        splitHold.current = undefined;
+      }
+      const splitPayments = splitHold.current;
       if (writesBlocked) {
         setError(t('billing.writesBlocked'));
         return;
@@ -1500,7 +1591,12 @@ export function PosPage() {
             Math.abs(previewTotal - shownTotal) > 0.05 &&
             !opts?.confirmTotalsMismatch
           ) {
-            setTotalsReconcile({ shown: shownTotal, billed: previewTotal, mode });
+            setTotalsReconcile({
+              shown: shownTotal,
+              billed: previewTotal,
+              mode,
+              splitPayments,
+            });
             checkoutGuard.current = false;
             setBusy(false);
             return;
@@ -1519,11 +1615,30 @@ export function PosPage() {
             : tenderedAmount;
       if (
         mode === 'CASH' &&
+        !splitPayments?.length &&
         exactTender + 1e-9 < tenderGateTotal &&
         opts?.shortCollectAmount == null
       ) {
         setError(t('pos.tenderTooLow'));
         return;
+      }
+      let settledSplit = splitPayments;
+      if (settledSplit && settledSplit.length >= 2) {
+        if (!navigator.onLine) {
+          setError(t('pos.upiNeedsConnection'));
+          return;
+        }
+        const cash = roundMoney(Number(settledSplit[0].amount) || 0);
+        const upi = roundMoney(tenderGateTotal - cash);
+        if (!(cash > 0) || !(upi > 0)) {
+          setError(t('pos.tenderTooLow'));
+          return;
+        }
+        settledSplit = [
+          { mode: 'CASH', amount: cash.toFixed(2) },
+          { mode: settledSplit[1].mode || 'UPI', amount: upi.toFixed(2) },
+        ];
+        splitHold.current = settledSplit;
       }
       if (mode === 'CHEQUE' && (!cheque.chequeNumber.trim() || !cheque.chequeBankName.trim())) {
         setError(t('billing.chequeNumber'));
@@ -1609,16 +1724,26 @@ export function PosPage() {
         {
           confirmTotalsMismatch: Boolean(opts?.confirmTotalsMismatch),
           shortCollectAmount: opts?.shortCollectAmount,
+          payments: settledSplit,
           expectedTotal: tenderGateTotal,
           paymentMode: mode,
           cheque,
         },
       );
       } catch (err) {
-        const msg = getErrorMessage(err);
-        setError(msg);
-        if (isSerialOrBatchRuleError(msg)) {
-          setSerialBatchError({ mode, message: msg });
+        // handleCheckoutError (invoked inside performCashCheckout /
+        // confirmUpiPayment) already routed a credit_limit_exceeded failure
+        // to the dedicated banner above — don't also surface it as a
+        // generic error toast (double-error-surface regression).
+        if (
+          getErrorCode(err) !== 'credit_limit_exceeded' &&
+          getErrorCode(err) !== 'pos_totals_mismatch'
+        ) {
+          const msg = getErrorMessage(err);
+          setError(msg);
+          if (isSerialOrBatchRuleError(msg)) {
+            setSerialBatchError({ mode, message: msg });
+          }
         }
       } finally {
         setBusy(false);
@@ -1626,33 +1751,37 @@ export function PosPage() {
       }
     },
     [
+      activeCustomers,
+      additionalCharges,
+      busy,
       cart,
+      cashPending,
+      cashTendered,
+      cheque,
       company.data?.priceMode,
       companyId,
       customerId,
       gateTotal,
       idempotencyKey,
+      invoiceDiscount,
+      isFlushing,
       performCashCheckout,
       posInvoiceType,
+      posMissingBatch,
+      posMissingSerial,
+      posStockBlocked,
+      selectedCustomer.data,
       startUpiCheckout,
       taxEnabled,
       tenderedAmount,
+      totals.grandTotal,
       unitPriceFor,
+      upiPending,
       userId,
       walkInCustomer,
       walkInName,
-      writesBlocked,
-      posStockBlocked,
-      posMissingBatch,
-      posMissingSerial,
-      busy,
-      activeCustomers,
-      selectedCustomer.data,
       warehouseId,
-      cheque,
-      invoiceDiscount,
-      additionalCharges,
-      totals.grandTotal,
+      writesBlocked,
     ],
   );
 
@@ -1774,6 +1903,30 @@ export function PosPage() {
       ) : null}
       {error ? (
         <HelpErrorAlert message={error} onClose={() => setError(null)} sx={{ mb: 1 }} />
+      ) : null}
+      {creditLimitBanner ? (
+        <Alert
+          severity="error"
+          variant="filled"
+          onClose={() => setCreditLimitBanner(null)}
+          sx={{ mb: 1 }}
+        >
+          <AlertTitle>{t('pos.creditLimitTitle')}</AlertTitle>
+          {creditLimitBanner.customerName
+            ? t('pos.creditLimitBody', { customer: creditLimitBanner.customerName })
+            : t('pos.creditLimitBodyGeneric')}
+          {creditLimitBanner.creditLimit &&
+          creditLimitBanner.currentExposure &&
+          creditLimitBanner.invoiceTotal ? (
+            <Typography variant="body2" sx={{ mt: 0.5, opacity: 0.9 }}>
+              {t('pos.creditLimitNumbers', {
+                limit: creditLimitBanner.creditLimit,
+                exposure: creditLimitBanner.currentExposure,
+                total: creditLimitBanner.invoiceTotal,
+              })}
+            </Typography>
+          ) : null}
+        </Alert>
       ) : null}
       {thermalWarn ? (
         <Alert
@@ -2265,6 +2418,32 @@ export function PosPage() {
               <Typography color="text.secondary">{t('pos.change')}</Typography>
               <Typography>{formatMoney(changeDue)}</Typography>
             </Stack>
+            <NumericField
+              label={t('pos.splitCash')}
+              value={splitCash}
+              onValueChange={(n) => setSplitCash(n)}
+              min={0}
+              emptyAs={0}
+              size="small"
+              fullWidth
+            />
+            <Button
+              variant="outlined"
+              size="large"
+              disabled={cashPayDisabled || !(splitCash > 0) || splitCash >= gateTotal - 0.01}
+              onClick={() => {
+                const cash = roundMoney(splitCash);
+                const upi = roundMoney(gateTotal - cash);
+                void checkout('CASH', {
+                  splitPayments: [
+                    { mode: 'CASH', amount: cash.toFixed(2) },
+                    { mode: 'UPI', amount: upi.toFixed(2) },
+                  ],
+                });
+              }}
+            >
+              {t('pos.splitPay', { cash: formatMoney(splitCash || 0), upi: formatMoney(Math.max(0, gateTotal - (splitCash || 0))) })}
+            </Button>
             <Divider />
             {cashPayReason ? <Alert severity="warning">{cashPayReason}</Alert> : null}
             <Tooltip title={cashPayDisabled ? cashPayReason || '' : ''}>
@@ -2387,13 +2566,18 @@ export function PosPage() {
               setTotalsReconcile(null);
               if (!rec) return;
               setCashTendered('');
-              void checkout(rec.mode, { confirmWalkIn: true, confirmTotalsMismatch: true });
+              void checkout(rec.mode, {
+                confirmWalkIn: true,
+                confirmTotalsMismatch: true,
+                splitPayments: rec.splitPayments,
+              });
             }}
           >
             {totalsReconcile
               ? t('pos.totalsReCollect', { amount: formatMoney(totalsReconcile.billed) })
               : null}
           </Button>
+          {totalsReconcile?.splitPayments ? null : (
           <Button
             variant="contained"
             onClick={() => {
@@ -2411,6 +2595,7 @@ export function PosPage() {
               ? t('pos.totalsShortCollect', { amount: formatMoney(totalsReconcile.shown) })
               : null}
           </Button>
+          )}
         </DialogActions>
       </Dialog>
       <Dialog
@@ -2437,7 +2622,13 @@ export function PosPage() {
             onClick={() => {
               const mode = blankPosMode;
               setBlankPosMode(null);
-              if (mode) void checkout(mode, { confirmBlankPos: true, confirmWalkIn: true });
+              if (mode) {
+                void checkout(mode, {
+                  confirmBlankPos: true,
+                  confirmWalkIn: true,
+                  splitPayments: splitHold.current,
+                });
+              }
             }}
           >
             {t('pos.confirmBlankPosAction')}
@@ -2463,7 +2654,9 @@ export function PosPage() {
             onClick={() => {
               const mode = walkInConfirmMode;
               setWalkInConfirmMode(null);
-              if (mode) void checkout(mode, { confirmWalkIn: true });
+              if (mode) {
+                void checkout(mode, { confirmWalkIn: true, splitPayments: splitHold.current });
+              }
             }}
           >
             {t('pos.confirmWalkInAction')}

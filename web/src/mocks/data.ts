@@ -19,6 +19,57 @@ import type {
   User,
 } from '@/types/domain';
 
+export const mockManagerUser: User = {
+  id: 13,
+  email: 'manager@bizboard.local',
+  fullName: 'Demo Manager',
+  role: 'MANAGER',
+  companyId: 1,
+  canManageInventory: true,
+  canImport: true,
+  canCancelDocuments: true,
+  canViewFinancialReports: true,
+  canExport: true,
+  canCreateSales: true,
+  canCreatePurchases: true,
+  canCreatePayments: true,
+  canPostJournals: true,
+  canManagePolicies: false,
+};
+
+export const mockAuditorUser: User = {
+  id: 14,
+  email: 'auditor@bizboard.local',
+  fullName: 'Demo Auditor',
+  role: 'AUDITOR',
+  companyId: 1,
+  canManageInventory: false,
+  canImport: false,
+  canViewFinancialReports: true,
+  canExport: true,
+  canCreateSales: false,
+  canCreatePurchases: false,
+  canCreatePayments: false,
+  canPostJournals: false,
+  canManagePolicies: false,
+};
+
+export const mockPolicyDeskUser: User = {
+  id: 12,
+  email: 'policydesk@bizboard.local',
+  fullName: 'Policy Desk',
+  role: 'POLICY_DESK',
+  companyId: 1,
+  canManageInventory: false,
+  canImport: false,
+  canViewFinancialReports: false,
+  canCreateSales: false,
+  canCreatePurchases: false,
+  canCreatePayments: false,
+  canPostJournals: false,
+  canManagePolicies: true,
+};
+
 export const mockViewerUser: User = {
   id: 99,
   email: 'viewer@bizboard.local',

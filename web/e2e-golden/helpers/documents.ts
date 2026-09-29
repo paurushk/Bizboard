@@ -25,14 +25,23 @@ export async function registerTenant(
   await page.getByLabel('Full name').fill('E2E Tester');
   await page.getByLabel('Email').fill(opts.email);
   // Mandatory sign-up email verification: request a code, then read it back
-  // from the dev-only "Dev OTP: ######" hint (same convenience LoginPage's
-  // mobile-OTP tab already relies on) instead of an inbox.
+  // from the dev-only OTP response or "Dev OTP: ######" hint instead of an inbox.
+  const otpPromise = page.waitForResponse(
+    (res) => res.url().includes('/auth/register/otp/request/') && res.status() === 200,
+    { timeout: 10_000 },
+  );
   await page.getByRole('button', { name: 'Send code' }).click();
-  const otpHint = page.getByText(/Dev OTP:/i);
-  await expect(otpHint).toBeVisible({ timeout: 10_000 });
-  const hintText = (await otpHint.textContent()) ?? '';
-  const otpCode = hintText.match(/\d{6}/)?.[0];
-  if (!otpCode) throw new Error(`registerTenant: could not read dev OTP code from hint "${hintText}"`);
+  const otpRes = await otpPromise;
+  const otpJson = await otpRes.json().catch(() => ({}));
+  let otpCode: string | undefined =
+    otpJson?.debug_code ?? otpJson?.data?.debug_code ?? otpJson?.data?.debugCode ?? otpJson?.debugCode;
+  if (!otpCode) {
+    const otpHint = page.getByText(/Dev OTP:/i);
+    await expect(otpHint).toBeVisible({ timeout: 10_000 });
+    const hintText = (await otpHint.textContent()) ?? '';
+    otpCode = hintText.match(/\d{6}/)?.[0];
+  }
+  if (!otpCode) throw new Error(`registerTenant: could not obtain dev OTP code from response or hint`);
   await page.getByLabel('Verification code').fill(otpCode);
   await page.getByLabel('Password', { exact: true }).fill(opts.password);
   await page.getByLabel('State').click();
@@ -73,6 +82,7 @@ export async function createProduct(
      * WarehouseReorderLevel override exists — the common case a fresh e2e
      * tenant is in, since there's no UI yet for the per-warehouse override. */
     reorderLevel?: string;
+    productType?: 'GOODS' | 'SERVICE';
   },
 ) {
   await page.goto('/inventory/products');
@@ -91,6 +101,10 @@ export async function createProduct(
   await toolbarAdd.first().click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(opts.name);
   await page.getByRole('textbox', { name: 'SKU / Item Code', exact: true }).fill(opts.sku);
+  if (opts.productType === 'SERVICE') {
+    await page.getByLabel('Item type').click();
+    await page.getByRole('option', { name: 'Service' }).click();
+  }
   if (opts.hsnCode) {
     await page.getByLabel(/HSN code/i).fill(opts.hsnCode);
   }
@@ -268,7 +282,8 @@ export async function fillNamedCombobox(
   value: string,
   optionName?: string | RegExp,
 ) {
-  const combo = page.getByRole('combobox', { name: label, exact: true });
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const combo = page.getByRole('combobox', { name: new RegExp(`^${escaped}(\\s*\\*)?$`, 'i') });
   await combo.click();
   await combo.fill(value);
   await page.getByRole('option', { name: optionName ?? value }).click();

@@ -52,6 +52,30 @@ function downloadBlobUrl(url: string, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
+function RegisterTieAlert({ data }: { data: Record<string, unknown> }) {
+  const tie = (data.registerTie ?? data.register_tie) as Record<string, unknown> | undefined;
+  if (!tie) return null;
+  // Green only on an explicit true. A missing key must not read as "ties".
+  const salesTies = tie.sales === true;
+  const delta = String(tie.salesDelta ?? tie.sales_delta ?? '0.00');
+  const hasPurchase = tie.purchase != null;
+  const purchaseTies = tie.purchase === true;
+  const purchaseDelta = String(tie.purchaseDelta ?? tie.purchase_delta ?? '0.00');
+  const severity = salesTies && (!hasPurchase || purchaseTies) ? 'success' : 'warning';
+  return (
+    <Alert severity={severity}>
+      <div>{salesTies ? t('gstHonesty.registerTies') : t('gstHonesty.registerMismatch', { delta })}</div>
+      {hasPurchase ? (
+        <div>
+          {purchaseTies
+            ? t('gstHonesty.registerPurchaseTies')
+            : t('gstHonesty.registerPurchaseMismatch', { delta: purchaseDelta })}
+        </div>
+      ) : null}
+    </Alert>
+  );
+}
+
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <Stack direction="row" justifyContent="space-between" spacing={2}>
@@ -224,6 +248,7 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
       </Stack>
 
       <GstHonestyHeader />
+      {query.data ? <RegisterTieAlert data={query.data as Record<string, unknown>} /> : null}
       {kind === 'gstr1' ? <Alert severity="warning">{t('reports.supecomWarning')}</Alert> : null}
       {issues.length > 0 ? (
         <Alert severity="warning">
@@ -395,15 +420,6 @@ function GstStubPage({ kind }: { kind: 'gstr6' | 'gstr7' | 'gstr8' }) {
         <Typography fontWeight={600}>{t('gstHonesty.stubTitle')}</Typography>
         <Typography variant="body2">{t('gstHonesty.stubBody')}</Typography>
       </Alert>
-      <Button
-        variant="contained"
-        component="a"
-        href="https://www.gst.gov.in/"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {t('gstHonesty.filePortalLink')}
-      </Button>
     </Stack>
   );
 }

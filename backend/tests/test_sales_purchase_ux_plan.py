@@ -108,6 +108,28 @@ def test_day_book_counts_cleared_cheques_only(tenant_a):
     assert any(r.get("id") == rec.id and r["txn_type"] == "PAYMENT_IN" for r in book2["rows"])
 
 
+def test_day_book_does_not_count_sales_invoices_as_inflow(tenant_a):
+    """A completed sales invoice is a document, not cash -- the day book's
+    own disclaimer says cash-position is driven by posted receipts/
+    payments/expenses only. Guards against a dead `and False` clause this
+    file used to carry: "fixing" it naively (deleting only `and False`)
+    would have made SALES rows double-count as cash inflow alongside the
+    real receipt once the customer actually pays."""
+    from reporting.transactions import day_book
+
+    customer = make_customer(tenant_a.company)
+    product = make_product(tenant_a.company, sku="DAYBOOK-1")
+    add_stock(tenant_a, product, "5")
+    inv = create_draft_invoice(
+        tenant_a, customer, [{"product": product.id, "quantity": "1", "unit_price": "500"}]
+    )
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+    today = timezone.localdate()
+    book = day_book(tenant_a.company, today)
+    assert any(r["txn_type"] == "SALES" for r in book["rows"])
+    assert book["inflow"] == Decimal("0")
+
+
 def test_ledger_union_is_sales_side_only(tenant_a):
     from reporting.transactions import sales_side_transactions
 
@@ -609,6 +631,73 @@ def test_quotation_convert_chain_quote_to_invoice(tenant_a):
     assert order and challan and invoice
     assert (challan.get("status") or "").upper() == "COMPLETED"
     assert (invoice.get("status") or "").upper() == "DRAFT"
+
+
+def _enable_order_gates(company, on=True):
+    flags = dict(company.feature_flags or {})
+    flags["ENABLE_ORDER_GATES"] = on
+    company.feature_flags = flags
+    company.save(update_fields=["feature_flags"])
+
+
+def test_convert_chain_runs_the_order_gate_instead_of_bypassing_it(tenant_a):
+    """convert_chain used to create a DRAFT order and convert it straight to
+    a challan without confirming it first -- once ENABLE_ORDER_GATES turns
+    on, convert_sales_order_to_challan's own "confirm this order first"
+    guard made the whole one-click chain fail for every customer, gate or
+    no gate. The chain must confirm the order itself so the gate actually
+    runs and a within-limit customer still sails through."""
+    _enable_order_gates(tenant_a.company)
+    customer = make_customer(tenant_a.company, credit_limit=Decimal("100000.00"))
+    product = make_product(tenant_a.company, sku="CHAIN-GATE-1", purchase_price="50")
+    add_stock(tenant_a, product, "5")
+    quote = tenant_a.client.post(
+        "/api/v1/sales/quotations/",
+        {
+            "customer": customer.id,
+            "sales_channel": "WALK_IN",
+            "delivery_address": "Gate 2, Peenya",
+            "items": [{"product": product.id, "quantity": "1", "unit_price": "100", "expected_price": "110"}],
+        },
+        format="json",
+    )
+    assert quote.status_code == 201, quote.data
+    chain = tenant_a.client.post(
+        f"/api/v1/sales/quotations/{quote.data['id']}/convert-chain/",
+        {"stop_stage": "INVOICE"},
+        format="json",
+    )
+    assert chain.status_code == 200, chain.data
+    order = chain.data.get("sales_order") or chain.data.get("salesOrder")
+    # The regression this guards against is the chain failing outright with
+    # "Confirm this sales order before converting it" -- the exact terminal
+    # status (CONFIRMED vs CONVERTED once the invoice exists) isn't the point.
+    assert (order.get("status") or "").upper() != "DRAFT"
+
+
+def test_convert_chain_blocks_a_customer_over_their_credit_limit(tenant_a):
+    _enable_order_gates(tenant_a.company)
+    customer = make_customer(tenant_a.company, credit_limit=Decimal("50.00"))
+    product = make_product(tenant_a.company, sku="CHAIN-GATE-2", purchase_price="50")
+    add_stock(tenant_a, product, "5")
+    quote = tenant_a.client.post(
+        "/api/v1/sales/quotations/",
+        {
+            "customer": customer.id,
+            "sales_channel": "WALK_IN",
+            "delivery_address": "Gate 2, Peenya",
+            "items": [{"product": product.id, "quantity": "1", "unit_price": "100", "expected_price": "110"}],
+        },
+        format="json",
+    )
+    assert quote.status_code == 201, quote.data
+    chain = tenant_a.client.post(
+        f"/api/v1/sales/quotations/{quote.data['id']}/convert-chain/",
+        {"stop_stage": "INVOICE"},
+        format="json",
+    )
+    assert chain.status_code == 400, chain.data
+    assert "credit" in str(chain.data).lower()
 
 
 def test_record_payment_settlement_discount_does_not_change_gst(tenant_a):

@@ -181,7 +181,7 @@ Closed **75** Open issues via Waves A–F remediation. **Open count: 0.** Deferr
 | Deferred-roadmap | ~51 | |
 | Deferred-ops | ~12 | |
 | Accepted | ~4 | |
-| **Open** | **~64** | Mostly Wave 22 re-audit residuals; **not** enumerated in one checklist here — search `**Status**` / `Open` in this file or use tooling. Do not confuse with CR/R open counts. |
+| **Open** | **0 code defects** | The "~64" figure was the pre-closure Wave 22 tally. Sprint note above: open in BB-000695–BB-000758 is **0**. Preamble BB tally: no open code defect (739 Resolved / 6 Accepted-positive / 13 Deferred). Trust per-issue `Status` over this old aggregate. |
 
 ### By Priority
 

@@ -93,9 +93,11 @@ class SalesCreditNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, 
                 in (True, "true", "True", 1, "1"),
                 confirm_price_override=request.data.get("confirm_price_override")
                 in (True, "true", "True", 1, "1"),
+                gst_guard_override_reason=request.data.get("gst_guard_override_reason") or None,
             )
             data = self.get_serializer(note).data
             data["warnings"] = warnings
+            data["gst_guard_warnings"] = getattr(note, "_gst_guard_warnings", [])
             return Response(data)
 
         return wrap_idempotent(
@@ -189,7 +191,10 @@ class SalesDebitNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, C
             # B2-010: complete_debit_note already posts the note (dedup-only
             # second call removed).
             note, warnings = SalesNotesService.complete_debit_note(
-                self.get_object(), request.user, confirm_additional_debit=confirm
+                self.get_object(),
+                request.user,
+                confirm_additional_debit=confirm,
+                gst_guard_override_reason=request.data.get("gst_guard_override_reason") or None,
             )
             data = self.get_serializer(note).data
             data["warnings"] = warnings
@@ -285,7 +290,11 @@ class SalesOrderViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
-        order = SalesNotesService.confirm_sales_order(self.get_object(), request.user)
+        order = SalesNotesService.confirm_sales_order(
+            self.get_object(),
+            request.user,
+            override_reason=request.data.get("credit_override_reason"),
+        )
         data = self.get_serializer(order).data
         data["margin_warnings"] = getattr(order, "_gate_warnings", [])
         return Response(data)

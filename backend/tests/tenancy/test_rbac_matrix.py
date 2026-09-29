@@ -18,23 +18,25 @@ from core import permissions as perms
 
 pytestmark = pytest.mark.django_db
 
-ROLES = ["OWNER", "ACCOUNTANT", "SALES_STAFF", "VIEWER", "INVENTORY_STAFF", "MANAGER", "AUDITOR"]
+ROLES = ["OWNER", "ACCOUNTANT", "SALES_STAFF", "VIEWER", "INVENTORY_STAFF", "MANAGER", "AUDITOR", "POLICY_DESK"]
 
 # permission class -> {role: expected has_permission for a write (POST) request}
 EXPECTED = {
-    "IsOwner":                 {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": False, "AUDITOR": False},
-    "CanManageInventory":      {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": True,  "MANAGER": True,  "AUDITOR": False},
-    "CanImport":               {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False},
-    "CanCancelDocuments":      {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False},
-    "CanViewFinancialReports": {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": True},
-    "CanExport":               {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": True},
-    "CanCreatePurchases":      {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": True,  "MANAGER": True,  "AUDITOR": False},
+    "IsOwner":                 {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": False, "AUDITOR": False, "POLICY_DESK": False},
+    "CanManageInventory":      {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": True,  "MANAGER": True,  "AUDITOR": False, "POLICY_DESK": False},
+    "CanImport":               {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False, "POLICY_DESK": False},
+    "CanCancelDocuments":      {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False, "POLICY_DESK": False},
+    "CanViewFinancialReports": {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": True, "POLICY_DESK": False},
+    "CanExport":               {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": True, "POLICY_DESK": False},
+    "CanCreatePurchases":      {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": True,  "MANAGER": True,  "AUDITOR": False, "POLICY_DESK": False},
     # SALES_STAFF can record payments (incl. supplier payments) by default —
     # capability_defaults_for_role("SALES_STAFF")["can_create_payments"] is True.
     # Intentional per the model; flagged for founder awareness.
-    "CanCreatePayments":       {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": True,  "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False},
-    "CanPostJournals":         {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False},
-    "CanCreateSales":          {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": True,  "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False},
+    "CanCreatePayments":       {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": True,  "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False, "POLICY_DESK": False},
+    "CanPostJournals":         {"OWNER": True, "ACCOUNTANT": True,  "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False, "POLICY_DESK": False},
+    "CanCreateSales":          {"OWNER": True, "ACCOUNTANT": False, "SALES_STAFF": True,  "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True,  "AUDITOR": False, "POLICY_DESK": False},
+    "IsOwnerManagerOrAccountant": {"OWNER": True, "ACCOUNTANT": True, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": True, "AUDITOR": False, "POLICY_DESK": False},
+    "CanManagePolicies":       {"OWNER": False, "ACCOUNTANT": False, "SALES_STAFF": False, "VIEWER": False, "INVENTORY_STAFF": False, "MANAGER": False, "AUDITOR": False, "POLICY_DESK": True},
 }
 
 

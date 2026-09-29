@@ -633,3 +633,18 @@ guard exists yet for the G-17/18/20 shape (a reader's status-set filter
 drifting from its sibling's); that remains open as weak-assumption #12 in
 `TESTING_STRATEGY.md` §8 (the canonical-semantics recommendation). See
 `TESTING_STRATEGY.md` §7 for the full gap register these feed into.
+
+---
+
+## Desks shipped after the freeze (2026-09-27)
+
+These rows are only for fields that exist. A policy and a commission receivable do not get a journal. That absence is D17.
+
+| Writer | Field | Readers that must agree | Role that must fail | Test |
+|---|---|---|---|---|
+| Job card convert, then invoice complete | `JobCard.sales_invoice`, spare stock movement | Stock on hand falls only after complete. GST and the invoice agree. A second convert is refused. | `POLICY_DESK` cannot create the invoice | `test_pj_workshop_job.py` |
+| Project milestone invoice | `ProjectMilestone.sales_invoice` | Close is refused while a READY milestone is uninvoiced. A stock product on a milestone is rejected. | Flag off is 404 | `test_pj_project_milestones.py` |
+| Policy issue | `Policy.premium`, `Policy.end_date` | Premium is a copy taken at issue. Commission is not a customer receipt and not a journal. | `SALES_STAFF` cannot grant `can_manage_policies` | `test_pj_insurance_desk.py` |
+| Route stop delivered | `received_by_name` | The slip does not post stock or a receipt | Delivery without a receiver name is rejected | `test_pj_route_pod.py` |
+| Vendor ticket share | `VendorTicketShare.company` is the vendor | Source company and a third company cannot read the row | Sales staff with `can_create_sales` still gets 403 from the owner check | `test_pj_saas_ops.py` |
+| Serial lookup | `SerialNumber.status` | Counter sees AVAILABLE for a unit never sold, and SOLD after that unit's invoice completes. Another company's same number is not in the list. | Accountant cannot list. Sales staff cannot transition. | `test_j_serial_p2_warranty_lookup_includes_a_serial_never_sold` |

@@ -207,6 +207,7 @@ export type PreviewTotals = {
     cess: number;
     lineTotal: number;
     gstRate?: number;
+    rateOverrideReason?: string;
   }>;
 };
 
@@ -263,6 +264,7 @@ function mapPreviewItems(raw: Record<string, unknown>): PreviewTotals['items'] {
       cess: n('cess', 'cess'),
       lineTotal: n('lineTotal', 'line_total'),
       gstRate: n('gstRate', 'gst_rate'),
+      rateOverrideReason: String(r.rateOverrideReason ?? r.rate_override_reason ?? ''),
     };
   });
 }
@@ -330,6 +332,7 @@ export async function completeSalesInvoice(
     confirmSalesRcm?: boolean;
     confirmBlankPos?: boolean;
     confirmGstinTotalChange?: boolean;
+    gstGuardOverrideReason?: string;
     idempotencyKey?: string;
   },
 ): Promise<SalesInvoice> {
@@ -340,11 +343,19 @@ export async function completeSalesInvoice(
         confirmSalesRcm: Boolean(options?.confirmSalesRcm),
         confirmBlankPos: Boolean(options?.confirmBlankPos),
         confirmGstinTotalChange: Boolean(options?.confirmGstinTotalChange),
+        ...(options?.gstGuardOverrideReason
+          ? { gstGuardOverrideReason: options.gstGuardOverrideReason }
+          : {}),
       },
       { headers: idempotencyHeaders(options?.idempotencyKey) },
     );
     return unwrapData<SalesInvoice>(data);
   }, { ...mockInvoices[0], id, status: 'COMPLETED', number: `INV-${id}`, pdfStatus: 'QUEUED' });
+}
+
+export async function repeatLastInvoice(customerId: number): Promise<SalesInvoice> {
+  const { data } = await apiClient.post('/sales/invoices/repeat-last/', { customer: customerId });
+  return unwrapData<SalesInvoice>(data);
 }
 
 export type EinvoiceEwayPrepareResult = SalesInvoice & { payload?: Record<string, unknown> };
@@ -969,6 +980,7 @@ export async function completeSalesCreditNote(
     confirmGstinTotalChange?: boolean;
     confirmPaidInvoice?: boolean;
     confirmPriceOverride?: boolean;
+    gstGuardOverrideReason?: string;
   },
 ): Promise<SalesCreditNote> {
   return withMocks(async () => {
@@ -978,6 +990,9 @@ export async function completeSalesCreditNote(
       confirmGstinTotalChange: Boolean(options?.confirmGstinTotalChange),
       confirmPaidInvoice: Boolean(options?.confirmPaidInvoice),
       confirmPriceOverride: Boolean(options?.confirmPriceOverride),
+      ...(options?.gstGuardOverrideReason
+        ? { gstGuardOverrideReason: options.gstGuardOverrideReason }
+        : {}),
     });
     return unwrapData<SalesCreditNote>(data);
   }, { ...(await getSalesCreditNote(id)), status: 'COMPLETED', number: `SCN-${id}` });
@@ -1071,11 +1086,14 @@ export async function updateSalesDebitNote(
 
 export async function completeSalesDebitNote(
   id: number,
-  options?: { confirmAdditionalDebit?: boolean },
+  options?: { confirmAdditionalDebit?: boolean; gstGuardOverrideReason?: string },
 ): Promise<SalesDebitNote> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/debit-notes/${id}/complete/`, {
       confirmAdditionalDebit: Boolean(options?.confirmAdditionalDebit),
+      ...(options?.gstGuardOverrideReason
+        ? { gstGuardOverrideReason: options.gstGuardOverrideReason }
+        : {}),
     });
     return unwrapData<SalesDebitNote>(data);
   }, { ...(await getSalesDebitNote(id)), status: 'COMPLETED', number: `SDN-${id}` });
@@ -1352,8 +1370,17 @@ export async function removeDeliveryRouteStop(id: number, stopId: number) {
   return unwrapData<Record<string, unknown>>(data);
 }
 
-export async function setDeliveryRouteStopStatus(id: number, stopId: number, status: string) {
-  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/set-stop-status/`, { stopId, status });
+export async function setDeliveryRouteStopStatus(
+  id: number,
+  stopId: number,
+  status: string,
+  extra?: { completionSource?: string; otp?: string; podNote?: string; receivedByName?: string; podPhoto?: number; customerReceipt?: number },
+) {
+  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/set-stop-status/`, {
+    stopId,
+    status,
+    ...extra,
+  });
   return unwrapData<Record<string, unknown>>(data);
 }
 

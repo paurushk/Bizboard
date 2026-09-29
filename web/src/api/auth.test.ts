@@ -33,6 +33,9 @@ describe('mock-mode auth — fetchCurrentUser resolves the actual logged-in pers
     expect((await login({ email: 'viewer@bizboard.local', password: 'x' })).user.role).toBe(
       'VIEWER',
     );
+    expect(
+      (await login({ email: 'warehouse@bizboard.local', password: 'x' })).user.role,
+    ).toBe('INVENTORY_STAFF');
     expect((await login({ email: 'owner@bizboard.local', password: 'x' })).user.role).toBe(
       'OWNER',
     );
@@ -50,6 +53,13 @@ describe('mock-mode auth — fetchCurrentUser resolves the actual logged-in pers
       fullName: 'Demo Accountant',
     });
     expect((await fetchCurrentUser()).role).toBe('ACCOUNTANT');
+
+    getStoredUser.mockReturnValue({
+      id: 4,
+      email: 'warehouse@bizboard.local',
+      fullName: 'Demo Inventory',
+    });
+    expect((await fetchCurrentUser()).role).toBe('INVENTORY_STAFF');
   });
 
   it('fetchCurrentUser() falls back to OWNER only when there is no stored session', async () => {

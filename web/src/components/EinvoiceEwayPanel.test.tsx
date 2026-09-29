@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { EinvoiceEwayPanel } from '@/components/EinvoiceEwayPanel';
+import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 
 vi.mock('@/api/resources', () => ({
@@ -48,5 +49,19 @@ describe('EinvoiceEwayPanel — CFT-116 IRN lock', () => {
     );
     expect(screen.getByText(/Line edits are blocked while this IRN is live/i)).toBeTruthy();
     expect(screen.getByText(/Saved IRN: IRN-LIVE/)).toBeTruthy();
+  });
+
+  it('names a sandbox acknowledgement and does not claim a portal filing', () => {
+    const text = t('einvoice.submittedSandbox');
+    expect(text).toMatch(/Sandbox acknowledgement only/i);
+    expect(text).not.toMatch(/filed|GSTN|IRP portal/i);
+  });
+
+  it('shows the sandbox acknowledgement on the panel before submit', () => {
+    wrap(<EinvoiceEwayPanel invoice={baseInvoice} />);
+    expect(screen.getByText(t('einvoice.submittedSandbox'))).toBeTruthy();
+    expect(screen.getByText(t('einvoice.submittedSandbox')).textContent ?? '').not.toMatch(
+      /filed|GSTN|IRP portal/i,
+    );
   });
 });

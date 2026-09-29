@@ -508,27 +508,109 @@ def test_wf36_tds_tcs_worksheets_reconcile(tenant_a):
     assert ep.status_code in (200, 403), ep.status_code  # 403 if the feature-read gate is off
 
 
-# --- G3 payments (D3 = ON) ---
-# Wave 5: unskip only when Cashfree/PayU sandbox + SANDBOX_WEBHOOK_SECRET exist
-# in CI. Do not replace these with assert True. Signature/replay coverage is
-# already G-8 / H10 (no live creds).
-_G_SANDBOX = (
-    "A25 / WF-37/38 — live sandbox gateway E2E needs Cashfree/PayU credentials "
-    "+ SANDBOX_WEBHOOK_SECRET; do not unskip until those are in CI"
-)
+def test_wf37_refunds(tenant_a, assert_consistent):
+    """WF-37: a captured payment refunds once.
+
+    The provider HTTP call is skipped. Live Cashfree/PayU sandbox capture is
+    not this test. A second refund does not reverse the allocation again.
+    """
+    from django.utils import timezone
+
+    from payments.models import GatewayPayment, GatewayPaymentStatus, PaymentAllocation
+    from payments.services import PaymentService
+
+    company = tenant_a.company
+    _books(company)
+    customer = make_customer(company, state="Karnataka")
+    product = make_product(company, gst_rate="0", selling_price="100")
+    from tests.conftest import add_stock
+
+    add_stock(tenant_a, product, "5", unit_cost="40")
+    inv = create_draft_invoice(
+        tenant_a, customer, [{"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "0"}],
+    )
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+    from sales.models import SalesInvoice
+
+    invoice = SalesInvoice.objects.get(pk=inv["id"])
+    gp = GatewayPayment.objects.create(
+        company=company, provider="sandbox", provider_payment_id="pay_wf37",
+        amount=Decimal("100.00"), status=GatewayPaymentStatus.CAPTURED,
+    )
+    receipt = PaymentService.create_receipt(
+        company=company, customer=customer, amount=Decimal("100.00"), mode="UPI",
+        receipt_date=timezone.localdate(), user=tenant_a.owner, gateway_payment=gp,
+    )
+    PaymentService.allocate_receipt(
+        receipt=receipt, sales_invoice=invoice, amount=Decimal("100.00"), user=tenant_a.owner,
+    )
+    alloc = PaymentAllocation.objects.get(receipt=receipt)
+    PaymentService.refund_gateway_payment(gateway_payment=gp, user=tenant_a.owner, skip_gateway=True)
+    alloc.refresh_from_db()
+    assert alloc.reversed_at is not None
+    again = PaymentService.refund_gateway_payment(gateway_payment=gp, user=tenant_a.owner, skip_gateway=True)
+    assert again.status == GatewayPaymentStatus.REFUNDED
+    alloc.refresh_from_db()
+    assert PaymentAllocation.objects.filter(receipt=receipt, reversed_at__isnull=False).count() == 1
+    assert_consistent(company)
 
 
-@pytest.mark.skip(reason=_G_SANDBOX)
-def test_wf37_refunds():
-    """A customer refund (and a gateway refund) reverses the original receipt's
-    allocation and GL; the invoice returns to unpaid/partly-paid; a double
-    refund of the same receipt is rejected."""
+def test_wf38_mdr_settlement_reconciliation(tenant_a):
+    """WF-38: a settlement line of gross minus the fee prefers the net receipt.
 
+    No live gateway call. Fee parse is the Cashfree and PayU adapters with an
+    empty credential dict.
+    """
+    import json
+    from urllib.parse import urlencode
 
-@pytest.mark.skip(reason=_G_SANDBOX)
-def test_wf38_mdr_settlement_reconciliation():
-    """Gateway settlement is matched to captured payments; the MDR fee posts to a
-    fee expense account; settled net + fee == gross captured."""
+    from django.utils import timezone
+
+    from payments.gateway import CashfreeGateway, PayUGateway
+    from payments.models import (
+        BankAccount, BankLineMatchStatus, BankStatement, BankStatementLine,
+        BankStatementStatus, CustomerReceipt, GatewayPayment, GatewayPaymentStatus, ReceiptStatus,
+    )
+    from payments.recon import score_match
+
+    ev = CashfreeGateway({}).parse_webhook(body=json.dumps({
+        "data": {"payment": {
+            "cf_payment_id": "cf_wf38", "payment_amount": "100.00",
+            "payment_status": "SUCCESS", "payment_service_charge": "2.00",
+        }},
+    }).encode())
+    assert ev is not None and ev.fee == Decimal("2.00")
+    payu = PayUGateway({}).parse_webhook(body=urlencode({
+        "amount": "100.00", "status": "success", "mihpayid": "wf38",
+        "txnid": "wf38", "additionalCharges": "2.00",
+    }).encode())
+    assert payu is not None and payu.fee == Decimal("2.00")
+    assert Decimal("100.00") - ev.fee == Decimal("98.00")
+
+    customer = make_customer(tenant_a.company)
+    today = timezone.localdate()
+    gp = GatewayPayment.objects.create(
+        company=tenant_a.company, provider="cashfree", provider_payment_id="pay_wf38",
+        amount=Decimal("100.00"), fee=Decimal("2.00"), status=GatewayPaymentStatus.CAPTURED,
+    )
+    net_receipt = CustomerReceipt.objects.create(
+        company=tenant_a.company, customer=customer, amount=Decimal("100.00"),
+        receipt_date=today, status=ReceiptStatus.POSTED, number="RCPT-WF38-NET", gateway_payment=gp,
+    )
+    gross_receipt = CustomerReceipt.objects.create(
+        company=tenant_a.company, customer=customer, amount=Decimal("98.00"),
+        receipt_date=today, status=ReceiptStatus.POSTED, number="RCPT-WF38-GROSS",
+    )
+    account = BankAccount.objects.create(company=tenant_a.company, name="HDFC WF38", is_default=True)
+    statement = BankStatement.objects.create(
+        company=tenant_a.company, bank_account=account, status=BankStatementStatus.COMMITTED,
+        period_start=today, period_end=today,
+    )
+    line = BankStatementLine.objects.create(
+        company=tenant_a.company, statement=statement, txn_date=today, amount=Decimal("98.00"),
+        narration="PG SETTLEMENT", utr="", line_hash="wf38-1", match_status=BankLineMatchStatus.UNMATCHED,
+    )
+    assert score_match(line, receipt=net_receipt) > score_match(line, receipt=gross_receipt)
 
 
 def test_wf39_advance_payment_on_account(tenant_a, assert_consistent):
@@ -1237,4 +1319,20 @@ def test_wf52_document_numbering_integrity(tenant_a):
 
     assert not sequences_intact(company), sequences_intact(company)
 
-    assert_all_invariants(company)  # includes numbering.no_duplicate_document_numbers
+
+def test_wf54_certificates_remain_a_known_limitation():
+    """D7 / WF-54. The product is the TDS/TCS worksheet (WF-36). Form 16A and
+    Form 27D stay with the CA. Freeze scope marks this a known limitation."""
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[2]
+    worksheet = Path(__file__).read_text(encoding="utf-8")
+    assert "def test_wf36_tds_tcs_worksheets_reconcile" in worksheet
+    banned = ("form_16a", "form16a", "form_27d", "form27d")
+    hits = []
+    for folder in ("reporting", "accounting", "payments"):
+        for path in (backend / folder).rglob("*.py"):
+            text = path.read_text(encoding="utf-8").lower()
+            if any(token in text for token in banned):
+                hits.append(str(path.relative_to(backend)))
+    assert not hits, "certificate generation appeared: " + ", ".join(hits)

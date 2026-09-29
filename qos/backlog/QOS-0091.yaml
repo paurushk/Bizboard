@@ -1,0 +1,29 @@
+id: QOS-0091
+category: BUSINESS_GAP
+title: Referral paid does not draft a credit note
+persona:
+- P2
+journey: Referral reward
+problem: Marking a reward paid records a status and does not create a credit note or store a link to one.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  detail: L9. Nullable ReferralReward.credit_note. Scope referral_reward_credit_note in MONEY_IDEMPOTENCY_SCOPES.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: The paid control currently cannot change the customer balance.
+effort: M
+recommendation: Owner or manager only. Second call returns the note on the reward. Completing the note posts the balance.
+test_required: One note, PostgreSQL race, sales staff 403, self-referral still rejected.
+guard_ref:
+  test: backend/tests/test_llm_path_to_ten.py::test_referral_paid_drafts_one_credit_note
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

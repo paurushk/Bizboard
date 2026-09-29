@@ -31,9 +31,39 @@ services:
   api:
     environment:
       BIZBOARD_COMPOSE_ENV: development
+      OTP_DEBUG_ECHO: "1"
+      PORTAL_DEBUG_ECHO: "1"
+      EMAIL_HOST: ""
+      USE_TLS: "0"
+      UNSUBSCRIBED_SEAT_LIMIT: "0"
+      ENABLE_REPLENISHMENT: "1"
+      ENABLE_GST_GUARD: "1"
+      ENABLE_ROUTE_PROFIT: "1"
+      ENABLE_SUPPLIER_PRICE_HISTORY: "1"
+      ENABLE_CUSTOMER_PORTAL: "1"
+      ENABLE_SETUP_WIZARD: "0"
+      ENABLE_POS: "1"
+      ENABLE_ACCOUNTING: "1"
+      ENABLE_CUSTOMER_360: "1"
+      E2E_GOLDEN_GRANT: "1"
   worker:
     environment:
       BIZBOARD_COMPOSE_ENV: development
+      OTP_DEBUG_ECHO: "1"
+      PORTAL_DEBUG_ECHO: "1"
+      EMAIL_HOST: ""
+      USE_TLS: "0"
+      UNSUBSCRIBED_SEAT_LIMIT: "0"
+      ENABLE_REPLENISHMENT: "1"
+      ENABLE_GST_GUARD: "1"
+      ENABLE_ROUTE_PROFIT: "1"
+      ENABLE_SUPPLIER_PRICE_HISTORY: "1"
+      ENABLE_CUSTOMER_PORTAL: "1"
+      ENABLE_SETUP_WIZARD: "0"
+      ENABLE_POS: "1"
+      ENABLE_ACCOUNTING: "1"
+      ENABLE_CUSTOMER_360: "1"
+      E2E_GOLDEN_GRANT: "1"
   beat:
     environment:
       BIZBOARD_COMPOSE_ENV: development

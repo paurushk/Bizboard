@@ -76,6 +76,21 @@ def test_seeded_paid_plan_does_not_enable_table_b(tenant_a):
     assert flags.data.get("ENABLE_POS") is True
 
 
+def test_plan_name_price_and_modules_are_edited_on_the_plan(db):
+    from billing.admin import PlanAdmin
+
+    assert {"name", "price_paise", "modules"} <= set(PlanAdmin.fields)
+    plan = Plan.objects.create(name="Working name", slug="operator-tier", price_paise=0, modules={})
+    plan.name = "Counter"
+    plan.price_paise = 120000
+    plan.modules = {"ENABLE_POS": True}
+    plan.save()
+    plan.refresh_from_db()
+    assert plan.name == "Counter"
+    assert plan.price_paise == 120000
+    assert plan.modules == {"ENABLE_POS": True}
+
+
 def test_monthly_complete_quota_blocks_second_complete(tenant_a):
     _subscribe(tenant_a.company, slug="one-complete", monthly_complete_limit=1)
     product = make_product(tenant_a.company)

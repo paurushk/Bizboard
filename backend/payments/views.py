@@ -10,6 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from billing.permissions import SubscriptionWritesAllowed
 from core.exceptions import BusinessRuleError
 from core.idempotency import begin_record, release_record, store_record, wrap_idempotent
 from core.permissions import (
@@ -18,6 +19,7 @@ from core.permissions import (
     CanViewPaymentSurfaces,
     HasCompany,
     IsOwner,
+    IsOwnerManagerOrAccountant,
     get_company_user,
 )
 from core.services.audit import AuditService
@@ -38,11 +40,13 @@ from .models import (
     PaymentAllocation,
     PaymentLink,
     PaymentLinkStatus,
+    PaymentPromise,
     PaymentSource,
     ReconMatch,
     SupplierPayment,
     SupplierPaymentStatus,
 )
+from .promise_to_pay import create_promise, resolve_promise
 from .recon import is_exact_unique_suggestion, parse_bank_csv, suggest_matches
 from .upi import normalize_utr
 from .serializers import (
@@ -53,6 +57,7 @@ from .serializers import (
     GatewayPaymentSerializer,
     PaymentAllocationSerializer,
     PaymentLinkSerializer,
+    PaymentPromiseSerializer,
     ReconMatchSerializer,
     SupplierPaymentSerializer,
     UpiQrSerializer,
@@ -156,23 +161,29 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
             assert_period_allows_money_amend(self.company, receipt_date)
             warning = period_complete_warning(self.company, receipt_date)
             bank_account = serializer.validated_data.get("bank_account")
-            receipt = PaymentService.create_receipt(
-                company=self.company,
-                customer=serializer.validated_data["customer"],
-                amount=serializer.validated_data["amount"],
-                mode=serializer.validated_data.get("mode", "CASH"),
-                receipt_date=serializer.validated_data.get("receipt_date"),
-                reference=serializer.validated_data.get("reference", ""),
-                utr=serializer.validated_data.get("utr", ""),
-                notes=serializer.validated_data.get("notes", ""),
-                bank_account=bank_account,
-                user=request.user,
-                cheque_number=serializer.validated_data.get("cheque_number", ""),
-                cheque_bank_name=serializer.validated_data.get("cheque_bank_name", ""),
-                cheque_date=serializer.validated_data.get("cheque_date"),
-                cheque_image=serializer.validated_data.get("cheque_image"),
-                settlement_discount=serializer.validated_data.get("settlement_discount") or 0,
-            )
+            # One transaction: if the oldest-first allocation fails (closed period,
+            # invoice changed underneath), the receipt must roll back too. Otherwise
+            # the idempotency key is released below and a retry posts a second receipt.
+            with transaction.atomic():
+                receipt = PaymentService.create_receipt(
+                    company=self.company,
+                    customer=serializer.validated_data["customer"],
+                    amount=serializer.validated_data["amount"],
+                    mode=serializer.validated_data.get("mode", "CASH"),
+                    receipt_date=serializer.validated_data.get("receipt_date"),
+                    reference=serializer.validated_data.get("reference", ""),
+                    utr=serializer.validated_data.get("utr", ""),
+                    notes=serializer.validated_data.get("notes", ""),
+                    bank_account=bank_account,
+                    user=request.user,
+                    cheque_number=serializer.validated_data.get("cheque_number", ""),
+                    cheque_bank_name=serializer.validated_data.get("cheque_bank_name", ""),
+                    cheque_date=serializer.validated_data.get("cheque_date"),
+                    cheque_image=serializer.validated_data.get("cheque_image"),
+                    settlement_discount=serializer.validated_data.get("settlement_discount") or 0,
+                )
+                if request.data.get("allocate_oldest") in (True, "true", "True", 1, "1"):
+                    PaymentService.allocate_receipt_oldest_first(receipt=receipt, user=request.user)
         except Exception:
             if raw_key:
                 release_record(company=self.company, scope="receipt_create", raw_key=raw_key)
@@ -1314,3 +1325,50 @@ class GatewaySettingsView(APIView):
             entity_id=company.id,
         )
         return self.get(request)
+
+
+class PaymentPromiseViewSet(CompanyScopedViewSet):
+    """Promise-to-pay: create, list open, mark resolved. See payments.promise_to_pay."""
+
+    queryset = PaymentPromise.objects.all()
+    serializer_class = PaymentPromiseSerializer
+    http_method_names = ["get", "post"]
+
+    def get_permissions(self):
+        if self.action in ("create", "update", "partial_update", "destroy", "resolve"):
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), IsOwnerManagerOrAccountant()]
+        return [IsAuthenticated(), HasCompany()]
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("customer", "invoice")
+        if self.action == "list" and self.request.query_params.get("all") != "1":
+            qs = qs.filter(resolved=False)
+        invoice_id = self.request.query_params.get("invoice")
+        if invoice_id:
+            qs = qs.filter(invoice_id=invoice_id)
+        customer_id = self.request.query_params.get("customer")
+        if customer_id:
+            qs = qs.filter(customer_id=customer_id)
+        return qs
+
+    def perform_create(self, serializer):
+        customer = serializer.validated_data["customer"]
+        invoice = serializer.validated_data.get("invoice")
+        if invoice is not None and invoice.customer_id != customer.id:
+            raise BusinessRuleError("The invoice does not belong to this customer.")
+        promise = create_promise(
+            company=self.company,
+            customer=customer,
+            invoice=invoice,
+            promised_date=serializer.validated_data["promised_date"],
+            note=serializer.validated_data.get("note", ""),
+            promised_amount=serializer.validated_data.get("promised_amount"),
+            user=self.request.user,
+        )
+        serializer.instance = promise
+
+    @action(detail=True, methods=["post"], url_path="resolve")
+    def resolve(self, request, pk=None):
+        promise = self.get_object()
+        promise = resolve_promise(promise, user=request.user)
+        return Response(self.get_serializer(promise).data)

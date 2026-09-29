@@ -18,7 +18,9 @@ from decimal import Decimal
 import pytest
 
 from core.invariants import assert_all_invariants
-from crm.models import Lead
+from core.models import AuditEvent
+from crm.models import Lead, Opportunity, ReferralReward
+from crm.referrals import issue_referral_code
 from crm.services import convert_lead
 from inventory.models import MovementType, StockBalance
 from inventory.services import InventoryService
@@ -138,4 +140,77 @@ def test_pj_crm_lead_to_sales_order_and_challan_pipeline():
     assert sales_journal.status_code in (403, 404), "Sales staff cannot post journals"
 
     # 7. Invariants hold
+    assert_all_invariants(company)
+
+
+def test_pj_crm_referral_self_referral_guard_auto_rejects_reward():
+    """CRM referral fraud guard (crm.referrals): a won opportunity that resolves
+    back to its own referrer is a self-referral -- the reward is auto-rejected
+    (never silently paid, never blocked from completing the sale) and the
+    rejection leaves a permanent audit trail. A genuine, unrelated referral on
+    the same code stays PENDING, showing the guard is selective, not a blanket
+    referral-reward kill switch.
+    """
+    trader = seed_archetype("trader")
+    company = trader.company
+    # ENABLE_REFERRALS is a company-authoritative rollout flag (core.services.
+    # feature_flags.ROLLOUT_GRANTABLE_KEYS); ENABLE_CRM must be re-asserted in
+    # the same JSON write or touching any other module key here would flip the
+    # dark-module default (ENABLE_CRM) off for this company (see
+    # feature_flags._build_feature_flags_uncached's "opt-in once you touch
+    # module flags" rule).
+    company.feature_flags = {"ENABLE_CRM": True, "ENABLE_REFERRALS": True}
+    company.save(update_fields=["feature_flags"])
+
+    referrer_and_referee = trader.customers[0]
+    genuine_referee = trader.customers[1]
+
+    code = issue_referral_code(
+        company, trader.owner,
+        referrer_customer=referrer_and_referee,
+        reward_type="FLAT", reward_value=Decimal("250.00"),
+    )
+
+    # 1. Self-referral: the lead's customer IS the code's own referrer.
+    self_lead = Lead.objects.create(
+        company=company,
+        name=referrer_and_referee.name,
+        customer=referrer_and_referee,
+        referral_code=code,
+        status=Lead.Status.QUALIFIED,
+        created_by=trader.sales,
+        updated_by=trader.sales,
+    )
+    self_lead, self_opp, self_customer = convert_lead(
+        self_lead, trader.sales, won=True, amount=Decimal("5000.00")
+    )
+    assert self_customer.id == referrer_and_referee.id
+    assert self_opp.stage == Opportunity.Stage.WON  # the sale itself is never blocked by the guard
+
+    self_reward = ReferralReward.objects.get(company=company, opportunity=self_opp)
+    assert self_reward.reward_status == ReferralReward.Status.REJECTED
+    assert AuditEvent.objects.filter(
+        company=company,
+        action="referral_self_referral_blocked",
+        entity_type="ReferralReward",
+        entity_id=str(self_reward.id),
+    ).exists()
+
+    # 2. Contrast: a genuine referral on the same code (different customer)
+    #    is not touched by the guard -- it stays PENDING for manual approval.
+    genuine_lead = Lead.objects.create(
+        company=company,
+        name=genuine_referee.name,
+        customer=genuine_referee,
+        referral_code=code,
+        status=Lead.Status.QUALIFIED,
+        created_by=trader.sales,
+        updated_by=trader.sales,
+    )
+    _genuine_lead, genuine_opp, _genuine_customer = convert_lead(
+        genuine_lead, trader.sales, won=True, amount=Decimal("5000.00")
+    )
+    genuine_reward = ReferralReward.objects.get(company=company, opportunity=genuine_opp)
+    assert genuine_reward.reward_status == ReferralReward.Status.PENDING
+
     assert_all_invariants(company)

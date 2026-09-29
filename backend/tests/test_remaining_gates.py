@@ -208,7 +208,14 @@ def test_w0_07_outstanding_nets_advances_and_foots_statement(tenant_a):
     company.save(update_fields=["accounting_enabled"])
     seed_chart_of_accounts(company, tenant_a.owner)
     product = make_product(company)
-    add_stock(tenant_a, product, "10")
+    # Opening stock must hit the inventory GL. A quantity with no journal
+    # leaves valuation and account 1400 apart, and outstanding stays on documents.
+    opened = tenant_a.client.post(
+        "/api/v1/inventory/opening-stock/",
+        {"product": product.id, "quantity": "10", "unit_cost": "80"},
+        format="json",
+    )
+    assert opened.status_code == 201, opened.data
     customer = make_customer(company)
     draft = create_draft_invoice(
         tenant_a, customer, [{"product": product.id, "quantity": "1", "unit_price": "1000"}]

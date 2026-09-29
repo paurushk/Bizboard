@@ -31,7 +31,7 @@ function draft(over: Record<string, unknown>) {
 }
 
 test.describe('§H1 — offline outbox: queued vs conflicted', () => {
-  test('a queued draft and a server-rejected draft render with distinct status', async ({ page }) => {
+  test('J-TRADE-P3-FLAKYNET a queued draft and a server-rejected draft render with distinct status', async ({ page }) => {
     await loginAsOwner(page);
 
     const queued = draft({ id: '1:1:queued-1', idempotencyKey: 'queued-1' });

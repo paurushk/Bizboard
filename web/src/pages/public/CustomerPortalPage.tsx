@@ -1,13 +1,16 @@
+import { useState } from 'react';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import CircularProgress from '@mui/material/CircularProgress';
+import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
-import { downloadCustomerPortalInvoice, getCustomerPortal, startCustomerPortalPayment } from '@/api/resources';
-import { getErrorMessage } from '@/api/client';
+import { downloadCustomerPortalInvoice, getCustomerPortal, startCustomerPortalPayment, submitPortalComplaint } from '@/api/resources';
+import { getErrorMessage, newIdempotencyKey } from '@/api/client';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
 import { triggerBlobDownload } from '@/utils/blob';
@@ -30,6 +33,22 @@ export function CustomerPortalPage() {
     queryKey: ['customer-portal', token],
     queryFn: () => getCustomerPortal(token),
     retry: false,
+  });
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('OTHER');
+  const [complaintSent, setComplaintSent] = useState(false);
+  // Randomized per page load (not derived from `token`), so a reload before
+  // rotation can't reuse a key already consumed by an earlier submit on this
+  // same portal link -- that would make the backend's idempotency dedup
+  // silently swallow a genuinely new complaint as a "retry" of the old one.
+  const [complaintKey, setComplaintKey] = useState(() => newIdempotencyKey());
+  const complaint = useMutation({
+    mutationFn: () => submitPortalComplaint(token, { description, category }, complaintKey),
+    onSuccess: () => {
+      setComplaintSent(true);
+      setComplaintKey(newIdempotencyKey());
+    },
+    onError: () => setComplaintKey(newIdempotencyKey()),
   });
   const pay = useMutation({
     mutationFn: (invoiceId: number) => startCustomerPortalPayment(token, invoiceId),
@@ -94,6 +113,38 @@ export function CustomerPortalPage() {
                 ) : null}
               </Stack>
             ))}
+            {data.complaintsEnabled ? (
+              <Stack spacing={1}>
+                <Typography variant="h6">{t('portal.complaintTitle')}</Typography>
+                <TextField
+                  select
+                  size="small"
+                  label={t('portal.complaintTitle')}
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                >
+                  {['DAMAGED', 'WRONG_DELIVERY', 'QUALITY', 'OTHER'].map((item) => (
+                    <MenuItem key={item} value={item}>{item}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  size="small"
+                  label={t('portal.complaintDescription')}
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  inputProps={{ maxLength: 2000 }}
+                />
+                <Button
+                  variant="contained"
+                  disabled={!description.trim() || complaint.isPending}
+                  onClick={() => complaint.mutate()}
+                >
+                  {t('portal.complaintSubmit')}
+                </Button>
+                {complaintSent ? <Typography>{t('portal.complaintSent')}</Typography> : null}
+                {complaint.isError ? <Typography color="error">{getErrorMessage(complaint.error)}</Typography> : null}
+              </Stack>
+            ) : null}
             {pay.isError ? <Typography color="error">{getErrorMessage(pay.error)}</Typography> : null}
           </Stack>
         </CardContent>

@@ -11,11 +11,13 @@ from .views import (
     PaymentAllocationViewSet,
     PaymentHealthView,
     PaymentLinkViewSet,
+    PaymentPromiseViewSet,
     ReconViewSet,
     SupplierPaymentViewSet,
     UpiQrView,
 )
 from .portal_views import (
+    CustomerPortalComplaintView,
     CustomerPortalPayView,
     CustomerPortalPdfView,
     CustomerPortalRequestView,
@@ -32,6 +34,7 @@ router.register("links", PaymentLinkViewSet, basename="payment-links")
 router.register("gateway-payments", GatewayPaymentViewSet, basename="gateway-payments")
 router.register("statements", BankStatementViewSet, basename="bank-statements")
 router.register("recon", ReconViewSet, basename="payment-recon")
+router.register("promises", PaymentPromiseViewSet, basename="payment-promises")
 
 urlpatterns = router.urls + [
     path("upi-qr/", UpiQrView.as_view(), name="upi-qr"),
@@ -50,6 +53,11 @@ public_urlpatterns = [
     path("public/pay/<str:token>/", public_payment_link, name="public-pay"),
     path("public/customer-portal/request-link/", CustomerPortalRequestView.as_view(), name="customer-portal-request"),
     path("public/customer-portal/<str:token>/", CustomerPortalView.as_view(), name="customer-portal"),
+    path(
+        "public/customer-portal/<str:token>/complaints/",
+        CustomerPortalComplaintView.as_view(),
+        name="customer-portal-complaint",
+    ),
     path(
         "public/customer-portal/<str:token>/invoices/<int:invoice_id>/pdf/",
         CustomerPortalPdfView.as_view(),

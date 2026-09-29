@@ -1,5 +1,6 @@
 """Sales Service — quotations, invoices, returns, status transitions (E4)."""
 
+import logging
 from collections import defaultdict
 from decimal import Decimal
 
@@ -37,6 +38,20 @@ from .models import (
     SalesReturnItem,
 )
 from .statutory_forms_guard import assert_statutory_licence_present
+
+logger = logging.getLogger(__name__)
+
+
+def _note_first_saas_invoice(company_id):
+    from billing.ops import note_first_invoice
+
+    # Best-effort vendor analytics, fired from transaction.on_commit after the
+    # invoice is already durably completed -- it must never turn a successful
+    # invoice completion into a 500 for the customer.
+    try:
+        note_first_invoice(company_id)
+    except Exception:
+        logger.exception("note_first_invoice failed for company %s", company_id)
 
 
 def _validate_lines(items_data, company, *, check_active=True):
@@ -800,8 +815,61 @@ class SalesService:
 
     @staticmethod
     @transaction.atomic
+    def repeat_last_invoice(company, customer, user):
+        """Repeat-Last-Invoice: copy the customer's most recently COMPLETED
+        invoice's lines (same product, quantity, and price) into a new DRAFT
+        invoice, fully editable before Complete. A straightforward copy — no
+        new model. The new draft still goes through GST Guard and every other
+        normal completion gate when it is later completed; nothing here
+        bypasses any check.
+        """
+        source = (
+            SalesInvoice.objects.filter(
+                company=company,
+                customer=customer,
+                status=SalesInvoice.Status.COMPLETED,
+            )
+            .order_by("-invoice_date", "-id")
+            .prefetch_related("items__product")
+            .first()
+        )
+        if source is None:
+            raise BusinessRuleError(
+                "This customer has no completed invoice to repeat."
+            )
+
+        draft = SalesInvoice.objects.create(
+            company=company,
+            customer=customer,
+            warehouse=source.warehouse,
+            invoice_type=source.invoice_type,
+            supply_type=source.supply_type,
+            notes=source.notes,
+            created_by=user,
+            updated_by=user,
+        )
+        items_data = [
+            {
+                "product": item.product,
+                "description": item.description,
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+                "discount_percent": item.discount_percent,
+                "gst_rate": item.gst_rate,
+                "cess_rate": item.cess_rate,
+                "cess_amount": item.cess_amount,
+            }
+            for item in source.items.all()
+        ]
+        SalesService.set_items(draft, items_data, user)
+        draft.refresh_from_db()
+        return draft
+
+    @staticmethod
+    @transaction.atomic
     def complete(invoice: SalesInvoice, user, *, confirm_sales_rcm=False, confirm_blank_pos=False,
-                 confirm_gstin_total_change=False, confirm_missing_licence=False):
+                 confirm_gstin_total_change=False, confirm_missing_licence=False,
+                 gst_guard_override_reason=None):
         """Atomic Complete: rules + number + SALE movements + PDF event (E4.4)."""
         invoice = SalesInvoice.objects.select_for_update().get(pk=invoice.pk)
         from billing.quotas import assert_complete_allowed
@@ -909,7 +977,9 @@ class SalesService:
         apply_tcs_fold(invoice)
         customer = Customer.objects.select_for_update().get(pk=invoice.customer_id)
         limit = customer.credit_limit or Decimal("0")
-        if limit > 0 and not is_tally_opening:
+        from sales.order_gates import invoice_credit_override_covers
+
+        if limit > 0 and not is_tally_opening and not invoice_credit_override_covers(invoice):
             exposure = LedgerService.customer_exposure_for_credit_limit(
                 invoice.company, customer
             )
@@ -919,6 +989,13 @@ class SalesService:
                     f"Credit limit exceeded. Exposure {exposure} + invoice "
                     f"{invoice.grand_total} > limit {limit}.",
                     code=HelpCode.CREDIT_LIMIT_EXCEEDED,
+                    extra={
+                        "customer_id": customer.id,
+                        "customer_name": customer.name,
+                        "credit_limit": str(limit),
+                        "current_exposure": str(exposure),
+                        "invoice_total": str(invoice.grand_total),
+                    },
                 )
         # QOS-0044: the check above only fires for a customer with an explicit
         # credit_limit. Opt-in: also hold a customer whose collection-risk
@@ -988,6 +1065,44 @@ class SalesService:
             )
 
         warnings = []
+
+        if tax_enabled and not is_tally_opening:
+            from core.services.feature_flags import flag_enabled
+
+            if flag_enabled(invoice.company, "ENABLE_GST_GUARD"):
+                from reporting.gst_guard import (
+                    apply_gst_guard_override,
+                    document_has_gst_guard_override,
+                    gst_guard_override_membership,
+                    GST_GUARD_OVERRIDE_REASON_MAX,
+                    GstGuardBlocked,
+                    validate_document,
+                )
+
+                guard_result = validate_document(invoice)
+                if guard_result.blocking and not document_has_gst_guard_override(invoice):
+                    reason = (
+                        gst_guard_override_reason.strip()
+                        if isinstance(gst_guard_override_reason, str)
+                        else ""
+                    )
+                    valid_reason = bool(reason) and len(reason) <= GST_GUARD_OVERRIDE_REASON_MAX
+                    membership = (
+                        gst_guard_override_membership(invoice.company, user) if valid_reason else None
+                    )
+                    if valid_reason and membership is not None:
+                        apply_gst_guard_override(
+                            invoice, result=guard_result, reason=reason, acting_user=user,
+                        )
+                    else:
+                        raise GstGuardBlocked(guard_result)
+                if guard_result.warning:
+                    invoice._gst_guard_warnings = [
+                        {"code": i.code, "message": i.message} for i in guard_result.warning
+                    ]
+                    for issue in guard_result.warning:
+                        warnings.append(f"GST Guard: {issue.message}")
+
         if tax_enabled:
             missing_hsn = [i for i in items if not (i.hsn_code or "").strip()]
             if missing_hsn:
@@ -1052,7 +1167,7 @@ class SalesService:
                 )
             if item.quantity <= 0:
                 raise BusinessRuleError("Quantity on each line must be greater than zero.")
-        if not stock_from_challan:
+        if not stock_from_challan and not is_tally_opening:
             from inventory.item_stock import tracks_inventory
 
             for item in items:
@@ -1159,11 +1274,16 @@ class SalesService:
                 )
         invoice.status = SalesInvoice.Status.COMPLETED
         invoice.completed_at = timezone.now()
+        from projects.services import sync_project_milestone
+
+        sync_project_milestone(invoice, completed=True)
         invoice.pdf_status = (
             SalesInvoice.PdfStatus.NONE if is_tally_opening else SalesInvoice.PdfStatus.QUEUED
         )
         invoice.updated_by = user
         invoice.save()
+        company_id = invoice.company_id
+        transaction.on_commit(lambda cid=company_id: _note_first_saas_invoice(cid))
 
         from .cogs_service import CogsService
 
@@ -1407,6 +1527,12 @@ class SalesService:
         invoice.cancelled_at = timezone.now()
         invoice.updated_by = user
         invoice.save()
+        from projects.services import sync_project_milestone
+
+        sync_project_milestone(invoice, completed=False)
+        from workshop.services import sync_job_card
+
+        sync_job_card(invoice, completed=False)
         from reporting.invoice_profit_service import InvoiceProfitService
 
         InvoiceProfitService.sync_status(invoice)
@@ -1627,10 +1753,12 @@ class SalesService:
 
     @staticmethod
     @transaction.atomic
-    def complete_return(sales_return: SalesReturn, user):
+    def complete_return(sales_return: SalesReturn, user, *, gst_guard_override_reason=None):
         from .return_service import ReturnService
 
-        return ReturnService.complete_return(sales_return, user)
+        return ReturnService.complete_return(
+            sales_return, user, gst_guard_override_reason=gst_guard_override_reason,
+        )
 
     @staticmethod
     @transaction.atomic

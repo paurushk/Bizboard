@@ -549,3 +549,226 @@ def test_cft_120_concurrent_same_invoice_amend_one_wins(tenant_a):
     assert obj.amend_revision == int(rev) + 1
     price = Decimal(str(obj.items.get().unit_price))
     assert price in (Decimal("90.00"), Decimal("80.00"))
+
+
+def test_concurrent_order_confirms_share_one_credit_limit(tenant_a):
+    """Two different draft orders race for one credit limit.
+
+    Each thread creates its own DRAFT inside the confirm transaction, then
+    calls confirm_sales_order. The sibling insert is invisible until that
+    transaction commits, so the customer row lock is what makes the second
+    confirm see the first order and raise credit_limit_exceeded.
+    """
+    _require_postgres()
+    from django.db import transaction
+
+    from sales.models import SalesOrder, SalesOrderItem
+    from sales.notes_services import SalesNotesService
+
+    flags = dict(tenant_a.company.feature_flags or {})
+    flags["ENABLE_ORDER_GATES"] = True
+    tenant_a.company.feature_flags = flags
+    tenant_a.company.save(update_fields=["feature_flags"])
+    customer = make_customer(tenant_a.company, name="Race Credit", credit_limit=Decimal("100"))
+    product = make_product(tenant_a.company, sku="RACE-CREDIT", purchase_price="10", selling_price="100")
+    add_stock(tenant_a, product, "2")
+
+    barrier = threading.Barrier(2, timeout=15)
+    successes: list[int] = []
+    errors: list[str] = []
+
+    def confirm():
+        connection.close()
+        try:
+            barrier.wait()
+            with transaction.atomic():
+                order = SalesOrder.objects.create(
+                    company=tenant_a.company,
+                    customer=customer,
+                    grand_total=Decimal("100"),
+                    status=SalesOrder.Status.DRAFT,
+                    created_by=tenant_a.owner,
+                )
+                SalesOrderItem.objects.create(
+                    company=tenant_a.company,
+                    sales_order=order,
+                    product=product,
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                )
+                SalesNotesService.confirm_sales_order(order, tenant_a.owner)
+            successes.append(order.pk)
+        except BusinessRuleError as exc:
+            errors.append(str(exc.get_codes()) if hasattr(exc, "get_codes") else str(exc))
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=confirm), threading.Thread(target=confirm)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert len(successes) == 1, (successes, errors)
+    assert len(errors) == 1 and "credit_limit_exceeded" in errors[0]
+    assert len(set(successes)) == 1
+    confirmed = SalesOrder.objects.filter(customer=customer, status=SalesOrder.Status.CONFIRMED)
+    assert confirmed.count() == 1
+    assert confirmed.get().pk == successes[0]
+
+
+def test_concurrent_apply_pack_leaves_one_snapshot(tenant_a):
+    """A flag written while the company row is locked survives apply_pack.
+
+    The holder keeps the row lock, the apply waits on that lock, then the
+    holder stores SENTINEL_FLAG and commits. apply_pack must read that value
+    and keep it. Two identical applies cannot show a lost update.
+    """
+    _require_postgres()
+    import time
+
+    from django.db import transaction
+
+    from accounts.models import Company, CompanyPackState
+    from accounts.packs import PACKS, apply_pack
+
+    holding = threading.Event()
+    errors: list[BaseException] = []
+
+    def hold():
+        connection.close()
+        try:
+            with transaction.atomic():
+                company = Company.objects.select_for_update().get(pk=tenant_a.company.pk)
+                holding.set()
+                deadline = time.time() + 10
+                while time.time() < deadline:
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            """
+                            SELECT COUNT(*) FROM pg_locks
+                            WHERE NOT granted
+                              AND relation = 'accounts_company'::regclass
+                            """
+                        )
+                        waiting = cursor.fetchone()[0]
+                    if waiting:
+                        break
+                    time.sleep(0.05)
+                else:
+                    raise AssertionError("apply_pack did not wait on the company row lock")
+                flags = dict(company.feature_flags or {})
+                flags["SENTINEL_FLAG"] = True
+                company.feature_flags = flags
+                company.save(update_fields=["feature_flags", "updated_at"])
+        except BaseException as exc:  # noqa: BLE001 — reported by the assertion
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    def run():
+        connection.close()
+        try:
+            assert holding.wait(timeout=10)
+            apply_pack(
+                tenant_a.company,
+                "retail",
+                {"how_you_sell": "counter", "what_you_sell": "", "deliver": "", "gst_registered": ""},
+                tenant_a.owner,
+            )
+        except BaseException as exc:  # noqa: BLE001 — reported by the assertion
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    holder = threading.Thread(target=hold)
+    applier = threading.Thread(target=run)
+    holder.start()
+    applier.start()
+    holder.join(timeout=30)
+    applier.join(timeout=30)
+
+    assert not errors, errors
+    company = Company.objects.get(pk=tenant_a.company.pk)
+    state = CompanyPackState.objects.get(company=company)
+    expected = {key: True for key in PACKS["retail"]}
+    assert state.applied_pack == "retail"
+    assert state.applied_flags == expected
+    assert company.feature_flags["SENTINEL_FLAG"] is True
+    for key in expected:
+        assert company.feature_flags[key] is True
+
+
+def test_concurrent_job_convert_creates_one_invoice(tenant_a):
+    """Two workers converting one job leave a single draft invoice."""
+    _require_postgres()
+    from workshop.models import JobCard
+    from workshop.services import convert_to_invoice
+
+    tenant_a.company.feature_flags = {"ENABLE_WORKSHOP": True}
+    tenant_a.company.save(update_fields=["feature_flags"])
+    customer = make_customer(tenant_a.company)
+    product = make_product(tenant_a.company, product_type="SERVICE")
+    job = JobCard.objects.create(company=tenant_a.company, customer=customer, number="JOB-RACE")
+    from workshop.models import JobCardLine
+
+    JobCardLine.objects.create(
+        company=tenant_a.company, job=job, kind=JobCardLine.Kind.LABOUR, product=product, quantity=1, unit_price=10,
+    )
+    errors = []
+
+    def convert():
+        try:
+            convert_to_invoice(job, tenant_a.owner)
+        except Exception as exc:  # noqa: BLE001 — the loser may see a locked row
+            errors.append(exc)
+
+    threads = [threading.Thread(target=convert) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    job.refresh_from_db()
+    from sales.models import SalesInvoice
+
+    assert SalesInvoice.objects.filter(company=tenant_a.company, pk=job.sales_invoice_id).count() == 1
+
+
+def test_concurrent_policy_issue_creates_one_policy(tenant_a):
+    """Two workers issuing one chosen option leave a single policy."""
+    _require_postgres()
+    from insurance.models import Policy, PolicyOption, PolicyOptionSet, PolicyProduct
+    from insurance.services import choose_option, issue_policy
+
+    tenant_a.company.feature_flags = {"ENABLE_INSURANCE": True}
+    tenant_a.company.save(update_fields=["feature_flags"])
+    customer = make_customer(tenant_a.company)
+    from crm.models import Lead
+
+    lead = Lead.objects.create(company=tenant_a.company, name=customer.name, customer=customer)
+    first = PolicyProduct.objects.create(
+        company=tenant_a.company, name="A", insurer_name="I", line="OTHER", tenure_months=1, sum_insured=1, premium=10,
+    )
+    second = PolicyProduct.objects.create(
+        company=tenant_a.company, name="B", insurer_name="I", line="OTHER", tenure_months=1, sum_insured=1, premium=12,
+    )
+    option_set = PolicyOptionSet.objects.create(company=tenant_a.company, lead=lead)
+    option = PolicyOption.objects.create(company=tenant_a.company, option_set=option_set, product=first)
+    PolicyOption.objects.create(company=tenant_a.company, option_set=option_set, product=second)
+    choose_option(option, tenant_a.owner)
+
+    def issue():
+        issue_policy(
+            tenant_a.company, tenant_a.owner, option=option, customer=customer,
+            nominee="Anita", start_date=timezone.localdate(),
+        )
+
+    from django.utils import timezone
+
+    threads = [threading.Thread(target=issue) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert Policy.objects.filter(company=tenant_a.company, option=option).count() == 1
+

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from statistics import median
 
 from django.utils import timezone
@@ -50,7 +50,11 @@ def median_days_late(company, customer) -> int | None:
             break
     if len(seen) < CONFIDENT_MIN_INVOICES:
         return None
-    return int(median(seen))
+    # statistics.median() on an even-length sample returns the average of
+    # the two middle values (e.g. 1.5); int() truncates toward zero instead
+    # of rounding, biasing every even-sample estimate down and letting a
+    # customer at exactly the MIN_PREDICTED_LATE_DAYS boundary slip under it.
+    return int(Decimal(str(median(seen))).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def _window_invoices(company, as_of):

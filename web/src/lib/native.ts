@@ -265,3 +265,25 @@ export function onNetworkOnline(cb: () => void): () => void {
     .catch(() => {});
   return () => handle?.remove();
 }
+
+/** Bluetooth ESC/POS. Falls back to the browser print path when the plugin is absent. */
+export async function printEscPos(payload: Uint8Array): Promise<'native' | 'browser'> {
+  const plugin = capacitor()?.Plugins?.BluetoothPrinter as
+    | { print?: (opts: { data: number[] }) => Promise<void> }
+    | undefined;
+  if (isNative() && plugin?.print) {
+    await plugin.print({ data: Array.from(payload) });
+    return 'native';
+  }
+  return 'browser';
+}
+
+/** POD photo via the installed Capacitor camera plugin. Returns null in a plain browser. */
+export async function capturePodPhoto(): Promise<string | null> {
+  const plugin = capacitor()?.Plugins?.Camera as
+    | { getPhoto?: (opts: { resultType: string; source: string }) => Promise<{ dataUrl?: string }> }
+    | undefined;
+  if (!isNative() || !plugin?.getPhoto) return null;
+  const photo = await plugin.getPhoto({ resultType: 'dataUrl', source: 'camera' });
+  return photo?.dataUrl || null;
+}

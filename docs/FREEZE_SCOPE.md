@@ -84,7 +84,7 @@ inaccessible with that profile.
 
 | Feature | Flag(s) (frozen value) | Why out for freeze |
 |---|---|---|
-| GSTR report screens / on-portal filing | `ENABLE_GSTR=0`, `VITE_ENABLE_GSTR=false` | Offline worksheets only; not GSTN filing (see C1) |
+| GSTR report screens / on-portal filing | Trial plan grants `ENABLE_GSTR` for GSTR-1 and GSTR-3B worksheets | Labelled "Not filed — worksheet for your CA". 2B and IMS are not in this release. Not GSTN filing (see C1) |
 | GSTN JSON export | `ENABLE_GSTN_JSON=0` | Depends on GSTR screens |
 | Live NIC e-invoice / e-way | `GSP_LIVE_ENABLED=0` | No live GSP integration in pilot (see C2) |
 | e-invoice sandbox submit UI | `VITE_ENABLE_EINVOICE_SUBMIT=false` | Preview only; not a filing path (see C2) |
@@ -140,7 +140,7 @@ belongs to. Source: `backend/config/settings.py`,
 | `ENABLE_SETUP_WIZARD` / `VITE_ENABLE_SETUP_WIZARD` | both | **ON** (`1` / `true`) | A19 SUPPORTED |
 | `company.accounting_enabled` / `VITE_ENABLE_ACCOUNTING` | both | per-company opt-in; ≥1 pilot company ON (D5) → `FG-2a/gl` hard gate | C4 |
 | `company.ai_features_enabled` / `VITE_ENABLE_AI` | both | OFF | B |
-| `ENABLE_GSTR` / `VITE_ENABLE_GSTR` | both | OFF | B (worksheets = C1) |
+| `ENABLE_GSTR` / `VITE_ENABLE_GSTR` | trial plan | ON for GSTR-1 and GSTR-3B worksheets | Not filing. 2B and IMS stay out of this release |
 | `ENABLE_GSTN_JSON` | backend | OFF | B |
 | `ENABLE_FIXED_ASSETS` | backend | **OFF** (`0`) — Django default OFF; tests opt in via `settings_test` | B (D6 → KNOWN LIMITATION, revision 2026-09-09b) |
 | `ENABLE_BOE` | backend | **OFF** (`0`) — Django default OFF; tests opt in via `settings_test` | B (D10 → KNOWN LIMITATION, revision 2026-09-09b) |
@@ -586,6 +586,7 @@ disposition and does not affect the ARCH-03 pilot's frozen surface.
 - [x] D12–D14 resolved 2026-09-09; **confirmed 2026-09-09b (PO)** — D12 mobile shell **SUP (ships)**, D13 erasure **SUP (automated)**, D14 LLM **SUP (failure + injection guard)**
 - [x] D15 (2026-09-11): ARCH-05 statutory forms (20B/21B/FSSAI) ratified — built behind `ENABLE_ARCH05_STATUTORY_FORMS` (OFF by default); Freeze Gate artifact WF-60; no ARCH-03 pilot impact
 - [x] D16 (2026-09-12): `postgres-rls` CI job promoted to a required check (test-strictness only — Table B's `POSTGRES_RLS_ENABLED=0` disposition unchanged); test selection widened to `tests/test_rls_coverage.py` + `tests/tenancy/`
+- [x] D17 (2026-09-26): PRE-09 commission is an operational register. `CommissionReceivable` is not accounts receivable, does not post a journal, and does not appear on the trial balance, the sales register, or GSTR-1. A CA must not expect insurer commission on the P&L from this release. Gate: `test_j_ins_p12_renew_p5_commission_p10_claim`
 - [ ] Section G reviewed — remaining G1–G7 flows not covered by the retained D9b/D12/D13/D14 given a SUP / LIM / OUT disposition — *founder judgment call on disposition; the underlying test coverage for what's already dispositioned is tracked in `docs/FREEZE_SCOPE_COVERAGE.md`.*
 - [ ] Section H reviewed — FE / async / privacy / ops / edge-case dispositions confirmed — *founder
   judgment call; most H-items already have a passing contract test (`backend/tests/errors/`) per

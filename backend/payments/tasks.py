@@ -69,11 +69,15 @@ def execute_gateway_refund(self, outbox_id, company_id=None):
             refund_id = cashfree_order_id_for_refund(
                 provider_payment_id, getattr(gp, "raw_payload", None)
             )
-        adapter.refund(
+        refund_result = adapter.refund(
             provider_payment_id=refund_id,
             amount=amount,
             idempotency_key=key,
         )
+        provider_refund_id = ""
+        if isinstance(refund_result, dict):
+            provider_refund_id = str(refund_result.get("id") or "").strip()
+        prov_key = f"prov:{provider_refund_id}" if provider_refund_id else ""
         from payments.services import PaymentService
 
         from decimal import Decimal
@@ -87,10 +91,12 @@ def execute_gateway_refund(self, outbox_id, company_id=None):
                 continue
         remaining = max(Decimal("0"), remaining)
         full = amount >= remaining
+        applied_keys = list(raw.get("applied_refund_keys") or [])
         already_unwound = (
             bool(raw.get("books_unwound"))
             or gp.status == GatewayPaymentStatus.REFUNDED
-            or (key in (raw.get("applied_refund_keys") or []))
+            or key in applied_keys
+            or (prov_key and prov_key in applied_keys)
         )
         with transaction.atomic():
             if not already_unwound:
@@ -104,6 +110,12 @@ def execute_gateway_refund(self, outbox_id, company_id=None):
                     full=full,
                     refund_key=key,
                 )
+                if prov_key:
+                    raw_after = gp.raw_payload if isinstance(gp.raw_payload, dict) else {}
+                    keys_after = list(raw_after.get("applied_refund_keys") or [])
+                    if prov_key not in keys_after:
+                        keys_after.append(prov_key)
+                    gp.raw_payload = {**raw_after, "applied_refund_keys": keys_after}
                 # Move gp -> REFUNDED / PARTIALLY_REFUNDED and record the
                 # partial-refund entry, same as the synchronous path.
                 PaymentService._finalise_refund_state(

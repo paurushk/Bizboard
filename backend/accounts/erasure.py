@@ -39,6 +39,7 @@ PROTECT_MODELS_HANDLED = {
     "core.AuditEvent",
     "core.MoneyFieldAudit",
     "core.StatutoryDocumentEvent",
+    "support.VendorTicketShare",
 }
 _SAFE_ON_DELETE = {"CASCADE", "SET_NULL", "SET_DEFAULT", "DO_NOTHING"}
 
@@ -129,10 +130,13 @@ def _rls_bypass():
 
 def _delete_protect_rows(company) -> None:
     from core.models import AuditEvent, MoneyFieldAudit, StatutoryDocumentEvent
+    from django.db.models import Q
+    from support.models import VendorTicketShare
 
     AuditEvent.objects.filter(company=company).delete()
     MoneyFieldAudit.objects.filter(company=company).delete()
     StatutoryDocumentEvent.objects.filter(company=company).delete()
+    VendorTicketShare.objects.filter(Q(source_company=company) | Q(vendor_company=company)).delete()
 
 
 def _delete_non_retained(company, retained: set[str]) -> None:
@@ -282,6 +286,11 @@ def erase_company(
             _scrub_invoice_pii(company)
             User.objects.filter(active_company=company).update(active_company=None)
             CompanyUser.objects.filter(company=company).update(is_active=False)
+            from accounts.models import InviteJti
+
+            InviteJti.objects.filter(
+                membership__company=company, consumed_at__isnull=True,
+            ).update(consumed_at=timezone.now())
             _scrub_company(company)
             for label in TOMBSTONE_RETAINED:
                 try:

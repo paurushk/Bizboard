@@ -169,19 +169,12 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
         levels_by_product: dict = {}
         balances_by_product: dict = {}
         if replenish and low_stock_rows:
-            from inventory.models import StockBalance, WarehouseReorderLevel
+            from inventory.reorder_maps import reorder_and_balances
 
             product_ids = {row.product_id for row in low_stock_rows}
-            for level_row in WarehouseReorderLevel.objects.filter(
-                company=company, product_id__in=product_ids,
-            ):
-                reorder_row_by_key[(level_row.warehouse_id, level_row.product_id)] = level_row
-                levels_by_product.setdefault(level_row.product_id, {})[level_row.warehouse_id] = level_row
-            for bal_row in (
-                StockBalance.objects.filter(company=company, product_id__in=product_ids)
-                .select_related("warehouse")
-            ):
-                balances_by_product.setdefault(bal_row.product_id, []).append(bal_row)
+            reorder_row_by_key, levels_by_product, balances_by_product = reorder_and_balances(
+                company, product_ids,
+            )
         for bal in low_stock_rows:
             if bal.product_id not in sold_ids:
                 continue
@@ -317,7 +310,9 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                 continue
             cost = getattr(it.product, "purchase_price", None) or Decimal("0")
             price = it.unit_price or Decimal("0")
-            if cost > 0 and price > 0 and (price - cost) / price < Decimal("0.05"):
+            from core.services.margin import margin_below_threshold
+
+            if margin_below_threshold(price, cost):
                 seen_products.add(it.product_id)
                 rows.append(_alert(
                     "MARGIN_DROP_SKU",
@@ -368,7 +363,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
             ))
         return rows
 
-    for name, builder in (
+    builders = [
         ("ar_overdue", _ar),
         ("ap_due", _ap),
         ("low_stock", _low_stock),
@@ -378,7 +373,68 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
         ("margin_drop", _margin),
         ("cash_tight", _cash_tight),
         ("gst_health", _gst_health),
-    ):
+    ]
+    from core.services.feature_flags import flag_enabled
+
+    if flag_enabled(company, "ENABLE_SUPPORT_TICKETS"):
+        def _ticket_sla():
+            from support.models import Ticket
+
+            rows = []
+            # WAITING is excluded: transition_status() freezes sla_due_at while a
+            # ticket waits on the customer and only extends it on exit, so a
+            # paused ticket's frozen due timestamp is not a real breach.
+            overdue = Ticket.objects.filter(
+                company=company,
+                status__in=("OPEN", "IN_PROGRESS"),
+                sla_due_at__lte=timezone.now(),
+            )
+            for ticket in overdue:
+                rows.append(_alert(
+                    "TICKET_SLA_BREACH",
+                    "warning",
+                    f"Ticket {ticket.number} is past its SLA.",
+                    subject_key=f"ticket:{ticket.id}",
+                    document_type="ticket",
+                    document_id=ticket.id,
+                    dedupe_key=f"TICKET_SLA_BREACH:{ticket.id}",
+                    cta_path="/support/tickets",
+                ))
+            return rows
+
+        builders.append(("ticket_sla", _ticket_sla))
+    if flag_enabled(company, "ENABLE_CONTRACTS"):
+        def _contract_renewal():
+            from contracts.models import Contract
+
+            rows = []
+            from contracts.status import effective_contract_status
+
+            today = timezone.localdate()
+            expiring = [
+                contract
+                for contract in Contract.objects.filter(company=company).exclude(
+                    status=Contract.Status.CANCELLED,
+                ).only("id", "number", "status", "end_date", "renewal_reminder_days")
+                if effective_contract_status(
+                    contract.status, contract.end_date, contract.renewal_reminder_days, today,
+                ) == Contract.Status.EXPIRING
+            ]
+            for contract in expiring:
+                rows.append(_alert(
+                    "CONTRACT_RENEWAL",
+                    "warning",
+                    f"Contract {contract.number} is due for renewal.",
+                    subject_key=f"contract:{contract.id}",
+                    document_type="contract",
+                    document_id=contract.id,
+                    dedupe_key=f"CONTRACT_RENEWAL:{contract.id}",
+                    cta_path="/contracts",
+                ))
+            return rows
+
+        builders.append(("contract_renewal", _contract_renewal))
+    for name, builder in builders:
         alerts.extend(_run_alert_builder(name, company, builder))
 
     return alerts
@@ -393,6 +449,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
     Called from the Attention Center only so the legacy alerts inbox is unchanged.
     """
     from django.db.models import Count
+    from core.services.margin import margin_below_threshold
     from inventory.models import MovementType, StockBalance, StockMovement
     from purchases.models import PurchaseItem
     from sales.models import SalesInvoice, SalesItem
@@ -434,7 +491,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
                 entity_type="product",
                 entity_id=it.product_id,
             ))
-        elif cost > 0 and price > 0 and (price - cost) / price < Decimal("0.05"):
+        elif margin_below_threshold(price, cost):
             # Already covered by MARGIN_DROP_SKU in build_business_alerts; skip.
             pass
 

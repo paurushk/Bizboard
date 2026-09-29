@@ -175,6 +175,22 @@ def generate_draft_for_schedule(schedule: RecurringInvoiceSchedule, *, run_date:
         invoice.refresh_from_db()
         if invoice.status != SalesInvoice.Status.DRAFT:
             raise BusinessRuleError("Recurring generator must leave invoices in DRAFT.")
+        if getattr(schedule, "auto_complete", False):
+            # A completion-time gate (GST Guard, credit limit, etc.) must not
+            # roll back the DRAFT invoice/run just created — otherwise this
+            # schedule would silently produce nothing, forever, on every tick
+            # that hits the same gate. Isolate the attempt in a savepoint so a
+            # failure here leaves the invoice as a normal DRAFT to fix by hand.
+            try:
+                with transaction.atomic():
+                    SalesService.complete(invoice, user)
+            except Exception:
+                logger.exception(
+                    "recurring: auto_complete failed for schedule %s; leaving invoice %s in DRAFT",
+                    schedule.pk, invoice.pk,
+                )
+            else:
+                invoice.refresh_from_db()
 
     run = RecurringInvoiceRun.objects.create(
         company=schedule.company,
@@ -192,14 +208,37 @@ def generate_draft_for_schedule(schedule: RecurringInvoiceSchedule, *, run_date:
 
 
 def process_due_schedules(*, now=None):
+    from core.rls import iter_company_ids, set_rls_company
+
     now = now or timezone.now()
     created = 0
     skipped_locked = 0
     skipped_duplicate = 0
     skipped_error = 0
-    for schedule in RecurringInvoiceSchedule.objects.filter(is_active=True, next_run_at__lte=now).select_related(
-        "company", "customer", "company_gstin",
-    ):
+    try:
+        for cid in iter_company_ids():
+            set_rls_company(cid)
+            created, skipped_locked, skipped_duplicate, skipped_error = _process_company_schedules(
+                cid, now,
+                created=created,
+                skipped_locked=skipped_locked,
+                skipped_duplicate=skipped_duplicate,
+                skipped_error=skipped_error,
+            )
+    finally:
+        set_rls_company(None)
+    return {
+        "created": created,
+        "skipped_locked": skipped_locked,
+        "skipped_duplicate": skipped_duplicate,
+        "skipped_error": skipped_error,
+    }
+
+
+def _process_company_schedules(company_id, now, *, created, skipped_locked, skipped_duplicate, skipped_error):
+    for schedule in RecurringInvoiceSchedule.objects.filter(
+        company_id=company_id, is_active=True, next_run_at__lte=now,
+    ).select_related("company", "customer", "company_gstin"):
         try:
             _created, _locked, _dup = _process_one_schedule(schedule, now=now)
             created += _created
@@ -220,12 +259,7 @@ def process_due_schedules(*, now=None):
                 logger.exception(
                     "recurring: could not record last_error for schedule %s", schedule.pk
                 )
-    return {
-        "created": created,
-        "skipped_locked": skipped_locked,
-        "skipped_duplicate": skipped_duplicate,
-        "skipped_error": skipped_error,
-    }
+    return created, skipped_locked, skipped_duplicate, skipped_error
 
 
 MAX_CATCHUP_TICKS = 12  # CR-027: Cap catch-up loop per schedule run to prevent timeouts

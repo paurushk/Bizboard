@@ -28,8 +28,12 @@ import { expect, test } from '@playwright/test';
 import {
   loginAsAccountant,
   loginAsAccountantBooksOn,
+  loginAsInventoryStaff,
+  loginAsAuditor,
+  loginAsManager,
   loginAsOwner,
   loginAsOwnerBooksOn,
+  loginAsPolicyDesk,
   loginAsSales,
   loginAsViewer,
 } from '../helpers/auth';
@@ -151,15 +155,118 @@ test.describe('PJ-ACCT — books + reports, no sales creation', () => {
   });
 });
 
+test.describe('PJ-CUSTODIAN — inventory & stock movements only', () => {
+  test('inventory staff can open stock and transfers', async ({ page }) => {
+    await loginAsInventoryStaff(page);
+    for (const path of ['/inventory/stock', '/inventory/transfers']) {
+      await page.goto(path);
+      await expect(page).toHaveURL(new RegExp(path.replace(/\//g, '\\/')));
+      await expect(page).not.toHaveURL(/\/login/);
+      await expect(page.getByText(/access denied|forbidden|no access|403/i)).toHaveCount(0);
+    }
+  });
+
+  test('inventory staff cannot create sales or post journals', async ({ page }) => {
+    await loginAsInventoryStaff(page);
+    await page.goto('/sales/new');
+    const onForm = await page.getByRole('button', { name: /save draft|complete invoice/i }).count();
+    expect(onForm, 'inventory staff must not get a working invoice form').toBe(0);
+
+    await page.goto('/accounting/journals');
+    await expect(page.getByRole('button', { name: /new voucher|post journal|new journal/i })).toHaveCount(0);
+    await page.goto('/settings/users');
+    await expect(page.getByRole('button', { name: /invite user|add user/i })).toHaveCount(0);
+  });
+});
+
+test.describe('PJ-MANAGER — sales and reports, not user admin', () => {
+  test('manager can open a sale and a report', async ({ page }) => {
+    await loginAsManager(page);
+    await page.goto('/sales/new');
+    await expect(page).toHaveURL(/\/sales\/new/);
+    await expect(page).not.toHaveURL(/\/login/);
+    await page.goto('/reports/sales');
+    await expect(page).toHaveURL(/\/reports\/sales/);
+  });
+
+  test('manager cannot invite a user', async ({ page }) => {
+    await loginAsManager(page);
+    await page.goto('/settings/users');
+    await expect(page.getByRole('button', { name: /invite user|add user/i })).toHaveCount(0);
+  });
+});
+
+test.describe('PJ-AUDITOR — reports only', () => {
+  test('auditor can open a report and cannot bill or invite', async ({ page }) => {
+    await loginAsAuditor(page);
+    await page.goto('/reports/sales');
+    await expect(page).toHaveURL(/\/reports\/sales/);
+    await page.goto('/sales/new');
+    const onForm = await page.getByRole('button', { name: /save draft|complete invoice/i }).count();
+    expect(onForm, 'auditor must not get a working invoice form').toBe(0);
+    await page.goto('/settings/users');
+    await expect(page.getByRole('button', { name: /invite user|add user/i })).toHaveCount(0);
+  });
+});
+
+test.describe('denied routes stay denied after reload and back', () => {
+  test('viewer denial survives reload and back', async ({ page }) => {
+    await loginAsViewer(page);
+    await page.goto('/sales/new');
+    await expect(page.getByRole('button', { name: /save draft|complete invoice/i })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole('button', { name: /save draft|complete invoice/i })).toHaveCount(0);
+    await page.goto('/');
+    await page.goto('/sales/new');
+    await page.goBack();
+    await expect(page.getByRole('button', { name: /save draft|complete invoice/i })).toHaveCount(0);
+  });
+
+  test('sales denial survives reload', async ({ page }) => {
+    await loginAsSales(page);
+    await page.goto('/settings/users');
+    await expect(page.getByRole('button', { name: /invite user|add user/i })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole('button', { name: /invite user|add user/i })).toHaveCount(0);
+  });
+
+  test('policy desk denial survives reload', async ({ page }) => {
+    await loginAsPolicyDesk(page);
+    await page.goto('/sales/new');
+    await expect(page.getByRole('button', { name: /save draft|complete invoice/i })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole('button', { name: /save draft|complete invoice/i })).toHaveCount(0);
+  });
+});
+
+test.describe('PJ-POLICY-DESK — policies, not money or users', () => {
+  test('policy desk opens the insurance desk and cannot bill or invite', async ({ page }) => {
+    await loginAsPolicyDesk(page);
+    await page.goto('/insurance');
+    await expect(page.getByRole('button', { name: 'Create' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('In force')).toBeVisible();
+    await page.goto('/sales/new');
+    const onForm = await page.getByRole('button', { name: /save draft|complete invoice/i }).count();
+    expect(onForm, 'policy desk must not get a working invoice form').toBe(0);
+    await page.goto('/settings/users');
+    await expect(page.getByRole('button', { name: /invite user|add user/i })).toHaveCount(0);
+  });
+});
+
 // QOS-0025 (UX-002 regression): a non-owner first load must not trigger a burst
 // of 403s from an eager query the role is not entitled to run.
-for (const role of ['sales', 'accountant', 'viewer'] as const) {
+for (const role of ['sales', 'accountant', 'viewer', 'inventory'] as const) {
   test(`${role} first load produces no 403 responses (UX-002)`, async ({ page }) => {
     const forbidden: string[] = [];
     page.on('response', (r) => {
       if (r.status() === 403) forbidden.push(`${r.request().method()} ${new URL(r.url()).pathname}`);
     });
-    const login = { sales: loginAsSales, accountant: loginAsAccountant, viewer: loginAsViewer }[role];
+    const login = {
+      sales: loginAsSales,
+      accountant: loginAsAccountant,
+      viewer: loginAsViewer,
+      inventory: loginAsInventoryStaff,
+    }[role];
     await login(page);
     await page.goto('/');
     await page.waitForLoadState('networkidle');

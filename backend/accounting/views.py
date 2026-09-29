@@ -447,22 +447,47 @@ class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         return Response(self.get_serializer(asset).data)
 
 
+# Above this, the owner screen refuses to post and an operator runs
+# ``backfill_accounting_postings``. Dry-run still works so the preview is visible.
+OWNER_BACKFILL_INVOICE_LIMIT = 2000
+
+
+def _books_switch_allowed(company) -> bool:
+    """Settings may turn books on only when there is nothing to back-fill,
+    or the posted journals already tie. History goes through the back-fill job.
+    """
+    from inventory.models import StockMovement
+    from purchases.models import PurchaseInvoice
+    from sales.models import SalesInvoice
+
+    has_history = (
+        SalesInvoice.objects.filter(company=company).exists()
+        or PurchaseInvoice.objects.filter(company=company).exists()
+        or StockMovement.objects.filter(company=company).exists()
+    )
+    if not has_history:
+        return True
+    # Ask the hypothetical question ("would the books tie if they were on?")
+    # without touching the shared cache, which holds the real answer.
+    was = company.accounting_enabled
+    company.accounting_enabled = True
+    try:
+        return BooksHealthService._gl_basis_ready_uncached(company)
+    finally:
+        company.accounting_enabled = was
+
+
 def accounting_backfill_needed(company) -> bool:
-    """True when books are on but completed documents have no journals (7.9b / B9)."""
+    """True when books are on but back-fill is not complete.
+
+    Complete means a tying trial balance, no DOCS_GL_* alerts, posted
+    documents, and inventory GL within tolerance of valuation.
+    """
     if not getattr(company, "accounting_enabled", False):
         return False
-    from accounting.models import JournalEntry
-    from purchases.models import PurchaseInvoice
-    from purchases.status_semantics import OPEN_PAYABLE_STATUSES
-    from sales.models import SalesInvoice
-    from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
+    from accounting.services import BooksHealthService
 
-    if JournalEntry.objects.filter(company=company).exists():
-        return False
-    return (
-        SalesInvoice.objects.filter(company=company, status__in=OPEN_RECEIVABLE_STATUSES).exists()
-        or PurchaseInvoice.objects.filter(company=company, status__in=OPEN_PAYABLE_STATUSES).exists()
-    )
+    return not BooksHealthService.gl_basis_ready(company)
 
 
 class AccountingSettingsView(APIView):
@@ -492,8 +517,15 @@ class AccountingSettingsView(APIView):
             enabled = raw.strip().lower() in {"1", "true", "yes", "on"}
         else:
             enabled = bool(raw)
+        if enabled and not company.accounting_enabled and not _books_switch_allowed(company):
+            raise BusinessRuleError(
+                "Books stay off until back-fill produces a trial balance that ties. "
+                "Preview it on this screen, then post. A company with no invoices "
+                "or stock can turn books on directly."
+            )
         company.accounting_enabled = enabled
         company.save(update_fields=["accounting_enabled", "updated_at"])
+        BooksHealthService.clear_gl_basis_cache(company)
         if enabled:
             seed_chart_of_accounts(company, request.user)
         ser = AccountingSettingsSerializer(
@@ -503,6 +535,164 @@ class AccountingSettingsView(APIView):
             }
         )
         return Response(ser.data)
+
+
+class AccountingBackfillView(APIView):
+    """Owner dry-run, then an idempotent post of missing journals.
+
+    A closed period blocks the post. Companies above OWNER_BACKFILL_INVOICE_LIMIT
+    are told to use the operator command.
+    """
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def get(self, request):
+        """Status of the last owner back-fill (running / done / failed / idle)."""
+        from django.core.cache import cache
+
+        from accounting.tasks import backfill_cache_key
+
+        company = get_company_user(request).company
+        return Response(cache.get(backfill_cache_key(company.id)) or {"status": "idle"})
+
+    def post(self, request):
+        from core.idempotency import wrap_idempotent
+        from core.services.audit import AuditService
+
+        company = get_company_user(request).company
+
+        def _run():
+            return self._execute(request, company, AuditService)
+
+        return wrap_idempotent(
+            request=request, company=company, scope="accounting_backfill", build=_run,
+        )
+
+    def _execute(self, request, company, AuditService):
+        from purchases.models import PurchaseInvoice
+        from sales.models import SalesInvoice
+
+        dry_run = request.data.get("dry_run") in (True, "true", "True", 1, "1")
+        confirm = request.data.get("confirm") in (True, "true", "True", 1, "1")
+        if dry_run == confirm:
+            raise BusinessRuleError("Send dry_run or confirm, not both and not neither.")
+        sales_count = SalesInvoice.objects.filter(company=company).count()
+        purchase_count = PurchaseInvoice.objects.filter(company=company).count()
+        invoice_count = sales_count + purchase_count
+        closed = AccountingPeriod.objects.filter(
+            company=company, status=AccountingPeriod.Status.CLOSED,
+        ).exists()
+        if not dry_run and closed:
+            raise BusinessRuleError(
+                "Backfill is blocked because an accounting period is already closed."
+            )
+        if not dry_run and invoice_count > OWNER_BACKFILL_INVOICE_LIMIT:
+            raise BusinessRuleError(
+                "This company has more than "
+                f"{OWNER_BACKFILL_INVOICE_LIMIT} invoices. An operator runs "
+                "backfill_accounting_postings."
+            )
+        if dry_run:
+            return Response(
+                perform_accounting_backfill(
+                    company, request.user, dry_run=True, sales_count=sales_count,
+                    purchase_count=purchase_count, closed=closed,
+                )
+            )
+        from django.core.cache import cache
+
+        from accounting.tasks import backfill_cache_key, run_owner_accounting_backfill
+
+        key = backfill_cache_key(company.id)
+        # cache.add is atomic: a double click or a second tab cannot start a second
+        # concurrent run. A stale "running" marker expires on its own (10 minutes).
+        if not cache.add(key, {"status": "running"}, 600):
+            current = cache.get(key) or {}
+            if current.get("status") == "running":
+                return Response(current, status=status.HTTP_202_ACCEPTED)
+            # A finished or failed earlier run is history, not a lock.
+            cache.set(key, {"status": "running"}, 600)
+        run_owner_accounting_backfill.delay(company.id, request.user.id)
+        cached = cache.get(key) or {"status": "running"}
+        if cached.get("status") == "done":
+            return Response(cached)
+        if cached.get("status") == "failed":
+            raise BusinessRuleError(cached.get("error") or "Back-fill failed. Entries already posted stay; run it again to finish.")
+        return Response(cached, status=status.HTTP_202_ACCEPTED)
+
+
+def perform_accounting_backfill(
+    company, user, *, dry_run: bool, sales_count=None, purchase_count=None, closed=False,
+) -> dict:
+    """Post missing journals. Idempotent: a document that already has a journal is skipped."""
+    from accounting.management.commands.backfill_accounting_postings import Command
+    from accounting.reports import balance_sheet, trial_balance
+    from core.services.audit import AuditService
+    from purchases.models import PurchaseInvoice
+    from sales.models import SalesInvoice
+
+    if sales_count is None:
+        sales_count = SalesInvoice.objects.filter(company=company).count()
+    if purchase_count is None:
+        purchase_count = PurchaseInvoice.objects.filter(company=company).count()
+    if not dry_run and not company.accounting_enabled:
+        company.accounting_enabled = True
+        company.save(update_fields=["accounting_enabled", "updated_at"])
+    if company.accounting_enabled:
+        seed_chart_of_accounts(company, user)
+    command = Command()
+    command.stdout = _NullStream()
+    command.stderr = _NullStream()
+    posted, skipped, would = command._backfill_company(company, dry_run=dry_run)
+    if not dry_run:
+        command._retag_party_lines(company)
+    BooksHealthService.clear_gl_basis_cache(company)
+    tb = trial_balance(company)
+    sheet = balance_sheet(company)
+    health = BooksHealthService.control_balances(company)
+    docs_gl = [
+        a for a in health.get("alerts") or []
+        if str(a.get("code") or "").startswith("DOCS_GL_")
+    ]
+    payload = {
+        "dry_run": dry_run,
+        "posted": posted,
+        "skipped": skipped,
+        "would_post": would,
+        "sales_invoices": sales_count,
+        "purchase_invoices": purchase_count,
+        "trial_balance_balanced": bool(tb.get("balanced")),
+        "total_debit": str(tb.get("total_debit") or 0),
+        "total_credit": str(tb.get("total_credit") or 0),
+        "inventory_variance": str(sheet.get("inventory_variance") or 0),
+        "docs_gl_alerts": docs_gl,
+        "accounting_enabled": company.accounting_enabled,
+        "accounting_backfill_needed": (
+            accounting_backfill_needed(company) if company.accounting_enabled else would > 0
+        ),
+        "closed_period": closed,
+    }
+    if not dry_run:
+        AuditService.log(
+            company=company,
+            user=user,
+            action="UPDATE",
+            entity_type="Company",
+            entity_id=company.id,
+            description="Accounting backfill posted from the owner screen",
+            metadata={
+                "posted": posted,
+                "skipped": skipped,
+                "trial_balance_balanced": payload["trial_balance_balanced"],
+                "inventory_variance": payload["inventory_variance"],
+            },
+        )
+    return payload
+
+
+class _NullStream:
+    def write(self, *args, **kwargs):
+        return None
 
 
 class FinancialYearCloseView(AccountingEnabledMixin, APIView):

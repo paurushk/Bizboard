@@ -7,7 +7,10 @@ import {
   mockOwnerEmptyGstinUser,
   mockOwnerStockBlockUser,
   mockOwnerWritesBlockedUser,
+  mockAuditorUser,
   mockInventoryUser,
+  mockManagerUser,
+  mockPolicyDeskUser,
   mockSalesUser,
   mockUser,
   mockViewerUser,
@@ -27,6 +30,9 @@ export function mockUserForEmail(email: string): User {
   if (lower.includes('empty-gstin')) return mockOwnerEmptyGstinUser;
   if (lower.includes('stock-block')) return mockOwnerStockBlockUser;
   if (lower.includes('writes-blocked')) return mockOwnerWritesBlockedUser;
+  if (lower.includes('policy')) return mockPolicyDeskUser;
+  if (lower.includes('auditor')) return mockAuditorUser;
+  if (lower.includes('manager')) return mockManagerUser;
   if (lower.includes('viewer')) return mockViewerUser;
   if (lower.includes('sales')) return mockSalesUser;
   if (lower.includes('warehouse') || lower.includes('inventory')) return mockInventoryUser;

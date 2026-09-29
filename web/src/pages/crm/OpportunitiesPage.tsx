@@ -36,7 +36,7 @@ import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 const PAGE_SIZE = 50;
-const STAGES = ['OPEN', 'WON', 'LOST'] as const;
+const STAGES = ['OPEN', 'QUALIFIED', 'NEGOTIATION', 'WON', 'LOST'] as const;
 type Stage = (typeof STAGES)[number];
 
 const emptyForm = {
@@ -45,6 +45,7 @@ const emptyForm = {
   stage: 'OPEN' as Stage,
   lead: '' as number | '',
   customer: '' as number | '',
+  competitor: '',
 };
 
 export function OpportunitiesPage() {
@@ -99,6 +100,7 @@ function OpportunitiesPageInner() {
         stage: form.stage,
         lead: form.lead ? Number(form.lead) : null,
         customer: form.customer ? Number(form.customer) : null,
+        competitor: form.competitor.trim(),
       };
       if (editing) return updateOpportunity(editing.id, payload);
       return createOpportunity(payload);
@@ -126,6 +128,7 @@ function OpportunitiesPageInner() {
       stage: opp.stage ?? 'OPEN',
       lead: opp.lead ?? '',
       customer: opp.customer ?? '',
+      competitor: opp.competitor ?? '',
     });
     setOpen(true);
   };
@@ -156,6 +159,7 @@ function OpportunitiesPageInner() {
                 <TableCell>{t('nav.leads')}</TableCell>
                 <TableCell>{t('nav.customers')}</TableCell>
                 <TableCell align="right">{t('common.amount')}</TableCell>
+                <TableCell>{t('growth.competitor')}</TableCell>
                 <TableCell>{t('erp.stage')}</TableCell>
                 <TableCell align="right">{t('common.actions')}</TableCell>
               </TableRow>
@@ -169,6 +173,7 @@ function OpportunitiesPageInner() {
                     {opp.customer ? customerMap.get(opp.customer) ?? opp.customer : '—'}
                   </TableCell>
                   <TableCell align="right">{formatMoney(opp.amount)}</TableCell>
+                  <TableCell>{opp.competitor || '—'}</TableCell>
                   <TableCell>
                     <StatusChip
                       tone={documentStatusTone(opp.stage ?? 'OPEN')}
@@ -281,6 +286,12 @@ function OpportunitiesPageInner() {
                 </MenuItem>
               ))}
             </TextField>
+            <TextField
+              label={t('growth.competitor')}
+              value={form.competitor}
+              onChange={(e) => setForm((f) => ({ ...f, competitor: e.target.value }))}
+              inputProps={{ maxLength: 120 }}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>

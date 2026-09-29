@@ -1,0 +1,29 @@
+id: QOS-0087
+category: RELIABILITY_TRUST
+title: Credit note after an allocated receipt is unproved
+persona:
+- P1
+journey: GST invoice
+problem: A credit note raised after a partial receipt is not covered by the books walk.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  detail: L5. One receipt, one allocation, one credit note, invoice outstanding matches.
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 2
+  impact_band: Medium
+business_metric: none
+priority: P2
+priority_rationale: A doubled or dropped allocation misstates what the customer still owes.
+effort: S
+recommendation: Write the test first. Fix notes_services only if the outstanding does not match.
+test_required: Partial receipt, then a credit note for the remainder, one of each document.
+guard_ref:
+  test: backend/tests/test_llm_path_to_ten.py::test_credit_note_after_a_partial_receipt
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

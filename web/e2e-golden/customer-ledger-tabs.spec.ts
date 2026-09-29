@@ -29,7 +29,7 @@ test('golden path: customer ledger four tabs and excel export', async ({ page })
   await expect(page).toHaveURL(/\/sales\/history/);
 
   await page.goto('/reports/customer-ledger');
-  const customerCombo = page.getByRole('combobox', { name: 'Customer' });
+  const customerCombo = page.getByRole('combobox', { name: 'Customer', exact: true });
   await customerCombo.click();
   await customerCombo.fill(customerName);
   await page.getByRole('option', { name: customerName }).click();

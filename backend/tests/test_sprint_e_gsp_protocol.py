@@ -80,7 +80,11 @@ def _gst_ready(tenant):
     company.einvoice_enabled = True
     company.eway_enabled = True
     company.gsp_provider = "cleartax"
-    company.gsp_credentials_encrypted = encrypt_gsp_credentials({"api_key": "test-gsp-key"})
+    # The custom IRP provider now refuses to send without an AES SEK (no more
+    # HMAC placeholder), so a live-path test has to carry one.
+    company.gsp_credentials_encrypted = encrypt_gsp_credentials(
+        {"api_key": "test-gsp-key", "sek": "k" * 32}
+    )
     company.save()
     product = make_product(company, sku="SPRINT-E", hsn_code="3004")
     add_stock(tenant, product, "5")

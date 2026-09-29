@@ -33,6 +33,8 @@ export interface DraftLine {
   discountPercent: number;
   discountAmount: number;
   gstRate: number;
+  /** Shown when the HSN table changes the rate. */
+  rateNotice?: string;
   cessRate: number;
   taxableAmount: number;
   cgst: number;

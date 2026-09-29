@@ -1,5 +1,38 @@
 # Architectural Decisions (Audit-derived ADRs)
 
+## ADR-A37 — Route sequencing is a pluggable strategy, not a hardcoded heuristic (2026-09-25)
+
+**Status:** Accepted.
+**Decision:** Delivery-route stop sequencing goes through a `RouteOptimizer`
+Protocol (`sales/route_optimization.py`): `sequence(stops: list[StopInput]) ->
+list[SequencedStop]`, a pure function with no DB/request coupling. Two
+implementations exist today — `PincodeGroupingStrategy` (the pre-existing
+same-pincode heuristic from `route_combine.combine_suggestions()`,
+formalized but logically unchanged) and `NearestNeighborTwoOptStrategy`
+(nearest-neighbor construction + capped 2-opt local search, using a
+pluggable/injectable distance function). `RouteService.suggest_stop_sequence`
+selects exactly one strategy via a name-keyed registry (default:
+`NearestNeighborTwoOptStrategy`) so the dispatcher is only ever shown one
+suggestion at a time; `PincodeGroupingStrategy` remains selectable as a
+simpler fallback. Both are gated by the existing `ENABLE_ROUTE_OPTIMIZATION`
+flag — no new flag was introduced.
+**Rationale:** A single-vehicle, unconstrained stop-sequencing heuristic is
+a genuinely different concern from combine-suggestion grouping, and a real
+distance-aware algorithm was wanted without hardcoding it in
+`RouteService`. A Protocol-based strategy interface lets a future
+geocoded/real-distance implementation, or a constrained-VRP one, be added
+as a new registry entry without touching call sites. Kept as a pure
+`(stops) -> sequenced stops` function specifically so it can move into a
+Celery task later (once measured latency on large routes justifies it)
+without a rewrite.
+**Consequence:** No real lat/long data exists on `masters`/`sales` models
+today, so `NearestNeighborTwoOptStrategy`'s default distance function is a
+documented pincode-numeric-gap approximation
+(`route_optimization.pincode_distance`), flagged with a `# TODO: replace
+with real pincode-centroid or geocoded lat/long data before relying on
+this for production routing decisions.` Callers must not treat its output
+as validated geographic routing until that TODO is resolved.
+
 ## Wave 22 ADR notes (2026-08-06)
 
 **ADR-A32:** Money create/allocate must period-gate in the service layer, not only HTTP views. **ADR-A33:** Authenticated `/api` must never be SW-cached. **ADR-A34:** FIFO reverse restores peels / retires source layers — never invent zero-cost layers. **ADR-A35:** SaaS writes fail closed when subscription required. **ADR-A36:** Sales RCM posting must not credit Output GST.

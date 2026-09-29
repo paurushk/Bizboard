@@ -1,0 +1,29 @@
+id: QOS-0089
+category: BUSINESS_GAP
+title: Job card does not list earlier jobs for the serial
+persona:
+- P1
+journey: Workshop job
+problem: JobCardLine.serial is stored and the next job does not show prior jobs.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  detail: L7. At most 20 earlier jobs, newest id first.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: History is the gap for a repair shop that already has job cards.
+effort: S
+recommendation: Include the capped history on job retrieve. Do not widen permissions.
+test_required: Second job lists the first. The 21st older job is omitted.
+guard_ref:
+  test: backend/tests/test_llm_path_to_ten.py::test_job_serial_history_is_capped_and_company_scoped
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

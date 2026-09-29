@@ -604,3 +604,36 @@ class CustomerPortalToken(CompanyScopedModel):
     requested_via = models.CharField(max_length=16, choices=Channel.choices)
     expires_at = models.DateTimeField()
     last_used_at = models.DateTimeField(null=True, blank=True)
+
+
+class PaymentPromise(CompanyScopedModel):
+    """A customer's commitment to pay by a given date (Promise-to-pay).
+
+    Can be attached to a specific invoice or stand as a general commitment
+    (``invoice`` null). Resolved once paid or explicitly dismissed —
+    ``created_by``/``updated_by`` come from CompanyScopedModel's audit fields.
+    """
+
+    customer = models.ForeignKey(
+        "masters.Customer", on_delete=models.CASCADE, related_name="payment_promises"
+    )
+    invoice = models.ForeignKey(
+        "sales.SalesInvoice", on_delete=models.CASCADE, null=True, blank=True,
+        related_name="payment_promises",
+    )
+    promised_date = models.DateField()
+    # Null on promises logged before an amount was required. Never treat that
+    # as ₹0 in broken-promise totals.
+    promised_amount = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True,
+    )
+    note = models.TextField(blank=True, default="")
+    resolved = models.BooleanField(default=False)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["company", "resolved", "promised_date"], name="pay_promise_open_due_idx"),
+            models.Index(fields=["company", "customer"], name="pay_promise_co_customer_idx"),
+        ]

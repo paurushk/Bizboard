@@ -55,6 +55,14 @@ const goldenApiEnv = {
   // straight from the request-link response instead of an inbox — same
   // opt-in-debug-echo posture as OTP_DEBUG_ECHO, hard-rejected outside dev.
   PORTAL_DEBUG_ECHO: '1',
+  // repeat-last-invoice-golden-path.spec.ts: Customer360Page.tsx (and its
+  // "Repeat last invoice" button) only render when this is on — backend's
+  // customer_360() returns None otherwise (insights/customer_360.py). Same
+  // ROLLOUT_GRANTABLE_KEYS env-default posture as the COMP-* flags above:
+  // no per-company UI toggle exists yet, so the env default is enough.
+  ENABLE_CUSTOMER_360: '1',
+  // Lets mark_e2e_vendor's pointer be read by the same API process.
+  E2E_GOLDEN_GRANT: '1',
 };
 
 export default defineConfig({

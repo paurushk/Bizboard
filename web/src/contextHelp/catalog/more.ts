@@ -274,7 +274,7 @@ export const MORE_HELP: ContextHelpPage[] = [
   }),
 
   helpPage('ai-settings', {
-    title: ['AI & Insights settings', 'AI और इनसाइट सेटिंग'],
+    title: ['Bill scan and lateness settings', 'बिल स्कैन और देरी सेटिंग'],
     summary: [
       'Owner toggles for insights/assistant. The assistant does not Complete bills or file GST. For why Complete is blocked, use page Help or Help & FAQ.',
       'इनसाइट/असिस्टेंट टॉगल। असिस्टेंट बिल Complete या GST फाइल नहीं करता। Complete क्यों रुका — पेज सहायता या FAQ।',

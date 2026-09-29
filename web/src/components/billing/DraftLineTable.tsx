@@ -40,6 +40,9 @@ interface DraftLineTableProps {
   onFocusAdd?: () => void;
   renderBatchSlot?: (line: DraftLine) => ReactNode;
   renderSerialSlot?: (line: DraftLine) => ReactNode;
+  /** Small, unobtrusive informational text under the rate field (e.g. a
+   * price-jump note) — never blocking, never a judgment call. */
+  renderPriceHint?: (line: DraftLine) => ReactNode;
 }
 
 export function DraftLineTable({
@@ -58,6 +61,7 @@ export function DraftLineTable({
   onFocusAdd,
   renderBatchSlot,
   renderSerialSlot,
+  renderPriceHint,
 }: DraftLineTableProps) {
   return (
     <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto', width: '100%', maxWidth: '100%' }}>
@@ -124,6 +128,8 @@ export function DraftLineTable({
             <TableRow key={line.key} hover>
               <TableCell>{idx + 1}</TableCell>
               <TableCell
+                component="th"
+                scope="row"
                 sx={{
                   position: { xs: 'sticky', md: 'static' },
                   left: 0,
@@ -134,6 +140,11 @@ export function DraftLineTable({
                 <Typography fontWeight={600} variant="body2">
                   {line.productName}
                 </Typography>
+                {line.rateNotice ? (
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    {line.rateNotice}
+                  </Typography>
+                ) : null}
                 <TextField
                   size="small"
                   multiline
@@ -211,6 +222,19 @@ export function DraftLineTable({
                   disabled={moneyDisabled}
                   sx={{ width: 96, minWidth: 96 }}
                 />
+                {(() => {
+                  const hint = renderPriceHint?.(line);
+                  return hint ? (
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      display="block"
+                      sx={{ mt: 0.25, maxWidth: 140, whiteSpace: 'normal' }}
+                    >
+                      {hint}
+                    </Typography>
+                  ) : null;
+                })()}
               </TableCell>
               <TableCell>
                 <Stack direction="row" spacing={0.5} sx={{ minWidth: 180 }}>

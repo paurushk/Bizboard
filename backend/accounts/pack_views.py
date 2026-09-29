@@ -11,6 +11,33 @@ from core.permissions import HasCompany, IsOwner, get_company_user
 from core.services.feature_flags import flag_enabled
 
 
+class NavScopeView(APIView):
+    """Owner toggle between the archetype-pack sidebar and every feature.
+
+    Existing companies never have NAV_PACK_DEFAULT set, so their menu stays
+    as it is until they opt in.
+    """
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def post(self, request):
+        company = get_company_user(request).company
+        raw = request.data.get("all_features")
+        if raw not in (True, False, "true", "false", 1, 0, "1", "0"):
+            raise BusinessRuleError("all_features must be true or false.")
+        show_all = raw in (True, "true", 1, "1")
+        flags = dict(company.feature_flags or {})
+        flags["NAV_PACK_DEFAULT"] = not show_all
+        if not show_all:
+            flags["ENABLE_ARCHETYPE_PACKS"] = True
+        company.feature_flags = flags
+        company.save(update_fields=["feature_flags", "updated_at"])
+        return Response({
+            "all_features": show_all,
+            "nav_pack_default": not show_all,
+        })
+
+
 class PackWizardView(APIView):
     permission_classes = [IsAuthenticated, HasCompany, IsOwner]
 

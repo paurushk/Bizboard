@@ -44,8 +44,8 @@ test('golden path: register -> enable accounting -> invoice -> receipt -> GL pos
   await page.getByRole('button', { name: 'Enable accounting' }).click();
   await expect(page.getByText('Accounting enabled — CoA seeded.')).toBeVisible();
 
-  // 3. Create a product.
-  await createProduct(page, { name: productName, sku: productSku, sellingPrice: '100', purchasePrice: '80' });
+  // 3. Create a product with 0% GST to match the flat ₹100 payment.
+  await createProduct(page, { name: productName, sku: productSku, sellingPrice: '100', purchasePrice: '80', gstRate: '0' });
 
   // 4. Give it opening stock.
   await addStockAdjustment(page, { sku: productSku, quantity: '50' });
@@ -64,7 +64,8 @@ test('golden path: register -> enable accounting -> invoice -> receipt -> GL pos
   await expect(page).toHaveURL(/\/sales\/history/);
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
   await expect(invoiceRow).toContainText('Completed');
-  const invoiceNumber = (await invoiceRow.locator('td').nth(1).textContent())?.trim();
+  const textCells = await invoiceRow.locator('td').allTextContents();
+  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
   expect(invoiceNumber).toMatch(/^INV-\d+$/);
 
   // 7. Receive a CASH receipt and allocate it to the invoice in one step.

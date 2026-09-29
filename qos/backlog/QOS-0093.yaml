@@ -1,0 +1,29 @@
+id: QOS-0093
+category: BUSINESS_GAP
+title: Route suggest has no stop cap
+persona:
+- P1
+journey: Delivery route
+problem: The sequencer returns every stop. A cap is unspecified, so two implementers would drop different stops.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  detail: L11. Keep the first stop_cap stops of the existing sequence. The rest are unassigned in that order.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Capacity here is a prefix of the current order, not a new solver.
+effort: S
+recommendation: Optional stop_cap on suggest_sequence. CanCreateSales. Flag stays off on the trial.
+test_required: Five stops, cap 2, first two sequenced, last three unassigned in the same order.
+guard_ref:
+  test: backend/tests/test_llm_path_to_ten.py::test_stop_cap_keeps_a_prefix_of_the_existing_sequence
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

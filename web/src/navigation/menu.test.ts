@@ -110,10 +110,13 @@ describe('POS nav gate (CR-003)', () => {
 describe('vision plan nav', () => {
   const owner = { id: 1, role: 'OWNER', canViewFinancialReports: true } as unknown as User;
 
-  it('shows collections, purchase planning, and the pack wizard only when their flags are on', () => {
+  it('shows collections to a report reader, and purchase planning and the pack wizard only when their flags are on', () => {
     (globalThis as { __ff?: Record<string, boolean> }).__ff = {};
     const hidden = filterNav(owner);
-    expect(hidden.find((item) => item.id === 'payments')?.children?.some((child) => child.id === 'collections')).toBe(false);
+    expect(hidden.find((item) => item.id === 'payments')?.children?.some((child) => child.id === 'collections')).toBe(true);
+    expect(isReallyReachable(owner, '/payments/collections')).toBe(true);
+    const staff = { id: 2, role: 'SALES_STAFF', canViewFinancialReports: false } as unknown as User;
+    expect(filterNav(staff).find((item) => item.id === 'payments')?.children?.some((child) => child.id === 'collections') ?? false).toBe(false);
     expect(hidden.find((item) => item.id === 'inventory')?.children?.some((child) => child.id === 'purchase-planning')).toBe(false);
     expect(hidden.find((item) => item.id === 'settings')?.children?.some((child) => child.id === 'pack-wizard')).toBe(false);
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from statistics import median
 
 from django.db.models import Avg
@@ -14,6 +14,8 @@ MIN_HISTORY_DAYS = 60
 CADENCE_MULTIPLE = Decimal("1.5")
 APPROACH_FRACTION = Decimal("0.20")
 SAMPLE_ORDERS = 6
+CROSS_SELL_WINDOW_DAYS = 365
+MIN_COPURCHASE_CUSTOMERS = 3
 
 
 def _median_gap(dates: list) -> int | None:
@@ -24,7 +26,10 @@ def _median_gap(dates: list) -> int | None:
     gaps = [gap for gap in gaps if gap > 0]
     if not gaps:
         return None
-    return int(median(gaps))
+    # Round, don't truncate — statistics.median() averages the two middle
+    # values on an even-length sample, and int() truncation biases cadence
+    # down, making the 1.5x churn threshold trigger sooner than intended.
+    return int(Decimal(str(median(gaps))).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def _history_ok(dates: list) -> bool:
@@ -40,7 +45,7 @@ def build_customer_action_rows(company, as_of=None) -> list[dict]:
         return []
     as_of = as_of or timezone.localdate()
     window_start = as_of - timedelta(days=90)
-    by_customer, money_by_customer = _bounded_orders(company, window_start)
+    by_customer, money_by_customer = _bounded_orders(company, window_start, as_of)
 
     rows: list[dict] = []
     for customer_id, history in by_customer.items():
@@ -101,10 +106,12 @@ def build_customer_action_rows(company, as_of=None) -> list[dict]:
                 dedupe=f"REPEAT_ORDER_DUE:{customer_id}:{product_id}",
                 entity_type="product",
             ))
+    if flag_enabled(company, "ENABLE_CROSS_SELL"):
+        rows.extend(_cross_sell_rows(company, as_of, by_customer))
     return rows
 
 
-def _bounded_orders(company, window_start):
+def _bounded_orders(company, window_start, as_of):
     """Last six orders per customer for cadence, plus trailing-90-day totals for money.
 
     The attention feed used to load every confirmed order. Cadence only needs
@@ -116,7 +123,10 @@ def _bounded_orders(company, window_start):
     from sales.models import SalesOrder
 
     statuses = (SalesOrder.Status.CONFIRMED, SalesOrder.Status.CONVERTED)
-    base = SalesOrder.objects.filter(company=company, status__in=statuses)
+    # order_date__lte=as_of: a post-dated/advance order, or a historical
+    # as_of replay, must not count as "the last order" — that can make the
+    # computed gap negative and silently suppress churn detection.
+    base = SalesOrder.objects.filter(company=company, status__in=statuses, order_date__lte=as_of)
     ranked = base.annotate(
         rn=Window(
             expression=RowNumber(),
@@ -171,6 +181,95 @@ def _typical_product_value(company, customer_id, product_id) -> Decimal:
         .aggregate(avg=Avg("line_value"))
     )
     return Decimal(str(value["avg"] or 0))
+
+
+def _cross_sell_rows(company, as_of, by_customer) -> list[dict]:
+    """Suggest one product a customer has not bought, when enough other
+    customers bought it together with something this customer already buys.
+
+    The parent flag can stay on while this stays off. A customer without
+    the same history bar as churn (three orders spanning 60 days) gets
+    nothing. A pair seen in fewer than three customers gets nothing.
+    """
+    from sales.models import SalesOrder, SalesOrderItem
+
+    eligible: dict[int, str] = {}
+    for customer_id, history in by_customer.items():
+        sample = history[:SAMPLE_ORDERS]
+        dates = [row["order_date"] for row in sample]
+        if _history_ok(dates):
+            eligible[customer_id] = sample[0]["customer__name"]
+    if not eligible:
+        return []
+
+    window_start = as_of - timedelta(days=CROSS_SELL_WINDOW_DAYS)
+    statuses = (SalesOrder.Status.CONFIRMED, SalesOrder.Status.CONVERTED)
+    owned: dict[int, set[int]] = {}
+    names: dict[int, str] = {}
+    value_sum: dict[int, Decimal] = {}
+    value_count: dict[int, int] = {}
+    items = SalesOrderItem.objects.filter(
+        company=company,
+        sales_order__status__in=statuses,
+        sales_order__order_date__lte=as_of,
+        sales_order__order_date__gte=window_start,
+    ).values_list(
+        "sales_order__customer_id",
+        "product_id",
+        "product__name",
+        "quantity",
+        "unit_price",
+    )
+    for customer_id, product_id, product_name, quantity, unit_price in items:
+        owned.setdefault(customer_id, set()).add(product_id)
+        names[product_id] = product_name
+        line = Decimal(str(quantity)) * Decimal(str(unit_price))
+        value_sum[product_id] = value_sum.get(product_id, Decimal("0")) + line
+        value_count[product_id] = value_count.get(product_id, 0) + 1
+
+    pair_counts: dict[tuple[int, int], int] = {}
+    for products in owned.values():
+        ordered = sorted(products)
+        for index, left in enumerate(ordered):
+            for right in ordered[index + 1:]:
+                key = (left, right)
+                pair_counts[key] = pair_counts.get(key, 0) + 1
+
+    best: dict[int, tuple[int, int, int]] = {}
+    for (left, right), count in pair_counts.items():
+        if count < MIN_COPURCHASE_CUSTOMERS:
+            continue
+        for customer_id in eligible:
+            basket = owned.get(customer_id, set())
+            has_left = left in basket
+            has_right = right in basket
+            if has_left == has_right:
+                continue
+            missing = right if has_left else left
+            anchor = left if has_left else right
+            current = best.get(customer_id)
+            if current is None or count > current[0]:
+                best[customer_id] = (count, missing, anchor)
+
+    rows = []
+    for customer_id, (count, missing, anchor) in best.items():
+        samples = value_count.get(missing) or 0
+        money = (value_sum.get(missing) or Decimal("0")) / Decimal(samples or 1)
+        name = eligible[customer_id]
+        rows.append(_attention(
+            code="CROSS_SELL",
+            title=f"{name} may also buy {names.get(missing, 'this product')}",
+            money=money,
+            reason=(
+                f"{count} customers who buy {names.get(anchor, 'a related product')} "
+                f"also buy {names.get(missing, 'this product')}."
+            ),
+            href=f"/sales/orders/new?customer={customer_id}&product={missing}",
+            entity_id=missing,
+            dedupe=f"CROSS_SELL:{customer_id}:{missing}",
+            entity_type="product",
+        ))
+    return rows
 
 
 def _attention(*, code, title, money, reason, href, entity_id, dedupe, entity_type="customer"):

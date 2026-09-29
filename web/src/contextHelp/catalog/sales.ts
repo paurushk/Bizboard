@@ -550,8 +550,8 @@ export const SALES_HELP: ContextHelpPage[] = [
   helpPage('recurring-invoices', {
     title: ['Recurring invoices', 'आवर्ती इनवॉइस'],
     summary: [
-      'A schedule only creates a **draft** invoice. Bizboard never auto-completes a recurring bill.',
-      'शेड्यूल केवल **ड्राफ्ट** इनवॉइस बनाता है। बिज़बोर्ड आवर्ती बिल अपने आप Complete नहीं करता।',
+      'A schedule creates a **draft** invoice unless you tick Complete the invoice. That tick is off by default.',
+      'शेड्यूल **ड्राफ्ट** इनवॉइस बनाता है, जब तक आप “चालान पूर्ण करें” न चुनें। यह विकल्प डिफ़ॉल्ट रूप से बंद है।',
     ],
     howItWorks: [
       ['When a draft appears, open it and press **t:common.complete** after checking stock, GSTIN and the customer.', 'ड्राफ्ट दिखे तो खोलें, स्टॉक/GSTIN/ग्राहक जाँचकर **t:common.complete** दबाएँ।'],

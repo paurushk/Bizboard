@@ -51,6 +51,7 @@ MONEY_IDEMPOTENCY_SCOPES = frozenset({
     # F3-010: opening stock posts an OPENING_STOCK movement + GL entry — a retry
     # after a partial failure must not double the quantity.
     "opening_stock",
+    "accounting_backfill",
     # B4-013: a gateway refund double-submit (e.g. a UI double-click) with no
     # request-level idempotency check races two `refund_gateway_payment` calls
     # against the same in-book "remaining" balance -- each gets its own
@@ -73,7 +74,23 @@ MONEY_IDEMPOTENCY_SCOPES = frozenset({
     "delivery_challan_complete",
     # CR-134: PO→bill convert creates a money document; twin of challan complete.
     "purchase_order_convert",
+    # L9: marking a referral paid drafts one credit note. A stale reclaim
+    # would draft a second note for the same reward.
+    "referral_reward_credit_note",
+    # L12: a contract button creates one recurring schedule. A stale reclaim
+    # would create a second schedule for the same contract.
+    "contract_recurring_schedule",
 })
+
+_MONEY_SCOPE_PREFIXES = (
+    "project_milestone_invoice:",
+    "insurance_commission:",
+)
+
+
+def _is_money_idempotency_scope(scope: str) -> bool:
+    return scope in MONEY_IDEMPOTENCY_SCOPES or scope.startswith(_MONEY_SCOPE_PREFIXES)
+
 
 # PD-01: 4xx that are safe to retry with the same key after the condition clears
 # or the user supplies extra confirm flags.
@@ -186,7 +203,7 @@ def begin_record(*, company, scope: str, raw_key: str) -> IdempotencyRecord | Re
             from django.utils import timezone
 
             age = (timezone.now() - existing.created_at).total_seconds()
-            if age > IN_FLIGHT_STALE_SECONDS and scope not in MONEY_IDEMPOTENCY_SCOPES:
+            if age > IN_FLIGHT_STALE_SECONDS and not _is_money_idempotency_scope(scope):
                 existing.delete()
                 try:
                     return IdempotencyRecord.objects.create(

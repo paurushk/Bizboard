@@ -2,7 +2,7 @@ from django.urls import include, path
 from core.routers import DefaultRouter
 
 from .views import (
-    AccountViewSet, AccountingReportView, AccountingSettingsView, BankReconSessionViewSet,
+    AccountViewSet, AccountingBackfillView, AccountingReportView, AccountingSettingsView, BankReconSessionViewSet,
     CostCenterViewSet, ExpenseViewSet, FinancialYearCloseView, FixedAssetViewSet, JournalViewSet, PeriodViewSet,
 )
 
@@ -18,6 +18,7 @@ router.register("expenses", ExpenseViewSet, basename="accounting-expense")
 urlpatterns = [
     path("", include(router.urls)),
     path("settings/", AccountingSettingsView.as_view(), name="accounting-settings"),
+    path("backfill/", AccountingBackfillView.as_view(), name="accounting-backfill"),
     path("fy-close/", FinancialYearCloseView.as_view(), name="accounting-fy-close"),
     path("<str:report>/", AccountingReportView.as_view(), name="accounting-report"),
 ]

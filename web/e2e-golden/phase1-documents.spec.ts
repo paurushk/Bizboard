@@ -38,7 +38,8 @@ async function completeInvoiceWithProducts(
   await expect(page).toHaveURL(/\/sales\/history/);
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) }).first();
   await expect(invoiceRow).toContainText('Completed');
-  const invoiceNumber = (await invoiceRow.locator('td').nth(1).textContent())?.trim();
+  const textCells = await invoiceRow.locator('td').allTextContents();
+  const invoiceNumber = textCells.map(c => c.trim()).find(c => /^(INV|BOS)-/.test(c));
   expect(invoiceNumber).toBeTruthy();
   return invoiceNumber!;
 }

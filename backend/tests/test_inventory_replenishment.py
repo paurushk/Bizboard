@@ -360,3 +360,16 @@ def test_purchase_plan_groups_documents_and_requires_replenishment(tenant_a):
     assert len(purchase["lines"]) == 2
     assert {(doc["from_warehouse_id"], doc["to_warehouse_id"]) for doc in transfers} == {(5, 8), (5, 7)}
     assert all(len(doc["lines"]) == 1 for doc in transfers)
+
+
+@pytest.mark.django_db
+def test_planning_maps_do_not_query_per_product(tenant_a):
+    from inventory.reorder_maps import last_completed_suppliers, reorder_and_balances
+
+    product_ids = list(range(1, 8))
+    with CaptureQueriesContext(connection) as maps:
+        reorder_and_balances(tenant_a.company, product_ids)
+    with CaptureQueriesContext(connection) as suppliers:
+        last_completed_suppliers(tenant_a.company, product_ids)
+    assert len(maps.captured_queries) == 2
+    assert len(suppliers.captured_queries) == 1

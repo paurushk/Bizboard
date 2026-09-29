@@ -44,6 +44,7 @@ export type ImsSummary = {
   itc_at_risk?: string;
   expiring_itc?: string;
   expiring_count?: number;
+  ineligible_itc?: string;
 };
 
 export type SupplierScorecardRow = {
@@ -118,6 +119,21 @@ export async function matchGstr2b(period: string) {
   return unwrapData(data);
 }
 
+export type SupplierPoNudge = {
+  state: 'no_ims_history' | 'scored' | string;
+  period?: string;
+  supplierGstin?: string;
+  mismatchCount?: number;
+  rejections?: number;
+  itcAffected?: string;
+  mismatch_count?: number;
+};
+
+export async function fetchSupplierNudge(supplierId: number) {
+  const { data } = await apiClient.get('/reports/gstr2b/supplier-nudge/', { params: { supplier: supplierId } });
+  return unwrapData<SupplierPoNudge>(data);
+}
+
 export async function fetchImsSummary(period: string) {
   const { data } = await apiClient.get('/reports/gstr2b/ims-summary/', { params: { period } });
   return unwrapData<ImsSummary>(data);
@@ -151,6 +167,14 @@ export async function importImsOffline(payload: unknown, replace = false) {
 export async function exportImsOffline(period: string) {
   const { data } = await apiClient.get('/reports/gstr2b/ims-offline-export/', { params: { period } });
   return unwrapData<Record<string, unknown>>(data);
+}
+
+/** Click-to-chat. Digits only; no phone keeps the text-only wa.me link. */
+export function whatsAppShareUrl(text: string, phone?: string | null): string {
+  const digits = (phone || '').replace(/\D/g, '');
+  const encoded = encodeURIComponent(text);
+  if (!digits) return `https://wa.me/?text=${encoded}`;
+  return `https://wa.me/${digits}?text=${encoded}`;
 }
 
 export function money(summary: ImsSummary | undefined, camel: keyof ImsSummary, snake: keyof ImsSummary) {

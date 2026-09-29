@@ -129,7 +129,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
     mutationFn: () => prepareInvoiceEinvoice(invoice.id),
     onSuccess: (res) => {
       setLastEinvoicePayload(res.payload ?? null);
-      onMessage?.('e-Invoice payload ready');
+      onMessage?.(t('einvoice.payloadReady'));
       invalidate();
     },
     onError: (err) => onError?.(getErrorMessage(err)),
@@ -138,7 +138,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
   const submitEinvoiceMutation = useMutation({
     mutationFn: () => submitInvoiceEinvoice(invoice.id),
     onSuccess: () => {
-      onMessage?.('e-Invoice submitted (sandbox)');
+      onMessage?.(t('einvoice.submittedSandbox'));
       invalidate();
     },
     onError: (err) => onError?.(getErrorMessage(err)),
@@ -157,7 +157,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
   const markEinvoiceMutation = useMutation({
     mutationFn: () => markInvoiceEinvoiceGenerated(invoice.id, { irn, ackNo, reason: manualReason.trim() }),
     onSuccess: () => {
-      onMessage?.('e-Invoice marked as generated');
+      onMessage?.(t('einvoice.markedGenerated'));
       invalidate();
     },
     onError: (err) => onError?.(getErrorMessage(err)),
@@ -167,7 +167,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
     mutationFn: () => prepareInvoiceEway(invoice.id, ewayPayload()),
     onSuccess: (res) => {
       setLastEwayPayload(res.payload ?? null);
-      onMessage?.('e-Way payload ready');
+      onMessage?.(t('einvoice.ewayPayloadReady'));
       invalidate();
     },
     onError: (err) => onError?.(getErrorMessage(err)),
@@ -176,7 +176,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
   const submitEwayMutation = useMutation({
     mutationFn: () => submitInvoiceEway(invoice.id, ewayPayload()),
     onSuccess: () => {
-      onMessage?.('e-Way bill submitted (sandbox)');
+      onMessage?.(t('einvoice.ewaySubmittedSandbox'));
       invalidate();
     },
     onError: (err) => onError?.(getErrorMessage(err)),
@@ -186,7 +186,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
     mutationFn: () =>
       cancelInvoiceEway(invoice.id, { cnlRsn: ewayCnlRsn, cnlRem: ewayCnlRem.trim() }),
     onSuccess: () => {
-      onMessage?.('e-Way bill cancelled');
+      onMessage?.(t('einvoice.ewayCancelled'));
       setEwayCancelOpen(false);
       setEwayCnlRem('');
       invalidate();
@@ -197,7 +197,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
   const markEwayMutation = useMutation({
     mutationFn: () => markInvoiceEwayGenerated(invoice.id, { ewayBillNo, reason: manualReason.trim() }),
     onSuccess: () => {
-      onMessage?.('e-Way bill marked as generated');
+      onMessage?.(t('einvoice.ewayMarkedGenerated'));
       invalidate();
     },
     onError: (err) => onError?.(getErrorMessage(err)),
@@ -215,9 +215,12 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
       <Typography variant="h6" sx={{ mb: 1 }}>
         e-Invoice / e-Way
       </Typography>
-      <Alert severity="info" sx={{ mb: 2 }}>
+      <Alert severity="info" sx={{ mb: 1 }}>
         {t('einvoice.payloadOnlyHelp')}
       </Alert>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        {t('einvoice.submittedSandbox')}
+      </Typography>
 
       <Stack spacing={2}>
         <Box>
@@ -242,7 +245,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
               disabled={prepareEinvoiceMutation.isPending}
               onClick={() => prepareEinvoiceMutation.mutate()}
             >
-              Prepare payload
+              {t('einvoice.preparePayload')}
             </Button>
             {canSubmitEinvoice ? (
               <Button
@@ -251,7 +254,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
                 disabled={submitEinvoiceMutation.isPending || einvoiceGenerated}
                 onClick={() => submitEinvoiceMutation.mutate()}
               >
-                Submit (sandbox)
+                {t('einvoice.submitSandbox')}
               </Button>
             ) : null}
             {einvoiceGenerated ? (
@@ -366,7 +369,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
               disabled={prepareEwayMutation.isPending}
               onClick={() => prepareEwayMutation.mutate()}
             >
-              Prepare payload
+              {t('einvoice.preparePayload')}
             </Button>
             {canSubmitEway ? (
               <Button
@@ -375,7 +378,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
                 disabled={submitEwayMutation.isPending || ewayGenerated}
                 onClick={() => submitEwayMutation.mutate()}
               >
-                Submit (sandbox)
+                {t('einvoice.submitSandbox')}
               </Button>
             ) : null}
             {ewayGenerated ? (

@@ -21,6 +21,7 @@ export type Customer360 = {
   outstanding: string | null;
   aging: Record<string, string> | null;
   profit: { rows?: unknown[]; totals?: Record<string, string> } | null;
+  complaints?: { id: number; number: string; status: string; category: string }[];
 };
 
 export type PlanningLine = {
@@ -65,6 +66,27 @@ export type GateCheck = {
   marginWarnings: Array<{ productId: number; productName: string; margin: string }>;
 };
 
+export type OpenInvoiceRow = {
+  invoiceId: number;
+  invoiceNumber: string;
+  customerId: number;
+  customerName: string;
+  customerPhone?: string;
+  remindMessage?: string;
+  remindUrl?: string;
+  dueDate: string | null;
+  daysOverdue: number;
+  amountReceived: string;
+  outstanding: string;
+  customerOutstanding: string;
+};
+
+export async function listOpenInvoices(): Promise<OpenInvoiceRow[]> {
+  const { data } = await apiClient.get('/insights/collections-open-invoices/');
+  const body = unwrapData<{ rows: OpenInvoiceRow[] }>(data);
+  return body.rows ?? [];
+}
+
 export async function listCollectionsWorklist(): Promise<CollectionRow[]> {
   const { data } = await apiClient.get('/insights/collections-worklist/');
   const body = unwrapData<{ rows: CollectionRow[] }>(data);
@@ -85,6 +107,36 @@ export async function getPurchasePlan(params?: {
   return unwrapData(data);
 }
 
+export async function createPlanningDrafts(rows: PlanningLine[]): Promise<{
+  purchaseOrderIds: number[];
+  needsSupplier: PlanningLine[];
+}> {
+  const { data } = await apiClient.post('/inventory/purchase-planning/', { rows });
+  return unwrapData(data);
+}
+
+export async function getDemandForecast(): Promise<{
+  rows: Array<{ productId: number; productName: string; dailyRate: string; method: string; windowDays: number; soldQty: string }>;
+}> {
+  const { data } = await apiClient.get('/inventory/demand-forecast/');
+  return unwrapData(data);
+}
+
+export async function getCrmOnboarding(): Promise<{ steps: Array<{ id: string; title: string; done: boolean }> }> {
+  const { data } = await apiClient.get('/crm/onboarding/');
+  return unwrapData(data);
+}
+
+export async function recordTallyMigrationDiff(payload: { batchId: string; xml: string }): Promise<{
+  id: number;
+  blocked: boolean;
+  diff: string;
+  pdfBase64: string;
+}> {
+  const { data } = await apiClient.post('/integrations/tally/migrate-diff/', payload);
+  return unwrapData(data);
+}
+
 export async function listRouteCombineSuggestions(): Promise<RouteSuggestion[]> {
   const { data } = await apiClient.get('/sales/delivery-routes/combine-suggestions/');
   const body = unwrapData<{ suggestions: RouteSuggestion[] }>(data);
@@ -101,6 +153,11 @@ export async function proposePack(answers: Record<string, string>): Promise<{ pr
   return unwrapData(data);
 }
 
+export async function setNavScope(allFeatures: boolean): Promise<{ allFeatures: boolean; navPackDefault: boolean }> {
+  const { data } = await apiClient.post('/company/nav-scope/', { all_features: allFeatures });
+  return unwrapData(data);
+}
+
 export async function confirmPack(answers: Record<string, string>): Promise<{ proposedPack: string; appliedPack: string; applied: boolean; skippedFlags?: string[] }> {
   const { data } = await apiClient.post('/company/packs/', { answers, confirm: true });
   return unwrapData(data);
@@ -111,8 +168,12 @@ export async function checkSalesOrderGate(id: number): Promise<GateCheck> {
   return unwrapData<GateCheck>(data);
 }
 
-export async function confirmSalesOrder(id: number): Promise<{ marginWarnings?: GateCheck['marginWarnings'] }> {
-  const { data } = await apiClient.post(`/sales/orders/${id}/confirm/`, {}, { headers: idempotencyHeaders() });
+export async function confirmSalesOrder(
+  id: number,
+  creditOverrideReason?: string,
+): Promise<{ marginWarnings?: GateCheck['marginWarnings'] }> {
+  const body = creditOverrideReason ? { creditOverrideReason } : {};
+  const { data } = await apiClient.post(`/sales/orders/${id}/confirm/`, body, { headers: idempotencyHeaders() });
   return unwrapData(data);
 }
 
@@ -122,6 +183,8 @@ export async function submitPublicLead(token: string, payload: {
   email: string;
   message: string;
   website?: string;
+  campaign?: number | '';
+  referral_code?: string;
 }): Promise<void> {
   await apiClient.post(`/crm/public/lead-form/${token}/`, payload);
 }

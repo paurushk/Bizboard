@@ -334,16 +334,7 @@ def _create_opening_sales(company, user, customer: Customer, amount: Decimal, pr
     for it in items:
         it.save()
     inv.save()
-    # Seed 1 unit so SALE complete works under BLOCK negative-stock policy.
-    InventoryService.post_movement(
-        company=company,
-        product=product,
-        movement_type=MovementType.ADJUSTMENT,
-        quantity=Decimal("1"),
-        reason="Seed stock for TALLY_OPENING AR",
-        user=user,
-        skip_negative_check=True,
-    )
+    # Opening outstanding is a balance, not goods. Complete does not move stock.
     SalesService.complete(inv, user)
     return inv
 
@@ -391,17 +382,8 @@ def _create_opening_purchase(company, user, supplier: Supplier, amount: Decimal,
     for it in items:
         it.save()
     inv.save()
+    # Opening outstanding is a balance, not goods. Complete does not move stock.
     PurchaseService.complete(inv, user)
-    # Neutralize PURCHASE stock increase
-    InventoryService.post_movement(
-        company=company,
-        product=product,
-        movement_type=MovementType.ADJUSTMENT,
-        quantity=Decimal("-1"),
-        reason="Neutralize TALLY_OPENING stock",
-        user=user,
-        skip_negative_check=True,
-    )
     return inv
 
 

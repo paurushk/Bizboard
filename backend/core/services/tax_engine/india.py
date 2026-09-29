@@ -449,22 +449,48 @@ def apply_effective_gst_rate(document, item, *, tax_enabled: bool) -> None:
             )
         item._billing_rate = Decimal(str(item.gst_rate or 0))  # noqa: SLF001
         return
-    from masters.hsn_catalog import rate_for
+    from masters.hsn_catalog import line_gst_decision
 
+    product = getattr(item, "product", None)
     hsn = (
         (getattr(item, "hsn_code", None) or "")
-        or (getattr(getattr(item, "product", None), "hsn_code", None) or "")
+        or (getattr(product, "hsn_code", None) or "")
     )
-    resolved = rate_for(hsn, _document_tax_date(document))
-    if resolved:
-        item.gst_rate = resolved["rate"]
-        item.applied_rate = resolved["rate"]
-        item.rate_version = resolved["version"]
-        if resolved["cess"] and not Decimal(str(getattr(item, "cess_rate", 0) or 0)):
-            item.cess_rate = resolved["cess"]
-        item._billing_rate = resolved["rate"]  # noqa: SLF001
+    entered = Decimal(str(item.gst_rate or 0))
+    # The apparel slab tests the sale value per piece, i.e. after the line
+    # discount. A ₹2,700 shirt sold at 10% off is a ₹2,430 sale.
+    slab_price = getattr(item, "unit_price", None)
+    if slab_price is not None:
+        try:
+            discount_pct = Decimal(str(getattr(item, "discount_percent", 0) or 0))
+            slab_price = (
+                Decimal(str(slab_price)) * (Decimal("100") - discount_pct) / Decimal("100")
+            ).quantize(Decimal("0.01"))
+        except Exception:  # noqa: BLE001 — a stub without numeric fields keeps the raw price
+            slab_price = getattr(item, "unit_price", None)
+    decision = line_gst_decision(
+        hsn,
+        entered,
+        getattr(product, "gst_supply_form", "") or "",
+        _document_tax_date(document),
+        slab_price,
+    )
+    notice = decision.get("notice") or ""
+    if decision.get("apply"):
+        item.gst_rate = decision["rate"]
+        item.applied_rate = decision["rate"]
+        item.rate_version = decision.get("version") or ""
+        if decision.get("cess") and not Decimal(str(getattr(item, "cess_rate", 0) or 0)):
+            item.cess_rate = decision["cess"]
+        item._billing_rate = decision["rate"]  # noqa: SLF001
     elif hasattr(item, "applied_rate"):
-        item.applied_rate = Decimal(str(item.gst_rate or 0))
+        item.applied_rate = entered
+        item._billing_rate = entered  # noqa: SLF001
+    if hasattr(item, "rate_override_reason"):
+        # Not an override here (that branch returned above), so the field is
+        # informational only. Always rewrite it so a notice from an earlier
+        # save cannot linger after the rate stops changing.
+        item.rate_override_reason = notice[:255]
 
 
 def compute_document_totals(
@@ -991,6 +1017,8 @@ def build_totals_preview(
                 "igst": i.igst,
                 "cess": getattr(i, "cess", 0),
                 "line_total": i.line_total,
+                "gst_rate": i.gst_rate,
+                "rate_override_reason": getattr(i, "rate_override_reason", "") or "",
             }
             for i in items
         ],

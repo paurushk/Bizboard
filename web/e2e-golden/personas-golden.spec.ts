@@ -18,6 +18,12 @@ const PASSWORD = 'GoldenPersona123!';
 async function registerAndLogin(request: import('@playwright/test').APIRequestContext, apiRoot: string) {
   const id = unique();
   const email = `golden-persona-${id}@example.test`;
+  const otpRes = await request.post(`${apiRoot}/auth/register/otp/request/`, { data: { email } });
+  expect(otpRes.ok(), `otp request failed: ${otpRes.status()} ${await otpRes.text()}`).toBeTruthy();
+  const otpJson = await otpRes.json();
+  const otpCode =
+    otpJson?.data?.debugCode ?? otpJson?.data?.debug_code ?? otpJson?.debug_code ?? otpJson?.debugCode ?? '123456';
+
   const reg = await request.post(`${apiRoot}/auth/register/`, {
     data: {
       companyName: `Golden Persona ${id}`,
@@ -29,6 +35,8 @@ async function registerAndLogin(request: import('@playwright/test').APIRequestCo
       state: 'Karnataka',
       registrationType: 'UNREGISTERED',
       registration_type: 'UNREGISTERED',
+      otpCode,
+      otp_code: otpCode,
     },
   });
   expect(reg.ok(), `register failed: ${reg.status()} ${await reg.text()}`).toBeTruthy();

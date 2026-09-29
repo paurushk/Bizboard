@@ -20,6 +20,26 @@ const DEFAULT_ACCOUNTANT = {
   password: 'demo-password',
 };
 
+const DEFAULT_INVENTORY = {
+  email: 'warehouse@bizboard.local',
+  password: 'demo-password',
+};
+
+const DEFAULT_POLICY_DESK = {
+  email: 'policydesk@bizboard.local',
+  password: 'demo-password',
+};
+
+const DEFAULT_MANAGER = {
+  email: 'manager@bizboard.local',
+  password: 'demo-password',
+};
+
+const DEFAULT_AUDITOR = {
+  email: 'auditor@bizboard.local',
+  password: 'demo-password',
+};
+
 // "books-on" opts into the accountingEnabled:true mock company (mocks/data.ts)
 // instead of the shared books-off default every other persona uses — see
 // web/src/api/auth.ts's mockUserForEmail.
@@ -73,6 +93,22 @@ export async function loginAsSales(page: Page) {
 
 export async function loginAsAccountant(page: Page) {
   await loginViaUi(page, DEFAULT_ACCOUNTANT);
+}
+
+export async function loginAsInventoryStaff(page: Page) {
+  await loginViaUi(page, DEFAULT_INVENTORY);
+}
+
+export async function loginAsPolicyDesk(page: Page) {
+  await loginViaUi(page, DEFAULT_POLICY_DESK);
+}
+
+export async function loginAsManager(page: Page) {
+  await loginViaUi(page, DEFAULT_MANAGER);
+}
+
+export async function loginAsAuditor(page: Page) {
+  await loginViaUi(page, DEFAULT_AUDITOR);
 }
 
 export async function loginAsOwnerBooksOn(page: Page) {

@@ -43,6 +43,105 @@ def plan_modules_for_company(company) -> dict | None:
     return modules if isinstance(modules, dict) else {}
 
 
+# Held flags must be stored as False. A missing grantable key is not a denial:
+# ``_entitled`` and ``build_feature_flags`` both allow a key the plan omits,
+# so a pack or a company JSON True can turn the surface on.
+# H0 and H1 ship together. GSTR worksheets are granted. GSTN upload stays off.
+TRIAL_HELD_FALSE = frozenset({
+    "ENABLE_COMPLAINTS",
+    "ENABLE_SUPPORT_TICKETS",
+    "ENABLE_CONTRACTS",
+    "ENABLE_REFERRALS",
+    "ENABLE_CROSS_SELL",
+    "ENABLE_TALLY",
+    "ENABLE_GSTN_JSON",
+    "ENABLE_WORKSHOP",
+    "ENABLE_PROJECTS",
+    "ENABLE_INSURANCE",
+    "ENABLE_ROUTE_OPTIMIZATION",
+    "ENABLE_ROUTE_PROFIT",
+    "ENABLE_PURCHASE_PLANNING",
+    "ENABLE_PREDICTIVE_DUNNING",
+    "ENABLE_ARCHETYPE_PACKS",
+    "ENABLE_CUSTOMER_ACTIONS",
+})
+
+
+def trial_plan_modules() -> dict:
+    """Every grantable flag, explicit True or False.
+
+    Dark modules (CRM, manufacturing, payroll) stay unnamed. ``ENABLE_GSTR``
+    is True because the return pages are worksheets, not a GSTN filing.
+    ``ENABLE_CUSTOMER_360`` stays True so a later complaints grant can render
+    on the customer page.
+    """
+    from core.services.feature_flags import ROLLOUT_GRANTABLE_KEYS
+
+    modules = {key: True for key in sorted(ROLLOUT_GRANTABLE_KEYS)}
+    for key in TRIAL_HELD_FALSE:
+        if key in modules:
+            modules[key] = False
+    return modules
+
+
+def grandfather_trial_module_use() -> dict[str, int]:
+    """Keep a module for trial companies that already stored rows in it.
+
+    Runs in the same transaction as the trial-plan update. Does not delete
+    rows, does not clear an explicit False, and does not change a company
+    that already has the flag set. Only a job card, a project, or an
+    insurance policy, option set, or product qualifies.
+    """
+    from accounts.models import Company
+    from billing.models import Subscription
+
+    kept = {"ENABLE_WORKSHOP": 0, "ENABLE_PROJECTS": 0, "ENABLE_INSURANCE": 0}
+    company_ids = set(
+        Subscription.objects.filter(plan__slug="trial").values_list("company_id", flat=True)
+    )
+    if not company_ids:
+        return kept
+
+    from insurance.models import Policy, PolicyOptionSet, PolicyProduct
+    from projects.models import Project
+    from workshop.models import JobCard
+
+    used = {
+        "ENABLE_WORKSHOP": set(
+            JobCard.objects.filter(company_id__in=company_ids).values_list("company_id", flat=True)
+        ),
+        "ENABLE_PROJECTS": set(
+            Project.objects.filter(company_id__in=company_ids).values_list("company_id", flat=True)
+        ),
+        "ENABLE_INSURANCE": set(
+            Policy.objects.filter(company_id__in=company_ids).values_list("company_id", flat=True)
+        )
+        | set(
+            PolicyOptionSet.objects.filter(company_id__in=company_ids).values_list(
+                "company_id", flat=True
+            )
+        )
+        | set(
+            PolicyProduct.objects.filter(company_id__in=company_ids).values_list(
+                "company_id", flat=True
+            )
+        ),
+    }
+    for company in Company.objects.filter(id__in=company_ids):
+        flags = dict(company.feature_flags or {})
+        changed = False
+        for key, ids in used.items():
+            if company.id not in ids or key in flags:
+                continue
+            flags[key] = True
+            kept[key] += 1
+            changed = True
+        if changed:
+            company.feature_flags = flags
+            company.save(update_fields=["feature_flags"])
+    return kept
+
+
 def ensure_register_trial(company) -> Subscription | None:
     """Give a new tenant a time-boxed TRIAL so REQUIRE_SUBSCRIPTION does not write-block them."""
     if Subscription.objects.filter(company=company).exists():
@@ -55,7 +154,7 @@ def ensure_register_trial(company) -> Subscription | None:
             "seat_limit": 3,
             "price_paise": 0,
             "is_active": True,
-            "modules": {},
+            "modules": trial_plan_modules(),
         },
     )
     return Subscription.objects.create(
@@ -101,26 +200,33 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
         created_new = True
     else:
         snapshot = (sub.status, sub.current_period_end, sub.trial_ends_at, sub.plan_id)
-        if live_razorpay and sub.status in live:
-            # Keep the live plan until Razorpay confirms the new subscription.
+        if live_razorpay:
+            # Keep status, period end, and the paid plan until Razorpay
+            # confirms. Flipping an older subscription to PENDING and clearing
+            # current_period_end write-blocks the tenant before they can pay.
             pass
         else:
             sub.plan = plan
-            if live_razorpay and sub.status not in live:
-                sub.status = Subscription.Status.PENDING
-                sub.current_period_end = None
-                sub.trial_ends_at = None
-            sub.save(update_fields=["plan", "status", "current_period_end", "trial_ends_at", "updated_at"])
+            sub.save(update_fields=["plan", "updated_at"])
 
     checkout_order_id = stub_order
     if razorpay_key and razorpay_secret and plan.razorpay_plan_id:
         prior_remote_id = (sub.razorpay_subscription_id or "").strip()
+        # Clicking the plan the tenant already pays for must not open a
+        # second subscription. That used to bill both until cycle end.
+        if (
+            sub.status in live
+            and prior_remote_id
+            and sub.plan_id == plan.pk
+            and not (sub.pending_razorpay_subscription_id or "").strip()
+        ):
+            sub._checkout_url = ""
+            return sub, prior_remote_id
         # B9-005: an already-live paying subscriber switching plans gets no
         # proration — the change takes effect at the next billing cycle, not
         # immediately. Schedule the new Razorpay subscription to start when
-        # the current one's paid-for period ends, instead of starting (and
-        # charging) it right away while the old one is still also billing
-        # through cancel_at_cycle_end.
+        # the current one's paid-for period ends. Do not cancel the paid
+        # subscription until that new one is confirmed active.
         is_live_switch = (
             live_razorpay and sub.status in live and sub.plan_id != plan.pk and bool(prior_remote_id)
         )
@@ -128,7 +234,7 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
         if is_live_switch and sub.current_period_end and sub.current_period_end > now:
             start_at = int(sub.current_period_end.timestamp())
         try:
-            remote_id = _create_razorpay_subscription(plan, company, start_at=start_at)
+            created = _create_razorpay_subscription(plan, company, start_at=start_at)
         except Exception:
             if created_new:
                 sub.delete()
@@ -136,37 +242,49 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
                 sub.status, sub.current_period_end, sub.trial_ends_at, sub.plan_id = snapshot
                 sub.save(update_fields=["plan", "status", "current_period_end", "trial_ends_at", "updated_at"])
             raise
+        if isinstance(created, tuple):
+            remote_id = str(created[0] or "")
+            short_url = str(created[1] or "") if len(created) > 1 else ""
+        else:
+            remote_id = str(created or "")
+            short_url = ""
         if remote_id:
-            # B9-001: retire the old Razorpay subscription so the customer is
-            # not billed on two subscriptions after a plan switch.
             if prior_remote_id and prior_remote_id != remote_id:
-                _cancel_razorpay_subscription(prior_remote_id, at_cycle_end=True)
-            sub.razorpay_subscription_id = remote_id
-            if start_at is not None:
-                # Deferred switch: keep the entitlements/plan the tenant already
-                # paid for until the webhook confirms the new cycle started.
+                old_pending = (sub.pending_razorpay_subscription_id or "").strip()
+                if old_pending and old_pending != remote_id:
+                    # A second plan switch before the first one's webhook
+                    # landed would otherwise orphan `old_pending` -- it stops
+                    # matching either id on `sub` once overwritten below, so
+                    # a late webhook/checkout for it becomes a silent no-op
+                    # (see apply_razorpay_subscription_status). Best effort,
+                    # same as the live-subscription cancel path above.
+                    _cancel_razorpay_subscription(old_pending, at_cycle_end=False)
+                sub.pending_razorpay_subscription_id = remote_id
+                sub.pending_plan = plan
+                sub.save(update_fields=[
+                    "pending_plan", "pending_razorpay_subscription_id", "updated_at",
+                ])
+            elif sub.plan_id != plan.pk:
+                sub.razorpay_subscription_id = remote_id
                 sub.pending_plan = plan
                 sub.save(update_fields=["pending_plan", "razorpay_subscription_id", "updated_at"])
             else:
-                sub.plan = plan
+                sub.razorpay_subscription_id = remote_id
                 sub.pending_plan = None
-                if sub.status not in live:
-                    sub.status = Subscription.Status.PENDING
-                sub.save(
-                    update_fields=["plan", "pending_plan", "razorpay_subscription_id", "status", "updated_at"]
-                )
+                sub.save(update_fields=["pending_plan", "razorpay_subscription_id", "updated_at"])
             checkout_order_id = remote_id
+            sub._checkout_url = short_url
     return sub, checkout_order_id
 
 
-def _create_razorpay_subscription(plan: Plan, company, *, start_at: int | None = None) -> str:
+def _create_razorpay_subscription(plan: Plan, company, *, start_at: int | None = None) -> tuple[str, str]:
     import json
     from urllib.request import Request, urlopen
 
     key = (getattr(settings, "RAZORPAY_KEY_ID", "") or "").strip()
     secret = (getattr(settings, "RAZORPAY_KEY_SECRET", "") or "").strip()
     if not key or not secret or not plan.razorpay_plan_id:
-        return ""
+        return "", ""
     payload_body: dict[str, Any] = {
         "plan_id": plan.razorpay_plan_id,
         "total_count": 120,
@@ -204,7 +322,7 @@ def _create_razorpay_subscription(plan: Plan, company, *, start_at: int | None =
         ) from exc
     except Exception as exc:  # noqa: BLE001
         raise BusinessRuleError("Could not create Razorpay subscription. Try again or contact support.") from exc
-    return str(payload.get("id") or "")
+    return str(payload.get("id") or ""), str(payload.get("short_url") or "")
 
 
 def _cancel_razorpay_subscription(subscription_id: str, *, at_cycle_end: bool = True) -> None:
@@ -272,6 +390,16 @@ def fetch_razorpay_subscription(subscription_id: str) -> dict | None:
     return payload if isinstance(payload, dict) else None
 
 
+def _subscription_for_razorpay_id(razorpay_subscription_id: str):
+    sub = Subscription.objects.filter(razorpay_subscription_id=razorpay_subscription_id).first()
+    if sub is not None:
+        return sub, False
+    sub = Subscription.objects.filter(pending_razorpay_subscription_id=razorpay_subscription_id).first()
+    if sub is not None:
+        return sub, True
+    return None, False
+
+
 def apply_razorpay_subscription_status(
     razorpay_subscription_id: str,
     rzp_status: str,
@@ -279,13 +407,35 @@ def apply_razorpay_subscription_status(
 ) -> Subscription | None:
     if not razorpay_subscription_id:
         return None
-    sub = Subscription.objects.filter(razorpay_subscription_id=razorpay_subscription_id).first()
+    sub, via_pending = _subscription_for_razorpay_id(razorpay_subscription_id)
     if sub is None:
         return None
     mapped = _map_razorpay_status(rzp_status)
     if mapped is None:
         return sub
+    # A churned tenant stays suspended no matter what Razorpay reports for the
+    # old subscription -- not just a re-activation. suspend_for_churn only
+    # cancels the remote subscription at cycle end, so it keeps existing (and
+    # can still emit e.g. a `halted`/`paused` webhook) until then; none of
+    # those should be able to flip status away from the owner's explicit
+    # churn decision. The pending (replacement) subscription is allowed to
+    # promote once it is actually active.
+    if (
+        not via_pending
+        and sub.status == Subscription.Status.SUSPENDED
+        and (sub.churn_reason or "").strip()
+    ):
+        return sub
+    if via_pending and mapped != Subscription.Status.ACTIVE:
+        return sub
     update_fields = ["status", "updated_at"]
+    if via_pending and mapped == Subscription.Status.ACTIVE:
+        previous_remote_id = (sub.razorpay_subscription_id or "").strip()
+        sub.razorpay_subscription_id = razorpay_subscription_id
+        sub.pending_razorpay_subscription_id = ""
+        update_fields.extend(["razorpay_subscription_id", "pending_razorpay_subscription_id"])
+        if previous_remote_id and previous_remote_id != razorpay_subscription_id:
+            _cancel_razorpay_subscription(previous_remote_id, at_cycle_end=True)
     sub.status = mapped
     if mapped == Subscription.Status.ACTIVE:
         if isinstance(current_end, (int, float)) and current_end > 0:

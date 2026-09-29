@@ -432,3 +432,145 @@ def supplier_defect_message(row: Gstr2bIngest) -> dict:
         "ingest_id": row.id,
         "defect": defect,
     }
+
+
+def latest_ims_period(company) -> str | None:
+    return (
+        Gstr2bIngest.objects.filter(company=company)
+        .order_by("-period")
+        .values_list("period", flat=True)
+        .first()
+    )
+
+
+def supplier_po_nudge(company, supplier) -> dict:
+    """Latest-period score for a PO picker. Missing rows are not a zero."""
+    period = latest_ims_period(company) or ""
+    gstin = (getattr(supplier, "gstin", "") or "").strip().upper()
+    empty = {
+        "state": "no_ims_history",
+        "period": period,
+        "supplier_gstin": gstin,
+        "supplier_id": getattr(supplier, "id", None),
+    }
+    if not period or not gstin:
+        return empty
+    match = next(
+        (row for row in supplier_scorecard(company, period) if (row.get("supplier_gstin") or "").upper() == gstin),
+        None,
+    )
+    if match is None:
+        return empty
+    return {"state": "scored", "period": period, **match}
+
+
+def expiring_itc_rows(company, as_of: date) -> list[Gstr2bIngest]:
+    """Unresolved rows whose Section 16(4) deadline is inside EXPIRING_DAYS, any period."""
+    found: list[Gstr2bIngest] = []
+    rows = Gstr2bIngest.objects.filter(company=company).exclude(
+        ims_action__in=(Gstr2bIngest.ImsAction.ACCEPT, Gstr2bIngest.ImsAction.REJECT),
+    )
+    for row in rows.iterator():
+        deadline = row.section_16_4_deadline or section_16_4_deadline(row.invoice_date)
+        if deadline is None:
+            continue
+        days = (deadline - as_of).days
+        if 0 <= days <= EXPIRING_DAYS:
+            found.append(row)
+    found.sort(key=lambda row: row.id)
+    return found
+
+
+ITC_EXPIRY_SUBJECT = "ITC expiring — Section 16(4)"
+
+
+def itc_expiry_digest_body(rows: list[Gstr2bIngest]) -> str:
+    ids = ",".join(str(row.id) for row in rows)
+    lines = [
+        f"ids:{ids}",
+        "",
+        (
+            "BizBoard calculated that input tax credit on the invoice rows below is inside "
+            "30 days of the Section 16(4) date stored on those rows (30 November of the "
+            "financial year after the invoice). This reminder is from your books, not a filing opinion. "
+            "Review them on the GSTR-2B screen before the date on each row."
+        ),
+        "",
+    ]
+    for row in rows:
+        deadline = row.section_16_4_deadline or section_16_4_deadline(row.invoice_date)
+        lines.append(
+            f"- {row.invoice_number or '—'} ({row.supplier_gstin or '—'}) deadline {deadline.isoformat() if deadline else '—'}"
+        )
+    return "\n".join(lines)
+
+
+def _owner_email(company) -> str:
+    recipient = (getattr(company, "email", "") or "").strip()
+    if recipient:
+        return recipient
+    from accounts.models import CompanyUser
+
+    owner = (
+        CompanyUser.objects.filter(company=company, role=CompanyUser.Role.OWNER, is_active=True)
+        .select_related("user")
+        .order_by("id")
+        .first()
+    )
+    return (owner.user.email if owner else "") or ""
+
+
+def send_itc_expiry_digest_for_company(company, *, as_of: date, now=None) -> str:
+    """One email when the set of expiring invoice ids changes. Returns sent|skipped|quiet|empty."""
+    from django.utils import timezone
+
+    from core.models import Notification
+    from core.services.notifications import NotificationService
+    from payments.dunning import in_quiet_hours
+
+    now = now or timezone.now()
+    if in_quiet_hours(company, now):
+        return "quiet"
+    rows = expiring_itc_rows(company, as_of)
+    if not rows:
+        return "empty"
+    body = itc_expiry_digest_body(rows)
+    id_line = body.splitlines()[0]
+    prior = (
+        Notification.objects.filter(
+            company=company,
+            channel=Notification.Channel.EMAIL,
+            subject=ITC_EXPIRY_SUBJECT,
+        )
+        .exclude(status=Notification.Status.FAILED)
+        .order_by("-id")
+        .first()
+    )
+    if prior and (prior.body or "").splitlines()[:1] == [id_line]:
+        return "skipped"
+    recipient = _owner_email(company)
+    if not recipient:
+        return "empty"
+    NotificationService.send(
+        company=company,
+        channel=Notification.Channel.EMAIL,
+        recipient=recipient,
+        subject=ITC_EXPIRY_SUBJECT,
+        body=body,
+    )
+    return "sent"
+
+
+def send_itc_expiry_digests(*, as_of: date | None = None, now=None) -> dict:
+    from django.utils import timezone
+
+    from accounts.models import Company
+
+    now = now or timezone.now()
+    as_of = as_of or timezone.localdate(now)
+    counts = {"sent": 0, "skipped": 0, "quiet": 0, "empty": 0}
+    company_ids = Gstr2bIngest.objects.values_list("company_id", flat=True).distinct()
+    for company in Company.objects.filter(id__in=company_ids):
+        outcome = send_itc_expiry_digest_for_company(company, as_of=as_of, now=now)
+        counts[outcome] = counts.get(outcome, 0) + 1
+    return counts

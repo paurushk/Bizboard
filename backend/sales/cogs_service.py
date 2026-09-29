@@ -56,7 +56,17 @@ class CogsService:
         if not stock_from_challan:
             from .services import SalesService
 
-            for item in items:
+            # DATA-01: Sort items deterministically by (product_id, batch_id, pk)
+            # to guarantee lock hierarchy and prevent PostgreSQL 40P01 deadlocks on concurrent sales.
+            sorted_items = sorted(
+                items,
+                key=lambda it: (
+                    it.product_id or 0,
+                    getattr(it, "batch_id", 0) or 0,
+                    it.pk or 0,
+                ),
+            )
+            for item in sorted_items:
                 from inventory.item_stock import tracks_inventory
 
                 if not tracks_inventory(item.product):

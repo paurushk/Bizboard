@@ -28,6 +28,7 @@ class CompanyScopedSerializerMixin:
 class PurchaseItemSerializer(serializers.ModelSerializer):
     product = CompanyPrimaryKeyRelatedField(queryset=Product.objects.all())
     product_name = serializers.CharField(source="product.name", read_only=True)
+    price_jump_note = serializers.SerializerMethodField()
     # CR-135: nested batch PK company-scoped.
     batch = CompanyPrimaryKeyRelatedField(
         queryset=__import__("inventory.models", fromlist=["BatchLot"]).BatchLot.objects.all(),
@@ -49,6 +50,7 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
             "hsn_code", "mrp", "unit_name", "uqc_code", "unit_price_inclusive",
             "batch", "batch_no", "exp_date", "mfg_date", "serial_numbers",
             "applied_rate", "rate_version", "rate_override", "rate_override_reason",
+            "price_jump_note",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY + ["hsn_code", "mrp", "uqc_code", "applied_rate", "rate_version"]
         extra_kwargs = {
@@ -58,6 +60,42 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
             "exp_date": {"required": False, "allow_null": True},
             "mfg_date": {"required": False, "allow_null": True},
         }
+
+    def get_price_jump_note(self, obj) -> str | None:
+        """Informational only — no judgment, no blocking (see purchases.reliability).
+
+        Reads from a per-request bulk-fetched cache when the parent
+        ``PurchaseInvoiceSerializer`` has populated one (the normal path,
+        one query for every line on the invoice instead of one query per
+        line) and falls back to the single-pair query otherwise, so this
+        field still works if ``PurchaseItemSerializer`` is ever used
+        standalone outside that parent.
+        """
+        from decimal import Decimal
+
+        from core.services.feature_flags import flag_enabled
+
+        invoice = getattr(obj, "invoice", None)
+        if invoice is None or invoice.supplier_id is None or obj.product_id is None or obj.unit_price is None:
+            return None
+        if not flag_enabled(invoice.company, "ENABLE_SUPPLIER_PRICE_HISTORY"):
+            return None
+
+        cache = self.context.get("_price_jump_cache")
+        key = (invoice.supplier_id, obj.product_id)
+        if cache is not None:
+            last = cache.get(key)
+        else:
+            from purchases.reliability import last_completed_purchase_rate
+
+            last = last_completed_purchase_rate(
+                invoice.company, invoice.supplier, obj.product, exclude_invoice_id=invoice.id
+            )
+        if last is None:
+            return None
+        if Decimal(str(obj.unit_price)) <= Decimal(str(last["unit_price"])):
+            return None
+        return f"last bill was ₹{last['unit_price']} on {last['date'].isoformat()}"
 
 
 class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
@@ -122,6 +160,30 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
 
         balance = Decimal(str(self.get_balance(obj) or 0))
         return max(self._payable(obj) - balance, Decimal("0"))
+
+    def to_representation(self, instance):
+        """Precompute the price-jump-note lookup once for all of this
+        invoice's lines (one query) instead of letting each nested
+        ``PurchaseItemSerializer`` line query it individually (N queries).
+        See ``PurchaseItemSerializer.get_price_jump_note``.
+        """
+        from core.services.feature_flags import flag_enabled
+
+        if (
+            instance.supplier_id is not None
+            and flag_enabled(instance.company, "ENABLE_SUPPLIER_PRICE_HISTORY")
+        ):
+            from purchases.reliability import last_completed_purchase_rates_bulk
+
+            pairs = {
+                (instance.supplier_id, item.product_id)
+                for item in instance.items.all()
+                if item.product_id is not None
+            }
+            self.context["_price_jump_cache"] = last_completed_purchase_rates_bulk(
+                instance.company, pairs, exclude_invoice_id=instance.id
+            )
+        return super().to_representation(instance)
 
     def validate_supplier(self, supplier):
         self.check_company_ref(supplier, "supplier")

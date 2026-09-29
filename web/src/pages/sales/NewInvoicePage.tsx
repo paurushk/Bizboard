@@ -59,6 +59,7 @@ import {
 } from '@/offline/invoiceDraftCache';
 import { isValidHsnSac } from '@/utils/gst';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
+import { exactBarcodeOrSku, filterProductsForPicker } from '@/utils/productPick';
 import { canCreateSales, canViewFinancialReports } from '@/utils/permissions';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
@@ -790,7 +791,7 @@ export function NewInvoicePage() {
     })),
   }), [
     additionalCharges, autoRoundOff, chargesGstRate, chargesHsn, companyGstinId, costCenterId,
-    customerId, dueDate, ecommerceOperatorGstin, invoiceDate, invoiceDiscount, invoiceDiscountMode,
+    customerId, dueDate, ecommerceOperatorGstin, invoiceCustomFields, invoiceDate, invoiceDiscount, invoiceDiscountMode,
     invoiceType, isReverseCharge, lines, notes, paymentTermsDays, priceMode, showBank, showQr,
     showTerms, signatureId, supplyType, tcsAmountManual, tcsAmount, tcsRate, tcsSection, termsText, warehouseId,
   ]);
@@ -1076,6 +1077,26 @@ export function NewInvoicePage() {
     setProductQuery('');
     setError(null);
   };
+
+  const lastScan = useRef('');
+  useEffect(() => {
+    const query = productQuery.trim();
+    if (!query) {
+      lastScan.current = '';
+      return;
+    }
+    // Wait until the results belong to what is in the box now. Otherwise typing
+    // "ABC-1" would add the product whose SKU is exactly "ABC" on the third key.
+    if (debouncedProductQuery.trim() !== query) return;
+    const pool = (debouncedProductQuery.length >= 1 ? products.data : productCatalog.data?.results) ?? [];
+    const hit = exactBarcodeOrSku(pool, query);
+    if (!hit || hit.status !== 'ACTIVE') return;
+    const mark = `${hit.id}:${query}`;
+    if (lastScan.current === mark) return;
+    lastScan.current = mark;
+    addProduct(hit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- addProduct is re-created each render; the guard above keys on the query.
+  }, [productQuery, products.data, productCatalog.data, debouncedProductQuery]);
 
   const updateLine = (
     key: string,
@@ -1722,6 +1743,7 @@ export function NewInvoicePage() {
               ? lines.map((line, i) => ({
                   ...line,
                   gstRate: preview.totals!.items![i].gstRate ?? line.gstRate,
+                  rateNotice: preview.totals!.items![i].rateOverrideReason || line.rateNotice,
                 }))
               : lines
           }
@@ -1845,6 +1867,7 @@ export function NewInvoicePage() {
               options={(
                 (debouncedProductQuery.length >= 1 ? products.data : productCatalog.data?.results) ?? []
               ).filter((p) => p.status === 'ACTIVE')}
+              filterOptions={(options, state) => filterProductsForPicker(options, state.inputValue)}
               loading={products.isFetching || productCatalog.isFetching}
               noOptionsText={t('common.noResults')}
               inputValue={productQuery}

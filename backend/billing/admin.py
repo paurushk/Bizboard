@@ -7,8 +7,13 @@ from .models import DeadLetterEvent, Plan, Subscription
 
 @admin.register(Plan)
 class PlanAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
-    list_display = ("name", "slug", "seat_limit", "price_paise", "is_active")
+    list_display = ("name", "slug", "price_paise", "is_active")
     search_fields = ("name", "slug")
+    fields = (
+        "name", "slug", "price_paise", "modules", "seat_limit",
+        "monthly_complete_limit", "storage_bytes_limit", "api_rate_per_minute",
+        "razorpay_plan_id", "is_active",
+    )
 
 
 @admin.register(Subscription)

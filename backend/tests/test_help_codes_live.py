@@ -136,6 +136,12 @@ def test_live_credit_limit_exceeded(tenant_a):
     resp = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
     assert resp.status_code == 400
     assert _code(resp) == "credit_limit_exceeded"
+    # POS credit-limit banner needs structured numbers, not just a message string.
+    details = resp.data["error"]["details"]
+    assert details["customer_name"] == customer.name
+    assert details["credit_limit"] == "100.00"
+    assert details["current_exposure"] == "0"
+    assert details["invoice_total"] == "500.00"
 
 
 def test_live_closed_period(tenant_a):

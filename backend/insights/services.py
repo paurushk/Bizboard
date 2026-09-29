@@ -180,6 +180,7 @@ def generate_daily_summary(
     )
     if send_email:
         _maybe_send_digest_email(company, obj, open_alerts)
+        _maybe_send_digest_whatsapp(company, obj, open_alerts)
     return obj
 
 
@@ -241,6 +242,48 @@ def _maybe_send_digest_email(company, summary: DailyBusinessSummary, open_alerts
     except Exception:
         DailyBusinessSummary.objects.filter(pk=summary.pk).update(email_sent_at=None)
         raise
+
+
+def _maybe_send_digest_whatsapp(company, summary: DailyBusinessSummary, open_alerts: list) -> None:
+    """Owner digest on WhatsApp. Capped at 5 items. Same day is sent once."""
+    from accounts.models import CompanyUser
+    from core.models import Notification
+    from core.services.notifications import NotificationService
+    from payments.promise_to_pay import promises_due_today
+
+    owner = (
+        CompanyUser.objects.filter(company=company, role=CompanyUser.Role.OWNER, is_active=True)
+        .select_related("user")
+        .order_by("id")
+        .first()
+    )
+    phone = ""
+    if owner is not None:
+        phone = (getattr(owner.user, "phone", "") or getattr(company, "phone", "") or "").strip()
+    if not phone:
+        return
+    subject = f"BizBoard daily summary — {summary.summary_date.isoformat()}"
+    if Notification.objects.filter(
+        company=company, channel=Notification.Channel.WHATSAPP, subject=subject,
+    ).exclude(status=Notification.Status.FAILED).exists():
+        return
+    lines = [f"{a.code}: {a.message}" for a in open_alerts[:5]]
+    promised = list(promises_due_today(company)[:5])
+    # Need room for the header AND at least one name under it, or the digest
+    # ends with a dangling "Promised to pay today:" line and nothing below it.
+    remaining = 5 - len(lines)
+    if promised and remaining >= 2:
+        lines.append("Promised to pay today:")
+        for row in promised[: remaining - 1]:
+            lines.append(f"- {row.customer.name}")
+    body = "\n".join(lines) or "No open attention items."
+    NotificationService.send(
+        company=company,
+        channel=Notification.Channel.WHATSAPP,
+        recipient=phone,
+        subject=subject,
+        body=body[:1000],
+    )
 
 
 # ---- Health score (6.1) ----
@@ -669,7 +712,9 @@ def build_growth_hints(company, as_of: date | None = None) -> list[dict]:
     ).select_related("product")[:300]:
         cost = getattr(it.product, "purchase_price", None) or Decimal("0")
         price = it.unit_price or Decimal("0")
-        if cost > 0 and price > 0 and (price - cost) / price < Decimal("0.05"):
+        from core.services.margin import margin_below_threshold
+
+        if margin_below_threshold(price, cost):
             compressed.append(it.product.name)
     if compressed:
         hints.append({

@@ -1,7 +1,14 @@
 import {
   isAccountingFeatureEnabled,
   isAiInsightsEnabled,
+  isComplaintsEnabled,
+  isContractsEnabled,
   isCrmEnabled,
+  isReferralsEnabled,
+  isSupportTicketsEnabled,
+  isWorkshopEnabled,
+  isProjectsEnabled,
+  isInsuranceEnabled,
   isGstrReportsEnabled,
   isManufacturingEnabled,
   isPayrollEnabled,
@@ -11,6 +18,33 @@ import {
   isTdsEnabled,
 } from '@/config/features';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
+
+/** Dead surfaces. Hidden for every company, pack or not. */
+const ALWAYS_HIDDEN_NAV = new Set(['bills-of-entry', 'telegram', 'fixed-assets']);
+/** This release ships GSTR-1 and GSTR-3B worksheets only. */
+const HIDDEN_GSTR_NAV = new Set([
+  'report-gstr2b',
+  'report-gstr4',
+  'report-gstr6',
+  'report-gstr7',
+  'report-gstr8',
+  'report-gstr9',
+]);
+/** Hidden only while a new company is still on the archetype-pack sidebar. */
+const PACK_HIDDEN_SECTIONS = new Set([
+  'insights',
+  'manufacturing',
+  'payroll',
+  'crm',
+  'complaints',
+  'supplier-complaints',
+  'tickets',
+  'shared-tickets',
+  'job-cards',
+  'projects',
+  'insurance',
+  'contracts',
+]);
 import type { User } from '@/types/domain';
 import {
   canAccessPos,
@@ -131,7 +165,7 @@ export const navigation: NavItem[] = [
       { id: 'purchase-credit-notes', labelKey: 'nav.purchaseCreditNotes', path: '/purchases/credit-notes', visible: canViewPurchaseSurfaces },
       { id: 'purchase-debit-notes', labelKey: 'nav.purchaseDebitNotes', path: '/purchases/debit-notes', visible: canViewPurchaseSurfaces },
       { id: 'purchase-orders', labelKey: 'nav.purchaseOrders', path: '/purchases/orders', visible: canViewPurchaseSurfaces },
-      { id: 'bills-of-entry', labelKey: 'nav.billsOfEntry', path: '/purchases/bills-of-entry', visible: canViewPurchaseSurfaces },
+      { id: 'bills-of-entry', labelKey: 'nav.billsOfEntry', path: '/purchases/bills-of-entry', visible: () => false },
       { id: 'suppliers', labelKey: 'nav.suppliers', path: '/purchases/suppliers', visible: canViewPurchaseSurfaces },
     ],
   },
@@ -151,7 +185,7 @@ export const navigation: NavItem[] = [
         id: 'collections',
         labelKey: 'nav.collections',
         path: '/payments/collections',
-        visible: (user) => canViewFinancialReports(user) && isRuntimeFlagEnabled('ENABLE_PREDICTIVE_DUNNING'),
+        visible: canViewFinancialReports,
       },
       { id: 'bank-statements', labelKey: 'nav.bankStatements', path: '/payments/statements', visible: canCreatePayments },
       { id: 'payment-recon', labelKey: 'nav.bankReconciliation', path: '/payments/reconciliation', visible: canViewBankRecon },
@@ -189,6 +223,12 @@ export const navigation: NavItem[] = [
         path: '/inventory/purchase-planning',
         visible: (user) => canViewInventorySurfaces(user) && isRuntimeFlagEnabled('ENABLE_PURCHASE_PLANNING'),
       },
+      {
+        id: 'demand-forecast',
+        labelKey: 'nav.demandForecast',
+        path: '/inventory/demand-forecast',
+        visible: canViewInventorySurfaces,
+      },
       { id: 'label-print', labelKey: 'nav.labelPrint', path: '/inventory/labels', visible: canAdjustInventory },
       { id: 'warehouses', labelKey: 'nav.warehouses', path: '/inventory/warehouses', visible: canAdjustInventory },
       { id: 'stock-counts', labelKey: 'nav.stockCounts', path: '/inventory/stock-counts', visible: canAdjustInventory },
@@ -221,8 +261,65 @@ export const navigation: NavItem[] = [
     visible: (user) => canManageCrm(user) && isCrmEnabled(),
     children: [
       { id: 'leads', labelKey: 'nav.leads', path: '/crm/leads' },
+      { id: 'crm-onboarding', labelKey: 'nav.crmOnboarding', path: '/crm/onboarding' },
       { id: 'opportunities', labelKey: 'nav.opportunities', path: '/crm/opportunities' },
+      { id: 'campaigns', labelKey: 'nav.campaigns', path: '/crm/campaigns' },
+      { id: 'pipeline', labelKey: 'nav.pipeline', path: '/crm/pipeline' },
+      {
+        id: 'referrals',
+        labelKey: 'nav.referrals',
+        path: '/crm/referrals',
+        visible: () => isReferralsEnabled(),
+      },
     ],
+  },
+  {
+    id: 'complaints',
+    labelKey: 'nav.complaints',
+    path: '/complaints',
+    visible: (user) => canCreateSales(user) && isComplaintsEnabled(),
+  },
+  {
+    id: 'supplier-complaints',
+    labelKey: 'nav.supplierComplaints',
+    path: '/complaints/suppliers',
+    visible: (user) => canCreatePurchases(user) && isComplaintsEnabled(),
+  },
+  {
+    id: 'tickets',
+    labelKey: 'nav.tickets',
+    path: '/support/tickets',
+    visible: (user) => canCreateSales(user) && isSupportTicketsEnabled(),
+  },
+  {
+    id: 'shared-tickets',
+    labelKey: 'nav.sharedTickets',
+    path: '/support/shared',
+    visible: (user) => canCreateSales(user) && isSupportTicketsEnabled(),
+  },
+  {
+    id: 'job-cards',
+    labelKey: 'nav.jobCards',
+    path: '/workshop/jobs',
+    visible: (user) => canCreateSales(user) && isWorkshopEnabled(),
+  },
+  {
+    id: 'projects',
+    labelKey: 'nav.projects',
+    path: '/projects',
+    visible: (user) => canCreateSales(user) && isProjectsEnabled(),
+  },
+  {
+    id: 'insurance',
+    labelKey: 'nav.insurance',
+    path: '/insurance',
+    visible: (user) => user?.canManagePolicies === true && isInsuranceEnabled(),
+  },
+  {
+    id: 'contracts',
+    labelKey: 'nav.contracts',
+    path: '/contracts',
+    visible: (user) => canCreateSales(user) && isContractsEnabled(),
   },
   {
     id: 'reports',
@@ -285,7 +382,7 @@ export const navigation: NavItem[] = [
         id: 'report-gstr9',
         labelKey: 'nav.gstr9',
         path: '/reports/gstr9',
-        visible: () => isGstrReportsEnabled(),
+        visible: () => false,
       },
       {
         id: 'report-gstr2b',
@@ -487,7 +584,7 @@ export const navigation: NavItem[] = [
         id: 'telegram',
         labelKey: 'nav.telegram',
         path: '/settings/telegram',
-        visible: (user) => Boolean(user),
+        visible: () => false,
       },
     ],
   },
@@ -502,7 +599,7 @@ export const navigation: NavItem[] = [
       { id: 'chart-of-accounts', labelKey: 'nav.chartOfAccounts', path: '/accounting/accounts' },
       { id: 'journals', labelKey: 'nav.journals', path: '/accounting/journals' },
       { id: 'cost-centers', labelKey: 'nav.costCenters', path: '/accounting/cost-centers' },
-      { id: 'fixed-assets', labelKey: 'nav.fixedAssets', path: '/accounting/fixed-assets' },
+      { id: 'fixed-assets', labelKey: 'nav.fixedAssets', path: '/accounting/fixed-assets', visible: () => false },
       { id: 'accounting-periods', labelKey: 'nav.accountingPeriods', path: '/accounting/periods' },
       { id: 'accounting-recon', labelKey: 'nav.bankReconciliation', path: '/accounting/bank-reconciliation' },
       { id: 'expenses', labelKey: 'nav.expenses', path: '/accounting/expenses' },
@@ -513,13 +610,19 @@ export const navigation: NavItem[] = [
   { id: 'offline-outbox', labelKey: 'nav.offlineOutbox', path: '/offline-outbox', visible: (user) => Boolean(user) },
 ];
 
+function navItemHidden(id: string): boolean {
+  if (ALWAYS_HIDDEN_NAV.has(id) || HIDDEN_GSTR_NAV.has(id)) return true;
+  if (isRuntimeFlagEnabled('NAV_PACK_DEFAULT') && PACK_HIDDEN_SECTIONS.has(id)) return true;
+  return false;
+}
+
 export function filterNav(user: User | null): NavItem[] {
   return navigation
-    .filter((item) => (item.visible ? item.visible(user) : true))
+    .filter((item) => !navItemHidden(item.id) && (item.visible ? item.visible(user) : true))
     .map((item) => ({
       ...item,
       children: item.children?.filter((child) =>
-        child.visible ? child.visible(user) : true,
+        !navItemHidden(child.id) && (child.visible ? child.visible(user) : true),
       ),
     }))
     .filter((item) => !item.children || item.children.length > 0);

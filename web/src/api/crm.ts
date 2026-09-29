@@ -20,12 +20,16 @@ export type Lead = SchemaOr<
   assignedTo?: number | null;
   dedupeReview?: string;
   dedupeCandidates?: { customers?: number[]; leads?: number[] };
+  campaign?: number | null;
+  referralCode?: number | null;
 };
 
 export type LeadActivity = {
   id: number;
   kind: 'NOTE' | 'CALL' | 'EMAIL' | string;
   body: string;
+  dueAt?: string | null;
+  remindedAt?: string | null;
   createdAt: string;
   createdBy: number | null;
 };
@@ -47,7 +51,9 @@ export type Opportunity = SchemaOr<
     createdAt: string;
     updatedAt: string;
   }
->;
+> & {
+  competitor?: string;
+};
 
 const BASE = apiPath('/crm');
 
@@ -55,13 +61,16 @@ export function listLeadsPage(params?: {
   page?: number;
   pageSize?: number;
   source?: string;
+  campaign?: string;
   dedupe_review?: string;
   mine?: boolean;
 }) {
   return fetchPage<Lead>(`${BASE}/leads/`, params);
 }
 
-export async function createLead(payload: Partial<Lead> & { dedupeDecision?: string }): Promise<Lead> {
+export async function createLead(
+  payload: Omit<Partial<Lead>, 'referralCode'> & { dedupeDecision?: string; referralCode?: string },
+): Promise<Lead> {
   const { data } = await apiClient.post(`${BASE}/leads/`, payload, {
     headers: idempotencyHeaders(),
   });
@@ -93,7 +102,7 @@ export async function listLeadActivities(leadId: number): Promise<LeadActivity[]
 
 export async function createLeadActivity(
   leadId: number,
-  payload: { kind: string; body: string },
+  payload: { kind: string; body: string; dueAt?: string | null },
 ): Promise<LeadActivity> {
   const { data } = await apiClient.post(`${BASE}/leads/${leadId}/activities/`, payload, {
     headers: idempotencyHeaders(),
@@ -146,6 +155,20 @@ export async function importLeadsCsv(file: File): Promise<{ created: number; pen
 
 export async function issueLeadFormToken(): Promise<{ token: string }> {
   const { data } = await apiClient.post(`${BASE}/leads/form-token/`, {});
+  return unwrapData(data);
+}
+
+export function whatsappWebhookUrl(token: string): string {
+  const base = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || '/api/v1').replace(/\/$/, '');
+  const path = `/crm/public/whatsapp/${token}/`;
+  if (base.startsWith('http://') || base.startsWith('https://')) {
+    return `${base}${path}`;
+  }
+  return `${window.location.origin}${base}${path}`;
+}
+
+export async function issueWhatsappWebhookToken(rotate = false): Promise<{ token: string }> {
+  const { data } = await apiClient.post(`${BASE}/leads/whatsapp-token/`, rotate ? { rotate: true } : {});
   return unwrapData(data);
 }
 

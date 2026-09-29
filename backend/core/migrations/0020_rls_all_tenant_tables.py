@@ -196,6 +196,57 @@ RLS_TABLES = [
     "sales_salesorderitem",
     "sales_salesreturn",
     "sales_salesreturnitem",
+    # Promise-to-pay: created in payments/migrations/0032 after this migration
+    # first ran. Live policy: core/migrations/0036_rls_payment_promise.py.
+    "payments_paymentpromise",
+    # Growth OS: created in core/crm/complaints/support/contracts migrations
+    # after this migration first ran. Live policy:
+    # core/migrations/0035_rls_growth_os.py. These list entries only make
+    # tests/test_rls_coverage.py recognize the tables as covered.
+    "core_sequencecounter",
+    "crm_campaign",
+    "crm_opportunityline",
+    "crm_referralcode",
+    "crm_referralreward",
+    "complaints_complaint",
+    "complaints_complaintattachment",
+    "support_ticket",
+    "support_ticketcomment",
+    "support_ticketattachment",
+    "contracts_contract",
+    "contracts_contractserviceevent",
+    "contracts_contractdocument",
+    # GST period filing: created in reporting/migrations/0015 after this
+    # migration first ran. Live policy: core/migrations/0037_rls_gst_period_filing.py.
+    "reporting_gstperiodfiling",
+    # Roadmap tables created after this migration first ran. List entries are
+    # what tests/test_rls_coverage.py reads. Live policies:
+    # core/migrations/0038_rls_roadmap_tables.py.
+    "workshop_jobcard",
+    "workshop_jobcardline",
+    "projects_project",
+    "projects_projectmilestone",
+    "support_vendorticketshare",
+    "insurance_policyproduct",
+    "insurance_policyoptionset",
+    "insurance_policyoption",
+    "insurance_policy",
+    "insurance_policyendorsement",
+    "insurance_commissionreceivable",
+    "insurance_policyclaim",
+    "insurance_policykyc",
+    "billing_tenantactivation",
+    "billing_vendortenantsnapshot",
+    # Supplier complaints: created in complaints/migrations/0002 after this
+    # migration first ran. List entries are what tests/test_rls_coverage.py
+    # reads. Live policy: core/migrations/0039_rls_supplier_complaint.py.
+    "complaints_suppliercomplaint",
+    "complaints_suppliercomplaintattachment",
+    # Attention outcomes and contract product lines. List entries are what
+    # tests/test_rls_coverage.py reads. Live policy:
+    # core/migrations/0040_rls_outcomes_and_contract_products.py.
+    "insights_attentionoutcome",
+    "contracts_contractproduct",
 ]
 
 _POLICY = "bizboard_company_isolation"

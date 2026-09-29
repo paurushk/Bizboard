@@ -64,6 +64,16 @@ GST_INVOICE_TYPES = {
 EINVOICE_AATO_THRESHOLD = Decimal("50000000")
 
 
+def einvoice_aato_threshold() -> Decimal:
+    """Turnover gate for e-invoice / 6-digit HSN. Settings override the default."""
+    from django.conf import settings
+
+    raw = getattr(settings, "EINVOICE_AATO_THRESHOLD", None)
+    if raw in (None, ""):
+        return EINVOICE_AATO_THRESHOLD
+    return Decimal(str(raw))
+
+
 def parse_period(period: str) -> tuple[date, date]:
     try:
         year_str, month_str = period.split("-", 1)
@@ -533,6 +543,54 @@ def _resolve_filing_gstin_id(company, invoices, *, company_gstin=None):
     if row is None:
         raise BusinessRuleError("Unknown company_gstin for this company.")
     return row.id
+
+
+def _worksheet_register_tie(
+    company,
+    date_from,
+    date_to,
+    *,
+    sales_taxable,
+    purchase_taxable=None,
+    company_gstin_id=None,
+) -> dict:
+    """Compare worksheet taxable totals with the sales and purchase registers."""
+    from reporting.services import ReportService
+
+    sales = ReportService.sales_register(
+        company,
+        date_from=date_from,
+        date_to=date_to,
+        company_gstin_id=company_gstin_id,
+    )
+    sales_reg = Decimal(str(sales["totals"]["taxable"] or 0))
+    sales_ws = Decimal(str(sales_taxable or 0))
+    sales_delta = (sales_ws - sales_reg).quantize(Decimal("0.01"))
+    body = {
+        "sales": abs(sales_delta) <= Decimal("0.01"),
+        "sales_delta": _money(sales_delta),
+        "sales_register": _money(sales_reg),
+        "sales_worksheet": _money(sales_ws),
+        "label": "Not filed — worksheet for your CA",
+    }
+    if purchase_taxable is None:
+        return body
+    purchase = ReportService.purchase_register(
+        company,
+        date_from=date_from,
+        date_to=date_to,
+        company_gstin_id=company_gstin_id,
+    )
+    purchase_reg = Decimal(str(purchase["totals"]["taxable"] or 0))
+    purchase_ws = Decimal(str(purchase_taxable or 0))
+    purchase_delta = (purchase_ws - purchase_reg).quantize(Decimal("0.01"))
+    body.update({
+        "purchase": abs(purchase_delta) <= Decimal("0.01"),
+        "purchase_delta": _money(purchase_delta),
+        "purchase_register": _money(purchase_reg),
+        "purchase_worksheet": _money(purchase_ws),
+    })
+    return body
 
 
 def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
@@ -1061,6 +1119,13 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
             ),
         },
         "totals": totals,
+        "register_tie": _worksheet_register_tie(
+            company,
+            date_from,
+            date_to,
+            sales_taxable=outward_taxable,
+            company_gstin_id=stamp_id,
+        ),
         "issues": issues,
         "disclaimer": "Offline export for CA review — not a GSTN portal upload file.",
     }
@@ -1815,6 +1880,14 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
     return {
         "return_type": "GSTR-3B",
         "builder_version": BUILDER_VERSION_GSTR3B,
+        "register_tie": _worksheet_register_tie(
+            company,
+            date_from,
+            date_to,
+            sales_taxable=Decimal(str((gstr1.get("totals") or {}).get("outward_taxable") or 0)),
+            purchase_taxable=inward_taxable + rcm_taxable,
+            company_gstin_id=stamp_id,
+        ),
         "period": period,
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),

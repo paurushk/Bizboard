@@ -496,7 +496,7 @@ class SupplierPriceHistoryView(APIView):
                 "document_number": item.invoice.number,
                 "document_date": item.invoice.invoice_date,
                 "quantity": item.quantity,
-                "unit_price": item.unit_price,
+                "unit_price": f"{item.unit_price:.2f}" if item.unit_price is not None else "0.00",
             })
         order_items = (
             PurchaseOrderItem.objects.filter(
@@ -519,7 +519,7 @@ class SupplierPriceHistoryView(APIView):
                 "document_number": item.purchase_order.number,
                 "document_date": item.purchase_order.order_date,
                 "quantity": item.quantity,
-                "unit_price": item.unit_price,
+                "unit_price": f"{item.unit_price:.2f}" if item.unit_price is not None else "0.00",
             })
         rows.sort(key=lambda row: (row["document_date"], row["source"], row["document_id"]))
         total_count = len(rows)

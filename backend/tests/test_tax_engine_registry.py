@@ -62,8 +62,12 @@ def test_build_totals_preview_item_shape_is_pinned(tenant_a):
     }
     preview = tenant_a.client.post("/api/v1/sales/invoices/preview-totals/", payload, format="json")
     assert preview.status_code == 200, preview.data
+    # gst_rate and rate_override_reason are deliberate: the billing screen shows
+    # the rate the engine applied and why it changed (the HSN notice), so the
+    # till total and the completed invoice cannot disagree silently.
     assert set(preview.data["items"][0].keys()) == {
         "taxable_amount", "cgst", "sgst", "igst", "cess", "line_total",
+        "gst_rate", "rate_override_reason",
     }
 
 

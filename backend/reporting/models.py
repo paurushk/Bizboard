@@ -274,3 +274,27 @@ class InvoiceProfitSnapshot(CompanyScopedModel):
 
     def __str__(self):
         return f"{self.company_id}:{self.invoice_number}:{self.gross_margin}"
+
+
+class GstPeriodFiling(CompanyScopedModel):
+    """Period-level GSTR-1/3B submission. Rejections stay off the invoice."""
+
+    class Status(models.TextChoices):
+        QUEUED = "QUEUED"
+        ACCEPTED = "ACCEPTED"
+        REJECTED = "REJECTED"
+
+    return_type = models.CharField(max_length=16)
+    period = models.CharField(max_length=7)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
+    error_message = models.TextField(blank=True, default="")
+    reference = models.CharField(max_length=64, blank=True, default="")
+
+    class Meta:
+        indexes = [models.Index(fields=["company", "return_type", "period"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "return_type", "period", "reference"],
+                name="uniq_gst_period_filing_attempt",
+            )
+        ]

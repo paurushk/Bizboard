@@ -20,6 +20,7 @@ from core.services.audit import AuditService
 
 from .models import DeadLetterEvent, Plan
 from .serializers import PlanSerializer, SubscriptionSerializer
+from .ops import suspend_for_churn, trial_ending_notice, upgrade_prompt
 from .services import (
     apply_razorpay_subscription_status,
     park_dead_letter,
@@ -57,7 +58,53 @@ class SubscriptionDetailView(APIView):
         from billing.quotas import usage_snapshot
 
         data["quotas"] = usage_snapshot(cu.company, sub=sub)
+        data["upgrade_prompt"] = upgrade_prompt(cu.company)
+        data["trial_notice"] = trial_ending_notice(cu.company)
         return Response(data)
+
+    def post(self, request):
+        """Owner suspends the subscription and records a churn reason."""
+        from django.db import transaction
+
+        cu = get_company_user(request)
+        if request.data.get("action") != "suspend":
+            raise BusinessRuleError("Unknown billing action.")
+        with transaction.atomic():
+            sub, win_back_name = suspend_for_churn(
+                cu.company, request.user,
+                reason=request.data.get("churn_reason") or request.data.get("churnReason") or "",
+            )
+        data = SubscriptionSerializer(sub).data
+        data["win_back_name"] = win_back_name
+        return Response(data)
+
+
+class VendorTenantsView(APIView):
+    """P13 reads redacted snapshots stored in the vendor company."""
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def get(self, request):
+        from .models import VendorTenantSnapshot
+
+        cu = get_company_user(request)
+        rows = VendorTenantSnapshot.objects.filter(company=cu.company).order_by("source_company_name")
+        return Response([
+            {
+                "source_company_id": row.source_company_id,
+                "source_company_name": row.source_company_name,
+                "setup_completed_at": row.setup_completed_at,
+                "first_invoice_at": row.first_invoice_at,
+                "last_invoice_at": row.last_invoice_at,
+                "last_login_at": row.last_login_at,
+                "seats_used": row.seats_used,
+                "seats_limit": row.seats_limit,
+                "documents_used": row.documents_used,
+                "documents_limit": row.documents_limit,
+                "churn_reason": row.churn_reason,
+            }
+            for row in rows
+        ])
 
 
 class CheckoutView(APIView):
@@ -80,6 +127,7 @@ class CheckoutView(APIView):
         if plan is None:
             raise BusinessRuleError("Unknown or inactive plan.")
         sub, checkout_order_id = start_or_update_subscription(company=cu.company, plan=plan)
+        checkout_url = getattr(sub, "_checkout_url", "") or ""
         AuditService.log(
             action="billing.checkout",
             company=cu.company,
@@ -93,6 +141,7 @@ class CheckoutView(APIView):
             {
                 "subscription": SubscriptionSerializer(sub).data,
                 "checkout_order_id": checkout_order_id,
+                "checkout_url": checkout_url or None,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -122,7 +171,7 @@ class RazorpayWebhookView(APIView):
 
     When ``RAZORPAY_WEBHOOK_SECRET`` is set, ``X-Razorpay-Signature`` is required.
     When the secret is unset, the webhook is accepted only if ``DJANGO_ENV=test``
-    (or DEBUG) and header ``X-Bizboard-Test-Webhook: 1`` is present.
+    and header ``X-Bizboard-Test-Webhook: 1`` is present.
     """
 
     permission_classes = [AllowAny]
@@ -145,9 +194,9 @@ class RazorpayWebhookView(APIView):
                     {"detail": "RAZORPAY_WEBHOOK_SECRET is required."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
-            if str(test_header or "").strip() not in {"1", "true", "yes"} and env != "test":
+            if str(test_header or "").strip() not in {"1", "true", "yes"}:
                 return Response(
-                    {"detail": "Unsigned webhooks require X-Bizboard-Test-Webhook in test/debug."},
+                    {"detail": "Unsigned webhooks require X-Bizboard-Test-Webhook in test."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
@@ -191,7 +240,10 @@ class RazorpayWebhookView(APIView):
             return Response({"ok": True, "duplicate": True})
 
         with rls_bypass():
-            sub = Subscription.objects.filter(razorpay_subscription_id=rzp_id).select_related("company").first()
+            sub = (
+                Subscription.objects.filter(razorpay_subscription_id=rzp_id).select_related("company").first()
+                or Subscription.objects.filter(pending_razorpay_subscription_id=rzp_id).select_related("company").first()
+            )
             company = sub.company if sub is not None else None
             if sub is not None and (
                 company is None or not Company.objects.filter(pk=company.pk).exists()

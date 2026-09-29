@@ -7,7 +7,8 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
-import { confirmPack, getPackWizard, proposePack } from '@/api/osPlan';
+import { confirmPack, getPackWizard, proposePack, setNavScope } from '@/api/osPlan';
+import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { fetchFeatureFlags } from '@/config/featureFlags';
@@ -69,6 +70,20 @@ export function PackWizardPage() {
     <Stack spacing={2}>
       <PageTitle>{t('nav.packWizard')}</PageTitle>
       <Typography variant="body2" color="text.secondary">{t('osPlan.packHelp')}</Typography>
+      <Stack direction="row" spacing={1}>
+        <Button
+          variant={isRuntimeFlagEnabled('NAV_PACK_DEFAULT') ? 'outlined' : 'contained'}
+          onClick={() => void setNavScope(true).then(() => fetchFeatureFlags(true))}
+        >
+          {t('osPlan.showAllFeatures')}
+        </Button>
+        <Button
+          variant={isRuntimeFlagEnabled('NAV_PACK_DEFAULT') ? 'contained' : 'outlined'}
+          onClick={() => void setNavScope(false).then(() => fetchFeatureFlags(true))}
+        >
+          {t('osPlan.showPackNav')}
+        </Button>
+      </Stack>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />

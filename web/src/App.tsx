@@ -5,7 +5,14 @@ import { useAuth } from '@/auth/AuthContext';
 import {
   isAccountingFeatureEnabled,
   isAiInsightsEnabled,
+  isComplaintsEnabled,
+  isContractsEnabled,
   isCrmEnabled,
+  isReferralsEnabled,
+  isSupportTicketsEnabled,
+  isWorkshopEnabled,
+  isProjectsEnabled,
+  isInsuranceEnabled,
   isGstrReportsEnabled,
   isManufacturingEnabled,
   isPayrollEnabled,
@@ -116,6 +123,8 @@ const InsightsAssistantPage = lazy(() => import('@/pages/insights/InsightsAssist
 const AttentionPage = lazy(() => import('@/pages/AttentionPage').then((m) => ({ default: m.AttentionPage })));
 const CollectionsWorklistPage = lazy(() => import('@/pages/CollectionsWorklistPage').then((m) => ({ default: m.CollectionsWorklistPage })));
 const PurchasePlanningPage = lazy(() => import('@/pages/purchases/PurchasePlanningPage').then((m) => ({ default: m.PurchasePlanningPage })));
+const DemandForecastPage = lazy(() => import('@/pages/inventory/DemandForecastPage').then((m) => ({ default: m.DemandForecastPage })));
+const CrmOnboardingPage = lazy(() => import('@/pages/crm/CrmOnboardingPage').then((m) => ({ default: m.CrmOnboardingPage })));
 const Customer360Page = lazy(() => import('@/pages/sales/Customer360Page').then((m) => ({ default: m.Customer360Page })));
 const PackWizardPage = lazy(() => import('@/pages/settings/PackWizardPage').then((m) => ({ default: m.PackWizardPage })));
 const LeadFormPage = lazy(() => import('@/pages/public/LeadFormPage').then((m) => ({ default: m.LeadFormPage })));
@@ -179,6 +188,17 @@ const PayRunsPage = lazy(() =>
   import('@/pages/payroll/PayRunsPage').then((m) => ({ default: m.PayRunsPage })),
 );
 const LeadsPage = lazy(() => import('@/pages/crm/LeadsPage').then((m) => ({ default: m.LeadsPage })));
+const CampaignsPage = lazy(() => import('@/pages/crm/CampaignsPage').then((m) => ({ default: m.CampaignsPage })));
+const OpportunityPipelinePage = lazy(() => import('@/pages/crm/OpportunityPipelinePage').then((m) => ({ default: m.OpportunityPipelinePage })));
+const ReferralsPage = lazy(() => import('@/pages/crm/ReferralsPage').then((m) => ({ default: m.ReferralsPage })));
+const ComplaintsPage = lazy(() => import('@/pages/complaints/ComplaintsPage').then((m) => ({ default: m.ComplaintsPage })));
+const SupplierComplaintsPage = lazy(() => import('@/pages/complaints/SupplierComplaintsPage').then((m) => ({ default: m.SupplierComplaintsPage })));
+const TicketsPage = lazy(() => import('@/pages/support/TicketsPage').then((m) => ({ default: m.TicketsPage })));
+const SharedTicketsPage = lazy(() => import('@/pages/support/SharedTicketsPage').then((m) => ({ default: m.SharedTicketsPage })));
+const JobCardsPage = lazy(() => import('@/pages/workshop/JobCardsPage').then((m) => ({ default: m.JobCardsPage })));
+const ProjectsPage = lazy(() => import('@/pages/projects/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
+const InsurancePage = lazy(() => import('@/pages/insurance/InsurancePage').then((m) => ({ default: m.InsurancePage })));
+const ContractsPage = lazy(() => import('@/pages/contracts/ContractsPage').then((m) => ({ default: m.ContractsPage })));
 const OpportunitiesPage = lazy(() =>
   import('@/pages/crm/OpportunitiesPage').then((m) => ({ default: m.OpportunitiesPage })),
 );
@@ -258,6 +278,38 @@ function allowPayroll(user: User | null): boolean {
 
 function allowCrm(user: User | null): boolean {
   return canManageCrm(user) && isCrmEnabled();
+}
+
+function allowReferrals(user: User | null): boolean {
+  return canManageCrm(user) && isReferralsEnabled();
+}
+
+function allowComplaints(user: User | null): boolean {
+  return canCreateSales(user) && isComplaintsEnabled();
+}
+
+function allowSupplierComplaints(user: User | null): boolean {
+  return canCreatePurchases(user) && isComplaintsEnabled();
+}
+
+function allowTickets(user: User | null): boolean {
+  return canCreateSales(user) && isSupportTicketsEnabled();
+}
+
+function allowWorkshop(user: User | null): boolean {
+  return canCreateSales(user) && isWorkshopEnabled();
+}
+
+function allowProjects(user: User | null): boolean {
+  return canCreateSales(user) && isProjectsEnabled();
+}
+
+function allowInsurance(user: User | null): boolean {
+  return user?.canManagePolicies === true && isInsuranceEnabled();
+}
+
+function allowContracts(user: User | null): boolean {
+  return canCreateSales(user) && isContractsEnabled();
 }
 
 function allowAccounting(user: User | null): boolean {
@@ -466,6 +518,7 @@ export function App() {
               <Route path="inventory/stock" element={<CurrentStockPage />} />
               <Route path="inventory/low-stock" element={<LowStockPage />} />
               <Route path="inventory/purchase-planning" element={<PurchasePlanningPage />} />
+              <Route path="inventory/demand-forecast" element={<DemandForecastPage />} />
               <Route path="inventory/expiry-alerts" element={<ExpiryAlertsPage />} />
               <Route path="inventory/expiry" element={<Navigate to="/inventory/expiry-alerts" replace />} />
             </Route>
@@ -579,7 +632,35 @@ export function App() {
             <Route element={<RoleRoute allow={allowCrm} />}>
               <Route path="crm" element={<Navigate to="/crm/leads" replace />} />
               <Route path="crm/leads" element={<LeadsPage />} />
+              <Route path="crm/onboarding" element={<CrmOnboardingPage />} />
               <Route path="crm/opportunities" element={<OpportunitiesPage />} />
+              <Route path="crm/campaigns" element={<CampaignsPage />} />
+              <Route path="crm/pipeline" element={<OpportunityPipelinePage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowReferrals} />}>
+              <Route path="crm/referrals" element={<ReferralsPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowComplaints} />}>
+              <Route path="complaints" element={<ComplaintsPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowSupplierComplaints} />}>
+              <Route path="complaints/suppliers" element={<SupplierComplaintsPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowTickets} />}>
+              <Route path="support/tickets" element={<TicketsPage />} />
+              <Route path="support/shared" element={<SharedTicketsPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowWorkshop} />}>
+              <Route path="workshop/jobs" element={<JobCardsPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowProjects} />}>
+              <Route path="projects" element={<ProjectsPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowInsurance} />}>
+              <Route path="insurance" element={<InsurancePage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowContracts} />}>
+              <Route path="contracts" element={<ContractsPage />} />
             </Route>
           </Route>
         </Route>

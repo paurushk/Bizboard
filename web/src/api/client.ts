@@ -479,6 +479,20 @@ export function getErrorCode(error: unknown): string | null {
   return null;
 }
 
+/** Structured `error.details` from the envelope (e.g. credit-limit numbers for a dedicated banner). */
+export function getErrorDetails(error: unknown): Record<string, unknown> | null {
+  if (!axios.isAxiosError(error)) return null;
+  const data = error.response?.data as Record<string, unknown> | undefined;
+  const nested = data?.error;
+  if (nested && typeof nested === 'object' && nested !== null) {
+    const details = (nested as { details?: unknown }).details;
+    if (details && typeof details === 'object' && !Array.isArray(details)) {
+      return details as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
 /** Support ID for 5xx screens — envelope first, then response header, then last outbound id. */
 export function getErrorRequestId(error: unknown): string | null {
   if (!axios.isAxiosError(error)) return null;

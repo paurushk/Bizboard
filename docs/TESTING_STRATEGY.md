@@ -1,7 +1,7 @@
 # Bizboard Testing Strategy — Persona-Centric, Evidence-Based
 
 **Status:** Canonical testing strategy · **Created:** 2026-09-10 · **Owner:** QA + founder
-**Scope:** Whole product — all 7 business archetypes, all 6 personas, SUPPORTED +
+**Scope:** Whole product — 10 presets, 7 legacy archetypes, 14 personas, 8 roles, 69 journeys, WF-01–WF-60, SUPPORTED +
 CONDITIONALLY SUPPORTED + demoted KNOWN LIMITATIONS.
 **Relationship to other docs:**
 
@@ -66,7 +66,7 @@ a regression* exists.
 |---|---|---|---|---|
 | L1 | **Invariants** (`core.invariants`) | Is the company's state *internally consistent* at rest, after any operation? | `backend/core/invariants/` — 18 registered `@invariant`s + 8 explicit callables; `assert_all_invariants(company)` | That the operation did the *right business thing* (only that it left nothing broken); mid-transaction states (opt out via `no_invariant_check`) |
 | L2 | **Contracts** | Does one endpoint / envelope / serializer honour its promise (money as decimal strings, error → `HelpCode`, pagination caps, RBAC verb, tenant scope, security headers)? | `backend/tests/errors/`, `tests/tenancy/`, `tests/matrices/`, `test_money_contract.py`, OpenAPI snapshot diff in CI | That the contracts *compose* into a working flow |
-| L3 | **Workflow chains** (`WF-01…WF-59`) | Does one business flow hang together end-to-end — draft → complete → stock ↓ → tax → GL balanced → AR/AP → allocation → reports agree? | `backend/tests/workflows/` (`workflow` marker); each ends in `cross_reconcile` + `assert_consistent` | That a *real role* can drive it, or that the UI exposes it |
+| L3 | **Workflow chains** (`WF-01–WF-60`) | Does one business flow hang together end-to-end — draft → complete → stock ↓ → tax → GL balanced → AR/AP → allocation → reports agree? | `backend/tests/workflows/` (`workflow` marker); each ends in `cross_reconcile` + `assert_consistent` | That a *real role* can drive it, or that the UI exposes it |
 | L4 | **Persona journeys** (`PJ-*`) | Can *this kind of user* at *this kind of business* run a normal day, seeing only what their role allows, leaving the books consistent? | `backend/tests/personas/` — 15 journeys across retail/trader/wholesale/service/migration × OWNER/SALES/ACCT/VIEWER/IMPORT/MIGRATOR | Frontend affordances; timing/latency; delight |
 | L5 | **Matrices** | Does a *setting* or *place-of-supply* change behaviour the way the spec says, across the whole grid? | `tests/matrices/test_company_settings_matrix.py`, `test_gst_settings_matrix.py`, `tests/gst/test_place_of_supply_matrix.py` | Interactions outside the grid dimensions |
 | L6 | **Golden e2e + FE** | Does the real browser against the real backend produce the deliverable (invoice PDF, isolation 404, role-hidden nav, no axe violations)? | `web/e2e-golden/personas-golden.spec.ts` (live Django+PG), `web/e2e/` (light, mocked), `web/e2e/personas/`, `web/e2e/a11y.spec.ts`, vitest units | Scale; network degradation; devices beyond Chromium; subjective friction |
@@ -129,10 +129,10 @@ assets and status. "Status" is a judgement of *confidence*, not of effort spent.
 
 | Dimension | What "good" looks like here | Current assets | Status | Gap ref |
 |---|---|---|---|---|
-| **Personas & archetypes** | Every archetype's core loop has a persona journey at L4; disposition (SUP/COND/OUT/deprioritized) is explicit | `PJ-*` (see `FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md`; manufacturing/payroll/CRM tagged `dark_module` and **do not count toward freeze coverage**). Route coverage counts come from generated `docs/FLOW_CATALOG.md`, not a hand-typed file/test tally. `BUSINESS_ARCHETYPES_AND_PERSONAS.md` §6–§8 | ✅ — retail/trader/wholesale/batch/serialized/contractor/manufacturing/migration covered; ARCH-07 milestone/job-work out of scope by design; G-1 and G-2 both closed | — |
-| **End-to-end journeys** | Happy + alternate + failure + recovery per loop | `WF-01…WF-59`, `PJ-*`, `tests/edge/` | 🟡 — happy paths strong; recovery paths partial (H9 amend ✅, cancellation ✅, offline conflict ✅; payment-gateway refund/MDR 🚫 D3 creds) | G-3 |
+| **Personas & archetypes** | Every archetype's core loop has a persona journey at L4; disposition (SUP/COND/OUT/deprioritized) is explicit | `PJ-*` plus `test_pj_workshop_job.py`, `test_pj_route_pod.py`, `test_pj_project_milestones.py`, `test_pj_insurance_desk.py`, `test_pj_saas_ops.py`. Ledger: `docs/TEST_CENSUS_LEDGER.md` | 🟡 — P1–P14 have a citing test, and the workshop, project, route, insurance, and suspend goldens click through. Named holds stay in the ledger (bank rec, godown count, expiry block, serial inward, warranty, reorder) | G-27 |
+| **End-to-end journeys** | Happy + alternate + failure + recovery per loop | `WF-01–WF-60`, `PJ-*`, `tests/edge/` | 🟡 — happy paths strong; recovery paths partial (H9 amend ✅, cancellation ✅, offline conflict ✅; payment-gateway refund/MDR 🚫 D3 creds) | G-3 |
 | **Functional correctness** | Unit + contract + chain + regression, all green in CI | vitest (279), `pytest` (~1477 pass), `tests/regression/` corpus | ✅ | — |
-| **Multi-user & permissions** | RBAC matrix + per-persona API deny-set + UI hides denied actions + tenant isolation on every endpoint | `tests/tenancy/test_rbac_matrix.py`, `test_endpoint_isolation.py`, `*_boundary` journeys, `web/e2e/personas/role-boundaries.spec.ts` | ✅ — API + FE OWNER/VIEWER/SALES/ACCT live (`role-boundaries.spec.ts`; G-4) | — |
+| **Multi-user & permissions** | RBAC matrix + per-persona API deny-set + UI hides denied actions + tenant isolation on every endpoint | `tests/tenancy/test_rbac_matrix.py`, `test_endpoint_isolation.py`, `*_boundary` journeys, `web/e2e/personas/role-boundaries.spec.ts` | ✅ — API plus the browser spec for owner, manager, sales, accountant, auditor, inventory, viewer, and policy desk | — |
 | **UX & usability** | Discoverability, low cognitive load, feedback on every action, no dead 403 buttons | `web/e2e/personas/`, `HelpErrorAlert.test.tsx`, `validation-parity.spec.ts`, `route-smoke.spec.ts`, Complete-gate catalog (`COMPLETE_GATE_VISIBILITY_PLAN.md`) | 🟡 — G-5 route-smoke ✅; Complete-gate CG-01–CG-37 gated | G-16, G-complete-gate |
 | **Accessibility** | axe clean on key screens; keyboard-only journeys; AT scenarios for POS + invoice | `web/e2e/a11y.spec.ts` (login, dashboard, invoice form, POS, a report, a settings screen — wcag2a/2aa, serious/critical = 0) plus accessible-name rules on login/dashboard/POS/invoice; route-smoke axe on top-20 desktop; `pos-keyboard-checkout.spec.ts` (chromium, 2026-09-15) | 🟡 — automated keyboard POS ✅ (G-6b); live H-02 still L7 | G-6, G-6b |
 | **Performance & scalability** | Query-count flat as rows grow; report/list latency budget; 100k-invoice company; degraded network | `test_ws08_report_performance.py` (N+1 guards), `test_qos0003_large_tenant_reports.py` (50k-invoice tenant, hard-cap + flat-query proof, 3/3 local), `load-harness` CI job **executes** `load/k6_smoke.js` against a seeded Postgres tenant (thresholds: p95<2s, error rate<5%) | 🟡 — large-tenant query behavior proven locally; k6 smoke is written+advisory, **first real CI run unconfirmed** (QOS-0003); no staged 50k-tenant SLO run (`k6_slo.js`) or degraded-network journey; C7 defers the SLO soak to Phase 5 | G-7 |
@@ -283,6 +283,10 @@ Journey matrix and deny-sets: `backend/tests/personas/README.md`.
   Bizboard worksheets without recalculation; **fail** on rejection for mismatched
   splits or imbalanced books. This is the single most important **untested**
   claim (G-14); Stage 3 pilot, aligned to a real 1st–20th filing window.
+
+### P7–P14 — later desks
+
+P7 is the delivery beat (`test_pj_route_pod.py`). P8 is the buyer, covered as WF-16 with no membership role. P9 is the workshop job (`test_pj_workshop_job.py`); the AMC visit stays on contracts. P10 is care: tickets, claims, and vendor share. P11 and P12 are the insurance desk (`test_pj_insurance_desk.py`); P12 is the POLICY_DESK role. P13 and P14 are BizBoard’s own SaaS operations (`test_pj_saas_ops.py` plus the existing billing tests). Commission stays off the ledger (D17). Browser coverage for these desks is the five goldens under `web/e2e-golden/`. The row-level marks are in `docs/TEST_CENSUS_LEDGER.md`.
 
 ---
 
@@ -641,6 +645,18 @@ wasn't sufficient evidence of correctness on its own.
 
 ---
 
+| **G-24** | Journey and preset rows with no citing test | High | Med | ✅ one row per yaml journey plus the later desks | `docs/TEST_CENSUS_LEDGER.md` | **P1** | QA |
+| **G-25** | WF-54 certificate generation has no pin | Med | Low | ✅ pin | `test_wf54_certificates_remain_a_known_limitation` (D7) | **P1** | backend |
+| **G-26** | RLS coverage test read only migration 0020 | High | Med | ✅ union | `test_rls_coverage._migration_tables` unions every `RLS_TABLES` list. New tables use a follow-up migration | **P1** | backend |
+| **G-27** | P7–P14 had no persona day | High | High | ✅ API days and browser create flows | Persona tests plus `workshop-job-golden`, `route-pod-golden`, `projects-milestone-golden`, `insurance-desk-golden`, `saas-share-and-suspend-golden` | **P1** | backend |
+| **G-28** | Shipped desks have no full golden click-through | Med | High | ✅ create a job, a milestone, a delivery gate, a policy, and a suspend | `web/e2e-golden/workshop-job-golden.spec.ts`, `projects-milestone-golden.spec.ts`, `route-pod-golden.spec.ts`, `insurance-desk-golden.spec.ts`, `saas-share-and-suspend-golden.spec.ts` | **P1** | web |
+| **G-29** | Shipped pages had no component test | Med | High | ✅ empty and flag-off | `JobCardsPage.test.tsx`, `ProjectsPage.test.tsx`, `InsurancePage.test.tsx`, `SharedTicketsPage.test.tsx` | **P1** | web |
+| **G-30** | Browser roles omitted POLICY_DESK | Med | Med | ✅ | `loginAsPolicyDesk`, `loginAsManager`, `loginAsAuditor` in `web/e2e/personas/role-boundaries.spec.ts` | **P1** | web |
+| **G-31** | Open ledger rows from 2026-09-27 still said Gap where a test already asserted the outcome | High | Med | ✅ (2026-09-27) | Bank rec, godown count, expiry guard-band, bulk serial inward, kirana reorder, and AMC contract are Reference. Recurring owner day, onboarding step count (four, not three), thermal checkout without a printer, per-godown reorder, and serial warranty lookup are Gated. See `docs/TEST_CENSUS_LEDGER.md` | **P1** | QA |
+| **G-32** | I4 had no 5,000-SKU catalog fixture | High | Med | ✅ (2026-09-27) | `test_i4_catalog_import_of_5000_skus_meets_ten_seconds` uploads and commits 5,000 catalog rows and asserts elapsed <= 10s | **P1** | QA |
+| **G-33** | I2, I3, and I5 had no P95 protocol in the API suite | High | Med | ✅ (2026-09-27) | `backend/tests/test_phase0_api_slas.py`. Warm-up discarded. Must rows use 20 samples. I5 uses 10. I1 (100ms barcode lookup) is a browser measurement and is not gated by `pos-perf-sla.spec.ts`, which allows 500ms | **P1** | QA |
+| **G-34** | Job, project, policy, and shared-ticket lists had no flat query-count assertion | Med | Med | ✅ (2026-09-27) | `test_roadmap_items.py` uses `CaptureQueriesContext` at 20 and 40 rows with the `+ 2` tolerance from `test_b5_008` | **P2** | QA |
+
 ## 8. Weak assumptions to keep challenging
 
 Each is currently *reasonable* but under-evidenced. Re-test at each phase
@@ -796,10 +812,7 @@ cheaper and faster than a behavioural test.
 
 ### 10.7 What we deliberately do NOT test (anti-goals)
 
-- NOT SUPPORTED modules (Manufacturing, Payroll, CRM, live GSP, Tally sync, AI
-  insights) — the only test is that they are **inaccessible** under the pilot
-  flag profile (`test_freeze_demoted_surfaces.py`,
-  `test_wf_limitation_guards.py`, `test_pj_limitation_guards.py`).
+- NOT SUPPORTED modules (Payroll, live GSP, Tally sync, AI insights) stay inaccessible under the pilot flag profile (`test_freeze_demoted_surfaces.py`, `test_wf_limitation_guards.py`, `test_pj_limitation_guards.py`). Two dark-module grants are named exceptions, not wizard proposals: the insurance pack sets `pack_grant=insurance` and thus `ENABLE_CRM`; the manufacturing pack sets `manufacturing_pack_grant` and thus `ENABLE_MANUFACTURING`. `propose_pack()` returns `retail` or `trade` only. Retail, trade, and distribution skip both grants. `HELD_PACKS` is empty. Payroll stays out of every pack. `ENABLE_WORKSHOP`, `ENABLE_PROJECTS`, and `ENABLE_INSURANCE` are rollout flags defaulting off. Gates: `test_manufacturing_pack_grants_the_module`, `test_insurance_pack_grants_the_sell_loop`, `test_retail_and_trade_do_not_grant_dark_modules`.
 - Multi-currency, multi-GSTIN, BoE/landed-cost — asserted OUT, not exercised.
 - Third-party delivery (email/SMS send, WhatsApp Cloud) — adapter contract only;
   delivery is external and LIM.

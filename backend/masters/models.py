@@ -91,6 +91,8 @@ class Customer(CompanyScopedModel):
     shipping_address = models.TextField(blank=True)
     state = models.CharField(max_length=64, blank=True)
     pincode = models.CharField(max_length=10, blank=True)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE)
     credit_limit = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     credit_days = models.PositiveIntegerField(default=0)
@@ -242,6 +244,14 @@ class Product(CompanyScopedModel):
     unit = models.ForeignKey(Unit, null=True, blank=True, on_delete=models.SET_NULL, related_name="products")
     gst_rate = models.DecimalField(
         max_digits=5, decimal_places=2, default=Decimal("0"), validators=[validate_gst_rate]
+    )
+    # Blank until the person saving the product says whether a heading that
+    # has two rates (branded / pre-packed versus not) applies. The tax engine
+    # does not guess.
+    gst_supply_form = models.CharField(
+        max_length=24,
+        blank=True,
+        default="",
     )
     # D9b: compensation cess defaults for this product. cess_rate is ad-valorem
     # (%), cess_amount is specific / per-unit (INR); they are ADDITIVE on a line

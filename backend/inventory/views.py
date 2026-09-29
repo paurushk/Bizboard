@@ -6,7 +6,7 @@ from django.db.models.functions import Coalesce
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -16,6 +16,7 @@ from core.permissions import (
     CanManageInventory,
     CanViewFinancialReports,
     CanViewInventorySurfaces,
+    CanViewWarehouseSurfaces,
     HasCompany,
     get_company_user,
 )
@@ -313,7 +314,7 @@ class WarehouseViewSet(CompanyScopedViewSet):
     def get_permissions(self):
         if getattr(self, "action", None) in ("list", "retrieve"):
             # BB-000618: VIEWER must not browse warehouse/stock locations.
-            return [IsAuthenticated(), HasCompany(), CanViewInventorySurfaces()]
+            return [IsAuthenticated(), HasCompany(), CanViewWarehouseSurfaces()]
         return [IsAuthenticated(), HasCompany(), CanManageInventory()]
 
     def perform_create(self, serializer):
@@ -499,15 +500,37 @@ def _sale_movement_for_serial(company, serial):
     return None
 
 
+class CanReadSerials(BasePermission):
+    """Counter lookup is a read. Stock writes stay on CanManageInventory."""
+
+    message = "Serial lookup requires sales or inventory permission."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or not cu.is_active:
+            return False
+        return bool(cu.role == "OWNER" or cu.can_create_sales or cu.can_manage_inventory)
+
+
 class SerialNumberViewSet(CompanyScopedViewSet):
     queryset = SerialNumber.objects.select_related("product", "warehouse")
     serializer_class = SerialNumberSerializer
     permission_classes = [IsAuthenticated, HasCompany, CanManageInventory]
 
+    def get_permissions(self):
+        from billing.permissions import SubscriptionWritesAllowed
+
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), HasCompany(), CanReadSerials(), SubscriptionWritesAllowed()]
+        return [IsAuthenticated(), HasCompany(), CanManageInventory(), SubscriptionWritesAllowed()]
+
     def get_queryset(self):
         qs = super().get_queryset()
         if status := self.request.query_params.get("status"):
             qs = qs.filter(status=status)
+        serial = (self.request.query_params.get("serial_number") or "").strip()
+        if serial:
+            qs = qs.filter(serial_number=serial)
         return qs
 
     @action(detail=True, methods=["post"])
@@ -771,7 +794,20 @@ class StockCountSessionViewSet(CompanyScopedViewSet):
                         continue
                     variance = line.counted_qty - current
                     if variance == 0:
+                        line.held_for_review = False
+                        line.save(update_fields=["held_for_review"])
                         continue
+                    from decimal import Decimal
+
+                    from django.conf import settings
+
+                    limit = Decimal(str(getattr(settings, "STOCK_COUNT_AUTO_POST_QTY", "5")))
+                    # held_for_review flags a large variance for follow-up audit
+                    # attention — it must not skip the adjustment itself, or the
+                    # physical count silently never reaches StockBalance and the
+                    # session still reports POSTED as if it had.
+                    line.held_for_review = abs(variance) > limit
+                    line.save(update_fields=["held_for_review"])
                     InventoryService.post_movement(
                         company=session.company,
                         product=line.product,

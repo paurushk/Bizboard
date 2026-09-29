@@ -26,6 +26,7 @@ KNOWN_WEBHOOKS = {
     "v1:payment-webhook": "/api/v1/webhooks/payments/sandbox/",
     "v1:telegram-webhook": "/api/v1/telegram/webhook/",
     "v1:ops-alert-webhook": "/api/v1/ops/alert/",
+    "v1:shopify-webhook": "/api/v1/integrations/shopify/webhook/",
 }
 
 

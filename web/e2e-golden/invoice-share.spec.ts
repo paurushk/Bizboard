@@ -38,5 +38,5 @@ test('golden path: complete invoice then share from history row menu', async ({ 
   await dialog.getByRole('button', { name: 'Email' }).click();
   await dialog.getByLabel('Email').fill(`share-${id}@example.test`);
   await dialog.getByRole('button', { name: 'Send' }).click();
-  await expect(page.getByText(/Share ready|Sent/i).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Share ready|Sent|QUEUED/i).first()).toBeVisible({ timeout: 15_000 });
 });

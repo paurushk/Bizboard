@@ -33,7 +33,7 @@ export const FAQ_CATEGORIES: string[] = [
   'Import, Tally & backup',
   'POS & offline',
   'Subscription & billing',
-  'Insights & AI',
+  'Bill scan & lateness',
   'Preview modules',
 ];
 
@@ -494,8 +494,8 @@ const MORE_FAQ: FaqItem[] = [
     'Do recurring invoices send themselves?',
     ['recurring', 'schedule', 'auto invoice', 'subscription bill', 'draft only'],
     [
-      'No. A schedule only creates a draft invoice. Bizboard never auto-completes a recurring invoice.',
-      'Open **t:nav.sales** → **t:nav.recurringInvoices**, then open the draft and press **t:common.complete** when you have checked stock, GSTIN and the customer.',
+      'By default, no. A schedule creates a draft invoice. Tick Complete the invoice on the schedule if that run should finish the invoice.',
+      'Open **t:nav.sales** → **t:nav.recurringInvoices**. A draft still needs **t:common.complete** unless that tick is on.',
     ],
   ),
   faq(
@@ -1479,7 +1479,7 @@ const MORE_FAQ: FaqItem[] = [
 
   faq(
     'insights-not-tax',
-    'Insights & AI',
+    'Bill scan & lateness',
     'Can I file GST from Insights or the assistant?',
     ['ai', 'assistant', 'insights', 'forecast', 'not tax advice'],
     [
@@ -1489,7 +1489,7 @@ const MORE_FAQ: FaqItem[] = [
   ),
   faq(
     'ai-settings',
-    'Insights & AI',
+    'Bill scan & lateness',
     'Where do I turn AI features off?',
     ['disable ai', 'digest', 'daily email', 'cashflow baseline'],
     [

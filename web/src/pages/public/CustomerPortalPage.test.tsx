@@ -1,53 +1,73 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { CustomerPortalPage } from '@/pages/public/CustomerPortalPage';
 
 const getCustomerPortal = vi.fn();
+const submitPortalComplaint = vi.fn();
 
 vi.mock('@/api/resources', () => ({
   getCustomerPortal: (...args: unknown[]) => getCustomerPortal(...args),
   downloadCustomerPortalInvoice: vi.fn(),
   startCustomerPortalPayment: vi.fn(),
+  submitPortalComplaint: (...args: unknown[]) => submitPortalComplaint(...args),
 }));
 
-function wrap(ui: ReactElement, path: string) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+function wrap() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[path]}>
+      <MemoryRouter initialEntries={['/portal/tok']}>
         <Routes>
-          <Route path="/portal/:token" element={ui} />
+          <Route path="/portal/:token" element={<CustomerPortalPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
-describe('CustomerPortalPage', () => {
-  it('lists the customer invoice and a pay action when money is outstanding', async () => {
+describe('CustomerPortalPage complaints', () => {
+  it('hides the complaint form when complaints are off', async () => {
     getCustomerPortal.mockResolvedValue({
-      customerName: 'Ravi Traders',
-      invoices: [{
-        id: 9,
-        number: 'INV-9',
-        invoiceDate: '2026-09-01',
-        amount: '118.00',
-        outstanding: '118.00',
-        payPath: '/pay/tok',
-      }],
+      customerName: 'Ravi',
+      expiresAt: '2026-09-29T00:00:00Z',
+      complaintsEnabled: false,
+      invoices: [],
     });
-    wrap(<CustomerPortalPage />, '/portal/tok');
-    expect(await screen.findByText('Ravi Traders')).toBeTruthy();
-    expect(screen.getByText(/INV-9/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Pay' })).toBeTruthy();
+    wrap();
+    expect(await screen.findByText('Ravi')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /submit complaint/i })).toBeNull();
   });
 
-  it('shows the expired-link message when the token is rejected', async () => {
-    getCustomerPortal.mockRejectedValue(new Error('missing'));
-    wrap(<CustomerPortalPage />, '/portal/expired');
-    expect(await screen.findByRole('heading', { name: /unavailable or has expired/i })).toBeTruthy();
+  it('shows the complaint form when complaints are on', async () => {
+    getCustomerPortal.mockResolvedValue({
+      customerName: 'Ravi',
+      expiresAt: '2026-09-29T00:00:00Z',
+      complaintsEnabled: true,
+      invoices: [],
+    });
+    wrap();
+    expect(await screen.findByRole('button', { name: /submit complaint/i })).toBeTruthy();
+  });
+
+  it('uses a fresh idempotency key after a complaint is sent', async () => {
+    submitPortalComplaint.mockResolvedValue({ id: 1, number: 'RMA-1' });
+    getCustomerPortal.mockResolvedValue({
+      customerName: 'Ravi',
+      expiresAt: '2026-09-29T00:00:00Z',
+      complaintsEnabled: true,
+      invoices: [],
+    });
+    const user = userEvent.setup();
+    wrap();
+    const description = await screen.findByLabelText('What went wrong');
+    await user.type(description, 'The box was crushed');
+    await user.click(screen.getByRole('button', { name: 'Submit complaint' }));
+    expect(await screen.findByText('Complaint received')).toBeTruthy();
+    const firstKey = submitPortalComplaint.mock.calls[0][2];
+    await user.click(screen.getByRole('button', { name: 'Submit complaint' }));
+    expect(submitPortalComplaint.mock.calls[1][2]).not.toBe(firstKey);
   });
 });

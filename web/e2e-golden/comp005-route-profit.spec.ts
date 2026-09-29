@@ -37,7 +37,7 @@ test('COMP-005: completing a route with an invoiced stop shows trip profit', asy
   const supplierName = `Route Supplier ${id}`;
 
   await registerTenant(page, { companyName, email, password: 'GoldenPath123!' });
-  await createProduct(page, { name: productName, sku, sellingPrice: '200', purchasePrice: '120' });
+  await createProduct(page, { name: productName, sku, sellingPrice: '200', purchasePrice: '120', gstRate: '0' });
   await createSupplier(page, { name: supplierName });
   // Explicit, unambiguous unit cost via a real purchase invoice — a single
   // stock layer at ₹120/unit, so the route's COGS figure is not left to

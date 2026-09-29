@@ -4,27 +4,44 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { submitPublicLead } from '@/api/osPlan';
 import { t } from '@/i18n';
 
 export function LeadFormPage() {
   const { token = '' } = useParams();
+  const [searchParams] = useSearchParams();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
   const [website, setWebsite] = useState('');
+  const [campaign, setCampaign] = useState(searchParams.get('campaign') ?? '');
+  const [referralCode, setReferralCode] = useState(
+    searchParams.get('referral_code') ?? searchParams.get('referralCode') ?? '',
+  );
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [pending, setPending] = useState(false);
 
   const submit = async () => {
+    if (campaign.trim() && !/^\d+$/.test(campaign.trim())) {
+      setError(t('growth.campaignIdInvalid'));
+      return;
+    }
     setPending(true);
     setError('');
     try {
-      await submitPublicLead(token, { name, phone, email, message, website });
+      await submitPublicLead(token, {
+        name,
+        phone,
+        email,
+        message,
+        website,
+        campaign: /^\d+$/.test(campaign.trim()) ? Number(campaign.trim()) : '',
+        referral_code: referralCode.trim(),
+      });
       setDone(true);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -43,6 +60,8 @@ export function LeadFormPage() {
             <TextField label={t('common.phone')} value={phone} onChange={(e) => setPhone(e.target.value)} />
             <TextField label={t('common.email')} value={email} onChange={(e) => setEmail(e.target.value)} />
             <TextField label={t('osPlan.message')} multiline minRows={3} value={message} onChange={(e) => setMessage(e.target.value)} />
+            <TextField label={t('growth.campaignId')} value={campaign} onChange={(e) => setCampaign(e.target.value)} />
+            <TextField label={t('growth.referralCode')} value={referralCode} onChange={(e) => setReferralCode(e.target.value)} />
             <TextField
               label="Website"
               value={website}

@@ -118,7 +118,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             ]
         if action in (
             "create", "complete", "update", "partial_update", "destroy", "share",
-            "record_payment", "bulk_pdf_zip",
+            "record_payment", "bulk_pdf_zip", "repeat_last",
         ):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in (
@@ -285,6 +285,20 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             raise BusinessRuleError(str(exc)) from exc
         return Response(data)
 
+    @action(detail=False, methods=["post"], url_path="repeat-last")
+    def repeat_last(self, request):
+        """Repeat-Last-Invoice: copy a customer's most recently completed
+        invoice into a new, fully editable DRAFT for the same customer."""
+        customer_id = request.data.get("customer")
+        if not customer_id:
+            raise BusinessRuleError("customer is required.")
+        try:
+            customer = Customer.objects.get(pk=int(customer_id), company=self.company)
+        except (Customer.DoesNotExist, TypeError, ValueError):
+            raise BusinessRuleError("customer is invalid for this company.")
+        draft = SalesService.repeat_last_invoice(self.company, customer, request.user)
+        return Response(self.get_serializer(draft).data, status=status.HTTP_201_CREATED)
+
     @action(detail=False, methods=["post"], url_path="pos-checkout")
     def pos_checkout(self, request):
         """CR-003: Atomic POS checkout in a single database transaction.
@@ -303,11 +317,97 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                     updated_by=request.user,
                 )
 
-                completed, _warnings = SalesService.complete(invoice, user=request.user)
+                gst_guard_override_reason = request.data.get("gst_guard_override_reason") or None
+                completed, _warnings = SalesService.complete(
+                    invoice, user=request.user, gst_guard_override_reason=gst_guard_override_reason,
+                )
 
                 payment_data = request.data.get("payment")
+                splits = request.data.get("payments")
                 receipt_data = None
-                if payment_data:
+                if isinstance(splits, list) and len(splits) >= 2:
+                    from decimal import Decimal
+                    from payments.models import BankAccount, PaymentMode
+                    from payments.serializers import CustomerReceiptSerializer
+                    from payments.services import PaymentService, cheque_fields_from_payload
+
+                    grand_total = Decimal(str(completed.grand_total or 0))
+                    parts = []
+                    for part in splits:
+                        parts.append(Decimal(str((part or {}).get("amount") or 0)))
+                    split_total = sum(parts, Decimal("0"))
+                    confirm_split_mismatch = str(
+                        request.data.get("confirm_totals_mismatch")
+                        or (payment_data or {}).get("confirm_totals_mismatch")
+                        or ""
+                    ).lower() in ("1", "true", "yes")
+                    drift = (split_total - grand_total).quantize(Decimal("0.01"))
+                    if drift > Decimal("0.05"):
+                        # Never take more than the bill, confirmed or not.
+                        raise BusinessRuleError(
+                            f"Split payments add up to {split_total}, more than the bill "
+                            f"of {grand_total}."
+                        )
+                    if abs(drift) > Decimal("0.05") and not confirm_split_mismatch:
+                        exc = BusinessRuleError(
+                            (
+                                f"Till total changed from {split_total} to {grand_total}. "
+                                "Re-confirm before completing."
+                            ),
+                            code="pos_totals_mismatch",
+                            extra={
+                                "confirm_codes": ["pos_totals_mismatch"],
+                                "client_total": str(split_total),
+                                "server_total": str(grand_total),
+                            },
+                        )
+                        exc.status_code = status.HTTP_409_CONFLICT
+                        raise exc
+                    if drift != 0 and abs(drift) <= Decimal("0.05"):
+                        # Rounding drift: absorb it in the last non-zero part so the
+                        # receipts foot to the bill and no allocation overshoots it.
+                        for idx in range(len(parts) - 1, -1, -1):
+                            if parts[idx] > 0:
+                                parts[idx] = (parts[idx] - drift).quantize(Decimal("0.01"))
+                                break
+                    posted = []
+                    for part, amount in zip(splits, parts):
+                        if amount <= 0:
+                            continue
+                        mode_str = str((part or {}).get("mode") or "CASH").upper()
+                        try:
+                            mode = PaymentMode(mode_str)
+                        except ValueError as exc:
+                            raise BusinessRuleError(
+                                f"Unknown payment mode '{mode_str}'."
+                            ) from exc
+                        bank_account = None
+                        bank_acc_id = (part or {}).get("bank_account")
+                        if bank_acc_id:
+                            bank_account = BankAccount.objects.filter(
+                                company=self.company, pk=bank_acc_id,
+                            ).first()
+                        receipt = PaymentService.create_receipt(
+                            company=self.company,
+                            customer=completed.customer,
+                            amount=amount,
+                            mode=mode,
+                            receipt_date=completed.invoice_date,
+                            reference=(part or {}).get("reference", ""),
+                            notes=(part or {}).get("notes") or "",
+                            user=request.user,
+                            bank_account=bank_account,
+                            **cheque_fields_from_payload(part or {}, company=self.company),
+                        )
+                        PaymentService.allocate_receipt(
+                            receipt=receipt,
+                            sales_invoice=completed,
+                            amount=amount,
+                            user=request.user,
+                        )
+                        posted.append(CustomerReceiptSerializer(receipt).data)
+                    receipt_data = posted[0] if posted else None
+                elif payment_data:
                     from decimal import Decimal
                     from payments.models import BankAccount, PaymentMode
                     from payments.serializers import CustomerReceiptSerializer
@@ -345,17 +445,16 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                         displayed = Decimal(str(client_total))
                         if abs(displayed - grand_total) > Decimal("0.05") and not confirm_mismatch:
                             exc = BusinessRuleError(
-                                {
-                                    "code": "pos_totals_mismatch",
-                                    "message": (
-                                        f"Till total changed from {displayed} to {grand_total}. "
-                                        "Re-confirm before completing."
-                                    ),
+                                (
+                                    f"Till total changed from {displayed} to {grand_total}. "
+                                    "Re-confirm before completing."
+                                ),
+                                code="pos_totals_mismatch",
+                                extra={
                                     "confirm_codes": ["pos_totals_mismatch"],
                                     "client_total": str(displayed),
                                     "server_total": str(grand_total),
                                 },
-                                code="pos_totals_mismatch",
                             )
                             exc.status_code = status.HTTP_409_CONFLICT
                             raise exc
@@ -398,8 +497,10 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                         )
                         receipt_data = CustomerReceiptSerializer(receipt).data
 
+                invoice_data = self.get_serializer(completed).data
+                invoice_data["gst_guard_warnings"] = getattr(completed, "_gst_guard_warnings", [])
                 return Response({
-                    "invoice": self.get_serializer(completed).data,
+                    "invoice": invoice_data,
                     "receipt": receipt_data,
                 }, status=status.HTTP_201_CREATED)
 
@@ -487,6 +588,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             confirm_missing_licence = str(request.data.get("confirm_missing_licence") or "").lower() in (
                 "1", "true", "yes",
             )
+            gst_guard_override_reason = request.data.get("gst_guard_override_reason") or None
             invoice, warnings = SalesService.complete(
                 self.get_object(),
                 request.user,
@@ -494,9 +596,11 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 confirm_blank_pos=confirm_blank_pos,
                 confirm_gstin_total_change=confirm_gstin_total,
                 confirm_missing_licence=confirm_missing_licence,
+                gst_guard_override_reason=gst_guard_override_reason,
             )
             data = self.get_serializer(invoice).data
             data["warnings"] = warnings
+            data["gst_guard_warnings"] = getattr(invoice, "_gst_guard_warnings", [])
             return Response(data)
 
         return wrap_idempotent(
@@ -928,6 +1032,19 @@ class QuotationViewSet(CompanyScopedViewSet):
         challan = None
         invoice = None
         if stop in ("DELIVERY_CHALLAN", "INVOICE"):
+            # Run confirmation (and its order gate) before advancing the chain —
+            # convert_sales_order_to_challan otherwise refuses a DRAFT order
+            # once ENABLE_ORDER_GATES is on, breaking this one-click flow.
+            # confirm_sales_order re-fetches its own row internally rather
+            # than mutating this reference, so pull the confirmed state back
+            # before using it further — the response would otherwise still
+            # serialize the pre-confirm DRAFT order.
+            SalesNotesService.confirm_sales_order(
+                order,
+                request.user,
+                override_reason=request.data.get("credit_override_reason"),
+            )
+            order.refresh_from_db()
             challan = SalesNotesService.convert_sales_order_to_challan(order, request.user)
         if stop == "INVOICE":
             challan = SalesNotesService.complete_challan(challan, request.user)
@@ -1032,7 +1149,11 @@ class SalesReturnViewSet(CompanyScopedViewSet):
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
         def _run():
-            sales_return = SalesService.complete_return(self.get_object(), request.user)
+            sales_return = SalesService.complete_return(
+                self.get_object(),
+                request.user,
+                gst_guard_override_reason=request.data.get("gst_guard_override_reason") or None,
+            )
             return Response(self.get_serializer(sales_return).data)
 
         return wrap_idempotent(

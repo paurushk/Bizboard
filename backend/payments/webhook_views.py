@@ -30,8 +30,8 @@ def public_frontend_base_url(request=None) -> str:
 
 
 class PublicPayThrottle(AnonRateThrottle):
-    # BB-000514: public tokenized pay — keep tight vs anon default.
-    rate = "20/min"
+    # BB-000514 / SEC-OBS-02: public tokenized pay — dedicated IP bucket prevents starvation
+    scope = "public_pay"
 
 
 class PaymentWebhookThrottle(AnonRateThrottle):

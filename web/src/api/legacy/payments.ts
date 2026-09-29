@@ -7,8 +7,63 @@ import {
   mockReceipts,
   mockReconLines,
 } from '@/mocks/data';
-import type { CustomerReceipt, PaymentAllocation, SupplierPayment } from '@/types/domain';
+import type { CustomerReceipt, PaymentAllocation, PaymentPromise, SupplierPayment } from '@/types/domain';
 import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
+
+/** Open (unresolved) payment promises for the company, or all when `all: true`. */
+export async function listPaymentPromises(params?: {
+  all?: boolean;
+  invoice?: number;
+  customer?: number;
+}): Promise<PaymentPromise[]> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/payments/promises/', {
+      params: {
+        ...(params?.all ? { all: '1' } : {}),
+        ...(params?.invoice ? { invoice: params.invoice } : {}),
+        ...(params?.customer ? { customer: params.customer } : {}),
+      },
+    });
+    const unwrapped = unwrapData<PaymentPromise[] | { results?: PaymentPromise[] }>(data);
+    if (Array.isArray(unwrapped)) return unwrapped;
+    if (unwrapped && Array.isArray((unwrapped as { results?: PaymentPromise[] }).results)) {
+      return (unwrapped as { results: PaymentPromise[] }).results;
+    }
+    return [];
+  }, []);
+}
+
+export async function createPaymentPromise(payload: {
+  customer: number;
+  invoice?: number | null;
+  promisedDate: string;
+  promisedAmount: string;
+  note?: string;
+}): Promise<PaymentPromise> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post('/payments/promises/', payload);
+    return unwrapData<PaymentPromise>(data);
+  }, {
+    id: Date.now(),
+    customer: payload.customer,
+    invoice: payload.invoice ?? null,
+    promisedDate: payload.promisedDate,
+    note: payload.note ?? '',
+    resolved: false,
+  });
+}
+
+export async function resolvePaymentPromise(id: number): Promise<PaymentPromise> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/payments/promises/${id}/resolve/`);
+    return unwrapData<PaymentPromise>(data);
+  }, {
+    id,
+    customer: 0,
+    promisedDate: '',
+    resolved: true,
+  });
+}
 
 export async function listReceiptsPage(
   params?: PageParams,
@@ -36,6 +91,7 @@ export async function createReceipt(
     chequeDate?: string;
     chequeImage?: number;
     settlementDiscount?: number | string;
+    allocateOldest?: boolean;
   },
   options?: { idempotencyKey?: string },
 ): Promise<CustomerReceipt> {
@@ -213,6 +269,7 @@ export function getCustomerPortal(token: string) {
   return apiClient.get(`/public/customer-portal/${token}/`).then(({ data }) => unwrapData<{
     customerName: string;
     expiresAt: string;
+    complaintsEnabled?: boolean;
     invoices: Array<{
       id: number;
       number: string;
@@ -232,6 +289,19 @@ export function downloadCustomerPortalInvoice(token: string, invoiceId: number) 
 export function startCustomerPortalPayment(token: string, invoiceId: number) {
   return apiClient.post(`/public/customer-portal/${token}/invoices/${invoiceId}/pay/`).then(({ data }) => unwrapData<{ payPath: string }>(data));
 }
+
+export function submitPortalComplaint(
+  token: string,
+  body: { description: string; category: string },
+  key: string,
+) {
+  return apiClient.post(
+    `/public/customer-portal/${token}/complaints/`,
+    body,
+    { headers: idempotencyHeaders(key) },
+  ).then(({ data }) => unwrapData<{ id: number; number: string }>(data));
+}
+
 export const listAccountingBankReconSessions = () =>
   withMocks(
     () => fetchAllPagesMasters<Record<string, unknown>>('/accounting/bank-recon-sessions/'),

@@ -3,7 +3,9 @@ import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -55,6 +57,7 @@ export function ReceiptsPage() {
   const [open, setOpen] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [amount, setAmount] = useState('');
+  const [oldestFirst, setOldestFirst] = useState(false);
   const [mode, setMode] = useState<PaymentMode>('CASH');
   const [invoice, setInvoice] = useState<SalesInvoice | null>(null);
   const [allocAmount, setAllocAmount] = useState('');
@@ -116,10 +119,11 @@ export function ReceiptsPage() {
           chequeBankName: mode === 'CHEQUE' ? cheque.chequeBankName.trim() : undefined,
           chequeDate: mode === 'CHEQUE' ? cheque.chequeDate || undefined : undefined,
           chequeImage: mode === 'CHEQUE' ? cheque.chequeImage || undefined : undefined,
+          allocateOldest: oldestFirst || undefined,
         },
         { idempotencyKey: key },
       );
-      if (invoice && Number(allocAmount) > 0) {
+      if (!oldestFirst && invoice && Number(allocAmount) > 0) {
         const alloc = Number(allocAmount);
         const maxAlloc = Math.min(
           receiptAmount,
@@ -150,6 +154,7 @@ export function ReceiptsPage() {
       setInvoice(null);
       setInvoiceQuery('');
       setAllocAmount('');
+      setOldestFirst(false);
       setUtr('');
       setBankAccount('');
       setCheque({ chequeNumber: '', chequeBankName: '', chequeDate: todayIso() });
@@ -403,6 +408,10 @@ export function ReceiptsPage() {
               label={t('common.amount')}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
+            />
+            <FormControlLabel
+              control={<Checkbox checked={oldestFirst} onChange={(e) => setOldestFirst(e.target.checked)} />}
+              label={t('receipts.oldestFirst')}
             />
             <TextField select label="Payment Mode" value={mode} onChange={(e) => setMode(e.target.value as PaymentMode)}>
               {(['CASH', 'UPI', 'BANK', 'CARD', 'CREDIT', 'CHEQUE'] as const).map((m) => (

@@ -118,6 +118,7 @@ class Company(TimeStampedModel):
     phone = models.CharField(max_length=20, blank=True)
     email = models.EmailField(blank=True)
     lead_form_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
+    whatsapp_webhook_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
     upi_id = models.CharField(max_length=100, blank=True)
     bank_name = models.CharField(max_length=100, blank=True)
     bank_account = models.CharField(max_length=32, blank=True)
@@ -380,6 +381,8 @@ class CompanyStatutoryLicence(TimeStampedModel):
         DRUG_20B = "DRUG_20B", "Drug Licence — Form 20B (wholesale, non-Schedule X)"
         DRUG_21B = "DRUG_21B", "Drug Licence — Form 21B (wholesale, Schedule X)"
         FSSAI = "FSSAI", "FSSAI Licence/Registration"
+        POSP = "POSP", "POSP licence"
+        AGENCY = "AGENCY", "Insurance agency licence"
 
     company = models.ForeignKey(
         "accounts.Company", on_delete=models.CASCADE, related_name="statutory_licences"
@@ -421,6 +424,10 @@ class CompanyStatutoryLicence(TimeStampedModel):
             validate_fssai(self.licence_number)
         elif self.licence_type in (self.LicenceType.DRUG_20B, self.LicenceType.DRUG_21B):
             validate_drug_licence(self.licence_number)
+        elif self.licence_type in (self.LicenceType.POSP, self.LicenceType.AGENCY):
+            number = (self.licence_number or "").strip()
+            if not number:
+                raise DjangoValidationError({"licence_number": "Licence number is required."})
         else:
             raise DjangoValidationError({"licence_type": "Unknown licence type."})
 
@@ -444,6 +451,7 @@ class CompanyUser(TimeStampedModel):
         ACCOUNTANT = "ACCOUNTANT", "Accountant"
         AUDITOR = "AUDITOR", "Auditor"
         VIEWER = "VIEWER", "Viewer"
+        POLICY_DESK = "POLICY_DESK", "Policy desk"
 
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="memberships")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="company_memberships")
@@ -465,6 +473,7 @@ class CompanyUser(TimeStampedModel):
                 "can_create_purchases": True,
                 "can_create_payments": True,
                 "can_post_journals": True,
+                "can_manage_policies": False,
             }
         if role == cls.Role.INVENTORY_STAFF:
             return {
@@ -479,6 +488,7 @@ class CompanyUser(TimeStampedModel):
                 "can_create_purchases": True,
                 "can_create_payments": False,
                 "can_post_journals": False,
+                "can_manage_policies": False,
             }
         if role == cls.Role.AUDITOR:
             return {
@@ -493,6 +503,7 @@ class CompanyUser(TimeStampedModel):
                 "can_create_purchases": False,
                 "can_create_payments": False,
                 "can_post_journals": False,
+                "can_manage_policies": False,
             }
         if role == cls.Role.ACCOUNTANT:
             return {
@@ -507,6 +518,7 @@ class CompanyUser(TimeStampedModel):
                 "can_create_purchases": True,
                 "can_create_payments": True,
                 "can_post_journals": True,
+                "can_manage_policies": False,
             }
         if role == cls.Role.VIEWER:
             return {
@@ -521,6 +533,7 @@ class CompanyUser(TimeStampedModel):
                 "can_create_purchases": False,
                 "can_create_payments": False,
                 "can_post_journals": False,
+                "can_manage_policies": False,
             }
         if role == cls.Role.SALES_STAFF:
             return {
@@ -535,6 +548,22 @@ class CompanyUser(TimeStampedModel):
                 "can_create_purchases": False,
                 "can_create_payments": True,
                 "can_post_journals": False,
+                "can_manage_policies": False,
+            }
+        if role == cls.Role.POLICY_DESK:
+            return {
+                "can_manage_inventory": False,
+                "can_import": False,
+                "can_cancel_documents": False,
+                "can_view_financial_reports": False,
+                "can_export": False,
+                "can_view_ai_insights": False,
+                "can_use_ai_assistant": False,
+                "can_create_sales": False,
+                "can_create_purchases": False,
+                "can_create_payments": False,
+                "can_post_journals": False,
+                "can_manage_policies": True,
             }
         return None
     can_manage_inventory = models.BooleanField(default=False)
@@ -554,6 +583,8 @@ class CompanyUser(TimeStampedModel):
     can_create_payments = models.BooleanField(default=False)
     # BB-000316: journal / CoA / period mutate (Owner or ACCOUNTANT preset).
     can_post_journals = models.BooleanField(default=False)
+    # Policy desk only. Other roles stay false; an owner grants it on a POLICY_DESK row.
+    can_manage_policies = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
 
     class Meta:

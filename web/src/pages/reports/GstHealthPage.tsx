@@ -11,6 +11,7 @@ import TextField from '@mui/material/TextField';
 import { useQuery } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import { getGstHealth } from '@/api/resources';
+import { GstHonestyHeader } from '@/components/GstHonestyHeader';
 import { AlertInboxRow, PageHeader, SeverityChip } from '@/components/insights';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
@@ -46,6 +47,7 @@ export function GstHealthPage() {
           />
         }
       />
+      <GstHonestyHeader />
 
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (

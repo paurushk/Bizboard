@@ -147,6 +147,41 @@ def test_setup_wizard_feature_flag_is_exposed(tenant_a):
     assert response.data["ENABLE_SETUP_WIZARD"] is True
 
 
+def test_j_onboard_p1_steps_blocking_path_is_four():
+    """J-ONBOARD-P1-STEPS: four blocking steps, not three.
+
+    tax -> shop -> catalog -> first_bill. Payments sit in the UI between
+    shop and catalog and do not block the first invoice. The journey text
+    that said '<= 3 steps' does not match derive_onboarding.
+    """
+    company = Company.objects.create(name="Steps Shop", state="Karnataka")
+    assert derive_onboarding(company)["step"] == "tax"
+
+    company.tax_profile_confirmed_at = timezone.now()
+    company.save(update_fields=["tax_profile_confirmed_at"])
+    assert derive_onboarding(company)["step"] == "shop"
+
+    company.address = "12 Shop Street"
+    company.save(update_fields=["address"])
+    after_shop = derive_onboarding(company)
+    assert after_shop["step"] == "catalog"
+    assert after_shop["ui_step"] == "payments"
+    assert after_shop["payments_done"] is False
+
+    make_product(company, sku="STEP-1")
+    after_catalog = derive_onboarding(company)
+    assert after_catalog["step"] == "first_bill"
+    assert after_catalog["payments_done"] is False
+
+    customer = make_customer(company)
+    SalesInvoice.objects.create(
+        company=company, customer=customer, status=SalesInvoice.Status.COMPLETED,
+    )
+    done = derive_onboarding(company)
+    assert done["status"] == "COMPLETED"
+    assert done["step"] is None
+
+
 def test_payments_optional_does_not_block_catalog_step(tenant_a):
     tenant_a.company.tax_profile_confirmed_at = timezone.now()
     tenant_a.company.address = "12 Shop Street"
@@ -178,13 +213,12 @@ def test_backfill_dismisses_existing_progress_companies(tenant_a):
 
 def test_archetype_pack_follows_how_you_sell_and_skips_a_denied_flag(tenant_a, monkeypatch):
     from accounts.packs import HELD_PACKS, PACKS, apply_pack, propose_pack
-    from core.exceptions import BusinessRuleError
 
     assert propose_pack({"how_you_sell": "counter"}) == "retail"
     assert propose_pack({"how_you_sell": "field"}) == "trade"
     assert "ENABLE_PAYROLL" not in PACKS["retail"]
     assert "ENABLE_PAYROLL" not in PACKS["trade"]
-    assert "distribution" in HELD_PACKS
+    assert "distribution" not in HELD_PACKS
     monkeypatch.setattr(
         "accounts.packs.plan_modules_for_company",
         lambda company: {"ENABLE_POS": False},
@@ -198,8 +232,10 @@ def test_archetype_pack_follows_how_you_sell_and_skips_a_denied_flag(tenant_a, m
     tenant_a.company.refresh_from_db()
     assert tenant_a.company.feature_flags.get("ENABLE_POS") is not True
     assert tenant_a.company.feature_flags["ENABLE_GST_GUARD"] is True
-    with pytest.raises(BusinessRuleError):
-        apply_pack(tenant_a.company, "distribution", {}, tenant_a.owner)
+    apply_pack(tenant_a.company, "distribution", {}, tenant_a.owner)
+    tenant_a.company.refresh_from_db()
+    assert tenant_a.company.feature_flags.get("ENABLE_CRM") is not True
+    assert tenant_a.company.feature_flags.get("ENABLE_ROUTE_PROFIT") is True
 
 
 def test_trade_pack_does_not_turn_on_crm_when_the_plan_omits_it(tenant_a, monkeypatch):
@@ -220,3 +256,79 @@ def test_trade_pack_does_not_turn_on_crm_when_the_plan_omits_it(tenant_a, monkey
     assert tenant_a.company.feature_flags.get("ENABLE_CRM") is not True
     assert state.skipped_flags == ["ENABLE_CRM"]
     assert state.applied_flags.get("ENABLE_GST_GUARD") is True
+
+
+def test_trial_modules_list_grantable_flags_and_keep_dark_off(tenant_a):
+    from datetime import timedelta
+
+    from accounts.packs import _entitled
+    from billing.models import Plan, Subscription
+    from billing.services import trial_plan_modules
+    from core.services.feature_flags import DARK_MODULE_KEYS, ROLLOUT_GRANTABLE_KEYS
+
+    from billing.services import TRIAL_HELD_FALSE
+
+    modules = trial_plan_modules()
+    assert set(modules) == set(ROLLOUT_GRANTABLE_KEYS)
+    assert modules["ENABLE_GSTR"] is True
+    for key in TRIAL_HELD_FALSE:
+        assert modules[key] is False
+    assert not (set(modules) & set(DARK_MODULE_KEYS))
+    plan = Plan.objects.create(
+        name="Trial explicit",
+        slug=f"trial-open-{tenant_a.company.id}",
+        modules={**modules, "ENABLE_CRM": True},
+    )
+    Subscription.objects.create(
+        company=tenant_a.company,
+        plan=plan,
+        status=Subscription.Status.TRIAL,
+        trial_ends_at=timezone.now() + timedelta(days=7),
+    )
+    assert _entitled(tenant_a.company, "ENABLE_GSTR") is True
+    assert _entitled(tenant_a.company, "ENABLE_CRM") is False
+
+
+def test_migrated_trial_plan_row_holds_back_growth_os_flags(tenant_a):
+    """Regression: 0008_trial_plan_modules granted every ROLLOUT_GRANTABLE_KEYS
+    entry including the four Growth OS flags added to that set later.
+    0009_trial_plan_modules_hold_growth_os re-applies the current
+    trial_plan_modules() rule on top of it. This checks the actual
+    migration-seeded `slug="trial"` row, not just the helper function."""
+    from billing.models import Plan
+    from billing.services import trial_plan_modules
+
+    from billing.services import TRIAL_HELD_FALSE
+
+    from billing.services import ensure_register_trial
+
+    # The plan row is created on first use; do not depend on another test.
+    ensure_register_trial(tenant_a.company)
+    plan = Plan.objects.get(slug="trial")
+    assert plan.modules == trial_plan_modules()
+    for key in TRIAL_HELD_FALSE:
+        assert plan.modules[key] is False
+    assert plan.modules["ENABLE_GSTR"] is True
+
+
+def test_pack_adds_four_flags_and_does_not_rewrite_a_hand_edit(tenant_a):
+    from accounts.packs import PACKS, apply_pack
+
+    answers = {"what_you_sell": "goods", "how_you_sell": "field", "deliver": "yes", "gst_registered": "yes"}
+    state = apply_pack(tenant_a.company, "trade", answers, tenant_a.owner)
+    assert "ENABLE_ROUTE_OPTIMIZATION" not in state.applied_flags
+    assert "ENABLE_TALLY" in state.skipped_flags
+    assert "ENABLE_ROUTE_OPTIMIZATION" in state.skipped_flags
+    assert state.applied_flags["ENABLE_TDS"] is True
+    assert state.applied_flags["ENABLE_GSTR"] is True
+    assert "ENABLE_GSTR" in PACKS["retail"]
+    assert "ENABLE_SETUP_WIZARD" not in PACKS["retail"]
+    assert "ENABLE_GSTN_JSON" not in PACKS["trade"]
+    tenant_a.company.refresh_from_db()
+    flags = dict(tenant_a.company.feature_flags)
+    flags["ENABLE_GSTR"] = False
+    tenant_a.company.feature_flags = flags
+    tenant_a.company.save(update_fields=["feature_flags"])
+    apply_pack(tenant_a.company, "trade", answers, tenant_a.owner)
+    tenant_a.company.refresh_from_db()
+    assert tenant_a.company.feature_flags["ENABLE_GSTR"] is False

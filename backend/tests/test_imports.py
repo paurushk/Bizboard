@@ -501,6 +501,30 @@ def test_cr_016_duplicate_opening_stock_file_rejected(tenant_a):
     assert "already committed" in str(resp2.data)
 
 
+def test_i4_catalog_import_of_5000_skus_meets_ten_seconds(tenant_a):
+    """I4 (PHASE_0_DOD section I, Must): catalog import of 5,000 SKUs <= 10s.
+
+    Opening quantity is 0 so the file is a catalog, not a stock posting.
+    The clock covers upload, preview, and commit. A smaller file is not I4.
+    """
+    import time
+
+    lines = ["name,sku,gst_rate,selling_price,opening_stock,unit_cost"]
+    lines.extend(
+        f"Catalog item {i},I4-{i:05d},18,100,0,0" for i in range(5000)
+    )
+    content = ("\n".join(lines) + "\n").encode()
+    started = time.perf_counter()
+    uploaded = _upload(tenant_a, "products", content, name="catalog-5000.csv")
+    assert uploaded.status_code == 201, uploaded.data
+    assert uploaded.data["valid_rows"] == 5000, uploaded.data
+    committed = tenant_a.client.post(f"/api/v1/imports/{uploaded.data['id']}/commit/")
+    elapsed = time.perf_counter() - started
+    assert committed.status_code == 200, committed.data
+    assert Product.objects.filter(company=tenant_a.company, sku__startswith="I4-").count() == 5000
+    assert elapsed <= 10.0, f"I4 catalog import took {elapsed:.3f}s (SLA <= 10s, n=5000)"
+
+
 def test_customers_commit_twice_does_not_duplicate_rows(tenant_a):
     job = _upload(tenant_a, "customers", CUSTOMERS_CSV).data
     first = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")

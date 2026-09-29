@@ -313,11 +313,15 @@ class StockCountLineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StockCountLine
-        fields = ["id", "product", "product_name", "batch", "batch_no", "system_qty", "counted_qty", "variance"]
+        fields = [
+            "id", "product", "product_name", "batch", "batch_no",
+            "system_qty", "counted_qty", "variance", "held_for_review",
+        ]
         extra_kwargs = {
             "product": {"required": False},
             "batch": {"required": False, "allow_null": True},
             "system_qty": {"read_only": True},
+            "held_for_review": {"read_only": True},
         }
 
 

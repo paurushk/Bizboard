@@ -16,6 +16,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { fetchSupplierNudge } from '@/api/gstr2b';
 import {
   cancelPurchaseOrder,
   convertPurchaseOrder,
@@ -89,6 +90,11 @@ export function PurchaseOrderEditorPage() {
     enabled: Boolean(supplierId),
   });
   const supplierSearch = useSupplierSearch({ selected: selectedSupplierQuery.data ?? null });
+  const supplierNudge = useQuery({
+    queryKey: ['supplier-nudge', supplierId],
+    queryFn: () => fetchSupplierNudge(Number(supplierId)),
+    enabled: Boolean(supplierId),
+  });
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const existing = useQuery({
@@ -351,7 +357,19 @@ export function PurchaseOrderEditorPage() {
               {...params}
               label={t('billing.supplier')}
               required
-              helperText={!supplierSearch.enabled ? t('common.typeToSearch') : undefined}
+              helperText={
+                supplierNudge.data?.state === 'scored'
+                  ? t('billing.imsNudge', {
+                      period: supplierNudge.data.period || '',
+                      mismatches: String(supplierNudge.data.mismatchCount ?? supplierNudge.data.mismatch_count ?? 0),
+                      rejections: String(supplierNudge.data.rejections ?? 0),
+                    })
+                  : supplierNudge.data?.state === 'no_ims_history'
+                    ? t('billing.imsNoHistory')
+                    : !supplierSearch.enabled
+                      ? t('common.typeToSearch')
+                      : undefined
+              }
             />
           )}
         />

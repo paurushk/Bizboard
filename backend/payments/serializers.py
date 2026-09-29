@@ -4,6 +4,7 @@ from django.db.models import Sum
 from rest_framework import serializers
 
 from core.serializers import CompanyPrimaryKeyRelatedField
+from masters.models import Customer
 from purchases.models import PurchaseInvoice
 from sales.models import SalesInvoice
 
@@ -15,6 +16,7 @@ from .models import (
     GatewayPayment,
     PaymentAllocation,
     PaymentLink,
+    PaymentPromise,
     ReconMatch,
     SupplierPayment,
 )
@@ -362,6 +364,58 @@ class ReconMatchSerializer(serializers.ModelSerializer):
             "matched_by",
             "notes",
         ]
+
+
+class PaymentPromiseSerializer(serializers.ModelSerializer):
+    customer = CompanyPrimaryKeyRelatedField(queryset=Customer.objects.all())
+    invoice = CompanyPrimaryKeyRelatedField(
+        queryset=SalesInvoice.objects.all(), required=False, allow_null=True, default=None
+    )
+    customer_name = serializers.CharField(source="customer.name", read_only=True)
+    invoice_number = serializers.CharField(source="invoice.number", read_only=True, default="")
+    amount_label = serializers.SerializerMethodField()
+    broken = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PaymentPromise
+        fields = [
+            "id",
+            "customer",
+            "customer_name",
+            "invoice",
+            "invoice_number",
+            "promised_date",
+            "promised_amount",
+            "amount_label",
+            "broken",
+            "note",
+            "resolved",
+            "resolved_at",
+            "created_at",
+        ]
+        read_only_fields = ["resolved", "resolved_at", "amount_label", "broken"]
+
+    def validate(self, attrs):
+        if self.instance is None and attrs.get("promised_amount") is None:
+            raise serializers.ValidationError(
+                {"promised_amount": "Enter the amount the customer promised."}
+            )
+        return attrs
+
+    def validate_promised_amount(self, value):
+        if value is None or Decimal(str(value)) <= 0:
+            raise serializers.ValidationError("Enter the amount the customer promised.")
+        return value
+
+    def get_amount_label(self, obj) -> str:
+        from payments.promise_to_pay import promise_amount_label
+
+        return promise_amount_label(obj)
+
+    def get_broken(self, obj) -> bool:
+        from payments.promise_to_pay import promise_is_broken
+
+        return promise_is_broken(obj)
 
 
 class UpiQrSerializer(serializers.Serializer):

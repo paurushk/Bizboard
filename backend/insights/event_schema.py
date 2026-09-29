@@ -57,6 +57,8 @@ EVENT_SOURCES = {
     "PREDICTED_LATE_PAYMENT": {"kind": "receivable", "entity": "customer"},
     "CHURN_RISK": {"kind": "sales", "entity": "customer"},
     "REPEAT_ORDER_DUE": {"kind": "sales", "entity": "product"},
+    "CROSS_SELL": {"kind": "sales", "entity": "product"},
+    "PROMISE_TO_PAY_DUE": {"kind": "receivable", "entity": "customer"},
 }
 
 

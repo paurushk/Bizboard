@@ -10,6 +10,7 @@
     "itc",
     "outward_supplies",
     "period",
+    "register_tie",
     "return_type",
     "table_3_2_inter_state_unregistered",
     "tax_on_advances",
@@ -157,6 +158,17 @@
       "taxable_value": "<scalar>"
     },
     "period": "<scalar>",
+    "register_tie": {
+      "label": "<scalar>",
+      "purchase": "<scalar>",
+      "purchase_delta": "<scalar>",
+      "purchase_register": "<scalar>",
+      "purchase_worksheet": "<scalar>",
+      "sales": "<scalar>",
+      "sales_delta": "<scalar>",
+      "sales_register": "<scalar>",
+      "sales_worksheet": "<scalar>"
+    },
     "return_type": "<scalar>",
     "table_3_2_inter_state_unregistered": {
       "igst": "<scalar>",

@@ -37,6 +37,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "plan",
             "plan_id",
             "write_blocked",
+            "churn_reason",
+            "suspended_at",
         )
 
     def get_write_blocked(self, obj) -> bool:

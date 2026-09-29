@@ -91,6 +91,43 @@ def test_whatsapp_without_opt_in_does_not_leak_the_token(tenant_a):
 
 
 @pytest.mark.django_db
+def test_portal_invoice_list_query_count_does_not_scale_with_invoice_count(tenant_a):
+    """This endpoint is unauthenticated (magic-link-gated). It used to call
+    the single-invoice outstanding calculation (~4 queries each) plus a
+    separate PaymentLink lookup inside a Python loop -- a customer with
+    many open invoices could cost 150+ queries per page load instead of a
+    small constant number via the existing bulk helpers."""
+    from django.core.cache import cache
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    cache.clear()
+    client = APIClient()
+    _enable(tenant_a.company)
+
+    def _token_for(n, suffix):
+        customer = make_customer(tenant_a.company, name=f"Bulk {suffix}", email=f"bulk{suffix}@example.com")
+        for i in range(n):
+            _invoice(tenant_a.company, customer, f"CP-QC-{suffix}-{i}")
+        return CustomerPortalToken.objects.create(
+            company=tenant_a.company, customer=customer, token=f"tok-{suffix}",
+            requested_via="EMAIL", expires_at=timezone.now() + timedelta(minutes=15),
+        )
+
+    few = _token_for(1, "few")
+    many = _token_for(12, "many")
+
+    with CaptureQueriesContext(connection) as few_ctx:
+        few_resp = client.get(f"/api/v1/public/customer-portal/{few.token}/")
+    with CaptureQueriesContext(connection) as many_ctx:
+        many_resp = client.get(f"/api/v1/public/customer-portal/{many.token}/")
+
+    assert few_resp.status_code == 200 and len(few_resp.data["invoices"]) == 1
+    assert many_resp.status_code == 200 and len(many_resp.data["invoices"]) == 12
+    assert len(many_ctx.captured_queries) <= len(few_ctx.captured_queries) + 2
+
+
+@pytest.mark.django_db
 def test_pay_path_uses_existing_payment_link(tenant_a):
     client = APIClient()
     _enable(tenant_a.company)

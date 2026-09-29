@@ -50,6 +50,35 @@ class AttentionRowState(CompanyScopedModel):
         ]
 
 
+class AttentionOutcome(CompanyScopedModel):
+    """What happened to an attention row inside the 7-day window.
+
+    A person reads the learning report. Nothing here changes a threshold.
+    """
+
+    class Outcome(models.TextChoices):
+        RESOLVED = "resolved"
+        DISMISSED = "dismissed"
+
+    dedupe_key = models.CharField(max_length=191)
+    code = models.CharField(max_length=64)
+    outcome = models.CharField(max_length=16, choices=Outcome.choices)
+    within_window = models.BooleanField(default=False)
+    metric_improved = models.BooleanField(null=True, blank=True)
+    recorded_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "dedupe_key"],
+                name="uniq_attention_outcome_per_company",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["company", "code"], name="attn_outcome_company_code_idx"),
+        ]
+
+
 class BusinessAlertEvent(CompanyScopedModel):
     class Severity(models.TextChoices):
         CRITICAL = "critical"

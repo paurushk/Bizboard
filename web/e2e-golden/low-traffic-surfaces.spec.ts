@@ -20,7 +20,7 @@ test('low-traffic money-adjacent surfaces: create + one action each', async ({ p
   await enableAccounting(page);
 
   await page.goto('/inventory/labels');
-  const addProduct = page.getByLabel('Add a product');
+  const addProduct = page.getByRole('combobox', { name: 'Add a product' });
   await addProduct.click();
   await addProduct.fill(sku);
   await page.getByRole('option', { name: new RegExp(sku) }).click();

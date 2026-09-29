@@ -1,5 +1,6 @@
 import csv
 import io
+import base64
 from datetime import date
 
 from django.http import HttpResponse
@@ -290,3 +291,50 @@ class WhatsAppConnectionView(APIView):
                 entity_type="WhatsAppConnection",
             )
         return Response({"configured": False, "deleted": bool(deleted)})
+
+
+class TallyMigrationDiffView(APIView):
+    """Compare Tally XML amounts with completed sales invoices and return a signature sheet."""
+
+    permission_classes = [IsAuthenticated, HasCompany, CanExport]
+
+    def post(self, request):
+        from decimal import Decimal
+
+        from integrations.tally_diff import (
+            books_sales_total,
+            migration_pdf_bytes,
+            parse_tally_amounts,
+            record_migration_diff,
+        )
+
+        cu = get_company_user(request)
+        assert_tally_enabled(cu.company)
+        batch_id = str(request.data.get("batch_id") or request.data.get("batchId") or "").strip()
+        xml = request.data.get("xml") or ""
+        if xml:
+            tally_total = parse_tally_amounts(str(xml))
+        else:
+            try:
+                tally_total = Decimal(
+                    str(request.data.get("tally_total") or request.data.get("tallyTotal") or "0")
+                )
+            except (ArithmeticError, ValueError, TypeError):
+                return Response({"detail": "tally_total must be a valid number."}, status=status.HTTP_400_BAD_REQUEST)
+        books = books_sales_total(cu.company)
+        run = record_migration_diff(
+            company=cu.company,
+            batch_id=batch_id,
+            tally_total=tally_total,
+            books_total=books,
+            user=request.user,
+        )
+        pdf = migration_pdf_bytes(run)
+        return Response({
+            "id": run.id,
+            "blocked": bool((run.result or {}).get("blocked")),
+            "diff": (run.result or {}).get("diff"),
+            "tally_total": str(tally_total),
+            "books_total": str(books),
+            "pdf_base64": base64.b64encode(pdf).decode(),
+        })

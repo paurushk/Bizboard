@@ -18,7 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { assignAttentionRow, listAttentionRows, listCompanyUsers, snoozeAttentionRow } from '@/api/resources';
+import { assignAttentionRow, dismissAttentionRow, getLearningReport, listAttentionRows, listCompanyUsers, snoozeAttentionRow } from '@/api/resources';
 import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import { DisclaimerBanner, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -50,6 +50,14 @@ export function AttentionPage() {
   const [assigning, setAssigning] = useState<AttentionRow | null>(null);
   const [assignee, setAssignee] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const report = useQuery({ queryKey: ['learning-report'], queryFn: getLearningReport });
+  const dismiss = useMutation({
+    mutationFn: (key: string) => dismissAttentionRow(key),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['attention-rows'] });
+      void qc.invalidateQueries({ queryKey: ['learning-report'] });
+    },
+  });
   const snooze = useMutation({
     mutationFn: ({ key, reason }: { key: string; reason: string }) => snoozeAttentionRow(key, reason, 7),
     onSuccess: () => {
@@ -79,6 +87,9 @@ export function AttentionPage() {
         </Button>
       ) : null}
       <DisclaimerBanner>{t('attention.disclaimer')}</DisclaimerBanner>
+      <Typography variant="body2">
+        {t('attention.learningReport')}: {t('attention.learningActed')} {report.data?.acted ?? 0} · {t('attention.learningMetric')} {report.data?.metricImproved ?? 0}
+      </Typography>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
@@ -146,6 +157,9 @@ export function AttentionPage() {
                       ) : null}
                       <Button size="small" onClick={() => { setPending(row); setReason(''); }}>
                         {t('insights.snooze')}
+                      </Button>
+                      <Button size="small" onClick={() => dismiss.mutate(row.dedupeKey)}>
+                        {t('attention.dismiss')}
                       </Button>
                     </Stack>
                   </TableCell>
@@ -218,7 +232,7 @@ export function AttentionPage() {
 }
 
 export function AttentionQueuePreview({ limit = 5 }: { limit?: number }) {
-  const query = useQuery({ queryKey: ['attention-rows'], queryFn: listAttentionRows });
+  const query = useQuery({ queryKey: ['attention-rows'], queryFn: () => listAttentionRows() });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
     return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;

@@ -76,6 +76,29 @@ export interface paths {
         patch: operations["accounting_accounts_partial_update"];
         trace?: never;
     };
+    "/api/v1/accounting/backfill/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Status of the last owner back-fill (running / done / failed / idle). */
+        get: operations["accounting_backfill_retrieve"];
+        put?: never;
+        /**
+         * @description Owner dry-run, then an idempotent post of missing journals.
+         *
+         *     A closed period blocks the post. Companies above OWNER_BACKFILL_INVOICE_LIMIT
+         *     are told to use the operator command.
+         */
+        post: operations["accounting_backfill_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/bank-recon-sessions/": {
         parameters: {
             query?: never;
@@ -980,7 +1003,7 @@ export interface paths {
          *
          *     When ``RAZORPAY_WEBHOOK_SECRET`` is set, ``X-Razorpay-Signature`` is required.
          *     When the secret is unset, the webhook is accepted only if ``DJANGO_ENV=test``
-         *     (or DEBUG) and header ``X-Bizboard-Test-Webhook: 1`` is present.
+         *     and header ``X-Bizboard-Test-Webhook: 1`` is present.
          */
         post: operations["billing_razorpay_webhook_create"];
         delete?: never;
@@ -997,6 +1020,24 @@ export interface paths {
             cookie?: never;
         };
         get: operations["billing_subscription_retrieve"];
+        put?: never;
+        /** @description Owner suspends the subscription and records a churn reason. */
+        post: operations["billing_subscription_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/vendor/tenants/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description P13 reads redacted snapshots stored in the vendor company. */
+        get: operations["billing_vendor_tenants_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1105,6 +1146,44 @@ export interface paths {
         head?: never;
         /** @description BB-000674: Owner CRUD for branch GSTIN registrations. */
         patch: operations["company_gstins_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/company/nav-scope/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Owner toggle between the archetype-pack sidebar and every feature.
+         *
+         *     Existing companies never have NAV_PACK_DEFAULT set, so their menu stays
+         *     as it is until they opt in.
+         */
+        post: operations["company_nav_scope_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/packs/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["company_packs_retrieve"];
+        put?: never;
+        post: operations["company_packs_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/company/restore/": {
@@ -1250,6 +1329,578 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/complaints/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["complaints_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["complaints_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["complaints_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["complaints_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["complaints_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["complaints_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/complaints/{id}/attachments/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["complaints_attachments_retrieve"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["complaints_attachments_create"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["complaints_attachments_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/{id}/create-credit-note/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["complaints_create_credit_note_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/{id}/create-replacement-order/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["complaints_create_replacement_order_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/{id}/create-return/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["complaints_create_return_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/{id}/transition/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["complaints_transition_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/report/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["complaints_report_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/supplier/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["complaints_supplier_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["complaints_supplier_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/supplier/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["complaints_supplier_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["complaints_supplier_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["complaints_supplier_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["complaints_supplier_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/complaints/supplier/{id}/attachments/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["complaints_supplier_attachments_retrieve"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["complaints_supplier_attachments_create"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["complaints_supplier_attachments_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/supplier/{id}/create-debit-note/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["complaints_supplier_create_debit_note_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/supplier/{id}/transition/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["complaints_supplier_transition_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/supplier/report/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["complaints_supplier_report_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["contracts_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["contracts_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["contracts_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["contracts_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["contracts_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["contracts_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/attachments/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["contracts_attachments_retrieve"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["contracts_attachments_create"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["contracts_attachments_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/create-schedule/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["contracts_create_schedule_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/service-events/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["contracts_service_events_retrieve"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["contracts_service_events_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/timeline/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["contracts_timeline_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/report/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["contracts_report_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/campaigns/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_campaigns_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_campaigns_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/campaigns/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_campaigns_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["crm_campaigns_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["crm_campaigns_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["crm_campaigns_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/crm/campaigns/{id}/funnel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_campaigns_funnel_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/crm/leads/": {
         parameters: {
             query?: never;
@@ -1317,13 +1968,33 @@ export interface paths {
          * @description Base viewset enforcing tenant isolation: querysets filtered by the
          *     requesting user's company; created rows stamped with company + audit fields.
          */
-        get: operations["crm_leads_activities_retrieve"];
+        get: operations["crm_leads_activities_list"];
         put?: never;
         /**
          * @description Base viewset enforcing tenant isolation: querysets filtered by the
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["crm_leads_activities_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/leads/{id}/assign/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_leads_assign_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1344,6 +2015,115 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["crm_leads_convert_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/leads/{id}/resolve-dedupe/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description The only path that can clear PENDING_REVIEW — it had none before. */
+        post: operations["crm_leads_resolve_dedupe_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/leads/form-token/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_leads_form_token_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/leads/import-csv/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_leads_import_csv_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/leads/ingest-jobs/{job_id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["crm_leads_ingest_jobs_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/leads/whatsapp-token/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_leads_whatsapp_token_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/onboarding/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["crm_onboarding_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1372,6 +2152,58 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/opportunities/{opportunity_pk}/lines/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_opportunities_lines_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_opportunities_lines_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/opportunities/{opportunity_pk}/lines/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_opportunities_lines_retrieve"];
+        put?: never;
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["crm_opportunities_lines_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["crm_opportunities_lines_partial_update"];
         trace?: never;
     };
     "/api/v1/crm/opportunities/{id}/": {
@@ -1404,6 +2236,312 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         patch: operations["crm_opportunities_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/crm/opportunities/{id}/draft-invoice/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_opportunities_draft_invoice_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/opportunities/{id}/quotation/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_opportunities_quotation_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/opportunities/forecast/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_opportunities_forecast_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/opportunities/won-versus-invoices/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_opportunities_won_versus_invoices_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/public/lead-form/{token}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["crm_public_lead_form_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/public/whatsapp/{token}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Meta's webhook handshake. Echo hub.challenge when the verify token matches.
+         *
+         *     This does not require the inbound flag. Registration has to succeed
+         *     before that flag is turned on. Message delivery stays on POST.
+         */
+        get: operations["crm_public_whatsapp_retrieve"];
+        put?: never;
+        post: operations["crm_public_whatsapp_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/referrals/codes/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_referrals_codes_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_referrals_codes_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/referrals/codes/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_referrals_codes_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/referrals/codes/issue/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_referrals_codes_issue_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/referrals/codes/leaderboard/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_referrals_codes_leaderboard_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/referrals/rewards/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_referrals_rewards_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_referrals_rewards_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/referrals/rewards/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["crm_referrals_rewards_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/referrals/rewards/{id}/approve/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_referrals_rewards_approve_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/referrals/rewards/{id}/mark-paid/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_referrals_rewards_mark_paid_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/referrals/rewards/{id}/reject/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["crm_referrals_rewards_reject_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/customers/": {
@@ -1968,6 +3106,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/attention/assign/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["insights_attention_assign_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insights/attention/dismiss/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["insights_attention_dismiss_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/insights/attention/snooze/": {
         parameters: {
             query?: never;
@@ -1992,6 +3162,59 @@ export interface paths {
             cookie?: never;
         };
         get: operations["insights_cashflow_forecast_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insights/collections-open-invoices/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Open invoices with days overdue, amount received, and invoice outstanding.
+         *
+         *     This does not require ENABLE_PREDICTIVE_DUNNING and does not add a risk score.
+         */
+        get: operations["insights_collections_open_invoices_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insights/collections-worklist/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["insights_collections_worklist_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insights/customers/{customer_id}/360/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["insights_customers_360_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2065,6 +3288,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/learning-report/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["insights_learning_report_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/insights/telemetry/": {
         parameters: {
             query?: never;
@@ -2099,6 +3338,319 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insurance/book/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["insurance_book_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/option-sets/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["insurance_option_sets_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["insurance_option_sets_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/option-sets/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["insurance_option_sets_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/option-sets/{id}/choose/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["insurance_option_sets_choose_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/policies/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["insurance_policies_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["insurance_policies_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/policies/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["insurance_policies_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/policies/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["insurance_policies_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/policies/{id}/claim/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["insurance_policies_claim_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/policies/{id}/commission/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["insurance_policies_commission_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/policies/{id}/endorse/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["insurance_policies_endorse_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/policies/{id}/kyc/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["insurance_policies_kyc_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/products/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["insurance_products_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["insurance_products_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/products/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["insurance_products_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["insurance_products_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["insurance_products_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["insurance_products_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/insurance/prospects/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description A policy-desk prospect. The CRM module stays off; the lead row is the option-set parent. */
+        post: operations["insurance_prospects_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insurance/renewals/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["insurance_renewals_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/inventory/": {
         parameters: {
             query?: never;
@@ -2110,6 +3662,22 @@ export interface paths {
         get: operations["integrations_inventory_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/shopify/webhook/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["integrations_shopify_webhook_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2142,6 +3710,23 @@ export interface paths {
         get: operations["integrations_tally_export_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/tally/migrate-diff/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Compare Tally XML amounts with completed sales invoices and return a signature sheet. */
+        post: operations["integrations_tally_migrate_diff_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2389,6 +3974,22 @@ export interface paths {
         patch: operations["inventory_batches_partial_update"];
         trace?: never;
     };
+    "/api/v1/inventory/demand-forecast/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["inventory_demand_forecast_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/inventory/movements/": {
         parameters: {
             query?: never;
@@ -2416,6 +4017,23 @@ export interface paths {
         put?: never;
         /** @description Opening stock entry → OPENING_STOCK movement (E2.3). */
         post: operations["inventory_opening_stock_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/purchase-planning/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["inventory_purchase_planning_retrieve"];
+        put?: never;
+        /** @description Create one draft purchase order per supplier. Sending stays a separate action. */
+        post: operations["inventory_purchase_planning_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3876,6 +5494,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/payments/promises/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Promise-to-pay: create, list open, mark resolved. See payments.promise_to_pay. */
+        get: operations["payments_promises_list"];
+        put?: never;
+        /** @description Promise-to-pay: create, list open, mark resolved. See payments.promise_to_pay. */
+        post: operations["payments_promises_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/promises/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Promise-to-pay: create, list open, mark resolved. See payments.promise_to_pay. */
+        get: operations["payments_promises_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/promises/{id}/resolve/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Promise-to-pay: create, list open, mark resolved. See payments.promise_to_pay. */
+        post: operations["payments_promises_resolve_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/payments/receipts/": {
         parameters: {
             query?: never;
@@ -4595,6 +6265,212 @@ export interface paths {
         get: operations["products_hsn_search_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["projects_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["projects_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["projects_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/close/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["projects_close_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/milestones/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["projects_milestones_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/milestones/{milestone_id}/invoice/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["projects_milestones_invoice_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/milestones/{milestone_id}/ready/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["projects_milestones_ready_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/customer-portal/{token}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public_customer_portal_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/customer-portal/{token}/complaints/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The magic-link customer files one complaint. No company role. */
+        get: operations["public_customer_portal_complaints_retrieve"];
+        put?: never;
+        /** @description The magic-link customer files one complaint. No company role. */
+        post: operations["public_customer_portal_complaints_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/customer-portal/{token}/invoices/{invoice_id}/pay/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["public_customer_portal_invoices_pay_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/customer-portal/{token}/invoices/{invoice_id}/pdf/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public_customer_portal_invoices_pdf_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/customer-portal/request-link/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["public_customer_portal_request_link_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5477,6 +7353,23 @@ export interface paths {
         patch: operations["purchases_returns_number_series_partial_update"];
         trace?: never;
     };
+    "/api/v1/purchases/suppliers/{supplier_id}/price-history/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Dated unit prices for one supplier and product. No score or rank (COMP-007). */
+        get: operations["purchases_suppliers_price_history_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/cancelled-document-numbers/": {
         parameters: {
             query?: never;
@@ -5639,6 +7532,23 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["reports_gst_period_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gst-period-filings/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description CA-facing list of period filing attempts. Bookers do not see these on invoices. */
+        get: operations["reports_gst_period_filings_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5910,6 +7820,23 @@ export interface paths {
         };
         /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
         get: operations["reports_gstr2b_missing_documents_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gstr2b/supplier-nudge/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Wave 17A: upload/list/match GSTR-2B ingest rows. */
+        get: operations["reports_gstr2b_supplier_nudge_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6989,6 +8916,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/delivery-routes/{id}/apply-sequence/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_delivery_routes_apply_sequence_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/delivery-routes/{id}/complete/": {
         parameters: {
             query?: never;
@@ -7083,6 +9030,79 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["sales_delivery_routes_start_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/{id}/stops/{stop_id}/pod.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET .../stops/<id>/pod.pdf — registered outside the router so the dot is not redirected. */
+        get: operations["sales_delivery_routes_stops_pod.pdf_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/{id}/suggest-sequence/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_delivery_routes_suggest_sequence_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/combine-suggestions/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["sales_delivery_routes_combine_suggestions_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/completion-baseline/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_delivery_routes_completion_baseline_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7556,6 +9576,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/invoices/repeat-last/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Repeat-Last-Invoice: copy a customer's most recently completed
+         *     invoice into a new, fully editable DRAFT for the same customer.
+         */
+        post: operations["sales_invoices_repeat_last_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/orders/": {
         parameters: {
             query?: never;
@@ -7686,6 +9726,26 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["sales_orders_convert_to_challan_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/orders/{id}/gate-check/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_orders_gate_check_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8195,6 +10255,234 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/support/shared/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["support_shared_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/shared/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["support_shared_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["support_tickets_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["support_tickets_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["support_tickets_retrieve"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        put: operations["support_tickets_update"];
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["support_tickets_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["support_tickets_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/support/tickets/{id}/attachments/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["support_tickets_attachments_retrieve"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["support_tickets_attachments_create"];
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["support_tickets_attachments_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets/{id}/comments/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["support_tickets_comments_retrieve"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["support_tickets_comments_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets/{id}/share/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["support_tickets_share_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets/{id}/stop-sharing/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["support_tickets_stop_sharing_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets/{id}/transition/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["support_tickets_transition_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/tickets/report/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["support_tickets_report_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/telegram/link/": {
         parameters: {
             query?: never;
@@ -8279,6 +10567,130 @@ export interface paths {
         put?: never;
         /** @description BB-000004/196/205/258/265: settle only via verified signature + payment_link identity. */
         post: operations["webhooks_payments_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workshop/job-cards/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["workshop_job_cards_list"];
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["workshop_job_cards_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workshop/job-cards/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["workshop_job_cards_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workshop/job-cards/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["workshop_job_cards_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workshop/job-cards/{id}/convert/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["workshop_job_cards_convert_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workshop/job-cards/{id}/lines/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["workshop_job_cards_lines_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workshop/job-cards/{id}/start/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["workshop_job_cards_start_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8583,19 +10995,64 @@ export interface components {
          * @enum {string}
          */
         CadenceEnum: "MONTHLY" | "WEEKLY";
+        Campaign: {
+            readonly id: number;
+            name: string;
+            campaignType: components["schemas"]["CampaignTypeEnum"];
+            parent?: number | null;
+            /** Format: decimal */
+            budget?: string;
+            /** Format: decimal */
+            targetRevenue?: string | null;
+            expectedOutcome?: string;
+            /** Format: date */
+            startDate?: string | null;
+            /** Format: date */
+            endDate?: string | null;
+            status?: components["schemas"]["CampaignStatusEnum"];
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        /**
+         * @description * `DRAFT` - Draft
+         *     * `ACTIVE` - Active
+         *     * `PAUSED` - Paused
+         *     * `COMPLETED` - Completed
+         * @enum {string}
+         */
+        CampaignStatusEnum: "DRAFT" | "ACTIVE" | "PAUSED" | "COMPLETED";
+        /**
+         * @description * `DIGITAL` - Digital
+         *     * `REFERRAL` - Referral
+         *     * `EVENT` - Event
+         *     * `MARKET_VISIT` - Market Visit
+         * @enum {string}
+         */
+        CampaignTypeEnum: "DIGITAL" | "REFERRAL" | "EVENT" | "MARKET_VISIT";
         Category: {
             readonly id: number;
             name: string;
         };
+        /**
+         * @description * `DAMAGED` - Damaged
+         *     * `WRONG_DELIVERY` - Wrong Delivery
+         *     * `QUALITY` - Quality
+         *     * `OTHER` - Other
+         * @enum {string}
+         */
+        CategoryEnum: "DAMAGED" | "WRONG_DELIVERY" | "QUALITY" | "OTHER";
         /**
          * @description * `EMAIL` - Email
          *     * `WHATSAPP` - Whatsapp
          *     * `SMS` - Sms
          *     * `PUSH` - Push
          *     * `TELEGRAM` - Telegram
+         *     * `IN_APP` - In App
          * @enum {string}
          */
-        ChannelEnum: "EMAIL" | "WHATSAPP" | "SMS" | "PUSH" | "TELEGRAM";
+        ChannelEnum: "EMAIL" | "WHATSAPP" | "SMS" | "PUSH" | "TELEGRAM" | "IN_APP";
         /**
          * @description * `PENDING_CLEARANCE` - Pending Clearance
          *     * `CLEARED` - Cleared
@@ -8633,6 +11090,7 @@ export interface components {
             email?: string;
             logo?: number | null;
             signature?: number | null;
+            /** Format: int64 */
             fyStartMonth?: number;
             negativeStockPolicy?: components["schemas"]["NegativeStockPolicyEnum"];
             invoiceTerms?: string;
@@ -8692,6 +11150,7 @@ export interface components {
             canCreatePurchases?: boolean;
             canCreatePayments?: boolean;
             canPostJournals?: boolean;
+            canManagePolicies?: boolean;
             isActive?: boolean;
         };
         /**
@@ -8702,15 +11161,76 @@ export interface components {
          *     * `ACCOUNTANT` - Accountant
          *     * `AUDITOR` - Auditor
          *     * `VIEWER` - Viewer
+         *     * `POLICY_DESK` - Policy desk
          * @enum {string}
          */
-        CompanyUserRoleEnum: "OWNER" | "MANAGER" | "SALES_STAFF" | "INVENTORY_STAFF" | "ACCOUNTANT" | "AUDITOR" | "VIEWER";
+        CompanyUserRoleEnum: "OWNER" | "MANAGER" | "SALES_STAFF" | "INVENTORY_STAFF" | "ACCOUNTANT" | "AUDITOR" | "VIEWER" | "POLICY_DESK";
+        Complaint: {
+            readonly id: number;
+            readonly number: string;
+            customer: number;
+            sourceInvoice?: number | null;
+            category: components["schemas"]["CategoryEnum"];
+            description: string;
+            readonly status: components["schemas"]["StatusBbdEnum"];
+            inspectionNotes?: string;
+            readonly salesReturn: number | null;
+            readonly salesCreditNote: number | null;
+            readonly replacementOrder: number | null;
+            assignedTo?: number | null;
+            /** Format: date-time */
+            readonly resolvedAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
         /**
          * @description * `SELLABLE` - Sellable
          *     * `DAMAGED` - Damaged
          * @enum {string}
          */
         ConditionEnum: "SELLABLE" | "DAMAGED";
+        Contract: {
+            readonly id: number;
+            readonly number: string;
+            customer: number;
+            product?: number | null;
+            products?: number[];
+            contractType: components["schemas"]["ContractTypeEnum"];
+            /** Format: date */
+            startDate: string;
+            /** Format: date */
+            endDate: string;
+            /** Format: int64 */
+            renewalReminderDays?: number;
+            /** Format: decimal */
+            value?: string | null;
+            readonly recurringSchedule: number | null;
+            status?: components["schemas"]["ContractStatusEnum"];
+            notes?: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        /**
+         * @description * `ACTIVE` - Active
+         *     * `EXPIRING` - Expiring
+         *     * `EXPIRED` - Expired
+         *     * `CANCELLED` - Cancelled
+         * @enum {string}
+         */
+        ContractStatusEnum: "ACTIVE" | "EXPIRING" | "EXPIRED" | "CANCELLED";
+        /**
+         * @description * `WARRANTY` - Warranty
+         *     * `AMC` - Amc
+         *     * `SUBSCRIPTION` - Subscription
+         *     * `INSURANCE` - Insurance
+         *     * `OTHER` - Other
+         * @enum {string}
+         */
+        ContractTypeEnum: "WARRANTY" | "AMC" | "SUBSCRIPTION" | "INSURANCE" | "OTHER";
         CostCenter: {
             readonly id: number;
             code: string;
@@ -8727,9 +11247,15 @@ export interface components {
             billingAddress?: string;
             shippingAddress?: string;
             state?: string;
+            pincode?: string;
+            /** Format: decimal */
+            latitude?: string | null;
+            /** Format: decimal */
+            longitude?: string | null;
             status?: components["schemas"]["CustomerStatusEnum"];
             /** Format: decimal */
             creditLimit?: string;
+            /** Format: int64 */
             creditDays?: number;
             notes?: string;
             /** Format: date-time */
@@ -8822,6 +11348,7 @@ export interface components {
             vehicleNumber?: string;
             transporterName?: string;
             transporterId?: string;
+            /** Format: int64 */
             transportDistanceKm?: number | null;
             subSupplyType?: string;
             transMode?: string;
@@ -8975,6 +11502,15 @@ export interface components {
             estimatedLogisticsCost?: string;
             /** Format: decimal */
             actualLogisticsCost?: string;
+            /** Format: decimal */
+            readonly realizedRevenue: string | null;
+            /** Format: decimal */
+            readonly realizedCogs: string | null;
+            /** Format: decimal */
+            readonly realizedProfit: string | null;
+            readonly invoicedStopCount: number | null;
+            readonly stopCount: number | null;
+            completionSource?: string;
             notes?: string;
             readonly stops: components["schemas"]["DeliveryRouteStop"][];
             readonly rollup: string;
@@ -8997,11 +11533,18 @@ export interface components {
             readonly orderNumber: string;
             readonly customerName: string;
             readonly deliveryAddress: string;
+            /** Format: int64 */
             sequence?: number;
             status?: components["schemas"]["DeliveryRouteStopStatusEnum"];
             notes?: string;
             /** Format: date-time */
             readonly deliveredAt: string | null;
+            completionSource?: string;
+            otpCode?: string;
+            podNote?: string;
+            receivedByName?: string;
+            podPhoto?: number | null;
+            customerReceipt?: number | null;
         };
         /**
          * @description * `PENDING` - Pending
@@ -9130,6 +11673,7 @@ export interface components {
             acquisitionDate: string;
             /** Format: decimal */
             acquisitionCost: string;
+            /** Format: int64 */
             usefulLifeMonths: number;
             /** Format: decimal */
             readonly depreciatedAmount: string;
@@ -9338,6 +11882,43 @@ export interface components {
          * @enum {string}
          */
         ItcEligibility28fEnum: "UNREVIEWED" | "CLAIMABLE" | "INELIGIBLE" | "REVERSED";
+        JobCard: {
+            readonly id: number;
+            readonly number: string;
+            customer: number;
+            technician?: number | null;
+            readonly status: components["schemas"]["JobCardStatusEnum"];
+            complaint?: string;
+            readonly salesInvoice: number | null;
+            readonly lines: components["schemas"]["JobCardLine"][];
+            readonly serialHistory: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        JobCardLine: {
+            readonly id: number;
+            kind: components["schemas"]["JobCardLineKindEnum"];
+            product: number;
+            /** Format: decimal */
+            quantity: string;
+            /** Format: decimal */
+            unitPrice: string;
+            serial?: number | null;
+        };
+        /**
+         * @description * `PART` - Part
+         *     * `LABOUR` - Labour
+         * @enum {string}
+         */
+        JobCardLineKindEnum: "PART" | "LABOUR";
+        /**
+         * @description * `DRAFT` - Draft
+         *     * `IN_PROGRESS` - In Progress
+         *     * `INVOICED` - Invoiced
+         *     * `CANCELLED` - Cancelled
+         * @enum {string}
+         */
+        JobCardStatusEnum: "DRAFT" | "IN_PROGRESS" | "INVOICED" | "CANCELLED";
         JournalEntry: {
             readonly id: number;
             number?: string;
@@ -9384,12 +11965,42 @@ export interface components {
             gstin?: string;
             address?: string;
             status?: components["schemas"]["LeadStatusEnum"];
+            source?: string | null;
+            message?: string;
+            readonly assignedTo: number | null;
+            readonly dedupeMatchedCustomer: number | null;
+            readonly dedupeMatchedLead: number | null;
+            readonly dedupeReview: string;
+            readonly dedupeCandidates: unknown;
             customer?: number | null;
+            campaign?: number | null;
+            readonly referralCode: number | null;
+            /** Format: date-time */
+            readonly lastTouchedAt: string | null;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
             readonly updatedAt: string;
         };
+        LeadActivity: {
+            readonly id: number;
+            kind?: components["schemas"]["LeadActivityKindEnum"];
+            body: string;
+            /** Format: date-time */
+            dueAt?: string | null;
+            /** Format: date-time */
+            readonly remindedAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+            readonly createdBy: number | null;
+        };
+        /**
+         * @description * `NOTE` - Note
+         *     * `CALL` - Call
+         *     * `EMAIL` - Email
+         * @enum {string}
+         */
+        LeadActivityKindEnum: "NOTE" | "CALL" | "EMAIL";
         /**
          * @description * `NEW` - New
          *     * `CONTACTED` - Contacted
@@ -9402,9 +12013,19 @@ export interface components {
          * @description * `DRUG_20B` - Drug Licence — Form 20B (wholesale, non-Schedule X)
          *     * `DRUG_21B` - Drug Licence — Form 21B (wholesale, Schedule X)
          *     * `FSSAI` - FSSAI Licence/Registration
+         *     * `POSP` - POSP licence
+         *     * `AGENCY` - Insurance agency licence
          * @enum {string}
          */
-        LicenceTypeEnum: "DRUG_20B" | "DRUG_21B" | "FSSAI";
+        LicenceTypeEnum: "DRUG_20B" | "DRUG_21B" | "FSSAI" | "POSP" | "AGENCY";
+        /**
+         * @description * `MOTOR` - Motor
+         *     * `HEALTH` - Health
+         *     * `LIFE` - Life
+         *     * `OTHER` - Other
+         * @enum {string}
+         */
+        LineEnum: "MOTOR" | "HEALTH" | "LIFE" | "OTHER";
         /**
          * @description * `exact` - Exact
          *     * `value_mismatch` - Value Mismatch
@@ -9480,13 +12101,30 @@ export interface components {
             title: string;
             /** Format: decimal */
             amount?: string;
+            probability?: number;
+            /** Format: date */
+            expectedCloseDate?: string | null;
+            competitor?: string;
             stage?: components["schemas"]["StageEnum"];
             /** Format: date-time */
             readonly closedAt: string | null;
+            readonly stageMoveCount: number;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
             readonly updatedAt: string;
+        };
+        OpportunityLine: {
+            readonly id: number;
+            readonly opportunity: number;
+            product: number;
+            description?: string;
+            /** Format: decimal */
+            quantity: string;
+            /** Format: decimal */
+            unitPrice: string;
+            /** Format: date-time */
+            readonly createdAt: string;
         };
         PaginatedAccountList: {
             /** @example 123 */
@@ -9668,6 +12306,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["BusinessAlertEvent"][];
         };
+        PaginatedCampaignList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Campaign"][];
+        };
         PaginatedCategoryList: {
             /** @example 123 */
             count: number;
@@ -9727,6 +12380,36 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["CompanyUser"][];
+        };
+        PaginatedComplaintList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Complaint"][];
+        };
+        PaginatedContractList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Contract"][];
         };
         PaginatedCostCenterList: {
             /** @example 123 */
@@ -9953,6 +12636,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["ImportJob"][];
         };
+        PaginatedJobCardList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["JobCard"][];
+        };
         PaginatedJournalEntryList: {
             /** @example 123 */
             count: number;
@@ -9967,6 +12665,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["JournalEntry"][];
+        };
+        PaginatedLeadActivityList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["LeadActivity"][];
         };
         PaginatedLeadList: {
             /** @example 123 */
@@ -9997,6 +12710,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["Notification"][];
+        };
+        PaginatedOpportunityLineList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["OpportunityLine"][];
         };
         PaginatedOpportunityList: {
             /** @example 123 */
@@ -10073,6 +12801,66 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["PaymentMode"][];
         };
+        PaginatedPaymentPromiseList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["PaymentPromise"][];
+        };
+        PaginatedPolicyList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Policy"][];
+        };
+        PaginatedPolicyOptionSetList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["PolicyOptionSet"][];
+        };
+        PaginatedPolicyProductList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["PolicyProduct"][];
+        };
         PaginatedPriceListList: {
             /** @example 123 */
             count: number;
@@ -10102,6 +12890,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["Product"][];
+        };
+        PaginatedProjectList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Project"][];
         };
         PaginatedPurchaseCreditNoteList: {
             /** @example 123 */
@@ -10207,6 +13010,36 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["RecurringInvoiceSchedule"][];
+        };
+        PaginatedReferralCodeList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["ReferralCode"][];
+        };
+        PaginatedReferralRewardList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["ReferralReward"][];
         };
         PaginatedSalesCreditNoteList: {
             /** @example 123 */
@@ -10373,6 +13206,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["StockTransfer"][];
         };
+        PaginatedSupplierComplaintList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["SupplierComplaint"][];
+        };
         PaginatedSupplierList: {
             /** @example 123 */
             count: number;
@@ -10418,6 +13266,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["TaxRate"][];
         };
+        PaginatedTicketList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Ticket"][];
+        };
         PaginatedUnitList: {
             /** @example 123 */
             count: number;
@@ -10432,6 +13295,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["Unit"][];
+        };
+        PaginatedVendorTicketShareList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["VendorTicketShare"][];
         };
         PaginatedWarehouseList: {
             /** @example 123 */
@@ -10587,6 +13465,26 @@ export interface components {
             readonly id?: number;
             name?: string;
         };
+        PatchedCampaign: {
+            readonly id?: number;
+            name?: string;
+            campaignType?: components["schemas"]["CampaignTypeEnum"];
+            parent?: number | null;
+            /** Format: decimal */
+            budget?: string;
+            /** Format: decimal */
+            targetRevenue?: string | null;
+            expectedOutcome?: string;
+            /** Format: date */
+            startDate?: string | null;
+            /** Format: date */
+            endDate?: string | null;
+            status?: components["schemas"]["CampaignStatusEnum"];
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
         PatchedCategory: {
             readonly id?: number;
             name?: string;
@@ -10621,6 +13519,7 @@ export interface components {
             email?: string;
             logo?: number | null;
             signature?: number | null;
+            /** Format: int64 */
             fyStartMonth?: number;
             negativeStockPolicy?: components["schemas"]["NegativeStockPolicyEnum"];
             invoiceTerms?: string;
@@ -10680,7 +13579,51 @@ export interface components {
             canCreatePurchases?: boolean;
             canCreatePayments?: boolean;
             canPostJournals?: boolean;
+            canManagePolicies?: boolean;
             isActive?: boolean;
+        };
+        PatchedComplaint: {
+            readonly id?: number;
+            readonly number?: string;
+            customer?: number;
+            sourceInvoice?: number | null;
+            category?: components["schemas"]["CategoryEnum"];
+            description?: string;
+            readonly status?: components["schemas"]["StatusBbdEnum"];
+            inspectionNotes?: string;
+            readonly salesReturn?: number | null;
+            readonly salesCreditNote?: number | null;
+            readonly replacementOrder?: number | null;
+            assignedTo?: number | null;
+            /** Format: date-time */
+            readonly resolvedAt?: string | null;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
+        PatchedContract: {
+            readonly id?: number;
+            readonly number?: string;
+            customer?: number;
+            product?: number | null;
+            products?: number[];
+            contractType?: components["schemas"]["ContractTypeEnum"];
+            /** Format: date */
+            startDate?: string;
+            /** Format: date */
+            endDate?: string;
+            /** Format: int64 */
+            renewalReminderDays?: number;
+            /** Format: decimal */
+            value?: string | null;
+            readonly recurringSchedule?: number | null;
+            status?: components["schemas"]["ContractStatusEnum"];
+            notes?: string;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         PatchedCostCenter: {
             readonly id?: number;
@@ -10698,9 +13641,15 @@ export interface components {
             billingAddress?: string;
             shippingAddress?: string;
             state?: string;
+            pincode?: string;
+            /** Format: decimal */
+            latitude?: string | null;
+            /** Format: decimal */
+            longitude?: string | null;
             status?: components["schemas"]["CustomerStatusEnum"];
             /** Format: decimal */
             creditLimit?: string;
+            /** Format: int64 */
             creditDays?: number;
             notes?: string;
             /** Format: date-time */
@@ -10738,6 +13687,7 @@ export interface components {
             vehicleNumber?: string;
             transporterName?: string;
             transporterId?: string;
+            /** Format: int64 */
             transportDistanceKm?: number | null;
             subSupplyType?: string;
             transMode?: string;
@@ -10830,6 +13780,15 @@ export interface components {
             estimatedLogisticsCost?: string;
             /** Format: decimal */
             actualLogisticsCost?: string;
+            /** Format: decimal */
+            readonly realizedRevenue?: string | null;
+            /** Format: decimal */
+            readonly realizedCogs?: string | null;
+            /** Format: decimal */
+            readonly realizedProfit?: string | null;
+            readonly invoicedStopCount?: number | null;
+            readonly stopCount?: number | null;
+            completionSource?: string;
             notes?: string;
             readonly stops?: components["schemas"]["DeliveryRouteStop"][];
             readonly rollup?: string;
@@ -10904,6 +13863,7 @@ export interface components {
             acquisitionDate?: string;
             /** Format: decimal */
             acquisitionCost?: string;
+            /** Format: int64 */
             usefulLifeMonths?: number;
             /** Format: decimal */
             readonly depreciatedAmount?: string;
@@ -11013,7 +13973,18 @@ export interface components {
             gstin?: string;
             address?: string;
             status?: components["schemas"]["LeadStatusEnum"];
+            source?: string | null;
+            message?: string;
+            readonly assignedTo?: number | null;
+            readonly dedupeMatchedCustomer?: number | null;
+            readonly dedupeMatchedLead?: number | null;
+            readonly dedupeReview?: string;
+            readonly dedupeCandidates?: unknown;
             customer?: number | null;
+            campaign?: number | null;
+            readonly referralCode?: number | null;
+            /** Format: date-time */
+            readonly lastTouchedAt?: string | null;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -11026,13 +13997,30 @@ export interface components {
             title?: string;
             /** Format: decimal */
             amount?: string;
+            probability?: number;
+            /** Format: date */
+            expectedCloseDate?: string | null;
+            competitor?: string;
             stage?: components["schemas"]["StageEnum"];
             /** Format: date-time */
             readonly closedAt?: string | null;
+            readonly stageMoveCount?: number;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
             readonly updatedAt?: string;
+        };
+        PatchedOpportunityLine: {
+            readonly id?: number;
+            readonly opportunity?: number;
+            product?: number;
+            description?: string;
+            /** Format: decimal */
+            quantity?: string;
+            /** Format: decimal */
+            unitPrice?: string;
+            /** Format: date-time */
+            readonly createdAt?: string;
         };
         PatchedPayRun: {
             readonly id?: number;
@@ -11049,6 +14037,19 @@ export interface components {
             readonly id?: number;
             name?: string;
             code?: string;
+            isActive?: boolean;
+        };
+        PatchedPolicyProduct: {
+            readonly id?: number;
+            name?: string;
+            insurerName?: string;
+            line?: components["schemas"]["LineEnum"];
+            /** Format: int64 */
+            tenureMonths?: number;
+            /** Format: decimal */
+            sumInsured?: string;
+            /** Format: decimal */
+            premium?: string;
             isActive?: boolean;
         };
         PatchedPriceList: {
@@ -11076,6 +14077,8 @@ export interface components {
             readonly unitName?: string;
             /** Format: decimal */
             gstRate?: string;
+            gstSupplyForm?: string;
+            readonly gstRateNotice?: string;
             /** Format: decimal */
             cessRate?: string;
             /** Format: decimal */
@@ -11218,6 +14221,7 @@ export interface components {
             invoiceDate?: string;
             /** Format: date */
             dueDate?: string | null;
+            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -11304,6 +14308,7 @@ export interface components {
             orderDate?: string;
             /** Format: date */
             expectedDelivery?: string | null;
+            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -11389,6 +14394,7 @@ export interface components {
             validUntil?: string | null;
             notes?: string;
             termsText?: string;
+            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -11450,6 +14456,8 @@ export interface components {
              *     * `DELIVERY_CHALLAN` - Delivery Challan
              */
             stopStage?: components["schemas"]["StopStageEnum"];
+            /** @description When true, an INVOICE run is completed unedited. Default stays a draft for review. */
+            autoComplete?: boolean;
             /** Format: decimal */
             additionalCharges?: string;
             /** Format: decimal */
@@ -11600,6 +14608,7 @@ export interface components {
             invoiceDate?: string;
             /** Format: date */
             dueDate?: string | null;
+            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -11638,6 +14647,7 @@ export interface components {
             transporterName?: string;
             transporterId?: string;
             vehicleNumber?: string;
+            /** Format: int64 */
             transportDistanceKm?: number | null;
             subSupplyType?: string;
             transMode?: string;
@@ -11712,6 +14722,7 @@ export interface components {
             orderDate?: string;
             /** Format: date */
             expectedDelivery?: string | null;
+            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -11862,11 +14873,50 @@ export interface components {
             taxpayerType?: components["schemas"]["TaxpayerTypeEnum"] | components["schemas"]["BlankEnum"];
             readonly outstanding?: string;
         };
+        PatchedSupplierComplaint: {
+            readonly id?: number;
+            readonly number?: string;
+            supplier?: number;
+            sourceInvoice?: number | null;
+            category?: components["schemas"]["CategoryEnum"];
+            description?: string;
+            readonly status?: components["schemas"]["StatusBbdEnum"];
+            inspectionNotes?: string;
+            readonly purchaseDebitNote?: number | null;
+            assignedTo?: number | null;
+            /** Format: date-time */
+            readonly resolvedAt?: string | null;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
         PatchedTaxRate: {
             readonly id?: number;
             name?: string;
             /** Format: decimal */
             rate?: string;
+        };
+        PatchedTicket: {
+            readonly id?: number;
+            readonly number?: string;
+            customer?: number;
+            subject?: string;
+            description?: string;
+            priority?: components["schemas"]["PriorityEnum"];
+            readonly status?: components["schemas"]["TicketStatusEnum"];
+            assignedTo?: number | null;
+            readonly assigneeName?: string;
+            /** Format: date-time */
+            readonly slaDueAt?: string | null;
+            /** Format: date-time */
+            readonly waitingSince?: string | null;
+            /** Format: date-time */
+            readonly resolvedAt?: string | null;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         PatchedUnit: {
             readonly id?: number;
@@ -11942,6 +14992,7 @@ export interface components {
             readonly employeeName: string;
             /** Format: decimal */
             gross: string;
+            /** Format: int64 */
             periodDays?: number | null;
             /** Format: decimal */
             paidDays?: string | null;
@@ -12025,6 +15076,26 @@ export interface components {
             code?: string;
             isActive?: boolean;
         };
+        PaymentPromise: {
+            readonly id: number;
+            customer: number;
+            readonly customerName: string;
+            invoice?: number | null;
+            /** @default  */
+            readonly invoiceNumber: string;
+            /** Format: date */
+            promisedDate: string;
+            /** Format: decimal */
+            promisedAmount?: string | null;
+            readonly amountLabel: string;
+            readonly broken: boolean;
+            note?: string;
+            readonly resolved: boolean;
+            /** Format: date-time */
+            readonly resolvedAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
         /**
          * @description * `NONE` - None
          *     * `QUEUED` - Queued
@@ -12033,6 +15104,55 @@ export interface components {
          * @enum {string}
          */
         PdfStatusEnum: "NONE" | "QUEUED" | "READY" | "FAILED";
+        Policy: {
+            readonly id: number;
+            readonly number: string;
+            customer: number;
+            product: number;
+            option?: number | null;
+            lead?: number | null;
+            campaign?: number | null;
+            readonly advisor: number | null;
+            nominee?: string;
+            /** Format: date */
+            startDate: string;
+            /** Format: date */
+            readonly endDate: string;
+            readonly status: components["schemas"]["PolicyStatusEnum"];
+            /** Format: decimal */
+            readonly premium: string;
+        };
+        PolicyOption: {
+            readonly id: number;
+            product: number;
+            chosen?: boolean;
+        };
+        PolicyOptionSet: {
+            readonly id: number;
+            lead: number;
+            name?: string;
+            readonly options: components["schemas"]["PolicyOption"][];
+        };
+        PolicyProduct: {
+            readonly id: number;
+            name: string;
+            insurerName: string;
+            line: components["schemas"]["LineEnum"];
+            /** Format: int64 */
+            tenureMonths: number;
+            /** Format: decimal */
+            sumInsured: string;
+            /** Format: decimal */
+            premium: string;
+            isActive?: boolean;
+        };
+        /**
+         * @description * `IN_FORCE` - In Force
+         *     * `CANCELLED` - Cancelled
+         *     * `EXPIRED` - Expired
+         * @enum {string}
+         */
+        PolicyStatusEnum: "IN_FORCE" | "CANCELLED" | "EXPIRED";
         PriceList: {
             readonly id: number;
             name: string;
@@ -12061,6 +15181,14 @@ export interface components {
          * @enum {string}
          */
         PriceModeEnum: "EXCLUSIVE" | "INCLUSIVE";
+        /**
+         * @description * `LOW` - Low
+         *     * `MEDIUM` - Medium
+         *     * `HIGH` - High
+         *     * `URGENT` - Urgent
+         * @enum {string}
+         */
+        PriorityEnum: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
         Product: {
             readonly id: number;
             name: string;
@@ -12076,6 +15204,8 @@ export interface components {
             readonly unitName: string;
             /** Format: decimal */
             gstRate?: string;
+            gstSupplyForm?: string;
+            readonly gstRateNotice: string;
             /** Format: decimal */
             cessRate?: string;
             /** Format: decimal */
@@ -12117,6 +15247,41 @@ export interface components {
          * @enum {string}
          */
         ProductTypeEnum: "GOODS" | "SERVICE";
+        Project: {
+            readonly id: number;
+            readonly number: string;
+            customer: number;
+            name: string;
+            readonly status: components["schemas"]["ProjectStatusEnum"];
+            readonly milestones: components["schemas"]["ProjectMilestone"][];
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        ProjectMilestone: {
+            readonly id: number;
+            name: string;
+            /** Format: int64 */
+            sequence?: number;
+            /** Format: decimal */
+            amount: string;
+            serviceProduct: number;
+            readonly status: components["schemas"]["ProjectMilestoneStatusEnum"];
+            readonly salesInvoice: number | null;
+        };
+        /**
+         * @description * `PLANNED` - Planned
+         *     * `READY` - Ready
+         *     * `INVOICED` - Invoiced
+         * @enum {string}
+         */
+        ProjectMilestoneStatusEnum: "PLANNED" | "READY" | "INVOICED";
+        /**
+         * @description * `OPEN` - Open
+         *     * `CLOSED` - Closed
+         *     * `CANCELLED` - Cancelled
+         * @enum {string}
+         */
+        ProjectStatusEnum: "OPEN" | "CLOSED" | "CANCELLED";
         PurchaseCreditNote: {
             readonly id: number;
             readonly number: string;
@@ -12292,6 +15457,7 @@ export interface components {
             invoiceDate?: string;
             /** Format: date */
             dueDate?: string | null;
+            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -12403,6 +15569,17 @@ export interface components {
             readonly rateVersion: string;
             rateOverride?: boolean;
             rateOverrideReason?: string;
+            /**
+             * @description Informational only — no judgment, no blocking (see purchases.reliability).
+             *
+             *     Reads from a per-request bulk-fetched cache when the parent
+             *     ``PurchaseInvoiceSerializer`` has populated one (the normal path,
+             *     one query for every line on the invoice instead of one query per
+             *     line) and falls back to the single-pair query otherwise, so this
+             *     field still works if ``PurchaseItemSerializer`` is ever used
+             *     standalone outside that parent.
+             */
+            readonly priceJumpNote: string | null;
             /** Format: decimal */
             readonly taxableAmount: string;
             /** Format: decimal */
@@ -12427,6 +15604,7 @@ export interface components {
             orderDate?: string;
             /** Format: date */
             expectedDelivery?: string | null;
+            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -12578,6 +15756,7 @@ export interface components {
             validUntil?: string | null;
             notes?: string;
             termsText?: string;
+            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -12696,6 +15875,8 @@ export interface components {
              *     * `DELIVERY_CHALLAN` - Delivery Challan
              */
             stopStage?: components["schemas"]["StopStageEnum"];
+            /** @description When true, an INVOICE run is completed unedited. Default stays a draft for review. */
+            autoComplete?: boolean;
             /** Format: decimal */
             additionalCharges?: string;
             /** Format: decimal */
@@ -12706,6 +15887,33 @@ export interface components {
             readonly createdAt: string;
             /** Format: date-time */
             readonly updatedAt: string;
+        };
+        ReferralCode: {
+            readonly id: number;
+            referrerCustomer?: number | null;
+            referrerUser?: number | null;
+            readonly code: string;
+            rewardType?: components["schemas"]["RewardTypeEnum"];
+            /** Format: decimal */
+            rewardValue?: string;
+            active?: boolean;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        ReferralReward: {
+            readonly id: number;
+            readonly referralCode: number;
+            readonly lead: number;
+            readonly opportunity: number;
+            /** Format: decimal */
+            readonly rewardAmount: string;
+            readonly rewardStatus: components["schemas"]["RewardStatusEnum"];
+            readonly rejectionReason: string;
+            /** Format: date-time */
+            readonly paidAt: string | null;
+            readonly creditNote: number | null;
+            /** Format: date-time */
+            readonly createdAt: string;
         };
         /**
          * @description * `REGULAR` - Regular
@@ -12721,6 +15929,20 @@ export interface components {
          * @enum {string}
          */
         RegulatedCategoryEnum: "NONE" | "DRUG" | "FOOD";
+        /**
+         * @description * `PENDING` - Pending
+         *     * `APPROVED` - Approved
+         *     * `REJECTED` - Rejected
+         *     * `PAID` - Paid
+         * @enum {string}
+         */
+        RewardStatusEnum: "PENDING" | "APPROVED" | "REJECTED" | "PAID";
+        /**
+         * @description * `FLAT` - Flat
+         *     * `PERCENT` - Percent
+         * @enum {string}
+         */
+        RewardTypeEnum: "FLAT" | "PERCENT";
         /**
          * @description * `WALK_IN` - Walk-in
          *     * `ONLINE` - Online
@@ -12937,6 +16159,7 @@ export interface components {
             invoiceDate?: string;
             /** Format: date */
             dueDate?: string | null;
+            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -12975,6 +16198,7 @@ export interface components {
             transporterName?: string;
             transporterId?: string;
             vehicleNumber?: string;
+            /** Format: int64 */
             transportDistanceKm?: number | null;
             subSupplyType?: string;
             transMode?: string;
@@ -13100,6 +16324,7 @@ export interface components {
             orderDate?: string;
             /** Format: date */
             expectedDelivery?: string | null;
+            /** Format: int64 */
             paymentTermsDays?: number;
             /** Format: decimal */
             additionalCharges?: string;
@@ -13287,11 +16512,13 @@ export interface components {
         SourceEnum: "MANUAL" | "GATEWAY" | "BANK_IMPORT" | "PAYMENT_LINK";
         /**
          * @description * `OPEN` - Open
+         *     * `QUALIFIED` - Qualified
+         *     * `NEGOTIATION` - Negotiation
          *     * `WON` - Won
          *     * `LOST` - Lost
          * @enum {string}
          */
-        StageEnum: "OPEN" | "WON" | "LOST";
+        StageEnum: "OPEN" | "QUALIFIED" | "NEGOTIATION" | "WON" | "LOST";
         /**
          * @description * `ACTIVE` - Active
          *     * `INACTIVE` - Inactive
@@ -13313,6 +16540,15 @@ export interface components {
          * @enum {string}
          */
         StatusA38Enum: "DRAFT" | "COMPLETED" | "CANCELLED" | "RETURNED";
+        /**
+         * @description * `OPEN` - Open
+         *     * `INSPECTING` - Inspecting
+         *     * `APPROVED` - Approved
+         *     * `REJECTED` - Rejected
+         *     * `RESOLVED` - Resolved
+         * @enum {string}
+         */
+        StatusBbdEnum: "OPEN" | "INSPECTING" | "APPROVED" | "REJECTED" | "RESOLVED";
         /**
          * @description * `DRAFT` - Draft
          *     * `COMPLETED` - Completed
@@ -13365,6 +16601,7 @@ export interface components {
             countedQty?: string | null;
             /** Format: decimal */
             readonly variance: string;
+            readonly heldForReview: boolean;
         };
         StockCountSession: {
             readonly id: number;
@@ -13463,6 +16700,24 @@ export interface components {
             taxpayerType?: components["schemas"]["TaxpayerTypeEnum"] | components["schemas"]["BlankEnum"];
             readonly outstanding: string;
         };
+        SupplierComplaint: {
+            readonly id: number;
+            readonly number: string;
+            supplier: number;
+            sourceInvoice?: number | null;
+            category: components["schemas"]["CategoryEnum"];
+            description: string;
+            readonly status: components["schemas"]["StatusBbdEnum"];
+            inspectionNotes?: string;
+            readonly purchaseDebitNote: number | null;
+            assignedTo?: number | null;
+            /** Format: date-time */
+            readonly resolvedAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
         SupplierPayment: {
             readonly id: number;
             readonly number: string;
@@ -13547,6 +16802,36 @@ export interface components {
          * @enum {string}
          */
         TaxpayerTypeEnum: "REGULAR" | "SEZWP" | "SEZWOP" | "EXPWP" | "EXPWOP" | "DEXP" | "COMPOSITION" | "UNREGISTERED";
+        Ticket: {
+            readonly id: number;
+            readonly number: string;
+            customer: number;
+            subject: string;
+            description?: string;
+            priority?: components["schemas"]["PriorityEnum"];
+            readonly status: components["schemas"]["TicketStatusEnum"];
+            assignedTo?: number | null;
+            readonly assigneeName: string;
+            /** Format: date-time */
+            readonly slaDueAt: string | null;
+            /** Format: date-time */
+            readonly waitingSince: string | null;
+            /** Format: date-time */
+            readonly resolvedAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+        };
+        /**
+         * @description * `OPEN` - Open
+         *     * `IN_PROGRESS` - In Progress
+         *     * `WAITING` - Waiting
+         *     * `RESOLVED` - Resolved
+         *     * `CLOSED` - Closed
+         * @enum {string}
+         */
+        TicketStatusEnum: "OPEN" | "IN_PROGRESS" | "WAITING" | "RESOLVED" | "CLOSED";
         TokenObtainPair: {
             email: string;
             password: string;
@@ -13567,6 +16852,16 @@ export interface components {
             name: string;
             shortName: string;
             uqcCode?: string;
+        };
+        VendorTicketShare: {
+            readonly id: number;
+            readonly sourceCompanyName: string;
+            readonly sourceNumber: string;
+            readonly subject: string;
+            readonly status: string;
+            readonly description: string;
+            /** Format: date-time */
+            readonly sharedAt: string;
         };
         Warehouse: {
             readonly id: number;
@@ -13815,6 +17110,42 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Account"];
                 };
+            };
+        };
+    };
+    accounting_backfill_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    accounting_backfill_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -15379,6 +18710,42 @@ export interface operations {
             };
         };
     };
+    billing_subscription_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_vendor_tenants_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     company_retrieve: {
         parameters: {
             query?: never;
@@ -15601,6 +18968,60 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CompanyGstin"];
                 };
+            };
+        };
+    };
+    company_nav_scope_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_packs_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_packs_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -15916,6 +19337,1158 @@ export interface operations {
             };
         };
     };
+    complaints_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedComplaintList"];
+                };
+            };
+        };
+    };
+    complaints_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Complaint"];
+                "multipart/form-data": components["schemas"]["Complaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["Complaint"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Complaint"];
+                "multipart/form-data": components["schemas"]["Complaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["Complaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    complaints_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedComplaint"];
+                "multipart/form-data": components["schemas"]["PatchedComplaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedComplaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_attachments_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_attachments_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Complaint"];
+                "multipart/form-data": components["schemas"]["Complaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["Complaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_attachments_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    complaints_create_credit_note_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Complaint"];
+                "multipart/form-data": components["schemas"]["Complaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["Complaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_create_replacement_order_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Complaint"];
+                "multipart/form-data": components["schemas"]["Complaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["Complaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_create_return_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Complaint"];
+                "multipart/form-data": components["schemas"]["Complaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["Complaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_transition_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Complaint"];
+                "multipart/form-data": components["schemas"]["Complaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["Complaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_report_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_supplier_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedSupplierComplaintList"];
+                };
+            };
+        };
+    };
+    complaints_supplier_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierComplaint"];
+                "multipart/form-data": components["schemas"]["SupplierComplaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["SupplierComplaint"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
+    complaints_supplier_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
+    complaints_supplier_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierComplaint"];
+                "multipart/form-data": components["schemas"]["SupplierComplaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["SupplierComplaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
+    complaints_supplier_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    complaints_supplier_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedSupplierComplaint"];
+                "multipart/form-data": components["schemas"]["PatchedSupplierComplaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedSupplierComplaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
+    complaints_supplier_attachments_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
+    complaints_supplier_attachments_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierComplaint"];
+                "multipart/form-data": components["schemas"]["SupplierComplaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["SupplierComplaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
+    complaints_supplier_attachments_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    complaints_supplier_create_debit_note_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierComplaint"];
+                "multipart/form-data": components["schemas"]["SupplierComplaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["SupplierComplaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
+    complaints_supplier_transition_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierComplaint"];
+                "multipart/form-data": components["schemas"]["SupplierComplaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["SupplierComplaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
+    complaints_supplier_report_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
+    contracts_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedContractList"];
+                };
+            };
+        };
+    };
+    contracts_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Contract"];
+                "multipart/form-data": components["schemas"]["Contract"];
+                "application/x-www-form-urlencoded": components["schemas"]["Contract"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Contract"];
+                "multipart/form-data": components["schemas"]["Contract"];
+                "application/x-www-form-urlencoded": components["schemas"]["Contract"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    contracts_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedContract"];
+                "multipart/form-data": components["schemas"]["PatchedContract"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedContract"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_attachments_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_attachments_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Contract"];
+                "multipart/form-data": components["schemas"]["Contract"];
+                "application/x-www-form-urlencoded": components["schemas"]["Contract"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_attachments_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    contracts_create_schedule_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Contract"];
+                "multipart/form-data": components["schemas"]["Contract"];
+                "application/x-www-form-urlencoded": components["schemas"]["Contract"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_service_events_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_service_events_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Contract"];
+                "multipart/form-data": components["schemas"]["Contract"];
+                "application/x-www-form-urlencoded": components["schemas"]["Contract"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_timeline_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_report_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    crm_campaigns_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedCampaignList"];
+                };
+            };
+        };
+    };
+    crm_campaigns_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Campaign"];
+                "multipart/form-data": components["schemas"]["Campaign"];
+                "application/x-www-form-urlencoded": components["schemas"]["Campaign"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Campaign"];
+                };
+            };
+        };
+    };
+    crm_campaigns_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this campaign. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Campaign"];
+                };
+            };
+        };
+    };
+    crm_campaigns_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this campaign. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Campaign"];
+                "multipart/form-data": components["schemas"]["Campaign"];
+                "application/x-www-form-urlencoded": components["schemas"]["Campaign"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Campaign"];
+                };
+            };
+        };
+    };
+    crm_campaigns_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this campaign. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crm_campaigns_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this campaign. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedCampaign"];
+                "multipart/form-data": components["schemas"]["PatchedCampaign"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedCampaign"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Campaign"];
+                };
+            };
+        };
+    };
+    crm_campaigns_funnel_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this campaign. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Campaign"];
+                };
+            };
+        };
+    };
     crm_leads_list: {
         parameters: {
             query?: {
@@ -16064,9 +20637,14 @@ export interface operations {
             };
         };
     };
-    crm_leads_activities_retrieve: {
+    crm_leads_activities_list: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
             header?: never;
             path: {
                 /** @description A unique integer value identifying this lead. */
@@ -16081,12 +20659,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Lead"];
+                    "application/json": components["schemas"]["PaginatedLeadActivityList"];
                 };
             };
         };
     };
     crm_leads_activities_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this lead. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadActivity"];
+                "multipart/form-data": components["schemas"]["LeadActivity"];
+                "application/x-www-form-urlencoded": components["schemas"]["LeadActivity"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadActivity"];
+                };
+            };
+        };
+    };
+    crm_leads_assign_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -16142,6 +20748,147 @@ export interface operations {
             };
         };
     };
+    crm_leads_resolve_dedupe_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this lead. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Lead"];
+                "multipart/form-data": components["schemas"]["Lead"];
+                "application/x-www-form-urlencoded": components["schemas"]["Lead"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lead"];
+                };
+            };
+        };
+    };
+    crm_leads_form_token_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Lead"];
+                "multipart/form-data": components["schemas"]["Lead"];
+                "application/x-www-form-urlencoded": components["schemas"]["Lead"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lead"];
+                };
+            };
+        };
+    };
+    crm_leads_import_csv_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Lead"];
+                "multipart/form-data": components["schemas"]["Lead"];
+                "application/x-www-form-urlencoded": components["schemas"]["Lead"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lead"];
+                };
+            };
+        };
+    };
+    crm_leads_ingest_jobs_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crm_leads_whatsapp_token_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Lead"];
+                "multipart/form-data": components["schemas"]["Lead"];
+                "application/x-www-form-urlencoded": components["schemas"]["Lead"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lead"];
+                };
+            };
+        };
+    };
+    crm_onboarding_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     crm_opportunities_list: {
         parameters: {
             query?: {
@@ -16187,6 +20934,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Opportunity"];
+                };
+            };
+        };
+    };
+    crm_opportunities_lines_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                opportunity_pk: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedOpportunityLineList"];
+                };
+            };
+        };
+    };
+    crm_opportunities_lines_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                opportunity_pk: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpportunityLine"];
+                "multipart/form-data": components["schemas"]["OpportunityLine"];
+                "application/x-www-form-urlencoded": components["schemas"]["OpportunityLine"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpportunityLine"];
+                };
+            };
+        };
+    };
+    crm_opportunities_lines_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                opportunity_pk: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpportunityLine"];
+                };
+            };
+        };
+    };
+    crm_opportunities_lines_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                opportunity_pk: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crm_opportunities_lines_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                opportunity_pk: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedOpportunityLine"];
+                "multipart/form-data": components["schemas"]["PatchedOpportunityLine"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedOpportunityLine"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpportunityLine"];
                 };
             };
         };
@@ -16286,6 +21157,430 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Opportunity"];
+                };
+            };
+        };
+    };
+    crm_opportunities_draft_invoice_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this opportunity. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Opportunity"];
+                "multipart/form-data": components["schemas"]["Opportunity"];
+                "application/x-www-form-urlencoded": components["schemas"]["Opportunity"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Opportunity"];
+                };
+            };
+        };
+    };
+    crm_opportunities_quotation_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this opportunity. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Opportunity"];
+                "multipart/form-data": components["schemas"]["Opportunity"];
+                "application/x-www-form-urlencoded": components["schemas"]["Opportunity"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Opportunity"];
+                };
+            };
+        };
+    };
+    crm_opportunities_forecast_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Opportunity"];
+                };
+            };
+        };
+    };
+    crm_opportunities_won_versus_invoices_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Opportunity"];
+                };
+            };
+        };
+    };
+    crm_public_lead_form_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crm_public_whatsapp_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crm_public_whatsapp_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crm_referrals_codes_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedReferralCodeList"];
+                };
+            };
+        };
+    };
+    crm_referrals_codes_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReferralCode"];
+                "multipart/form-data": components["schemas"]["ReferralCode"];
+                "application/x-www-form-urlencoded": components["schemas"]["ReferralCode"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralCode"];
+                };
+            };
+        };
+    };
+    crm_referrals_codes_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this referral code. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralCode"];
+                };
+            };
+        };
+    };
+    crm_referrals_codes_issue_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReferralCode"];
+                "multipart/form-data": components["schemas"]["ReferralCode"];
+                "application/x-www-form-urlencoded": components["schemas"]["ReferralCode"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralCode"];
+                };
+            };
+        };
+    };
+    crm_referrals_codes_leaderboard_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralCode"];
+                };
+            };
+        };
+    };
+    crm_referrals_rewards_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedReferralRewardList"];
+                };
+            };
+        };
+    };
+    crm_referrals_rewards_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReferralReward"];
+                "multipart/form-data": components["schemas"]["ReferralReward"];
+                "application/x-www-form-urlencoded": components["schemas"]["ReferralReward"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralReward"];
+                };
+            };
+        };
+    };
+    crm_referrals_rewards_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this referral reward. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralReward"];
+                };
+            };
+        };
+    };
+    crm_referrals_rewards_approve_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this referral reward. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReferralReward"];
+                "multipart/form-data": components["schemas"]["ReferralReward"];
+                "application/x-www-form-urlencoded": components["schemas"]["ReferralReward"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralReward"];
+                };
+            };
+        };
+    };
+    crm_referrals_rewards_mark_paid_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this referral reward. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReferralReward"];
+                "multipart/form-data": components["schemas"]["ReferralReward"];
+                "application/x-www-form-urlencoded": components["schemas"]["ReferralReward"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralReward"];
+                };
+            };
+        };
+    };
+    crm_referrals_rewards_reject_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this referral reward. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReferralReward"];
+                "multipart/form-data": components["schemas"]["ReferralReward"];
+                "application/x-www-form-urlencoded": components["schemas"]["ReferralReward"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralReward"];
                 };
             };
         };
@@ -17272,6 +22567,42 @@ export interface operations {
             };
         };
     };
+    insights_attention_assign_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insights_attention_dismiss_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     insights_attention_snooze_create: {
         parameters: {
             query?: never;
@@ -17295,6 +22626,62 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insights_collections_open_invoices_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insights_collections_worklist_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insights_customers_360_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customer_id: number;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -17398,6 +22785,24 @@ export interface operations {
             };
         };
     };
+    insights_learning_report_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     insights_telemetry_retrieve: {
         parameters: {
             query?: never;
@@ -17452,7 +22857,537 @@ export interface operations {
             };
         };
     };
+    insurance_book_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insurance_option_sets_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedPolicyOptionSetList"];
+                };
+            };
+        };
+    };
+    insurance_option_sets_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyOptionSet"];
+                "multipart/form-data": components["schemas"]["PolicyOptionSet"];
+                "application/x-www-form-urlencoded": components["schemas"]["PolicyOptionSet"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyOptionSet"];
+                };
+            };
+        };
+    };
+    insurance_option_sets_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy option set. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyOptionSet"];
+                };
+            };
+        };
+    };
+    insurance_option_sets_choose_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy option set. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyOptionSet"];
+                "multipart/form-data": components["schemas"]["PolicyOptionSet"];
+                "application/x-www-form-urlencoded": components["schemas"]["PolicyOptionSet"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyOptionSet"];
+                };
+            };
+        };
+    };
+    insurance_policies_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedPolicyList"];
+                };
+            };
+        };
+    };
+    insurance_policies_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Policy"];
+                "multipart/form-data": components["schemas"]["Policy"];
+                "application/x-www-form-urlencoded": components["schemas"]["Policy"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    insurance_policies_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    insurance_policies_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Policy"];
+                "multipart/form-data": components["schemas"]["Policy"];
+                "application/x-www-form-urlencoded": components["schemas"]["Policy"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    insurance_policies_claim_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Policy"];
+                "multipart/form-data": components["schemas"]["Policy"];
+                "application/x-www-form-urlencoded": components["schemas"]["Policy"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    insurance_policies_commission_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Policy"];
+                "multipart/form-data": components["schemas"]["Policy"];
+                "application/x-www-form-urlencoded": components["schemas"]["Policy"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    insurance_policies_endorse_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Policy"];
+                "multipart/form-data": components["schemas"]["Policy"];
+                "application/x-www-form-urlencoded": components["schemas"]["Policy"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    insurance_policies_kyc_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Policy"];
+                "multipart/form-data": components["schemas"]["Policy"];
+                "application/x-www-form-urlencoded": components["schemas"]["Policy"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Policy"];
+                };
+            };
+        };
+    };
+    insurance_products_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedPolicyProductList"];
+                };
+            };
+        };
+    };
+    insurance_products_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyProduct"];
+                "multipart/form-data": components["schemas"]["PolicyProduct"];
+                "application/x-www-form-urlencoded": components["schemas"]["PolicyProduct"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyProduct"];
+                };
+            };
+        };
+    };
+    insurance_products_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy product. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyProduct"];
+                };
+            };
+        };
+    };
+    insurance_products_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy product. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyProduct"];
+                "multipart/form-data": components["schemas"]["PolicyProduct"];
+                "application/x-www-form-urlencoded": components["schemas"]["PolicyProduct"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyProduct"];
+                };
+            };
+        };
+    };
+    insurance_products_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy product. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insurance_products_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this policy product. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedPolicyProduct"];
+                "multipart/form-data": components["schemas"]["PatchedPolicyProduct"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedPolicyProduct"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyProduct"];
+                };
+            };
+        };
+    };
+    insurance_prospects_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insurance_renewals_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     integrations_inventory_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    integrations_shopify_webhook_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -17489,6 +23424,24 @@ export interface operations {
         };
     };
     integrations_tally_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    integrations_tally_migrate_diff_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -17936,6 +23889,24 @@ export interface operations {
             };
         };
     };
+    inventory_demand_forecast_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     inventory_movements_list: {
         parameters: {
             query?: {
@@ -17961,6 +23932,42 @@ export interface operations {
         };
     };
     inventory_opening_stock_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    inventory_purchase_planning_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    inventory_purchase_planning_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -21043,6 +27050,105 @@ export interface operations {
             };
         };
     };
+    payments_promises_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedPaymentPromiseList"];
+                };
+            };
+        };
+    };
+    payments_promises_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaymentPromise"];
+                "multipart/form-data": components["schemas"]["PaymentPromise"];
+                "application/x-www-form-urlencoded": components["schemas"]["PaymentPromise"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentPromise"];
+                };
+            };
+        };
+    };
+    payments_promises_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this payment promise. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentPromise"];
+                };
+            };
+        };
+    };
+    payments_promises_resolve_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this payment promise. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaymentPromise"];
+                "multipart/form-data": components["schemas"]["PaymentPromise"];
+                "application/x-www-form-urlencoded": components["schemas"]["PaymentPromise"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentPromise"];
+                };
+            };
+        };
+    };
     payments_receipts_list: {
         parameters: {
             query?: {
@@ -22210,6 +28316,311 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Product"];
                 };
+            };
+        };
+    };
+    projects_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedProjectList"];
+                };
+            };
+        };
+    };
+    projects_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project"];
+                "multipart/form-data": components["schemas"]["Project"];
+                "application/x-www-form-urlencoded": components["schemas"]["Project"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    projects_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this project. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    projects_close_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this project. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project"];
+                "multipart/form-data": components["schemas"]["Project"];
+                "application/x-www-form-urlencoded": components["schemas"]["Project"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    projects_milestones_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this project. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project"];
+                "multipart/form-data": components["schemas"]["Project"];
+                "application/x-www-form-urlencoded": components["schemas"]["Project"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    projects_milestones_invoice_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this project. */
+                id: number;
+                milestone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project"];
+                "multipart/form-data": components["schemas"]["Project"];
+                "application/x-www-form-urlencoded": components["schemas"]["Project"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    projects_milestones_ready_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this project. */
+                id: number;
+                milestone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project"];
+                "multipart/form-data": components["schemas"]["Project"];
+                "application/x-www-form-urlencoded": components["schemas"]["Project"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    public_customer_portal_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    public_customer_portal_complaints_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    public_customer_portal_complaints_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    public_customer_portal_invoices_pay_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoice_id: number;
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    public_customer_portal_invoices_pdf_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoice_id: number;
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    public_customer_portal_request_link_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -24022,6 +30433,26 @@ export interface operations {
             };
         };
     };
+    purchases_suppliers_price_history_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplier_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     reports_cancelled_document_numbers_retrieve: {
         parameters: {
             query?: never;
@@ -24187,6 +30618,24 @@ export interface operations {
         };
     };
     reports_gst_period_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_gst_period_filings_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -24601,6 +31050,25 @@ export interface operations {
         };
     };
     reports_gstr2b_missing_documents_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Gstr2bIngest"];
+                };
+            };
+        };
+    };
+    reports_gstr2b_supplier_nudge_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -26589,6 +33057,34 @@ export interface operations {
             };
         };
     };
+    sales_delivery_routes_apply_sequence_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRoute"];
+                "multipart/form-data": components["schemas"]["DeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
     sales_delivery_routes_complete_create: {
         parameters: {
             query?: never;
@@ -26712,6 +33208,92 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    "sales_delivery_routes_stops_pod.pdf_retrieve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                stop_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sales_delivery_routes_suggest_sequence_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRoute"];
+                "multipart/form-data": components["schemas"]["DeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_combine_suggestions_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sales_delivery_routes_completion_baseline_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -27539,6 +34121,31 @@ export interface operations {
             };
         };
     };
+    sales_invoices_repeat_last_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesInvoice"];
+                "multipart/form-data": components["schemas"]["SalesInvoice"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesInvoice"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
     sales_orders_list: {
         parameters: {
             query?: {
@@ -27772,6 +34379,34 @@ export interface operations {
         };
     };
     sales_orders_convert_to_challan_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesOrder"];
+                "multipart/form-data": components["schemas"]["SalesOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesOrder"];
+                };
+            };
+        };
+    };
+    sales_orders_gate_check_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -28811,6 +35446,424 @@ export interface operations {
             };
         };
     };
+    support_shared_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedVendorTicketShareList"];
+                };
+            };
+        };
+    };
+    support_shared_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this vendor ticket share. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorTicketShare"];
+                };
+            };
+        };
+    };
+    support_tickets_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedTicketList"];
+                };
+            };
+        };
+    };
+    support_tickets_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Ticket"];
+                "multipart/form-data": components["schemas"]["Ticket"];
+                "application/x-www-form-urlencoded": components["schemas"]["Ticket"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
+    support_tickets_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
+    support_tickets_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Ticket"];
+                "multipart/form-data": components["schemas"]["Ticket"];
+                "application/x-www-form-urlencoded": components["schemas"]["Ticket"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
+    support_tickets_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    support_tickets_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedTicket"];
+                "multipart/form-data": components["schemas"]["PatchedTicket"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedTicket"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
+    support_tickets_attachments_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
+    support_tickets_attachments_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Ticket"];
+                "multipart/form-data": components["schemas"]["Ticket"];
+                "application/x-www-form-urlencoded": components["schemas"]["Ticket"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
+    support_tickets_attachments_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    support_tickets_comments_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
+    support_tickets_comments_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Ticket"];
+                "multipart/form-data": components["schemas"]["Ticket"];
+                "application/x-www-form-urlencoded": components["schemas"]["Ticket"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
+    support_tickets_share_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Ticket"];
+                "multipart/form-data": components["schemas"]["Ticket"];
+                "application/x-www-form-urlencoded": components["schemas"]["Ticket"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
+    support_tickets_stop_sharing_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Ticket"];
+                "multipart/form-data": components["schemas"]["Ticket"];
+                "application/x-www-form-urlencoded": components["schemas"]["Ticket"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
+    support_tickets_transition_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this ticket. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Ticket"];
+                "multipart/form-data": components["schemas"]["Ticket"];
+                "application/x-www-form-urlencoded": components["schemas"]["Ticket"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
+    support_tickets_report_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+        };
+    };
     telegram_link_create: {
         parameters: {
             query?: never;
@@ -28900,6 +35953,189 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    workshop_job_cards_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedJobCardList"];
+                };
+            };
+        };
+    };
+    workshop_job_cards_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    workshop_job_cards_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this job card. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    workshop_job_cards_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this job card. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    workshop_job_cards_convert_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this job card. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    workshop_job_cards_lines_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this job card. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    workshop_job_cards_start_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this job card. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
             };
         };
     };

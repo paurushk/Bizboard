@@ -1,6 +1,7 @@
 from django.urls import path
 from core.routers import DefaultRouter
 
+from .forecast import DemandForecastView
 from .planning import PurchasePlanningView
 from .views import (
     AdjustmentView,
@@ -35,4 +36,5 @@ urlpatterns = [
     path("alerts/expiry/", ExpiryAlertsView.as_view(), name="expiry-alerts"),
     path("valuation/", StockValuationReportView.as_view(), name="stock-valuation"),
     path("purchase-planning/", PurchasePlanningView.as_view(), name="purchase-planning"),
+    path("demand-forecast/", DemandForecastView.as_view(), name="demand-forecast"),
 ] + router.urls

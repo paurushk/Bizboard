@@ -9,6 +9,29 @@ class BusinessRuleError(APIException):
     default_detail = "Business rule violated."
     default_code = "business_rule_violation"
 
+    def __init__(self, detail=None, code=None, extra: dict | None = None):
+        # `extra` merges structured, machine-readable fields into the error
+        # envelope's `details` (see api_exception_handler below) without
+        # touching the human-readable `message` — e.g. a POS credit-limit
+        # banner needs customer/limit/exposure numbers, but every other
+        # BusinessRuleError call site (and its existing message-text
+        # assertions) must see no change at all.
+        super().__init__(detail=detail, code=code)
+        self.extra = extra or {}
+
+
+def _plain_detail(value):
+    """Turn nested ErrorDetail / dict payloads into a readable sentence."""
+    if isinstance(value, dict):
+        bits = []
+        for key, item in value.items():
+            text = _plain_detail(item)
+            bits.append(f"{key}: {text}" if key not in {"message", "string"} else text)
+        return "; ".join(bit for bit in bits if bit)
+    if isinstance(value, (list, tuple)):
+        return "; ".join(_plain_detail(item) for item in value)
+    return str(value)
+
 
 def raise_confirm_required(codes, message):
     """409 with one or more operator-confirm codes (R-010)."""
@@ -242,6 +265,11 @@ def api_exception_handler(exc, context):
     detail = response.data
     if isinstance(detail, dict) and "detail" in detail and len(detail) == 1:
         message = str(detail["detail"])
+    elif isinstance(detail, dict) and isinstance(detail.get("message"), str) and detail.get("code"):
+        # Structured confirm-required payloads ({code, message, confirm_codes, ...})
+        # carry their own human sentence. Flattening every key made the counter
+        # show "code: pos_totals_mismatch; message: ...; confirm_codes: ...".
+        message = detail["message"]
     elif isinstance(detail, list):
         message = "; ".join(str(d) for d in detail)
     elif isinstance(detail, dict):
@@ -250,21 +278,26 @@ def api_exception_handler(exc, context):
             msgs = v if isinstance(v, list) else [v]
             for m in msgs:
                 if isinstance(m, dict):
-                    parts.append(f"{k}: {m}")
+                    parts.append(f"{k}: {_plain_detail(m)}")
                 else:
-                    parts.append(f"{k}: {m}" if k != "non_field_errors" else str(m))
+                    parts.append(f"{k}: {_plain_detail(m)}" if k != "non_field_errors" else _plain_detail(m))
         message = "; ".join(parts) if parts else (
             "Validation failed." if response.status_code == 400 else "Request failed."
         )
     else:
         message = "Validation failed." if response.status_code == 400 else "Request failed."
 
+    details = detail
+    extra = getattr(exc, "extra", None)
+    if extra:
+        details = {**details, **extra} if isinstance(details, dict) else {"detail": details, **extra}
+
     response.data = {
         "success": False,
         "error": {
             "code": exception_error_code(exc),
             "message": message,
-            "details": detail,
+            "details": details,
         },
     }
     if response.status_code >= 500:

@@ -380,18 +380,14 @@ def test_bb_000624_live_irp_fail_closed_in_prod(tenant_a):
 
 
 @override_settings(DJANGO_ENV="production", GSP_LIVE_ENABLED=True, GSP_CERTIFIED=True)
-def test_b7_004_live_irp_refuses_custom_provider_even_when_certified(tenant_a):
-    """B7-004: 'custom' provider's payload wrapper is an HMAC placeholder, not
-    real NIC SEK/AES encryption -- must refuse even when GSP_CERTIFIED=1,
-    since certification never actually covered the 'custom' wrapper.
-    GSP_PROVIDER defaults to "custom" (settings.py) unless the env var is set,
-    and resolve_gsp_provider() checks the *setting* before company.gsp_provider
-    -- override the setting itself to exercise the "genuinely certified" path."""
+def test_b7_004_live_irp_refuses_custom_provider_without_sek(tenant_a):
+    """Custom NIC wrapping is implemented, but a certified live adapter still
+    refuses provider='custom' until the encrypted credentials hold an AES SEK.
+    GSP_LIVE_ENABLED and GSP_CERTIFIED stay required. ClearTax is unchanged."""
     tenant_a.company.gsp_provider = "custom"
-    with pytest.raises(BusinessRuleError, match="custom.*HMAC placeholder|not real NIC SEK"):
+    with pytest.raises(BusinessRuleError, match="without an AES SEK"):
         LiveIrpAdapter(tenant_a.company)
 
-    # A genuinely certified provider still constructs fine under the same flags.
     with override_settings(GSP_PROVIDER="cleartax"):
         LiveIrpAdapter(tenant_a.company)
 

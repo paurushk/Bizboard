@@ -154,7 +154,11 @@ export function ShareInvoiceDialog({
           disabled={!invoiceId || !recipientOk || mutation.isPending}
           onClick={() => mutation.mutate({ channel, recipient })}
         >
-          {t('common.send')}
+          {channel === 'WHATSAPP'
+            ? (isRuntimeFlagEnabled('ENABLE_WHATSAPP_CLOUD')
+              ? t('common.whatsappSend')
+              : t('common.whatsappShare'))
+            : t('common.send')}
         </Button>
       </DialogActions>
     </Dialog>

@@ -21,8 +21,22 @@ class DeliveryRouteStopSerializer(serializers.ModelSerializer):
         fields = [
             "id", "sales_order", "order_number", "customer_name", "delivery_address",
             "sequence", "status", "notes", "delivered_at",
+            "completion_source", "otp_code", "pod_note",
+            "received_by_name", "pod_photo", "customer_receipt",
         ]
         read_only_fields = ["id", "delivered_at"]
+
+
+class SequencedStopSerializer(serializers.Serializer):
+    """Read-only shape for a `route_optimization.SequencedStop` (dataclass) --
+    one stop's place in a suggested/applied route order. Renders as
+    camelCase (stopId, sequence, pincode, needsManualSequencing) via the
+    global EnvelopeJSONRenderer, same as every other endpoint here."""
+
+    stop_id = serializers.IntegerField()
+    sequence = serializers.IntegerField()
+    pincode = serializers.CharField(allow_blank=True)
+    needs_manual_sequencing = serializers.BooleanField()
 
 
 class DeliveryRouteSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
@@ -35,7 +49,7 @@ class DeliveryRouteSerializer(CompanyScopedSerializerMixin, serializers.ModelSer
             "id", "number", "route_date", "vehicle_number", "driver_name", "driver",
             "status", "estimated_logistics_cost", "actual_logistics_cost",
             "realized_revenue", "realized_cogs", "realized_profit",
-            "invoiced_stop_count", "stop_count",
+            "invoiced_stop_count", "stop_count", "completion_source",
             "notes",
             "stops", "rollup", "created_at", "updated_at",
         ]

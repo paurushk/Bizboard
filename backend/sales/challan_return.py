@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from decimal import Decimal
 
 from django.db import transaction
@@ -15,7 +14,6 @@ from core.services.document_numbers import DocumentNumberService, resolve_series
 
 from .models import (
     DeliveryChallan,
-    DeliveryChallanItem,
     DeliveryChallanReturn,
     DeliveryChallanReturnItem,
 )

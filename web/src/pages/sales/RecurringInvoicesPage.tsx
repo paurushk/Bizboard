@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -34,6 +36,7 @@ export function RecurringInvoicesPage() {
   const [cadence, setCadence] = useState('MONTHLY');
   const [nextRunAt, setNextRunAt] = useState('');
   const [stopStage, setStopStage] = useState('INVOICE');
+  const [autoComplete, setAutoComplete] = useState(false);
   const [lines, setLines] = useState([{ productId: '', qty: '1', price: '' }]);
   const [error, setError] = useState<string | null>(null);
   const [confirmRun, setConfirmRun] = useState<number | null>(null);
@@ -57,6 +60,7 @@ export function RecurringInvoicesPage() {
             })),
         },
         stopStage,
+        autoComplete,
       }),
     onSuccess: () => {
       setCustomer('');
@@ -107,6 +111,10 @@ export function RecurringInvoicesPage() {
             <MenuItem value="SALES_ORDER">{t('recurring.stopSalesOrder')}</MenuItem>
             <MenuItem value="DELIVERY_CHALLAN">{t('recurring.stopDeliveryChallan')}</MenuItem>
           </TextField>
+          <FormControlLabel
+            control={<Checkbox checked={autoComplete} onChange={(e) => setAutoComplete(e.target.checked)} />}
+            label={t('recurring.autoComplete')}
+          />
           {cf.filterBar}
           {lines.map((line, idx) => (
             <Stack key={idx} direction="row" spacing={1} alignItems="center">

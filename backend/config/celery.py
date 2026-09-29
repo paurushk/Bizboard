@@ -20,6 +20,13 @@ _DOC_ID_KEYS = (
     "note_id",
     "challan_id",
     "notification_id",
+    "job_card_id",
+    "milestone_id",
+    "policy_id",
+    "ticket_id",
+    "complaint_id",
+    "lead_id",
+    "job_id",
 )
 
 
@@ -53,6 +60,34 @@ def _company_id_from_document(key: str, pk) -> int | None:
             from core.models import Notification
 
             return Notification.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+        if key == "job_card_id":
+            from workshop.models import JobCard
+
+            return JobCard.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+        if key == "milestone_id":
+            from projects.models import ProjectMilestone
+
+            return ProjectMilestone.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+        if key == "policy_id":
+            from insurance.models import Policy
+
+            return Policy.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+        if key == "ticket_id":
+            from support.models import Ticket
+
+            return Ticket.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+        if key == "job_id":
+            from crm.models import LeadIngestJob
+
+            return LeadIngestJob.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+        if key == "complaint_id":
+            from complaints.models import Complaint
+
+            return Complaint.objects.filter(pk=pk).values_list("company_id", flat=True).first()
+        if key == "lead_id":
+            from crm.models import Lead
+
+            return Lead.objects.filter(pk=pk).values_list("company_id", flat=True).first()
     except Exception:  # noqa: BLE001
         return None
     return None

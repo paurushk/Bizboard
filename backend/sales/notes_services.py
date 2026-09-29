@@ -137,7 +137,10 @@ class SalesNotesService:
 
     @staticmethod
     @transaction.atomic
-    def complete_credit_note(note: SalesCreditNote, user, *, confirm_paid_invoice: bool = False, confirm_price_override: bool = False):
+    def complete_credit_note(
+        note: SalesCreditNote, user, *, confirm_paid_invoice: bool = False,
+        confirm_price_override: bool = False, gst_guard_override_reason=None,
+    ):
         # CR-127: lock CN + source invoice with company_id (defense-in-depth).
         note = SalesCreditNote.objects.select_for_update().get(
             pk=note.pk, company_id=note.company_id
@@ -194,14 +197,20 @@ class SalesNotesService:
                     "over-allocation until you unallocate or refund. Pass confirm_paid_invoice=true "
                     "to proceed.",
                 )
-        # CR-124: when confirm_paid_invoice, auto-unallocate up to the CN amount
-        # (no silent floor). Only touch genuine customer-receipt allocations — a
-        # mis-linked supplier_payment row on a sales invoice must be left alone —
-        # and always re-apply the kept remainder of a partially-consumed one.
+        # CR-124: when confirm_paid_invoice, unallocate only the overlap between
+        # this note and money already allocated. A note for the unpaid remainder
+        # leaves the receipt allocation in place. Only touch genuine
+        # customer-receipt allocations — a mis-linked supplier_payment row on a
+        # sales invoice must be left alone — and always re-apply the kept
+        # remainder of a partially-consumed one.
         if allocated > 0 and confirm_paid_invoice:
+            from ledgers.services import LedgerService
             from payments.services import PaymentService
 
-            remaining = Decimal(str(note.grand_total or 0))
+            open_now = LedgerService.sales_invoice_outstanding(inv)
+            remaining = Decimal(str(note.grand_total or 0)) - open_now
+            if remaining < 0:
+                remaining = Decimal("0")
             for alloc in list(
                 inv.allocations.select_for_update()
                 .filter(reversed_at__isnull=True, receipt__isnull=False)
@@ -289,6 +298,57 @@ class SalesNotesService:
             note.filing_party_gstin = inv.filing_party_gstin or inv.customer.gstin or ""
         if note.company_gstin_id is None:
             note.company_gstin = inv.company_gstin
+
+        if tax_on:
+            from core.services.feature_flags import flag_enabled
+
+            if flag_enabled(note.company, "ENABLE_GST_GUARD"):
+                from reporting.gst_guard import (
+                    apply_gst_guard_override,
+                    document_has_gst_guard_override,
+                    gst_guard_override_membership,
+                    GST_GUARD_OVERRIDE_REASON_MAX,
+                    GstGuardBlocked,
+                    validate_document,
+                )
+
+                guard_result = validate_document(note)
+                if (
+                    guard_result.blocking
+                    and not document_has_gst_guard_override(note)
+                    and document_has_gst_guard_override(inv)
+                ):
+                    note.gst_guard_override_reason = inv.gst_guard_override_reason
+                    note.gst_guard_overridden_by_id = inv.gst_guard_overridden_by_id
+                    note.gst_guard_overridden_at = inv.gst_guard_overridden_at
+                    note.save(update_fields=[
+                        "gst_guard_override_reason",
+                        "gst_guard_overridden_by",
+                        "gst_guard_overridden_at",
+                        "updated_at",
+                    ])
+                if guard_result.blocking and not document_has_gst_guard_override(note):
+                    reason = (
+                        gst_guard_override_reason.strip()
+                        if isinstance(gst_guard_override_reason, str)
+                        else ""
+                    )
+                    valid_reason = bool(reason) and len(reason) <= GST_GUARD_OVERRIDE_REASON_MAX
+                    membership = (
+                        gst_guard_override_membership(note.company, user) if valid_reason else None
+                    )
+                    if valid_reason and membership is not None:
+                        apply_gst_guard_override(
+                            note, result=guard_result, reason=reason, acting_user=user,
+                        )
+                    else:
+                        raise GstGuardBlocked(guard_result)
+                if guard_result.warning:
+                    note._gst_guard_warnings = [
+                        {"code": i.code, "message": i.message} for i in guard_result.warning
+                    ]
+                    for issue in guard_result.warning:
+                        warnings.append(f"GST Guard: {issue.message}")
         # BB-000729: series keyed by GSTIN + FY.
         note.number = note.number or DocumentNumberService.next_number(
             note.company,
@@ -386,7 +446,9 @@ class SalesNotesService:
 
     @staticmethod
     @transaction.atomic
-    def complete_debit_note(note: SalesDebitNote, user, *, confirm_additional_debit: bool = False):
+    def complete_debit_note(
+        note: SalesDebitNote, user, *, confirm_additional_debit: bool = False, gst_guard_override_reason=None,
+    ):
         note = SalesDebitNote.objects.select_for_update().get(pk=note.pk)
         if note.status != SalesDebitNote.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete debit note in status {note.status}.")
@@ -469,6 +531,55 @@ class SalesNotesService:
                 warnings.append(
                     f"{missing_hsn} line(s) missing HSN — GSTR Table 12 / e-Invoice may fail."
                 )
+            from core.services.feature_flags import flag_enabled
+
+            if flag_enabled(note.company, "ENABLE_GST_GUARD"):
+                from reporting.gst_guard import (
+                    GST_GUARD_OVERRIDE_REASON_MAX,
+                    GstGuardBlocked,
+                    apply_gst_guard_override,
+                    document_has_gst_guard_override,
+                    gst_guard_override_membership,
+                    validate_document,
+                )
+
+                guard_result = validate_document(note)
+                if (
+                    guard_result.blocking
+                    and not document_has_gst_guard_override(note)
+                    and document_has_gst_guard_override(inv)
+                ):
+                    note.gst_guard_override_reason = inv.gst_guard_override_reason
+                    note.gst_guard_overridden_by_id = inv.gst_guard_overridden_by_id
+                    note.gst_guard_overridden_at = inv.gst_guard_overridden_at
+                    note.save(update_fields=[
+                        "gst_guard_override_reason",
+                        "gst_guard_overridden_by",
+                        "gst_guard_overridden_at",
+                        "updated_at",
+                    ])
+                if guard_result.blocking and not document_has_gst_guard_override(note):
+                    reason = (
+                        gst_guard_override_reason.strip()
+                        if isinstance(gst_guard_override_reason, str)
+                        else ""
+                    )
+                    valid_reason = bool(reason) and len(reason) <= GST_GUARD_OVERRIDE_REASON_MAX
+                    membership = (
+                        gst_guard_override_membership(note.company, user) if valid_reason else None
+                    )
+                    if valid_reason and membership is not None:
+                        apply_gst_guard_override(
+                            note, result=guard_result, reason=reason, acting_user=user,
+                        )
+                    else:
+                        raise GstGuardBlocked(guard_result)
+                if guard_result.warning:
+                    note._gst_guard_warnings = [
+                        {"code": i.code, "message": i.message} for i in guard_result.warning
+                    ]
+                    for issue in guard_result.warning:
+                        warnings.append(f"GST Guard: {issue.message}")
         # BB-000736: period assert BEFORE next_number / status flip.
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
@@ -564,7 +675,7 @@ class SalesNotesService:
 
     @staticmethod
     @transaction.atomic
-    def confirm_sales_order(order: SalesOrder, user):
+    def confirm_sales_order(order: SalesOrder, user, override_reason=None):
         """DRAFT → CONFIRMED; reserve each line at the company default warehouse."""
         from inventory.services import InventoryService
 
@@ -576,7 +687,7 @@ class SalesNotesService:
             raise BusinessRuleError("Cannot confirm an order without line items.")
         from sales.order_gates import apply_order_gates
 
-        apply_order_gates(order, items)
+        apply_order_gates(order, items, override_reason=override_reason, acting_user=user)
         warehouse = order.warehouse or InventoryService.default_warehouse(order.company)
         if order.warehouse_id is None:
             order.warehouse = warehouse
@@ -675,6 +786,9 @@ class SalesNotesService:
             for item in order.items.select_related("product")
         ]
         SalesService.set_items(invoice, items_data, user)
+        from sales.order_gates import copy_credit_override
+
+        copy_credit_override(order, invoice)
         # Keep SO CONFIRMED/DRAFT until invoice Completes so reservations stay valid.
         order.converted_invoice = invoice
         order.updated_by = user
@@ -1021,6 +1135,9 @@ class SalesNotesService:
             for item in challan.items.select_related("product", "batch")
         ]
         SalesService.set_items(invoice, items_data, user)
+        from sales.order_gates import copy_credit_override
+
+        copy_credit_override(order, invoice)
         challan.converted_invoice = invoice
         challan.updated_by = user
         challan.save(update_fields=["converted_invoice", "updated_by", "updated_at"])

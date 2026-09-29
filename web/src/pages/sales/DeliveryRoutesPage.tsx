@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -18,11 +19,12 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getErrorMessage } from '@/api/client';
+import { apiClient, getErrorMessage, unwrapData } from '@/api/client';
+import { capturePodPhoto } from '@/lib/native';
+import { queuePodPhoto } from '@/offline/photoOutbox';
 import { listRouteCombineSuggestions } from '@/api/osPlan';
 import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import {
-  addOrdersToDeliveryRoute,
   completeDeliveryRoute,
   createDeliveryRoute,
   downloadDeliveryRouteManifest,
@@ -64,6 +66,8 @@ type RouteRow = {
     deliveryAddress?: string;
     status?: string;
     sequence?: number;
+    completionSource?: string;
+    receivedByName?: string;
   }>;
 };
 
@@ -96,19 +100,17 @@ function DeliveryRouteList() {
   });
   const orders = useQuery({
     queryKey: ['sales-orders-open'],
-    queryFn: async () => (await listSalesOrdersPage({ pageSize: 100, status: 'DRAFT' })).results,
+    queryFn: async () => (await listSalesOrdersPage({ pageSize: 100, status: 'CONFIRMED' })).results,
     enabled: open,
   });
 
   const create = useMutation({
-    mutationFn: async () => {
-      const route = await createDeliveryRoute(form);
-      if (selectedOrders.length) {
-        return addOrdersToDeliveryRoute(Number(route.id), selectedOrders);
-      }
-      return route;
-    },
+    mutationFn: async () => createDeliveryRoute({
+      ...form,
+      orderIds: selectedOrders,
+    }),
     onSuccess: (route) => {
+      setError(null);
       setOpen(false);
       setSelectedOrders([]);
       void qc.invalidateQueries({ queryKey: ['delivery-routes'] });
@@ -136,6 +138,7 @@ function DeliveryRouteList() {
       </Stack>
       {error ? <HelpErrorAlert message={error} /> : null}
       <Alert severity="info">{t('routes.expectedProfitHelp')}</Alert>
+      {routeOpt ? <Alert severity="info">{t('routes.heuristic')}</Alert> : null}
       {routeOpt ? (
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2">{t('osPlan.combineTitle')}</Typography>
@@ -222,10 +225,30 @@ function DeliveryRouteList() {
 
 function DeliveryRouteDetail({ id }: { id: number }) {
   const { user } = useAuth();
+  useFeatureFlagEpoch();
+  const routeOpt = isRuntimeFlagEnabled('ENABLE_ROUTE_OPTIMIZATION');
   const canWrite = canCreateSales(user);
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [cost, setCost] = useState('');
+  const [otp, setOtp] = useState('');
+  const [receivedBy, setReceivedBy] = useState('');
+  const [fromOffice, setFromOffice] = useState(false);
+  const [stopCap, setStopCap] = useState('');
+  const [suggestion, setSuggestion] = useState<{ sequenced: Array<{ stopId: number }>; unassigned: Array<{ stopId: number; reason: string }> } | null>(null);
+  const suggest = useMutation({
+    mutationFn: async () => {
+      const body = stopCap.trim() ? { stop_cap: Number(stopCap) } : {};
+      const { data } = await apiClient.post(`/sales/delivery-routes/${id}/suggest-sequence/`, body);
+      return unwrapData<typeof suggestion>(data);
+    },
+    onSuccess: (data) => {
+      setError(null);
+      if (data && !Array.isArray(data) && data.unassigned) setSuggestion(data);
+      else setSuggestion(null);
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
   const query = useQuery({
     queryKey: ['delivery-route', id],
     queryFn: () => getDeliveryRoute(id) as Promise<RouteRow>,
@@ -243,9 +266,30 @@ function DeliveryRouteDetail({ id }: { id: number }) {
     onError: (err) => setError(getErrorMessage(err)),
   });
   const setStop = useMutation({
-    mutationFn: ({ stopId, status }: { stopId: number; status: string }) =>
-      setDeliveryRouteStopStatus(id, stopId, status),
-    onSuccess: invalidate,
+    mutationFn: async ({ stopId, status }: { stopId: number; status: string }) => {
+      let podNote = '';
+      if (status === 'DELIVERED' && !fromOffice) {
+        const photo = await capturePodPhoto();
+        if (photo) {
+          await queuePodPhoto(`${id}-${stopId}`, photo, { routeId: id, stopId, receivedByName: receivedBy });
+          podNote = 'photo';
+        }
+      }
+      return setDeliveryRouteStopStatus(id, stopId, status, {
+        completionSource: fromOffice ? 'OFFICE' : 'PHONE',
+        otp: otp || undefined,
+        podNote: podNote || undefined,
+        receivedByName: status === 'DELIVERED' ? receivedBy : undefined,
+      });
+    },
+    onSuccess: () => {
+      // otp/receivedBy are shared inputs above the stop list (not per-row), so
+      // they must be cleared after each use — otherwise the next stop marked
+      // via the row dropdown silently reuses this stop's OTP/recipient name.
+      setOtp('');
+      setReceivedBy('');
+      invalidate();
+    },
     onError: (err) => setError(getErrorMessage(err)),
   });
   const remove = useMutation({
@@ -268,6 +312,18 @@ function DeliveryRouteDetail({ id }: { id: number }) {
       <PageTitle>{route.number ?? t('nav.deliveryRoutes')}</PageTitle>
       {error ? <HelpErrorAlert message={error} /> : null}
       <Alert severity="info">{t('routes.expectedProfitHelp')}</Alert>
+      {routeOpt ? <Alert severity="info">{t('routes.heuristic')}</Alert> : null}
+      {routeOpt && canWrite ? (
+        <Stack direction="row" spacing={1} alignItems="center">
+          <TextField size="small" type="number" label={t('routes.stopCap')} value={stopCap} onChange={(e) => setStopCap(e.target.value)} />
+          <Button size="small" variant="outlined" disabled={suggest.isPending} onClick={() => suggest.mutate()}>{t('routes.suggestOrder')}</Button>
+        </Stack>
+      ) : null}
+      {suggestion && suggestion.unassigned.length > 0 ? (
+        <Alert severity="warning">
+          {t('routes.unassignedStops')}: {suggestion.unassigned.map((stop) => stop.stopId).join(', ')} · {t('routes.overStopCap')}
+        </Alert>
+      ) : null}
       <Paper sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
           <Typography>{t('common.date')}: {route.routeDate}</Typography>
@@ -283,6 +339,9 @@ function DeliveryRouteDetail({ id }: { id: number }) {
               {' '}({t('routes.stopsInvoiced')}: {route.invoicedStopCount ?? 0}/{route.stopCount ?? 0})
             </Typography>
           ) : null}
+          <Typography>
+            {t('routes.phoneCompletions')}: {(route.stops ?? []).filter((stop) => stop.completionSource === 'PHONE').length}/{(route.stops ?? []).length}
+          </Typography>
           <Button
             size="small"
             variant="outlined"
@@ -304,6 +363,12 @@ function DeliveryRouteDetail({ id }: { id: number }) {
       {canWrite && inTransit ? (
         <Stack direction="row" spacing={1} alignItems="center">
           <TextField size="small" type="number" label={t('routes.actualCost')} value={cost} onChange={(e) => setCost(e.target.value)} />
+          <TextField size="small" label={t('routes.otp')} value={otp} onChange={(e) => setOtp(e.target.value)} />
+          <TextField size="small" label={t('routes.receivedBy')} value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} />
+          <FormControlLabel
+            control={<Checkbox checked={fromOffice} onChange={(e) => setFromOffice(e.target.checked)} />}
+            label={t('routes.fromOffice')}
+          />
           <Button variant="contained" onClick={() => complete.mutate()} disabled={complete.isPending}>
             {t('common.complete')}
           </Button>
@@ -328,6 +393,14 @@ function DeliveryRouteDetail({ id }: { id: number }) {
                 <TableCell>{stop.deliveryAddress || '—'}</TableCell>
                 <TableCell>
                   <StatusChip tone={documentStatusTone(stop.status ?? 'PENDING')} labelKey={statusLabelKey(stop.status ?? 'PENDING')} />
+                  {stop.receivedByName ? <Typography variant="caption" display="block">{stop.receivedByName}</Typography> : null}
+                  {stop.status === 'DELIVERED' ? (
+                    <Button size="small" onClick={() => {
+                      void apiClient.get(`/sales/delivery-routes/${id}/stops/${stop.id}/pod.pdf`, { responseType: 'blob' })
+                        .then((res) => triggerBlobDownload(res.data as Blob, `pod-${stop.id}.pdf`))
+                        .catch((err) => setError(getErrorMessage(err)));
+                    }}>{t('routes.printSlip')}</Button>
+                  ) : null}
                 </TableCell>
                 {canWrite ? (
                   <TableCell align="right">
@@ -345,7 +418,7 @@ function DeliveryRouteDetail({ id }: { id: number }) {
                         sx={{ minWidth: 140 }}
                       >
                         <MenuItem value="PENDING">{t('status.PENDING')}</MenuItem>
-                        <MenuItem value="DELIVERED">{t('status.DELIVERED')}</MenuItem>
+                        <MenuItem value="DELIVERED" disabled={!receivedBy.trim()}>{t('status.DELIVERED')}</MenuItem>
                         <MenuItem value="FAILED">{t('status.FAILED')}</MenuItem>
                         <MenuItem value="RETURNED">{t('status.RETURNED')}</MenuItem>
                       </TextField>

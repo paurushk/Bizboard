@@ -30,6 +30,7 @@ import { useFeatureFlagEpoch } from '@/config/featureFlags';
 import { getLocale, subscribeLocale, t } from '@/i18n';
 import { filterNav, isNavPathActive, type NavItem } from '@/navigation/menu';
 import { listDrafts } from '@/offline/invoiceDraftCache';
+import { drainPodPhotos } from '@/offline/photoOutbox';
 
 const DRAWER_WIDTH = 272;
 const MOBILE_BILLING_TIP_KEY = 'bizboard.dismiss.mobileBillingTip';
@@ -142,6 +143,7 @@ export function AppShell() {
       void listDrafts(companyId, userId)
         .then((drafts) => setPendingDrafts(drafts.filter((d) => d.idempotencyKey !== 'purchase-editor-draft').length))
         .catch(() => undefined);
+      void drainPodPhotos().catch(() => undefined);
     };
     refresh();
     window.addEventListener('online', refresh);

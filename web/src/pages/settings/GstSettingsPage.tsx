@@ -15,15 +15,13 @@ import { HelpHint } from '@/pages/help/HelpHint';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import {
-  createCompanyGstin,
   getCompany,
-  listCompanyGstins,
   updateCompany,
-  updateCompanyGstin,
   verifyCompanyGstin,
   verifyCompanyPan,
   verifyCompanyUdyam,
 } from '@/api/resources';
+import { BranchGstinsPanel } from '@/pages/settings/BranchGstinsPanel';
 import { useAuth } from '@/auth/AuthContext';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { StateSelect } from '@/components/StateSelect';
@@ -64,10 +62,6 @@ export function GstSettingsPage() {
     queryFn: getCompany,
     refetchOnWindowFocus: false,
   });
-  const gstinsQuery = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
-  const [branchGstin, setBranchGstin] = useState('');
-  const [branchState, setBranchState] = useState('');
-  const [branchName, setBranchName] = useState('');
   const { control, handleSubmit, reset, watch, formState, setError, clearErrors } = useForm<GstForm>({
     defaultValues: {
       gstin: '',
@@ -520,62 +514,7 @@ export function GstSettingsPage() {
         </Stack>
       </Paper>
 
-      <Paper sx={{ p: 2, maxWidth: 640 }}>
-        <Stack spacing={2}>
-          <Typography variant="h6">Additional Branch GSTINs</Typography>
-          {(gstinsQuery.data ?? []).map((row) => (
-            <Stack
-              key={row.id}
-              direction="row"
-              justifyContent="space-between"
-              alignItems="center"
-              sx={{ borderBottom: 1, borderColor: 'divider', pb: 1 }}
-            >
-              <Typography>
-                {row.gstin} {row.legal_name ? `(${row.legal_name})` : ''}
-                {(row.isActive === false || row.is_active === false) ? ' — inactive' : ''}
-              </Typography>
-              <Button
-                size="small"
-                onClick={() => {
-                  void updateCompanyGstin(row.id, {
-                    is_active: !(row.isActive !== false && row.is_active !== false),
-                  }).then(() => queryClient.invalidateQueries({ queryKey: ['company-gstins'] }));
-                }}
-              >
-                {(row.isActive === false || row.is_active === false) ? 'Activate' : 'Deactivate'}
-              </Button>
-            </Stack>
-          ))}
-          <TextField
-            label="Branch GSTIN"
-            value={branchGstin}
-            onChange={(e) => setBranchGstin(e.target.value.toUpperCase())}
-          />
-          <TextField label="Branch Business Name" value={branchName} onChange={(e) => setBranchName(e.target.value)} />
-          <StateSelect value={branchState} onChange={(val) => setBranchState(val)} label="Branch State" />
-          <Button
-            variant="outlined"
-            disabled={!isValidGstin(branchGstin)}
-            onClick={() => {
-              void createCompanyGstin({
-                gstin: branchGstin,
-                legal_name: branchName,
-                state: branchState,
-                is_primary: false,
-                is_active: true,
-              }).then(() => {
-                setBranchGstin('');
-                setBranchName('');
-                setBranchState('');
-                void queryClient.invalidateQueries({ queryKey: ['company-gstins'] });
-              });
-            }}
-          >
-            Add Branch GSTIN
-          </Button>
-        </Stack>
-      </Paper>
+      <BranchGstinsPanel />
     </Stack>
   );
 }

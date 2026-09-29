@@ -2,7 +2,6 @@ import { expect, test } from '@playwright/test';
 import {
   addInvoiceItem,
   addStockAdjustment,
-  createCustomer,
   createProduct,
   enableSandboxPayments,
   registerTenant,

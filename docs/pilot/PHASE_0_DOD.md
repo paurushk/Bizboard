@@ -174,6 +174,18 @@ Automation: golden e2e against real backend (BUG-725). Matrix: [`UAT_CHECKLIST.m
 
 ---
 
+## I. Non-Functional & Performance SLAs (QOS-SLA)
+
+| ID | Capability / Scope | SLA Target (P95) | Must/Should | Reference |
+|---|---|---|---|---|
+| **I1** | POS item barcode scan lookup | <= 100 ms | Must | QOS-0017 |
+| **I2** | Invoice save & complete API roundtrip | <= 800 ms | Must | BUG-222 |
+| **I3** | Paginated table list queries (50 rows) | <= 400 ms | Must | FE-Virtual |
+| **I4** | Bulk CSV/Excel Catalog Import (up to 5,000 SKUs) | <= 10.0 seconds | Must | DEF-002 |
+| **I5** | Asynchronous Invoice PDF Generation Queue | <= 2.5 seconds | Should | DEF-001 |
+
+---
+
 ## Explicitly out of Phase 0
 
 Full Credit Notes product, SO/PO, challans, POS, recurring · GSTR / e-Invoice / e-Way · Double-entry / P&L / BS · Payment gateway / bank recon · Multi-company/branch/warehouse · Tally/Busy/Zoho · WhatsApp Business API · AI BI · Full pen-test / 10k load — **unless** H9 explicitly ships a *minimal* credit-note-as-adjustment for pilot only.

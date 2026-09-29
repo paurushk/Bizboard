@@ -167,6 +167,8 @@ export async function updateImportPreview(
     lines?: Array<Record<string, unknown>>;
     confirmNonGst?: boolean;
     confirm_non_gst?: boolean;
+    lowConfidenceAccepted?: boolean;
+    low_confidence_accepted?: boolean;
   },
 ): Promise<ImportJob> {
   return withMocks(async () => {
@@ -351,6 +353,10 @@ export async function downloadCashBookXlsx(params?: Record<string, string>): Pro
 }
 
 export const getAccountingSettings = () => apiClient.get('/accounting/settings/').then(({ data }) => unwrapData<Record<string, unknown>>(data));
+export const postAccountingBackfill = (payload: { dry_run?: boolean; confirm?: boolean }) =>
+  apiClient.post('/accounting/backfill/', payload).then(({ data }) => unwrapData<Record<string, unknown>>(data));
+export const getAccountingBackfillStatus = () =>
+  apiClient.get('/accounting/backfill/').then(({ data }) => unwrapData<Record<string, unknown>>(data));
 export const updateAccountingSettings = (payload: Record<string, unknown>) => apiClient.post('/accounting/settings/', payload).then(({ data }) => unwrapData(data));
 export const closeFinancialYear = (payload: { fyEnd: string; confirm: boolean }) =>
   apiClient.post('/accounting/fy-close/', payload).then(({ data }) => unwrapData(data));
@@ -506,6 +512,22 @@ export async function assignAttentionRow(
 
 export async function snoozeAttentionRow(dedupeKey: string, reason: string, days = 7): Promise<void> {
   await apiClient.post('/insights/attention/snooze/', { dedupeKey, reason, days });
+}
+
+export async function dismissAttentionRow(dedupeKey: string): Promise<void> {
+  await apiClient.post('/insights/attention/dismiss/', { dedupeKey });
+}
+
+export async function getLearningReport(): Promise<{
+  windowDays: number;
+  acted: number;
+  resolvedInWindow: number;
+  dismissedInWindow: number;
+  metricImproved: number;
+  thresholdsChanged: boolean;
+}> {
+  const { data } = await apiClient.get('/insights/learning-report/');
+  return unwrapData(data);
 }
 
 export async function listAssistantThreads(): Promise<AssistantThread[]> {

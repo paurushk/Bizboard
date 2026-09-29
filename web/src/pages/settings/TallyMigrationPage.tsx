@@ -21,6 +21,7 @@ import {
   previewTallyImport,
   uploadTallyMasters,
 } from '@/api/resources';
+import { recordTallyMigrationDiff } from '@/api/osPlan';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { HonestyBanner } from '@/components/HonestyBanner';
 import { DisclaimerBanner, PageHeader } from '@/components/insights';
@@ -63,6 +64,41 @@ type MapRow = {
   idx: number;
   list: 'customers' | 'suppliers' | 'products';
 };
+
+function TallyDifferenceSheet() {
+  const [batchId, setBatchId] = useState('');
+  const [xml, setXml] = useState('');
+  const [message, setMessage] = useState('');
+  const compare = useMutation({
+    mutationFn: () => recordTallyMigrationDiff({ batchId, xml }),
+    onSuccess: (result) => {
+      setMessage(
+        result.blocked
+          ? t('tally.diffBlocked', { diff: result.diff })
+          : t('tally.diffOk', { diff: result.diff }),
+      );
+      if (result.blocked) return;
+      const binary = atob(result.pdfBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      triggerBlobDownload(new Blob([bytes], { type: 'application/pdf' }), `tally-diff-${result.id}.pdf`);
+    },
+    onError: (err) => setMessage(getErrorMessage(err)),
+  });
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Typography variant="subtitle1">{t('tally.compare')}</Typography>
+      <Stack spacing={1} sx={{ mt: 1 }}>
+        <TextField size="small" label={t('tally.batchId')} value={batchId} onChange={(e) => setBatchId(e.target.value)} />
+        <TextField size="small" label={t('tally.xml')} value={xml} onChange={(e) => setXml(e.target.value)} multiline minRows={3} />
+        <Button variant="outlined" disabled={!batchId || !xml || compare.isPending} onClick={() => compare.mutate()}>
+          {t('tally.signatureSheet')}
+        </Button>
+        {message ? <Typography variant="body2">{message}</Typography> : null}
+      </Stack>
+    </Paper>
+  );
+}
 
 export function TallyMigrationPage() {
   const [step, setStep] = useState(0);
@@ -237,6 +273,7 @@ export function TallyMigrationPage() {
       <PageHeader title={t('tally.title')} />
       <HonestyBanner messageKey="honesty.tallyDump" />
       <DisclaimerBanner severity="warning">{t('tally.disclaimer')}</DisclaimerBanner>
+      <TallyDifferenceSheet />
       <Stepper activeStep={step} alternativeLabel>
         {steps.map((label) => (
           <Step key={label}>

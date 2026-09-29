@@ -307,6 +307,145 @@ def _hsn_prefixes(hsn: str) -> list[str]:
     return out
 
 
+# Notes in the starter table already say these headings have a second rate
+# for branded / pre-packed goods. Until the product records which one it is,
+# the table must not replace the rate the user entered.
+_AMBIGUOUS_PACK_RATES = {
+    "1006": {"UNBRANDED": "0", "BRANDED_PREPACKED": "5"},
+    "1101": {"UNBRANDED": "0", "BRANDED_PREPACKED": "5"},
+}
+
+# Chapters 61 and 62 apparel in the starter table. From 22 Sep 2025,
+# Notification 9/2025-Central Tax (Rate) (17 Sep 2025): 5% when the sale
+# value per piece does not exceed ₹2,500, 18% when it does. The test is the
+# line's unit price, not the invoice total.
+_APPAREL_SLAB_HSNS = frozenset({
+    "6104", "6105", "6108", "6109", "6110", "6203", "6204", "6205", "6211",
+})
+_APPAREL_SLAB_FROM = date(2025, 9, 22)
+_APPAREL_SLAB_LIMIT = "2500"
+
+
+def _hsn4(hsn: str) -> str:
+    digits = "".join(c for c in (hsn or "") if c.isdigit())
+    return digits[:4] if len(digits) >= 4 else digits
+
+
+def hsn_rate_kind(hsn: str) -> str:
+    """single, ambiguous, or slab."""
+    prefix = _hsn4(hsn)
+    if prefix in _APPAREL_SLAB_HSNS:
+        return "slab"
+    if prefix in _AMBIGUOUS_PACK_RATES:
+        return "ambiguous"
+    return "single"
+
+
+def _rate_text(rate) -> str:
+    from decimal import Decimal
+
+    quant = Decimal(str(rate or 0)).quantize(Decimal("0.01"))
+    text = f"{quant:.2f}"
+    if text.endswith(".00"):
+        return text[:-3]
+    return text.rstrip("0").rstrip(".")
+
+
+def line_gst_decision(hsn: str, entered, supply_form: str, on_date, unit_price=None) -> dict:
+    """Decide whether the HSN table may replace the rate the user entered.
+
+    Never silent. A single-rate heading may change the rate and must say so.
+    Apparel uses the per-piece price slab and states the reason.
+    An ambiguous heading keeps the product rate until branded / pre-packed is set.
+    """
+    from decimal import Decimal
+
+    entered_dec = Decimal(str(entered or 0))
+    kind = hsn_rate_kind(hsn)
+    prefix = _hsn4(hsn)
+    if kind == "slab":
+        price_missing = unit_price is None or Decimal(str(unit_price)) <= 0
+        if on_date is None or on_date < _APPAREL_SLAB_FROM or price_missing:
+            return {
+                "apply": False,
+                "rate": entered_dec,
+                "cess": None,
+                "version": "",
+                "notice": (
+                    "Apparel rate depends on the price per piece. "
+                    "Using the product rate until a unit price is set."
+                    if price_missing and on_date is not None and on_date >= _APPAREL_SLAB_FROM
+                    else ""
+                ),
+            }
+        price = Decimal(str(unit_price))
+        rate = Decimal("5") if price <= Decimal(_APPAREL_SLAB_LIMIT) else Decimal("18")
+        reason = "5% (price ≤ ₹2,500)" if rate == Decimal("5") else "18% (price > ₹2,500)"
+        notice = reason
+        if rate != entered_dec:
+            notice = (
+                f"rate changed {_rate_text(entered_dec)}%→{_rate_text(rate)}% "
+                f"by HSN table. {reason}"
+            )
+        return {
+            "apply": True,
+            "rate": rate,
+            "cess": Decimal("0"),
+            "version": "gst2.0-apparel-2500",
+            "notice": notice,
+        }
+    if kind == "ambiguous":
+        choices = _AMBIGUOUS_PACK_RATES.get(prefix) or {}
+        chosen = choices.get((supply_form or "").strip())
+        if chosen is None:
+            return {
+                "apply": False,
+                "rate": entered_dec,
+                "cess": None,
+                "version": "",
+                "notice": (
+                    "HSN rate depends on branded / pre-packed. "
+                    "Using the product rate until that is set."
+                ),
+            }
+        chosen_dec = Decimal(chosen)
+        notice = ""
+        if chosen_dec != entered_dec:
+            notice = (
+                f"rate changed {_rate_text(entered_dec)}%→{_rate_text(chosen_dec)}% "
+                "by branded / pre-packed"
+            )
+        return {
+            "apply": True,
+            "rate": chosen_dec,
+            "cess": Decimal("0"),
+            "version": "pack-attribute",
+            "notice": notice,
+        }
+    resolved = rate_for(hsn, on_date)
+    if not resolved:
+        return {
+            "apply": False,
+            "rate": entered_dec,
+            "cess": None,
+            "version": "",
+            "notice": "",
+        }
+    notice = ""
+    if resolved["rate"] != entered_dec:
+        notice = (
+            f"rate changed {_rate_text(entered_dec)}%→{_rate_text(resolved['rate'])}% "
+            "by HSN table"
+        )
+    return {
+        "apply": True,
+        "rate": resolved["rate"],
+        "cess": resolved["cess"],
+        "version": resolved["version"],
+        "notice": notice,
+    }
+
+
 def rate_for(hsn: str, on_date) -> dict | None:
     """Return the HsnRate in force on ``on_date``, or None if the table has no row.
 

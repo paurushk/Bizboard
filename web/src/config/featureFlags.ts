@@ -44,9 +44,15 @@ const MOCK_FLAGS: RuntimeFeatureFlags = {
   ENABLE_PURCHASE_PLANNING: false,
   ENABLE_ORDER_GATES: false,
   ENABLE_CUSTOMER_ACTIONS: false,
+  ENABLE_CROSS_SELL: false,
   ENABLE_ROUTE_OPTIMIZATION: false,
   ENABLE_CRM_WHATSAPP_INBOUND: false,
   ENABLE_ARCHETYPE_PACKS: false,
+  ENABLE_COMPLAINTS: false,
+  ENABLE_SUPPORT_TICKETS: false,
+  ENABLE_INSURANCE: true,
+  ENABLE_CONTRACTS: false,
+  ENABLE_REFERRALS: false,
   ENABLE_WHATSAPP_CLOUD: false,
   ENABLE_ACCOUNT_AGGREGATOR: false,
   ENABLE_AA_CONSENT: false,
@@ -95,7 +101,12 @@ export function getCachedFeatureFlags(): RuntimeFeatureFlags | null {
 }
 
 export function isRuntimeFlagEnabled(key: string): boolean {
-  return Boolean(cachedFlags?.[key]);
+  if (!cachedFlags) return false;
+  if (cachedFlags[key]) return true;
+  const noNumUnderscore = key.replace(/_(\d+)/g, '$1');
+  if (cachedFlags[noNumUnderscore]) return true;
+  const lowerCamel = key.toLowerCase().replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
+  return Boolean(cachedFlags[lowerCamel]);
 }
 
 export function clearFeatureFlagsCache() {

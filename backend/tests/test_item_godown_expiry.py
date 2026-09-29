@@ -694,6 +694,16 @@ def test_sales_return_damaged_batched_posts_lot_adjustment(tenant_a):
     assert StockBalance.objects.get(product=product, warehouse=warehouse, batch=lot).on_hand == Decimal("3")
 
 
+def test_j_godown_p4_reorder_flags_the_low_godown(tenant_a):
+    """J-GODOWN-P4-REORDER: the godown's own reorder level flags that godown.
+
+    Company reorder is 100 and on-hand is 10, so a company-wide rule would
+    already be shouting. The warehouse override is 5, so the alert stays
+    quiet until this godown itself falls to the override.
+    """
+    test_low_stock_uses_warehouse_reorder(tenant_a)
+
+
 def test_low_stock_uses_warehouse_reorder(tenant_a):
     from inventory.models import WarehouseReorderLevel
 

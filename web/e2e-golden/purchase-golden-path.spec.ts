@@ -31,7 +31,7 @@ test('golden path: register -> purchase bill -> complete -> pay supplier -> outs
   await registerTenant(page, { companyName, email, password: 'GoldenPath123!' });
 
   // 2. Create a product.
-  await createProduct(page, { name: productName, sku: productSku, sellingPrice: '130', purchasePrice: '100' });
+  await createProduct(page, { name: productName, sku: productSku, sellingPrice: '130', purchasePrice: '100', gstRate: '0' });
 
   // 3. Create a supplier.
   await createSupplier(page, { name: supplierName });

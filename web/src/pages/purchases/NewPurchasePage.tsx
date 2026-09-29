@@ -21,7 +21,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import Alert from '@mui/material/Alert';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   completePurchase,
@@ -34,6 +34,7 @@ import {
   getPurchase,
   getPurchaseNumberSeries,
   getSupplier,
+  getSupplierPriceHistory,
   listSuppliersPage,
   listPurchasesPage,
   listBatches,
@@ -82,6 +83,7 @@ import {
 import type { PaymentMode, PriceMode, Product, PurchaseInvoice, PurchaseType } from '@/types/domain';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
+import { exactBarcodeOrSku, filterProductsForPicker } from '@/utils/productPick';
 import { canImport } from '@/utils/permissions';
 import {
   addDaysIso,
@@ -266,6 +268,46 @@ export function NewPurchasePage() {
     queryFn: () => getSupplier(supplierId as number),
     enabled: Boolean(supplierId),
   });
+  // Price-jump note: informational only, no blocking. Reuses the existing
+  // supplier price-history endpoint — one query per distinct product on this
+  // bill, so the note updates live as lines are added/edited.
+  const priceHistoryEnabled = isRuntimeFlagEnabled('ENABLE_SUPPLIER_PRICE_HISTORY') && Boolean(supplierId);
+  const priceHistoryProductIds = useMemo(
+    () => Array.from(new Set(lines.map((l) => l.product).filter((id): id is number => Boolean(id)))),
+    [lines],
+  );
+  const priceHistoryQueries = useQueries({
+    queries: priceHistoryProductIds.map((productId) => ({
+      queryKey: ['supplier-price-history', supplierId, productId],
+      queryFn: () => getSupplierPriceHistory(supplierId as number, productId),
+      enabled: priceHistoryEnabled,
+      staleTime: 60_000,
+    })),
+  });
+  const priceJumpNoteByProduct = useMemo(() => {
+    const notes = new Map<number, string>();
+    priceHistoryProductIds.forEach((productId, idx) => {
+      const rows = priceHistoryQueries[idx]?.data?.rows ?? [];
+      const lastInvoiceRow = [...rows].reverse().find((row) => row.source === 'PURCHASE_INVOICE');
+      if (lastInvoiceRow) {
+        notes.set(productId, lastInvoiceRow.unitPrice);
+        notes.set(-productId, lastInvoiceRow.documentDate);
+      }
+    });
+    return notes;
+  }, [priceHistoryProductIds, priceHistoryQueries]);
+  const priceJumpNote = useCallback(
+    (line: DraftLine): string | null => {
+      if (!priceHistoryEnabled || !line.product) return null;
+      const lastRate = priceJumpNoteByProduct.get(line.product);
+      const lastDate = priceJumpNoteByProduct.get(-line.product);
+      if (lastRate == null || lastDate == null) return null;
+      if (!(Number(line.unitPrice) > Number(lastRate))) return null;
+      const rateText = Number.isFinite(Number(lastRate)) ? Number(lastRate).toFixed(2) : lastRate;
+      return `last bill was ₹${rateText} on ${lastDate}`;
+    },
+    [priceHistoryEnabled, priceJumpNoteByProduct],
+  );
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
   const billsOfEntry = useQuery({
     queryKey: ['bills-of-entry', supplierId],
@@ -1069,6 +1111,26 @@ export function NewPurchasePage() {
     setError(null);
   };
 
+  const lastScan = useRef('');
+  useEffect(() => {
+    const query = productQuery.trim();
+    if (!query) {
+      lastScan.current = '';
+      return;
+    }
+    // Wait until the results belong to what is in the box now. Otherwise typing
+    // "ABC-1" would add the product whose SKU is exactly "ABC" on the third key.
+    if (debouncedProductQuery.trim() !== query) return;
+    const pool = (debouncedProductQuery.length >= 1 ? products.data : productCatalog.data?.results) ?? [];
+    const hit = exactBarcodeOrSku(pool, query);
+    if (!hit || hit.status !== 'ACTIVE') return;
+    const mark = `${hit.id}:${query}`;
+    if (lastScan.current === mark) return;
+    lastScan.current = mark;
+    addProduct(hit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- addProduct is re-created each render; the guard above keys on the query.
+  }, [productQuery, products.data, productCatalog.data, debouncedProductQuery]);
+
   const updateLine = (
     key: string,
     patch: Partial<DraftLine>,
@@ -1331,6 +1393,7 @@ export function NewPurchasePage() {
     >
       <Stack spacing={2}>
       <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(supplierId))} />
+      <Alert severity="info">{t('billing.grnGuidance')}</Alert>
       {gstinRequiredForGst ? (
         <Alert
           severity="warning"
@@ -1663,8 +1726,33 @@ export function NewPurchasePage() {
 
       <Paper sx={{ overflow: 'auto' }}>
         <DraftLineTable
-          lines={lines}
-          taxes={lineTaxes}
+          lines={
+            preview.totals?.items && preview.totals.items.length === lines.length
+              ? lines.map((line, i) => ({
+                  ...line,
+                  gstRate: preview.totals!.items![i].gstRate ?? line.gstRate,
+                  rateNotice: preview.totals!.items![i].rateOverrideReason || line.rateNotice,
+                }))
+              : lines
+          }
+          taxes={
+            preview.totals?.items && preview.totals.items.length === lineTaxes.length
+              ? lineTaxes.map((tax, i) => {
+                  const item = preview.totals!.items![i];
+                  const gst = (item.cgst || 0) + (item.sgst || 0) + (item.igst || 0) + (item.cess || 0);
+                  return {
+                    ...tax,
+                    taxableAmount: item.taxableAmount,
+                    cgst: item.cgst,
+                    sgst: item.sgst,
+                    igst: item.igst,
+                    cess: item.cess,
+                    taxTotal: gst,
+                    lineTotal: item.lineTotal,
+                  };
+                })
+              : lineTaxes
+          }
           showCess={purchaseType !== 'NON_GST'}
           showMrpSavings={false}
           qtyDisabled={isCompletedEdit}
@@ -1675,6 +1763,7 @@ export function NewPurchasePage() {
           onUpdate={updateLine}
           onDelete={(key) => setLines((prev) => prev.filter((x) => x.key !== key))}
           onFocusAdd={() => barcodeRef.current?.focus()}
+          renderPriceHint={priceJumpNote}
           renderBatchSlot={(line) => {
             const batchMissing = Boolean(line.trackBatch && !line.batchNo.trim());
             return (
@@ -1804,6 +1893,7 @@ export function NewPurchasePage() {
               options={(
                 (debouncedProductQuery.length >= 1 ? products.data : productCatalog.data?.results) ?? []
               ).filter((p) => p.status === 'ACTIVE')}
+              filterOptions={(options, state) => filterProductsForPicker(options, state.inputValue)}
               loading={products.isFetching || productCatalog.isFetching}
               noOptionsText={t('common.noResults')}
               inputValue={productQuery}

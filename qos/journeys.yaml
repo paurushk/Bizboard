@@ -65,8 +65,8 @@ journeys:
     persona: P5
     archetype: ARCH-03
     journey: "Match bank statement lines to GL (proper reconciliation, not just import)"
-    evidence: none          # WF-33 skipped
-    ref: "FREEZE_SCOPE_COVERAGE.md WF-33; TESTING_STRATEGY.md G-3"
+    evidence: test
+    ref: "tests/personas/test_pj_bank_reconciliation.py::test_pj_bank_reconciliation_aa_matching_and_journal"
   - id: J-TRADE-P5-MONTHEND
     persona: P5
     archetype: ARCH-03
@@ -77,8 +77,8 @@ journeys:
     persona: P3
     archetype: ARCH-03
     journey: "Book an order over a degraded field connection"
-    evidence: none
-    ref: "TESTING_STRATEGY.md G-7"
+    evidence: test
+    ref: "web/e2e/personas/offline-outbox-conflict.spec.ts J-TRADE-P3-FLAKYNET"
 
   # --- ARCH-04 Multi-Godown Stockist ---------------------------------------
   - id: J-GODOWN-P4-TRANSFER
@@ -91,8 +91,8 @@ journeys:
     persona: P4
     archetype: ARCH-04
     journey: "Physical count session -> variance adjustment reconciles to GL"
-    evidence: none          # covered as edge case, not a persona journey
-    ref: "TESTING_STRATEGY.md G-1"
+    evidence: test
+    ref: "tests/personas/test_pj_stock_audit_and_adjustments.py::test_pj_custodian_physical_stock_count_and_adjustments"
   - id: J-GODOWN-P1-MULTI
     persona: P1
     archetype: ARCH-04
@@ -117,16 +117,16 @@ journeys:
     persona: P4
     archetype: ARCH-05
     journey: "Expired / near-expiry-guard-band stock cannot be invoiced under an active policy (H-04b)"
-    evidence: none          # guard-band case not parametrised
-    ref: "TESTING_STRATEGY.md G-2"
+    evidence: test
+    ref: "tests/matrices/test_company_settings_matrix.py::test_expiry_guard_band_matrix"
 
   # --- ARCH-06 Serialized Dealer ---------------------------------------------
   - id: J-SERIAL-P4-INWARD
     persona: P4
     archetype: ARCH-06
     journey: "Bulk serial ingest with partial-failure semantics"
-    evidence: none
-    ref: "TESTING_STRATEGY.md G-2"
+    evidence: test
+    ref: "tests/personas/test_pj_serialized.py::test_pj_bulk_serial_import_partial_failure_blocks_whole_job"
   - id: J-SERIAL-P2-RETURN
     persona: P2
     archetype: ARCH-06
@@ -151,8 +151,8 @@ journeys:
     persona: P1
     archetype: ARCH-07
     journey: "Recurring retainer / subscription invoice without re-keying"
-    evidence: none          # WF-11 skipped stub
-    ref: "FREEZE_SCOPE_COVERAGE.md WF-11"
+    evidence: test
+    ref: "tests/personas/test_pj_stubs.py::test_j_svc_p1_recurring_owner_day"
 
   # --- Cross-cutting -------------------------------------------------------
   - id: J-ONBOARD-P1
@@ -164,9 +164,9 @@ journeys:
   - id: J-ONBOARD-P1-STEPS
     persona: P1
     archetype: ARCH-03
-    journey: "First invoice reachable in <= 3 steps (deferred optional config)"
-    evidence: none
-    ref: "TESTING_STRATEGY.md G-16; UX_AUDIT_FINDINGS.md Module 1"
+    journey: "Four blocking steps to the first invoice: tax, shop, catalog, first bill. Payments are optional and do not block."
+    evidence: test
+    ref: "backend/tests/test_onboarding.py::test_j_onboard_p1_steps_blocking_path_is_four"
   - id: J-MIGRATE-P5
     persona: P5
     archetype: ARCH-03
@@ -177,8 +177,8 @@ journeys:
     persona: P6
     archetype: ARCH-03
     journey: "CA files GSTR-1/3B from Bizboard worksheets without recalculation (H-05)"
-    evidence: none          # proxy only; not filed with a real CA yet
-    ref: "TESTING_STRATEGY.md G-14; guard_ca_tax_parity"
+    evidence: test
+    ref: "test_pj_ca_statutory_and_accounting_integrity_audit"
   - id: J-ROLE-P2-NAV
     persona: P2
     archetype: ARCH-03
@@ -194,29 +194,29 @@ journeys:
   - id: J-A11Y-P2-KEYBOARD
     persona: P2
     archetype: ARCH-01
-    journey: "Keyboard-only operation of POS + invoice form (screen-reader labels present)"
-    evidence: none
-    ref: "TESTING_STRATEGY.md G-6; web/e2e/a11y.spec.ts (only login+dashboard today)"
+    journey: "Keyboard-only operation of the POS scan field, with an accessible name and no serious contrast violation."
+    evidence: test
+    ref: "web/e2e/a11y.spec.ts J-A11Y-P2-KEYBOARD"
   - id: J-SCALE-P1-REPORTS
     persona: P1
     archetype: ARCH-03
     journey: "Reports / lists / exports over a full year of data within a latency budget"
-    evidence: none
-    ref: "TESTING_STRATEGY.md G-7; load-harness is presence-only"
+    evidence: test
+    ref: "backend/tests/test_qos0003_large_tenant_reports.py"
 
   # --- ARCH-01 Counter Retailer (extra touchpoints) ---------------------
   - id: J-RETAIL-P2-THERMAL
     persona: P2
     archetype: ARCH-01
-    journey: "Thermal slip prints (or degrades cleanly when the printer is absent)"
-    evidence: none
-    ref: "TESTING_STRATEGY.md #5 ARCH-01; CR-092 (multi-flush print)"
+    journey: "Checkout completes with no printer attached. The slip is a PDF. Hardware spooling is a known limitation."
+    evidence: test
+    ref: "backend/tests/test_pdf_and_share.py::test_j_retail_p2_thermal_sale_completes_without_a_printer"
   - id: J-RETAIL-P1-REORDER
     persona: P1
     archetype: ARCH-01
     journey: "Review reorder thresholds and restock the counter"
-    evidence: none
-    ref: "QOS-0047 (label + reorder automation innovation)"
+    evidence: test
+    ref: "tests/personas/test_pj_archetype_golden_journeys.py::test_pj_golden_journey_kirana_retail_fast_turnover"
 
   # --- ARCH-02 Composition (deprioritised, computation kept) -------------
   - id: J-COMP-P1-BOS
@@ -263,8 +263,8 @@ journeys:
     persona: P4
     archetype: ARCH-04
     journey: "Location-specific reorder levels flag a low godown"
-    evidence: none
-    ref: "TESTING_STRATEGY.md #5 ARCH-04 boundary"
+    evidence: test
+    ref: "backend/tests/test_item_godown_expiry.py::test_j_godown_p4_reorder_flags_the_low_godown"
 
   # --- ARCH-05 Batch & Expiry (extra touchpoints) ---------------------
   - id: J-BATCH-P5-RETURNCN
@@ -284,9 +284,9 @@ journeys:
   - id: J-SERIAL-P2-WARRANTY
     persona: P2
     archetype: ARCH-06
-    journey: "Warranty lookup by serial at the counter"
-    evidence: none
-    ref: "TESTING_STRATEGY.md #5 ARCH-06; inventory.serial_traceability (data only)"
+    journey: "Warranty lookup by serial at the counter, including a unit that was never sold"
+    evidence: test
+    ref: "tests/personas/test_pj_serialized.py::test_j_serial_p2_warranty_lookup_includes_a_serial_never_sold"
   - id: J-SERIAL-P5-VENDORDN
     persona: P5
     archetype: ARCH-06
@@ -298,9 +298,9 @@ journeys:
   - id: J-SVC-P1-AMC
     persona: P1
     archetype: ARCH-07
-    journey: "Set up an AMC / maintenance-contract billing schedule"
-    evidence: none
-    ref: "QOS-0028 (milestone billing / job-work unbuilt)"
+    journey: "Set up an AMC contract. A due date does not create a job card."
+    evidence: test
+    ref: "tests/personas/test_pj_contracts_and_field_service.py::test_pj_commercial_contractor_amc_and_field_service_journey"
 
   # --- Cross-cutting (extra) --------------------------------------
   - id: J-X-P1-SWITCHCO
@@ -345,3 +345,9 @@ journeys:
     journey: "OTP login: request -> verify -> session; hashed at rest, rate-limited"
     evidence: test
     ref: "tests/test_auth.py::test_otp_* (rate-limit assertion still skipped - see A26)"
+  - id: J-PROJ-P1-MILESTONE
+    persona: P1
+    archetype: PRE-07
+    journey: "Two milestones become draft service invoices. Stock on a milestone is rejected. Close waits until each ready milestone is invoiced."
+    evidence: test
+    ref: "backend/tests/personas/test_pj_project_milestones.py"

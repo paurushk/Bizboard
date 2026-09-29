@@ -92,6 +92,7 @@ def test_gsp_live_without_creds_raises(tenant_a):
     company = tenant_a.company
     company.gsp_provider = "cleartax"
     company.gsp_credentials_encrypted = ""
-    adapter = get_irp_adapter(company)
-    with pytest.raises(BusinessRuleError, match=r"credentials are empty|Live GSP is not configured"):
-        adapter.submit({})
+    # The refusal can fire while building the adapter (custom provider, no SEK)
+    # or on submit (other providers, empty credentials): both are the same stop.
+    with pytest.raises(BusinessRuleError, match=r"credentials are empty|Live GSP is not configured|without an AES SEK"):
+        get_irp_adapter(company).submit({})

@@ -536,7 +536,9 @@ def test_customer_actions_fire_churn_and_repeat_on_their_own_windows(tenant_a):
     assert [row["code"] for row in repeat] == ["REPEAT_ORDER_DUE"]
     assert repeat[0]["action_href"] == f"/sales/orders/new?customer={customer.id}&product={product.id}"
     assert repeat[0]["money_impact_paise"] == 10000
-    churn = build_customer_action_rows(tenant_a.company, as_of=date(2026, 11, 13))
+    # Gaps are 90 and 91 days; median 90.5 now rounds (not truncates) to 91,
+    # so the 1.5x churn threshold is 136.5 days from the last order (Jul 1).
+    churn = build_customer_action_rows(tenant_a.company, as_of=date(2026, 11, 15))
     assert [row["code"] for row in churn] == ["CHURN_RISK"]
     assert churn[0]["action_href"] == f"/sales/customers/{customer.id}"
     assert "/360" not in churn[0]["action_href"]
@@ -591,7 +593,94 @@ def test_event_schema_covers_every_attention_and_action_code():
             "PREDICTED_LATE_PAYMENT",
             "CHURN_RISK",
             "REPEAT_ORDER_DUE",
+            "CROSS_SELL",
         }
     )
     missing = sorted(required - set(EVENT_SOURCES))
     assert missing == []
+
+
+def test_margin_drop_uses_the_shared_helper():
+    import inspect
+
+    from core.services.margin import margin_below_threshold
+    from insights import alerts, services
+    from sales import order_gates
+
+    assert margin_below_threshold(Decimal("100"), Decimal("95")) is False
+    assert margin_below_threshold(Decimal("100"), Decimal("96")) is True
+    for module in (alerts, services, order_gates):
+        assert "margin_below_threshold" in inspect.getsource(module)
+
+
+@pytest.mark.django_db
+def test_cross_sell_stays_off_until_its_flag_and_three_customers_bought_both(tenant_a):
+    from datetime import date
+
+    from insights.customer_actions import build_customer_action_rows
+    from tests.conftest import make_customer, make_product
+
+    company = tenant_a.company
+    soap = make_product(company, sku="XS-SOAP", name="Soap")
+    oil = make_product(company, sku="XS-OIL", name="Oil")
+    target = make_customer(company, name="Target Shop")
+    _enable_actions(company)
+    for when in (date(2026, 1, 1), date(2026, 4, 1), date(2026, 7, 1)):
+        _confirmed_order(company, target, soap, when)
+    for index in range(2):
+        buyer = make_customer(company, name=f"Both {index}")
+        _confirmed_order(company, buyer, soap, date(2026, 3, 1))
+        _confirmed_order(company, buyer, oil, date(2026, 3, 2))
+
+    flags = dict(company.feature_flags)
+    flags["ENABLE_CROSS_SELL"] = True
+    company.feature_flags = flags
+    company.save(update_fields=["feature_flags"])
+    too_few = build_customer_action_rows(company, as_of=date(2026, 8, 1))
+    assert [row["code"] for row in too_few if row["code"] == "CROSS_SELL"] == []
+
+    third = make_customer(company, name="Both 2")
+    _confirmed_order(company, third, soap, date(2026, 3, 1))
+    _confirmed_order(company, third, oil, date(2026, 3, 2))
+    suggested = [
+        row for row in build_customer_action_rows(company, as_of=date(2026, 8, 1))
+        if row["code"] == "CROSS_SELL"
+    ]
+    assert len(suggested) == 1
+    assert suggested[0]["entity_ref"] == {"type": "product", "id": oil.id}
+    assert suggested[0]["action_href"] == f"/sales/orders/new?customer={target.id}&product={oil.id}"
+    assert "Oil" in suggested[0]["title"]
+
+    already = make_customer(company, name="Already Both")
+    _confirmed_order(company, already, soap, date(2026, 1, 1))
+    _confirmed_order(company, already, oil, date(2026, 4, 1))
+    _confirmed_order(company, already, soap, date(2026, 7, 1))
+    still_only_target = [
+        row for row in build_customer_action_rows(company, as_of=date(2026, 8, 1))
+        if row["code"] == "CROSS_SELL"
+    ]
+    assert [row["dedupe_key"] for row in still_only_target] == [f"CROSS_SELL:{target.id}:{oil.id}"]
+
+    from accounts.models import CompanyUser
+    from insights.attention import build_attention_rows
+
+    membership = CompanyUser.objects.get(company=company, user=tenant_a.owner)
+    on_today = [
+        row for row in build_attention_rows(company, membership, as_of=date(2026, 8, 1))
+        if row["code"] == "CROSS_SELL"
+    ]
+    assert len(on_today) == 1
+
+    thin = make_customer(company, name="New Shop")
+    _confirmed_order(company, thin, soap, date(2026, 7, 1))
+    after_thin = [
+        row for row in build_customer_action_rows(company, as_of=date(2026, 8, 1))
+        if row["code"] == "CROSS_SELL"
+    ]
+    assert not any(f":{thin.id}:" in row["dedupe_key"] for row in after_thin)
+
+    flags.pop("ENABLE_CROSS_SELL")
+    company.feature_flags = flags
+    company.save(update_fields=["feature_flags"])
+    hidden = build_customer_action_rows(company, as_of=date(2026, 8, 1))
+    assert not any(row["code"] == "CROSS_SELL" for row in hidden)

@@ -19,6 +19,7 @@ CAMEL = {
     "canCreateSales": "can_create_sales",
     "canCreatePurchases": "can_create_purchases",
     "canCreatePayments": "can_create_payments",
+    "canManagePolicies": "can_manage_policies",
 }
 
 
@@ -34,7 +35,7 @@ def _bools(block: str) -> dict[str, bool]:
 def _parse_caps_for_role(src: str) -> dict[str, dict[str, bool]]:
     fn = src.split("function capsForRole", 1)[1].split("function hasAnyWorkCap", 1)[0]
     out: dict[str, dict[str, bool]] = {}
-    for role in ("ACCOUNTANT", "VIEWER", "INVENTORY_STAFF", "AUDITOR", "MANAGER"):
+    for role in ("ACCOUNTANT", "VIEWER", "INVENTORY_STAFF", "AUDITOR", "POLICY_DESK", "MANAGER"):
         m = re.search(rf"if \(role === '{role}'\) \{{(.*?)\n  \}}", fn, re.S)
         assert m, f"capsForRole missing branch for {role}"
         out[role] = _bools(m.group(1))
@@ -45,6 +46,9 @@ def _parse_caps_for_role(src: str) -> dict[str, dict[str, bool]]:
 
 
 def test_invite_ui_caps_match_backend_defaults_on_overlapping_keys():
+    if not UI.is_file():
+        import pytest
+        pytest.skip("web/src not mounted in container")
     parsed = _parse_caps_for_role(UI.read_text(encoding="utf-8"))
     failures = []
     for role, ui in parsed.items():

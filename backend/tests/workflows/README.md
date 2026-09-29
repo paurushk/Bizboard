@@ -1,5 +1,7 @@
 # tests/workflows/ — critical business workflow contracts (Phase 2)
 
+The checklist below is historical. Coverage is the `def test_wf` functions in this directory, not the `[ ]` boxes. WF-54 is a known-limitation pin (`test_wf54_certificates_remain_a_known_limitation`), not a certificate generator. WF-37 and WF-38 stay skipped.
+
 Each file drives ONE business flow **end to end through the API** and asserts the
 *whole chain* is consistent at the end — stock, GST, AR/AP, and GL all agree —
 by calling `assert_all_invariants(company)` plus flow-specific expected numbers.

@@ -12,8 +12,24 @@ export function isAccountant(role: Role): boolean {
   return role === 'ACCOUNTANT';
 }
 
+export function isManager(role: Role): boolean {
+  return role === 'MANAGER';
+}
+
 export function canManageUsers(user: User | null): boolean {
   return !!user && isOwner(user.role);
+}
+
+/** GST Guard override (OWNER/MANAGER only) — mirrors the backend gate in
+ * reporting.gst_guard.gst_guard_override_membership. */
+export function canOverrideGstGuard(user: User | null): boolean {
+  return !!user && (isOwner(user.role) || isManager(user.role));
+}
+
+/** Payment promise creation (OWNER/MANAGER/ACCOUNTANT) — mirrors the backend
+ * gate in payments.promise_to_pay. */
+export function canManagePaymentPromises(user: User | null): boolean {
+  return !!user && (isOwner(user.role) || isManager(user.role) || isAccountant(user.role));
 }
 
 export function canManageManufacturing(user: User | null): boolean {

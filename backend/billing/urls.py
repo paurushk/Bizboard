@@ -8,11 +8,13 @@ from .views import (
     PortalView,
     RazorpayWebhookView,
     SubscriptionDetailView,
+    VendorTenantsView,
 )
 
 urlpatterns = [
     path("plans/", PlanListView.as_view(), name="billing-plans"),
     path("subscription/", SubscriptionDetailView.as_view(), name="billing-subscription"),
+    path("vendor/tenants/", VendorTenantsView.as_view(), name="billing-vendor-tenants"),
     path("checkout/", CheckoutView.as_view(), name="billing-checkout"),
     path("portal/", PortalView.as_view(), name="billing-portal"),
     path("razorpay/webhook/", RazorpayWebhookView.as_view(), name="billing-razorpay-webhook"),

@@ -1,4 +1,4 @@
-export type Role = 'OWNER' | 'MANAGER' | 'SALES_STAFF' | 'INVENTORY_STAFF' | 'ACCOUNTANT' | 'AUDITOR' | 'VIEWER';
+export type Role = 'OWNER' | 'MANAGER' | 'SALES_STAFF' | 'INVENTORY_STAFF' | 'ACCOUNTANT' | 'AUDITOR' | 'VIEWER' | 'POLICY_DESK';
 
 export interface BankAccount {
   id: number;
@@ -151,6 +151,7 @@ export interface User {
   canCreatePurchases?: boolean;
   canCreatePayments?: boolean;
   canPostJournals?: boolean;
+  canManagePolicies?: boolean;
   isStaff?: boolean;
   companyId: number;
   company?: Company;
@@ -259,6 +260,8 @@ export interface Customer {
   shippingAddresses?: ShippingAddress[];
   state?: string;
   pincode?: string;
+  latitude?: string | null;
+  longitude?: string | null;
   status: CustomerStatus;
   creditLimit?: string | number;
   creditDays?: number;
@@ -312,6 +315,8 @@ export interface Product {
   unit?: number | null;
   unitName?: string;
   gstRate: string | number;
+  gstSupplyForm?: string;
+  gstRateNotice?: string;
   cessRate?: string | number;
   cessAmount?: string | number;
   purchasePrice: string | number;
@@ -423,6 +428,7 @@ export interface SalesInvoice extends DocumentTotals {
   completedAt?: string | null;
   cancelledAt?: string | null;
   warnings?: string[];
+  gstGuardWarnings?: { code: string; message: string }[];
   einvoiceStatus?: EinvoiceStatus;
   irn?: string;
   ackNo?: string;
@@ -479,6 +485,22 @@ export interface Quotation extends DocumentTotals {
   convertedInvoice?: number | null;
 }
 
+export interface PaymentPromise {
+  id: number;
+  customer: number;
+  customerName?: string;
+  invoice?: number | null;
+  invoiceNumber?: string;
+  promisedDate: string;
+  promisedAmount?: string | number | null;
+  amountLabel?: string;
+  broken?: boolean;
+  note?: string;
+  resolved: boolean;
+  resolvedAt?: string | null;
+  createdAt?: string;
+}
+
 export interface SalesReturn extends DocumentTotals {
   id: number;
   number?: string | null;
@@ -510,6 +532,8 @@ export interface SalesCreditNote extends DocumentTotals {
   pdfStatus?: PdfStatus;
   completedAt?: string | null;
   cancelledAt?: string | null;
+  warnings?: string[];
+  gstGuardWarnings?: { code: string; message: string }[];
   einvoiceStatus?: EinvoiceStatus;
   irn?: string;
   ackNo?: string;

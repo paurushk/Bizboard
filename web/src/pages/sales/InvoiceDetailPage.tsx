@@ -19,7 +19,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useParams, useSearchParams } from 'react-router-dom';
-import { getErrorMessage } from '@/api/client';
+import { getErrorCode, getErrorMessage } from '@/api/client';
 import { PageTitle } from '@/contextHelp';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
@@ -38,6 +38,9 @@ import {
   getUpiQr,
   listAllocationsPage,
   listPaymentLinksPage,
+  listPaymentPromises,
+  createPaymentPromise,
+  resolvePaymentPromise,
   listSalesReturns,
   sharePaymentLink,
   unallocatePayment,
@@ -54,11 +57,24 @@ import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { t } from '@/i18n';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
+import { todayIso } from '@/components/billing/lineHelpers';
 import { formatMoney, toNumber } from '@/utils/money';
-import { canCancelDocuments, canCreateSales, canViewFinancialReports } from '@/utils/permissions';
+import {
+  canCancelDocuments,
+  canCreateSales,
+  canManagePaymentPromises,
+  canOverrideGstGuard,
+  canViewFinancialReports,
+} from '@/utils/permissions';
 import { isAllowedPaymentUrl, isAllowedShareUrl, openShareUrl } from '@/utils/safeUrl';
 import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
 import { canEditInvoiceLines, hasLiveIrn } from '@/utils/einvoiceLock';
+
+function defaultPromiseDate(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 3);
+  return todayIso(d);
+}
 
 export function InvoiceDetailPage() {
   const { user } = useAuth();
@@ -82,6 +98,17 @@ export function InvoiceDetailPage() {
     () => (location.state as { paymentWarning?: string } | null)?.paymentWarning ?? null,
   );
   const [errorSource, setErrorSource] = useState<unknown>(null);
+  const [gstGuardIssues, setGstGuardIssues] = useState<{ code: string; message: string }[] | null>(
+    null,
+  );
+  const [gstGuardWarnings, setGstGuardWarnings] = useState<
+    { code: string; message: string }[] | null
+  >(null);
+  const [gstGuardOverrideReason, setGstGuardOverrideReason] = useState('');
+  const [promiseOpen, setPromiseOpen] = useState(false);
+  const [promiseDate, setPromiseDate] = useState(() => defaultPromiseDate());
+  const [promiseNote, setPromiseNote] = useState('');
+  const [promiseAmount, setPromiseAmount] = useState('');
   const cancelBtnRef = useRef<HTMLButtonElement>(null);
   const helpCancel = searchParams.get('helpAction') === 'cancel';
 
@@ -146,10 +173,16 @@ export function InvoiceDetailPage() {
     // F2-035: completeWithConfirms loops over known confirm codes in any
     // order — the hand-nested try/catch here only recovered
     // place_of_supply_unresolved -> GSTIN_TOTAL_CHANGED in that exact order.
-    mutationFn: () => completeWithConfirms((extra) => completeSalesInvoice(invoiceId, extra)),
+    mutationFn: (overrideReason?: string) =>
+      completeWithConfirms((extra) =>
+        completeSalesInvoice(invoiceId, { ...extra, gstGuardOverrideReason: overrideReason }),
+      ),
     onSuccess: (data) => {
       const warns = (data?.warnings ?? []).filter(Boolean).join(' ');
       setMessage(warns ? `${t('billing.invoiceCompleted')} ${warns}` : t('billing.invoiceCompleted'));
+      setGstGuardIssues(null);
+      setGstGuardOverrideReason('');
+      setGstGuardWarnings(data?.gstGuardWarnings?.length ? data.gstGuardWarnings : null);
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
       void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
       void qc.invalidateQueries({ queryKey: ['customers'] });
@@ -157,7 +190,16 @@ export function InvoiceDetailPage() {
       void qc.invalidateQueries({ queryKey: ['products'] });
       void qc.invalidateQueries({ queryKey: ['stock-balance'] });
     },
-    onError: (err) => captureError(err),
+    onError: (err) => {
+      if (getErrorCode(err) === 'gst_guard_blocked') {
+        const data = (err as { response?: { data?: Record<string, unknown> } })?.response?.data;
+        const nested = data?.error as { details?: { blocking?: unknown } } | undefined;
+        const blocking = Array.isArray(nested?.details?.blocking) ? nested.details.blocking : [];
+        setGstGuardIssues(blocking as { code: string; message: string }[]);
+        return;
+      }
+      captureError(err);
+    },
   });
 
   const cancelMutation = useMutation({
@@ -210,6 +252,48 @@ export function InvoiceDetailPage() {
       setMessage(t('billing.paymentUnallocated'));
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
       void qc.invalidateQueries({ queryKey: ['invoice-allocations', invoiceId] });
+    },
+    onError: (err) => captureError(err),
+  });
+
+  const canPromise = canManagePaymentPromises(user);
+  const paymentPromises = useQuery({
+    queryKey: ['payment-promises', invoiceId],
+    // F2-050: no customer/invoice-scoped backend filter is confirmed to
+    // exist yet, so we fetch open promises and filter to this invoice
+    // client-side.
+    queryFn: () => listPaymentPromises({ invoice: invoiceId }),
+    enabled: invoiceIdValid && canPromise,
+  });
+  const promiseList = Array.isArray(paymentPromises.data) ? paymentPromises.data : [];
+  const invoicePromise = promiseList.find(
+    (p) => p.invoice === invoiceId && !p.resolved,
+  );
+
+  const createPromiseMutation = useMutation({
+    mutationFn: () =>
+      createPaymentPromise({
+        customer: query.data!.customer,
+        invoice: invoiceId,
+        promisedDate: promiseDate,
+        promisedAmount: promiseAmount.trim(),
+        note: promiseNote.trim() || undefined,
+      }),
+    onSuccess: () => {
+      setMessage(t('billing.paymentPromiseCreated'));
+      setPromiseOpen(false);
+      setPromiseNote('');
+      setPromiseAmount('');
+      void qc.invalidateQueries({ queryKey: ['payment-promises', invoiceId] });
+    },
+    onError: (err) => captureError(err),
+  });
+
+  const resolvePromiseMutation = useMutation({
+    mutationFn: (promiseId: number) => resolvePaymentPromise(promiseId),
+    onSuccess: () => {
+      setMessage(t('billing.paymentPromiseResolved'));
+      void qc.invalidateQueries({ queryKey: ['payment-promises', invoiceId] });
     },
     onError: (err) => captureError(err),
   });
@@ -272,8 +356,8 @@ export function InvoiceDetailPage() {
   const whatsappButtonHint = query.data?.whatsappOffer && !query.data.whatsappOffer.optIn
     ? t('common.whatsappOptInOffHint')
     : isRuntimeFlagEnabled('ENABLE_WHATSAPP_CLOUD')
-      ? t('common.whatsapp')
-      : t('common.whatsappLinkHint');
+      ? t('common.whatsappSend')
+      : t('common.whatsappShare');
 
   // F2-036: this calls the same updateSalesInvoice endpoint NewInvoicePage
   // uses for an amend (which on a COMPLETED doc requires Owner +
@@ -407,6 +491,50 @@ export function InvoiceDetailPage() {
         <HelpErrorAlert message={error} error={errorSource} invoiceId={invoiceId} />
       ) : null}
 
+      {gstGuardIssues && gstGuardIssues.length > 0 ? (
+        <Alert severity="error" sx={{ mb: 1 }}>
+          <Typography fontWeight={600}>{t('billing.gstGuardBlockingTitle')}</Typography>
+          <Box component="ul" sx={{ m: '4px 0 8px', pl: 2.5 }}>
+            {gstGuardIssues.map((issue) => (
+              <li key={issue.code}>{issue.message}</li>
+            ))}
+          </Box>
+          {canOverrideGstGuard(user) ? (
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="stretch">
+              <TextField
+                size="small"
+                fullWidth
+                label={t('billing.gstGuardOverrideReasonLabel')}
+                value={gstGuardOverrideReason}
+                onChange={(e) => setGstGuardOverrideReason(e.target.value)}
+              />
+              <Button
+                variant="contained"
+                color="warning"
+                disabled={!gstGuardOverrideReason.trim() || completeMutation.isPending}
+                onClick={() => completeMutation.mutate(gstGuardOverrideReason.trim())}
+              >
+                {t('billing.gstGuardOverrideButton')}
+              </Button>
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              {t('billing.gstGuardOverridePermissionNote')}
+            </Typography>
+          )}
+        </Alert>
+      ) : null}
+      {gstGuardWarnings && gstGuardWarnings.length > 0 ? (
+        <Alert severity="warning" sx={{ mb: 1 }}>
+          <Typography fontWeight={600}>{t('billing.gstGuardWarningTitle')}</Typography>
+          <Box component="ul" sx={{ m: '4px 0 0', pl: 2.5 }}>
+            {gstGuardWarnings.map((warning) => (
+              <li key={warning.code}>{warning.message}</li>
+            ))}
+          </Box>
+        </Alert>
+      ) : null}
+
       <Paper
         elevation={0}
         sx={{
@@ -443,7 +571,7 @@ export function InvoiceDetailPage() {
             <Button
               variant="contained"
               disabled={completeMutation.isPending}
-              onClick={() => completeMutation.mutate()}
+              onClick={() => completeMutation.mutate(undefined)}
             >
               {t('common.complete')}
             </Button>
@@ -795,7 +923,9 @@ export function InvoiceDetailPage() {
                           })
                         }
                       >
-                        {t('common.whatsapp')}
+                        {isRuntimeFlagEnabled('ENABLE_WHATSAPP_CLOUD')
+                          ? t('common.whatsappSend')
+                          : t('common.whatsappShare')}
                       </Button>
                       <TextField
                         size="small"
@@ -830,6 +960,92 @@ export function InvoiceDetailPage() {
           </Paper>
         </Stack>
       ) : null}
+
+      {canPromise && (invoicePromise || toNumber(inv.balance) > 0) ? (
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="h6" sx={{ mb: 1 }}>
+            {t('billing.paymentPromiseTitle')}
+          </Typography>
+          {invoicePromise ? (
+            <Stack spacing={1} alignItems="flex-start">
+              <Typography>
+                {t('billing.paymentPromiseExisting', { date: invoicePromise.promisedDate })}
+              </Typography>
+              {invoicePromise.note ? (
+                <Typography variant="body2" color="text.secondary">
+                  {invoicePromise.note}
+                </Typography>
+              ) : null}
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={resolvePromiseMutation.isPending}
+                onClick={() => resolvePromiseMutation.mutate(invoicePromise.id)}
+              >
+                {t('billing.paymentPromiseResolve')}
+              </Button>
+            </Stack>
+          ) : (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                setPromiseDate(defaultPromiseDate());
+                setPromiseNote('');
+                setPromiseAmount(String(toNumber(inv.balance) > 0 ? toNumber(inv.balance) : ''));
+                setPromiseOpen(true);
+              }}
+            >
+              {t('billing.paymentPromiseLog')}
+            </Button>
+          )}
+        </Paper>
+      ) : null}
+
+      <Dialog open={promiseOpen} onClose={() => setPromiseOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('billing.paymentPromiseLog')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              type="date"
+              label={t('billing.paymentPromiseDateLabel')}
+              value={promiseDate}
+              onChange={(e) => setPromiseDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+            />
+            <TextField
+              type="number"
+              label={t('osPlan.promiseAmount')}
+              value={promiseAmount}
+              onChange={(e) => setPromiseAmount(e.target.value)}
+              inputProps={{ min: 0, step: '0.01' }}
+              required
+              fullWidth
+            />
+            <TextField
+              label={t('billing.paymentPromiseNoteLabel')}
+              value={promiseNote}
+              onChange={(e) => setPromiseNote(e.target.value)}
+              multiline
+              minRows={2}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPromiseOpen(false)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={
+              !promiseDate.trim() || !(Number(promiseAmount) > 0) || createPromiseMutation.isPending
+            }
+            onClick={() => createPromiseMutation.mutate()}
+          >
+            {t('billing.paymentPromiseSave')}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Paper sx={{ overflow: 'auto' }}>
         <Table size="small">

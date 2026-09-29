@@ -11,10 +11,10 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { getPurchasePlan, type PlanningLine } from '@/api/osPlan';
+import { createPlanningDrafts, getDemandForecast, getPurchasePlan, type PlanningLine } from '@/api/osPlan';
 import { listSuppliersPage, listWarehouses } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -48,36 +48,36 @@ export function PurchasePlanningPage() {
       urgency: urgency || undefined,
     }),
   });
-  const rows = plan.data?.rows ?? [];
+  const rows = useMemo(() => plan.data?.rows ?? [], [plan.data]);
   const selectedRows = useMemo(
     () => rows.filter((row) => selected.includes(rowKey(row))),
     [rows, selected],
   );
+  const [notice, setNotice] = useState('');
+  const forecast = useQuery({ queryKey: ['demand-forecast'], queryFn: getDemandForecast });
+  const createDrafts = useMutation({
+    mutationFn: () => createPlanningDrafts(selectedRows.filter((row) => !row.transferFromWarehouseId)),
+    onSuccess: (result) => {
+      const ids = result.purchaseOrderIds ?? [];
+      const waiting = result.needsSupplier?.length ?? 0;
+      setNotice(
+        waiting
+          ? `${t('osPlan.draftsCreated', { count: ids.length })} · ${t('osPlan.needsSupplier', { count: waiting })}`
+          : t('osPlan.draftsCreated', { count: ids.length }),
+      );
+      if (ids.length === 1) navigate(`/purchases/orders/${ids[0]}`);
+      else if (ids.length > 1) navigate('/purchases/orders');
+    },
+  });
 
-  const openDrafts = () => {
-    const purchases = new Map<string, PlanningLine[]>();
+  const openTransfers = () => {
     const transfers = new Map<string, PlanningLine[]>();
     for (const row of selectedRows) {
-      if (row.transferFromWarehouseId) {
-        const key = `${row.transferFromWarehouseId}:${row.warehouseId}`;
-        transfers.set(key, [...(transfers.get(key) ?? []), row]);
-      } else {
-        const key = String(row.supplierId ?? 'none');
-        purchases.set(key, [...(purchases.get(key) ?? []), row]);
-      }
+      if (!row.transferFromWarehouseId) continue;
+      const key = `${row.transferFromWarehouseId}:${row.warehouseId}`;
+      transfers.set(key, [...(transfers.get(key) ?? []), row]);
     }
     const next: Array<{ label: string; href: string }> = [];
-    for (const [supplierKey, lines] of purchases) {
-      const encoded = encodeURIComponent(JSON.stringify(lines.map((line) => ({
-        productId: line.productId,
-        qty: line.suggestedQty,
-      }))));
-      const supplierQuery = supplierKey === 'none' ? '' : `supplier=${supplierKey}&`;
-      next.push({
-        label: `${t('osPlan.purchaseFromSupplier')} · ${lines.length}`,
-        href: `/purchases/orders/new?${supplierQuery}lines=${encoded}`,
-      });
-    }
     for (const [key, lines] of transfers) {
       const [from, to] = key.split(':');
       const encoded = encodeURIComponent(JSON.stringify(lines.map((line) => ({
@@ -102,12 +102,27 @@ export function PurchasePlanningPage() {
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <PageTitle>{t('nav.purchasePlanning')}</PageTitle>
         {canDraft ? (
-          <Button variant="contained" disabled={selectedRows.length === 0} onClick={openDrafts}>
-            {t('osPlan.openDraft')}
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="contained"
+              disabled={selectedRows.every((row) => row.transferFromWarehouseId) || createDrafts.isPending}
+              onClick={() => createDrafts.mutate()}
+            >
+              {t('osPlan.openDraft')}
+            </Button>
+            <Button
+              variant="outlined"
+              disabled={!selectedRows.some((row) => row.transferFromWarehouseId)}
+              onClick={openTransfers}
+            >
+              {t('osPlan.openTransfer')}
+            </Button>
+          </Stack>
         ) : null}
       </Stack>
       <Typography variant="body2" color="text.secondary">{t('osPlan.planningHelp')}</Typography>
+      {notice ? <Typography>{notice}</Typography> : null}
+      {createDrafts.isError ? <Typography color="error">{getErrorMessage(createDrafts.error)}</Typography> : null}
       {drafts.length > 1 ? (
         <Stack direction="row" spacing={1} flexWrap="wrap">
           {drafts.map((draft) => (
@@ -184,6 +199,33 @@ export function PurchasePlanningPage() {
           </Table>
         </Paper>
       ) : null}
+      <Typography variant="subtitle1">{t('nav.demandForecast')}</Typography>
+      <Typography variant="body2" color="text.secondary">{t('osPlan.forecastHelp')}</Typography>
+      <Paper variant="outlined">
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>{t('common.product')}</TableCell>
+              <TableCell align="right">{t('osPlan.dailyRate')}</TableCell>
+              <TableCell>{t('osPlan.method')}</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {(forecast.data?.rows ?? []).map((row) => (
+              <TableRow key={row.productId}>
+                <TableCell>{row.productName}</TableCell>
+                <TableCell align="right">{row.dailyRate}</TableCell>
+                <TableCell>{row.method} · {row.windowDays}</TableCell>
+              </TableRow>
+            ))}
+            {(forecast.data?.rows ?? []).length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3}>{t('osPlan.forecastEmpty')}</TableCell>
+              </TableRow>
+            ) : null}
+          </TableBody>
+        </Table>
+      </Paper>
     </Stack>
   );
 }

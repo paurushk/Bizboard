@@ -67,7 +67,8 @@ test('lifecycle roles: cashier POS Paid, Owner return, cashier Returned, account
   await page.goto('/sales/history');
   const paidRow = page.getByRole('row').filter({ hasText: /Paid/ }).first();
   await expect(paidRow).toBeVisible();
-  const invoiceNumber = (await paidRow.locator('td').nth(1).textContent())?.trim();
+  const textCells = await paidRow.locator('td').allTextContents();
+  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
   expect(invoiceNumber).toMatch(/^INV-/);
 
   await page.goto('/sales/returns');

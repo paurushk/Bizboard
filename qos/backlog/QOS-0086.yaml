@@ -1,0 +1,29 @@
+id: QOS-0086
+category: BUSINESS_GAP
+title: Collections row must use invoice outstanding
+persona:
+- P1
+journey: Collections
+problem: The party total and the invoice outstanding are different helpers, and the collections row does not name which one it shows.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  detail: L4. Row balance is sales_invoice_outstanding. Customer total is customer_outstanding.
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 3
+  impact_band: Medium
+business_metric: none
+priority: P2
+priority_rationale: A clerk chasing the wrong balance collects the wrong amount.
+effort: S
+recommendation: Show days overdue, amount received, and sales_invoice_outstanding on each open invoice.
+test_required: Partial receipt. Row balance equals sales_invoice_outstanding.
+guard_ref:
+  test: backend/tests/test_llm_path_to_ten.py::test_open_invoice_row_uses_sales_invoice_outstanding
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

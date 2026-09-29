@@ -26,6 +26,8 @@ from masters.models import Product
 
 from .models import (
     BillOfEntry,
+    GoodsReceipt,
+    GoodsReceiptItem,
     PurchaseCreditNote,
     PurchaseDebitNote,
     PurchaseInvoice,
@@ -759,7 +761,37 @@ class PurchaseService:
 
             mark_period_dirty_if_snapshotted(invoice.company, invoice.invoice_date)
 
-        for item in items:
+        # Stock was already received (per product) when this bill was raised
+        # from a completed GRN. Posting PURCHASE again for that quantity would
+        # double on-hand and the FIFO layers -- but the draft bill can still be
+        # edited (a corrected quantity, or a line the GRN never covered)
+        # before Complete, and that extra quantity was never received, so it
+        # must still be posted. Track remaining already-received quantity per
+        # product rather than skipping the whole invoice.
+        grn_received_by_product: dict[int, Decimal] = {}
+        for row in GoodsReceiptItem.objects.filter(
+            goods_receipt__company_id=invoice.company_id,
+            goods_receipt__converted_purchase_id=invoice.pk,
+            goods_receipt__status=GoodsReceipt.Status.COMPLETED,
+        ).values("product_id", "quantity_accepted"):
+            pid = row["product_id"]
+            grn_received_by_product[pid] = grn_received_by_product.get(pid, Decimal("0")) + Decimal(
+                str(row["quantity_accepted"] or 0)
+            )
+
+        # DATA-01: Sort items deterministically to guarantee deadlock-free lock acquisition
+        sorted_items = sorted(
+            items,
+            key=lambda it: (
+                it.product_id or 0,
+                getattr(it, "batch_id", 0) or 0,
+                it.pk or 0,
+            ),
+        )
+        for item in sorted_items:
+            # Opening outstanding is a balance, not goods received.
+            if is_tally_opening:
+                break
             # CR-023: non-inventory / service lines do not move stock or require batch/serial tracking
             if not tracks_inventory(item.product):
                 continue
@@ -797,13 +829,29 @@ class PurchaseService:
                     unit_cost = _line_stock_cost(
                         item.product, item.unit_price, getattr(item, "unit_name", None)
                     )
+                # Only touch the posted quantity when this product actually
+                # had a GRN receipt against this invoice -- otherwise this
+                # must behave exactly as it always has (including
+                # post_movement's own validation of a zero/negative
+                # quantity). unit_cost above is deliberately computed from the
+                # full line, not the reduced post_qty, since taxable_amount is
+                # for the whole line.
+                already = grn_received_by_product.get(item.product_id, Decimal("0"))
+                post_qty = qty
+                if already > 0:
+                    qty_decimal = Decimal(str(qty)) if qty else Decimal("0")
+                    consumed = min(qty_decimal, already)
+                    grn_received_by_product[item.product_id] = already - consumed
+                    post_qty = qty_decimal - consumed
+                    if post_qty <= 0:
+                        continue
                 InventoryService.post_movement(
                     company=invoice.company,
                     warehouse=invoice.warehouse,
                     product=item.product,
                     batch=item.batch,
                     movement_type=MovementType.PURCHASE,
-                    quantity=qty,
+                    quantity=post_qty,
                     unit_cost=unit_cost,
                     reference_type="purchase_invoice",
                     reference_id=invoice.pk,

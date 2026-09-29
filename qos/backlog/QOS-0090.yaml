@@ -1,0 +1,29 @@
+id: QOS-0090
+category: BUSINESS_GAP
+title: Portal customer cannot file a complaint
+persona:
+- P1
+journey: Complaint
+problem: Only staff can create a complaint. The magic-link portal has no complaint write, length cap, or throttle.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  detail: L8. Flag off stays 404. Description max 2000. Throttle customer_portal_complaint at 10/hour.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: The customer-submitted case is the gap. The staff credit-note path already exists.
+effort: M
+recommendation: Portal create via wrap_idempotent scope portal_complaint_create. Not a money scope.
+test_required: Flag off 404. Repeat key returns the same complaint. Over-long description is 400.
+guard_ref:
+  test: backend/tests/test_llm_path_to_ten.py::test_portal_complaint_is_idempotent_and_length_capped
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

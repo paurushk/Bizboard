@@ -78,7 +78,7 @@ test('golden path: sale and purchase against a non-default godown never touch th
   // row: the first is the free-text "Description (optional)" field right
   // above it (see components/billing/DraftLineTable.tsx).
   const purchaseRow = page.getByRole('row', { name: new RegExp(productName) });
-  await purchaseRow.locator('input').nth(1).fill('5');
+  await purchaseRow.getByRole('textbox', { name: /qty/i }).fill('5');
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/purchases\/history/);
 

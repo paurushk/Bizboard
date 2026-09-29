@@ -28,6 +28,7 @@ class GoodsReceiptService:
     @staticmethod
     @transaction.atomic
     def complete(grn: GoodsReceipt, user) -> GoodsReceipt:
+        grn = GoodsReceipt.objects.select_for_update().get(pk=grn.pk)
         if grn.status != GoodsReceipt.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete GRN in status '{grn.status}'.")
 
@@ -99,11 +100,13 @@ class GoodsReceiptService:
         from .services import PurchaseService
         items_data = []
         for item in grn.items.select_related("product").all():
-            qty = Decimal(str(item.quantity_accepted or item.quantity_received or 0))
+            # Bill only accepted quantity. A zero here means the line was
+            # rejected; do not fall through to quantity_received.
+            qty = Decimal(str(item.quantity_accepted or 0))
             if qty <= 0:
                 continue
             price = Decimal(str(item.unit_price or getattr(item.product, "purchase_price", 0) or 0))
-            gst_rate = Decimal(str(getattr(item.product, "tax_rate", 0) or 0))
+            gst_rate = Decimal(str(getattr(item.product, "gst_rate", 0) or 0))
 
             items_data.append({
                 "product": item.product,
@@ -123,6 +126,7 @@ class GoodsReceiptService:
     @staticmethod
     @transaction.atomic
     def cancel(grn: GoodsReceipt, user) -> GoodsReceipt:
+        grn = GoodsReceipt.objects.select_for_update().get(pk=grn.pk)
         if grn.status == GoodsReceipt.Status.CANCELLED:
             raise BusinessRuleError("GRN is already cancelled.")
 

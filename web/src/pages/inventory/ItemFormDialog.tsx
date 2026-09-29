@@ -79,6 +79,7 @@ interface FormState {
   hsnCode: string;
   description: string;
   gstRate: string;
+  gstSupplyForm: string;
   cessRate: string;
   cessAmount: string;
   purchasePrice: string;
@@ -140,6 +141,7 @@ function buildForm(
     hsnCode: product?.hsnCode ?? '',
     description: product?.description ?? '',
     gstRate: String(product?.gstRate ?? '18'),
+    gstSupplyForm: product?.gstSupplyForm ?? '',
     cessRate: String(product?.cessRate ?? '0'),
     cessAmount: String(product?.cessAmount ?? '0'),
     purchasePrice: String(product?.purchasePrice ?? '0'),
@@ -171,7 +173,7 @@ interface Props {
   product: Product | null;
   existingNames: string[];
   onClose: () => void;
-  onSaved: (keepOpen: boolean) => void;
+  onSaved: (keepOpen: boolean, rateNotice?: string) => void;
 }
 
 export function ItemFormDialog({ open, product, existingNames, onClose, onSaved }: Props) {
@@ -388,6 +390,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
         hsnCode: form.hsnCode.trim() || undefined,
         description: form.description.trim() || undefined,
         gstRate: normalizeGstRate(Number(form.gstRate) || 0),
+        gstSupplyForm: form.gstSupplyForm,
         cessRate: Number(form.cessRate) || 0,
         cessAmount: Number(form.cessAmount) || 0,
         purchasePrice: Number(form.purchasePrice),
@@ -415,6 +418,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
         );
       }
       const saved = product ? await updateProduct(product.id, payload) : await createProduct(payload);
+      const rateNotice = String((saved as { gstRateNotice?: string }).gstRateNotice || '');
       if (!product && !isService && form.trackInventory) {
         try {
           const defaultCost = Number(form.purchasePrice) > 0 ? Number(form.purchasePrice) : undefined;
@@ -474,13 +478,13 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
           throw new Error(`Item saved, but opening stock failed: ${getErrorMessage(err)}`);
         }
       }
-      return keepOpen;
+      return { keepOpen, rateNotice };
     },
-    onSuccess: (keepOpen) => {
+    onSuccess: ({ keepOpen, rateNotice }) => {
       void qc.invalidateQueries({ queryKey: ['products'] });
       void qc.invalidateQueries({ queryKey: ['products-count'] });
       void qc.invalidateQueries({ queryKey: ['stock'] });
-      onSaved(keepOpen);
+      onSaved(keepOpen, rateNotice);
       if (keepOpen) {
         // F3-015: reset the dirty baseline along with the form — otherwise the
         // fresh blank form reads as "dirty" against the just-saved product's data.
@@ -1031,6 +1035,16 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                 value={form.wholesalePrice}
                 onChange={(e) => setForm((current) => ({ ...current, wholesalePrice: e.target.value }))}
               />
+              <TextField
+                select
+                label={t('billing.gstSupplyForm')}
+                value={form.gstSupplyForm}
+                onChange={(e) => setForm((current) => ({ ...current, gstSupplyForm: e.target.value }))}
+              >
+                <MenuItem value="">{t('billing.gstSupplyUnset')}</MenuItem>
+                <MenuItem value="UNBRANDED">{t('billing.gstSupplyUnbranded')}</MenuItem>
+                <MenuItem value="BRANDED_PREPACKED">{t('billing.gstSupplyBranded')}</MenuItem>
+              </TextField>
               <TextField select label="GST rate" value={form.gstRate} onChange={(e) => setForm((current) => ({ ...current, gstRate: e.target.value }))}>
                 {/* F3-012: if an HSN picker (or a legacy product) set a rate not
                     in the standard slabs, still render it as an option so the

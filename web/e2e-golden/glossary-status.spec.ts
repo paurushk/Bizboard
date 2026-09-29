@@ -45,7 +45,8 @@ test('glossary: POS Paid ≠ invoice Completed ≠ Returned on the same tenant',
   const completedRow = page.getByRole('row', { name: new RegExp(customerName) });
   await expect(completedRow).toContainText('Completed');
   await expect(completedRow).not.toContainText('Paid');
-  const invoiceNumber = (await completedRow.locator('td').nth(1).textContent())?.trim();
+  const textCells = await completedRow.locator('td').allTextContents();
+  const invoiceNumber = textCells.map(c => c.trim()).find(c => /^INV-/.test(c));
   expect(invoiceNumber).toMatch(/^INV-/);
 
   await expect(page.getByRole('row').filter({ hasText: /Paid/ }).first()).toBeVisible();

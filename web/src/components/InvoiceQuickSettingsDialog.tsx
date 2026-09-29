@@ -84,7 +84,7 @@ function DefEditor({
           variant="outlined"
           disabled={!label.trim()}
           onClick={() => {
-            let key = suggestCustomFieldKey(label);
+            const key = suggestCustomFieldKey(label);
             if (!key) return;
             const used = new Set(defs.map((d) => d.key.toLowerCase()));
             let n = 2;

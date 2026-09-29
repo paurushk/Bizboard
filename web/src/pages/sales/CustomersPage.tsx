@@ -55,6 +55,8 @@ const emptyForm = {
   state: '',
   billingAddress: '',
   pincode: '',
+  latitude: '',
+  longitude: '',
   whatsappOptIn: false,
   dunningOptOut: false,
   priceList: '' as number | '',
@@ -130,10 +132,17 @@ export function CustomersPage() {
       if (gstin && !isValidGstin(gstin)) {
         throw new Error('Enter a valid 15-character GSTIN.');
       }
+      const latitude = form.latitude.trim();
+      const longitude = form.longitude.trim();
+      if ((latitude === '') !== (longitude === '')) {
+        throw new Error(t('osPlan.coordinatesPair'));
+      }
       const payload = {
         ...form,
         gstin: gstin || form.gstin,
         priceList: form.priceList === '' ? null : form.priceList,
+        latitude: latitude || null,
+        longitude: longitude || null,
       };
       if (editing) return updateCustomer(editing.id, payload);
       return createCustomer({ ...payload, status: 'ACTIVE' });
@@ -178,6 +187,8 @@ export function CustomersPage() {
       state: c.state ?? '',
       billingAddress: c.billingAddress ?? '',
       pincode: c.pincode ?? '',
+      latitude: c.latitude ?? '',
+      longitude: c.longitude ?? '',
       whatsappOptIn: Boolean(c.whatsappOptIn),
       dunningOptOut: Boolean(c.dunningOptOut),
       priceList: c.priceList ?? '',
@@ -488,6 +499,18 @@ export function CustomersPage() {
               value={form.pincode}
               onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value }))}
               inputProps={{ maxLength: 10 }}
+            />
+            <TextField
+              label={t('osPlan.latitude')}
+              value={form.latitude}
+              onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))}
+              inputProps={{ inputMode: 'decimal' }}
+            />
+            <TextField
+              label={t('osPlan.longitude')}
+              value={form.longitude}
+              onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))}
+              inputProps={{ inputMode: 'decimal' }}
             />
             <TextField
               label="Billing address"

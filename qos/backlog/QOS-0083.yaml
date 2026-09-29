@@ -1,0 +1,29 @@
+id: QOS-0083
+category: BUSINESS_GAP
+title: Second Tally commit must not add opening stock
+persona:
+- P1
+journey: Leaving Tally
+problem: A second commit of the same Tally import is refused in code, and no test checks that opening quantity stays the same.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  detail: L1. commit_tally_preview raises Already committed. The opening-qty assertion is missing.
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: Duplicate opening stock is a books error on the one company granted Tally.
+effort: S
+recommendation: Add the second-commit test named in L1. Fix the commit path only if on-hand changes.
+test_required: Second commit of one opening quantity leaves on-hand unchanged.
+guard_ref:
+  test: backend/tests/test_llm_path_to_ten.py::test_second_tally_commit_does_not_change_opening_quantity
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

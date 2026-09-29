@@ -38,6 +38,11 @@ test('invite token: accept lands inside the tenant', async ({ page }) => {
   }
   await page.getByLabel('New password').fill(password);
   await page.getByRole('button', { name: 'Activate account' }).click();
+  await expect(page).not.toHaveURL(/\/invite/, { timeout: 20_000 });
+  if (page.url().includes('/login')) {
+    await page.getByLabel('Password', { exact: true }).fill(password);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+  }
   await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible({
     timeout: 20_000,
   });

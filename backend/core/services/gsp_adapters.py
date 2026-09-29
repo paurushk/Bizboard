@@ -8,9 +8,7 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
-import hmac
 import json
 import logging
 import urllib.error
@@ -210,6 +208,39 @@ def verify_signed_qr_ack(irn: str, ack_no: str, einvoice_qr: str) -> None:
         raise BusinessRuleError("SignedQRCode irn does not match Irn.")
 
 
+def plain_gsp_error(raw: str) -> str:
+    """Partner codes become one sentence a booker and a CA can both read."""
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    known = {
+        "2150": (
+            "This document already has an IRN. Use the IRN already stored on it.",
+            "इस दस्तावेज़ पर IRN पहले से है। वही IRN उपयोग करें।",
+        ),
+        "2172": (
+            "The buyer GSTIN is not active. Correct the GSTIN before filing.",
+            "खरीदार का GSTIN सक्रिय नहीं है। फाइल करने से पहले GSTIN ठीक करें।",
+        ),
+        "2176": (
+            "The HSN on a line is not valid for this invoice date.",
+            "किसी पंक्ति का HSN इस चालान की तारीख के लिए मान्य नहीं है।",
+        ),
+        "3028": (
+            "The e-way bill needs a vehicle number and a distance.",
+            "ई-वे बिल के लिए वाहन नंबर और दूरी चाहिए।",
+        ),
+        "404": (
+            "The GST portal has no IRN for this document number yet.",
+            "इस दस्तावेज़ नंबर का IRN पोर्टल पर अभी नहीं है।",
+        ),
+    }
+    for code, (english, hindi) in known.items():
+        if code in text:
+            return f"{english} / {hindi}"
+    return text[:500]
+
+
 def verify_irn_result(result: IrnResult) -> None:
     verify_signed_qr_ack(result.irn, result.ack_no, result.einvoice_qr)
 
@@ -341,42 +372,34 @@ def wrap_irp_payload(payload: dict, *, company=None, creds: dict | None = None) 
 
     - cleartax: ``{"Data": [payload]}``
     - mastergst: passthrough
-    - custom: JSON-encode + HMAC-SHA256 placeholder. This is **not** NIC SEK/AES
-      encryption — a certified GSP integration must replace this hook with real
-      session-key wrapping before ``GSP_CERTIFIED=1`` is signed off in production.
+    - custom: NIC e-Invoice API 1.04 ``{"Data": "<base64 AES-ECB>"}`` under the
+      SEK stored in the encrypted GSP credential blob. No SEK means refuse —
+      the old HMAC placeholder is not sent.
     """
+    from core.services.nic_irp_crypto import sek_bytes, wrap_nic_invoice_data
+
     provider = resolve_gsp_provider(company)
     if provider == "cleartax":
         return {"Data": [payload]}
     if provider == "mastergst":
         return payload
-    blob = json.dumps(payload, sort_keys=True, default=str).encode()
-    secret = ""
-    if creds:
-        secret = str(
-            creds.get("api_secret") or creds.get("client_secret") or creds.get("api_key") or ""
+    sek = sek_bytes((creds or {}).get("sek") or (creds or {}).get("irp_sek"))
+    if sek is None:
+        raise BusinessRuleError(
+            "Custom IRP provider requires an AES SEK in the encrypted GSP credentials "
+            "(key 'sek', base64). Refusing to send an unencrypted or HMAC-placeholder payload."
         )
-    mac = hmac.new(
-        (secret or "bizboard-gsp-hmac-placeholder").encode(),
-        blob,
-        hashlib.sha256,
-    ).hexdigest()
-    return {
-        "payload": payload,
-        "payload_b64": base64.b64encode(blob).decode(),
-        "hmac_sha256": mac,
-        "encryption": "hmac-placeholder-not-nic-sek",
-    }
+    return wrap_nic_invoice_data(payload, sek)
 
 
 def _live_irp_url(base: str, action: str, provider: str) -> str:
     base = base.rstrip("/")
     if provider == "cleartax":
-        return f"{base}/v2/eInvoice/{'generate' if action == 'submit' else 'cancel'}"
+        return f"{base}/v2/eInvoice/{'generate' if action == 'submit' else 'cancel' if action == 'cancel' else 'get'}"
     if provider == "mastergst":
-        kind = "GENERATE" if action == "submit" else "CANCEL"
+        kind = {"submit": "GENERATE", "cancel": "CANCEL"}.get(action, "GETIRNBYDOC")
         return f"{base}/einvoice/type/{kind}/version/V1_03"
-    return f"{base}/irp/invoice" if action == "submit" else f"{base}/irp/cancel"
+    return f"{base}/irp/invoice" if action == "submit" else f"{base}/irp/cancel" if action == "cancel" else f"{base}/irp/invoice"
 
 
 def _live_eway_url(base: str, action: str, provider: str) -> str:
@@ -390,6 +413,10 @@ def _live_eway_url(base: str, action: str, provider: str) -> str:
 
 
 class SandboxIrpAdapter:
+    def lookup_by_doc(self, doc_no: str) -> IrnResult | None:
+        """Sandbox has no partner to query. Live adapters override this."""
+        return None
+
     def submit(self, payload: dict) -> IrnResult:
         blob = json.dumps(payload, sort_keys=True, default=str).encode()
         digest = hashlib.sha256(blob).hexdigest()
@@ -507,6 +534,19 @@ class HttpSandboxIrpAdapter:
             {"irn": irn, "CnlRsn": cnl_rsn, "CnlRem": cnl_rem},
         )
 
+    def lookup_by_doc(self, doc_no: str) -> IrnResult | None:
+        if not self.base or not (doc_no or "").strip():
+            return None
+        try:
+            raw = _http_json("GET", f"{self.base}/irp/invoice?doc_no={doc_no}", None)
+        except BusinessRuleError as exc:
+            if "404" in str(exc):
+                return None
+            raise
+        if not isinstance(raw, dict) or not (raw.get("Irn") or raw.get("irn")):
+            return None
+        return irn_result_from_provider_response(raw)
+
 
 class HttpSandboxEwayAdapter:
     def __init__(self, company):
@@ -544,17 +584,25 @@ class LiveIrpAdapter:
                 "Live IRP adapter requires GSP_LIVE_ENABLED=1 and GSP_CERTIFIED=1. "
                 "Disable GSP_LIVE_ENABLED in production until a certified GSP ships."
             )
-        # B7-004: the "custom" provider's payload wrapper is an HMAC
-        # placeholder (wrap_irp_payload), not real NIC SEK/AES session-key
-        # encryption -- refuse it live rather than silently shipping
-        # unencrypted-as-required data to an IRP endpoint under a
-        # `GSP_CERTIFIED=1` sign-off that never actually covered "custom".
-        if _django_env() in ("production", "staging") and resolve_gsp_provider(company) == "custom":
-            raise BusinessRuleError(
-                "Live IRP adapter refuses provider='custom' -- its payload wrapper is an "
-                "HMAC placeholder, not real NIC SEK/AES encryption. Configure a certified "
-                "GSP_PROVIDER (cleartax/mastergst) or implement real SEK wrapping first."
-            )
+        # Custom is allowed only when the credential blob already holds a SEK.
+        # GSP_LIVE_ENABLED and GSP_CERTIFIED are still required above. A missing
+        # SEK is a hard stop — there is no HMAC fallback.
+        if resolve_gsp_provider(company) == "custom":
+            from core.services.nic_irp_crypto import sek_bytes
+
+            creds = {}
+            try:
+                creds = decrypt_gsp_credentials(
+                    getattr(company, "gsp_credentials_encrypted", "") or ""
+                )
+            except Exception:
+                creds = {}
+            if sek_bytes((creds or {}).get("sek") or (creds or {}).get("irp_sek")) is None:
+                raise BusinessRuleError(
+                    "Live IRP adapter refuses provider='custom' without an AES SEK in "
+                    "the encrypted GSP credentials. NIC e-Invoice API 1.04 wrapping is "
+                    "implemented; it does not run until that key is present."
+                )
 
     def _base(self) -> str:
         return (getattr(settings, "GSP_LIVE_BASE_URL", None) or "").rstrip("/")
@@ -593,6 +641,24 @@ class LiveIrpAdapter:
             {"irn": irn, "CnlRsn": cnl_rsn, "CnlRem": cnl_rem},
             headers=headers,
         )
+
+    def lookup_by_doc(self, doc_no: str) -> IrnResult | None:
+        doc_no = (doc_no or "").strip()
+        if not doc_no:
+            return None
+        base = self._base()
+        headers = self._headers()
+        provider = resolve_gsp_provider(self.company)
+        url = _live_irp_url(base, "lookup", provider)
+        try:
+            raw = _http_json("GET", f"{url}?doc_no={doc_no}", None, headers=headers)
+        except BusinessRuleError as exc:
+            if "404" in str(exc):
+                return None
+            raise
+        if not isinstance(raw, dict) or not (raw.get("Irn") or raw.get("irn")):
+            return None
+        return irn_result_from_provider_response(raw)
 
 
 class LiveEwayAdapter:

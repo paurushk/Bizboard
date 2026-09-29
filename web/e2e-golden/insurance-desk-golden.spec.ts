@@ -1,0 +1,57 @@
+import { expect, test } from '@playwright/test';
+import { createCustomer, registerTenant, unique } from './helpers/documents';
+import { grantRolloutFlag } from './helpers/grantFlag';
+
+test('a policy desk user issues a policy in the browser', async ({ page }) => {
+  test.setTimeout(180_000);
+  const id = unique();
+  const ownerEmail = `e2e-ins-${id}@example.test`;
+  const deskEmail = `e2e-desk-${id}@example.test`;
+  const customerName = `Policy Customer ${id}`;
+  const password = 'GoldenPath123!';
+  await registerTenant(page, { companyName: `E2E Policy ${id}`, email: ownerEmail, password });
+  grantRolloutFlag(ownerEmail, 'ENABLE_INSURANCE');
+  await page.goto('/insurance');
+  await expect(page.getByText('This module is not on yet')).toBeVisible();
+
+  await createCustomer(page, { name: customerName });
+  await page.goto('/settings/users');
+  await page.getByRole('button', { name: 'Invite user' }).click();
+  await page.getByLabel('Email').fill(deskEmail);
+  await page.getByLabel('Password').fill(password);
+  await page.getByLabel('Role').click();
+  await page.getByRole('option', { name: 'Policy desk' }).click();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Account created. They can sign in with the email and password you set.')).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page).toHaveURL(/\/login/, { timeout: 20_000 });
+  await page.getByLabel('Email').fill(deskEmail);
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible({ timeout: 20_000 });
+
+  await page.goto('/insurance');
+  await page.getByRole('textbox', { name: 'Product', exact: true }).fill(`Motor A ${id}`);
+  await page.getByLabel('Insurer').fill('Insurer A');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByText(`Motor A ${id}`)).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('textbox', { name: 'Product', exact: true }).fill(`Motor B ${id}`);
+  await page.getByLabel('Insurer').fill('Insurer B');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByText(`Motor B ${id}`)).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('checkbox', { name: `Motor A ${id}` }).check();
+  await page.getByRole('checkbox', { name: `Motor B ${id}` }).check();
+  await page.getByLabel('Prospect').fill(`Prospect ${id}`);
+  await page.getByRole('button', { name: 'Save prospect' }).click();
+  const offer = page.getByRole('button', { name: 'Offer options' });
+  await expect(offer).toBeEnabled({ timeout: 15_000 });
+  await offer.click();
+  await page.getByRole('button', { name: `Choose Motor A ${id}` }).click();
+  await expect(page.getByRole('button', { name: `Chosen Motor A ${id}` })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('combobox', { name: 'Customer', exact: true }).fill(customerName);
+  await page.getByRole('option', { name: new RegExp(customerName) }).click();
+  await page.getByLabel('Nominee').fill('Anita');
+  await page.getByRole('button', { name: 'Issue policy' }).click();
+  await expect(page.getByText(/POL-|IN FORCE|in_force|IN_FORCE/)).toBeVisible({ timeout: 20_000 });
+});

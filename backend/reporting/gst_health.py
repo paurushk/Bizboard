@@ -18,7 +18,7 @@ from sales.models import DeliveryChallan, SalesCreditNote, SalesDebitNote, Sales
 from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
 from .gst_returns import (
-    EINVOICE_AATO_THRESHOLD,
+    einvoice_aato_threshold,
     GST_INVOICE_TYPES,
     invoice_value_mismatch,
     parse_period,
@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 # Alias kept for callers/tests — same ₹5cr AATO as e-Invoice (GSTR-14).
-HSN_6_DIGIT_AATO = EINVOICE_AATO_THRESHOLD
+# Default used by older callers. Live checks call einvoice_aato_threshold().
+HSN_6_DIGIT_AATO = Decimal("50000000")
 
 
 def hsn_digits_insufficient_for_turnover(hsn: str, aato, *, is_b2b: bool = False) -> bool:
@@ -44,7 +45,7 @@ def hsn_digits_insufficient_for_turnover(hsn: str, aato, *, is_b2b: bool = False
         turnover = Decimal(str(aato)) if aato is not None else Decimal("0")
     except Exception:
         turnover = Decimal("0")
-    if turnover >= EINVOICE_AATO_THRESHOLD:
+    if turnover >= einvoice_aato_threshold():
         return len(code) < 6
     if is_b2b:
         return len(code) < 4
@@ -57,6 +58,54 @@ def _alert(code, severity, message, **extra):
     return row
 
 
+def gstin_format_and_status(gstin: str, lookup_cache: dict) -> dict:
+    """Pure GSTIN format/checksum + live-status classification.
+
+    Shared by ``_buyer_gstin_guard`` below (the read-time ``build_gst_health``
+    report) and ``reporting.gst_guard.validate_document`` (the write-time
+    pre-submission validator) so the checksum/status decision lives in exactly
+    one place. Neither flag-gates nor logs — callers own that.
+
+    ``lookup_cache`` holds a per-run ``"provider"`` key plus one cached
+    lookup result per GSTIN, exactly like ``build_gst_health``'s
+    ``buyer_gstin_cache`` — callers processing many documents in one run
+    still hit the live provider once per unique GSTIN.
+
+    Returns ``{"outcome": ...}`` where outcome is one of:
+      "blank"          — nothing to check
+      "format_invalid" — checksum/format failed
+      "no_provider"    — no live GSTIN provider configured; skip
+      "unverified"     — provider returned UNVERIFIED; skip
+      "inactive"       — status is INVALID/CANCELLED/SUSPENDED (adds "status")
+      "ok"             — format valid and no disqualifying live status
+    """
+    from django.core.exceptions import ValidationError
+
+    from core.services.gstin_verify import NullGstinProvider, get_gstin_provider
+    from core.validators import validate_gstin
+
+    gstin = (gstin or "").strip().upper()
+    if not gstin:
+        return {"outcome": "blank"}
+    try:
+        validate_gstin(gstin)
+    except ValidationError:
+        return {"outcome": "format_invalid"}
+    if "provider" not in lookup_cache:
+        lookup_cache["provider"] = get_gstin_provider()
+    provider = lookup_cache["provider"]
+    if isinstance(provider, NullGstinProvider):
+        return {"outcome": "no_provider"}
+    if gstin not in lookup_cache:
+        lookup_cache[gstin] = provider.lookup(gstin)
+    status = (getattr(lookup_cache[gstin], "status", "") or "").upper()
+    if status == "UNVERIFIED":
+        return {"outcome": "unverified"}
+    if status in {"INVALID", "CANCELLED", "SUSPENDED"}:
+        return {"outcome": "inactive", "status": status}
+    return {"outcome": "ok"}
+
+
 def _buyer_gstin_guard(company, inv, party_gstin, lookup_cache: dict) -> list[dict]:
     """COMP-006: buyer GSTIN format/checksum and live status. Flag-gated.
 
@@ -64,11 +113,7 @@ def _buyer_gstin_guard(company, inv, party_gstin, lookup_cache: dict) -> list[di
     Only ``INVALID`` / ``CANCELLED`` / ``SUSPENDED`` alert. Does not write
     ``Customer.gstin_verification_status`` — this runs on a read.
     """
-    from django.core.exceptions import ValidationError
-
     from core.services.feature_flags import flag_enabled
-    from core.services.gstin_verify import NullGstinProvider, get_gstin_provider
-    from core.validators import validate_gstin
 
     if not flag_enabled(company, "ENABLE_GST_GUARD"):
         return []
@@ -77,9 +122,9 @@ def _buyer_gstin_guard(company, inv, party_gstin, lookup_cache: dict) -> list[di
     gstin = (party_gstin or "").strip().upper()
     if not gstin:
         return []
-    try:
-        validate_gstin(gstin)
-    except ValidationError:
+    result = gstin_format_and_status(gstin, lookup_cache)
+    outcome = result["outcome"]
+    if outcome == "format_invalid":
         log_flag_event(
             company,
             "ENABLE_GST_GUARD",
@@ -96,10 +141,7 @@ def _buyer_gstin_guard(company, inv, party_gstin, lookup_cache: dict) -> list[di
             document_id=inv.id,
             number=inv.number,
         )]
-    if "provider" not in lookup_cache:
-        lookup_cache["provider"] = get_gstin_provider()
-    provider = lookup_cache["provider"]
-    active_status = "skipped" if isinstance(provider, NullGstinProvider) else "checked"
+    active_status = "skipped" if outcome == "no_provider" else "checked"
     log_flag_event(
         company,
         "ENABLE_GST_GUARD",
@@ -107,26 +149,23 @@ def _buyer_gstin_guard(company, inv, party_gstin, lookup_cache: dict) -> list[di
         check="format",
         active_status=active_status,
     )
-    if isinstance(provider, NullGstinProvider):
+    if outcome == "no_provider":
         logger.info(
             "GST guard skipped active-GSTIN check for invoice %s: no live provider",
             inv.id,
         )
         return []
-    if gstin not in lookup_cache:
-        lookup_cache[gstin] = provider.lookup(gstin)
-    status = (getattr(lookup_cache[gstin], "status", "") or "").upper()
-    if status == "UNVERIFIED":
+    if outcome == "unverified":
         logger.info(
             "GST guard skipped active-GSTIN check for invoice %s: provider returned UNVERIFIED",
             inv.id,
         )
         return []
-    if status in {"INVALID", "CANCELLED", "SUSPENDED"}:
+    if outcome == "inactive":
         return [_alert(
             "GSTIN_INACTIVE",
             "critical",
-            f"Invoice {inv.number}: buyer GSTIN '{gstin}' status is {status}.",
+            f"Invoice {inv.number}: buyer GSTIN '{gstin}' status is {result['status']}.",
             document_type="sales_invoice",
             document_id=inv.id,
             number=inv.number,
@@ -214,7 +253,7 @@ def build_gst_health(company, period: str | None = None) -> dict:
 
     # E-Invoice mandatory by AATO
     aato = company.aato_turnover
-    if aato is not None and aato >= EINVOICE_AATO_THRESHOLD and not company.einvoice_enabled:
+    if aato is not None and aato >= einvoice_aato_threshold() and not company.einvoice_enabled:
         alerts.append(_alert(
             "EINVOICE_MANDATORY_NOT_ENABLED", "critical",
             f"AATO {aato} exceeds e-Invoice threshold but einvoice_enabled is false.",
@@ -254,7 +293,7 @@ def build_gst_health(company, period: str | None = None) -> dict:
                 party_gstin = (inv.filing_party_gstin or inv.customer.gstin or "").strip()
                 is_b2b = bool(party_gstin)
                 if hsn_digits_insufficient_for_turnover(hsn, aato, is_b2b=is_b2b):
-                    need = "6" if (aato is not None and Decimal(str(aato)) >= EINVOICE_AATO_THRESHOLD) else "4"
+                    need = "6" if (aato is not None and Decimal(str(aato)) >= einvoice_aato_threshold()) else "4"
                     alerts.append(_alert(
                         "HSN_DIGITS_INSUFFICIENT", "warning",
                         f"Invoice {inv.number} line {idx}: HSN '{hsn}' may need {need} digits "

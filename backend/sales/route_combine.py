@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 
 from core.permissions import HasCompany, get_company_user
 from core.services.feature_flags import flag_enabled
-from sales.models import DeliveryRouteStop
+from sales.models import DeliveryRoute, DeliveryRouteStop
 
 
 def combine_suggestions(company) -> list[dict] | None:
@@ -20,6 +20,10 @@ def combine_suggestions(company) -> list[dict] | None:
         DeliveryRouteStop.objects.filter(
             company=company,
             status=DeliveryRouteStop.StopStatus.PENDING,
+            # A stop's own status doesn't change once its route dispatches or
+            # closes, so without this a stop on a COMPLETED/CANCELLED route
+            # would be suggested for combining forever.
+            route__status=DeliveryRoute.Status.PLANNED,
         )
         .select_related("sales_order", "sales_order__customer", "route")
     )

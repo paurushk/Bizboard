@@ -1,0 +1,29 @@
+id: QOS-0088
+category: BUSINESS_GAP
+title: Won lead does not yet produce one draft invoice
+persona:
+- P2
+journey: Lead to invoice
+problem: convert_lead reuses a customer and does not create the sales invoice.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  detail: L6. Use existing sales_invoice_create idempotency. No new scope.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: Retyping the party is the gap. The convert path already exists.
+effort: S
+recommendation: Draft invoice for the converted customer, same Idempotency-Key returns that draft.
+test_required: One customer, one invoice, including a PostgreSQL double-submit race.
+guard_ref:
+  test: backend/tests/test_llm_path_to_ten.py::test_won_lead_creates_one_draft_invoice
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

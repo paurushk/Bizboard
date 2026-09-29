@@ -460,6 +460,13 @@ class RegisterView(APIView):
                     gstin=data.get("gstin", ""),
                     valuation_business_date_order=True,
                     recompute_tax_on_complete=True,
+                    # Nothing exists to back-fill on a new company, so books
+                    # start on. Opening stock posted after this hits the GL.
+                    accounting_enabled=True,
+                    feature_flags={
+                        "ENABLE_ARCHETYPE_PACKS": True,
+                        "NAV_PACK_DEFAULT": True,
+                    },
                 )
                 CompanyUser.objects.create(
                     company=company, user=user, role=CompanyUser.Role.OWNER,
@@ -471,6 +478,9 @@ class RegisterView(APIView):
                 from inventory.services import InventoryService
 
                 InventoryService.default_warehouse(company)
+                from accounting.services import seed_chart_of_accounts
+
+                seed_chart_of_accounts(company, user)
                 if getattr(settings, "REQUIRE_SUBSCRIPTION", False):
                     from billing.services import ensure_register_trial
 
@@ -1050,7 +1060,7 @@ class AcceptInviteView(APIView):
                 )
                 .first()
             )
-            if not membership:
+            if not membership or getattr(membership.company, "erased_at", None):
                 raise ValidationError({"token": "Invite is no longer valid."})
             if not jti:
                 raise ValidationError({"token": "Invite token is missing a jti and cannot be accepted."})
@@ -1260,7 +1270,7 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
         return self.queryset.filter(company=get_company_user(self.request).company)
 
     def create(self, request, *args, **kwargs):
-        serializer = InviteUserSerializer(data=request.data)
+        serializer = InviteUserSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         company = get_company_user(request).company
@@ -1382,6 +1392,9 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             instance.is_active = False
             instance.save(update_fields=["is_active"])
+            InviteJti.objects.filter(membership=instance, consumed_at__isnull=True).update(
+                consumed_at=timezone.now()
+            )
             _revoke_sessions_if_last_active_membership(instance.user)
         AuditService.log(company=instance.company, user=self.request.user, action="DELETE",
                          entity_type="CompanyUser", entity_id=instance.pk, description="Deactivated")
@@ -1553,6 +1566,9 @@ class RequestPasswordResetView(APIView):
                     if user.active_company_id
                     else None
                 )
+                if membership is not None and not membership.is_active:
+                    if not membership.invite_jtis.filter(consumed_at__isnull=True).exists():
+                        membership = None
                 if membership is None:
                     membership = (
                         CompanyUser.objects.filter(user=user, is_active=True)
@@ -1562,7 +1578,11 @@ class RequestPasswordResetView(APIView):
                     )
                 if membership is None:
                     membership = (
-                        CompanyUser.objects.filter(user=user)
+                        CompanyUser.objects.filter(
+                            user=user,
+                            is_active=False,
+                            invite_jtis__consumed_at__isnull=True,
+                        )
                         .select_related("company")
                         .order_by("id")
                         .first()

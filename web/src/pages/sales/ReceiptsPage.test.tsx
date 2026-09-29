@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ReceiptsPage } from '@/pages/sales/ReceiptsPage';
 import type { CustomerReceipt } from '@/types/domain';
 
-const { RECEIPT, setReceiptChequeStatus } = vi.hoisted(() => {
+const { RECEIPT, setReceiptChequeStatus, voidReceipt } = vi.hoisted(() => {
   const receipt: CustomerReceipt = {
     id: 44,
     number: 'RCT-0001',
@@ -30,6 +30,10 @@ const { RECEIPT, setReceiptChequeStatus } = vi.hoisted(() => {
       ...receipt,
       chequeStatus: 'CLEARED',
     })),
+    voidReceipt: vi.fn(async () => ({
+      ...receipt,
+      status: 'VOID',
+    })),
   };
 });
 
@@ -50,7 +54,7 @@ vi.mock('@/api/resources', () => ({
   listSalesInvoicesPage: async () => ({ results: [], count: 0, next: null, previous: null }),
   createReceipt: vi.fn(),
   createAllocation: vi.fn(),
-  voidReceipt: vi.fn(),
+  voidReceipt: (...args: unknown[]) => voidReceipt(...args),
   setReceiptChequeStatus: (...args: unknown[]) =>
     setReceiptChequeStatus(...(args as [number, string])),
 }));
@@ -71,5 +75,16 @@ describe('ReceiptsPage cheque status', () => {
     expect(screen.getByText(/PENDING_CLEARANCE/)).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: /mark cleared/i }));
     expect(setReceiptChequeStatus).toHaveBeenCalledWith(44, 'CLEARED');
+  });
+
+  it('triggers void receipt after user confirmation', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    wrap(<ReceiptsPage />);
+    expect(await screen.findByText('RCT-0001')).toBeTruthy();
+    const voidBtn = screen.getByRole('button', { name: /^void$/i });
+    await userEvent.click(voidBtn);
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(voidReceipt).toHaveBeenCalledWith(44);
+    confirmSpy.mockRestore();
   });
 });

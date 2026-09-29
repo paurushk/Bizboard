@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from django.db.models import Q
-
 from payments.models import ChequeStatus, CustomerReceipt, PaymentMode, ReceiptStatus
 
 
@@ -380,7 +378,7 @@ def day_book(company, on_date: date) -> dict:
         kind = row["txn_type"]
         amount = _money(row["amount"])
         direction = row.get("direction")
-        if kind in ("PAYMENT_IN",) or (kind == "SALES" and False):
+        if kind in ("PAYMENT_IN",):
             inflow += amount
             signed = amount
         elif kind in ("PAYMENT_OUT", "EXPENSE") or direction == "OUT":

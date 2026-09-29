@@ -32,7 +32,7 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
   await registerTenant(page, { companyName, email, password: 'GoldenPath123!' });
 
   // 2. Create a product.
-  await createProduct(page, { name: productName, sku: productSku, sellingPrice: '100', purchasePrice: '80' });
+  await createProduct(page, { name: productName, sku: productSku, sellingPrice: '100', purchasePrice: '80', gstRate: '0' });
 
   // 3. Give it opening stock.
   await addStockAdjustment(page, { sku: productSku, quantity: '50' });
@@ -40,11 +40,7 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
   // 4. Create a customer.
   await createCustomer(page, { name: customerName });
 
-  // 5. Raise a sales invoice and complete it. A fresh registration defaults
-  // to registration_type=UNREGISTERED (the /register form never sends
-  // registrationType — see accounts/serializers.py RegisterSerializer), so
-  // the invoice type defaults to NON_GST and no tax applies regardless of
-  // the product's own GST rate: 1 unit @ ₹100 -> ₹100.00 flat.
+  // 5. Raise a sales invoice and complete it.
   await page.goto('/sales/new');
   await selectPartyOnDocument(page, customerName);
   await addInvoiceItem(page, productSku);
@@ -55,7 +51,8 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
   await expect(invoiceRow).toContainText('Completed');
   await expect(invoiceRow).toContainText('₹100.00');
-  const invoiceNumber = (await invoiceRow.locator('td').nth(1).textContent())?.trim();
+  const textCells = await invoiceRow.locator('td').allTextContents();
+  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
   expect(invoiceNumber).toMatch(/^INV-\d+$/);
 
   // 6. Stock must have decremented by the invoiced quantity.

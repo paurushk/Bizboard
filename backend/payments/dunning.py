@@ -15,6 +15,18 @@ logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 DEFAULT_DUNNING_DAYS = (3, 7, 14)
 
+# QOS: wires payments.predictive_dunning's median-lateness screen into rung
+# selection below. A customer whose median days-late (confident — see
+# predictive_dunning.CONFIDENT_MIN_INVOICES) is at or above this floor is
+# walked forward to the ladder rung their own history already points to,
+# instead of waiting for the raw calendar days-overdue to catch up. This is
+# still the existing fixed-day ladder (DEFAULT_DUNNING_DAYS / configured_days)
+# — no new send mechanism, no bypass of quiet hours / opt-in / any other
+# guard in run_dunning_for_company, which all run unchanged after rung
+# selection. Chosen to match DEFAULT_DUNNING_DAYS's second rung so "reliably
+# ~10 days late" reaches send_statement territory instead of only follow_up.
+PREDICTIVE_ESCALATION_MIN_LATE_DAYS = 7
+
 NEXT_STEP_FOLLOW_UP = "follow_up"
 NEXT_STEP_SEND_STATEMENT = "send_statement"
 NEXT_STEP_SEND_LINK = "send_link"
@@ -91,6 +103,35 @@ def _in_bucket_window(days_overdue: int, bucket: int, buckets: list[int]) -> boo
     later = [b for b in buckets if b > bucket]
     end = (min(later) - 1) if later else days_overdue
     return bucket <= days_overdue <= end
+
+
+def _predictive_effective_days_overdue(company, invoice, days_overdue: int) -> int:
+    """Rung selection input, adjusted by the predictive-dunning screen.
+
+    Deterministic, rule-based: reads the already-computed median-lateness
+    signal (payments.predictive_dunning.median_days_late) and, only when it is
+    confident (>= CONFIDENT_MIN_INVOICES samples there) and high (>=
+    PREDICTIVE_ESCALATION_MIN_LATE_DAYS), treats the invoice as if it were
+    that many days overdue for the purpose of picking a rung off the existing
+    fixed-day ladder. Never moves the effective age backwards, and never
+    invents a rung the ladder doesn't already have. Off entirely unless
+    ENABLE_PREDICTIVE_DUNNING is on for the company — this is opt-in rollout,
+    same as the rest of the predictive-dunning screen.
+    """
+    from core.services.feature_flags import flag_enabled
+
+    if not flag_enabled(company, "ENABLE_PREDICTIVE_DUNNING"):
+        return days_overdue
+    try:
+        from payments.predictive_dunning import median_days_late
+
+        predicted_late = median_days_late(company, invoice.customer)
+    except Exception:  # noqa: BLE001 — a screen failure must not block dunning
+        logger.exception("predictive_dunning screen failed for invoice %s", invoice.pk)
+        return days_overdue
+    if predicted_late is None or predicted_late < PREDICTIVE_ESCALATION_MIN_LATE_DAYS:
+        return days_overdue
+    return max(days_overdue, predicted_late)
 
 
 def _next_due_bucket(days_overdue: int, buckets: list[int], invoice) -> int | None:
@@ -344,7 +385,8 @@ def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
             skipped += 1
             continue
         days_overdue = (as_of - invoice.due_date).days
-        bucket = _next_due_bucket(days_overdue, buckets, invoice)
+        effective_days_overdue = _predictive_effective_days_overdue(company, invoice, days_overdue)
+        bucket = _next_due_bucket(effective_days_overdue, buckets, invoice)
         if bucket is None:
             continue
         if _already_sent_today(invoice, as_of):
@@ -502,6 +544,10 @@ def customer_risk_snapshot(company, customer, *, as_of: date | None = None) -> d
         next_step = NEXT_STEP_FOLLOW_UP
     if overdue > 0 and next_step == NEXT_STEP_SEND_LINK and ageing["61_90"] + ageing["90_plus"] == 0:
         next_step = NEXT_STEP_SEND_LINK
+    bucket_sum = sum(ageing.values(), Decimal("0"))
+    gap = (outstanding - bucket_sum).quantize(Decimal("0.01"))
+    if gap != 0:
+        ageing["advances_and_other"] = gap
     return {
         "customer_id": customer.id,
         "customer_name": customer.name,

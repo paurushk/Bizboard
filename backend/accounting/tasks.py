@@ -180,3 +180,30 @@ def post_monthly_depreciation_for_company(company_id):
     """SLM depreciation for one tenant. Safe to re-run due to source idempotency."""
     set_rls_company(company_id)
     return _depreciate_company_assets(company_id)
+
+
+def backfill_cache_key(company_id) -> str:
+    return f"accounting-backfill:{company_id}"
+
+
+@shared_task
+def run_owner_accounting_backfill(company_id, user_id):
+    """Idempotent owner back-fill. Safe to run again; posted journals are skipped."""
+    from django.contrib.auth import get_user_model
+    from django.core.cache import cache
+
+    from accounting.views import perform_accounting_backfill
+    from accounts.models import Company
+
+    key = backfill_cache_key(company_id)
+    try:
+        set_rls_company(company_id)
+        company = Company.objects.get(pk=company_id)
+        user = get_user_model().objects.filter(pk=user_id).first()
+        payload = perform_accounting_backfill(company, user, dry_run=False)
+    except Exception as exc:  # noqa: BLE001 — surface the failure instead of a stuck "running"
+        cache.set(key, {"status": "failed", "error": str(exc)[:300]}, 3600)
+        raise
+    payload["status"] = "done"
+    cache.set(key, payload, 3600)
+    return payload

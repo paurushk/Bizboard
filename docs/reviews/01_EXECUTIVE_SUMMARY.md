@@ -1,6 +1,8 @@
 # BizBoard — Executive Summary (Engineering Audit)
 
-**Latest:** Wave 22 Full Remediation 2026-08-06 — register **758**; Wave 22 Open **0** (`BB-000695`–`BB-000758` Resolved). PR **7.8 / 10**. Final Gates + signed Deferred (BB-000624 live NIC) still block 10/10.
+**Latest:** 2026-09-28 capability correction. CRM is an implemented MVP (leads, opportunities, pipeline, campaigns, referrals), not "customer master only." Payroll and manufacturing are real dark-gated preview modules, not absent — see [PAYROLL_AND_MANUFACTURING_CAPABILITY_2026-09-28.md](../roadmap/PAYROLL_AND_MANUFACTURING_CAPABILITY_2026-09-28.md). Branch GSTIN CRUD and a settings UI exist (`CompanyGstin`). Goods receipts exist. The reality table below is the current module classification. Every later "do not commercially launch" or "Not implemented" sentence in this file is a historical wave note and is superseded by this paragraph.
+
+**Prior latest:** Wave 22 Full Remediation 2026-08-06 — register **758**; Wave 22 Open **0** (`BB-000695`–`BB-000758` Resolved). PR **7.8 / 10**. Final Gates + signed Deferred (BB-000624 live NIC) still block 10/10.
 
 
 
@@ -51,10 +53,10 @@ Every finding is logged as `BB-NNNNNN` in the Master Issue Register. **No silent
 | Sales / Purchase / GST Billing | **Implemented** (core strong) |
 | Accounting | **Opt-in GL**; incomplete RCM/returns/H9 posting |
 | Banking | **Partial** (accounts, CSV recon, gateways sandbox-capable) |
-| CRM | **Not implemented** (customer master only) |
-| Payroll | **Not implemented** |
-| Manufacturing | **Not implemented** |
-| Multi Company / Multi Branch | **Not implemented** (warehouses ≠ branches/GSTIN) |
+| CRM | **MVP implemented** (leads, opportunities, pipeline, campaigns, referrals; dark-gated) |
+| Payroll | **Preview implemented** (PF/ESI/PT/TDS, payslips, employer GL; not a statutory HRMS; dark-gated) |
+| Manufacturing | **MVP implemented** (BOM + work orders; not a full MES; dark-gated) |
+| Multi Company / Multi Branch | **Branch GSTIN implemented** (model, CRUD API, settings UI). Warehouses are still not legal branches. |
 | RBAC | **Coarse** OWNER / SALES_STAFF + flags |
 | AI Assistant / OCR Bills | **Implemented** (LLM-dependent; honesty required) |
 | WhatsApp | **Link-only** (`wa.me`) — not Business API |

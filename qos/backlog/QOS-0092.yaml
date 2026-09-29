@@ -1,0 +1,29 @@
+id: QOS-0092
+category: BUSINESS_GAP
+title: Won opportunity amount is not shown next to invoices
+persona:
+- P2
+journey: Pipeline
+problem: Forecast is amount times probability. No stored snapshot exists, so a past-month accuracy number would be invented.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  detail: L10. Two sums for a chosen month. No new table.
+scoring:
+  reach: 2
+  severity: 1
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: The honest comparison is won amount versus invoices, not a model score.
+effort: S
+recommendation: CanViewFinancialReports. Label both sums. Do not say predicted.
+test_required: Won opportunity and its customer's completed invoice are in the month sums. An open opportunity is not.
+guard_ref:
+  test: backend/tests/test_llm_path_to_ten.py::test_won_amount_sits_next_to_invoices
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

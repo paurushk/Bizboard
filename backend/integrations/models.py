@@ -9,6 +9,7 @@ class IntegrationConnection(CompanyScopedModel):
         WHATSAPP = "WHATSAPP"
         BUSY = "BUSY"
         ZOHO = "ZOHO"
+        SHOPIFY = "SHOPIFY"
 
     class Status(models.TextChoices):
         ACTIVE = "ACTIVE"
@@ -27,6 +28,8 @@ class IntegrationSyncRun(CompanyScopedModel):
     class Kind(models.TextChoices):
         TALLY_IMPORT = "TALLY_IMPORT"
         TALLY_EXPORT = "TALLY_EXPORT"
+        TALLY_MIGRATE = "TALLY_MIGRATE"
+        SHOPIFY_WEBHOOK = "SHOPIFY_WEBHOOK"
 
     class Status(models.TextChoices):
         UPLOADED = "UPLOADED"

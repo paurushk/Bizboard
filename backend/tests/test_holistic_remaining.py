@@ -111,12 +111,14 @@ def test_accounting_backfill_needed_when_docs_exist_without_journals(tenant_a):
     assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
 
     enabled = tenant_a.client.post("/api/v1/accounting/settings/", {"accounting_enabled": True}, format="json")
-    assert enabled.status_code == 200, enabled.data
+    assert enabled.status_code == 400, enabled.data
+    tenant_a.company.refresh_from_db()
+    assert tenant_a.company.accounting_enabled is False
     settings = tenant_a.client.get("/api/v1/accounting/settings/")
     assert settings.status_code == 200, settings.data
     payload = _unwrap(settings.data)
-    assert payload.get("accounting_enabled") is True
-    assert payload.get("accounting_backfill_needed") is True
+    assert payload.get("accounting_enabled") is False
+    assert payload.get("accounting_backfill_needed") is False
 
 
 def test_historical_invoice_readable_after_period_close(tenant_a):

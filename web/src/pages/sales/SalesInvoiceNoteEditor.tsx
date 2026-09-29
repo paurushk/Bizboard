@@ -54,7 +54,7 @@ import {
   previewAllowsComplete,
 } from '@/completeGates/completeBlockers';
 import { useAuth } from '@/auth/AuthContext';
-import { canCancelDocuments, canCreateSales } from '@/utils/permissions';
+import { canCancelDocuments, canCreateSales, canOverrideGstGuard } from '@/utils/permissions';
 import type { NoteReason, SalesCreditNote, SalesDebitNote, SalesInvoice } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
@@ -81,6 +81,8 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
   // F2-041: suppress UnsavedChangesGuard for the programmatic navigate() after
   // a deliberate save/cancel — those aren't "discarding" anything.
   const skipLeaveGuard = useRef(false);
+  const createdNoteId = useRef<number | null>(null);
+  const [gstGuardOverrideReason, setGstGuardOverrideReason] = useState('');
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [invoice, setInvoice] = useState<SalesInvoice | null>(null);
   const [noteDate, setNoteDate] = useState(todayIso());
@@ -241,19 +243,24 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
       if (!invoice) throw new Error(t('phase1.selectInvoice'));
       const payload = buildPayload();
       let doc: SalesCreditNote | SalesDebitNote;
-      if (isEdit && editId) {
+      const existingId = (isEdit && editId) || createdNoteId.current;
+      if (existingId) {
         doc = isCredit
-          ? await updateSalesCreditNote(editId, payload)
-          : await updateSalesDebitNote(editId, payload);
+          ? await updateSalesCreditNote(existingId, payload)
+          : await updateSalesDebitNote(existingId, payload);
       } else {
         doc = isCredit
           ? await createSalesCreditNote(payload)
           : await createSalesDebitNote(payload);
+        createdNoteId.current = doc.id;
       }
       if (mode === 'complete' && doc.status === 'DRAFT') {
+        const extraOverride = gstGuardOverrideReason.trim()
+          ? { gstGuardOverrideReason: gstGuardOverrideReason.trim() }
+          : {};
         doc = isCredit
-          ? await completeWithConfirms((extra) => completeSalesCreditNote(doc.id, extra))
-          : await completeWithConfirms((extra) => completeSalesDebitNote(doc.id, extra));
+          ? await completeWithConfirms((extra) => completeSalesCreditNote(doc.id, { ...extra, ...extraOverride }))
+          : await completeWithConfirms((extra) => completeSalesDebitNote(doc.id, { ...extra, ...extraOverride }));
       }
       return doc;
     },
@@ -332,7 +339,20 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
             ? completeDisabledReason
             : null
       }
-      infoBanner={infoBanner}
+      infoBanner={
+        <>
+          {infoBanner}
+          {!readOnly && canOverrideGstGuard(user) ? (
+            <TextField
+              size="small"
+              label={t('billing.gstGuardOverrideReasonLabel')}
+              value={gstGuardOverrideReason}
+              onChange={(e) => setGstGuardOverrideReason(e.target.value)}
+              sx={{ maxWidth: 420 }}
+            />
+          ) : null}
+        </>
+      }
       saving={saveMutation.isPending}
       hideSaveAndNew
       showDraftButton={!readOnly}

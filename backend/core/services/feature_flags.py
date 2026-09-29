@@ -44,8 +44,16 @@ ROLLOUT_GRANTABLE_KEYS = frozenset({
     "ENABLE_PURCHASE_PLANNING",
     "ENABLE_ORDER_GATES",
     "ENABLE_CUSTOMER_ACTIONS",
+    "ENABLE_CROSS_SELL",
     "ENABLE_ROUTE_OPTIMIZATION",
     "ENABLE_ARCHETYPE_PACKS",
+    "ENABLE_COMPLAINTS",
+    "ENABLE_SUPPORT_TICKETS",
+    "ENABLE_CONTRACTS",
+    "ENABLE_REFERRALS",
+    "ENABLE_WORKSHOP",
+    "ENABLE_PROJECTS",
+    "ENABLE_INSURANCE",
 })
 
 ENV_FLAG_KEYS = (
@@ -77,9 +85,17 @@ ENV_FLAG_KEYS = (
     "ENABLE_PURCHASE_PLANNING",
     "ENABLE_ORDER_GATES",
     "ENABLE_CUSTOMER_ACTIONS",
+    "ENABLE_CROSS_SELL",
     "ENABLE_ROUTE_OPTIMIZATION",
     "ENABLE_CRM_WHATSAPP_INBOUND",
     "ENABLE_ARCHETYPE_PACKS",
+    "ENABLE_COMPLAINTS",
+    "ENABLE_SUPPORT_TICKETS",
+    "ENABLE_CONTRACTS",
+    "ENABLE_REFERRALS",
+    "ENABLE_WORKSHOP",
+    "ENABLE_PROJECTS",
+    "ENABLE_INSURANCE",
 )
 
 
@@ -198,6 +214,12 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
                 else:
                     legacy_env_only = not module_keys_touched
                     val = env[key] and legacy_env_only
+                # INS-1: the insurance pack is the only pack grant for CRM.
+                # A bare {"ENABLE_CRM": true} on a subscribed company stays off.
+                if key == "ENABLE_CRM" and overrides.get("pack_grant") == "insurance":
+                    val = True
+                if key == "ENABLE_MANUFACTURING" and overrides.get("manufacturing_pack_grant") is True:
+                    val = True
                 flags[key] = val
                 continue
 
@@ -237,6 +259,9 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
         overrides = getattr(company, "feature_flags", None)
         overrides = overrides if isinstance(overrides, dict) else {}
         flags["ENABLE_AA_CONSENT"] = bool(overrides.get("ENABLE_AA_CONSENT"))
+        # New signups set this True so the sidebar starts as the archetype pack.
+        # Absent means an existing company keeps the full menu.
+        flags["NAV_PACK_DEFAULT"] = bool(overrides.get("NAV_PACK_DEFAULT"))
     else:
         flags["ENABLE_ACCOUNTING"] = False
         flags["ENABLE_AI"] = False

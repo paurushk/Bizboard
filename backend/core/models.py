@@ -220,6 +220,7 @@ class Notification(CompanyScopedModel):
         SMS = "SMS"
         PUSH = "PUSH"
         TELEGRAM = "TELEGRAM"
+        IN_APP = "IN_APP"
 
     class Status(models.TextChoices):
         QUEUED = "QUEUED"
@@ -402,6 +403,18 @@ class HelpFeedback(CompanyScopedModel):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["company", "created_at"], name="help_fb_co_created_idx"),
+        ]
+
+
+class SequenceCounter(CompanyScopedModel):
+    """Per-company counter for non-GST numbers (complaint, ticket, contract)."""
+
+    scope = models.CharField(max_length=32)
+    last_value = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["company", "scope"], name="core_sequence_company_scope_uniq"),
         ]
 
 

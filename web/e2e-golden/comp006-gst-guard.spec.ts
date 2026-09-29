@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { addStockAdjustment, createProduct, getCsrfToken, registerTenant, unique } from './helpers/documents';
+import {
+  addInvoiceItem,
+  addStockAdjustment,
+  createProduct,
+  getCsrfToken,
+  registerTenant,
+  selectPartyOnDocument,
+  unique,
+} from './helpers/documents';
 
 /**
  * COMP-006: GST Guard. A real end-to-end run against the live backend.
@@ -94,6 +102,7 @@ test('COMP-006: a malformed buyer GSTIN surfaces as a named Attention row', asyn
 
   const completeRes = await page.request.post(`/api/v1/sales/invoices/${invoice.id}/complete/`, {
     headers: { 'X-CSRFToken': csrf },
+    data: { gst_guard_override_reason: 'Approved by owner for testing' },
   });
   expect(completeRes.ok(), await completeRes.text()).toBeTruthy();
 
@@ -106,4 +115,95 @@ test('COMP-006: a malformed buyer GSTIN surfaces as a named Attention row', asyn
     await page.goto('/attention');
     await expect(guardrailText).toBeVisible({ timeout: 3_000 });
   }).toPass({ timeout: 75_000, intervals: [5_000] });
+});
+
+/**
+ * COMP-006 follow-up: the write-time validator (backend/reporting/gst_guard.py
+ * validate_document(), wired into SalesService.complete()) is a different
+ * mechanism from the read-time buyer-GSTIN check above — it runs at
+ * invoice-completion time, not on an already-completed document, and renders
+ * its own inline panel on the invoice detail page (InvoiceDetailPage.tsx:
+ * billing.gstGuardBlockingTitle / gstGuardOverrideReasonLabel /
+ * gstGuardOverrideButton) with an OWNER/MANAGER override instead of the
+ * Attention page.
+ *
+ * The simplest reliable blocking condition to arrange from the UI alone is
+ * HSN_MISSING: a B2B line (a customer with a real GSTIN makes the sale B2B)
+ * with no HSN code at all. This is distinct from HSN_NOT_IN_MASTER (an HSN
+ * absent from the HsnRate master entirely — warning-only) and
+ * HSN_RATE_DATE_INVALID (an HSN present in the master but outside its
+ * effective-dated window — blocking, but requires seeding HsnRate rows with a
+ * specific date range, not reachable through the product/customer UI used
+ * here).
+ *
+ * NewInvoicePage's own "Save & Complete" swallows a failed completion into a
+ * generic warning on the history list (draftSavedCompleteFailed) instead of
+ * the inline panel — that panel only renders from InvoiceDetailPage's own
+ * "Complete" action on an already-saved DRAFT, so this test saves as a draft
+ * first (the "Save draft" button) and completes from the detail page.
+ */
+test('COMP-006: a missing HSN on a B2B invoice line blocks Complete until an OWNER override', async ({ page }) => {
+  const id = unique();
+  const companyName = `E2E GstGuardBlock ${id}`;
+  const email = `e2e-gst-guard-block-${id}@example.test`;
+  const productName = `No HSN Widget ${id}`;
+  const sku = `NH-${id}`;
+  const customerName = `B2B Customer ${id}`;
+
+  await registerTenant(page, { companyName, email, password: 'GoldenPath123!', gstin: '29AAAAA0000A1ZY' });
+  // Deliberately no hsnCode — validate_document() blocks a blank HSN on a B2B line.
+  await createProduct(page, { name: productName, sku, sellingPrice: '100', purchasePrice: '60' });
+  // F1-017: /complete/ hard-blocks on insufficient stock (BLOCK policy).
+  await addStockAdjustment(page, { sku, quantity: '10' });
+
+  // A customer with a real, valid GSTIN is what makes this invoice B2B.
+  await page.goto('/sales/customers');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(customerName);
+  await page.getByLabel('State').click();
+  await page.getByRole('option', { name: 'Karnataka' }).click();
+  await page.getByLabel('GSTIN').fill('29AABCU9603R1ZJ');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText(customerName)).toBeVisible();
+
+  await page.goto('/sales/new');
+  await selectPartyOnDocument(page, customerName);
+  await addInvoiceItem(page, sku);
+  // Registering the company with a GSTIN above defaults its registration_type
+  // to REGULAR, which is what makes the GST/Tax/Retail invoice-type options
+  // available here — select GST explicitly rather than relying on the page's
+  // own default, since GST Guard only runs when tax is enabled (invoice_type
+  // != NON_GST — see SalesService.complete()'s tax_enabled gate).
+  await page.getByLabel('Invoice type').click();
+  await page.getByRole('option', { name: /^GST Invoice/ }).click();
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page).toHaveURL(/\/sales\/history/);
+
+  const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
+  await expect(invoiceRow).toBeVisible();
+  // The invoice-number cell is the only link on the row (see
+  // saveAndCompleteSalesInvoice's own comment on this) — it opens the
+  // read-only detail view, InvoiceDetailPage, where the GST Guard panel and
+  // its own "Complete" action live.
+  await invoiceRow.getByRole('link').first().click();
+  await expect(page).toHaveURL(/\/sales\/history\/\d+$/);
+
+  const completeButton = page.getByRole('button', { name: 'Complete', exact: true });
+  await expect(completeButton).toBeVisible();
+  await completeButton.click();
+
+  await expect(page.getByText('GST Guard blocked this invoice')).toBeVisible();
+  await expect(page.getByText(/HSN code is required on a B2B invoice line/)).toBeVisible();
+  // Still DRAFT — the blocked attempt must not have completed the invoice.
+  await expect(completeButton).toBeVisible();
+
+  // OWNER is the default role for the account that ran registerTenant.
+  await page
+    .getByLabel('Reason for override (required)')
+    .fill('HSN pending catalog cleanup — approved by owner');
+  await page.getByRole('button', { name: 'Override and complete' }).click();
+
+  await expect(page.getByText('Invoice completed')).toBeVisible();
+  // DRAFT-only "Complete" button is gone now that the invoice is COMPLETED.
+  await expect(completeButton).toHaveCount(0);
 });

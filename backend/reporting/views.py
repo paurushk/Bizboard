@@ -164,6 +164,10 @@ class PurchaseRegisterView(BaseReportView):
             supplier_id=_int_or_none(request.query_params.get("supplier")),
             status=request.query_params.get("status"),
             warehouse_id=_int_or_none(request.query_params.get("warehouse")),
+            company_gstin_id=_int_or_none(
+                request.query_params.get("company_gstin")
+                or request.query_params.get("gstin")
+            ),
         )
         page = request.query_params.get("page")
         page_size = request.query_params.get("page_size")
@@ -1332,6 +1336,19 @@ class Gstr2bIngestViewSet(viewsets.ModelViewSet):
             raise BusinessRuleError("'period' is required.")
         return Response(bulk_accept_exact(self.company, period, user=request.user))
 
+    @action(detail=False, methods=["get"], url_path="supplier-nudge")
+    def supplier_nudge(self, request):
+        from masters.models import Supplier
+        from reporting.ims import supplier_po_nudge
+
+        raw = request.query_params.get("supplier")
+        if not raw:
+            raise BusinessRuleError("'supplier' is required.")
+        supplier = Supplier.objects.filter(company=self.company, pk=raw).first()
+        if supplier is None:
+            raise BusinessRuleError("Supplier not found.")
+        return Response(supplier_po_nudge(self.company, supplier))
+
     @action(detail=False, methods=["get"], url_path="ims-summary")
     def ims_summary(self, request):
         from reporting.ims import credit_at_risk
@@ -1537,34 +1554,66 @@ class GstFilingSandboxView(BaseReportView):
             raise BusinessRuleError("'period' is required.")
         parse_period(period)
         adapter = get_gstr_filing_adapter(self.company)
+        from reporting.filing import record_period_filing
+        from reporting.models import GstPeriodFiling
+
+        if action_name not in ("upload_gstr1", "upload_gstr3b", "fetch_gstr2b"):
+            raise BusinessRuleError("action must be upload_gstr1, upload_gstr3b, or fetch_gstr2b.")
         result = None
         payload = None
-        if action_name == "upload_gstr1":
-            payload = build_gstr1(self.company, period)
-            result = adapter.upload_gstr1(payload)
-        elif action_name == "upload_gstr3b":
-            payload = build_gstr3b(self.company, period)
-            result = adapter.upload_gstr3b(payload)
-        elif action_name == "fetch_gstr2b":
-            result = adapter.fetch_gstr2b(period)
-            return Response({"action": action_name, "result": result})
-        else:
-            raise BusinessRuleError("action must be upload_gstr1, upload_gstr3b, or fetch_gstr2b.")
+        return_type = "GSTR-3B" if action_name == "upload_gstr3b" else "GSTR-1"
+        try:
+            if action_name == "upload_gstr1":
+                payload = build_gstr1(self.company, period)
+                return_type = (payload or {}).get("return_type", "GSTR-1")
+                result = adapter.upload_gstr1(payload)
+            elif action_name == "upload_gstr3b":
+                payload = build_gstr3b(self.company, period)
+                result = adapter.upload_gstr3b(payload)
+            else:
+                result = adapter.fetch_gstr2b(period)
+                return Response({"action": action_name, "result": result})
+        except BusinessRuleError as exc:
+            if action_name in ("upload_gstr1", "upload_gstr3b"):
+                record_period_filing(
+                    company=self.company,
+                    return_type=return_type,
+                    period=period,
+                    status=GstPeriodFiling.Status.REJECTED,
+                    error_message=str(exc),
+                    user=request.user,
+                )
+            raise
+        reference = ""
+        if isinstance(result, dict):
+            reference = str(result.get("reference_id") or result.get("ack") or "")
         ack = result if isinstance(result, dict) else {"ok": True, "detail": str(result)}
         return_type = (
             "GSTR-3B" if action_name == "upload_gstr3b" else (payload or {}).get("return_type", "GSTR-1")
         )
-        snap = persist_snapshot(
-            self.company,
-            return_type,
-            period,
-            payload or {},
-            user=request.user,
-        )
-        body = dict(snap.payload or {})
-        body["gsp_upload"] = ack
-        snap.payload = body
-        snap.save(update_fields=["payload"])
+        # The GSP call already happened above; keep the filing record and its
+        # snapshot in one transaction so a filing is never durably recorded as
+        # ACCEPTED without the snapshot that should back it (or vice versa).
+        with transaction.atomic():
+            record_period_filing(
+                company=self.company,
+                return_type=return_type,
+                period=period,
+                status=GstPeriodFiling.Status.ACCEPTED,
+                reference=reference,
+                user=request.user,
+            )
+            snap = persist_snapshot(
+                self.company,
+                return_type,
+                period,
+                payload or {},
+                user=request.user,
+            )
+            body = dict(snap.payload or {})
+            body["gsp_upload"] = ack
+            snap.payload = body
+            snap.save(update_fields=["payload"])
         return Response({
             "action": action_name,
             "result": ack,

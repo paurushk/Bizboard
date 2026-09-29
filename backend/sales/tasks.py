@@ -173,7 +173,7 @@ def submit_einvoice_async(self, invoice_id: int, user_id: int | None = None, com
     """Wave 17A: async IRP submit with idempotency (skip if IRN already set)."""
     from accounts.models import User
     from core.services.audit import AuditService
-    from core.services.gsp_adapters import get_irp_adapter, verify_irn_result
+    from core.services.gsp_adapters import get_irp_adapter, plain_gsp_error, verify_irn_result
 
     from .einvoice_payload import EinvoiceValidationError, build_einvoice_payload
     from .models import SalesInvoice
@@ -190,16 +190,22 @@ def submit_einvoice_async(self, invoice_id: int, user_id: int | None = None, com
         return {"status": "already_generated", "irn": invoice.irn}
     try:
         payload = build_einvoice_payload(invoice)
-        result = get_irp_adapter(invoice.company).submit(payload)
+        adapter = get_irp_adapter(invoice.company)
+        lookup = getattr(adapter, "lookup_by_doc", None)
+        found = lookup(invoice.number) if lookup and invoice.number else None
+        if found is not None and isinstance(getattr(found, "irn", None), str) and found.irn:
+            result = found
+        else:
+            result = adapter.submit(payload)
         verify_irn_result(result)
     except EinvoiceValidationError as exc:
         invoice.einvoice_status = SalesInvoice.EInvoiceStatus.FAILED
-        invoice.einvoice_error = "; ".join(exc.errors)
+        invoice.einvoice_error = plain_gsp_error("; ".join(exc.errors))
         invoice.save(update_fields=["einvoice_status", "einvoice_error"])
         return {"status": "validation_failed", "errors": exc.errors}
     except Exception as exc:
         invoice.einvoice_status = SalesInvoice.EInvoiceStatus.FAILED
-        invoice.einvoice_error = str(exc)[:500]
+        invoice.einvoice_error = plain_gsp_error(str(exc))
         invoice.save(update_fields=["einvoice_status", "einvoice_error"])
         raise
     from django.db import transaction
@@ -231,6 +237,38 @@ def submit_einvoice_async(self, invoice_id: int, user_id: int | None = None, com
         metadata={"irn": result.irn},
     )
     return {"status": "generated", "irn": result.irn}
+
+
+@shared_task
+def suggest_route_sequence_task(route_id, strategy_name, company_id):
+    """Recompute a slow route suggestion off the request. The HTTP call stays 200 unless deferred."""
+    from .models import DeliveryRoute
+    from .route_service import RouteService
+
+    route = DeliveryRoute.objects.filter(pk=route_id, company_id=company_id).first()
+    if route is None:
+        return {"status": "missing"}
+    suggestion = RouteService.suggest_stop_sequence(route, strategy_name=strategy_name or None)
+    from django.core.cache import cache
+
+    cache.set(
+        f"route-seq-result:{route_id}",
+        _cached_sequence(suggestion),
+        600,
+    )
+    return {"status": "ready", "stops": len(suggestion)}
+
+
+def _cached_sequence(suggestion):
+    return [
+        {
+            "stop_id": stop.stop_id,
+            "sequence": stop.sequence,
+            "pincode": getattr(stop, "pincode", ""),
+            "needs_manual_sequencing": bool(getattr(stop, "needs_manual_sequencing", False)),
+        }
+        for stop in suggestion
+    ]
 
 
 @shared_task

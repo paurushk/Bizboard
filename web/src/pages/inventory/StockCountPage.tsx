@@ -348,9 +348,11 @@ export function StockCountPage() {
                 <Typography sx={{ flex: 1 }}>
                   {String(line.productName || line.product)} {line.batchNo ? `· ${line.batchNo}` : ''}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  System {String(line.systemQty ?? 0)}
-                </Typography>
+                {String(active?.status) === 'POSTED' ? (
+                  <Typography variant="body2" color="text.secondary">
+                    System {String(line.systemQty ?? 0)}
+                  </Typography>
+                ) : null}
                 <TextField
                   size="small"
                   label="Counted"

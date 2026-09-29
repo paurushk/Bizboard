@@ -71,11 +71,23 @@ class CustomerSerializer(serializers.ModelSerializer):
     outstanding = serializers.SerializerMethodField()
     shipping_addresses = CustomerShippingAddressSerializer(many=True, required=False)
 
+    def validate(self, attrs):
+        instance = getattr(self, "instance", None)
+        lat = attrs["latitude"] if "latitude" in attrs else getattr(instance, "latitude", None)
+        lon = attrs["longitude"] if "longitude" in attrs else getattr(instance, "longitude", None)
+        if (lat is None) != (lon is None):
+            raise serializers.ValidationError(
+                "Latitude and longitude must both be set, or both left blank."
+            )
+        if lat is not None and not (-90 <= float(lat) <= 90 and -180 <= float(lon) <= 180):
+            raise serializers.ValidationError("Latitude or longitude is out of range.")
+        return attrs
+
     class Meta:
         model = Customer
         fields = [
             "id", "name", "phone", "email", "gstin", "billing_address",
-            "shipping_address", "state", "pincode", "status", "credit_limit",
+            "shipping_address", "state", "pincode", "latitude", "longitude", "status", "credit_limit",
             "credit_days", "notes", "created_at", "updated_at",
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "price_list", "taxpayer_type", "whatsapp_opt_in", "dunning_opt_out",
@@ -152,13 +164,18 @@ class ProductSerializer(serializers.ModelSerializer):
     unit_name = serializers.CharField(source="unit.short_name", read_only=True)
     alternate_unit_name = serializers.CharField(source="alternate_unit.short_name", read_only=True)
     has_movements = serializers.BooleanField(read_only=True)
+    # Set only on the response to a save that touched the GST rate; blank on reads.
+    gst_rate_notice = serializers.SerializerMethodField()
+
+    def get_gst_rate_notice(self, obj) -> str:
+        return getattr(self, "_hsn_notice", "") or ""
 
     class Meta:
         model = Product
         fields = [
             "id", "name", "sku", "barcode", "hsn_code", "description",
             "category", "category_name", "brand", "brand_name", "unit", "unit_name",
-            "gst_rate", "cess_rate", "cess_amount",
+            "gst_rate", "gst_supply_form", "gst_rate_notice", "cess_rate", "cess_amount",
             "purchase_price", "selling_price", "mrp", "wholesale_price",
             "reorder_level", "product_type", "track_inventory",
             "track_batch", "track_serial", "regulated_category",
@@ -249,7 +266,66 @@ class ProductSerializer(serializers.ModelSerializer):
                 if brand is None:
                     brand = Brand.objects.create(company=company, name=brand_name)
                 attrs["brand"] = brand
+        self._align_saved_gst_rate(attrs)
         return attrs
+
+    def _align_saved_gst_rate(self, attrs):
+        from datetime import date
+
+        from masters.hsn_catalog import line_gst_decision
+
+        hsn = attrs.get("hsn_code", getattr(self.instance, "hsn_code", "") if self.instance else "")
+        entered = attrs.get("gst_rate", getattr(self.instance, "gst_rate", 0) if self.instance else 0)
+        form = attrs.get(
+            "gst_supply_form",
+            getattr(self.instance, "gst_supply_form", "") if self.instance else "",
+        )
+        price = attrs.get(
+            "selling_price",
+            getattr(self.instance, "selling_price", None) if self.instance else None,
+        )
+        decision = line_gst_decision(hsn, entered, form or "", date.today(), price)
+        self._hsn_notice = decision.get("notice") or ""
+        if decision.get("apply") and decision["rate"] != Decimal(str(entered or 0)):
+            attrs["gst_rate"] = decision["rate"]
+
+    def create(self, validated_data):
+        product = super().create(validated_data)
+        self._audit_hsn_change(product)
+        return product
+
+    def update(self, instance, validated_data):
+        product = super().update(instance, validated_data)
+        self._audit_hsn_change(product)
+        return product
+
+    def _audit_hsn_change(self, product):
+        notice = getattr(self, "_hsn_notice", "") or ""
+        if not notice.startswith("rate changed"):
+            return
+        request = self.context.get("request")
+        if request is None:
+            return
+        from core.permissions import get_company_user
+        from core.services.audit import AuditService
+
+        membership = get_company_user(request)
+        AuditService.log(
+            company=membership.company,
+            user=request.user,
+            action="UPDATE",
+            entity_type="Product",
+            entity_id=product.id,
+            description=notice,
+        )
+
+    def validate_gst_supply_form(self, value):
+        value = (value or "").strip().upper()
+        if value not in ("", "UNBRANDED", "BRANDED_PREPACKED"):
+            raise serializers.ValidationError(
+                "Choose unbranded, branded / pre-packed, or leave it blank."
+            )
+        return value
 
     def validate_sku(self, value):
         sku = (value or "").strip()

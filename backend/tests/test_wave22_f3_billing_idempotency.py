@@ -205,11 +205,13 @@ def test_b9_005_live_plan_switch_defers_to_next_cycle_no_proration(tenant_a):
     # period end -- not immediately (no double-billing window).
     create_mock.assert_called_once()
     assert create_mock.call_args.kwargs.get("start_at") == int(period_end.timestamp())
-    cancel_mock.assert_called_once_with("rzp_sub_old", at_cycle_end=True)
+    # Abandoned checkout must not cancel the subscription the tenant already paid for.
+    cancel_mock.assert_not_called()
 
     updated.refresh_from_db()
     assert order_id == "rzp_sub_new"
-    assert updated.razorpay_subscription_id == "rzp_sub_new"
+    assert updated.razorpay_subscription_id == "rzp_sub_old"
+    assert updated.pending_razorpay_subscription_id == "rzp_sub_new"
     # Deferred: still on the old plan (what the tenant already paid for) and
     # still ACTIVE -- no proration charge, no premature entitlement change.
     assert updated.plan_id == old_plan.pk
@@ -219,9 +221,11 @@ def test_b9_005_live_plan_switch_defers_to_next_cycle_no_proration(tenant_a):
     # Webhook confirms the new subscription actually started billing.
     from billing.services import apply_razorpay_subscription_status
 
-    confirmed = apply_razorpay_subscription_status(
-        "rzp_sub_new", "active", current_end=int((period_end + timedelta(days=30)).timestamp())
-    )
+    with patch("billing.services._cancel_razorpay_subscription") as confirm_cancel:
+        confirmed = apply_razorpay_subscription_status(
+            "rzp_sub_new", "active", current_end=int((period_end + timedelta(days=30)).timestamp())
+        )
+    confirm_cancel.assert_called_once_with("rzp_sub_old", at_cycle_end=True)
     assert confirmed.plan_id == new_plan.pk
     assert confirmed.pending_plan_id is None
 

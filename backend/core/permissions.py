@@ -104,6 +104,23 @@ class IsOwner(BasePermission):
         return cu is not None and cu.role == "OWNER"
 
 
+class IsOwnerManagerOrAccountant(BasePermission):
+    """Owner, Manager, or Accountant role required.
+
+    For actions gated by a hard role floor rather than a per-user capability
+    flag — e.g. promise-to-pay create/resolve, where the financial-commitment
+    risk warrants restricting to these three roles regardless of the
+    (configurable) ``can_create_payments`` capability, which SALES_STAFF gets
+    by default.
+    """
+
+    message = "Owner, Manager, or Accountant role required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        return cu is not None and cu.role in ("OWNER", "MANAGER", "ACCOUNTANT")
+
+
 class CanManageInventory(BasePermission):
     """Inventory adjustment requires inventory permission (§5.5)."""
 
@@ -152,6 +169,18 @@ class CanExport(BasePermission):
     def has_permission(self, request, view):
         cu = get_company_user(request)
         return cu is not None and (cu.role == "OWNER" or cu.can_export)
+
+
+class CanManagePolicies(BasePermission):
+    """Policy desk writes. Owner does not receive this from the owner role."""
+
+    message = "Policy desk permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or not cu.is_active:
+            return False
+        return bool(getattr(cu, "can_manage_policies", False))
 
 
 class CanCreateSales(BasePermission):
@@ -253,7 +282,7 @@ class CanPostJournals(BasePermission):
 
 
 class CanViewInventorySurfaces(BasePermission):
-    """Stock balances / valuation — not VIEWER; inventory or financial capability (BB-000420)."""
+    """Stock balances / valuation — not VIEWER; inventory, sales, purchases, or financial capability (BB-000420)."""
 
     message = "Inventory view permission required."
 
@@ -263,6 +292,26 @@ class CanViewInventorySurfaces(BasePermission):
             return False
         return (
             cu.role == "OWNER"
+            or cu.can_manage_inventory
+            or cu.can_view_financial_reports
+            or cu.can_create_sales
+            or cu.can_create_purchases
+        )
+
+
+class CanViewWarehouseSurfaces(BasePermission):
+    """Warehouse list/retrieve — not VIEWER; sales, purchases, inventory, or financial capability (BB-000618)."""
+
+    message = "Warehouse view permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role == "VIEWER":
+            return False
+        return (
+            cu.role == "OWNER"
+            or cu.can_create_sales
+            or cu.can_create_purchases
             or cu.can_manage_inventory
             or cu.can_view_financial_reports
         )

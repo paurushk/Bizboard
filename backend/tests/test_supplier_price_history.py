@@ -246,4 +246,35 @@ def test_supply_metrics_report_lead_time_fill_rate_and_over_receipt(tenant_a):
     assert metrics["fill_rate"] == "1.0000"
     assert metrics["over_receipt"] is True
     assert "score" not in metrics
+
+
+@pytest.mark.django_db
+def test_fill_rate_excludes_draft_purchase_order_lines(tenant_a):
+    """F1: only CONVERTED orders are a real commitment -- a draft/abandoned
+    PO must not inflate the ordered-quantity denominator with nothing received."""
+    from purchases.reliability import supply_metrics
+
+    supplier = make_supplier(tenant_a.company, name="Drafty")
+    product = make_product(tenant_a.company, sku="REL-DRAFT")
+    draft = PurchaseOrder.objects.create(
+        company=tenant_a.company,
+        supplier=supplier,
+        number="PO-DRAFT",
+        status=PurchaseOrder.Status.DRAFT,
+        order_date=date(2026, 1, 1),
+    )
+    PurchaseOrderItem.objects.create(
+        company=tenant_a.company,
+        purchase_order=draft,
+        product=product,
+        quantity=Decimal("1000"),
+        unit_price=Decimal("5"),
+        description="abandoned draft",
+    )
+    # No CONVERTED order and no receipt at all for this supplier/product --
+    # before the fix, the draft's quantity still counted as "ordered",
+    # producing a 0/1000 fill rate instead of "no data".
+    metrics = supply_metrics(tenant_a.company, supplier, product)
+    assert metrics["fill_rate"] is None
+    assert metrics["lead_time_days"] is None
     assert "rank" not in metrics

@@ -10,7 +10,7 @@ from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from core.exceptions import BusinessRuleError
 from core.permissions import CanViewFinancialReports, HasCompany, IsOwner, get_company_user
-from .attention import build_attention_rows, snooze_attention_row
+from .attention import build_attention_rows, dismiss_attention_row, snooze_attention_row
 
 from .assistant import confirm_proposed_action, dismiss_proposed_action, run_assistant_turn
 from .models import (
@@ -290,6 +290,31 @@ class AttentionFeedView(APIView):
         return Response({"rows": rows, "count": len(rows)})
 
 
+class AttentionDismissView(APIView):
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
+
+    def post(self, request):
+        cu = get_company_user(request)
+        dedupe_key = (request.data.get("dedupe_key") or request.data.get("dedupeKey") or "").strip()
+        if not dedupe_key:
+            return Response({"detail": "dedupe_key required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = dismiss_attention_row(cu.company, cu, dedupe_key=dedupe_key)
+        except BusinessRuleError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+
+
+class LearningReportView(APIView):
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
+
+    def get(self, request):
+        from insights.outcomes import learning_report
+
+        cu = get_company_user(request)
+        return Response(learning_report(cu.company))
+
+
 class AttentionSnoozeView(APIView):
     permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
 
@@ -317,22 +342,33 @@ class AttentionAssignView(APIView):
     permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
 
     def post(self, request):
-        from insights.attention import assign_attention_row
+        from insights.attention import _UNSET, assign_attention_row
 
         cu = get_company_user(request)
         dedupe_key = (request.data.get("dedupe_key") or request.data.get("dedupeKey") or "").strip()
+
+        def _provided(*keys):
+            # Distinguish "the client didn't send this field" (leave it
+            # alone) from "the client sent it as null" (clear it) — a
+            # plain .get() collapses both to None before it ever reaches
+            # assign_attention_row, defeating its partial-update contract.
+            for key in keys:
+                if key in request.data:
+                    return request.data.get(key)
+            return _UNSET
+
         try:
             result = assign_attention_row(
                 cu.company,
                 cu,
                 dedupe_key=dedupe_key,
-                assignee_id=request.data.get("assigned_to") or request.data.get("assignedTo"),
-                due_date=request.data.get("due_date") or request.data.get("dueDate"),
+                assignee_id=_provided("assigned_to", "assignedTo"),
+                due_date=_provided("due_date", "dueDate"),
             )
         except BusinessRuleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except ValueError:
-            return Response({"detail": "due_date must be YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as exc:
+            return Response({"detail": str(exc) or "Invalid assigned_to or due_date."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(result)
 
 
@@ -347,6 +383,22 @@ class CollectionsWorklistView(APIView):
         if not flag_enabled(company, "ENABLE_PREDICTIVE_DUNNING"):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         rows = collections_worklist(company)
+        return Response({"rows": rows, "count": len(rows)})
+
+
+class CollectionsOpenInvoicesView(APIView):
+    """Open invoices with days overdue, amount received, and invoice outstanding.
+
+    This does not require ENABLE_PREDICTIVE_DUNNING and does not add a risk score.
+    """
+
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
+
+    def get(self, request):
+        from payments.collections_open import open_invoice_rows
+
+        company = get_company_user(request).company
+        rows = open_invoice_rows(company)
         return Response({"rows": rows, "count": len(rows)})
 
 

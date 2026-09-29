@@ -163,12 +163,16 @@ def _can_see(company_user, code: str) -> bool:
         )
     if code in {"PAID_PENDING_BOOKS", "DUPLICATE_PAYMENT"}:
         return bool(company_user.can_create_payments or company_user.can_view_financial_reports)
+    if code in {"TICKET_SLA_BREACH", "CONTRACT_RENEWAL"}:
+        return bool(company_user.can_create_sales)
     if code in {
         "NO_SALES_TODAY",
         "AR_OVERDUE_CUSTOMER",
         "CHURN_RISK",
         "REPEAT_ORDER_DUE",
+        "CROSS_SELL",
         "PREDICTED_LATE_PAYMENT",
+        "PROMISE_TO_PAY_DUE",
     }:
         return bool(
             company_user.can_create_sales
@@ -276,9 +280,12 @@ def _itc_and_gst_rows(company, as_of: date) -> list[dict]:
         gst = build_gst_health(company)
     except Exception:
         return rows
-    for alert in (gst.get("alerts") or [])[:25]:
-        if alert.get("severity") != "critical":
-            continue
+    # Filter to critical first, then cap — capping the raw list before
+    # filtering can drop a real critical alert (including from a later
+    # invoice in the same run) whenever earlier invoices produce 25+ raw
+    # alerts of any severity, while the summary count still shows the truth.
+    critical = [alert for alert in (gst.get("alerts") or []) if alert.get("severity") == "critical"]
+    for alert in critical[:25]:
         doc_type = alert.get("document_type") or "company"
         doc_id = alert.get("document_id") or company.id
         href = "/reports/gst-health"
@@ -473,6 +480,42 @@ def _residual_return_rows(company) -> list[dict]:
     return rows
 
 
+def _promise_to_pay_rows(company, as_of: date) -> list[dict]:
+    """Customer promise-to-pay commitments due today (unresolved)."""
+    from payments.promise_to_pay import promises_due_today
+
+    rows = []
+    for promise in promises_due_today(company, as_of=as_of)[:40]:
+        customer = promise.customer
+        if promise.promised_amount is None:
+            amount_note = "amount not recorded"
+            impact = Decimal("0")
+        else:
+            amount_note = f"₹{promise.promised_amount}"
+            impact = promise.promised_amount
+        rows.append(_row(
+            code="PROMISE_TO_PAY_DUE",
+            severity="warning",
+            title=f"{customer.name} promised to pay {amount_note} today",
+            money_impact_paise=rupees_to_paise(impact) if promise.promised_amount is not None else 0,
+            reason=(
+                "amount not recorded. "
+                if promise.promised_amount is None
+                else ""
+            ) + (
+                promise.note.strip() if promise.note.strip()
+                else f"{customer.name} committed to pay on {promise.promised_date.isoformat()}."
+            ),
+            action_label="Open collections",
+            action_href="/payments/collections",
+            source_ticket="PROMISE_TO_PAY",
+            entity_type="customer",
+            entity_id=customer.id,
+            dedupe_key=f"PROMISE_TO_PAY_DUE:{promise.id}",
+        ))
+    return rows
+
+
 def _expiry_rows(company) -> list[dict]:
     from inventory.item_stock import expiry_horizon_rows
 
@@ -532,13 +575,16 @@ def _merge_and_rank(raw: list[dict]) -> list[dict]:
     return ranked
 
 
-def _apply_state(company, ranked: list[dict]) -> list[dict]:
+def _apply_state(company, ranked: list[dict]) -> tuple[list[dict], dict]:
     now = timezone.now()
     keys = [r["dedupe_key"] for r in ranked]
     existing = {
         s.dedupe_key: s
         for s in AttentionRowState.objects.filter(company=company, dedupe_key__in=keys)
     }
+    from insights.outcomes import observe_resolved_outcomes
+
+    observe_resolved_outcomes(company, keys, now)
     # Condition gone → clear dismiss so a later return reappears.
     AttentionRowState.objects.filter(company=company, dismissed=True).exclude(
         dedupe_key__in=keys,
@@ -574,7 +620,7 @@ def _apply_state(company, ranked: list[dict]) -> list[dict]:
 
     if to_create:
         AttentionRowState.objects.bulk_create(to_create, ignore_conflicts=True)
-    return visible
+    return visible, existing
 
 
 def _build_raw_rows(company, as_of: date) -> list[dict]:
@@ -588,13 +634,8 @@ def _build_raw_rows(company, as_of: date) -> list[dict]:
     raw.extend(_irn_rows(company))
     raw.extend(_paid_pending_books_rows(company))
     raw.extend(_overdue_customer_rows(company, as_of))
-    raw.extend(_residual_return_rows(company))
     raw.extend(_expiry_rows(company))
-    from insights.customer_actions import build_customer_action_rows
-    from payments.predictive_dunning import predicted_rows
-
-    raw.extend(predicted_rows(company, as_of))
-    raw.extend(build_customer_action_rows(company, as_of))
+    raw.extend(_promise_to_pay_rows(company, as_of))
     return raw
 
 
@@ -608,28 +649,52 @@ def _build_raw_rows_cached(company, as_of: date) -> list[dict]:
     return raw
 
 
+def invalidate_attention_cache(company, as_of: date | None = None) -> None:
+    try:
+        as_of = as_of or timezone.localdate()
+        cache.delete(f"insights:attention_raw:{company.pk}:{as_of.isoformat()}")
+    except Exception:
+        pass
+
+
 def build_attention_rows(company, company_user=None, as_of: date | None = None) -> list[dict]:
     as_of = as_of or timezone.localdate()
     raw = _build_raw_rows_cached(company, as_of)
 
+    # Predicted-dunning, customer-action, and residual-return rows must be
+    # compute-on-read, not copy Attention's own 60s no-invalidation cache —
+    # a paid invoice, a new order, or a newly returned invoice should
+    # reflect on the very next load, not up to 60s later. Merge them in
+    # after the cached read, not inside it.
+    from insights.customer_actions import build_customer_action_rows
+    from payments.predictive_dunning import predicted_rows
+
+    raw = (
+        raw
+        + predicted_rows(company, as_of)
+        + build_customer_action_rows(company, as_of)
+        + _residual_return_rows(company)
+    )
+
     ranked = _merge_and_rank(raw)
-    visible = _apply_state(company, ranked)
+    visible, states = _apply_state(company, ranked)
     if company_user is not None:
         visible = [r for r in visible if _can_see(company_user, r["code"])]
     contracted = [_contract(r) for r in visible]
-    return _attach_assignment(company, contracted)
+    return _attach_assignment(company, contracted, states)
 
 
-def _attach_assignment(company, rows: list[dict]) -> list[dict]:
+def _attach_assignment(company, rows: list[dict], states: dict | None = None) -> list[dict]:
     from core.services.feature_flags import flag_enabled
 
     if not flag_enabled(company, "ENABLE_ACTION_ASSIGNMENT"):
         return rows
-    keys = [row["dedupe_key"] for row in rows]
-    states = {
-        state.dedupe_key: state
-        for state in AttentionRowState.objects.filter(company=company, dedupe_key__in=keys)
-    }
+    if states is None:
+        keys = [row["dedupe_key"] for row in rows]
+        states = {
+            state.dedupe_key: state
+            for state in AttentionRowState.objects.filter(company=company, dedupe_key__in=keys)
+        }
     today = timezone.localdate()
     for row in rows:
         state = states.get(row["dedupe_key"])
@@ -641,8 +706,14 @@ def _attach_assignment(company, rows: list[dict]) -> list[dict]:
     return rows
 
 
-def assign_attention_row(company, company_user, *, dedupe_key: str, assignee_id, due_date):
+_UNSET = object()
+
+
+def assign_attention_row(company, company_user, *, dedupe_key: str, assignee_id=_UNSET, due_date=_UNSET):
     from datetime import date as date_cls
+    from datetime import timezone as dt_timezone
+
+    from django.utils.dateparse import parse_datetime
 
     from accounts.models import CompanyUser
     from core.exceptions import BusinessRuleError
@@ -654,34 +725,81 @@ def assign_attention_row(company, company_user, *, dedupe_key: str, assignee_id,
     dedupe_key = (dedupe_key or "").strip()
     if not dedupe_key:
         raise BusinessRuleError("dedupe_key is required.")
-    assignee = None
-    if assignee_id not in (None, "", 0):
-        assignee = CompanyUser.objects.filter(
-            company=company, pk=assignee_id, user__is_active=True
-        ).first()
-        if assignee is None:
-            raise BusinessRuleError("Assignee must be an active member of this company.")
-    parsed_due = None
-    if due_date not in (None, ""):
-        if isinstance(due_date, date_cls):
-            parsed_due = due_date
-        else:
-            parsed_due = date_cls.fromisoformat(str(due_date)[:10])
     now = timezone.now()
     state, _created = AttentionRowState.objects.get_or_create(
         company=company,
         dedupe_key=dedupe_key,
         defaults={"first_seen": now},
     )
-    state.assigned_to = assignee
-    state.due_date = parsed_due
+    # Only touch a field that was actually provided — omitting one field to
+    # update only the other must not silently clear the field left alone.
+    update_fields = ["updated_by", "updated_at"]
+    if assignee_id is not _UNSET:
+        assignee = None
+        if assignee_id not in (None, "", 0):
+            assignee = CompanyUser.objects.filter(
+                company=company, pk=assignee_id, user__is_active=True
+            ).first()
+            if assignee is None:
+                raise BusinessRuleError("Assignee must be an active member of this company.")
+        state.assigned_to = assignee
+        update_fields.append("assigned_to")
+    if due_date is not _UNSET:
+        parsed_due = None
+        if due_date not in (None, ""):
+            if isinstance(due_date, date_cls):
+                parsed_due = due_date
+            else:
+                raw = str(due_date)
+                if len(raw) > 10 or "T" in raw:
+                    # A full timestamp (e.g. a browser's Date.toISOString(),
+                    # always UTC) must be converted to local time before
+                    # taking its date — slicing the first 10 characters
+                    # assumes the timestamp is already local and can land a
+                    # day early for anyone east of UTC.
+                    parsed_dt = parse_datetime(raw)
+                    if parsed_dt is None:
+                        raise BusinessRuleError("due_date must be YYYY-MM-DD.")
+                    if timezone.is_naive(parsed_dt):
+                        parsed_dt = timezone.make_aware(parsed_dt, dt_timezone.utc)
+                    parsed_due = timezone.localtime(parsed_dt).date()
+                else:
+                    parsed_due = date_cls.fromisoformat(raw)
+        state.due_date = parsed_due
+        update_fields.append("due_date")
     state.updated_by = getattr(company_user, "user", None)
-    state.save(update_fields=["assigned_to", "due_date", "updated_by", "updated_at"])
+    state.save(update_fields=update_fields)
     log_flag_event(company, "ENABLE_ACTION_ASSIGNMENT", "action_assigned", dedupe_key=dedupe_key)
     return {
         "dedupe_key": dedupe_key,
-        "assigned_to": assignee.id if assignee else None,
-        "due_date": parsed_due.isoformat() if parsed_due else None,
+        "assigned_to": state.assigned_to_id,
+        "due_date": state.due_date.isoformat() if state.due_date else None,
+    }
+
+
+def dismiss_attention_row(company, company_user, *, dedupe_key: str) -> dict:
+    """Hide the row. Dismissal is not approval and does not snooze."""
+    from core.exceptions import BusinessRuleError
+
+    from insights.outcomes import record_dismissal
+
+    dedupe_key = (dedupe_key or "").strip()
+    if not dedupe_key:
+        raise BusinessRuleError("dedupe_key is required.")
+    now = timezone.now()
+    state, _ = AttentionRowState.objects.get_or_create(
+        company=company,
+        dedupe_key=dedupe_key,
+        defaults={"first_seen": now},
+    )
+    state.dismissed = True
+    state.updated_by = getattr(company_user, "user", None)
+    state.save(update_fields=["dismissed", "updated_by", "updated_at"])
+    outcome = record_dismissal(company, state, now)
+    return {
+        "dedupe_key": dedupe_key,
+        "dismissed": True,
+        "within_window": outcome.within_window,
     }
 
 

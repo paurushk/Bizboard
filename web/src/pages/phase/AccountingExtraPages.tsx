@@ -70,7 +70,8 @@ export function AccountingSettingsPage() {
             Enable accounting in Settings before using journals, trial balance, or P&amp;L.
           </Alert>
           <Alert severity="warning">
-            Enable only when pilots need journals / TB / P&amp;L. GL is a projection of documents — not a second place to edit sales.
+            A company that already has invoices or stock cannot turn books on from this button.
+            Preview back-fill above, then post. Books become the outstanding figure only after that trial balance ties.
           </Alert>
           <Stack direction="row" spacing={1}>
             <Button variant="contained" disabled={writesBlocked || m.isPending} onClick={() => m.mutate(true)}>

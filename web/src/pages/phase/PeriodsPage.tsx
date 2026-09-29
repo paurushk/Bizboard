@@ -8,9 +8,12 @@ import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
+import { useAuth } from '@/auth/AuthContext';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { isOwner } from '@/utils/permissions';
 import { isGstrReportsEnabled } from '@/config/features';
 import { nextIndianFyEnd } from '@/utils/fy';
+import { BooksCloseSection } from '@/pages/phase/BooksCloseSection';
 import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
@@ -27,6 +30,8 @@ function warningCodes(payload: unknown): string[] {
 }
 
 export function PeriodsPage() {
+  const { user } = useAuth();
+  const owner = !!user && isOwner(user.role);
   const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
   const gstrOn = isGstrReportsEnabled();
@@ -120,6 +125,7 @@ export function PeriodsPage() {
     return status === 'OPEN' && (gst === 'SOFT_CLOSED' || gst === 'CLOSED');
   });
   return <PageShell title={t('phase.periods')} subtitle={t('phase.periodsSubtitle')}>
+    <BooksCloseSection />
     {error ? <HelpErrorAlert message={error} /> : null}
     {warning ? <Alert severity="warning">{warning}</Alert> : null}
     {gstStillOpen ? <Alert severity="warning">{t('phase.gstPeriodOpen')}</Alert> : null}
@@ -130,11 +136,11 @@ export function PeriodsPage() {
       <TextField type="date" label={t('phase.periodEnd')} size="small" InputLabelProps={{ shrink: true }} value={end} onChange={(e) => setEnd(e.target.value)} />
       <Button variant="contained" disabled={writesBlocked || !name || !start || !end || create.isPending} onClick={() => create.mutate()}>{t('phase.createPeriod')}</Button>
       <TextField type="date" label={t('phase.fyEnd')} size="small" InputLabelProps={{ shrink: true }} value={fyEnd} onChange={(e) => setFyEnd(e.target.value)} />
-      <Button color="warning" variant="outlined" disabled={writesBlocked || !fyEnd || fyClose.isPending} onClick={() => fyClose.mutate()}>{t('phase.closeFy')}</Button>
+      {owner ? <Button color="warning" variant="outlined" disabled={writesBlocked || !fyEnd || fyClose.isPending} onClick={() => fyClose.mutate()}>{t('phase.closeFy')}</Button> : null}
     </Stack>
     <DataTable rows={rows} empty={t('phase.noPeriods')} columns={[
       { key: 'name', label: t('phase.periodName') }, { key: 'startDate', label: t('phase.periodStart') }, { key: 'endDate', label: t('phase.periodEnd') }, { key: 'status', label: t('phase.periodStatus'), status: true },
-    ]} actions={(row) => row.status !== 'CLOSED' || (gstrOn && String(row.gstPeriodStatus ?? row.gst_period_status ?? 'OPEN') === 'OPEN') ? <Stack direction="row" spacing={1} justifyContent="flex-end">
+    ]} actions={(row) => owner && (row.status !== 'CLOSED' || (gstrOn && String(row.gstPeriodStatus ?? row.gst_period_status ?? 'OPEN') === 'OPEN')) ? <Stack direction="row" spacing={1} justifyContent="flex-end">
       {row.status === 'OPEN' ? <Button size="small" disabled={writesBlocked} onClick={() => setStatus.mutate({ id: Number(row.id), status: 'SOFT_CLOSED' })}>{t('phase.softClose')}</Button> : null}
       {row.status !== 'CLOSED' ? <Button size="small" color="error" disabled={writesBlocked} onClick={() => setStatus.mutate({ id: Number(row.id), status: 'CLOSED' })}>{t('phase.closePeriod')}</Button> : null}
       {gstrOn && String(row.gstPeriodStatus ?? row.gst_period_status ?? 'OPEN') === 'OPEN' && periodMonth(row) ? (

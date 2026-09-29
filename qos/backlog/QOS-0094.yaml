@@ -1,0 +1,29 @@
+id: QOS-0094
+category: BUSINESS_GAP
+title: Contract value does not create a recurring schedule
+persona:
+- P2
+journey: Warranty and AMC
+problem: The page says value does not bill. There is no foreign key from the contract to a schedule.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  detail: L12. Nullable Contract.recurring_schedule. Scope contract_recurring_schedule. Remove the does-not-bill sentence in the same change.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 1
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: The label and the button together would be the halfway state already rejected.
+effort: M
+recommendation: IsOwner. Idempotent on the contract. sales must not import contracts.
+test_required: One schedule, PostgreSQL race, non-owner 403, ast walk of sales/ finds no contracts import.
+guard_ref:
+  test: backend/tests/test_llm_path_to_ten.py::test_contract_schedule_is_idempotent_and_sales_does_not_import_contracts
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

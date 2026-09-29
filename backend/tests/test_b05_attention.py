@@ -233,3 +233,66 @@ def test_assignment_overdue_is_a_marker_and_mine_keeps_the_owner(tenant_a):
     hidden = _attach_assignment(tenant_a.company, [{"dedupe_key": "MINE-1", "severity": "warning"}])
     assert "assigned_to" not in hidden[0]
     assert "overdue" not in hidden[0]
+
+
+@pytest.mark.django_db
+def test_attention_assignment_does_not_reread_row_state(tenant_a):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from insights.attention import _attach_assignment
+
+    flags = dict(tenant_a.company.feature_flags or {})
+    flags["ENABLE_ACTION_ASSIGNMENT"] = True
+    tenant_a.company.feature_flags = flags
+    tenant_a.company.save(update_fields=["feature_flags"])
+    row = {"dedupe_key": "TEST:1"}
+
+    def _state_selects(ctx):
+        return [
+            query["sql"] for query in ctx.captured_queries
+            if "attentionrowstate" in query["sql"].lower() and query["sql"].lstrip().lower().startswith("select")
+        ]
+
+    with CaptureQueriesContext(connection) as passed:
+        _attach_assignment(tenant_a.company, [row], {})
+    with CaptureQueriesContext(connection) as reread:
+        _attach_assignment(tenant_a.company, [dict(row)], None)
+    assert _state_selects(passed) == []
+    assert len(_state_selects(reread)) == 1
+
+
+@pytest.mark.django_db
+def test_dismiss_and_learning_report_are_read_only_and_company_scoped(tenant_a, tenant_b):
+    missing = tenant_a.client.post("/api/v1/insights/attention/dismiss/", {}, format="json")
+    assert missing.status_code == 400
+
+    dismissed = tenant_a.client.post(
+        "/api/v1/insights/attention/dismiss/",
+        {"dedupe_key": "DEAD_STOCK:9"},
+        format="json",
+    )
+    assert dismissed.status_code == 200, dismissed.data
+    body = dismissed.data.get("data") or dismissed.data
+    assert (body.get("dismissed") is True)
+    assert (body.get("within_window") or body.get("withinWindow")) is True
+
+    report = tenant_a.client.get("/api/v1/insights/learning-report/")
+    assert report.status_code == 200, report.data
+    payload = report.data.get("data") or report.data
+    assert payload.get("acted") == 1
+    assert payload.get("thresholds_changed", payload.get("thresholdsChanged")) is False
+    flags_before = dict(tenant_a.company.feature_flags or {})
+    tenant_a.company.refresh_from_db()
+    assert tenant_a.company.feature_flags == flags_before
+
+    assert tenant_a.staff_client.get("/api/v1/insights/learning-report/").status_code == 403
+    assert tenant_a.staff_client.post(
+        "/api/v1/insights/attention/dismiss/",
+        {"dedupe_key": "DEAD_STOCK:9"},
+        format="json",
+    ).status_code == 403
+    other = tenant_b.client.get("/api/v1/insights/learning-report/")
+    assert other.status_code == 200
+    other_body = other.data.get("data") or other.data
+    assert other_body.get("acted") == 0

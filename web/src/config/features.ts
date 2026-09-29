@@ -105,6 +105,34 @@ export function isCrmEnabled(): boolean {
   return resolveOptionalModuleFlag(features.crm, 'ENABLE_CRM');
 }
 
+export function isComplaintsEnabled(): boolean {
+  return resolveOptionalModuleFlag(false, 'ENABLE_COMPLAINTS');
+}
+
+export function isSupportTicketsEnabled(): boolean {
+  return resolveOptionalModuleFlag(false, 'ENABLE_SUPPORT_TICKETS');
+}
+
+export function isContractsEnabled(): boolean {
+  return resolveOptionalModuleFlag(false, 'ENABLE_CONTRACTS');
+}
+
+export function isWorkshopEnabled(): boolean {
+  return resolveOptionalModuleFlag(false, 'ENABLE_WORKSHOP');
+}
+
+export function isProjectsEnabled(): boolean {
+  return resolveOptionalModuleFlag(false, 'ENABLE_PROJECTS');
+}
+
+export function isInsuranceEnabled(): boolean {
+  return resolveOptionalModuleFlag(false, 'ENABLE_INSURANCE');
+}
+
+export function isReferralsEnabled(): boolean {
+  return isCrmEnabled() && resolveOptionalModuleFlag(false, 'ENABLE_REFERRALS');
+}
+
 export function isPosEnabled(): boolean {
   // CR-115 / CR-008: UI/nav gate only for pilot — sales money APIs are not blocked when false.
   return resolveModuleFlag(features.pos, 'ENABLE_POS');

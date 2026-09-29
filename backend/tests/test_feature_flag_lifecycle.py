@@ -35,14 +35,15 @@ def test_env_flag_keys_exist_on_settings():
 
 
 def test_known_limitation_flags_default_off_in_settings_source():
-    src = (ROOT / "backend" / "config" / "settings.py").read_text(encoding="utf-8")
+    backend_dir = Path(__file__).resolve().parents[1]
+    src = (backend_dir / "config" / "settings.py").read_text(encoding="utf-8")
     assert '_env_bool("ENABLE_FIXED_ASSETS", "0")' in src
     assert '_env_bool("ENABLE_BOE", "0")' in src
-    fa = (ROOT / "backend" / "accounting" / "views.py").read_text(encoding="utf-8")
-    boe = (ROOT / "backend" / "purchases" / "views.py").read_text(encoding="utf-8")
+    fa = (backend_dir / "accounting" / "views.py").read_text(encoding="utf-8")
+    boe = (backend_dir / "purchases" / "views.py").read_text(encoding="utf-8")
     assert 'getattr(settings, "ENABLE_FIXED_ASSETS", False)' in fa
     assert 'getattr(settings, "ENABLE_BOE", False)' in boe
     # Test settings still opt in so WF-53 / WF-57 keep exercising the surface.
-    test_src = (ROOT / "backend" / "config" / "settings_test.py").read_text(encoding="utf-8")
+    test_src = (backend_dir / "config" / "settings_test.py").read_text(encoding="utf-8")
     assert "ENABLE_FIXED_ASSETS = True" in test_src
     assert "ENABLE_BOE = True" in test_src

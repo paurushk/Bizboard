@@ -56,11 +56,12 @@ test('lifecycle ARCH-03: quote-SO-challan-SI-return-residual DN-pay-attention-cl
   await expect(page.getByRole('row', { name: new RegExp(supplierName) })).toContainText('Completed');
 
   await createQuotationConvertedToOrder(page, { customerName, sku: productSku });
-  await convertDraftOrderToCompletedInvoiceViaChallan(page);
+  await convertDraftOrderToCompletedInvoiceViaChallan(page, customerName);
 
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
   await expect(invoiceRow).toContainText('Completed');
-  const invoiceNumber = (await invoiceRow.locator('td').nth(1).textContent())?.trim();
+  const textCells = await invoiceRow.locator('td').allTextContents();
+  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
   expect(invoiceNumber).toMatch(/^INV-/);
 
   const payPath = await createPaymentLinkAndReadPublicPath(page, invoiceNumber!);
@@ -85,7 +86,6 @@ test('lifecycle ARCH-03: quote-SO-challan-SI-return-residual DN-pay-attention-cl
   await page.goto(payPath);
   await expect(page.getByText(/₹0\.00/)).toBeVisible({ timeout: 15_000 });
 
-  await page.goto('/');
   await completeResidualSalesDebitNote(page, { invoiceNumber: invoiceNumber!, productName });
 
   await page.goto(payPath);

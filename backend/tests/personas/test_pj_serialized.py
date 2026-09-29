@@ -221,3 +221,97 @@ def test_pj_bulk_serial_import_partial_failure_blocks_whole_job():
     assert not Product.objects.filter(company=ns.company, sku="BULKPH-1").exists()
 
     assert_all_invariants(ns.company)
+
+
+def test_j_serial_p2_warranty_lookup_includes_a_serial_never_sold():
+    """J-SERIAL-P2-WARRANTY: the counter looks a serial up by its exact number.
+
+    A unit that was never sold comes back AVAILABLE. A sold unit comes back
+    SOLD. An unknown number is an empty list, not another company's row.
+    Sales staff may look up. The accountant may not. Transition stays an
+    inventory write.
+    """
+    from inventory.models import MovementType
+    from inventory.services import InventoryService
+    from tests.conftest import make_product, make_tenant
+
+    ns = seed_archetype("serialized")
+    company = ns.company
+    product = ns.products[0]
+    wh = ns.warehouses[0]
+    cust = ns.customers[0]
+    other = make_tenant("serial-other")
+    other_wh = InventoryService.default_warehouse(other.company)
+    other_product = make_product(other.company, sku="OTHER-PH", track_serial=True)
+
+    SerialNumber.objects.create(
+        company=company, product=product, warehouse=wh,
+        serial_number="SN-NEVER-SOLD", status=SerialNumber.Status.AVAILABLE,
+    )
+    SerialNumber.objects.create(
+        company=company, product=product, warehouse=wh,
+        serial_number="SN-TO-SELL", status=SerialNumber.Status.AVAILABLE,
+    )
+    InventoryService.post_movement(
+        company=company, warehouse=wh, product=product,
+        movement_type=MovementType.OPENING_STOCK, quantity=Decimal("2"),
+        unit_cost=Decimal("60.00"), user=ns.owner,
+    )
+    SerialNumber.objects.create(
+        company=other.company, product=other_product, warehouse=other_wh,
+        serial_number="SN-NEVER-SOLD", status=SerialNumber.Status.SOLD,
+    )
+
+    unsold = ns.sales_client.get("/api/v1/inventory/serials/", {"serial_number": "SN-NEVER-SOLD"})
+    assert unsold.status_code == 200, unsold.data
+    rows = _serial_rows(unsold.data)
+    assert len(rows) == 1
+    assert rows[0]["serial_number"] == "SN-NEVER-SOLD"
+    assert rows[0]["status"] == SerialNumber.Status.AVAILABLE
+
+    inv = ns.sales_client.post(
+        "/api/v1/sales/invoices/",
+        {
+            "customer": cust.id,
+            "invoice_type": "GST",
+            "items": [{
+                "product": product.id, "quantity": "1", "unit_price": "100.00", "gst_rate": "18",
+                "serial_numbers": ["SN-TO-SELL"],
+            }],
+        },
+        format="json",
+    )
+    assert inv.status_code == 201, inv.data
+    complete = ns.sales_client.post(f"/api/v1/sales/invoices/{inv.data['id']}/complete/")
+    assert complete.status_code == 200, complete.data
+
+    found = ns.sales_client.get("/api/v1/inventory/serials/", {"serial_number": "SN-TO-SELL"})
+    assert _serial_rows(found.data)[0]["status"] == SerialNumber.Status.SOLD
+    still = ns.sales_client.get("/api/v1/inventory/serials/", {"serial_number": "SN-NEVER-SOLD"})
+    assert _serial_rows(still.data)[0]["status"] == SerialNumber.Status.AVAILABLE
+
+    missing = ns.sales_client.get("/api/v1/inventory/serials/", {"serial_number": "SN-DOES-NOT-EXIST"})
+    assert missing.status_code == 200
+    assert _serial_rows(missing.data) == []
+
+    denied = ns.acct_client.get("/api/v1/inventory/serials/", {"serial_number": "SN-NEVER-SOLD"})
+    assert denied.status_code == 403
+
+    sold = SerialNumber.objects.get(company=company, serial_number="SN-TO-SELL")
+    transition = ns.sales_client.post(
+        f"/api/v1/inventory/serials/{sold.id}/transition/",
+        {"status": SerialNumber.Status.AVAILABLE},
+        format="json",
+    )
+    assert transition.status_code == 403
+    sold.refresh_from_db()
+    assert sold.status == SerialNumber.Status.SOLD
+    assert_all_invariants(company)
+
+
+def _serial_rows(data):
+    if isinstance(data, dict):
+        return data.get("results", data.get("items", []))
+    return data
+
+

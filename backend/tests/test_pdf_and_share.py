@@ -714,6 +714,45 @@ def test_thermal_pdf_endpoint_sync(tenant_a):
     assert abs(_pdf_page_width_pt(content58) - 58 * mm) < 2
 
 
+def test_j_retail_p2_thermal_sale_completes_without_a_printer(tenant_a):
+    """J-RETAIL-P2-THERMAL: checkout does not wait on a hardware printer.
+
+    The slip is a PDF the clerk can reprint. No printer id is accepted or
+    required. Hardware spooling stays a known limitation.
+    """
+    product = make_product(tenant_a.company, gst_rate="18", selling_price="100")
+    add_stock(tenant_a, product, "20", unit_cost="60")
+    customer = make_customer(tenant_a.company, state="Karnataka", gstin="29AAAAA0000A1ZY")
+    checkout = tenant_a.client.post(
+        "/api/v1/sales/invoices/pos-checkout/",
+        {
+            "invoice": {
+                "customer": customer.id,
+                "invoice_type": "RETAIL",
+                "invoice_date": "2026-03-15",
+                "items": [{
+                    "product": product.id,
+                    "quantity": "1",
+                    "unit_price": "100.00",
+                    "gst_rate": "18",
+                }],
+            },
+            "payment": {"mode": "CASH", "amount": "118.00", "tendered_amount": "200.00"},
+        },
+        format="json",
+    )
+    assert checkout.status_code == 201, checkout.data
+    assert checkout.data["invoice"]["status"] == "COMPLETED"
+    assert "printer" not in checkout.data
+
+    thermal = tenant_a.client.get(
+        f"/api/v1/sales/invoices/{checkout.data['invoice']['id']}/thermal-pdf/"
+    )
+    assert thermal.status_code == 200
+    body = b"".join(thermal.streaming_content)
+    assert body.startswith(b"%PDF")
+
+
 def test_thermal_pdf_rejects_draft(tenant_a):
     product = make_product(tenant_a.company)
     customer = make_customer(tenant_a.company)

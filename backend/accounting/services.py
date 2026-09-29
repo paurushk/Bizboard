@@ -1832,6 +1832,81 @@ class PostingService:
 
 
 class BooksHealthService:
+    # A rupee of inventory drift is the same tolerance as the AR/AP control
+    # check. The ₹39,620 gap seen when stock existed before books were on is
+    # outside it, so the general ledger is not the outstanding figure yet.
+    INVENTORY_VARIANCE_TOLERANCE = Decimal("1.00")
+
+    @staticmethod
+    def gl_basis_ready(company) -> bool:
+        """GL outstanding is usable only after back-fill is complete.
+
+        Complete means the trial balance ties, there is no DOCS_GL_* alert,
+        completed documents are posted, and inventory GL is within tolerance
+        of the valuation. Cached on the company instance for this request.
+        """
+        if not getattr(company, "accounting_enabled", False):
+            return False
+        cached = getattr(company, "_gl_basis_ready", None)
+        if cached is not None:
+            return cached
+        from django.conf import settings
+        from django.core.cache import cache
+
+        ttl = int(getattr(settings, "GL_BASIS_CACHE_SECONDS", 0) or 0)
+        key = f"gl-basis-ready:{company.pk}"
+        ready = cache.get(key) if ttl > 0 else None
+        if ready is None:
+            ready = BooksHealthService._gl_basis_ready_uncached(company)
+            if ttl > 0:
+                cache.set(key, ready, ttl)
+        try:
+            company._gl_basis_ready = ready
+        except Exception:
+            pass
+        return ready
+
+    @staticmethod
+    def _gl_basis_ready_uncached(company) -> bool:
+        from accounting.reports import balance_sheet, trial_balance
+
+        tb = trial_balance(company)
+        if not tb.get("balanced"):
+            return False
+        health = BooksHealthService.control_balances(company)
+        for alert in health.get("alerts") or []:
+            code = str(alert.get("code") or "")
+            if code.startswith("DOCS_GL_") or code == "DOCUMENT_MISSING_POSTING":
+                return False
+        sheet = balance_sheet(company)
+        variance = abs(Decimal(str(sheet.get("inventory_variance") or 0)))
+        return variance <= BooksHealthService.inventory_variance_tolerance(
+            Decimal(str(sheet.get("inventory_valuation") or 0))
+        )
+
+    @staticmethod
+    def inventory_variance_tolerance(valuation: Decimal) -> Decimal:
+        """₹1, or 0.1% of stock value up to ₹100.
+
+        A busy stockroom accumulates paise of costing rounding between the
+        valuation replay and the GL. That must not leave the owner on the
+        back-fill warning for ever, while a real gap (stock that was never
+        posted) is orders of magnitude larger and still fails.
+        """
+        floor = BooksHealthService.INVENTORY_VARIANCE_TOLERANCE
+        scaled = (abs(valuation) * Decimal("0.001")).quantize(Decimal("0.01"))
+        return max(floor, min(Decimal("100.00"), scaled))
+
+    @staticmethod
+    def clear_gl_basis_cache(company) -> None:
+        try:
+            del company._gl_basis_ready
+        except AttributeError:
+            pass
+        from django.core.cache import cache
+
+        cache.delete(f"gl-basis-ready:{company.pk}")
+
     @staticmethod
     def _period_label(period_obj) -> str | None:
         if period_obj is None:

@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, re_path
 from core.routers import DefaultRouter
 
 from .phase1_views import (
@@ -8,7 +8,7 @@ from .phase1_views import (
     SalesOrderViewSet,
 )
 from .route_combine import RouteCombineView
-from .route_views import DeliveryChallanReturnViewSet, DeliveryRouteViewSet
+from .route_views import DeliveryChallanReturnViewSet, DeliveryRouteViewSet, PodSlipView
 from .views import QuotationViewSet, RecurringInvoiceScheduleViewSet, SalesInvoiceViewSet, SalesReturnViewSet
 
 router = DefaultRouter()
@@ -25,4 +25,9 @@ router.register("recurring-schedules", RecurringInvoiceScheduleViewSet, basename
 
 urlpatterns = [
     path("delivery-routes/combine-suggestions/", RouteCombineView.as_view(), name="route-combine"),
+    re_path(
+        r"^delivery-routes/(?P<pk>[0-9]+)/stops/(?P<stop_id>[0-9]+)/pod\.pdf$",
+        PodSlipView.as_view(),
+        name="delivery-route-pod",
+    ),
 ] + router.urls

@@ -20,6 +20,7 @@ from . import (  # noqa: F401 — import = register
     numbering,
     projection,
     reports,
+    roadmap,
     tenancy,
 )
 from .base import (

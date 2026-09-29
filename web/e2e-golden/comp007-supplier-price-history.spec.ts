@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test';
 import {
+  addInvoiceItem,
   completePurchaseInvoice,
   createProduct,
   createSupplier,
   registerTenant,
+  selectPartyOnDocument,
   unique,
 } from './helpers/documents';
 
@@ -52,4 +54,65 @@ test('COMP-007: price-history dialog shows a real price jump across two purchase
   for (const banned of [/score/i, /\brank\b/i, /reliab/i]) {
     await expect(page.getByText(banned)).toHaveCount(0);
   }
+});
+
+/**
+ * COMP-007 follow-up: the price-history *dialog* above is a passive report.
+ * NewPurchasePage.tsx also reads the same history live while composing a new
+ * bill and shows an inline, non-blocking "price-jump note" under the rate
+ * field (DraftLineTable.tsx's renderPriceHint) whenever the entered rate is
+ * strictly higher than the last PURCHASE_INVOICE rate for that supplier+
+ * product — never for an equal or lower rate (see NewPurchasePage.tsx's
+ * priceJumpNote(): `Number(line.unitPrice) > Number(lastRate)`).
+ *
+ * The note text is literally `last bill was ₹{rate} on {date}` (see
+ * NewPurchasePage.priceJumpNote.test.tsx for the exact format), where `date`
+ * is the prior invoice's own invoice_date — NewPurchasePage.tsx defaults a
+ * new purchase's own date to the *local* today (lineHelpers.ts's todayIso(),
+ * not UTC), so this test mirrors that exact computation rather than
+ * `Date#toISOString()` to avoid a timezone-boundary mismatch.
+ */
+function localTodayIso(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+test('COMP-007: a higher rate than history shows a price-jump note; equal or lower shows none', async ({ page }) => {
+  const id = unique();
+  const companyName = `E2E PriceJump ${id}`;
+  const email = `e2e-price-jump-${id}@example.test`;
+  const productName = `Jump Widget ${id}`;
+  const sku = `PJ-${id}`;
+  const supplierName = `Jump Supplier ${id}`;
+  const todayIso = localTodayIso();
+
+  await registerTenant(page, { companyName, email, password: 'GoldenPath123!' });
+  await createProduct(page, { name: productName, sku, sellingPrice: '50', purchasePrice: '10' });
+  await createSupplier(page, { name: supplierName });
+
+  // One COMPLETED purchase at ₹10 — the history the note reads.
+  await completePurchaseInvoice(page, { supplierName, sku, productName, unitPrice: '10', quantity: '1' });
+
+  await page.goto('/purchases/new');
+  await selectPartyOnDocument(page, supplierName);
+  await addInvoiceItem(page, sku);
+  const row = page.getByRole('row', { name: new RegExp(productName) });
+  // See helpers/documents.ts's completePurchaseInvoice comment: the row's
+  // real <input> order is [0] Quantity, [1] Unit price, [2] Discount %.
+  const unitPriceInput = row.locator('input').nth(1);
+
+  // Higher than the ₹10.00 history -> the note appears with the prior rate/date.
+  await unitPriceInput.fill('15');
+  await expect(page.getByText(`last bill was ₹10.00 on ${todayIso}`)).toBeVisible({ timeout: 15_000 });
+
+  // Equal to history -> no note (a jump note is about paying MORE, not the same).
+  await unitPriceInput.fill('10');
+  await expect(page.getByText(/last bill was/)).toHaveCount(0);
+
+  // Lower than history -> no note either.
+  await unitPriceInput.fill('8');
+  await expect(page.getByText(/last bill was/)).toHaveCount(0);
 });

@@ -178,6 +178,12 @@ INSTALLED_APPS = [
     "manufacturing",
     "payroll",
     "crm",
+    "complaints",
+    "support",
+    "contracts",
+    "workshop",
+    "projects",
+    "insurance",
     "banking",
     "billing",
     "ops",
@@ -239,7 +245,15 @@ if "sqlite" in _db_engine:
     # CFG-06: persistent SQLite connections are a "database is locked" source
     # under the dev server + eager Celery; keep sqlite connections per-request.
     DATABASES["default"]["CONN_MAX_AGE"] = 0
-    DATABASES["default"].setdefault("OPTIONS", {})["timeout"] = 30
+    _sqlite_opts = DATABASES["default"].setdefault("OPTIONS", {})
+    _sqlite_opts["timeout"] = 30
+    # A DEFERRED transaction that has already read hits SQLITE_BUSY_SNAPSHOT
+    # the moment another connection commits (the shop-floor telemetry POST
+    # does this during invoice/purchase complete). SQLite does not invoke the
+    # busy handler for that code, so the 30s timeout never waits and complete
+    # returns 500, leaving the document a draft. IMMEDIATE takes the write
+    # lock at BEGIN so the other writer waits instead.
+    _sqlite_opts["transaction_mode"] = "IMMEDIATE"
 
     def _sqlite_wal(sender, connection, **kwargs):
         if connection.vendor != "sqlite":
@@ -362,7 +376,10 @@ REST_FRAMEWORK = {
         "purchase_complete": "30/min",
         "customer_portal_request": "5/min",
         "customer_portal_read": "60/min",
+        "customer_portal_complaint": "10/hour",
+        "public_pay": "20/min",
         "lead_form": "20/min",
+        "whatsapp_webhook": "120/min",
     },
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "JSON_UNDERSCOREIZE": {
@@ -477,6 +494,9 @@ else:
             "LOCATION": "bizboard-local",
         }
     }
+# Seconds the "is the GL usable as the outstanding figure" check is shared across
+# requests (it runs three ledger aggregates). 0 disables the shared cache.
+GL_BASIS_CACHE_SECONDS = _env_int("GL_BASIS_CACHE_SECONDS", 30)
 CELERY_BROKER_URL = REDIS_URL or "redis://localhost:6379/0"
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 
@@ -543,9 +563,21 @@ CELERY_BEAT_SCHEDULE = {
         "task": "inventory.tasks.record_expiry_bands_task",
         "schedule": crontab(hour=7, minute=0),
     },
+    "reporting-itc-expiry-digest": {
+        "task": "reporting.tasks.send_itc_expiry_digests_task",
+        "schedule": crontab(hour=7, minute=30),
+    },
+    "crm-lead-activity-reminders": {
+        "task": "crm.tasks.remind_due_lead_activities",
+        "schedule": crontab(minute=40),
+    },
     "celery-beat-heartbeat": {
         "task": "core.tasks.celery_beat_heartbeat",
         "schedule": crontab(minute="*/2"),
+    },
+    "contracts-refresh-status": {
+        "task": "contracts.tasks.refresh_contract_statuses",
+        "schedule": crontab(hour=1, minute=15),
     },
     "sales-recurring-invoices": {
         "task": "sales.tasks.generate_recurring_invoices_task",
@@ -828,6 +860,10 @@ MAX_CONCURRENT_SANDBOXES = _env_int("MAX_CONCURRENT_SANDBOXES", 3)
 # BB-000726: PAST_DUE write grace after current_period_end (0 = block immediately).
 BILLING_PAST_DUE_GRACE_DAYS = _env_int("BILLING_PAST_DUE_GRACE_DAYS", 0)
 GSP_LIVE_ENABLED = _env_bool("GSP_LIVE_ENABLED")
+# CBIC e-invoice turnover gate. Override without a code change when the threshold moves.
+EINVOICE_AATO_THRESHOLD = os.environ.get("EINVOICE_AATO_THRESHOLD", "50000000")
+# Stock-count variances at or under this quantity auto-post. Larger ones wait for review.
+STOCK_COUNT_AUTO_POST_QTY = os.environ.get("STOCK_COUNT_AUTO_POST_QTY", "5")
 GSP_CERTIFIED = _env_bool("GSP_CERTIFIED")
 _gsp_provider = (_env_value("GSP_PROVIDER", "custom") or "custom").strip().lower()
 GSP_PROVIDER = _gsp_provider if _gsp_provider in ("cleartax", "mastergst", "custom") else "custom"
@@ -968,9 +1004,19 @@ ENABLE_CUSTOMER_360 = _env_bool("ENABLE_CUSTOMER_360")
 ENABLE_PURCHASE_PLANNING = _env_bool("ENABLE_PURCHASE_PLANNING")
 ENABLE_ORDER_GATES = _env_bool("ENABLE_ORDER_GATES")
 ENABLE_CUSTOMER_ACTIONS = _env_bool("ENABLE_CUSTOMER_ACTIONS")
+ENABLE_CROSS_SELL = _env_bool("ENABLE_CROSS_SELL")
 ENABLE_ROUTE_OPTIMIZATION = _env_bool("ENABLE_ROUTE_OPTIMIZATION")
 ENABLE_CRM_WHATSAPP_INBOUND = _env_bool("ENABLE_CRM_WHATSAPP_INBOUND")
 ENABLE_ARCHETYPE_PACKS = _env_bool("ENABLE_ARCHETYPE_PACKS")
+ENABLE_COMPLAINTS = _env_bool("ENABLE_COMPLAINTS")
+ENABLE_SUPPORT_TICKETS = _env_bool("ENABLE_SUPPORT_TICKETS")
+ENABLE_CONTRACTS = _env_bool("ENABLE_CONTRACTS")
+ENABLE_REFERRALS = _env_bool("ENABLE_REFERRALS")
+ENABLE_WORKSHOP = _env_bool("ENABLE_WORKSHOP", "0")
+ENABLE_PROJECTS = _env_bool("ENABLE_PROJECTS", "0")
+ENABLE_INSURANCE = _env_bool("ENABLE_INSURANCE", "0")
+# Empty means share-with-vendor returns 404 and writes no row.
+VENDOR_COMPANY_ID = (os.environ.get("VENDOR_COMPANY_ID") or "").strip()
 # Meta Cloud API app secret. Inbound webhooks are rejected when this is empty.
 WHATSAPP_APP_SECRET = _env_value("WHATSAPP_APP_SECRET")
 ENABLE_WHATSAPP_CLOUD = _env_bool("ENABLE_WHATSAPP_CLOUD")

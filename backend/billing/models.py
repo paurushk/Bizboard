@@ -4,7 +4,7 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
-from core.models import TimeStampedModel
+from core.models import CompanyScopedModel, TimeStampedModel
 
 
 class Plan(TimeStampedModel):
@@ -57,9 +57,15 @@ class Subscription(TimeStampedModel):
     pending_plan = models.ForeignKey(
         Plan, null=True, blank=True, on_delete=models.SET_NULL, related_name="pending_subscriptions"
     )
+    # The Razorpay subscription created at checkout, before it is paid. The
+    # live ``razorpay_subscription_id`` stays on the subscription the tenant
+    # already paid for until this one is confirmed active.
+    pending_razorpay_subscription_id = models.CharField(max_length=64, blank=True, default="")
     # 8.5 — expand-only SaaS dunning cadence (not AR / payments.dunning).
     last_dunning_at = models.DateTimeField(null=True, blank=True)
     last_dunning_step = models.PositiveSmallIntegerField(default=0)
+    churn_reason = models.CharField(max_length=255, blank=True, default="")
+    suspended_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [models.Index(fields=["status", "trial_ends_at"])]
@@ -81,7 +87,10 @@ class Subscription(TimeStampedModel):
             # confirmed period end.
             if self.current_period_end and timezone.now() < self.current_period_end:
                 return False
-            anchor = self.created_at or self.updated_at or timezone.now()
+            # Grace starts when the row last changed into this checkout state.
+            # created_at is the original subscription and would block writes
+            # the moment an older tenant opens checkout.
+            anchor = self.updated_at or timezone.now()
             return timezone.now() >= anchor + timedelta(days=3)
         if self.status == self.Status.TRIAL:
             if self.trial_ends_at and self.trial_ends_at < timezone.now():
@@ -144,3 +153,39 @@ class DeadLetterEvent(TimeStampedModel):
 
     def __str__(self):
         return f"{self.provider}:{self.event_id}:{self.status}"
+
+
+class TenantActivation(CompanyScopedModel):
+    """Setup-done and first-invoice markers for one merchant company."""
+
+    setup_completed_at = models.DateTimeField(null=True, blank=True)
+    first_invoice_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["company"], name="uniq_tenant_activation_company"),
+        ]
+
+
+class VendorTenantSnapshot(CompanyScopedModel):
+    """Redacted tenant health stored in the vendor company. source id is not a FK."""
+
+    source_company_id = models.PositiveBigIntegerField()
+    source_company_name = models.CharField(max_length=255)
+    setup_completed_at = models.DateTimeField(null=True, blank=True)
+    first_invoice_at = models.DateTimeField(null=True, blank=True)
+    last_invoice_at = models.DateTimeField(null=True, blank=True)
+    last_login_at = models.DateTimeField(null=True, blank=True)
+    seats_used = models.PositiveIntegerField(default=0)
+    seats_limit = models.PositiveIntegerField(default=0)
+    documents_used = models.PositiveIntegerField(default=0)
+    documents_limit = models.PositiveIntegerField(default=0)
+    churn_reason = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "source_company_id"],
+                name="uniq_vendor_snapshot_source",
+            ),
+        ]

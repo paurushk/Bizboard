@@ -1,0 +1,30 @@
+id: QOS-0085
+category: RELIABILITY_TRUST
+title: GRN bill completion is not checked for a second stock post
+persona:
+- P1
+journey: Purchase inward
+problem: On-hand is asserted after GRN complete and not again after the converted bill completes.
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/LLM_PATH_TO_TEN_PLAN_2026-09-29.md
+  - backend/tests/workflows/test_wf_grn.py
+  detail: L3. test_wf_grn_receive_complete_convert stops at 8.000 before the bill complete.
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 2
+  impact_band: Medium
+business_metric: none
+priority: P2
+priority_rationale: A second stock post would double quantity and the supplier bill.
+effort: S
+recommendation: Assert on-hand after bill complete. Fix purchase complete only if the numbers differ.
+test_required: On-hand after GRN complete equals on-hand after bill complete.
+guard_ref:
+  test: backend/tests/workflows/test_wf_grn.py::test_wf_grn_receive_complete_convert
+lifecycle: fixed
+owner: founder
+opened: '2026-09-29'
+closed: '2026-09-29'

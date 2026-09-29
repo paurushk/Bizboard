@@ -54,7 +54,7 @@ test.describe('Accessibility smoke (axe)', () => {
     });
   }
 
-  test('POS scan field is keyboard-operable without a mouse', async ({ page }) => {
+  test('J-A11Y-P2-KEYBOARD POS scan field is keyboard-operable without a mouse', async ({ page }) => {
     await loginAsOwner(page);
     await page.goto('/pos', { waitUntil: 'domcontentloaded' });
     const scan = page.getByPlaceholder(/scan barcode/i);
@@ -67,6 +67,23 @@ test.describe('Accessibility smoke (axe)', () => {
     await scan.press('d');
     await expect(scan).toHaveValue(/wid/i);
     await expect(scan).toBeFocused();
+  });
+
+  test('POS scan field has an accessible name and no serious contrast violation', async ({ page }) => {
+    await loginAsOwner(page);
+    await page.goto('/pos', { waitUntil: 'domcontentloaded' });
+    const scan = page.getByPlaceholder(/scan barcode/i);
+    await expect(scan).toBeVisible({ timeout: 20_000 });
+    const named = await scan.evaluate((el) => {
+      const node = el as HTMLInputElement;
+      return (node.labels?.[0]?.textContent || node.getAttribute('aria-label') || node.placeholder || '').trim();
+    });
+    expect(named.length).toBeGreaterThan(0);
+    const results = await new AxeBuilder({ page }).withTags(['wcag2aa']).analyze();
+    const contrast = results.violations.filter(
+      (v) => v.id === 'color-contrast' && (v.impact === 'critical' || v.impact === 'serious'),
+    );
+    expect(contrast, JSON.stringify(contrast, null, 2)).toEqual([]);
   });
 
   // G-6 residual: accessible name on interactive controls, not only axe impact.

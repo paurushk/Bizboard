@@ -221,6 +221,19 @@ def test_rounding_uses_half_up_matching_the_rest_of_the_codebase(tenant_a):
 
 
 @pytest.mark.django_db
+def test_actual_logistics_cost_rounds_half_up(tenant_a):
+    """RouteService.complete_route's own quantize() of actual_logistics_cost
+    must use ROUND_HALF_UP like every other money value in this codebase --
+    it used to default to ROUND_HALF_EVEN and land a cent off on a
+    half-paise boundary, frozen permanently into realized_profit."""
+    route = DeliveryRoute.objects.create(
+        company=tenant_a.company, number="RT-ROUND", status=DeliveryRoute.Status.IN_TRANSIT,
+    )
+    done = RouteService.complete_route(route, tenant_a.owner, actual_logistics_cost=Decimal("10.125"))
+    assert done.actual_logistics_cost == Decimal("10.13")
+
+
+@pytest.mark.django_db
 def test_in_transit_is_not_snapshotted(tenant_a):
     route = DeliveryRoute.objects.create(
         company=tenant_a.company, number="RT-5", status=DeliveryRoute.Status.IN_TRANSIT,
@@ -269,3 +282,35 @@ def test_combine_suggestions_group_same_pincode_and_leave_routes_alone(tenant_a)
     assert set(suggestions[0]["stop_ids"]) == {first.id, second.id}
     assert DeliveryRoute.objects.filter(company=tenant_a.company, number__in=["CB-1", "CB-2"]).count() == 2
     assert route_a.stops.count() == 2
+
+
+@pytest.mark.django_db
+def test_combine_suggestions_excludes_stops_on_closed_routes(tenant_a):
+    """A stop's own status doesn't change once its route dispatches or
+    closes (complete_route never touches stop status), so without a route
+    status filter a stop on a COMPLETED/CANCELLED route would be suggested
+    for combining forever."""
+    from sales.route_combine import combine_suggestions
+
+    day = timezone.localdate()
+    tenant_a.company.feature_flags = {"ENABLE_ROUTE_OPTIMIZATION": True}
+    tenant_a.company.save(update_fields=["feature_flags"])
+    customer = make_customer(tenant_a.company, name="Closed Pin", pincode="560003")
+    other = make_customer(tenant_a.company, name="Open Pin", pincode="560003", phone="9000099933")
+    closed_route = DeliveryRoute.objects.create(
+        company=tenant_a.company, number="CB-CLOSED", route_date=day,
+        status=DeliveryRoute.Status.COMPLETED,
+    )
+    open_route = DeliveryRoute.objects.create(company=tenant_a.company, number="CB-OPEN", route_date=day)
+
+    def stop(route, cust, number):
+        order = SalesOrder.objects.create(
+            company=tenant_a.company, customer=cust, number=number,
+            status=SalesOrder.Status.CONVERTED, order_date=day, expected_delivery=day,
+        )
+        return DeliveryRouteStop.objects.create(company=tenant_a.company, route=route, sales_order=order)
+
+    stop(closed_route, customer, "SO-CB-CLOSED")
+    stop(open_route, other, "SO-CB-OPEN")
+    suggestions = combine_suggestions(tenant_a.company)
+    assert suggestions == []

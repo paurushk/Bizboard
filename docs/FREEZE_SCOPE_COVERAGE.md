@@ -5,7 +5,15 @@ every §G/§H flow marked **SUP** is listed here with the **concrete** test(s) t
 gate it, or an explicit **GAP** / **not gated** line. The `FG-2x` codes in
 `FREEZE_SCOPE.md` are plan labels; this file is the actual wiring.
 
-Last reconciled: 2026-09-16 (SaaS dunning/recon, ZAP skip-job, no-impersonation,
+Last reconciled: 2026-09-27. The 2026-09-16 freeze rows were not rewritten.
+Changes after that date in billing, `payments/promise_to_pay.py`, CRM referrals,
+and RLS migrations `0036` through `0040` are outside the freeze table. They are
+gated by `test_rls_coverage._migration_tables` (the union includes every
+migration whose name contains `rls`, including `0036_rls_payment_promise`) and
+by the persona and roadmap tests that cite those desks. A new company table
+still belongs in a follow-up RLS migration, not in `0020`.
+
+Previous reconciliation: 2026-09-16 (SaaS dunning/recon, ZAP skip-job, no-impersonation,
 freeze Table B deploy defaults, inventory-staff RBAC, chargeback ignore). Backend
 suite paths are under `backend/`.
 

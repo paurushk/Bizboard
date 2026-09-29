@@ -576,20 +576,34 @@ export async function getSupplierPriceHistory(supplierId: number, productId: num
   const { data } = await apiClient.get(`/purchases/suppliers/${supplierId}/price-history/`, {
     params: { product: productId },
   });
-  return unwrapData<{
-    supplierId: number;
-    productId: number;
+  const body = unwrapData<{
+    supplierId?: number;
+    supplier_id?: number;
+    productId?: number;
+    product_id?: number;
     leadTimeDays?: string | null;
+    lead_time_days?: string | null;
     fillRate?: string | null;
+    fill_rate?: string | null;
     overReceipt?: boolean;
-    rows: Array<{
-      source: string;
-      documentNumber: string;
-      documentDate: string;
-      quantity: string;
-      unitPrice: string;
-    }>;
+    over_receipt?: boolean;
+    rows?: Array<Record<string, unknown>>;
   }>(data);
+  return {
+    supplierId: body.supplierId ?? body.supplier_id ?? supplierId,
+    productId: body.productId ?? body.product_id ?? productId,
+    leadTimeDays: body.leadTimeDays ?? body.lead_time_days ?? null,
+    fillRate: body.fillRate ?? body.fill_rate ?? null,
+    overReceipt: Boolean(body.overReceipt ?? body.over_receipt),
+    rows: (body.rows ?? []).map((row) => ({
+      source: String(row.source ?? ''),
+      documentId: Number(row.documentId ?? row.document_id ?? 0),
+      documentNumber: String(row.documentNumber ?? row.document_number ?? ''),
+      documentDate: String(row.documentDate ?? row.document_date ?? ''),
+      quantity: String(row.quantity ?? ''),
+      unitPrice: String(row.unitPrice ?? row.unit_price ?? ''),
+    })),
+  };
 }
 
 export async function cancelBillOfEntry(id: number): Promise<BillOfEntry> {

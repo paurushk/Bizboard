@@ -21,6 +21,11 @@ class NotificationService:
             created_by=user,
             updated_by=user,
         )
+        if channel == Notification.Channel.IN_APP:
+            notification.status = Notification.Status.SENT
+            notification.error = ""
+            notification.save(update_fields=["status", "error"])
+            return notification
         if channel == Notification.Channel.EMAIL:
             from django.conf import settings
 

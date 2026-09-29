@@ -1,6 +1,7 @@
 from django.urls import path
 from core.routers import DefaultRouter
 
+from .filing import GstPeriodFilingView
 from .views import (
     CancelledDocumentNumbersView,
     CashBookView,
@@ -68,6 +69,7 @@ urlpatterns = [
     path("reports/gst-rate-exposure/", GstRateExposureView.as_view(), name="gst-rate-exposure"),
     path("reports/gst-ca-pack/", GstCaPackView.as_view(), name="gst-ca-pack"),
     path("reports/gst-period/", GstPeriodView.as_view(), name="gst-period"),
+    path("reports/gst-period-filings/", GstPeriodFilingView.as_view(), name="gst-period-filings"),
     path("reports/tds-worksheet/", TdsWorksheetView.as_view(), name="tds-worksheet"),
     path("reports/tcs-worksheet/", TcsWorksheetView.as_view(), name="tcs-worksheet"),
     path("exports/<str:report>/", ExportView.as_view(), name="exports"),

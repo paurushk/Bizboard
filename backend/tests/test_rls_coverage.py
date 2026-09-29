@@ -28,8 +28,26 @@ def _tenant_tables() -> set[str]:
 
 
 def _migration_tables() -> set[str]:
-    mod = importlib.import_module("core.migrations.0020_rls_all_tenant_tables")
-    return set(mod.RLS_TABLES)
+    """Union of every RLS migration list.
+
+    Historical migration 0020 has already run in databases that passed it.
+    Later tables are enrolled by follow-up migrations (0036, 0038, and so on).
+    A new company table belongs in a new migration's ``RLS_TABLES``, not in an
+    edit to 0020.
+    """
+    import pkgutil
+
+    import core.migrations as migrations_pkg
+
+    covered: set[str] = set()
+    for mod_info in pkgutil.iter_modules(migrations_pkg.__path__):
+        if "rls" not in mod_info.name:
+            continue
+        mod = importlib.import_module(f"core.migrations.{mod_info.name}")
+        tables = getattr(mod, "RLS_TABLES", None)
+        if tables:
+            covered.update(tables)
+    return covered
 
 
 def test_every_tenant_table_is_in_the_rls_migration():
@@ -37,9 +55,10 @@ def test_every_tenant_table_is_in_the_rls_migration():
     covered = _migration_tables()
     missing = sorted(tenant - covered)
     assert not missing, (
-        "These tenant (`company` FK) tables have no RLS policy in "
-        "core/migrations/0020_rls_all_tenant_tables.py — add them (or, if they "
-        "are read during tenant resolution, add to _EXCLUDED here): " + ", ".join(missing)
+        "These tenant (`company` FK) tables are missing from every "
+        "core/migrations/*rls* RLS_TABLES list. Add a follow-up RLS migration "
+        "(see 0038_rls_roadmap_tables.py). Do not edit 0020. If the table is "
+        "read during tenant resolution, add it to _EXCLUDED here: " + ", ".join(missing)
     )
 
 

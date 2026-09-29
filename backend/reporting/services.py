@@ -229,6 +229,29 @@ def _discount_report(*, header_qs, item_qs, header_prefix: str, party_field: str
     }
 
 
+def _register_gstin_scope(qs, company, company_gstin_id, *, field: str):
+    """Same GSTIN scope as the GSTR worksheet.
+
+    The primary registration also includes documents that were never stamped.
+    Any other registration is that GSTIN only, so a second registration is
+    not mixed into the first filing.
+    """
+    from django.db.models import Q
+
+    from accounts.models import CompanyGstin
+
+    try:
+        wanted = int(company_gstin_id)
+    except (TypeError, ValueError):
+        return qs.none()
+    primary = CompanyGstin.objects.filter(
+        company=company, is_primary=True, is_active=True,
+    ).first()
+    if primary is not None and primary.id == wanted:
+        return qs.filter(Q(**{field: wanted}) | Q(**{field: None}))
+    return qs.filter(**{field: wanted})
+
+
 class ReportService:
     @staticmethod
     def _aging_total(buckets: dict) -> Decimal:
@@ -453,7 +476,7 @@ class ReportService:
         if warehouse_id:
             qs = qs.filter(warehouse_id=warehouse_id)
         if company_gstin_id:
-            qs = qs.filter(company_gstin_id=company_gstin_id)
+            qs = _register_gstin_scope(qs, company, company_gstin_id, field="company_gstin_id")
         if date_from:
             qs = qs.filter(invoice_date__gte=date_from)
         if date_to:
@@ -484,8 +507,12 @@ class ReportService:
             company=company, status=SalesDebitNote.Status.COMPLETED
         )
         if company_gstin_id:
-            cn_qs = cn_qs.filter(sales_invoice__company_gstin_id=company_gstin_id)
-            dn_qs = dn_qs.filter(sales_invoice__company_gstin_id=company_gstin_id)
+            cn_qs = _register_gstin_scope(
+                cn_qs, company, company_gstin_id, field="sales_invoice__company_gstin_id",
+            )
+            dn_qs = _register_gstin_scope(
+                dn_qs, company, company_gstin_id, field="sales_invoice__company_gstin_id",
+            )
         if customer_id:
             cn_qs = cn_qs.filter(customer_id=customer_id)
             dn_qs = dn_qs.filter(customer_id=customer_id)
@@ -547,6 +574,7 @@ class ReportService:
     @staticmethod
     def purchase_register(
         company, date_from=None, date_to=None, supplier_id=None, status=None, warehouse_id=None,
+        company_gstin_id=None,
     ):
         qs = PurchaseInvoice.objects.filter(company=company).exclude(
             status=PurchaseInvoice.Status.DRAFT
@@ -560,6 +588,8 @@ class ReportService:
             qs = qs.filter(supplier_id=supplier_id)
         if warehouse_id:
             qs = qs.filter(warehouse_id=warehouse_id)
+        if company_gstin_id:
+            qs = _register_gstin_scope(qs, company, company_gstin_id, field="company_gstin_id")
         if date_from:
             qs = qs.filter(invoice_date__gte=date_from)
         if date_to:
@@ -594,6 +624,13 @@ class ReportService:
         if warehouse_id:
             cn_qs = cn_qs.filter(purchase_invoice__warehouse_id=warehouse_id)
             dn_qs = dn_qs.filter(purchase_invoice__warehouse_id=warehouse_id)
+        if company_gstin_id:
+            cn_qs = _register_gstin_scope(
+                cn_qs, company, company_gstin_id, field="purchase_invoice__company_gstin_id",
+            )
+            dn_qs = _register_gstin_scope(
+                dn_qs, company, company_gstin_id, field="purchase_invoice__company_gstin_id",
+            )
         if date_from:
             cn_qs = cn_qs.filter(note_date__gte=date_from)
             dn_qs = dn_qs.filter(note_date__gte=date_from)

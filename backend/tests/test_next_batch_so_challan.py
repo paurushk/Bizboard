@@ -205,3 +205,143 @@ def test_order_gates_block_draft_convert_and_ignore_a_five_percent_margin(tenant
     other.status = SalesOrder.Status.CANCELLED
     other.save(update_fields=["status"])
     assert apply_order_gates(order, [item]) == warnings
+
+
+def test_credit_override_is_owner_only_and_copies_onto_that_invoice(tenant_a):
+    from accounts.models import CompanyUser
+    from core.exceptions import BusinessRuleError
+    from sales.models import SalesInvoice, SalesOrderItem
+    from sales.order_gates import apply_order_gates, copy_credit_override, invoice_has_credit_override
+
+    flags = dict(tenant_a.company.feature_flags or {})
+    flags["ENABLE_ORDER_GATES"] = True
+    tenant_a.company.feature_flags = flags
+    tenant_a.company.save(update_fields=["feature_flags"])
+    customer = make_customer(tenant_a.company, name="Over Co", credit_limit=Decimal("100"))
+    product = make_product(tenant_a.company, sku="OVR-1", purchase_price="10", selling_price="100")
+    order = SalesOrder.objects.create(
+        company=tenant_a.company, customer=customer, grand_total=Decimal("150"), created_by=tenant_a.owner,
+    )
+    item = SalesOrderItem.objects.create(
+        company=tenant_a.company, sales_order=order, product=product,
+        quantity=Decimal("1"), unit_price=Decimal("100"),
+    )
+    staff = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.staff)
+    with pytest.raises(BusinessRuleError):
+        apply_order_gates(order, [item], override_reason="please", acting_user=staff)
+    with pytest.raises(BusinessRuleError):
+        apply_order_gates(order, [item], override_reason="   ", acting_user=tenant_a.owner)
+    with pytest.raises(BusinessRuleError):
+        apply_order_gates(order, [item], override_reason="x" * 501, acting_user=tenant_a.owner)
+    assert order.credit_overridden_at is None
+    apply_order_gates(order, [item], override_reason="  owner approved  ", acting_user=tenant_a.owner)
+    order.save()
+    order.refresh_from_db()
+    owner_member = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.owner)
+    assert order.credit_override_reason == "owner approved"
+    assert order.credit_overridden_by_id == owner_member.id
+    assert order.credit_overridden_at is not None
+    invoice = SalesInvoice.objects.create(
+        company=tenant_a.company, customer=customer, grand_total=Decimal("150"),
+        status=SalesInvoice.Status.DRAFT, created_by=tenant_a.owner,
+    )
+    copy_credit_override(order, invoice)
+    invoice.refresh_from_db()
+    assert invoice_has_credit_override(invoice) is True
+    unrelated = SalesInvoice.objects.create(
+        company=tenant_a.company, customer=customer, grand_total=Decimal("10"),
+        status=SalesInvoice.Status.DRAFT, created_by=tenant_a.owner,
+    )
+    assert invoice_has_credit_override(unrelated) is False
+    unlimited = make_customer(tenant_a.company, name="No Limit", credit_limit=Decimal("0"))
+    open_order = SalesOrder.objects.create(
+        company=tenant_a.company, customer=unlimited, grand_total=Decimal("9999"), created_by=tenant_a.owner,
+    )
+    open_item = SalesOrderItem.objects.create(
+        company=tenant_a.company, sales_order=open_order, product=product,
+        quantity=Decimal("1"), unit_price=Decimal("100"),
+    )
+    apply_order_gates(open_order, [open_item], acting_user=tenant_a.owner)
+    assert open_order.credit_overridden_at is None
+
+
+def test_owner_membership_excludes_deactivated_and_cross_tenant_owner(tenant_a, tenant_b):
+    from accounts.models import CompanyUser
+    from sales.order_gates import _owner_membership
+
+    owner_member = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.owner)
+    assert _owner_membership(tenant_a.company, tenant_a.owner) == owner_member
+    assert _owner_membership(tenant_a.company, owner_member) == owner_member
+
+    tenant_a.owner.is_active = False
+    tenant_a.owner.save(update_fields=["is_active"])
+    assert _owner_membership(tenant_a.company, tenant_a.owner) is None
+    owner_member.refresh_from_db()
+    assert _owner_membership(tenant_a.company, owner_member) is None
+    tenant_a.owner.is_active = True
+    tenant_a.owner.save(update_fields=["is_active"])
+
+    assert _owner_membership(tenant_b.company, tenant_a.owner) is None
+    assert _owner_membership(tenant_a.company, tenant_b.owner) is None
+    assert _owner_membership(tenant_a.company, None) is None
+
+
+def test_override_reason_non_string_blocks_instead_of_crashing(tenant_a):
+    from core.exceptions import BusinessRuleError
+    from sales.models import SalesOrderItem
+    from sales.order_gates import apply_order_gates
+
+    flags = dict(tenant_a.company.feature_flags or {})
+    flags["ENABLE_ORDER_GATES"] = True
+    tenant_a.company.feature_flags = flags
+    tenant_a.company.save(update_fields=["feature_flags"])
+    customer = make_customer(tenant_a.company, name="Non-String Co", credit_limit=Decimal("50"))
+    product = make_product(tenant_a.company, sku="NONSTR-1", purchase_price="10", selling_price="100")
+    order = SalesOrder.objects.create(
+        company=tenant_a.company, customer=customer, grand_total=Decimal("100"), created_by=tenant_a.owner,
+    )
+    item = SalesOrderItem.objects.create(
+        company=tenant_a.company, sales_order=order, product=product,
+        quantity=Decimal("1"), unit_price=Decimal("100"),
+    )
+    for bad_reason in (123, {"reason": "ok"}, ["ok"]):
+        with pytest.raises(BusinessRuleError, match="Credit limit"):
+            apply_order_gates(order, [item], override_reason=bad_reason, acting_user=tenant_a.owner)
+    assert order.credit_overridden_at is None
+
+
+def test_exposure_subtracts_only_ledger_counted_invoices(tenant_a):
+    from sales.models import SalesInvoice
+    from sales.order_gates import sales_order_exposure
+
+    customer = make_customer(tenant_a.company, name="Part Co", credit_limit=Decimal("1000"))
+    posted = SalesInvoice.objects.create(
+        company=tenant_a.company, customer=customer, grand_total=Decimal("40"),
+        status=SalesInvoice.Status.COMPLETED, created_by=tenant_a.owner,
+    )
+    confirmed = SalesOrder.objects.create(
+        company=tenant_a.company, customer=customer, grand_total=Decimal("100"),
+        status=SalesOrder.Status.CONFIRMED, converted_invoice=posted, created_by=tenant_a.owner,
+    )
+    draft_invoice = SalesInvoice.objects.create(
+        company=tenant_a.company, customer=customer, grand_total=Decimal("25"),
+        status=SalesInvoice.Status.DRAFT, created_by=tenant_a.owner,
+    )
+    SalesOrder.objects.create(
+        company=tenant_a.company, customer=customer, grand_total=Decimal("25"),
+        status=SalesOrder.Status.CONFIRMED, converted_invoice=draft_invoice, created_by=tenant_a.owner,
+    )
+    current = SalesOrder.objects.create(
+        company=tenant_a.company, customer=customer, grand_total=Decimal("10"),
+        status=SalesOrder.Status.DRAFT, created_by=tenant_a.owner,
+    )
+    assert sales_order_exposure(tenant_a.company, customer, current) == Decimal("135")
+    assert confirmed.converted_invoice_id == posted.id
+
+
+def test_shared_margin_helper_does_not_warn_at_exactly_five_percent():
+    from core.services.margin import margin_below_threshold, margin_ratio
+
+    assert margin_ratio(Decimal("100"), Decimal("95")) == Decimal("0.05")
+    assert margin_below_threshold(Decimal("100"), Decimal("95")) is False
+    assert margin_below_threshold(Decimal("100"), Decimal("96")) is True

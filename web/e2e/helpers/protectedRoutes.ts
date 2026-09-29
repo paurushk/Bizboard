@@ -32,4 +32,8 @@ export const PROTECTED_ROUTES = [
   '/insights',
   '/offline-outbox',
   '/settings/company',
+  '/workshop/jobs',
+  '/projects',
+  '/insurance',
+  '/support/shared',
 ];

@@ -96,7 +96,7 @@ export function ProductsPage() {
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
-  const [saveOk, setSaveOk] = useState(false);
+  const [saveOk, setSaveOk] = useState<string | false>(false);
   const [notice, setNotice] = useState<{ severity: 'success' | 'info' | 'error'; message: string } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [bulkAnchor, setBulkAnchor] = useState<null | HTMLElement>(null);
@@ -257,7 +257,7 @@ export function ProductsPage() {
       />
       {saveOk ? (
         <Alert severity="success" onClose={() => setSaveOk(false)}>
-          Product saved.
+          {saveOk}
         </Alert>
       ) : null}
       {notice ? (
@@ -409,8 +409,8 @@ export function ProductsPage() {
           setOpen(false);
           setEditing(null);
         }}
-        onSaved={(keepOpen) => {
-          setSaveOk(true);
+        onSaved={(keepOpen, rateNotice) => {
+          setSaveOk(rateNotice ? `Product saved. ${rateNotice}` : 'Product saved.');
           if (!keepOpen) {
             setOpen(false);
             setEditing(null);

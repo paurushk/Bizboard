@@ -83,6 +83,9 @@ def test_wf_grn_receive_complete_convert(tenant_a, assert_consistent):
         c = tenant_a.client.post(f"/api/v1/purchases/invoices/{pinv_id}/complete/")
         assert c.status_code == 200, c.data
 
+    # After the bill completes, stock must still be the accepted GRN quantity.
+    assert InventoryService.available_quantity(company=company, product=product) == Decimal("8.000")
+
     for e in JournalEntry.objects.filter(company=company, status=JournalEntry.Status.POSTED):
         e.assert_balanced()
     assert_consistent(company)

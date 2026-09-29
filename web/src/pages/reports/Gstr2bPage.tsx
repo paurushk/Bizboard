@@ -30,6 +30,7 @@ import {
   matchGstr2b,
   money,
   patchGstr2bEligibility,
+  whatsAppShareUrl,
   rowDeadline,
   type ImsAction,
   type ItcEligibility,
@@ -59,7 +60,7 @@ export function Gstr2bPage() {
   const [error, setError] = useState<string | null>(null);
   const [actRow, setActRow] = useState<{ id: number; action: ImsAction } | null>(null);
   const [remark, setRemark] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; phone: string } | null>(null);
   const [confirmBulk, setConfirmBulk] = useState(false);
 
   const invalidate = () => {
@@ -141,7 +142,7 @@ export function Gstr2bPage() {
 
   const messageMutation = useMutation({
     mutationFn: (id: number) => fetchSupplierMessage(id),
-    onSuccess: (body) => setMessage(body.text),
+    onSuccess: (body) => setMessage({ text: body.text, phone: body.phone || '' }),
     onError: (err) => setError(getErrorMessage(err)),
   });
 
@@ -206,6 +207,14 @@ export function Gstr2bPage() {
                   })
                 : undefined
             }
+          />
+        </Box>
+        <Box sx={{ minWidth: 160 }}>
+          <KpiStat
+            label={t('ims.ineligibleItc')}
+            value={money(summary.data, 'ineligibleItc', 'ineligible_itc')}
+            money
+            dense
           />
         </Box>
       </Stack>
@@ -470,21 +479,22 @@ export function Gstr2bPage() {
         <DialogTitle>{t('ims.supplierMsg')}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-            {message}
+            {message?.text}
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button
             onClick={() => {
-              if (message) void navigator.clipboard?.writeText(message);
+              if (message) void navigator.clipboard?.writeText(message.text);
             }}
           >
             {t('ims.copy')}
           </Button>
           <Button
-            onClick={() => {
-              if (message) window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
-            }}
+            component="a"
+            href={whatsAppShareUrl(message?.text ?? '', message?.phone ?? '')}
+            target="_blank"
+            rel="noopener noreferrer"
           >
             {t('reports.shareOnWhatsapp')}
           </Button>

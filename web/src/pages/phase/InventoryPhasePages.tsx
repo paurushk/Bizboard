@@ -603,7 +603,9 @@ export function StockValuationPage() {
       title={t('phase.stockValuation')}
       subtitle={
         basis === 'cost'
-          ? `Method: ${String(data.method || 'WAVG')} — WAVG blends remaining unit cost; FIFO consumes purchase layers in creation order for COGS (Wave 16/17).`
+          ? (String(data.method || 'WAVG').toUpperCase().includes('FIFO')
+            ? t('stockValuation.methodFifo')
+            : t('stockValuation.methodWavg'))
           : `Valued at item ${basisLabel} × quantity on hand.`
       }
       actions={

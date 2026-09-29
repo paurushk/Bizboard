@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   apiClient,
   getErrorCode,
+  getErrorDetails,
   getErrorMessage,
   getErrorRequestId,
   getLastRequestId,
@@ -103,6 +104,48 @@ describe('getErrorCode', () => {
 
   it('returns null when unmapped', () => {
     expect(getErrorCode(new Error('boom'))).toBeNull();
+  });
+});
+
+describe('getErrorDetails', () => {
+  it('reads structured details from the Bizboard error envelope (POS credit-limit banner)', () => {
+    const err = new axios.AxiosError('Request failed with status code 400');
+    err.response = {
+      data: {
+        success: false,
+        error: {
+          code: 'credit_limit_exceeded',
+          message: 'Credit limit exceeded. Exposure 500 + invoice 200 > limit 600.',
+          // The API renderer camelCases every response body, so this is what
+          // actually arrives over the wire — not the snake_case field names
+          // the backend uses internally to build the `extra` dict.
+          details: {
+            customerId: 7,
+            customerName: 'Ravi Kumar',
+            creditLimit: '600.00',
+            currentExposure: '500.00',
+            invoiceTotal: '200.00',
+          },
+        },
+      },
+    } as never;
+    expect(getErrorDetails(err)).toEqual({
+      customerId: 7,
+      customerName: 'Ravi Kumar',
+      creditLimit: '600.00',
+      currentExposure: '500.00',
+      invoiceTotal: '200.00',
+    });
+  });
+
+  it('returns null when there are no structured details', () => {
+    const err = new axios.AxiosError('Request failed with status code 400');
+    err.response = { data: { error: { code: 'x', message: 'Nope' } } } as never;
+    expect(getErrorDetails(err)).toBeNull();
+  });
+
+  it('returns null for a non-axios error', () => {
+    expect(getErrorDetails(new Error('boom'))).toBeNull();
   });
 });
 

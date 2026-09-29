@@ -17,14 +17,14 @@ test('golden path: new quotation creates an inline customer', async ({ page }) =
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('Add Party').fill(customerName);
-  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Add', exact: true }).first().click();
   await expect(dialog.getByRole('combobox', { name: 'Customer' })).toHaveValue(customerName, { timeout: 15_000 });
 
   const productCombo = dialog.getByRole('combobox', { name: 'Products' });
   await productCombo.click();
   await productCombo.fill(productSku);
   await page.getByRole('option', { name: new RegExp(productSku) }).click();
-  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Add', exact: true }).last().click();
   await dialog.getByRole('button', { name: 'Save' }).click();
 
   await expect(page.getByRole('cell', { name: customerName })).toBeVisible({ timeout: 15_000 });

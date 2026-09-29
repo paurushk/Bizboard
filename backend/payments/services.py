@@ -510,6 +510,37 @@ class PaymentService:
         return alloc
 
     @staticmethod
+    def allocate_receipt_oldest_first(*, receipt, user=None):
+        """Spread one receipt across the customer's open invoices, oldest due first."""
+        from ledgers.services import LedgerService
+        from sales.models import SalesInvoice
+        from sales.status_semantics import OPEN_SALES_STATUSES
+
+        remaining = receipt.amount - _allocated_of_payment("receipt", receipt)
+        invoices = SalesInvoice.objects.filter(
+            company_id=receipt.company_id,
+            customer_id=receipt.customer_id,
+            status__in=OPEN_SALES_STATUSES,
+        ).order_by("due_date", "invoice_date", "id")
+        created = []
+        for invoice in invoices:
+            if remaining <= 0:
+                break
+            owed = LedgerService.sales_invoice_outstanding(invoice)
+            if owed <= 0:
+                continue
+            take = min(remaining, owed).quantize(Decimal("0.01"))
+            if take <= 0:
+                continue
+            created.append(
+                PaymentService.allocate_receipt(
+                    receipt=receipt, sales_invoice=invoice, amount=take, user=user,
+                )
+            )
+            remaining -= take
+        return created
+
+    @staticmethod
     @transaction.atomic
     def allocate_supplier_payment(*, payment, purchase_invoice, amount, user=None):
         from ledgers.services import LedgerService
@@ -1653,7 +1684,7 @@ class PaymentService:
                 refund_id = cashfree_order_id_for_refund(
                     gp.provider_payment_id, getattr(gp, "raw_payload", None)
                 )
-            adapter.refund(
+            refund_result = adapter.refund(
                 provider_payment_id=refund_id,
                 amount=refund_amount,
                 idempotency_key=idem_key,
@@ -1668,13 +1699,41 @@ class PaymentService:
             _enqueue_retry()
             return gp
 
+        provider_refund_id = ""
+        if isinstance(refund_result, dict):
+            provider_refund_id = str(refund_result.get("id") or "").strip()
+        refund_aliases = [idem_key]
+        if provider_refund_id:
+            refund_aliases.append(f"prov:{provider_refund_id}")
+
         # ---- phase 3: unwind books, close the outbox row -------------------
         with transaction.atomic():
             gp = GatewayPayment.objects.select_for_update().get(pk=gp.pk)
+            raw_now = gp.raw_payload if isinstance(gp.raw_payload, dict) else {}
+            applied_now = list(raw_now.get("applied_refund_keys") or [])
+            if any(key in applied_now for key in refund_aliases):
+                for key in refund_aliases:
+                    if key not in applied_now:
+                        applied_now.append(key)
+                gp.raw_payload = {**raw_now, "applied_refund_keys": applied_now}
+                gp.save(update_fields=["raw_payload", "updated_at"])
+                GatewayRefundOutbox.objects.filter(pk=outbox.id).update(
+                    status=GatewayRefundOutboxStatus.SUCCEEDED,
+                    last_error="",
+                    next_attempt_at=None,
+                    updated_at=timezone.now(),
+                )
+                return gp
             PaymentService._unwind_refund_books(
                 gp, user=user, refund_amount=refund_amount, reason=reason,
                 full=is_full_unwind, refund_key=idem_key,
             )
+            raw_now = gp.raw_payload if isinstance(gp.raw_payload, dict) else {}
+            applied_now = list(raw_now.get("applied_refund_keys") or [])
+            for key in refund_aliases:
+                if key not in applied_now:
+                    applied_now.append(key)
+            gp.raw_payload = {**raw_now, "applied_refund_keys": applied_now}
             GatewayRefundOutbox.objects.filter(pk=outbox.id).update(
                 status=GatewayRefundOutboxStatus.SUCCEEDED,
                 last_error="",
