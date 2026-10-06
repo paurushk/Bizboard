@@ -48,7 +48,7 @@ jobs:
           java-version: "21"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3 # TODO(M1-006): pin to SHA before enabling
+        uses: android-actions/setup-android@v4 # TODO(M1-006): pin to SHA before enabling
 
       - name: Build the web bundle
         working-directory: web
